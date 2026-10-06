@@ -117,7 +117,7 @@ export default function FiscalPage() {
           <Space wrap style={{ marginBottom: 12 }} className="no-print">
             <Tag color="blue">{TAX_SCHEME_LABELS[d.scheme]}</Tag>
             <Tag>Bentuk usaha: {LEGAL_FORM_LABELS[d.legalForm as LegalForm] ?? d.legalForm}</Tag>
-            <Button size="small" type="link" onClick={() => navigate('/settings/company')}>
+            <Button size="small" type="link" onClick={() => navigate('/settings/company?tab=pelaporan')}>
               Ubah skema pajak
             </Button>
           </Space>

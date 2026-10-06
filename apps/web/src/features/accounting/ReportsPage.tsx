@@ -124,7 +124,7 @@ export default function ReportsPage() {
         title="Laporan Keuangan"
         extra={
           <Space wrap className="no-print">
-            <Tag color="blue" style={{ cursor: 'pointer' }} onClick={() => navigate('/settings/company')}>
+            <Tag color="blue" style={{ cursor: 'pointer' }} onClick={() => navigate('/settings/company?tab=kebijakan')}>
               {REPORTING_FRAMEWORK_LABELS[framework]}
             </Tag>
             {!pointInTime && !yearly && (

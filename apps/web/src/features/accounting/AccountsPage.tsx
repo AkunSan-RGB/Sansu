@@ -69,7 +69,7 @@ function ChartProfileBar({ hiddenCount }: { hiddenCount: number }) {
           <Typography.Text type="secondary">Standar pelaporan: </Typography.Text>
           <Tag color={framework === 'SAK_EMKM' ? 'gold' : 'blue'}>{framework === 'SAK_EMKM' ? 'SAK EMKM' : 'SAK EP'}</Tag>
           {isAdmin && (
-            <Button size="small" type="link" onClick={() => navigate('/settings/company')}>
+            <Button size="small" type="link" onClick={() => navigate('/settings/company?tab=kebijakan')}>
               Ubah lewat wizard
             </Button>
           )}
