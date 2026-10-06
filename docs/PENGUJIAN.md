@@ -20,6 +20,7 @@ npm run test:e2e                    # e2e api: mereset dan memigrasi database `a
 | **Isolasi & hak akses** | `security`, `role-access` | Perusahaan lain tidak bisa membaca/mengubah data; peran hanya melihat yang perlu |
 | **Konkurensi** | `concurrency` | Permintaan serentak tidak melanggar pembukuan |
 | Jejak audit | `journal-immutable` | Jurnal terposting tidak bisa diubah/dihapus (trigger database) |
+| Saldo awal | `opening-balance` | Akun kontrol (piutang, utang, persediaan, penyeimbang) tidak bisa diisi manual; ringkasan kesiapan dan peringatan |
 
 ## Uji acak invarian
 

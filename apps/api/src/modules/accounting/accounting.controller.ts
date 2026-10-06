@@ -138,6 +138,11 @@ export class AccountingController {
     return this.svc.reverseJournal(u, id, dto.date);
   }
 
+  @Get('opening-balances/status')
+  openingStatus(@CurrentUser() u: AuthUser) {
+    return this.svc.openingStatus(u.tenantId);
+  }
+
   @Post('opening-balances')
   openingBalance(@CurrentUser() u: AuthUser, @Body() dto: OpeningBalanceDto) {
     return this.svc.openingBalance(u, dto);
