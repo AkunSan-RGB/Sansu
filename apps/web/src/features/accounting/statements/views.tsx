@@ -14,7 +14,7 @@ type Row = {
 };
 
 /** Tabel laporan bergaya laporan keuangan: kolom pos, catatan, tahun berjalan, pembanding */
-function StatementTable({ rows, current, previous, compare }: { rows: Row[]; current: string; previous: string; compare: boolean }) {
+function StatementTable({ rows, current, previous, compare, wide }: { rows: Row[]; current: string; previous: string; compare: boolean; wide?: boolean }) {
   const strong = (r: Row) => ['subtotal', 'total', 'grand'].includes(r.kind);
   const columns: ColumnsType<Row> = [
     {
@@ -33,7 +33,7 @@ function StatementTable({ rows, current, previous, compare }: { rows: Row[]; cur
       title: current,
       dataIndex: 'amount',
       align: 'right',
-      width: 180,
+      width: wide ? 280 : 180,
       render: (v, r) => (['header', 'spacer'].includes(r.kind) ? null : <Amount v={v} strong={strong(r)} double={r.kind === 'grand'} />),
     },
   ];
@@ -42,7 +42,7 @@ function StatementTable({ rows, current, previous, compare }: { rows: Row[]; cur
       title: previous,
       dataIndex: 'compare',
       align: 'right',
-      width: 180,
+      width: wide ? 280 : 180,
       render: (v, r) => (['header', 'spacer'].includes(r.kind) ? null : <Amount v={v} strong={strong(r)} double={r.kind === 'grand'} />),
     });
   return (
@@ -53,7 +53,7 @@ function StatementTable({ rows, current, previous, compare }: { rows: Row[]; cur
       pagination={false}
       dataSource={rows}
       columns={columns}
-      scroll={{ x: 560 }}
+      scroll={{ x: wide ? 760 : 560 }}
       rowClassName={(r) => `st-${r.kind}`}
     />
   );
@@ -98,10 +98,30 @@ export function PositionView({ d, refs, compare, detail }: { d: FinancialPositio
   );
 }
 
+/** Judul bagian laporan laba rugi, ditampilkan sebelum kelompok pertama tiap bagian (seperti "ASET LANCAR" di posisi keuangan) */
+const INCOME_HEADERS: Record<string, Record<string, string>> = {
+  SAK_EMKM: { REVENUE: 'Pendapatan', COST_OF_SALES: 'Beban', INCOME_TAX: 'Pajak penghasilan' },
+  DEFAULT: {
+    SALES_REVENUE: 'Pendapatan',
+    COST_OF_SALES: 'Beban pokok penjualan',
+    SELLING_EXPENSE: 'Beban usaha',
+    OTHER_INCOME: 'Pendapatan dan beban lain-lain',
+    INCOME_TAX: 'Pajak penghasilan',
+    OCI: 'Penghasilan komprehensif lain',
+  },
+};
+
+const periodText = (x: { from: string; to: string }) => `${longDate(x.from)} – ${longDate(x.to)}`;
+
 export function IncomeView({ d, refs, compare, detail }: { d: IncomeStatement; refs: Record<string, string>; compare: boolean; detail: boolean }) {
-  const rows = lineRows(d.lines, refs, detail);
-  const p = (x: { from: string; to: string }) => `${fmtDate(x.from)} – ${fmtDate(x.to)}`;
-  return <StatementTable rows={rows} current={p(d.period)} previous={p(d.comparePeriod)} compare={compare} />;
+  const headers = INCOME_HEADERS[d.framework] ?? INCOME_HEADERS.DEFAULT;
+  const rows: Row[] = [];
+  d.lines.forEach((l) => {
+    if (headers[l.key]) rows.push({ key: `h-${l.key}`, label: headers[l.key], kind: 'header' });
+    rows.push(...lineRows([l], refs, detail));
+    if (l.kind !== 'group') rows.push({ key: `sp-${l.key}`, label: '', kind: 'spacer' });
+  });
+  return <StatementTable rows={rows} current={periodText(d.period)} previous={periodText(d.comparePeriod)} compare={compare} wide />;
 }
 
 export function EquityView({ d, compare }: { d: EquityStatement; compare: boolean }) {
@@ -162,7 +182,7 @@ export function CashFlowView({ d, compare }: { d: CashFlowStatement; compare: bo
   rows.push({ key: 'net', label: 'Kenaikan (penurunan) bersih kas dan setara kas', amount: d.current.netChange, compare: d.previous.netChange, kind: 'subtotal' });
   rows.push({ key: 'open', label: 'Kas dan setara kas awal periode', amount: d.current.opening, compare: d.previous.opening, kind: 'line' });
   rows.push({ key: 'close', label: 'Kas dan setara kas akhir periode', amount: d.current.closing, compare: d.previous.closing, kind: 'grand' });
-  const p = (x: { from: string; to: string }) => `${fmtDate(x.from)} – ${fmtDate(x.to)}`;
+  const p = periodText;
   return (
     <>
       <Typography.Paragraph type="secondary" className="no-print">
@@ -178,7 +198,7 @@ export function CashFlowView({ d, compare }: { d: CashFlowStatement; compare: bo
           message={`Selisih rekonsiliasi kas ${fmtMoney(d.current.difference)} — saldo kas di buku besar ${fmtMoney(d.current.actualClosing)}. Biasanya karena akun belum diklasifikasikan dengan benar di Bagan Akun.`}
         />
       )}
-      <StatementTable rows={rows} current={p(d.period)} previous={p(d.comparePeriod)} compare={compare} />
+      <StatementTable rows={rows} current={p(d.period)} previous={p(d.comparePeriod)} compare={compare} wide />
     </>
   );
 }
