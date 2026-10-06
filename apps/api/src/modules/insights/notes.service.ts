@@ -4,7 +4,7 @@
  * dan rincian setiap pos laporan dengan angka pembanding. Teks dapat diubah pengguna per tahun.
  */
 import { Injectable } from '@nestjs/common';
-import { DEPRECIATION_METHOD_LABELS, FISCAL_ASSET_GROUP_INFO, type FiscalAssetGroup, LEGAL_FORM_LABELS, type LegalForm, type ReportGroup } from '@sansu/shared';
+import { activityFor, DEPRECIATION_METHOD_LABELS, FISCAL_ASSET_GROUP_INFO, type FiscalAssetGroup, LEGAL_FORM_LABELS, type LegalForm, type ReportGroup, REPORT_TERMS } from '@sansu/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import { SettingsService } from '../../common/settings.service';
 import { todayJakarta } from '../../common/utils/dates';
@@ -66,6 +66,8 @@ export class NotesService {
       this.db.select().from(reportNotes).where(and(eq(reportNotes.tenantId, tenantId), eq(reportNotes.year, year))),
       this.fiscal.reconcile(tenantId, year).catch(() => null),
     ]);
+    const model = await this.statements.businessModel(tenantId);
+    const terms = REPORT_TERMS[model];
     const ep = reporting.framework === 'SAK_EP';
     const std = ep ? 'Standar Akuntansi Keuangan Entitas Privat (SAK EP)' : 'Standar Akuntansi Keuangan Entitas Mikro, Kecil, dan Menengah (SAK EMKM)';
     const yPrev = year - 1;
@@ -89,7 +91,7 @@ export class NotesService {
       title: 'Umum',
       paragraphs: [
         `${tenant.name} ("Perusahaan") adalah ${legal.replace(/^[A-Z][a-z]+(?: [A-Z][a-z]+)*/, (m) => m.toLowerCase())}${reporting.establishedYear ? ` yang didirikan pada tahun ${reporting.establishedYear}` : ''}${tenant.address ? ` dan berkedudukan di ${tenant.address}` : ''}.`,
-        `Kegiatan usaha Perusahaan adalah ${reporting.businessActivity}.`,
+        `Kegiatan usaha Perusahaan adalah ${activityFor(model, reporting.businessActivity)}.`,
         tenant.npwp ? `Perusahaan terdaftar sebagai Wajib Pajak dengan NPWP ${tenant.npwp}.` : '',
         `Laporan keuangan untuk tahun yang berakhir pada tanggal 31 Desember ${year} disusun dan disetujui untuk diterbitkan oleh ${reporting.directorName || 'manajemen'}${reporting.directorName ? ` selaku ${reporting.directorTitle}` : ''}.`,
       ].filter(Boolean),
@@ -166,9 +168,7 @@ export class NotesService {
         },
         {
           title: 'g. Pengakuan pendapatan dan beban',
-          paragraphs: [
-            'Pendapatan dari penjualan barang diakui pada saat pengendalian atas barang berpindah kepada pelanggan, yaitu saat barang diserahkan dan faktur diterbitkan, sebesar nilai wajar imbalan setelah dikurangi retur dan potongan. Beban diakui pada saat terjadinya (dasar akrual).',
-          ],
+          paragraphs: [terms.recognitionPolicy],
         },
         {
           title: 'h. Pajak Pertambahan Nilai (PPN)',
@@ -232,7 +232,7 @@ export class NotesService {
       'receivables',
       'Piutang usaha',
       ['TRADE_RECEIVABLE', 'ALLOWANCE_RECEIVABLE'],
-      ['Piutang usaha seluruhnya dalam Rupiah dan berasal dari penjualan barang kepada pihak ketiga.'],
+      [terms.receivableNote],
       [
         ...(arRows.length
           ? [{ title: 'Berdasarkan pelanggan (10 terbesar)', columns: ['Pelanggan', `${year}`], align: ['left', 'right'] as ('left' | 'right')[], rows: arRows.map((r) => [r.name, n(r.v)]) }]
@@ -264,13 +264,13 @@ export class NotesService {
       ['INVENTORY'],
       [
         writedown > 0 || writeup > 0
-          ? `Persediaan terdiri dari barang dagang yang siap dijual. Selama tahun ${year} perusahaan ${[
+          ? `${terms.inventoryNote} Selama tahun ${year} perusahaan ${[
               writedown > 0 ? `menurunkan nilai persediaan ke nilai realisasi neto sebesar ${rp(writedown)}` : '',
               writeup > 0 ? `memulihkan penurunan nilai sebesar ${rp(writeup)} karena harga jual kembali naik` : '',
             ]
               .filter(Boolean)
               .join(' dan ')}; penurunan dan pemulihan tersebut disajikan dalam beban pokok penjualan.`
-          : 'Persediaan terdiri dari barang dagang yang siap dijual. Manajemen berpendapat tidak terdapat persediaan usang yang memerlukan penurunan nilai.',
+          : `${terms.inventoryNote} Manajemen berpendapat tidak terdapat persediaan usang yang memerlukan penurunan nilai.`,
       ],
       invRows.length
         ? [{ title: 'Berdasarkan kategori produk (posisi terkini)', columns: ['Kategori', 'Nilai'], align: ['left', 'right'], rows: invRows.map((r) => [r.category ?? 'Lainnya', Math.round(n(r.v))]) }]
@@ -308,7 +308,7 @@ export class NotesService {
       'payables',
       'Utang usaha',
       ['TRADE_PAYABLE'],
-      ['Utang usaha merupakan utang kepada pemasok barang dagang, tanpa jaminan dan tanpa bunga, dengan jangka waktu kredit 14–60 hari.'],
+      [terms.payableNote],
       [
         ...(apRows.length
           ? [
@@ -346,13 +346,13 @@ export class NotesService {
       'revenue',
       'Pendapatan usaha',
       ['SALES_REVENUE', 'SALES_DEDUCTION'],
-      ['Seluruh pendapatan berasal dari penjualan barang dagang di dalam negeri.'],
+      [terms.revenueNote],
       revCat.length
         ? [{ title: 'Penjualan bruto berdasarkan kategori produk', columns: ['Kategori', `${year}`], align: ['left', 'right'], rows: revCat.map((r) => [r.category ?? 'Lainnya', n(r.v)]) }]
         : [],
       'inc',
     );
-    itemNote('cogs', 'Beban pokok penjualan', ['COST_OF_SALES'], ['Beban pokok penjualan dihitung dari biaya rata-rata tertimbang barang yang terjual, termasuk selisih hasil perhitungan fisik persediaan.'], [], 'inc', true);
+    itemNote('cogs', 'Beban pokok penjualan', ['COST_OF_SALES'], [terms.cogsNote], [], 'inc', true);
     itemNote('selling', 'Beban penjualan', ['SELLING_EXPENSE'], ['Rincian beban penjualan:'], [], 'inc', true);
     itemNote('admin', 'Beban umum dan administrasi', ['ADMIN_EXPENSE'], ['Rincian beban umum dan administrasi:'], [], 'inc', true);
     itemNote('other', 'Pendapatan dan beban lain-lain', ['OTHER_INCOME', 'OTHER_EXPENSE', 'FINANCE_INCOME', 'FINANCE_COST'], ['Rincian pendapatan (beban) lain-lain dan keuangan — neto:'], [], 'inc');

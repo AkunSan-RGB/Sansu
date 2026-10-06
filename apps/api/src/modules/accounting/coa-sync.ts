@@ -8,7 +8,8 @@
  */
 import { and, eq, isNull } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
-import { accounts, assetCategories } from '../../db/schema';
+import { BUSINESS_MODEL_KEYS, type BusinessModel } from '@sansu/shared';
+import { accounts, assetCategories, tenants } from '../../db/schema';
 import { DEFAULT_COA, guessReportGroup } from './default-coa';
 
 /** Nama induk lama yang boleh diganti ke nama standar baru */
@@ -26,7 +27,15 @@ const DEFAULT_CATEGORIES = [
   { name: 'Perangkat Lunak', asset: '1-2500', accum: '1-2950', expense: '6-5100', method: 'STRAIGHT_LINE', life: 48, fiscalGroup: 'GROUP_1' },
 ] as const;
 
+/** Jenis usaha perusahaan dari pengaturan (Dagang bila belum pernah dipilih) */
+async function businessModelOf(db: DbOrTx, tenantId: string): Promise<BusinessModel> {
+  const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+  const m = (t?.settings as { business?: { model?: string } } | null)?.business?.model ?? '';
+  return (BUSINESS_MODEL_KEYS as readonly string[]).includes(m) ? (m as BusinessModel) : 'DAGANG';
+}
+
 export async function syncChartOfAccounts(db: DbOrTx, tenantId: string) {
+  const model = await businessModelOf(db, tenantId);
   const existing = await db.select().from(accounts).where(eq(accounts.tenantId, tenantId));
   const byCode = new Map(existing.map((a) => [a.code, a]));
   const byKey = new Map(existing.filter((a) => a.systemKey).map((a) => [a.systemKey!, a]));
@@ -35,6 +44,8 @@ export async function syncChartOfAccounts(db: DbOrTx, tenantId: string) {
   for (const row of DEFAULT_COA) {
     const parent = row.parent ? byCode.get(row.parent) : undefined;
     let acc = byCode.get(row.code);
+    // Akun khusus jenis usaha lain tidak dibuat; yang sudah ada (model sebelumnya) dibiarkan apa adanya
+    if (!acc && row.models && !row.models.includes(model)) continue;
     // Akun sistem yang dulu dibuat otomatis dengan kode lain (mis. 2-1310-S) tetap dipakai
     if (!acc && row.key && byKey.has(row.key)) acc = byKey.get(row.key);
 

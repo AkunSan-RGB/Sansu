@@ -11,6 +11,7 @@ import { AllowWhenLocked } from '../../common/auth/platform-admin';
 import { SettingsService } from '../../common/settings.service';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
+import { syncChartOfAccounts } from '../accounting/coa-sync';
 
 export class BusinessModelDto {
   @ApiProperty({ enum: BUSINESS_MODEL_KEYS }) @IsIn(BUSINESS_MODEL_KEYS) model: BusinessModel;
@@ -62,6 +63,8 @@ export class OnboardingService {
       { model: 'DAGANG' as BusinessModel },
       { model: dto.model },
     );
+    // Akun khusus jenis usaha yang baru ditambahkan; akun model sebelumnya tidak dihapus
+    await this.db.transaction((tx) => syncChartOfAccounts(tx, u.tenantId));
     const installed: AppKey[] = [];
     if (dto.applyApps) {
       const on = await this.apps.enabled(u.tenantId);

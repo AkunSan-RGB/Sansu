@@ -7,13 +7,7 @@
  *  - Neraca Saldo lengkap (saldo awal, mutasi, saldo akhir) dan Neraca Lajur (worksheet)
  */
 import { Injectable } from '@nestjs/common';
-import {
-  REPORT_GROUPS,
-  type ReportGroup,
-  type ReportingFramework,
-  SECTION_LABELS,
-  type StatementSection,
-} from '@sansu/shared';
+import { REPORT_GROUPS, type ReportGroup, type ReportingFramework, SECTION_LABELS, type StatementSection, BUSINESS_MODEL_KEYS, type BusinessModel, REPORT_TERMS } from '@sansu/shared';
 import { eq, sql } from 'drizzle-orm';
 import { addDays, DocDate, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, ZERO } from '../../common/utils/money';
@@ -72,6 +66,13 @@ export class StatementsService {
     const [t] = await this.db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
     const fw = (t?.settings as { reporting?: { framework?: string } })?.reporting?.framework;
     return fw === 'SAK_EMKM' ? 'SAK_EMKM' : 'SAK_EP';
+  }
+
+  /** Jenis usaha perusahaan (Dagang bila belum pernah dipilih) — menentukan istilah di laporan */
+  async businessModel(tenantId: string): Promise<BusinessModel> {
+    const [t] = await this.db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+    const m = (t?.settings as { business?: { model?: string } })?.business?.model ?? '';
+    return (BUSINESS_MODEL_KEYS as readonly string[]).includes(m) ? (m as BusinessModel) : 'DAGANG';
   }
 
   /** Normalisasi parameter periode: bawaan awal tahun berjalan s/d hari ini, pembanding tahun lalu */
@@ -147,6 +148,7 @@ export class StatementsService {
 
   async income(tenantId: string, q: { from?: string; to?: string; compareFrom?: string; compareTo?: string }, fw?: ReportingFramework) {
     const framework = fw ?? (await this.framework(tenantId));
+    const terms = REPORT_TERMS[await this.businessModel(tenantId)];
     const { cur, cmp } = this.ranges(q);
     const accs = await loadAccounts(this.db, tenantId);
     const [a, b] = await Promise.all([
@@ -184,10 +186,10 @@ export class StatementsService {
 
     let lines: StatementLine[];
     if (framework === 'SAK_EMKM') {
-      const revenue = group(['SALES_REVENUE', 'SALES_DEDUCTION'], 'REVENUE', 'Pendapatan usaha');
+      const revenue = group(['SALES_REVENUE', 'SALES_DEDUCTION'], 'REVENUE', terms.revenueLabel);
       const other = group(['OTHER_INCOME', 'FINANCE_INCOME'], 'OTHER_REVENUE', 'Pendapatan lain-lain');
       const totalRev = sub('TOTAL_REVENUE', 'Jumlah pendapatan', [revenue, other]);
-      const cos = group('COST_OF_SALES', 'COST_OF_SALES', 'Beban pokok penjualan');
+      const cos = group('COST_OF_SALES', 'COST_OF_SALES', terms.cogsLabel);
       const opex = group(['SELLING_EXPENSE', 'ADMIN_EXPENSE'], 'OPERATING_EXPENSE', 'Beban usaha');
       const otherExp = group(['OTHER_EXPENSE', 'FINANCE_COST'], 'OTHER_EXPENSE', 'Beban lain-lain');
       const totalExp = sub('TOTAL_EXPENSE', 'Jumlah beban', [cos, opex, otherExp]);
@@ -196,10 +198,10 @@ export class StatementsService {
       const net = sub('NET_PROFIT', 'Laba (rugi) periode berjalan', [pbt, tax], 'total');
       lines = [revenue, other, totalRev, cos, opex, otherExp, totalExp, pbt, tax, net];
     } else {
-      const sales = group('SALES_REVENUE', 'SALES_REVENUE', 'Pendapatan usaha');
+      const sales = group('SALES_REVENUE', 'SALES_REVENUE', terms.revenueLabel);
       const ded = group('SALES_DEDUCTION', 'SALES_DEDUCTION', 'Retur dan potongan penjualan');
       const netRev = sub('NET_REVENUE', 'Pendapatan neto', [sales, ded]);
-      const cos = group('COST_OF_SALES', 'COST_OF_SALES', 'Beban pokok penjualan');
+      const cos = group('COST_OF_SALES', 'COST_OF_SALES', terms.cogsLabel);
       const gross = sub('GROSS_PROFIT', 'Laba bruto', [netRev, cos]);
       const selling = group('SELLING_EXPENSE', 'SELLING_EXPENSE', 'Beban penjualan');
       const admin = group('ADMIN_EXPENSE', 'ADMIN_EXPENSE', 'Beban umum dan administrasi');
