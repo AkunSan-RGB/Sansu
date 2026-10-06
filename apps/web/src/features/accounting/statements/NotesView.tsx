@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { api } from '@/api/client';
 import { useAction } from '@/api/queries';
 import type { FinancialNotes, NoteSection, NoteTable } from '@/api/types';
-import { acc, longDate } from './format';
+import { acc } from './format';
 
 export function NoteTableView({ t }: { t: NoteTable }) {
   const cell = (v: string | number | null, i: number) => (t.align[i] === 'right' && v !== null && v !== '' && !Number.isNaN(Number(v)) ? acc(v) : v);
@@ -106,16 +106,6 @@ export default function NotesView({ d }: { d: FinancialNotes }) {
           </div>
         </section>
       ))}
-      <div style={{ marginTop: 40, textAlign: 'right' }}>
-        <Typography.Paragraph>
-          {d.company.city || '……………'}, {longDate(`${d.year + 1}-03-31`).replace(/^\d+/, '…')}
-        </Typography.Paragraph>
-        <Typography.Paragraph style={{ marginBottom: 64 }}>{d.company.name}</Typography.Paragraph>
-        <Typography.Paragraph strong style={{ marginBottom: 0, textDecoration: 'underline' }}>
-          {d.company.directorName || '(nama)'}
-        </Typography.Paragraph>
-        <Typography.Paragraph>{d.company.directorTitle}</Typography.Paragraph>
-      </div>
       <Modal
         title={editing ? `${editing.number}. ${editing.title}` : ''}
         open={!!editing}

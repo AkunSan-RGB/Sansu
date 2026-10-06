@@ -3,7 +3,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { Link } from 'react-router-dom';
 import type { CashFlowStatement, EquityStatement, FinancialPosition, FullTrialBalance, IncomeStatement, StatementLine, VatReport, Worksheet } from '@/api/types';
 import { fmtDate, fmtMoney } from '@/lib/format';
-import { Amount, longDate } from './format';
+import { Amount, longDate, SignatureBlock, type Signer } from './format';
 
 type Row = {
   key: string;
@@ -79,7 +79,7 @@ const lineRows = (lines: StatementLine[], refs: Record<string, string>, detail: 
     return [row, ...acc];
   });
 
-export function PositionView({ d, refs, compare, detail }: { d: FinancialPosition; refs: Record<string, string>; compare: boolean; detail: boolean }) {
+export function PositionView({ d, refs, compare, detail, signer }: { d: FinancialPosition; refs: Record<string, string>; compare: boolean; detail: boolean; signer?: Signer }) {
   const rows: Row[] = [];
   const isAsset = (k: string) => k.endsWith('_ASSET');
   const isLiab = (k: string) => k.endsWith('_LIABILITY');
@@ -104,6 +104,7 @@ export function PositionView({ d, refs, compare, detail }: { d: FinancialPositio
     <>
       {!d.balanced && <Alert type="error" showIcon message="Aset tidak sama dengan liabilitas + ekuitas — buka Cek Kesehatan untuk mencari penyebabnya." style={{ marginBottom: 12 }} />}
       <StatementTable rows={rows} current={longDate(d.asOf)} previous={longDate(d.compareAsOf)} compare={compare} ledgerRange={{ from: `${d.asOf.slice(0, 4)}-01-01`, to: d.asOf }} />
+      <SignatureBlock signer={signer} year={Number(d.asOf.slice(0, 4))} />
     </>
   );
 }
@@ -130,7 +131,7 @@ const periodNote = (d: { period: { from: string; to: string }; comparePeriod: { 
   </Typography.Paragraph>
 );
 
-export function IncomeView({ d, refs, compare, detail }: { d: IncomeStatement; refs: Record<string, string>; compare: boolean; detail: boolean }) {
+export function IncomeView({ d, refs, compare, detail, signer }: { d: IncomeStatement; refs: Record<string, string>; compare: boolean; detail: boolean; signer?: Signer }) {
   const headers = INCOME_HEADERS[d.framework] ?? INCOME_HEADERS.DEFAULT;
   const rows: Row[] = [];
   d.lines.forEach((l) => {
@@ -142,6 +143,7 @@ export function IncomeView({ d, refs, compare, detail }: { d: IncomeStatement; r
     <>
       {periodNote(d, compare)}
       <StatementTable rows={rows} current={periodText(d.period)} previous={periodText(d.comparePeriod)} compare={compare} ledgerRange={d.period} />
+      <SignatureBlock signer={signer} year={Number(d.period.to.slice(0, 4))} />
     </>
   );
 }
