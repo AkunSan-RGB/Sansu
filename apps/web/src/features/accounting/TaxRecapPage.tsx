@@ -1,4 +1,4 @@
-import { WarningOutlined } from '@ant-design/icons';
+import { PrinterOutlined, WarningOutlined } from '@ant-design/icons';
 import {
   BRAND,
   type AnnualTaxRecap,
@@ -6,16 +6,19 @@ import {
   type TaxRecapCell,
   type TaxRecapStatus,
   type WithholdingRecap,
+  type WithholdingRow,
 } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import {
   Alert,
+  Button,
   Card,
   Col,
   DatePicker,
   Descriptions,
   Empty,
   InputNumber,
+  Modal,
   Row,
   Segmented,
   Space,
@@ -32,10 +35,12 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { get, qs } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import ExportButtons from '@/components/ExportButtons';
+import WithholdingSlip from '@/components/print/WithholdingSlip';
 import QueryState from '@/components/QueryState';
 import PageHeader from '@/layout/PageHeader';
 import { useApps } from '@/lib/apps';
 import { fmtDate, fmtMoney } from '@/lib/format';
+import { printDoc } from '@/lib/print';
 import { annualTaxSheets, bpjsSheets, withholdingSheets } from '@/lib/xlsx/reports';
 
 const STATUS: Record<TaxRecapStatus, { color: string; label: string }> = {
@@ -268,6 +273,7 @@ function Withholding() {
   const [mode, setMode] = useState<'month' | 'year'>('month');
   const [month, setMonth] = useState(dayjs().subtract(1, 'month'));
   const period = mode === 'month' ? month.format('YYYY-MM') : month.format('YYYY');
+  const [slips, setSlips] = useState<WithholdingRow[] | null>(null);
   const q = useQuery({
     queryKey: ['tax-recap', 'withholding', period],
     queryFn: () => get<WithholdingRecap>(`/tax/reports/withholding${qs({ period })}`),
@@ -296,7 +302,31 @@ function Withholding() {
           title={`Pemotongan PPh 23 & 4(2) ${period}`}
           sheets={() => (q.data ? withholdingSheets(q.data, me?.tenantName) : null)}
         />
+        <Button icon={<PrinterOutlined />} disabled={!q.data?.rows.length} onClick={() => setSlips(q.data!.rows)}>
+          Cetak semua bukti potong
+        </Button>
       </Space>
+      <Modal
+        open={!!slips}
+        onCancel={() => setSlips(null)}
+        width={900}
+        title={`Bukti pemotongan (${slips?.length ?? 0})`}
+        destroyOnHidden
+        footer={[
+          <Button key="x" onClick={() => setSlips(null)}>
+            Tutup
+          </Button>,
+          <Button key="p" type="primary" icon={<PrinterOutlined />} onClick={() => printDoc(`Bukti pemotongan ${period}`)}>
+            Cetak / simpan PDF
+          </Button>,
+        ]}
+      >
+        {slips?.map((r) => (
+          <div key={r.id} style={{ marginBottom: 24 }}>
+            <WithholdingSlip row={r} />
+          </div>
+        ))}
+      </Modal>
       <QueryState q={q}>
         {(w) => (
           <>
@@ -383,6 +413,15 @@ function Withholding() {
                   { title: 'DPP', dataIndex: 'base', align: 'right', render: fmtMoney },
                   { title: 'Tarif', dataIndex: 'rate', align: 'right', render: (v) => (v ? `${Number(v)}%` : '-') },
                   { title: 'PPh', dataIndex: 'amount', align: 'right', render: fmtMoney },
+                  {
+                    title: '',
+                    width: 90,
+                    render: (_, r) => (
+                      <Button size="small" icon={<PrinterOutlined />} onClick={() => setSlips([r])}>
+                        Cetak
+                      </Button>
+                    ),
+                  },
                 ]}
               />
             </Card>

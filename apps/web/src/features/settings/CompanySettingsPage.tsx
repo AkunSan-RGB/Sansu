@@ -45,7 +45,7 @@ export default function CompanySettingsPage() {
   });
 
   const saveCompany = useAction(
-    (v: { ppnRate: number; pkp?: boolean; posPricesIncludeVat?: boolean; salesPricesIncludeVat?: boolean }) => patch('/settings/company', { ...v, ppnRate: String(v.ppnRate) }),
+    (v: { ppnRate: number; pkp?: boolean; posPricesIncludeVat?: boolean; salesPricesIncludeVat?: boolean; holidays?: string[]; vatRounding?: string }) => patch('/settings/company', { ...v, ppnRate: String(v.ppnRate) }),
     { success: 'Data perusahaan disimpan', invalidate: ['company', 'me', 'tax-thresholds'] },
   );
   const savePayroll = useAction((v: PayrollSettings) => patch('/settings/payroll', v), { success: 'Pengaturan penggajian disimpan', invalidate: ['company'] });
@@ -111,6 +111,31 @@ export default function CompanySettingsPage() {
                       { value: false, label: 'Belum termasuk PPN' },
                     ]}
                   />
+                </Form.Item>
+              )}
+              {pkp && (
+                <Form.Item
+                  name="vatRounding"
+                  label="Pembulatan PPN"
+                  extra="Faktur pajak memuat PPN dalam rupiah penuh. Berlaku untuk dokumen dengan harga belum termasuk PPN; harga yang sudah termasuk PPN tetap sama dengan harga yang dibayar. Tanyakan konsultan pajak bila ragu."
+                >
+                  <Select
+                    options={[
+                      { value: 'NONE', label: 'Tanpa pembulatan (dua desimal)' },
+                      { value: 'NEAREST', label: 'Bulatkan ke rupiah terdekat' },
+                      { value: 'DOWN', label: 'Bulatkan ke bawah' },
+                    ]}
+                  />
+                </Form.Item>
+              )}
+              {can('accounting') && (
+                <Form.Item
+                  name="holidays"
+                  label="Hari libur nasional & cuti bersama"
+                  extra="Tenggat setor/lapor pajak yang jatuh di Sabtu, Minggu, atau tanggal di sini digeser ke hari kerja berikutnya. Ketik tanggal berformat 2026-12-25 lalu Enter; perbarui tiap tahun sesuai SKB tiga menteri."
+                  rules={[{ validator: (_, v: string[] | undefined) => ((v ?? []).every((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) ? Promise.resolve() : Promise.reject(new Error('Format tanggal YYYY-MM-DD'))) }]}
+                >
+                  <Select mode="tags" tokenSeparators={[',', ' ']} open={false} placeholder="2026-12-25" />
                 </Form.Item>
               )}
               <Button type="primary" htmlType="submit" loading={saveCompany.isPending}>

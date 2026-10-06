@@ -8,6 +8,7 @@ import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { purchaseOrderLines, purchaseOrders, suppliers, tenants, warehouses } from '../../db/schema';
 import { buildLines } from '../master-data/products/line-builder';
+import { taxProfileOf } from '../../common/settings.service';
 import { documentTotals } from '../sales/pricing';
 import { CreatePurchaseOrderDto, PurchaseOrderQueryDto } from './purchasing.dto';
 
@@ -63,7 +64,7 @@ export class PurchaseOrdersService {
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
 
       const lines = await buildLines(tx, user.tenantId, dto.lines, 'required');
-      const totals = documentTotals(lines, tenant.ppnRate);
+      const totals = documentTotals(lines, tenant.ppnRate, taxProfileOf(tenant.settings).vatRounding);
       const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_ORDER', date);
       const [order] = await tx
         .insert(purchaseOrders)

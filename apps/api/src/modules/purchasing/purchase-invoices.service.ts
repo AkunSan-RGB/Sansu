@@ -4,6 +4,7 @@ import { AuthUser } from '../../common/auth/auth-user';
 import { AuditService } from '../../common/audit/audit.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { SettingsService, taxProfileOf } from '../../common/settings.service';
+import { roundVat } from '../sales/pricing';
 import { addDays, diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, qty4, ZERO } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
@@ -219,7 +220,7 @@ export class PurchaseInvoicesService {
         lines.push({ dto: l, qty: q, total: money(q.times(price)), debitAccountId, exempt });
       }
       const subtotal = lines.reduce<Dec>((a, l) => a.plus(l.total), ZERO);
-      const tax = dto.withVat === false ? ZERO : money(subtotal.times(tenant.ppnRate).div(100));
+      const tax = dto.withVat === false ? ZERO : roundVat(money(subtotal.times(tenant.ppnRate).div(100)), taxProfileOf(tenant.settings).vatRounding);
       const whBase = lines.filter((l) => l.dto.withholding ?? l.dto.type === 'EXPENSE').reduce<Dec>((a, l) => a.plus(l.total), ZERO);
       const whRate = dto.withholdingType ? D(dto.withholdingRate ?? (dto.withholdingType === 'PPH23' ? '2' : '10')) : ZERO;
       const withholding = money(whBase.times(whRate).div(100));

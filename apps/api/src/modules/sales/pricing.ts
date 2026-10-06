@@ -1,3 +1,4 @@
+import type { VatRounding } from '@sansu/shared';
 import { D, Dec, DecValue, money, ZERO } from '../../common/utils/money';
 
 export interface PriceLineInput {
@@ -12,10 +13,17 @@ export function lineTotal(l: PriceLineInput): Dec {
   return money(D(l.qty).times(l.price).times(D(100).minus(disc)).div(100));
 }
 
+/** PPN dalam rupiah penuh sesuai pilihan perusahaan; NONE membiarkan dua desimal */
+export function roundVat(vat: Dec, mode: VatRounding = 'NONE'): Dec {
+  if (mode === 'DOWN') return vat.toDecimalPlaces(0, 1 /* ROUND_DOWN */);
+  if (mode === 'NEAREST') return vat.toDecimalPlaces(0, 4 /* ROUND_HALF_UP */);
+  return vat;
+}
+
 /** Subtotal (DPP), PPN, dan total dokumen. PPN dihitung dari subtotal, bukan per baris. */
-export function documentTotals(lines: PriceLineInput[], ppnRate: DecValue) {
+export function documentTotals(lines: PriceLineInput[], ppnRate: DecValue, rounding: VatRounding = 'NONE') {
   const subtotal = lines.reduce<Dec>((a, l) => a.plus(lineTotal(l)), ZERO);
-  const taxAmount = money(subtotal.times(ppnRate).div(100));
+  const taxAmount = roundVat(money(subtotal.times(ppnRate).div(100)), rounding);
   return { subtotal, taxAmount, total: subtotal.plus(taxAmount) };
 }
 

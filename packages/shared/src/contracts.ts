@@ -593,7 +593,13 @@ export interface TaxProfile {
   posPricesIncludeVat: boolean;
   /** Bawaan isian "harga termasuk PPN" di penawaran & pesanan penjualan */
   salesPricesIncludeVat: boolean;
+  /** Hari libur nasional dan cuti bersama (YYYY-MM-DD) yang menggeser tenggat pajak ke hari kerja berikutnya; diisi pengguna tiap tahun */
+  holidays?: string[];
+  /** Pembulatan PPN dokumen ke rupiah penuh: NONE = dua desimal apa adanya, DOWN = ke bawah, NEAREST = ke terdekat */
+  vatRounding?: VatRounding;
 }
+export const VAT_ROUNDINGS = ['NONE', 'DOWN', 'NEAREST'] as const;
+export type VatRounding = (typeof VAT_ROUNDINGS)[number];
 
 export interface CompanySettings {
   name: string;

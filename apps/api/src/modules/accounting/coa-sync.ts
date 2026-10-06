@@ -10,7 +10,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
 import { BUSINESS_MODEL_KEYS, type BusinessModel } from '@sansu/shared';
 import { accounts, assetCategories, tenants } from '../../db/schema';
-import { DEFAULT_COA, guessReportGroup } from './default-coa';
+import { coaName, coaNameVariants, DEFAULT_COA, guessReportGroup } from './default-coa';
 
 /** Nama induk lama yang boleh diganti ke nama standar baru */
 const HEADER_RENAMES: Record<string, string[]> = {
@@ -46,6 +46,7 @@ export async function syncChartOfAccounts(db: DbOrTx, tenantId: string) {
     let acc = byCode.get(row.code);
     // Akun khusus jenis usaha lain tidak dibuat; yang sudah ada (model sebelumnya) dibiarkan apa adanya
     if (!acc && row.models && !row.models.includes(model)) continue;
+    if (!acc && row.skip?.includes(model) && !row.key) continue;
     // Akun sistem yang dulu dibuat otomatis dengan kode lain (mis. 2-1310-S) tetap dipakai
     if (!acc && row.key && byKey.has(row.key)) acc = byKey.get(row.key);
 
@@ -55,7 +56,7 @@ export async function syncChartOfAccounts(db: DbOrTx, tenantId: string) {
         .values({
           tenantId,
           code: row.code,
-          name: row.name,
+          name: coaName(row, model),
           type: row.type,
           isPostable: !row.header,
           systemKey: row.key && !byKey.has(row.key) ? row.key : undefined,
@@ -79,6 +80,9 @@ export async function syncChartOfAccounts(db: DbOrTx, tenantId: string) {
       byKey.set(row.key, acc);
     }
     if (row.header && HEADER_RENAMES[row.code]?.includes(acc.name)) patch.name = row.name;
+    // Nama inti mengikuti jenis usaha, tetapi hanya bila akun masih bernama bawaan (tidak menimpa nama buatan pengguna)
+    const target = coaName(row, model);
+    if (row.names && acc.name !== target && coaNameVariants(row).has(acc.name)) patch.name = target;
     // Pindahkan ke induk baru bila masih menempel di induk lama (kakek dari induk baru)
     if (parent && acc.parentId !== parent.id && parent.parentId && acc.parentId === parent.parentId && acc.id !== parent.id) {
       patch.parentId = parent.id;

@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { AuditService } from '../../../common/audit/audit.service';
 import { SequenceService } from '../../../common/sequence/sequence.service';
-import { outputVatRate } from '../../../common/settings.service';
+import { outputVatRate, taxProfileOf } from '../../../common/settings.service';
 import { toDocDate } from '../../../common/utils/dates';
 import { D, money } from '../../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../../db/db';
@@ -95,7 +95,7 @@ export class SalesOrdersService {
       const inclusive = !!dto.pricesIncludeVat && D(rate).gt(0);
       const doc = inclusive
         ? inclusiveDocument(lines, rate)
-        : { lines: lines.map((l) => ({ ...l, priceInclVat: null })), ...documentTotals(lines, rate) };
+        : { lines: lines.map((l) => ({ ...l, priceInclVat: null })), ...documentTotals(lines, rate, taxProfileOf(tenant.settings).vatRounding) };
       const totals = doc;
       const number = await this.seq.next(tx, user.tenantId, 'SALES_ORDER', date);
       const [order] = await tx

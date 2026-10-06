@@ -43,7 +43,7 @@ import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../../common/auth/decorators';
 import { SequenceService } from '../../../common/sequence/sequence.service';
-import { outputVatRate } from '../../../common/settings.service';
+import { outputVatRate, taxProfileOf } from '../../../common/settings.service';
 import { addDays, toDocDate } from '../../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../../common/utils/money';
 import { Db, Tx } from '../../../db/db';
@@ -259,7 +259,7 @@ export class ServiceBillingService {
         ? inclusiveDocument(raw, rate)
         : {
             lines: raw.map((l) => ({ ...l, lineTotal: money(D(l.qty).times(l.price)) })),
-            ...documentTotals(raw, rate),
+            ...documentTotals(raw, rate, taxProfileOf(tenant.settings).vatRounding),
           };
 
       // Proyek: tagihan tidak boleh melebihi nilai kontrak

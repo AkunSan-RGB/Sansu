@@ -186,6 +186,10 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
         if (a.systemKey === SYS.INVENTORY) {
           throw new BadRequestException('Saldo awal persediaan diisi lewat Inventori → Penyesuaian stok (alasan: Saldo awal)');
         }
+        // akun kontrol harus punya rincian per faktur, kalau tidak buku besar dan daftar umur tidak sama
+        if (a.systemKey === SYS.AR) throw new BadRequestException('Saldo awal piutang usaha diisi per faktur lewat Pengaturan → Impor data → Piutang awal');
+        if (a.systemKey === SYS.AP) throw new BadRequestException('Saldo awal utang usaha diisi per faktur lewat Pengaturan → Impor data → Utang awal');
+        if (a.systemKey === SYS.OPENING_EQUITY) throw new BadRequestException('Ekuitas Saldo Awal diisi otomatis sebagai penyeimbang');
       }
       const totalD = dto.lines.reduce<Dec>((s, l) => s.plus(money(D(l.debit))), ZERO);
       const totalC = dto.lines.reduce<Dec>((s, l) => s.plus(money(D(l.credit))), ZERO);
@@ -203,6 +207,73 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       });
     };
     return outerTx ? run(outerTx) : this.db.transaction(run);
+  }
+
+  /**
+   * Ringkasan kesiapan saldo awal: berapa yang sudah diisi per kelompok, penyeimbang ekuitas, dan peringatan.
+   * Sumber: jurnal saldo awal (OPENING) dan penyesuaian stok bersandi OPENING.
+   */
+  async openingStatus(tenantId: string) {
+    const isOpening = sql`(j.source_type = 'OPENING' OR (j.source_type = 'STOCK_ADJUSTMENT' AND j.description LIKE '%(OPENING)%'))`;
+    const rows = await this.db.execute<{ component: string; amount: string; accounts: number }>(sql`
+      SELECT CASE
+          WHEN a.system_key = 'OPENING_EQUITY' THEN 'balancing'
+          WHEN a.is_cash_account THEN 'cash'
+          WHEN a.system_key = 'AR' THEN 'receivables'
+          WHEN a.system_key = 'AP' THEN 'payables'
+          WHEN a.system_key = 'INVENTORY' THEN 'inventory'
+          WHEN a.type = 'ASSET' THEN 'otherAssets'
+          WHEN a.type = 'LIABILITY' THEN 'liabilities'
+          WHEN a.type = 'EQUITY' THEN 'equity'
+          ELSE 'profitLoss' END AS component,
+        SUM(l.debit - l.credit)::text AS amount,
+        COUNT(DISTINCT a.id)::int AS accounts
+      FROM journal_lines l
+      JOIN journal_entries j ON j.id = l.journal_id
+      JOIN accounts a ON a.id = l.account_id
+      WHERE j.tenant_id = ${tenantId} AND ${isOpening} AND j.reversal_of_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = j.id)
+      GROUP BY 1`);
+    const meta = await this.db.execute<{ opening_date: string | null; first_tx: string | null; before_count: number; assets: number; assets_cost: string | null }>(sql`
+      SELECT
+        (SELECT MAX(j.date)::text FROM journal_entries j WHERE j.tenant_id = ${tenantId} AND ${isOpening}) AS opening_date,
+        (SELECT MIN(j.date)::text FROM journal_entries j WHERE j.tenant_id = ${tenantId} AND NOT ${isOpening}
+           AND j.source_type NOT IN ('CLOSING')) AS first_tx,
+        (SELECT COUNT(*)::int FROM journal_entries j WHERE j.tenant_id = ${tenantId} AND NOT ${isOpening}
+           AND j.source_type NOT IN ('CLOSING')
+           AND j.date <= (SELECT MAX(o.date) FROM journal_entries o WHERE o.tenant_id = ${tenantId}
+                           AND (o.source_type = 'OPENING' OR (o.source_type = 'STOCK_ADJUSTMENT' AND o.description LIKE '%(OPENING)%')))) AS before_count,
+        (SELECT COUNT(*)::int FROM fixed_assets f WHERE f.tenant_id = ${tenantId} AND f.opening_accumulated::numeric > 0) AS assets,
+        (SELECT SUM(f.cost)::text FROM fixed_assets f WHERE f.tenant_id = ${tenantId} AND f.opening_accumulated::numeric > 0) AS assets_cost`);
+    const by = new Map(rows.rows.map((r) => [r.component, r]));
+    const amt = (k: string) => D(by.get(k)?.amount ?? 0);
+    const m = meta.rows[0];
+    const balancing = amt('balancing');
+    const warnings: string[] = [];
+    if (m.opening_date && Number(m.before_count) > 0)
+      warnings.push(`Ada ${m.before_count} jurnal bertanggal pada/sebelum tanggal saldo awal (${m.opening_date}). Saldo awal sebaiknya dicatat per tanggal sebelum transaksi pertama.`);
+    if (m.opening_date && !by.has('cash')) warnings.push('Belum ada saldo kas/bank. Isi saldo kas dan bank per tanggal saldo awal.');
+    if (!balancing.isZero() && balancing.abs().gt(amt('cash').abs().plus(amt('receivables').abs()).plus(amt('inventory').abs()).plus(amt('otherAssets').abs()).times(2)))
+      warnings.push('Penyeimbang Ekuitas Saldo Awal tidak wajar besarnya dibanding total aset — periksa kembali angka yang dimasukkan.');
+    if (Number(m.assets) === 0) warnings.push('Belum ada aset tetap lama dengan akumulasi penyusutan. Lewati bila perusahaan tidak punya aset tetap.');
+    const comp = (k: string) => ({ amount: amt(k).toFixed(2), accounts: by.get(k)?.accounts ?? 0 });
+    return {
+      openingDate: m.opening_date,
+      firstTransactionDate: m.first_tx,
+      components: {
+        cash: comp('cash'),
+        otherAssets: comp('otherAssets'),
+        receivables: comp('receivables'),
+        inventory: comp('inventory'),
+        payables: { amount: amt('payables').negated().toFixed(2), accounts: by.get('payables')?.accounts ?? 0 },
+        liabilities: { amount: amt('liabilities').negated().toFixed(2), accounts: by.get('liabilities')?.accounts ?? 0 },
+        equity: { amount: amt('equity').negated().toFixed(2), accounts: by.get('equity')?.accounts ?? 0 },
+        profitLoss: comp('profitLoss'),
+        fixedAssets: { amount: D(m.assets_cost ?? 0).toFixed(2), accounts: Number(m.assets) },
+      },
+      balancing: balancing.negated().toFixed(2),
+      warnings,
+    };
   }
 
   // ---------- Jurnal berulang ----------

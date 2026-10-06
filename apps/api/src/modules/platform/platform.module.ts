@@ -15,6 +15,8 @@ import {
 import { ApiBearerAuth, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import * as bcrypt from 'bcryptjs';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsIn,
   IsUUID,
@@ -30,7 +32,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { and, eq, ne, sql } from 'drizzle-orm';
-import { APP_KEYS, type AppKey, LEGAL_FORMS, REPORTING_FRAMEWORKS, TAX_SCHEMES } from '@sansu/shared';
+import { APP_KEYS, type AppKey, LEGAL_FORMS, REPORTING_FRAMEWORKS, TAX_SCHEMES, VAT_ROUNDINGS, type VatRounding } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -43,6 +45,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { Role, roleEnum, tenants, users } from '../../db/schema';
 import { IsNpwp } from '../../common/validators/npwp';
+import { isDocDate } from '../../common/utils/dates';
 
 // ---------- DTO ----------
 export class UpdateUserDto {
@@ -68,6 +71,13 @@ export class UpdateCompanyDto {
   @ApiPropertyOptional({ description: 'Pengusaha Kena Pajak (memungut PPN)' }) @IsOptional() @IsBoolean() pkp?: boolean;
   @ApiPropertyOptional({ description: 'Harga kasir sudah termasuk PPN' }) @IsOptional() @IsBoolean() posPricesIncludeVat?: boolean;
   @ApiPropertyOptional({ description: 'Bawaan harga penawaran/pesanan termasuk PPN' }) @IsOptional() @IsBoolean() salesPricesIncludeVat?: boolean;
+  @ApiPropertyOptional({ description: 'Hari libur nasional / cuti bersama (YYYY-MM-DD) untuk menggeser tenggat pajak', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { each: true, message: 'Tanggal libur harus berformat YYYY-MM-DD' })
+  holidays?: string[];
+  @ApiPropertyOptional({ enum: VAT_ROUNDINGS, description: 'Pembulatan PPN dokumen ke rupiah penuh' }) @IsOptional() @IsIn(VAT_ROUNDINGS) vatRounding?: VatRounding;
 }
 
 /** Kop surat & dokumen: logo, kontak, rekening pembayaran, catatan di faktur */
@@ -222,11 +232,17 @@ export class PlatformService {
   }
 
   async updateCompany(actor: AuthUser, dto: UpdateCompanyDto) {
-    const { pkp, posPricesIncludeVat, salesPricesIncludeVat, ...rest } = dto;
+    const { pkp, posPricesIncludeVat, salesPricesIncludeVat, holidays, vatRounding, ...rest } = dto;
     const company = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
     if (Object.keys(company).length) await this.db.update(tenants).set(company).where(eq(tenants.id, actor.tenantId));
-    if (pkp !== undefined || posPricesIncludeVat !== undefined || salesPricesIncludeVat !== undefined) {
-      const patch = { pkp, posPricesIncludeVat, salesPricesIncludeVat };
+    if (pkp !== undefined || posPricesIncludeVat !== undefined || salesPricesIncludeVat !== undefined || holidays !== undefined || vatRounding !== undefined) {
+      const patch = {
+        pkp,
+        posPricesIncludeVat,
+        salesPricesIncludeVat,
+        holidays: holidays && [...new Set(holidays.filter(isDocDate))].sort(),
+        vatRounding,
+      };
       for (const k of Object.keys(patch) as (keyof typeof patch)[]) if (patch[k] === undefined) delete patch[k];
       const before = await this.settings.taxProfile(this.db, actor.tenantId);
       const after = await this.settings.saveTaxProfile(this.db, actor.tenantId, patch);

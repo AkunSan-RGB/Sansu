@@ -31,7 +31,7 @@ export const DEFAULT_REPORTING: ReportingSettings = {
 };
 
 /** Bawaan: PKP, harga kasir belum termasuk PPN (perusahaan lama tetap seperti sebelumnya) */
-export const DEFAULT_TAX_PROFILE: TaxProfile = { pkp: true, posPricesIncludeVat: false, salesPricesIncludeVat: false };
+export const DEFAULT_TAX_PROFILE: TaxProfile = { pkp: true, posPricesIncludeVat: false, salesPricesIncludeVat: false, vatRounding: 'NONE' };
 
 /** Profil PPN dari kolom tenants.settings (tanpa query tambahan) */
 export function taxProfileOf(settings: Record<string, unknown> | null | undefined): TaxProfile {
