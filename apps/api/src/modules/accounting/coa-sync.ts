@@ -8,7 +8,7 @@
  */
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
-import { BUSINESS_MODEL_KEYS, type BusinessModel } from '@sansu/shared';
+import { BUSINESS_MODEL_BY_KEY, BUSINESS_MODEL_KEYS, type AppKey, type BusinessModel, withDependencies } from '@sansu/shared';
 import { accounts, assetCategories, journalLines, tenantApps, tenants } from '../../db/schema';
 import { COA_FAMILIES, COA_UNUSED_MARK, coaName, coaNameVariants, DEFAULT_COA, guessReportGroup } from './default-coa';
 
@@ -81,7 +81,11 @@ export async function refreshChartRelevance(db: DbOrTx, tenantId: string) {
   const model = await businessModelOf(db, tenantId);
   const framework = await frameworkOf(db, tenantId);
   const rows = await db.select({ k: tenantApps.appKey }).from(tenantApps).where(eq(tenantApps.tenantId, tenantId));
-  const apps = new Set<string>([...rows.map((r) => r.k), 'accounting']);
+  // Aplikasi yang hanya terpasang sebagai dependensi paket jenis usaha (mis. Inventori pada usaha jasa) tidak membuat akunnya relevan;
+  // sama dengan perhitungan saat perusahaan dibuat, sehingga pergantian standar pelaporan tidak mengubah tampilan bagan akun
+  const base: AppKey[] = BUSINESS_MODEL_BY_KEY[model].apps;
+  const implied = new Set<string>(base.flatMap((k) => withDependencies(k)).filter((k) => !base.includes(k)));
+  const apps = new Set<string>([...rows.map((r) => r.k).filter((k) => !implied.has(k)), 'accounting']);
   return applyChartRelevance(db, tenantId, model, apps, framework);
 }
 

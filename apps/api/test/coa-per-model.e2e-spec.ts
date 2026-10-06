@@ -182,7 +182,7 @@ describe('Bagan akun per jenis usaha (e2e)', () => {
         }
         await http.patch('/api/settings/reporting').set(auth).send({ framework: 'SAK_EP' }).expect(200);
         const restored = (await list()).filter((a) => EP_ONLY.includes(a.code) && a.isActive).map((a) => a.code);
-        expect(restored).toEqual(expect.arrayContaining(wasActive));
+        expect(restored.sort()).toEqual([...wasActive].sort()); // pergantian standar tidak mengubah bagan akun usaha lain (mis. persediaan pada usaha jasa)
       });
     }
   });
