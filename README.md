@@ -62,6 +62,7 @@ sansu/
 │     ├─ nginx.conf
 │     └─ Dockerfile
 ├─ docs/ARCHITECTURE.md       diagram & keputusan arsitektur
+├─ docs/PENGUJIAN.md          lapisan tes, uji acak invarian, cara menjalankan
 ├─ docker-compose.yml         PostgreSQL untuk development
 ├─ docker-compose.prod.yml    layanan online: caddy (HTTPS) + web + api + db + backup
 ├─ deploy/                    install.sh, Caddyfile, layanan backup
@@ -119,7 +120,7 @@ Panduan lengkap (backup offsite, pemulihan, keamanan, checklist sebelum jualan):
 6. **Multi-tenant** — setiap tabel bisnis ber-`tenant_id`, setiap query difilter dari token.
 7. **Satu sumber enum** — status & peran didefinisikan sekali di `@sansu/shared`.
 
-Detail alur, diagram, dan cara menambah modul: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Detail alur, diagram, dan cara menambah modul: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Strategi pengujian dan kontrol integritas pembukuan: [docs/PENGUJIAN.md](docs/PENGUJIAN.md).
 
 ## PostgreSQL 18.6
 

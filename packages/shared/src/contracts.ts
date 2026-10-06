@@ -351,18 +351,19 @@ export interface BalanceRow {
   balance: string;
 }
 
+/** Angka yang tidak boleh dilihat peran pembaca dikirim null (bukan 0, agar tidak terbaca sebagai nilai nol) */
 export interface Dashboard {
-  salesMonth: string;
-  grossProfitMonth: string;
-  grossMarginPct: string;
-  invoicesMonth: number;
-  arOutstanding: string;
-  arOverdue: string;
-  overdueCount: number;
-  stockValue: string;
-  apOutstanding: string;
-  cashBalance: string;
-  ordersPending: number;
+  salesMonth: string | null;
+  grossProfitMonth: string | null;
+  grossMarginPct: string | null;
+  invoicesMonth: number | null;
+  arOutstanding: string | null;
+  arOverdue: string | null;
+  overdueCount: number | null;
+  stockValue: string | null;
+  apOutstanding: string | null;
+  cashBalance: string | null;
+  ordersPending: number | null;
   recentInvoices: (Invoice & { customer: { name: string } })[];
 }
 
@@ -574,6 +575,11 @@ export interface ReportingSettings {
   taxScheme: 'GENERAL' | 'FINAL_UMKM';
   /** Tahun mulai terdaftar sebagai WP (untuk batas waktu PPh final) */
   taxRegisteredYear: number | null;
+  /**
+   * Batas kapitalisasi aset tetap (Rp per unit). Pengeluaran per unit di bawah batas langsung dibebankan,
+   * bukan dicatat sebagai aset. 0 = semua pembelian aset dikapitalisasi.
+   */
+  capitalizationThreshold: number;
 }
 
 /**
@@ -1014,6 +1020,15 @@ export interface FinancialNotes {
   refs: Record<string, string>;
 }
 
+/** Lampiran laporan keuangan: daftar rincian pendukung (umur piutang/utang, aset tetap, persediaan, neraca saldo) */
+export interface FinancialAppendix {
+  year: number;
+  framework: 'SAK_EP' | 'SAK_EMKM';
+  company: { name: string; address: string | null; npwp: string | null; city: string; directorName: string; directorTitle: string };
+  period: { from: string; to: string };
+  sections: { key: string; number: string; title: string; paragraphs: string[]; tables: NoteTable[] }[];
+}
+
 export interface RecurringJournal {
   id: string;
   name: string;
@@ -1132,6 +1147,8 @@ export interface FiscalReconciliation {
   taxDue: string;
   credits: string;
   pph29: string;
+  /** PPh 21/22/23/24 yang dipotong pihak lain pada tahun itu (pengurang dasar angsuran PPh 25) */
+  withheldCredits: string;
   installment25: string;
   deferred: { temporaryDifference: string; target: string; current: string; adjustment: string } | null;
   depreciation: {

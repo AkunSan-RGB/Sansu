@@ -263,8 +263,12 @@ export default function AppLayout() {
     return <Navigate to="/account/security" replace />;
 
   const isDesktop = screens.lg !== false && screens.lg !== undefined;
+  // Dashboard memuat angka penjualan/keuangan: hanya untuk peran yang berhak melihatnya (sama dengan aturan di server)
+  const dashboardRole = ['OWNER', 'ADMIN', 'FINANCE', 'SALES'].includes(me.role);
   const visible = MENU.filter(
-    (g) => (!g.models || g.models.includes(me.businessModel)) && (g.admin ? isAdmin : g.app ? can(g.app) : can('accounting') || can('sales')),
+    (g) =>
+      (!g.models || g.models.includes(me.businessModel)) &&
+      (g.admin ? isAdmin : g.app ? can(g.app) : (can('accounting') || can('sales')) && (g.key !== '/dashboard' || dashboardRole)),
   );
   const toMenu = (g: Group): NonNullable<MenuProps['items']>[number] =>
     g.children

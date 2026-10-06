@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
 import { colLetter, d, SheetBuilder } from './book';
 import { buildXlsx } from './render';
-import { cashCountSheet, ledgerSheet, subscriptionVatSheet, trialBalanceSheet } from './reports';
+import { appendixSheet, cashCountSheet, ledgerSheet, subscriptionVatSheet, trialBalanceSheet } from './reports';
 
 describe('penyusun Excel', () => {
   it('huruf kolom', () => {
@@ -195,5 +195,48 @@ describe('penyusun Excel', () => {
     expect(ws.getCell('B4').value).toBe('Jumlah');
     expect(ws.getCell('B7').value).toMatchObject({ formula: 'SUM(B5:B6)', result: 12 });
     expect(ws.getCell('B5').numFmt).toContain('#,##0');
+  });
+
+  it('lampiran laporan keuangan: tabel & jumlah berumus, bisa dibuka kembali sebagai .xlsx', async () => {
+    const [s] = appendixSheet({
+      year: 2026,
+      framework: 'SAK_EP',
+      company: { name: 'PT Uji', address: null, npwp: null, city: 'Bekasi', directorName: 'Budi', directorTitle: 'Direktur' },
+      period: { from: '2026-01-01', to: '2026-10-06' },
+      sections: [
+        {
+          key: 'receivable-aging',
+          number: 'L1',
+          title: 'Daftar umur piutang usaha per pelanggan',
+          paragraphs: ['Umur dihitung sejak jatuh tempo.'],
+          tables: [
+            {
+              title: 'Piutang usaha',
+              columns: ['Pelanggan', 'Belum jatuh tempo', 'Lebih dari 90 hari', 'Jumlah'],
+              align: ['left', 'right', 'right', 'right'],
+              rows: [
+                ['TK-A Toko A', 100, 50, 150],
+                ['TK-B Toko B', 25, 0, 25],
+              ],
+              total: ['Jumlah', 125, 50, 175],
+            },
+          ],
+        },
+        { key: 'inventory-list', number: 'L2', title: 'Daftar persediaan per produk', paragraphs: ['Tidak ada persediaan pada 2026-10-06.'], tables: [] },
+      ],
+    });
+    expect(s.title).toBe('Lampiran Laporan Keuangan');
+    const total = s.rows.find((r) => r.style === 'total')!;
+    const cells = total.values as unknown[];
+    // setiap kolom jumlah memakai SUM yang hasilnya sama dengan angka sistem
+    expect(cells.slice(1)).toEqual([
+      { f: expect.stringMatching(/^SUM\(B\d+:B\d+\)$/), v: 125 },
+      { f: expect.stringMatching(/^SUM\(C\d+:C\d+\)$/), v: 50 },
+      { f: expect.stringMatching(/^SUM\(D\d+:D\d+\)$/), v: 175 },
+    ]);
+    const bytes = await buildXlsx([s], { ExcelJS });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(bytes as unknown as ArrayBuffer);
+    expect(wb.getWorksheet('Lampiran')).toBeTruthy();
   });
 });

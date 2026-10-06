@@ -7,7 +7,7 @@ import { useAction } from '@/api/queries';
 import type { FinancialNotes, NoteSection, NoteTable } from '@/api/types';
 import { acc, longDate } from './format';
 
-function NoteTableView({ t }: { t: NoteTable }) {
+export function NoteTableView({ t }: { t: NoteTable }) {
   const cell = (v: string | number | null, i: number) => (t.align[i] === 'right' && v !== null && v !== '' && !Number.isNaN(Number(v)) ? acc(v) : v);
   const data = t.rows.map((r, i) => ({ key: i, r }));
   return (

@@ -10,7 +10,7 @@
 import { BadRequestException, Body, Controller, Delete, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsDateString, IsIn, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
-import { TAX_PAYMENT_TYPES, type TaxPaymentType } from '@sansu/shared';
+import { TAX_PAYMENT_TYPES, type TaxPaymentType, taxDueDate } from '@sansu/shared';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -28,6 +28,7 @@ import { loadAccounts, sumByAccount } from '../accounting/ledger-data';
 import { PostingService } from '../accounting/posting.service';
 import { FiscalService } from '../insights/fiscal.service';
 import { InsightsModule } from '../insights/insights.module';
+import { yearQuery } from '../../common/pipes/year.pipe';
 
 // ---------- DTO ----------
 export class CreateTaxPaymentDto {
@@ -145,12 +146,9 @@ export class TaxService {
       }, ZERO);
   }
 
+  /** Aturan tenggat ada di @sansu/shared (taxDueDate) agar cek kesehatan dan rekap pajak selalu sama */
   private dueDate(type: TaxPaymentType, period: string) {
-    const nm = nextMonth(period);
-    if (type === 'PPN') return monthEnd(nm);
-    if (type === 'PPH29') return `${Number(period.slice(0, 4)) + 1}-04-30`;
-    if (type === 'BPJS') return `${nm}-10`;
-    return `${nm}-15`;
+    return taxDueDate(type, period);
   }
 
   private status(outstanding: Dec, paid: Dec, due: string, optional = false): TaxObligation['status'] {
@@ -283,6 +281,12 @@ export class TaxService {
           vatIn = vat.remIn.gt(0) ? vat.remIn : ZERO;
           amount = vatOut.minus(vatIn);
         } else {
+          // Lebih bayar tanpa PPN keluaran: tidak ada yang disetor maupun dikompensasikan; masukan dibawa otomatis
+          if (vat.remOut.lte(0)) {
+            throw new BadRequestException(
+              `Masa ${dto.period} tidak punya PPN keluaran. PPN masukan Rp${vat.remIn.toDecimalPlaces(0).toNumber().toLocaleString('id-ID')} dibawa ke masa berikutnya secara otomatis, tidak perlu disetor atau dicatat kompensasinya.`,
+            );
+          }
           // Lebih bayar: keluaran dinolkan dengan masukan, sisa masukan dibawa ke masa berikutnya
           vatOut = vat.remOut.gt(0) ? vat.remOut : ZERO;
           vatIn = vatOut;
@@ -572,8 +576,7 @@ export class TaxController {
   }
   @Get('reports/annual')
   annual(@CurrentUser() u: AuthUser, @Query('year') year?: string) {
-    const y = Number(year);
-    return this.svc.annualRecap(u.tenantId, y >= 2000 && y <= 2100 ? y : Number(todayJakarta().slice(0, 4)));
+    return this.svc.annualRecap(u.tenantId, yearQuery(year, Number(todayJakarta().slice(0, 4))));
   }
   @Get('reports/withholding')
   withholding(@CurrentUser() u: AuthUser, @Query('period') period?: string) {
@@ -582,7 +585,7 @@ export class TaxController {
   }
   @Get('payments')
   list(@CurrentUser() u: AuthUser, @Query('year') year?: string) {
-    return this.svc.list(u.tenantId, Number(year) || undefined);
+    return this.svc.list(u.tenantId, yearQuery(year, undefined));
   }
   @Post('payments')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreateTaxPaymentDto) {

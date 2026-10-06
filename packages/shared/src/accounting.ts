@@ -193,3 +193,27 @@ export const WITHHOLDING_LABELS: Record<(typeof WITHHOLDING_TYPES)[number], stri
   PPH23: 'PPh 23 (jasa 2%)',
   PPH4_2: 'PPh 4(2) (sewa bangunan 10%)',
 };
+
+/**
+ * Batas akhir setor pajak untuk satu masa (period = 'YYYY-MM'), format YYYY-MM-DD.
+ *  - PPh 21, 23, 4(2): tanggal 10 bulan berikutnya
+ *  - PPh 25 dan PPh final UMKM: tanggal 15 bulan berikutnya
+ *  - PPN: akhir bulan berikutnya (sebelum SPT Masa PPN)
+ *  - PPh 29 badan (period = tahun pajak 'YYYY' atau 'YYYY-MM'): 30 April tahun berikutnya
+ *  - BPJS: tanggal 10 bulan berikutnya (Kesehatan; Ketenagakerjaan tanggal 15 ditampilkan di rekap BPJS)
+ * Penggeseran karena akhir pekan atau hari libur tidak dimodelkan.
+ */
+export function taxDueDate(type: TaxPaymentType, period: string): string {
+  const y = Number(period.slice(0, 4));
+  if (type === 'PPH29') return `${y + 1}-04-30`;
+  const m = Number(period.slice(5, 7));
+  const ny = m === 12 ? y + 1 : y;
+  const nm = m === 12 ? 1 : m + 1;
+  const ym = `${ny}-${String(nm).padStart(2, '0')}`;
+  if (type === 'PPN') {
+    const last = new Date(Date.UTC(ny, nm, 0)).getUTCDate();
+    return `${ym}-${String(last).padStart(2, '0')}`;
+  }
+  if (type === 'PPH25' || type === 'PPH_FINAL') return `${ym}-15`;
+  return `${ym}-10`;
+}

@@ -135,8 +135,11 @@ export default function TaxPage() {
             {
               render: (_, o) => {
                 const canPay = Number(o.outstanding) > 0 || (o.type === 'PPN' && Number(o.detail?.ppnKeluaran ?? 0) > 0) || o.type === 'PPH25';
+                // PPN lebih bayar tanpa PPN keluaran tidak punya yang dikompensasi: masukan dibawa otomatis ke masa berikutnya
+                const nothingToDo = o.type === 'PPN' && Number(o.outstanding) <= 0 && Number(o.detail?.ppnKeluaran ?? 0) <= 0;
                 return (
-                  canPay && (
+                  canPay &&
+                  !nothingToDo && (
                     <Button
                       size="small"
                       type={Number(o.outstanding) > 0 ? 'primary' : 'default'}

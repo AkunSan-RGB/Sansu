@@ -33,19 +33,33 @@ export default function BillModal({ open, onClose }: { open: boolean; onClose: (
   const whBase = lines.filter((l) => l && (l.withholding ?? l.type === 'EXPENSE')).reduce((a, l) => a + lineTotal(l), 0);
   const wh = whType ? Math.round((whBase * whRate) / 100) : 0;
 
+  // Batas kapitalisasi: sama dengan aturan di server (per unit, setelah PPN non-PKP, tanah dikecualikan)
+  const threshold = company.data?.reporting?.capitalizationThreshold ?? 0;
+  const belowThreshold = (l: LineV) => {
+    if (l?.type !== 'ASSET' || threshold <= 0 || !l.price) return false;
+    const cat = cats.data?.find((c) => c.id === l.assetCategoryId);
+    if (!cat || cat.method === 'NONE' || cat.fiscalGroup === 'LAND') return false;
+    const qty = l.qty ?? 1;
+    const units = Number.isInteger(qty) && qty <= 50 ? qty : 1;
+    const cost = lineTotal(l) * (nonPkp && withVat ? 1 + ppn / 100 : 1);
+    return cost / units < threshold;
+  };
+
   const expenseOptions = accounts.data
     ?.filter((a) => a.isPostable && a.isActive !== false && !a.isCashAccount && ['EXPENSE', 'ASSET'].includes(a.type) && a.systemKey !== 'INVENTORY')
     .map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` }));
 
   const save = useAction(
     (v: Record<string, unknown> & { lines: LineV[] }) =>
-      post<PurchaseInvoice & { journalNumber: string }>('/purchase-invoices/bills', {
+      post<PurchaseInvoice & { journalNumber: string; expensedLines?: number }>('/purchase-invoices/bills', {
         ...v,
         withholdingRate: v.withholdingType ? String(v.withholdingRate ?? 0) : undefined,
         lines: v.lines.map((l) => ({ ...l, qty: String(l.qty ?? 1), price: String(l.price ?? 0), withholding: l.withholding ?? l.type === 'EXPENSE' })),
       }),
     {
-      success: (r) => `Tagihan ${r.number} diposting · jurnal ${r.journalNumber}`,
+      success: (r) =>
+        `Tagihan ${r.number} diposting · jurnal ${r.journalNumber}` +
+        (r.expensedLines ? ` · ${r.expensedLines} baris di bawah batas kapitalisasi dibebankan` : ''),
       invalidate: ['purchase-invoices', 'suppliers', 'assets', ...LEDGER_KEYS],
       onSuccess: onClose,
     },
@@ -141,6 +155,9 @@ export default function BillModal({ open, onClose }: { open: boolean; onClose: (
                       <Form.Item name={[f.name, 'withholding']} valuePropName="checked" initialValue={t === 'EXPENSE'}>
                         <Checkbox>Dipotong PPh</Checkbox>
                       </Form.Item>
+                    )}
+                    {belowThreshold(lines[f.name]) && (
+                      <Typography.Text type="warning">Di bawah batas kapitalisasi {fmtMoney(threshold)} → dibebankan, bukan aset</Typography.Text>
                     )}
                     {fields.length > 1 && <MinusCircleOutlined onClick={() => remove(f.name)} />}
                   </Space>

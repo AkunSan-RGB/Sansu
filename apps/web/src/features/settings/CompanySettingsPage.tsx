@@ -1,14 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { LEGAL_FORM_LABELS, REPORTING_FRAMEWORK_LABELS, TAX_SCHEME_LABELS, toOptions } from '@sansu/shared';
 import { Alert, Button, Card, Col, Form, Input, InputNumber, Radio, Row, Select, Switch } from 'antd';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { get, patch } from '@/api/client';
 import { useAction } from '@/api/queries';
 import type { CompanySettings, PayrollSettings, ReportingSettings } from '@/api/types';
 import { useApps } from '@/lib/apps';
 import PageHeader from '@/layout/PageHeader';
+import { rupiahInput } from '@/lib/format';
 import BrandingCard from './BrandingCard';
 import BusinessModelCard from './BusinessModelCard';
+import EntityProfileWizard from './EntityProfileWizard';
 
 export default function CompanySettingsPage() {
   const { can } = useApps();
@@ -19,6 +22,16 @@ export default function CompanySettingsPage() {
   const framework = Form.useWatch('framework', reporting);
   const scheme = Form.useWatch('taxScheme', reporting);
   const pkp = Form.useWatch('pkp', company) ?? true;
+  // Wizard bisa dibuka dari panduan mulai lewat ?wizard=1
+  const [params, setParams] = useSearchParams();
+  const [wizard, setWizard] = useState(params.get('wizard') === '1');
+  const closeWizard = () => {
+    setWizard(false);
+    if (params.has('wizard')) {
+      params.delete('wizard');
+      setParams(params, { replace: true });
+    }
+  };
   useEffect(() => {
     if (data) {
       company.setFieldsValue({ ...data, ppnRate: Number(data.ppnRate), ...data.taxProfile });
@@ -28,18 +41,19 @@ export default function CompanySettingsPage() {
   }, [data, company, payroll, reporting]);
   const saveReporting = useAction((v: ReportingSettings) => patch('/settings/reporting', v), {
     success: 'Pengaturan pelaporan disimpan',
-    invalidate: ['company', 'framework', 'statements', 'notes', 'fiscal'],
+    invalidate: ['company', 'framework', 'statements', 'notes', 'fiscal', 'tax-thresholds', 'entity-profile'],
   });
 
   const saveCompany = useAction(
     (v: { ppnRate: number; pkp?: boolean; posPricesIncludeVat?: boolean; salesPricesIncludeVat?: boolean }) => patch('/settings/company', { ...v, ppnRate: String(v.ppnRate) }),
-    { success: 'Data perusahaan disimpan', invalidate: ['company', 'me'] },
+    { success: 'Data perusahaan disimpan', invalidate: ['company', 'me', 'tax-thresholds'] },
   );
   const savePayroll = useAction((v: PayrollSettings) => patch('/settings/payroll', v), { success: 'Pengaturan penggajian disimpan', invalidate: ['company'] });
 
   return (
     <>
       <PageHeader title="Perusahaan" />
+      <EntityProfileWizard open={wizard} onClose={closeWizard} />
       <Row gutter={[16, 16]}>
         <Col xs={24}>
           <BusinessModelCard />
@@ -110,7 +124,20 @@ export default function CompanySettingsPage() {
         </Col>
         {can('accounting') && (
           <Col xs={24} lg={12}>
-            <Card title="Pelaporan keuangan & PPh Badan">
+            <Card
+              title="Pelaporan keuangan & PPh Badan"
+              extra={
+                <Button size="small" onClick={() => setWizard(true)}>
+                  Wizard rekomendasi
+                </Button>
+              }
+            >
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message="Bingung memilih SAK EMKM atau SAK EP, atau skema PPh? Wizard menghitung ukuran usaha dari pembukuan lalu menyarankan pilihan yang sesuai."
+              />
               <Form form={reporting} layout="vertical" onFinish={(v) => saveReporting.mutate(v)}>
                 <Form.Item
                   name="framework"
@@ -163,6 +190,13 @@ export default function CompanySettingsPage() {
                     <InputNumber min={1980} max={2100} style={{ width: '100%' }} />
                   </Form.Item>
                 )}
+                <Form.Item
+                  name="capitalizationThreshold"
+                  label="Batas kapitalisasi aset tetap (per unit)"
+                  extra="Pembelian aset di bawah batas ini langsung dibebankan ke 'Beban Peralatan Kecil', tidak didaftarkan sebagai aset. Isi 0 untuk mengapitalisasi semuanya. Tanah selalu dikapitalisasi."
+                >
+                  <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
+                </Form.Item>
                 <Button type="primary" htmlType="submit" loading={saveReporting.isPending}>
                   Simpan pengaturan pelaporan
                 </Button>

@@ -27,6 +27,8 @@ export default function BusinessModelCard() {
         qc.invalidateQueries({ queryKey: ['me'] });
         qc.invalidateQueries({ queryKey: ['onboarding'] });
         qc.invalidateQueries({ queryKey: ['apps'] });
+        // bagan akun mendapat akun khusus model baru; laporan memakai istilah model baru
+        for (const k of ['accounts', 'statements', 'notes', 'appendix', 'entity-profile']) qc.invalidateQueries({ queryKey: [k] });
       },
     },
   );
@@ -34,8 +36,9 @@ export default function BusinessModelCard() {
   return (
     <Card title="Model bisnis">
       <Typography.Paragraph type="secondary">
-        Menentukan aplikasi yang disarankan dan langkah panduan mulai. Semua aplikasi tetap bisa dinyalakan atau
-        dimatikan di Pengaturan › Aplikasi.
+        Menentukan aplikasi yang disarankan, langkah panduan mulai, akun khusus di bagan akun, dan istilah di laporan
+        keuangan (mis. beban pokok penjualan atau beban pokok pendapatan). Mengganti model tidak menghapus akun atau
+        mengubah angka. Semua aplikasi tetap bisa dinyalakan atau dimatikan di Pengaturan › Aplikasi.
       </Typography.Paragraph>
       <BusinessModelPicker value={model} onChange={isAdmin ? setModel : undefined} detailed />
       <div style={{ margin: '16px 0 8px', fontWeight: 600 }}>Alur yang dihubungkan SANSU</div>

@@ -750,6 +750,7 @@ export class ProductionController {
   constructor(private readonly svc: ProductionService) {}
 
   @Get('boms')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
   boms(@CurrentUser() u: AuthUser) {
     return this.svc.listBoms(u.tenantId);
   }
@@ -765,6 +766,7 @@ export class ProductionController {
   }
 
   @Get('orders')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
   orders(@CurrentUser() u: AuthUser) {
     return this.svc.listOrders(u.tenantId);
   }
@@ -774,6 +776,7 @@ export class ProductionController {
     return this.svc.report(u.tenantId, period || new Date().toISOString().slice(0, 7));
   }
   @Get('orders/:id')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
   order(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.getOrder(u.tenantId, id);
   }

@@ -879,6 +879,7 @@ export class BillingController {
   constructor(private readonly svc: BillingService) {}
 
   @Get()
+  @Roles('ADMIN')
   overview(@CurrentUser() u: AuthUser) {
     return this.svc.overview(u);
   }
@@ -887,6 +888,7 @@ export class BillingController {
     return this.svc.support();
   }
   @Get('invoices/:id')
+  @Roles('ADMIN')
   invoice(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.invoiceDoc(id, u.tenantId);
   }

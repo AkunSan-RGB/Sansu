@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
 import { APP_ICONS, useApps } from '@/lib/apps';
 import OnboardingCard from './OnboardingCard';
+import TaxThresholdAlerts from './TaxThresholdAlerts';
 
 interface Tile {
   key: string;
@@ -66,7 +67,7 @@ export default function HomePage() {
   const greet = hour < 11 ? 'Selamat pagi' : hour < 15 ? 'Selamat siang' : hour < 18 ? 'Selamat sore' : 'Selamat malam';
 
   const tiles: Tile[] = [
-    ...(can('accounting') || can('sales')
+    ...((can('accounting') || can('sales')) && ['OWNER', 'ADMIN', 'FINANCE', 'SALES'].includes(me?.role ?? '')
       ? [{ key: 'dashboard', name: 'Dashboard', color: '#334155', to: '/dashboard', icon: APP_ICONS.dashboard }]
       : []),
     // urutan ubin mengikuti alur kerja, sama dengan sidebar
@@ -111,6 +112,7 @@ export default function HomePage() {
       <Typography.Paragraph type="secondary" style={{ marginBottom: 24 }}>
         {me?.tenantName} · pilih aplikasi untuk mulai bekerja
       </Typography.Paragraph>
+      <TaxThresholdAlerts />
       <OnboardingCard />
       <Card styles={{ body: { padding: 16 } }}>
         <Row gutter={[8, 8]}>

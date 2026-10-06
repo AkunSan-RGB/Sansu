@@ -73,7 +73,7 @@ describe('Rekap pajak & BPJS (e2e)', () => {
       amount: '40000.00',
       ledger: '40000.00',
       unexplained: '0.00',
-      dueDate: '2026-03-15',
+      dueDate: '2026-03-10', // PPh 23 disetor paling lambat tanggal 10 bulan berikutnya
       reportDue: '2026-03-20',
     });
     expect(s42).toMatchObject({ base: '10000000.00', amount: '1000000.00', unexplained: '0.00' });
@@ -86,7 +86,7 @@ describe('Rekap pajak & BPJS (e2e)', () => {
   });
 
   it('rekap tahunan: terutang per masa, setoran tepat/terlambat, masa mendatang', async () => {
-    await post('/api/tax/payments', { type: 'PPH23', period: '2026-02', date: '2026-03-12', ntpn: 'NTPN23FEB' }).expect(
+    await post('/api/tax/payments', { type: 'PPH23', period: '2026-02', date: '2026-03-10', ntpn: 'NTPN23FEB' }).expect(
       201,
     );
     await post('/api/tax/payments', {
@@ -105,13 +105,18 @@ describe('Rekap pajak & BPJS (e2e)', () => {
       diff: '0.00',
       status: 'TEPAT',
       ntpn: 'NTPN23FEB',
-      paidDate: '2026-03-12',
+      paidDate: '2026-03-10',
     });
-    expect(t('PPH4_2').months[1]).toMatchObject({ status: 'TERLAMBAT', dueDate: '2026-03-15' });
+    expect(t('PPH4_2').months[1]).toMatchObject({ status: 'TERLAMBAT', dueDate: '2026-03-10' }); // dibayar tanggal 18, lewat tanggal 10
     expect(t('PPH23').months[0].status).toBe('NIHIL');
     expect(t('PPH23').total).toMatchObject({ payable: '40000.00', paid: '40000.00' });
     // PPN masukan Februari (jasa 2 jt × 11%) → lebih bayar, dikompensasikan ke masa berikutnya
     expect(t('PPN').months[1]).toMatchObject({ status: 'LEBIH_BAYAR', detail: { masukan: '220000.00' } });
+    // masa yang hanya punya PPN masukan: tidak ada yang disetor atau dikompensasikan; pesannya harus jelas, bukan error jurnal
+    const noOut = await post('/api/tax/payments', { type: 'PPN', period: '2026-02', date: '2026-03-20' }).expect(400);
+    expect(noOut.body.message).toMatch(/tidak punya PPN keluaran/);
+    expect(noOut.body.message).toMatch(/dibawa ke masa berikutnya/);
+    expect(noOut.body.message).not.toMatch(/Jurnal minimal/);
     expect(t('PPN').months[2].detail.kompensasi).toBe('220000.00');
     expect(t('PPN').months[11].status).toBe('BELUM_MASA');
     expect(y.corporate).toHaveProperty('pkp');

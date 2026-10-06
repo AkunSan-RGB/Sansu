@@ -31,6 +31,7 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { monthRange, workDaysBetween } from '../hr/hr.module';
 import { computePayslip, PayslipCalc } from './compute';
+import { yearQuery } from '../../common/pipes/year.pipe';
 
 // ---------- DTO ----------
 export class CreateRunDto {
@@ -503,7 +504,7 @@ export class PayrollController {
   }
   @Get('reports/pph21')
   pph21(@CurrentUser() u: AuthUser, @Query('year') year?: string) {
-    return this.svc.pph21Report(u.tenantId, Number(year) || new Date().getFullYear());
+    return this.svc.pph21Report(u.tenantId, yearQuery(year, new Date().getFullYear()));
   }
 }
 

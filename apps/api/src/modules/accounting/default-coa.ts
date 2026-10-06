@@ -1,4 +1,4 @@
-import type { FiscalTreatment, ReportGroup } from '@sansu/shared';
+import type { BusinessModel, FiscalTreatment, ReportGroup } from '@sansu/shared';
 import { AccountType } from '../../db/schema';
 
 /** Kunci akun sistem yang dipakai jurnal otomatis. */
@@ -54,6 +54,7 @@ export const SYS = {
   DIRECT_LABOR: 'DIRECT_LABOR',
   FACTORY_OVERHEAD: 'FACTORY_OVERHEAD',
   APPLIED_PRODUCTION_COST: 'APPLIED_PRODUCTION_COST',
+  SMALL_ASSET_EXPENSE: 'SMALL_ASSET_EXPENSE',
 } as const;
 export type SystemKey = (typeof SYS)[keyof typeof SYS];
 
@@ -69,6 +70,8 @@ export interface CoaRow {
   /** Kelompok penyajian laporan keuangan (SAK EP) */
   group?: ReportGroup;
   fiscal?: FiscalTreatment;
+  /** Akun khusus jenis usaha: hanya dibuat untuk model ini (kosong = semua model). Tidak pernah dihapus bila model diganti. */
+  models?: BusinessModel[];
 }
 
 /**
@@ -161,6 +164,11 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '5-4100', name: 'Upah Langsung Produksi', type: 'EXPENSE', parent: '5-0000', key: SYS.DIRECT_LABOR, group: 'COST_OF_SALES' },
   { code: '5-4200', name: 'Overhead Pabrik (listrik, penyusutan mesin, dll.)', type: 'EXPENSE', parent: '5-0000', key: SYS.FACTORY_OVERHEAD, group: 'COST_OF_SALES' },
   { code: '5-4900', name: 'Biaya Produksi Dibebankan ke Persediaan', type: 'EXPENSE', parent: '5-0000', key: SYS.APPLIED_PRODUCTION_COST, group: 'COST_OF_SALES' },
+  { code: '5-1500', name: 'Beban Subkontraktor', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'] },
+  { code: '5-1600', name: 'Beban Bahan & Material Proyek', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'] },
+  { code: '5-1700', name: 'Upah Langsung Proyek', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'] },
+  { code: '5-4300', name: 'Beban Bahan Penolong & Kemasan Produksi', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['PRODUKSI'] },
+  { code: '5-4400', name: 'Beban Pemeliharaan Mesin Produksi', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['PRODUKSI'] },
   { code: '5-3000', name: 'Kerugian Penurunan Nilai Persediaan', type: 'EXPENSE', parent: '5-0000', key: SYS.INVENTORY_WRITEDOWN, group: 'COST_OF_SALES', fiscal: 'NON_DEDUCTIBLE' },
 
   // ===== 6 BEBAN USAHA =====
@@ -177,6 +185,12 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '6-5000', name: 'Beban Penyusutan', type: 'EXPENSE', parent: '6-0000', key: SYS.DEPRECIATION_EXPENSE, group: 'ADMIN_EXPENSE' },
   { code: '6-5100', name: 'Beban Amortisasi', type: 'EXPENSE', parent: '6-0000', group: 'ADMIN_EXPENSE' },
   { code: '6-6000', name: 'Beban Perlengkapan Kantor', type: 'EXPENSE', parent: '6-0000', group: 'ADMIN_EXPENSE' },
+  { code: '6-6100', name: 'Beban Peralatan Kecil (di Bawah Batas Kapitalisasi)', type: 'EXPENSE', parent: '6-0000', key: SYS.SMALL_ASSET_EXPENSE, group: 'ADMIN_EXPENSE' },
+  // --- Akun khusus jenis usaha ---
+  { code: '6-2350', name: 'Beban Bongkar Muat & Pengemasan', type: 'EXPENSE', parent: '6-0000', group: 'SELLING_EXPENSE', models: ['DAGANG'] },
+  { code: '6-2450', name: 'Beban Biaya Pembayaran Digital (MDR QRIS & Kartu)', type: 'EXPENSE', parent: '6-0000', group: 'SELLING_EXPENSE', models: ['RITEL'] },
+  { code: '6-2500', name: 'Beban Kantong & Kemasan Toko', type: 'EXPENSE', parent: '6-0000', group: 'SELLING_EXPENSE', models: ['RITEL'] },
+  { code: '6-3600', name: 'Beban Perjalanan Dinas', type: 'EXPENSE', parent: '6-0000', group: 'ADMIN_EXPENSE', models: ['JASA'] },
   { code: '6-7000', name: 'Beban Perbaikan & Pemeliharaan', type: 'EXPENSE', parent: '6-0000', group: 'ADMIN_EXPENSE' },
   { code: '6-7100', name: 'Beban Asuransi', type: 'EXPENSE', parent: '6-0000', group: 'ADMIN_EXPENSE' },
   { code: '6-7200', name: 'Beban Jasa Profesional', type: 'EXPENSE', parent: '6-0000', group: 'ADMIN_EXPENSE' },

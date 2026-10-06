@@ -13,6 +13,7 @@ import {
   type CashCount,
   type CashFlowStatement,
   type EquityStatement,
+  type FinancialAppendix,
   type FinancialNotes,
   type FinancialPosition,
   type FiscalAssetGroup,
@@ -498,7 +499,20 @@ export function cashFlowSheet(c: CashFlowStatement, m: StatementMeta): SheetSpec
   return [s.spec];
 }
 
+type DocLike = Pick<FinancialNotes, 'framework' | 'period'> & {
+  company: { name: string };
+  sections: { number: string; title: string; paragraphs: string[]; tables: FinancialNotes['sections'][number]['tables']; subsections?: FinancialNotes['sections'][number]['subsections'] }[];
+};
+
 export function notesSheet(nt: FinancialNotes, company?: string): SheetSpec[] {
+  return documentSheet('CALK', 'Catatan atas Laporan Keuangan', nt, company);
+}
+
+export function appendixSheet(ap: FinancialAppendix, company?: string): SheetSpec[] {
+  return documentSheet('Lampiran', 'Lampiran Laporan Keuangan', ap, company);
+}
+
+function documentSheet(sheetName: string, docTitle: string, nt: DocLike, company?: string): SheetSpec[] {
   const width = Math.max(
     3,
     ...nt.sections.flatMap((x) => [
@@ -506,9 +520,9 @@ export function notesSheet(nt: FinancialNotes, company?: string): SheetSpec[] {
       ...(x.subsections ?? []).map((u) => u.table?.columns.length ?? 0),
     ]),
   );
-  const s = new SheetBuilder('CALK', {
+  const s = new SheetBuilder(sheetName, {
     company: company ?? nt.company.name,
-    title: 'Catatan atas Laporan Keuangan',
+    title: docTitle,
     subtitle: [`Untuk tahun yang berakhir ${tgl(nt.period.to)}`, `${basis(nt.framework)} · ${RP}`],
     columns: [
       { key: 'c0', header: 'Uraian', width: 50 },

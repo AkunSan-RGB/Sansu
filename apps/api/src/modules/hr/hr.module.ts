@@ -50,6 +50,7 @@ import { addDays, DocDate, toDocDate } from '../../common/utils/dates';
 import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { attendances, employees, leaveRequests, projects } from '../../db/schema';
+import { IsNik, IsNpwp } from '../../common/validators/npwp';
 
 // ---------- Kalender kerja ----------
 const dow = (d: DocDate) => new Date(`${d}T00:00:00Z`).getUTCDay(); // 0 = Minggu
@@ -69,8 +70,8 @@ export const monthRange = (period: string) => {
 export class CreateEmployeeDto {
   @ApiProperty({ example: 'EMP-001' }) @IsString() @MaxLength(30) code: string;
   @ApiProperty({ example: 'Siti Rahma' }) @IsString() @MaxLength(120) name: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(20) nik?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(30) npwp?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @IsNik() nik?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(30) @IsNpwp() npwp?: string;
   @ApiProperty({ enum: PTKP_STATUSES }) @IsIn(PTKP_STATUSES) ptkp: PtkpStatus;
   @ApiPropertyOptional() @IsOptional() @IsString() jobTitle?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() department?: string;

@@ -9,6 +9,7 @@
  *  - Pajak tangguhan dari beda temporer aset tetap (SAK EP)
  */
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { FACILITY_31E_REVENUE_LIMIT, FINAL_TAX_EXCLUDED_FORMS, type LegalForm, TAX_REVENUE_LIMIT } from '@sansu/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SettingsService } from '../../common/settings.service';
@@ -24,8 +25,8 @@ import { StatementsService } from '../accounting/statements.service';
 import { AssetsService } from '../assets/assets.module';
 
 export const CORPORATE_RATE = 22;
-const THRESHOLD_FULL = D(4_800_000_000);
-const THRESHOLD_31E = D(50_000_000_000);
+const THRESHOLD_FULL = D(TAX_REVENUE_LIMIT);
+const THRESHOLD_31E = D(FACILITY_31E_REVENUE_LIMIT);
 
 /** PPh Badan tarif umum dengan fasilitas Pasal 31E UU PPh */
 export function corporateTax(pkp: Dec, grossRevenue: Dec) {
@@ -179,7 +180,7 @@ export class FiscalService {
     if (reporting.taxScheme === 'FINAL_UMKM') {
       taxDue = money(grossRevenue.times(0.5).div(100)).floor();
       method = 'PPh final 0,5% × peredaran bruto (PP 55/2022 jo. PP 20/2026)';
-      if (['PT', 'CV', 'FIRMA'].includes(reporting.legalForm)) {
+      if (FINAL_TAX_EXCLUDED_FORMS.includes(reporting.legalForm as LegalForm)) {
         warnings.push(
           'Sejak PP 20/2026, CV, Firma, dan PT (bukan PT Perorangan) tidak lagi menjadi subjek PPh final 0,5% kecuali masih dalam masa transisi jangka waktu semula. Pastikan perusahaan masih berhak.',
         );
@@ -196,6 +197,20 @@ export class FiscalService {
     const prepaid = accs.find((a) => a.systemKey === SYS.PREPAID_TAX);
     const credits = prepaid ? natural(prepaid.type, get(yearEnd, prepaid.id)) : ZERO;
     const pph29 = taxDue.minus(credits);
+
+    // Dasar angsuran PPh 25 tahun berikutnya (PMK 215/PMK.03/2018): PPh terutang dikurangi PPh 21/22/23/24 yang
+    // dipotong/dipungut pihak lain pada tahun itu. PPh 25 yang sudah disetor sendiri TIDAK dikurangkan
+    // (ia hanya mengurangi PPh 29). Kredit pihak lain = debit akun Pajak Dibayar Dimuka tahun itu di luar
+    // setoran pajak sendiri dan jurnal pajak akhir tahun.
+    const [wc] = (
+      await this.db.execute<{ v: string }>(sql`
+        SELECT COALESCE(SUM(l.debit - l.credit), 0) AS v
+        FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
+        WHERE j.tenant_id = ${tenantId} AND a.system_key = ${SYS.PREPAID_TAX} AND j.date BETWEEN ${from} AND ${to}
+          AND j.source_type NOT IN ('TAX_PAYMENT', 'INCOME_TAX', 'CLOSING')`)
+    ).rows;
+    const withheldCredits = Decimal.max(D(wc?.v), ZERO);
+    const installmentBase = taxDue.minus(withheldCredits);
 
     // Pajak tangguhan (hanya SAK EP + tarif umum): beda temporer nilai buku aset tetap
     let deferred = null as null | { temporaryDifference: string; target: string; current: string; adjustment: string };
@@ -233,7 +248,8 @@ export class FiscalService {
       taxDue: f(taxDue),
       credits: f(credits),
       pph29: f(pph29),
-      installment25: f(reporting.taxScheme === 'GENERAL' && pph29.gt(0) ? taxDue.minus(credits).div(12).floor() : ZERO),
+      withheldCredits: f(withheldCredits),
+      installment25: f(reporting.taxScheme === 'GENERAL' && installmentBase.gt(0) ? installmentBase.div(12).floor() : ZERO),
       deferred,
       depreciation: assetRows,
       warnings,
