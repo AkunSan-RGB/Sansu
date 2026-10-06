@@ -14,7 +14,7 @@ type Row = {
 };
 
 /** Tabel laporan bergaya laporan keuangan: kolom pos, catatan, tahun berjalan, pembanding */
-function StatementTable({ rows, current, previous, compare, wide }: { rows: Row[]; current: string; previous: string; compare: boolean; wide?: boolean }) {
+function StatementTable({ rows, current, previous, compare }: { rows: Row[]; current: string; previous: string; compare: boolean }) {
   const strong = (r: Row) => ['subtotal', 'total', 'grand'].includes(r.kind);
   const columns: ColumnsType<Row> = [
     {
@@ -33,7 +33,7 @@ function StatementTable({ rows, current, previous, compare, wide }: { rows: Row[
       title: current,
       dataIndex: 'amount',
       align: 'right',
-      width: wide ? 280 : 180,
+      width: 180,
       render: (v, r) => (['header', 'spacer'].includes(r.kind) ? null : <Amount v={v} strong={strong(r)} double={r.kind === 'grand'} />),
     },
   ];
@@ -42,7 +42,7 @@ function StatementTable({ rows, current, previous, compare, wide }: { rows: Row[
       title: previous,
       dataIndex: 'compare',
       align: 'right',
-      width: wide ? 280 : 180,
+      width: 180,
       render: (v, r) => (['header', 'spacer'].includes(r.kind) ? null : <Amount v={v} strong={strong(r)} double={r.kind === 'grand'} />),
     });
   return (
@@ -53,7 +53,7 @@ function StatementTable({ rows, current, previous, compare, wide }: { rows: Row[
       pagination={false}
       dataSource={rows}
       columns={columns}
-      scroll={{ x: wide ? 760 : 560 }}
+      scroll={{ x: 560 }}
       rowClassName={(r) => `st-${r.kind}`}
     />
   );
@@ -111,7 +111,14 @@ const INCOME_HEADERS: Record<string, Record<string, string>> = {
   },
 };
 
-const periodText = (x: { from: string; to: string }) => `${longDate(x.from)} – ${longDate(x.to)}`;
+/** Judul kolom: tanggal akhir periode saja, sama seperti posisi keuangan; rentang lengkap ada di keterangan di atas tabel */
+const periodText = (x: { from: string; to: string }) => longDate(x.to);
+const periodNote = (d: { period: { from: string; to: string }; comparePeriod: { from: string; to: string } }, compare: boolean) => (
+  <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+    Periode {longDate(d.period.from)} – {longDate(d.period.to)}
+    {compare && ` · pembanding ${longDate(d.comparePeriod.from)} – ${longDate(d.comparePeriod.to)}`}
+  </Typography.Paragraph>
+);
 
 export function IncomeView({ d, refs, compare, detail }: { d: IncomeStatement; refs: Record<string, string>; compare: boolean; detail: boolean }) {
   const headers = INCOME_HEADERS[d.framework] ?? INCOME_HEADERS.DEFAULT;
@@ -121,7 +128,12 @@ export function IncomeView({ d, refs, compare, detail }: { d: IncomeStatement; r
     rows.push(...lineRows([l], refs, detail));
     if (l.kind !== 'group') rows.push({ key: `sp-${l.key}`, label: '', kind: 'spacer' });
   });
-  return <StatementTable rows={rows} current={periodText(d.period)} previous={periodText(d.comparePeriod)} compare={compare} wide />;
+  return (
+    <>
+      {periodNote(d, compare)}
+      <StatementTable rows={rows} current={periodText(d.period)} previous={periodText(d.comparePeriod)} compare={compare} />
+    </>
+  );
 }
 
 export function EquityView({ d, compare }: { d: EquityStatement; compare: boolean }) {
@@ -198,7 +210,8 @@ export function CashFlowView({ d, compare }: { d: CashFlowStatement; compare: bo
           message={`Selisih rekonsiliasi kas ${fmtMoney(d.current.difference)} — saldo kas di buku besar ${fmtMoney(d.current.actualClosing)}. Biasanya karena akun belum diklasifikasikan dengan benar di Bagan Akun.`}
         />
       )}
-      <StatementTable rows={rows} current={p(d.period)} previous={p(d.comparePeriod)} compare={compare} wide />
+      {periodNote(d, compare)}
+      <StatementTable rows={rows} current={p(d.period)} previous={p(d.comparePeriod)} compare={compare} />
     </>
   );
 }
