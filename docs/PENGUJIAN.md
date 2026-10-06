@@ -21,6 +21,7 @@ npm run test:e2e                    # e2e api: mereset dan memigrasi database `a
 | **Konkurensi** | `concurrency` | Permintaan serentak tidak melanggar pembukuan |
 | Jejak audit | `journal-immutable` | Jurnal terposting tidak bisa diubah/dihapus (trigger database) |
 | Kalender pajak & PPN | `tax-calendar-vat` | Tenggat digeser ke hari kerja berikutnya; pembulatan PPN ke rupiah penuh |
+| Bagan akun per jenis usaha | `coa-per-model` | Akun khusus, nama inti, dan akun tidak relevan per jenis usaha; nama buatan pengguna tidak tertimpa |
 | Saldo awal | `opening-balance` | Akun kontrol (piutang, utang, persediaan, penyeimbang) tidak bisa diisi manual; ringkasan kesiapan dan peringatan |
 
 ## Uji acak invarian
