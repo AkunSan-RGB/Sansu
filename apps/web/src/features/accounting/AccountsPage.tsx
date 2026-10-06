@@ -76,7 +76,7 @@ function ChartProfileBar({ hiddenCount }: { hiddenCount: number }) {
         </span>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           {info?.summary}. {hiddenCount > 0 ? `${hiddenCount} akun disembunyikan karena tidak sesuai profil ini` : 'Semua akun sesuai profil ini'}
-          {framework === 'SAK_EMKM' ? ' (SAK EMKM tidak mengakui pajak tangguhan).' : '.'}
+          {framework === 'SAK_EMKM' ? ' (SAK EMKM tidak mengakui pajak tangguhan dan liabilitas imbalan kerja aktuaria).' : '.'}
         </Typography.Text>
       </Space>
     </Card>

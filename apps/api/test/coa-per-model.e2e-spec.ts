@@ -126,18 +126,18 @@ describe('Bagan akun per jenis usaha (e2e)', () => {
   });
 
   describe('standar pelaporan: SAK EMKM tidak mengenal pajak tangguhan', () => {
-    const DEFERRED = ['1-2600', '2-2300', '9-1100'];
+    const DEFERRED = ['1-2600', '2-2300', '9-1100', '2-2200']; // pajak tangguhan dan liabilitas imbalan kerja aktuaria
     it('bawaan (SAK EP) pajak tangguhan aktif; pindah ke SAK EMKM menyembunyikannya; kembali ke SAK EP mengaktifkannya lagi', async () => {
       const t = tokens.PRODUKSI;
       const auth = { Authorization: `Bearer ${t}` };
       const state = async () => Object.fromEntries((await accounts('PRODUKSI')).filter((a) => DEFERRED.includes(a.code)).map((a) => [a.code, a.isActive]));
-      expect(await state()).toEqual({ '1-2600': true, '2-2300': true, '9-1100': true });
+      expect(await state()).toEqual({ '1-2600': true, '2-2300': true, '9-1100': true, '2-2200': true });
       await http.patch('/api/settings/reporting').set(auth).send({ framework: 'SAK_EMKM' }).expect(200);
-      expect(await state()).toEqual({ '1-2600': false, '2-2300': false, '9-1100': false });
+      expect(await state()).toEqual({ '1-2600': false, '2-2300': false, '9-1100': false, '2-2200': false });
       const hidden = (await accounts('PRODUKSI')).find((a) => a.code === '1-2600')!;
       expect(hidden.description).toMatch(/^Tidak dipakai/);
       await http.patch('/api/settings/reporting').set(auth).send({ framework: 'SAK_EP' }).expect(200);
-      expect(await state()).toEqual({ '1-2600': true, '2-2300': true, '9-1100': true });
+      expect(await state()).toEqual({ '1-2600': true, '2-2300': true, '9-1100': true, '2-2200': true });
     });
     it('lewat wizard standar: EMKM menyembunyikan pajak tangguhan; akun yang sudah punya saldo tetap terlihat', async () => {
       const t = tokens.DAGANG;

@@ -277,4 +277,7 @@ export const COA_FAMILIES: { name: string; codes: string[]; relevant: (model: Bu
   { name: 'Kasir', codes: ['6-9100'], relevant: (m, a) => m === 'RITEL' || a.has('pos') },
   // SAK EMKM tidak mengakui pajak tangguhan (pajak penghasilan diakui sebesar pajak kini)
   { name: 'Pajak tangguhan', codes: ['1-2600', '2-2300', '9-1100'], relevant: (_m, _a, fw) => fw === 'SAK_EP' },
+  // SAK EMKM tidak memiliki bab imbalan kerja dan tidak mengakui provisi: gaji dan tunjangan diakui sebagai beban pada saat terjadi (akrual),
+  // sehingga liabilitas imbalan pascakerja hasil perhitungan aktuaria hanya untuk SAK EP
+  { name: 'Imbalan kerja jangka panjang', codes: ['2-2200'], relevant: (_m, _a, fw) => fw === 'SAK_EP' },
 ];
