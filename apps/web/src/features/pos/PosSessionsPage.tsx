@@ -11,6 +11,7 @@ import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
 import { fmtMoney } from '@/lib/format';
 import Receipt, { printReceipt } from './Receipt';
+import { t } from '@/lib/terms';
 
 const dt = (v?: string | null) => (v ? dayjs(v).format('DD MMM YYYY HH:mm') : '-');
 
@@ -27,7 +28,7 @@ function SessionOrders({ sessionId, onOpen }: { sessionId: string; onOpen: (id: 
       columns={[
         { title: 'Nomor', dataIndex: 'number' },
         { title: 'Waktu', dataIndex: 'createdAt', render: (v) => dayjs(v).format('HH:mm') },
-        { title: 'Pelanggan', render: (_, o) => o.customer?.name ?? 'Umum' },
+        { title: t('Pelanggan'), render: (_, o) => o.customer?.name ?? 'Umum' },
         { title: 'Bayar', render: (_, o) => o.payments.map((p) => <Tag key={p.id}>{POS_PAYMENT_LABELS[p.method as PosPaymentMethod]}</Tag>) },
         { title: 'Total', dataIndex: 'total', align: 'right', render: fmtMoney },
       ]}
@@ -67,7 +68,7 @@ export default function PosSessionsPage() {
             { title: 'Tutup', dataIndex: 'closedAt', render: dt },
             { title: 'Status', dataIndex: 'status', render: (s) => (s === 'OPEN' ? <Tag color="green">Buka</Tag> : <Tag>Tutup</Tag>) },
             { title: 'Transaksi', dataIndex: 'orderCount', align: 'right' },
-            { title: 'Penjualan', dataIndex: 'totalSales', align: 'right', render: fmtMoney },
+            { title: t('Penjualan'), dataIndex: 'totalSales', align: 'right', render: fmtMoney },
             {
               title: 'Selisih kas',
               dataIndex: 'difference',

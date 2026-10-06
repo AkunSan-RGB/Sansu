@@ -1,5 +1,6 @@
 import type { FiscalTreatment, ReportGroup, TaxPaymentType } from './accounting.js';
 import type { AppKey, BusinessModel } from './apps.js';
+import type { TaxFeatures } from './tax-features.js';
 /**
  * Kontrak respons API SANSU (dipakai frontend; backend menghasilkan bentuk ini).
  * Angka uang/kuantitas dikirim sebagai string agar presisi tidak hilang.
@@ -39,6 +40,8 @@ export interface Me {
   taxProfile: TaxProfile;
   /** Aplikasi yang aktif di perusahaan */
   apps: AppKey[];
+  /** Fitur pajak yang relevan menurut jenis usaha, status PKP, dan skema PPh (menu pajak mengikuti ini) */
+  taxFeatures: TaxFeatures;
   /** Model bisnis perusahaan (Dagang, Ritel, Jasa, Produksi) */
   businessModel: BusinessModel;
   emailVerified: boolean;

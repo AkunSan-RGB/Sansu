@@ -9,6 +9,7 @@ import type { Quotation } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import ResponsiveTable from '@/components/ResponsiveTable';
+import { t } from '@/lib/terms';
 
 export const QUOTATION_COLOR: Record<QuotationStatus, string> = { DRAFT: 'default', SENT: 'blue', ACCEPTED: 'green', REJECTED: 'red', CANCELLED: 'default' };
 export const QuotationStatusTag = ({ q }: { q: Pick<Quotation, 'status' | 'validUntil'> }) =>
@@ -44,10 +45,10 @@ export default function QuotationsPage() {
             { title: 'Nomor', dataIndex: 'number' },
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
             { title: 'Berlaku s/d', dataIndex: 'validUntil', render: fmtDate },
-            { title: 'Pelanggan', render: (_, q) => q.customer.name },
+            { title: t('Pelanggan'), render: (_, q) => q.customer.name },
             { title: 'Total', dataIndex: 'total', align: 'right', render: fmtMoney },
             { title: 'Status', render: (_, q) => <QuotationStatusTag q={q} /> },
-            { title: 'Sales Order', render: (_, q) => q.salesOrder?.number ?? '-' },
+            { title: t('Sales Order'), render: (_, q) => q.salesOrder?.number ?? '-' },
           ]}
         />
       </Card>

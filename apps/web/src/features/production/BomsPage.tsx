@@ -24,6 +24,7 @@ import { get, post, put } from '@/api/client';
 import { useAction, useProducts } from '@/api/queries';
 import PageHeader from '@/layout/PageHeader';
 import { fmtMoney, fmtQty } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 type FormV = {
   code?: string;
@@ -55,7 +56,7 @@ export default function BomsPage() {
         showIcon
         style={{ marginBottom: 16 }}
         message="Resep = bahan yang dibutuhkan untuk satu batch produksi"
-        description="Isi bahan per batch (termasuk susut normal) dan biaya konversi standar: upah langsung dan overhead pabrik (listrik, penyusutan mesin, dll.) per batch. Harga pokok produk jadi = bahan + upah + overhead (SAK EP Bab 13). Taksiran di bawah memakai harga rata-rata bahan saat ini."
+        description={t('Isi bahan per batch (termasuk susut normal) dan biaya konversi standar: upah langsung dan overhead pabrik (listrik, penyusutan mesin, dll.) per batch. Harga pokok produk jadi = bahan + upah + overhead (SAK EP Bab 13). Taksiran di bawah memakai harga rata-rata bahan saat ini.')}
       />
       <Card>
         <Table<Bom>
@@ -84,7 +85,7 @@ export default function BomsPage() {
           columns={[
             { title: 'Kode', dataIndex: 'code' },
             { title: 'Nama', dataIndex: 'name' },
-            { title: 'Produk jadi', render: (_, b) => `${b.product.sku} · ${b.product.name}` },
+            { title: t('Produk jadi'), render: (_, b) => `${b.product.sku} · ${b.product.name}` },
             { title: 'Hasil / batch', align: 'right', render: (_, b) => `${fmtQty(b.outputQty)} ${b.product.unit}` },
             { title: 'Bahan / batch', align: 'right', render: (_, b) => fmtMoney(b.estimate.material) },
             {
@@ -160,7 +161,7 @@ function BomDrawer({ bom, onClose }: { bom: Bom | null; onClose: () => void }) {
       >
         <Row gutter={12}>
           <Col xs={24} md={14}>
-            <Form.Item name="productId" label="Produk jadi" rules={[{ required: true }]}>
+            <Form.Item name="productId" label={t('Produk jadi')} rules={[{ required: true }]}>
               <Select showSearch optionFilterProp="label" options={options} />
             </Form.Item>
           </Col>
@@ -174,7 +175,7 @@ function BomDrawer({ bom, onClose }: { bom: Bom | null; onClose: () => void }) {
               name="outputQty"
               label="Hasil per batch"
               rules={[{ required: true }]}
-              extra="Satuan dasar produk jadi"
+              extra={t('Satuan dasar produk jadi')}
             >
               <InputNumber min={0.0001} style={{ width: '100%' }} />
             </Form.Item>

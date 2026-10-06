@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { patch } from '@/api/client';
 import { useAction } from '@/api/queries';
 import { type LetterheadData, useLetterhead } from '@/components/print/Letterhead';
+import { t } from '@/lib/terms';
 
 /** Perkecil logo di browser (maks. 600×200 px) agar ringan di setiap dokumen */
 async function shrinkLogo(file: File): Promise<string> {
@@ -46,7 +47,7 @@ export default function BrandingCard() {
 
   return (
     <Card title="Kop surat & dokumen">
-      <Typography.Paragraph type="secondary">Tampil di faktur, surat jalan, purchase order, dan penawaran harga yang dicetak atau dikirim.</Typography.Paragraph>
+      <Typography.Paragraph type="secondary">{t('Tampil di faktur, surat jalan, purchase order, dan penawaran harga yang dicetak atau dikirim.')}</Typography.Paragraph>
       <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
         <Form.Item label="Logo perusahaan" extra="PNG/JPG, latar transparan lebih rapi. Otomatis diperkecil.">
           <Space align="center" wrap>
@@ -80,10 +81,10 @@ export default function BrandingCard() {
             <Input placeholder="admin@perusahaan.co.id" />
           </Form.Item>
         </Space.Compact>
-        <Form.Item name="bankInfo" label="Rekening pembayaran" extra="Dicetak di faktur dan disertakan di pesan WhatsApp tagihan">
+        <Form.Item name="bankInfo" label="Rekening pembayaran" extra={t('Dicetak di faktur dan disertakan di pesan WhatsApp tagihan')}>
           <Input.TextArea rows={2} placeholder={'BCA 123-456-7890 a.n. PT Maju Jaya\nMandiri 987-000-1234 a.n. PT Maju Jaya'} maxLength={500} />
         </Form.Item>
-        <Form.Item name="invoiceNote" label="Catatan di bawah faktur">
+        <Form.Item name="invoiceNote" label={t('Catatan di bawah faktur')}>
           <Input.TextArea rows={2} placeholder="Barang yang sudah dibeli tidak dapat dikembalikan kecuali rusak dari pabrik." maxLength={500} />
         </Form.Item>
         <Button type="primary" htmlType="submit" loading={save.isPending}>

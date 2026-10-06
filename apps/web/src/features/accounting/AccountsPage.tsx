@@ -11,6 +11,9 @@ import PageHeader from '@/layout/PageHeader';
 
 type Node = Account & { children?: Node[] };
 
+/** Akun yang dinonaktifkan otomatis karena tidak relevan untuk jenis usaha perusahaan */
+const isUnused = (a: Account) => a.isActive === false && !!a.description?.startsWith('Tidak dipakai pada jenis usaha ini');
+
 /** Susun daftar akun menjadi pohon induk → anak */
 function toTree(rows: Account[]): Node[] {
   const map = new Map<string, Node>(rows.map((r) => [r.id, { ...r }]));
@@ -31,7 +34,9 @@ export default function AccountsPage() {
   const [editForm] = Form.useForm();
   const type = Form.useWatch('type', form);
   const { data, isLoading } = useQuery({ queryKey: ['accounts'], queryFn: () => get<Account[]>('/accounting/accounts') });
-  const tree = useMemo(() => toTree(data ?? []), [data]);
+  const [showUnused, setShowUnused] = useState(false);
+  const unusedCount = useMemo(() => (data ?? []).filter(isUnused).length, [data]);
+  const tree = useMemo(() => toTree(showUnused ? (data ?? []) : (data ?? []).filter((a) => !isUnused(a))), [data, showUnused]);
 
   const create = useAction((v: object) => post('/accounting/accounts', v), {
     success: 'Akun ditambahkan',
@@ -52,6 +57,11 @@ export default function AccountsPage() {
         title="Bagan Akun"
         extra={
           <Space wrap>
+            {unusedCount > 0 && (
+              <Checkbox checked={showUnused} onChange={(e) => setShowUnused(e.target.checked)}>
+                Tampilkan {unusedCount} akun yang tidak dipakai di jenis usaha ini
+              </Checkbox>
+            )}
             <Button onClick={() => navigate('/opening-balance')}>Isi saldo awal</Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={() => (form.resetFields(), setOpen(true))}>
               Akun baru
@@ -90,7 +100,7 @@ export default function AccountsPage() {
                   <>
                     {a.isCashAccount && <Tag color="green">Kas / bank</Tag>}
                     {a.systemKey && <Tag color="blue">Akun sistem</Tag>}
-                    {a.isActive === false && <Tag>Nonaktif</Tag>}
+                    {a.isActive === false && <Tag>{isUnused(a) ? 'Tidak dipakai' : 'Nonaktif'}</Tag>}
                     {a.description && (
                       <Tooltip title={a.description}>
                         <Tag>ⓘ</Tag>

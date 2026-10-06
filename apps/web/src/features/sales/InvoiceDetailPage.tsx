@@ -15,6 +15,7 @@ import { hasPhone, invoiceMessage, waLink } from '@/lib/wa';
 import PaymentModal, { outstanding } from './PaymentModal';
 import { ApplyDepositModal } from '../services/DepositsPage';
 import { InvoiceStatusTag } from './status';
+import { t } from '@/lib/terms';
 
 type Detail = InvoiceDetail & {
   customerId: string;
@@ -77,7 +78,7 @@ export default function InvoiceDetailPage() {
                   value={doc}
                   onChange={(v) => setDoc(v as typeof doc)}
                   options={[
-                    { value: 'invoice', label: 'Faktur' },
+                    { value: 'invoice', label: t('Faktur') },
                     { value: 'delivery', label: 'Surat jalan' },
                   ]}
                 />
@@ -125,7 +126,7 @@ export default function InvoiceDetailPage() {
                       lines={[inv.customer.address, inv.customer.phone && `Telp. ${inv.customer.phone}`, inv.customer.npwp && `NPWP ${inv.customer.npwp}`]}
                     />
                     {inv.isOpening ? (
-                      <p style={{ fontSize: 13 }}>Saldo piutang dari pembukuan sebelumnya (faktur asli diterbitkan di sistem lama).</p>
+                      <p style={{ fontSize: 13 }}>{t('Saldo piutang dari pembukuan sebelumnya (faktur asli diterbitkan di sistem lama).')}</p>
                     ) : service ? (
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                         <thead>

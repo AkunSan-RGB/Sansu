@@ -9,6 +9,7 @@ import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { PO_STATUS_OPTIONS, PurchaseOrderStatusTag } from '../sales/status';
 import ResponsiveTable from '@/components/ResponsiveTable';
+import { t } from '@/lib/terms';
 
 export default function PurchaseOrdersPage() {
   const navigate = useNavigate();
@@ -21,7 +22,7 @@ export default function PurchaseOrdersPage() {
   return (
     <>
       <PageHeader
-        title="Purchase Order"
+        title={t('Purchase Order')}
         extra={
           <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/purchase-orders/new')}>
             PO baru
@@ -39,10 +40,10 @@ export default function PurchaseOrdersPage() {
           columns={[
             { title: 'Nomor', dataIndex: 'number' },
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: 'Supplier', render: (_, o) => o.supplier.name },
+            { title: t('Supplier'), render: (_, o) => o.supplier.name },
             { title: 'Total', dataIndex: 'total', align: 'right', render: fmtMoney },
             { title: 'Status', dataIndex: 'status', render: (s) => <PurchaseOrderStatusTag status={s} /> },
-            { title: 'Faktur', render: (_, o) => o.invoice?.number ?? '-' },
+            { title: t('Faktur'), render: (_, o) => o.invoice?.number ?? '-' },
           ]}
         />
       </Card>

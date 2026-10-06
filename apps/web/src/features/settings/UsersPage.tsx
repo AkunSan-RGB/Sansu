@@ -9,6 +9,7 @@ import type { UserRow } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 const ROLE_HELP: Record<Role, string> = {
   OWNER: 'Semua akses, termasuk membuka kembali periode yang dikunci',
@@ -109,7 +110,7 @@ export default function UsersPage() {
               render: (r: Role) => <Tag color={r === 'OWNER' ? 'gold' : 'volcano'}>{ROLE_LABELS[r]}</Tag>,
             },
             {
-              title: 'Akses gudang',
+              title: t('Akses gudang'),
               dataIndex: 'warehouseIds',
               render: (ids: string[] | null) =>
                 ids?.length ? (
@@ -182,13 +183,13 @@ export default function UsersPage() {
           {(warehouses?.length ?? 0) > 1 && (
             <Form.Item
               name="warehouseIds"
-              label="Akses gudang"
-              extra="Kosongkan = boleh semua gudang. Jika diisi, pengguna hanya melihat & mengubah stok gudang tersebut (tetap boleh mengirim transfer ke gudang lain)."
+              label={t('Akses gudang')}
+              extra={t('Kosongkan = boleh semua gudang. Jika diisi, pengguna hanya melihat & mengubah stok gudang tersebut (tetap boleh mengirim transfer ke gudang lain).')}
             >
               <Select
                 mode="multiple"
                 allowClear
-                placeholder="Semua gudang"
+                placeholder={t('Semua gudang')}
                 options={warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))}
               />
             </Form.Item>

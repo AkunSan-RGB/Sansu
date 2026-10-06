@@ -7,6 +7,7 @@ import { LEDGER_KEYS, useAccounts, useAction } from '@/api/queries';
 import type { AssetCategory, CompanySettings, Project, PurchaseInvoice } from '@/api/types';
 import { useApps } from '@/lib/apps';
 import { fmtMoney, today } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 type LineV = { type: 'EXPENSE' | 'ASSET'; description?: string; accountId?: string; assetCategoryId?: string; qty?: number; price?: number; withholding?: boolean };
 
@@ -67,7 +68,7 @@ export default function BillModal({ open, onClose }: { open: boolean; onClose: (
 
   return (
     <Modal
-      title="Tagihan biaya / aset dari supplier"
+      title={t('Tagihan biaya / aset dari supplier')}
       open={open}
       width={980}
       onCancel={onClose}
@@ -84,12 +85,12 @@ export default function BillModal({ open, onClose }: { open: boolean; onClose: (
       <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
         <Row gutter={12}>
           <Col xs={24} md={8}>
-            <Form.Item name="supplierId" label="Supplier" rules={[{ required: true }]}>
+            <Form.Item name="supplierId" label={t('Supplier')} rules={[{ required: true }]}>
               <Select showSearch optionFilterProp="label" options={suppliers.data?.map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))} />
             </Form.Item>
           </Col>
           <Col xs={12} md={5}>
-            <Form.Item name="supplierInvoiceNo" label="No. faktur supplier" rules={[{ required: true }]}>
+            <Form.Item name="supplierInvoiceNo" label={t('No. faktur supplier')} rules={[{ required: true }]}>
               <Input />
             </Form.Item>
           </Col>
@@ -99,13 +100,13 @@ export default function BillModal({ open, onClose }: { open: boolean; onClose: (
             </Form.Item>
           </Col>
           <Col xs={24} md={6}>
-            <Form.Item name="dueDate" label="Jatuh tempo" extra="Kosong = termin supplier">
+            <Form.Item name="dueDate" label="Jatuh tempo" extra={t('Kosong = termin supplier')}>
               <Input type="date" />
             </Form.Item>
           </Col>
         </Row>
         <Form.Item name="description" label="Keterangan">
-          <Input placeholder="Servis AC gudang & pembelian laptop admin" />
+          <Input placeholder={t('Servis AC gudang & pembelian laptop admin')} />
         </Form.Item>
         {activeProjects.length > 0 && (
           <Form.Item
@@ -195,14 +196,14 @@ export default function BillModal({ open, onClose }: { open: boolean; onClose: (
                 </Form.Item>
               )}
             </Space>
-            {whType && <Alert type="info" showIcon message="PPh yang dipotong menjadi utang pajak Anda — setor lewat menu Setoran Pajak dan beri bukti potong ke supplier." />}
+            {whType && <Alert type="info" showIcon message={t('PPh yang dipotong menjadi utang pajak Anda — setor lewat menu Setoran Pajak dan beri bukti potong ke supplier.')} />}
           </Col>
           <Col xs={24} md={12}>
             <Descriptions size="small" bordered column={1}>
               <Descriptions.Item label="Subtotal (DPP)">{fmtMoney(subtotal)}</Descriptions.Item>
               <Descriptions.Item label={`PPN ${withVat ? `${ppn}%` : ''}`}>{fmtMoney(tax)}</Descriptions.Item>
               {whType && <Descriptions.Item label="PPh dipotong">({fmtMoney(wh)})</Descriptions.Item>}
-              <Descriptions.Item label="Dibayar ke supplier">
+              <Descriptions.Item label={t('Dibayar ke supplier')}>
                 <strong>{fmtMoney(subtotal + tax - wh)}</strong>
               </Descriptions.Item>
             </Descriptions>

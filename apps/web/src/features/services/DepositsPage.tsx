@@ -26,6 +26,7 @@ import CashAccountSelect from '@/components/CashAccountSelect';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { outputVatRate } from '@/lib/vat';
+import { t } from '@/lib/terms';
 
 const INVALIDATE = ['deposits', 'invoices', 'invoice', 'projects', 'customers', ...LEDGER_KEYS];
 
@@ -41,7 +42,7 @@ export default function DepositsPage() {
   return (
     <>
       <PageHeader
-        title="Uang muka pelanggan"
+        title={t('Uang muka pelanggan')}
         extra={
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
             Terima uang muka
@@ -53,7 +54,7 @@ export default function DepositsPage() {
         showIcon
         style={{ marginBottom: 16 }}
         message="Uang muka belum menjadi pendapatan"
-        description="DP dicatat sebagai utang kepada pelanggan (Uang Muka Pelanggan) sampai pekerjaan ditagih. Bila PKP, PPN atas uang muka terutang saat uang diterima — terbitkan faktur pajak uang muka. Saat faktur termin terbit, pakai uang muka untuk mengurangi tagihan."
+        description={t('DP dicatat sebagai utang kepada pelanggan (Uang Muka Pelanggan) sampai pekerjaan ditagih. Bila PKP, PPN atas uang muka terutang saat uang diterima — terbitkan faktur pajak uang muka. Saat faktur termin terbit, pakai uang muka untuk mengurangi tagihan.')}
       />
       <Card
         extra={
@@ -77,7 +78,7 @@ export default function DepositsPage() {
                 dataSource={r.applications}
                 columns={[
                   { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-                  { title: 'Dipakai untuk faktur', render: (_, a) => a.invoice.number },
+                  { title: t('Dipakai untuk faktur'), render: (_, a) => a.invoice.number },
                   { title: 'Jumlah', dataIndex: 'amount', align: 'right', render: fmtMoney },
                 ]}
               />
@@ -86,7 +87,7 @@ export default function DepositsPage() {
           columns={[
             { title: 'No.', dataIndex: 'number' },
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: 'Pelanggan', render: (_, r) => r.customer.name },
+            { title: t('Pelanggan'), render: (_, r) => r.customer.name },
             { title: 'Proyek', render: (_, r) => r.project?.name ?? '-' },
             { title: 'Diterima', dataIndex: 'amount', align: 'right', render: fmtMoney },
             { title: 'PPN', dataIndex: 'taxAmount', align: 'right', render: fmtMoney },
@@ -164,7 +165,7 @@ function DepositModal({
   );
   return (
     <Modal
-      title="Terima uang muka pelanggan"
+      title={t('Terima uang muka pelanggan')}
       open={open}
       onCancel={onClose}
       onOk={() => form.submit()}
@@ -173,7 +174,7 @@ function DepositModal({
       destroyOnHidden
     >
       <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
-        <Form.Item name="customerId" label="Pelanggan" rules={[{ required: true }]}>
+        <Form.Item name="customerId" label={t('Pelanggan')} rules={[{ required: true }]}>
           <Select
             showSearch
             optionFilterProp="label"
@@ -281,7 +282,7 @@ export function ApplyDepositModal({
         {deposit ? (
           <Form.Item
             name="invoiceId"
-            label="Faktur yang dilunasi"
+            label={t('Faktur yang dilunasi')}
             rules={[{ required: true }]}
             extra={`Sisa uang muka ${fmtMoney(deposit.remaining)}`}
           >

@@ -6,15 +6,18 @@ import { useSearchParams } from 'react-router-dom';
 import { get, patch } from '@/api/client';
 import { useAction } from '@/api/queries';
 import type { CompanySettings, PayrollSettings, ReportingSettings } from '@/api/types';
+import { useAuth } from '@/auth/AuthContext';
 import { useApps } from '@/lib/apps';
 import PageHeader from '@/layout/PageHeader';
 import { rupiahInput } from '@/lib/format';
 import BrandingCard from './BrandingCard';
 import BusinessModelCard from './BusinessModelCard';
 import EntityProfileWizard from './EntityProfileWizard';
+import { t } from '@/lib/terms';
 
 export default function CompanySettingsPage() {
   const { can } = useApps();
+  const { me } = useAuth();
   const { data } = useQuery({ queryKey: ['company'], queryFn: () => get<CompanySettings>('/settings/company') });
   const [company] = Form.useForm();
   const [payroll] = Form.useForm<PayrollSettings>();
@@ -88,7 +91,7 @@ export default function CompanySettingsPage() {
               {pkp && (can('sales') || can('crm')) && (
                 <Form.Item
                   name="salesPricesIncludeVat"
-                  label="Harga di penawaran & pesanan penjualan"
+                  label={t('Harga di penawaran & pesanan penjualan')}
                   extra="Bawaan pilihan 'harga termasuk PPN' saat membuat dokumen baru. Faktur tetap menampilkan DPP dan PPN."
                 >
                   <Radio.Group
@@ -113,11 +116,26 @@ export default function CompanySettingsPage() {
                   />
                 </Form.Item>
               )}
+              {!!me?.taxFeatures?.reasons.length && (
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                  message="Menu pajak disesuaikan dengan usaha Anda"
+                  description={
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {me.taxFeatures.reasons.map((r) => (
+                        <li key={r}>{r}</li>
+                      ))}
+                    </ul>
+                  }
+                />
+              )}
               {pkp && (
                 <Form.Item
                   name="vatRounding"
                   label="Pembulatan PPN"
-                  extra="Faktur pajak memuat PPN dalam rupiah penuh. Berlaku untuk dokumen dengan harga belum termasuk PPN; harga yang sudah termasuk PPN tetap sama dengan harga yang dibayar. Tanyakan konsultan pajak bila ragu."
+                  extra={t('Faktur pajak memuat PPN dalam rupiah penuh. Berlaku untuk dokumen dengan harga belum termasuk PPN; harga yang sudah termasuk PPN tetap sama dengan harga yang dibayar. Tanyakan konsultan pajak bila ragu.')}
                 >
                   <Select
                     options={[

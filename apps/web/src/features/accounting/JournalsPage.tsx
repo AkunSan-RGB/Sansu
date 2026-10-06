@@ -28,6 +28,7 @@ import type { JournalEntry, Project, RecurringJournal } from '@/api/types';
 import { useApps } from '@/lib/apps';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 export const SOURCE_COLOR: Partial<Record<JournalSource, string>> = {
   INVOICE: 'green',
@@ -228,7 +229,7 @@ function JournalList() {
               <Input style={{ width: 160 }} placeholder="KW-0012" />
             </Form.Item>
             <Form.Item name="description" label="Keterangan" rules={[{ required: true }]}>
-              <Input style={{ width: 360, maxWidth: '100%' }} placeholder="Bayar sewa gudang Oktober" />
+              <Input style={{ width: 360, maxWidth: '100%' }} placeholder={t('Bayar sewa gudang Oktober')} />
             </Form.Item>
           </Space>
           <Form.Item name="adjustment" valuePropName="checked" extra="Jurnal penyesuaian akhir periode tampil di kolom penyesuaian neraca lajur.">
@@ -348,7 +349,7 @@ function RecurringList() {
         <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
           <Space wrap>
             <Form.Item name="name" label="Nama" rules={[{ required: true }]}>
-              <Input style={{ width: 240 }} placeholder="Amortisasi sewa gudang" />
+              <Input style={{ width: 240 }} placeholder={t('Amortisasi sewa gudang')} />
             </Form.Item>
             <Form.Item name="description" label="Keterangan jurnal" rules={[{ required: true }]}>
               <Input style={{ width: 320 }} />

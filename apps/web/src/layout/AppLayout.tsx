@@ -1,5 +1,5 @@
 import { AppstoreOutlined, CrownOutlined, MenuOutlined } from '@ant-design/icons';
-import type { AppKey, BusinessModel } from '@sansu/shared';
+import { localize, type AppKey, type BusinessModel } from '@sansu/shared';
 import { Button, Drawer, Grid, Layout, Menu, type MenuProps, Spin, Typography } from 'antd';
 import { useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -11,9 +11,10 @@ import AccountStatusBanner from '@/components/AccountStatusBanner';
 import AccountMenu from '@/components/AccountMenu';
 import { HelpButton } from '@/features/help/HelpCenter';
 import { APP_ICONS, useApps } from '@/lib/apps';
+import { t } from '@/lib/terms';
 
 /** `app`: item hanya tampil bila aplikasi itu aktif (mis. menu pajak yang butuh aplikasi Penjualan) */
-type Item = { key: string; label: string; app?: AppKey };
+type Item = { key: string; label: string; app?: AppKey; /** Hanya tampil bila fitur pajak ini relevan (lihat taxFeatures di @sansu/shared) */ tax?: 'vat' | 'coretax' | 'withheldByCustomers' | 'fiscalReconciliation' };
 /** Submenu boleh dikelompokkan dengan judul kecil (mis. "Akhir periode") */
 type Sub = Item | { section: string; items: Item[] };
 type Group = {
@@ -56,7 +57,7 @@ const MENU: Group[] = [
     label: 'CRM',
     icon: APP_ICONS.crm,
     children: [
-      { key: '/crm', label: 'Pipeline calon pelanggan' },
+      { key: '/crm', label: t('Pipeline calon pelanggan') },
       { key: '/quotations', label: 'Penawaran harga' },
     ],
   },
@@ -64,16 +65,16 @@ const MENU: Group[] = [
     part: 'Penjualan',
     key: 'sales',
     app: 'sales',
-    label: 'Penjualan',
+    label: t('Penjualan'),
     icon: APP_ICONS.sales,
     children: [
-      { key: '/sales-orders', label: 'Sales Order' },
+      { key: '/sales-orders', label: t('Sales Order') },
       { key: '/integrations?tab=marketplace', label: 'Marketplace' },
-      { key: '/invoices', label: 'Faktur & piutang' },
+      { key: '/invoices', label: t('Faktur & piutang') },
       { key: '/projects', label: 'Proyek & termin' },
-      { key: '/customer-deposits', label: 'Uang muka pelanggan' },
-      { key: '/returns?tab=sales', label: 'Retur penjualan' },
-      { section: 'Data', items: [{ key: '/customers', label: 'Pelanggan' }] },
+      { key: '/customer-deposits', label: t('Uang muka pelanggan') },
+      { key: '/returns?tab=sales', label: t('Retur penjualan') },
+      { section: 'Data', items: [{ key: '/customers', label: t('Pelanggan') }] },
     ],
   },
   {
@@ -93,32 +94,32 @@ const MENU: Group[] = [
     part: 'Pembelian & stok',
     key: 'purchase',
     app: 'purchase',
-    label: 'Pembelian',
+    label: t('Pembelian'),
     icon: APP_ICONS.purchase,
     children: [
-      { key: '/purchase-orders', label: 'Purchase Order' },
-      { key: '/purchase-invoices', label: 'Faktur & hutang' },
-      { key: '/returns?tab=purchase', label: 'Retur pembelian' },
-      { section: 'Data', items: [{ key: '/suppliers', label: 'Supplier' }] },
+      { key: '/purchase-orders', label: t('Purchase Order') },
+      { key: '/purchase-invoices', label: t('Faktur & hutang') },
+      { key: '/returns?tab=purchase', label: t('Retur pembelian') },
+      { section: 'Data', items: [{ key: '/suppliers', label: t('Supplier') }] },
     ],
   },
   {
     part: 'Pembelian & stok',
     key: 'inventory',
     app: 'inventory',
-    label: 'Inventori',
+    label: t('Inventori'),
     icon: APP_ICONS.inventory,
     children: [
       { key: '/inventory', label: 'Stok & mutasi' },
-      { key: '/inventory/warehouses', label: 'Stok per gudang' },
-      { key: '/inventory/transfers', label: 'Transfer gudang' },
+      { key: '/inventory/warehouses', label: t('Stok per gudang') },
+      { key: '/inventory/transfers', label: t('Transfer gudang') },
       { key: '/inventory/counts', label: 'Stock opname' },
       { key: '/inventory/writedowns', label: 'Penurunan nilai' },
       {
         section: 'Data',
         items: [
-          { key: '/products', label: 'Produk' },
-          { key: '/warehouses', label: 'Gudang' },
+          { key: '/products', label: t('Produk') },
+          { key: '/warehouses', label: t('Gudang') },
         ],
       },
     ],
@@ -193,12 +194,12 @@ const MENU: Group[] = [
     label: 'Pajak',
     icon: APP_ICONS.tax,
     children: [
-      { key: '/vat', label: 'Rekap PPN' },
-      { key: '/integrations?tab=coretax', label: 'e-Faktur Coretax' },
+      { key: '/vat', label: 'Rekap PPN', tax: 'vat' },
+      { key: '/integrations?tab=coretax', label: t('e-Faktur Coretax'), tax: 'coretax' },
       { key: '/tax', label: 'Setoran pajak & BPJS' },
       { key: '/tax/recap', label: 'Rekap pajak & BPJS' },
-      { key: '/tax/withheld', label: 'PPh dipotong pelanggan', app: 'sales' },
-      { key: '/fiscal', label: 'Rekonsiliasi fiskal' },
+      { key: '/tax/withheld', label: t('PPh dipotong pelanggan'), app: 'sales', tax: 'withheldByCustomers' },
+      { key: '/fiscal', label: 'Rekonsiliasi fiskal', tax: 'fiscalReconciliation' },
     ],
   },
 
@@ -270,26 +271,29 @@ export default function AppLayout() {
       (!g.models || g.models.includes(me.businessModel)) &&
       (g.admin ? isAdmin : g.app ? can(g.app) : (can('accounting') || can('sales')) && (g.key !== '/dashboard' || dashboardRole)),
   );
+  const L = (text: string) => localize(text, me.businessModel);
+  // Fitur pajak yang tidak relevan (non-PKP, PPh final, usaha penjualan barang) tidak ditampilkan
+  const taxOk = (i: Item) => !i.tax || me.taxFeatures?.[i.tax] !== false;
   const toMenu = (g: Group): NonNullable<MenuProps['items']>[number] =>
     g.children
       ? {
           key: g.key,
           icon: g.icon,
-          label: g.label,
+          label: L(g.label),
           children: g.children
-            .filter((c) => 'section' in c || !c.app || can(c.app))
+            .filter((c) => 'section' in c || ((!c.app || can(c.app)) && taxOk(c)))
             .map((c) =>
               'section' in c
                 ? {
                     type: 'group' as const,
                     key: `${g.key}:${c.section}`,
-                    label: <span style={SECTION_STYLE}>{c.section}</span>,
-                    children: c.items.filter((i) => !i.app || can(i.app)).map(({ key, label }) => ({ key, label })),
+                    label: <span style={SECTION_STYLE}>{L(c.section)}</span>,
+                    children: c.items.filter((i) => (!i.app || can(i.app)) && taxOk(i)).map(({ key, label }) => ({ key, label: L(label) })),
                   }
-                : { key: c.key, label: c.label },
+                : { key: c.key, label: L(c.label) },
             ),
         }
-      : { key: g.key, icon: g.icon, label: g.label };
+      : { key: g.key, icon: g.icon, label: L(g.label) };
   // Menu utama dikelompokkan per bagian alur kerja (judul kecil hanya tampil saat sidebar terbuka)
   const parts = [...new Set(visible.map((g) => g.part))];
   const items: MenuProps['items'] = [
@@ -301,7 +305,7 @@ export default function AppLayout() {
             {
               type: 'group' as const,
               key: `part:${part}`,
-              label: <span style={PART_STYLE}>{part}</span>,
+              label: <span style={PART_STYLE}>{L(part)}</span>,
               children: groups,
             },
           ]

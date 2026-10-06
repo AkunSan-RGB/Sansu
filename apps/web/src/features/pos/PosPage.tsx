@@ -47,6 +47,7 @@ import DenominationCounter, { denomTotal, type Denoms } from '@/components/Denom
 import { fmtMoney, fmtQty } from '@/lib/format';
 import Receipt, { printReceipt } from './Receipt';
 import { outputVatRate, vatTotals } from '@/lib/vat';
+import { t } from '@/lib/terms';
 
 interface CartLine {
   product: PosProduct;
@@ -78,7 +79,7 @@ function OpenSession() {
       <Card title="Buka kasir">
         <Typography.Paragraph type="secondary">Hitung uang modal di laci sebelum mulai berjualan.</Typography.Paragraph>
         <Form form={form} layout="vertical" initialValues={{ openingCash: 0 }} onFinish={(v) => open.mutate(v)}>
-          <Form.Item name="warehouseId" label="Toko / gudang (stok diambil dari sini)" rules={[{ required: true }]}>
+          <Form.Item name="warehouseId" label={t('Toko / gudang (stok diambil dari sini)')} rules={[{ required: true }]}>
             <Select options={warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
           </Form.Item>
           <Form.Item name="openingCash" label="Modal awal di laci">
@@ -143,7 +144,7 @@ function CloseSession({ session, open, onClose }: { session: PosSession; open: b
         <>
           <Descriptions column={1} size="small" bordered style={{ marginBottom: 16 }}>
             <Descriptions.Item label="Transaksi">{s.orderCount}</Descriptions.Item>
-            <Descriptions.Item label="Total penjualan">{fmtMoney(s.totalSales)}</Descriptions.Item>
+            <Descriptions.Item label={t('Total penjualan')}>{fmtMoney(s.totalSales)}</Descriptions.Item>
             {(Object.keys(s.byMethod) as PosPaymentMethod[]).map((m) => (
               <Descriptions.Item key={m} label={POS_PAYMENT_LABELS[m]}>
                 {fmtMoney(s.byMethod[m])}
@@ -310,7 +311,7 @@ function Register({ session }: { session: PosSession }) {
         allowClear
         showSearch
         optionFilterProp="label"
-        placeholder="Pelanggan umum"
+        placeholder={t('Pelanggan umum')}
         value={customerId}
         onChange={setCustomerId}
         options={customers?.filter((c) => c.isActive).map((c) => ({ value: c.id, label: `${c.code} · ${c.name}` }))}
@@ -318,7 +319,7 @@ function Register({ session }: { session: PosSession }) {
       />
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 120 }}>
         {cart.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Scan barcode atau klik produk" />
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('Scan barcode atau klik produk')} />
         ) : (
           cart.map((l, i) => (
             <div key={`${l.product.id}-${l.uom}`} style={{ padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>

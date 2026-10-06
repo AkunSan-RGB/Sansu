@@ -8,6 +8,7 @@ import { useAction, useSuppliers } from '@/api/queries';
 import type { Supplier } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import ResponsiveTable from '@/components/ResponsiveTable';
+import { t } from '@/lib/terms';
 
 interface FormValues {
   code: string;
@@ -50,7 +51,7 @@ export default function SuppliersPage() {
   return (
     <>
       <PageHeader
-        title="Supplier"
+        title={t('Supplier')}
         extra={
           <Space wrap>
             <Input.Search placeholder="Cari kode / nama" allowClear onChange={(e) => setSearch(e.target.value)} />

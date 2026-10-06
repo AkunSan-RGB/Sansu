@@ -32,8 +32,10 @@ import CashAccountSelect from '@/components/CashAccountSelect';
 import ExportButtons from '@/components/ExportButtons';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
+import { Amount } from './statements/format';
 import { fixedAssetsSheet } from '@/lib/xlsx/reports';
 import { useAuth } from '@/auth/AuthContext';
+import { t } from '@/lib/terms';
 
 const KEYS = ['assets', 'asset-runs', 'asset-roll', ...LEDGER_KEYS];
 const groupOptions = Object.entries(FISCAL_ASSET_GROUP_INFO).map(([k, v]) => ({ value: k, label: v.label }));
@@ -168,7 +170,7 @@ function AssetForm({ categories, onDone }: { categories: AssetCategory[]; onDone
       <Row gutter={12}>
         <Col xs={24} md={12}>
           <Form.Item name="location" label="Lokasi / pemegang">
-            <Input placeholder="Gudang Cikarang" />
+            <Input placeholder={t('Gudang Cikarang')} />
           </Form.Item>
         </Col>
         <Col xs={24} md={12}>
@@ -381,7 +383,7 @@ function DepreciationTab() {
           />
         </Card>
       </Col>
-      <Col xs={24} lg={14}>
+      <Col xs={24}>
         <Card
           title="Mutasi aset tetap (bahan CALK)"
           extra={<InputNumber value={year} onChange={(v) => v && setYear(v)} min={2000} max={2100} style={{ width: 100 }} />}
@@ -391,16 +393,17 @@ function DepreciationTab() {
             rowKey="category"
             pagination={false}
             bordered
-            scroll={{ x: 900 }}
+            scroll={{ x: 1250 }}
             dataSource={roll.data}
             columns={[
-              { title: 'Kategori', dataIndex: 'category', fixed: 'left' },
+              { title: 'Kategori', dataIndex: 'category', fixed: 'left', width: 170 },
               {
                 title: 'Harga perolehan',
                 children: (['opening', 'additions', 'disposals', 'closing'] as const).map((k) => ({
                   title: { opening: 'Awal', additions: 'Tambah', disposals: 'Kurang', closing: 'Akhir' }[k],
                   align: 'right' as const,
-                  render: (_: unknown, r: { cost: Record<string, string> }) => fmtMoney(r.cost[k]),
+                  width: 120,
+                  render: (_: unknown, r: { cost: Record<string, string> }) => <Amount v={r.cost[k]} />,
                 })),
               },
               {
@@ -408,10 +411,11 @@ function DepreciationTab() {
                 children: (['opening', 'additions', 'disposals', 'closing'] as const).map((k) => ({
                   title: { opening: 'Awal', additions: 'Tambah', disposals: 'Kurang', closing: 'Akhir' }[k],
                   align: 'right' as const,
-                  render: (_: unknown, r: { accumulated: Record<string, string> }) => fmtMoney(r.accumulated[k]),
+                  width: 120,
+                  render: (_: unknown, r: { accumulated: Record<string, string> }) => <Amount v={r.accumulated[k]} />,
                 })),
               },
-              { title: 'Nilai buku akhir', align: 'right', render: (_, r) => <strong>{fmtMoney(r.bookValue.closing)}</strong> },
+              { title: 'Nilai buku akhir', align: 'right', width: 140, render: (_, r) => <Amount v={r.bookValue.closing} strong /> },
             ]}
           />
         </Card>

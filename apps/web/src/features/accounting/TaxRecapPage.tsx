@@ -42,6 +42,7 @@ import { useApps } from '@/lib/apps';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { printDoc } from '@/lib/print';
 import { annualTaxSheets, bpjsSheets, withholdingSheets } from '@/lib/xlsx/reports';
+import { t } from '@/lib/terms';
 
 const STATUS: Record<TaxRecapStatus, { color: string; label: string }> = {
   NIHIL: { color: 'default', label: 'Nihil' },
@@ -361,7 +362,7 @@ function Withholding() {
                         showIcon
                         style={{ marginTop: 8 }}
                         message={`Buku besar ${fmtMoney(s.ledger)} berbeda ${fmtMoney(s.unexplained)} dari daftar faktur`}
-                        description="Biasanya karena jurnal manual langsung ke akun utang PPh. Pastikan setiap potongan tercatat lewat tagihan supplier agar bukti potongnya lengkap."
+                        description={t('Biasanya karena jurnal manual langsung ke akun utang PPh. Pastikan setiap potongan tercatat lewat tagihan supplier agar bukti potongnya lengkap.')}
                       />
                     )}
                   </Card>
@@ -372,7 +373,7 @@ function Withholding() {
               <Alert
                 type="error"
                 showIcon
-                message="Supplier tanpa NPWP/NIK"
+                message={t('Supplier tanpa NPWP/NIK')}
                 description={`${w.missingNpwp.join(', ')}. Bukti potong membutuhkan NPWP atau NIK penerima penghasilan; tanpa NPWP tarif PPh 23 menjadi 100% lebih tinggi (4%). Lengkapi di menu Supplier.`}
               />
             )}
@@ -394,7 +395,7 @@ function Withholding() {
                   },
                   { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
                   {
-                    title: 'Faktur',
+                    title: t('Faktur'),
                     dataIndex: 'number',
                     render: (n, r) => (
                       <>
@@ -403,7 +404,7 @@ function Withholding() {
                       </>
                     ),
                   },
-                  { title: 'Supplier', dataIndex: 'supplierName' },
+                  { title: t('Supplier'), dataIndex: 'supplierName' },
                   {
                     title: 'NPWP / NIK',
                     dataIndex: 'supplierNpwp',

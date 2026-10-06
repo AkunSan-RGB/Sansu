@@ -11,6 +11,7 @@ import ExportButtons from '@/components/ExportButtons';
 import PageHeader from '@/layout/PageHeader';
 import { fmtMoney, fmtQty } from '@/lib/format';
 import { n, SheetBuilder, type SheetSpec } from '@/lib/xlsx/book';
+import { t } from '@/lib/terms';
 
 interface Matrix {
   warehouses: (Warehouse & { isActive: boolean })[];
@@ -45,12 +46,12 @@ export default function WarehouseStockPage() {
   const tab = params.get('tab') ?? 'matrix';
   return (
     <>
-      <PageHeader title="Stok per gudang" />
+      <PageHeader title={t('Stok per gudang')} />
       <Tabs
         activeKey={tab}
         onChange={(t) => setParams({ tab: t }, { replace: true })}
         items={[
-          { key: 'matrix', label: 'Rekap semua gudang', children: <MatrixTab /> },
+          { key: 'matrix', label: t('Rekap semua gudang'), children: <MatrixTab /> },
           { key: 'low', label: 'Stok menipis', children: <LowTab /> },
           { key: 'min', label: 'Stok minimum', children: <MinTab /> },
         ]}
@@ -63,16 +64,16 @@ export function matrixSheet(m: Matrix, company?: string): SheetSpec[] {
   const whs = m.warehouses;
   const s = new SheetBuilder('Rekap Stok Gudang', {
     company,
-    title: 'Rekap Stok per Gudang',
+    title: t('Rekap Stok per Gudang'),
     subtitle: [`Per ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`, 'Jumlah dalam satuan dasar · nilai dalam Rupiah (HPP rata-rata)'],
     columns: [
       { key: 'sku', header: 'SKU', fmt: 'code', width: 14 },
-      { key: 'name', header: 'Nama produk', width: 34 },
+      { key: 'name', header: t('Nama produk'), width: 34 },
       { key: 'cat', header: 'Kategori', width: 14 },
       { key: 'uom', header: 'Satuan', width: 8 },
       ...whs.map((w) => ({ key: `w${w.id}`, header: w.code, fmt: 'dec' as const, width: 12 })),
       { key: 'total', header: 'Total', fmt: 'dec', width: 13 },
-      { key: 'value', header: 'Nilai persediaan', fmt: 'money', width: 18 },
+      { key: 'value', header: t('Nilai persediaan'), fmt: 'money', width: 18 },
     ],
     filter: true,
     freezeCols: 2,
@@ -113,7 +114,7 @@ function MatrixTab() {
         <Button icon={<SwapOutlined />} onClick={() => navigate('/inventory/transfers?new=1')}>
           Transfer antar gudang
         </Button>
-        <ExportButtons filename="rekap-stok-gudang" title="Rekap stok per gudang" sheets={() => (m ? matrixSheet({ ...m, rows }, me?.tenantName) : null)} />
+        <ExportButtons filename="rekap-stok-gudang" title={t('Rekap stok per gudang')} sheets={() => (m ? matrixSheet({ ...m, rows }, me?.tenantName) : null)} />
       </Space>
       <div className="print-area">
         <Table
@@ -181,7 +182,7 @@ function LowTab() {
   return (
     <Card>
       <Space wrap style={{ marginBottom: 12 }}>
-        <Select allowClear placeholder="Semua gudang" style={{ width: 240 }} value={warehouseId} onChange={setWarehouseId} options={warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
+        <Select allowClear placeholder={t('Semua gudang')} style={{ width: 240 }} value={warehouseId} onChange={setWarehouseId} options={warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
         <Button icon={<SwapOutlined />} onClick={() => navigate('/inventory/transfers?new=1')}>
           Transfer dari gudang lain
         </Button>
@@ -197,7 +198,7 @@ function LowTab() {
         scroll={{ x: 760 }}
         locale={{ emptyText: <Empty description="Tidak ada stok di bawah minimum. Atur stok minimum di tab sebelah." /> }}
         columns={[
-          { title: 'Gudang', render: (_, r) => `${r.warehouseCode} · ${r.warehouseName}` },
+          { title: t('Gudang'), render: (_, r) => `${r.warehouseCode} · ${r.warehouseName}` },
           { title: 'SKU', dataIndex: 'sku' },
           { title: 'Nama', dataIndex: 'name' },
           { title: 'Stok', dataIndex: 'qty', align: 'right', render: (v, r) => <Typography.Text type="danger">{fmtQty(v)} {r.baseUom}</Typography.Text> },
@@ -227,7 +228,7 @@ function MinTab() {
   const changed = Object.keys(edits).length;
   return (
     <Card>
-      <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Isi jumlah minimum per gudang. Jika stok turun di bawahnya, produk muncul di tab Stok menipis dan di Dashboard. Kosongkan untuk menghapus." />
+      <Alert type="info" showIcon style={{ marginBottom: 12 }} message={t('Isi jumlah minimum per gudang. Jika stok turun di bawahnya, produk muncul di tab Stok menipis dan di Dashboard. Kosongkan untuk menghapus.')} />
       <Space wrap style={{ marginBottom: 12 }}>
         <Select style={{ width: 240 }} value={warehouseId} onChange={setWarehouseId} options={warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
         <Input prefix={<SearchOutlined />} placeholder="Cari SKU / nama" allowClear value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 240 }} />

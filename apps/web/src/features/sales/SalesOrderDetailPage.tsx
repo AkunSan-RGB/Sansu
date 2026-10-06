@@ -7,6 +7,7 @@ import type { Invoice, SalesOrder } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, fmtQty } from '@/lib/format';
 import { SalesOrderStatusTag } from './status';
+import { t } from '@/lib/terms';
 
 export default function SalesOrderDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -36,7 +37,7 @@ export default function SalesOrderDetailPage() {
                 </Button>
               )}
               {o.status === 'CONFIRMED' && (
-                <Popconfirm title="Buat faktur? Stok akan dikurangi dan jurnal diposting." onConfirm={() => invoice.mutate(undefined)}>
+                <Popconfirm title={t('Buat faktur? Stok akan dikurangi dan jurnal diposting.')} onConfirm={() => invoice.mutate(undefined)}>
                   <Button type="primary" loading={invoice.isPending}>
                     Buat faktur
                   </Button>
@@ -56,14 +57,14 @@ export default function SalesOrderDetailPage() {
         {o && (
           <>
             <Descriptions bordered size="small" column={{ xs: 1, md: 2 }} style={{ marginBottom: 16 }}>
-              <Descriptions.Item label="Pelanggan">
+              <Descriptions.Item label={t('Pelanggan')}>
                 {o.customer.code} · {o.customer.name}
               </Descriptions.Item>
               <Descriptions.Item label="Status">
                 <SalesOrderStatusTag status={o.status} />
               </Descriptions.Item>
               <Descriptions.Item label="Tanggal">{fmtDate(o.date)}</Descriptions.Item>
-              <Descriptions.Item label="Gudang">{o.warehouse?.name}</Descriptions.Item>
+              <Descriptions.Item label={t('Gudang')}>{o.warehouse?.name}</Descriptions.Item>
               {o.notes && <Descriptions.Item label="Catatan">{o.notes}</Descriptions.Item>}
             </Descriptions>
             <Table
@@ -73,7 +74,7 @@ export default function SalesOrderDetailPage() {
               dataSource={o.lines}
               scroll={{ x: 700 }}
               columns={[
-                { title: 'Produk', render: (_, l) => `${l.product.sku} · ${l.product.name}` },
+                { title: t('Produk'), render: (_, l) => `${l.product.sku} · ${l.product.name}` },
                 { title: 'Qty', align: 'right', render: (_, l) => `${fmtQty(l.qty)} ${l.uom}` },
                 { title: 'Harga', dataIndex: 'price', align: 'right', render: fmtMoney },
                 { title: 'Diskon', dataIndex: 'discountPct', align: 'right', render: (v) => `${Number(v)}%` },

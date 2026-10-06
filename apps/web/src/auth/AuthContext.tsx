@@ -3,6 +3,7 @@ import { createContext, ReactNode, useContext } from 'react';
 import type { BusinessModel, LoginResponse } from '@sansu/shared';
 import { ApiError, get, post, tokenStore } from '@/api/client';
 import type { Me } from '@/api/types';
+import { setUiModel } from '@/lib/terms';
 
 interface AuthState {
   me: Me | undefined;
@@ -31,6 +32,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     retry: (_, err) => !(err instanceof ApiError && err.status === 401),
     retryDelay: 2000,
   });
+  // Istilah antarmuka (t()) mengikuti jenis usaha; diisi sebelum halaman anak dirender
+  setUiModel(me?.businessModel);
   const unauthorized = isError && error instanceof ApiError && error.status === 401;
 
   const afterAuth = async (res: { accessToken: string }) => {

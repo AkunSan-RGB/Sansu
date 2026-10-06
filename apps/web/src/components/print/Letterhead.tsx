@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
-import { BRAND } from '@sansu/shared';
+import { BRAND, localize } from '@sansu/shared';
 import type { CSSProperties, ReactNode } from 'react';
 import { get } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 
 export interface LetterheadData {
   name: string;
@@ -25,6 +26,7 @@ export const head: CSSProperties = { padding: '6px 8px', borderBottom: `2px soli
 /** Kepala dokumen: logo + identitas perusahaan di kiri, judul & nomor dokumen di kanan */
 export function DocHeader({ title, meta }: { title: string; meta: [string, ReactNode][] }) {
   const { data: c } = useLetterhead();
+  const { me } = useAuth();
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', borderBottom: `3px solid ${C}`, paddingBottom: 12, marginBottom: 16 }}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', minWidth: 0, flex: '1 1 300px', flexWrap: 'wrap' }}>
@@ -37,7 +39,7 @@ export function DocHeader({ title, meta }: { title: string; meta: [string, React
         </div>
       </div>
       <div style={{ textAlign: 'right', flex: '0 0 auto' }}>
-        <div style={{ fontSize: 22, fontWeight: 800, color: C, letterSpacing: 0.5 }}>{title}</div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: C, letterSpacing: 0.5 }}>{localize(title, me?.businessModel)}</div>
         <table style={{ marginLeft: 'auto', fontSize: 13 }}>
           <tbody>
             {meta.map(([k, v]) => (

@@ -8,6 +8,7 @@ import { useAction, useProducts, useWarehouses } from '@/api/queries';
 import type { StockBalance, StockMove } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 const REASONS = toOptions(ADJUSTMENT_REASON_LABELS);
 
@@ -56,10 +57,10 @@ export default function InventoryPage() {
   return (
     <>
       <PageHeader
-        title="Inventori"
+        title={t('Inventori')}
         extra={
           <Space wrap>
-            <Select allowClear placeholder="Semua gudang" style={{ width: 200 }} options={whOptions} onChange={setWarehouseId} />
+            <Select allowClear placeholder={t('Semua gudang')} style={{ width: 200 }} options={whOptions} onChange={setWarehouseId} />
             <Button
               type="primary"
               icon={<PlusOutlined />}
@@ -88,8 +89,8 @@ export default function InventoryPage() {
                   scroll={{ x: 700 }}
                   columns={[
                     { title: 'SKU', dataIndex: 'sku' },
-                    { title: 'Produk', dataIndex: 'productName' },
-                    { title: 'Gudang', dataIndex: 'warehouseCode' },
+                    { title: t('Produk'), dataIndex: 'productName' },
+                    { title: t('Gudang'), dataIndex: 'warehouseCode' },
                     { title: 'Qty', dataIndex: 'qty', align: 'right', render: (v, r) => `${fmtQty(v)} ${r.baseUom}` },
                     { title: 'HPP rata-rata', dataIndex: 'avgCost', align: 'right', render: fmtMoney },
                     { title: 'Nilai', dataIndex: 'value', align: 'right', render: fmtMoney },
@@ -97,7 +98,7 @@ export default function InventoryPage() {
                   summary={() => (
                     <Table.Summary.Row>
                       <Table.Summary.Cell index={0} colSpan={5}>
-                        <Typography.Text strong>Total nilai persediaan</Typography.Text>
+                        <Typography.Text strong>{t('Total nilai persediaan')}</Typography.Text>
                       </Table.Summary.Cell>
                       <Table.Summary.Cell index={5} align="right">
                         <Typography.Text strong>{fmtMoney(totalValue)}</Typography.Text>
@@ -116,7 +117,7 @@ export default function InventoryPage() {
                     allowClear
                     showSearch
                     optionFilterProp="label"
-                    placeholder="Filter produk"
+                    placeholder={t('Filter produk')}
                     style={{ width: '100%', maxWidth: 360, marginBottom: 12 }}
                     options={prodOptions}
                     onChange={setProductId}
@@ -130,8 +131,8 @@ export default function InventoryPage() {
                     columns={[
                       { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
                       { title: 'Dokumen', dataIndex: 'refNumber' },
-                      { title: 'Produk', render: (_, m) => `${m.product.sku} · ${m.product.name}` },
-                      { title: 'Gudang', dataIndex: ['warehouse', 'code'] },
+                      { title: t('Produk'), render: (_, m) => `${m.product.sku} · ${m.product.name}` },
+                      { title: t('Gudang'), dataIndex: ['warehouse', 'code'] },
                       { title: 'Jenis', dataIndex: 'type', render: (t) => <Tag>{STOCK_MOVE_LABELS[t as StockMoveType] ?? t}</Tag> },
                       {
                         title: 'Qty',
@@ -162,7 +163,7 @@ export default function InventoryPage() {
       >
         <Form form={form} layout="vertical" onFinish={(v) => adjust.mutate(v)}>
           <Space wrap>
-            <Form.Item name="warehouseId" label="Gudang" rules={[{ required: true }]}>
+            <Form.Item name="warehouseId" label={t('Gudang')} rules={[{ required: true }]}>
               <Select style={{ width: 220 }} options={whOptions} />
             </Form.Item>
             <Form.Item name="reason" label="Alasan" rules={[{ required: true }]}>
@@ -180,8 +181,8 @@ export default function InventoryPage() {
               <>
                 {fields.map((f) => (
                   <Space key={f.key} align="baseline" wrap>
-                    <Form.Item name={[f.name, 'productId']} rules={[{ required: true, message: 'Pilih produk' }]}>
-                      <Select showSearch optionFilterProp="label" placeholder="Produk" style={{ width: 300 }} options={prodOptions} />
+                    <Form.Item name={[f.name, 'productId']} rules={[{ required: true, message: t('Pilih produk') }]}>
+                      <Select showSearch optionFilterProp="label" placeholder={t('Produk')} style={{ width: 300 }} options={prodOptions} />
                     </Form.Item>
                     <Form.Item name={[f.name, 'qty']} rules={[{ required: true, message: 'Qty' }]}>
                       <InputNumber placeholder="Qty" style={{ width: 110 }} />

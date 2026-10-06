@@ -63,8 +63,6 @@ export class OnboardingService {
       { model: 'DAGANG' as BusinessModel },
       { model: dto.model },
     );
-    // Akun khusus jenis usaha yang baru ditambahkan; akun model sebelumnya tidak dihapus
-    await this.db.transaction((tx) => syncChartOfAccounts(tx, u.tenantId));
     const installed: AppKey[] = [];
     if (dto.applyApps) {
       const on = await this.apps.enabled(u.tenantId);
@@ -75,6 +73,8 @@ export class OnboardingService {
         }
       }
     }
+    // Akun khusus jenis usaha ditambahkan, nama bawaan disesuaikan, dan akun yang tidak relevan dinonaktifkan; akun model sebelumnya tidak dihapus
+    await this.db.transaction(async (tx) => syncChartOfAccounts(tx, u.tenantId, { apps: await this.apps.enabled(u.tenantId) }));
     await this.audit.log(this.db, {
       tenantId: u.tenantId,
       userId: u.sub,

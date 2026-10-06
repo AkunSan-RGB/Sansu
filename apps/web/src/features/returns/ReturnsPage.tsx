@@ -8,12 +8,13 @@ import { LEDGER_KEYS, useAction } from '@/api/queries';
 import type { Invoice, InvoiceDetail, PurchaseInvoice, PurchaseInvoiceDetail, ReturnDoc } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 type Kind = 'sales' | 'purchase';
 
 const CFG = {
   sales: {
-    label: 'Retur Penjualan',
+    label: t('Retur Penjualan'),
     party: 'Pelanggan',
     list: '/sales-returns',
     invoices: '/invoices',
@@ -21,7 +22,7 @@ const CFG = {
     help: 'Barang kembali dari pelanggan: stok bertambah (nilai HPP asal), piutang berkurang. Jurnal: Retur Penjualan + PPN Keluaran (debit) / Piutang (kredit); Persediaan (debit) / HPP (kredit).',
   },
   purchase: {
-    label: 'Retur Pembelian',
+    label: t('Retur Pembelian'),
     party: 'Supplier',
     list: '/purchase-returns',
     invoices: '/purchase-invoices',
@@ -105,7 +106,7 @@ function NewReturnModal({ kind, open, initialInvoice, onClose }: { kind: Kind; o
     >
       <Alert type="info" showIcon style={{ marginBottom: 16 }} message={cfg.help} />
       <Form form={form} layout="vertical" onFinish={(v) => create.mutate(v)}>
-        <Form.Item label="Faktur asal" required>
+        <Form.Item label={t('Faktur asal')} required>
           <Select
             showSearch
             optionFilterProp="label"
@@ -113,7 +114,7 @@ function NewReturnModal({ kind, open, initialInvoice, onClose }: { kind: Kind; o
             loading={invoices.isLoading}
             onChange={(v) => (setInvoiceId(v), setQty({}))}
             options={options}
-            placeholder="Pilih faktur yang masih punya sisa tagihan"
+            placeholder={t('Pilih faktur yang masih punya sisa tagihan')}
           />
         </Form.Item>
         {invoiceId && (
@@ -126,8 +127,8 @@ function NewReturnModal({ kind, open, initialInvoice, onClose }: { kind: Kind; o
             scroll={{ x: 650 }}
             style={{ marginBottom: 16 }}
             columns={[
-              { title: 'Produk', render: (_, l) => `${l.product.sku} · ${l.product.name}` },
-              { title: 'Qty faktur', align: 'right', render: (_, l) => `${fmtQty(l.qty)} ${l.uom}` },
+              { title: t('Produk'), render: (_, l) => `${l.product.sku} · ${l.product.name}` },
+              { title: t('Qty faktur'), align: 'right', render: (_, l) => `${fmtQty(l.qty)} ${l.uom}` },
               { title: 'Sudah diretur', align: 'right', render: (_, l) => fmtQty(l.returnedQty) },
               {
                 title: 'Qty retur',
@@ -167,7 +168,7 @@ function NewReturnModal({ kind, open, initialInvoice, onClose }: { kind: Kind; o
           Perkiraan nilai retur: DPP {fmtMoney(subtotal)} + PPN {fmtMoney(tax)} = <strong>{fmtMoney(subtotal + tax)}</strong>
         </Typography.Text>
         <br />
-        <Typography.Text type="secondary">Nilai final dihitung server berdasarkan harga & PPN faktur asal.</Typography.Text>
+        <Typography.Text type="secondary">{t('Nilai final dihitung server berdasarkan harga & PPN faktur asal.')}</Typography.Text>
       </Form>
     </Modal>
   );
@@ -193,7 +194,7 @@ function ReturnList({ kind }: { kind: Kind }) {
             pagination={false}
             dataSource={r.lines}
             columns={[
-              { title: 'Produk', render: (_, l) => `${l.product.sku} · ${l.product.name}` },
+              { title: t('Produk'), render: (_, l) => `${l.product.sku} · ${l.product.name}` },
               { title: 'Qty', align: 'right', render: (_, l) => `${fmtQty(l.qty)} ${l.uom}` },
               { title: 'Nilai', dataIndex: 'lineTotal', align: 'right', render: fmtMoney },
             ]}
@@ -204,7 +205,7 @@ function ReturnList({ kind }: { kind: Kind }) {
         { title: 'Nomor', dataIndex: 'number' },
         { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
         { title: cfg.party, render: (_, r) => (r.customer ?? r.supplier)?.name },
-        { title: 'Faktur asal', render: (_, r) => r.invoice.number + (r.invoice.supplierInvoiceNo ? ` (${r.invoice.supplierInvoiceNo})` : '') },
+        { title: t('Faktur asal'), render: (_, r) => r.invoice.number + (r.invoice.supplierInvoiceNo ? ` (${r.invoice.supplierInvoiceNo})` : '') },
         { title: 'Alasan', dataIndex: 'reason' },
         { title: 'DPP', dataIndex: 'subtotal', align: 'right', render: fmtMoney },
         { title: 'PPN', dataIndex: 'taxAmount', align: 'right', render: fmtMoney },

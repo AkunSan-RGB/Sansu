@@ -8,6 +8,7 @@ import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAccounts, useAction } from '@/api/queries';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, rupiahInput } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 interface Part {
   amount: string;
@@ -24,7 +25,7 @@ interface OpeningStatus {
 const STEPS: { key: keyof OpeningStatus['components']; title: string; hint: string; to?: string; cta?: string }[] = [
   { key: 'cash', title: '1. Kas dan bank', hint: 'Saldo per rekening. Isi di formulir di bawah.' },
   { key: 'receivables', title: '2. Piutang usaha', hint: 'Per pelanggan dan per faktur, lengkap dengan jatuh tempo, agar umur piutang benar.', to: '/settings/import?kind=receivables', cta: 'Impor piutang awal' },
-  { key: 'inventory', title: '3. Persediaan', hint: 'Per barang dan gudang, jumlah dan harga pokok, agar kartu stok dan HPP benar.', to: '/settings/import?kind=stock', cta: 'Impor stok awal' },
+  { key: 'inventory', title: t('3. Persediaan'), hint: 'Per barang dan gudang, jumlah dan harga pokok, agar kartu stok dan HPP benar.', to: '/settings/import?kind=stock', cta: 'Impor stok awal' },
   { key: 'fixedAssets', title: '4. Aset tetap', hint: 'Per aset: harga perolehan, tanggal perolehan, dan akumulasi penyusutan sampai saat ini.', to: '/fixed-assets', cta: 'Daftarkan aset lama' },
   { key: 'payables', title: '5. Utang usaha', hint: 'Per pemasok dan per faktur, lengkap dengan jatuh tempo.', to: '/settings/import?kind=payables', cta: 'Impor utang awal' },
   { key: 'liabilities', title: '6. Utang lain dan modal', hint: 'Pinjaman, pajak terutang, modal disetor, laba ditahan. Isi di formulir di bawah.' },
@@ -118,7 +119,7 @@ export default function OpeningBalancePage() {
           message="Aset di kolom Debit; utang, pinjaman, dan modal di kolom Kredit."
           description={
             <ul style={{ margin: 0, paddingLeft: 18 }}>
-              <li>Piutang usaha, utang usaha, persediaan, dan Ekuitas Saldo Awal tidak muncul di daftar akun: diisi lewat langkah di atas atau otomatis.</li>
+              <li>{t('Piutang usaha, utang usaha, persediaan, dan Ekuitas Saldo Awal tidak muncul di daftar akun: diisi lewat langkah di atas atau otomatis.')}</li>
               <li>
                 Mulai di tengah tahun (misalnya 1 Juli)? Selain neraca, masukkan juga <strong>saldo pendapatan dan beban Januari sampai sebelum tanggal mulai</strong> di
                 formulir ini supaya laporan setahun dan perhitungan pajak tahunan lengkap.

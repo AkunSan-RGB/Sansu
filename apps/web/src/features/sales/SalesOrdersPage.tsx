@@ -9,6 +9,7 @@ import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { SO_STATUS_OPTIONS, SalesOrderStatusTag } from './status';
 import ResponsiveTable from '@/components/ResponsiveTable';
+import { t } from '@/lib/terms';
 
 export default function SalesOrdersPage() {
   const navigate = useNavigate();
@@ -21,7 +22,7 @@ export default function SalesOrdersPage() {
   return (
     <>
       <PageHeader
-        title="Sales Order"
+        title={t('Sales Order')}
         extra={
           <Space wrap>
             <Select allowClear placeholder="Semua status" style={{ width: 180 }} options={SO_STATUS_OPTIONS} onChange={setStatus} />
@@ -41,10 +42,10 @@ export default function SalesOrdersPage() {
           columns={[
             { title: 'Nomor', dataIndex: 'number' },
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: 'Pelanggan', render: (_, o) => `${o.customer.code} · ${o.customer.name}` },
+            { title: t('Pelanggan'), render: (_, o) => `${o.customer.code} · ${o.customer.name}` },
             { title: 'Total', dataIndex: 'total', align: 'right', render: fmtMoney },
             { title: 'Status', dataIndex: 'status', render: (s) => <SalesOrderStatusTag status={s} /> },
-            { title: 'Faktur', render: (_, o) => o.invoice?.number ?? '-' },
+            { title: t('Faktur'), render: (_, o) => o.invoice?.number ?? '-' },
           ]}
         />
       </Card>

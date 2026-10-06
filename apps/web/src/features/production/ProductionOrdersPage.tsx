@@ -24,6 +24,7 @@ import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAction, useWarehouses } from '@/api/queries';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 const COLOR: Record<ProductionStatus, string> = {
   DRAFT: 'default',
@@ -61,7 +62,7 @@ export default function ProductionOrdersPage() {
           columns={[
             { title: 'Nomor', dataIndex: 'number' },
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: 'Produk', render: (_, o) => `${o.product.sku} · ${o.product.name}` },
+            { title: t('Produk'), render: (_, o) => `${o.product.sku} · ${o.product.name}` },
             { title: 'Rencana', align: 'right', render: (_, o) => `${fmtQty(o.plannedQty)} ${o.product.unit}` },
             {
               title: 'Hasil',
@@ -73,7 +74,7 @@ export default function ProductionOrdersPage() {
               align: 'right',
               render: (_, o) => (o.status === 'COMPLETED' ? fmtMoney(o.unitCost) : '-'),
             },
-            { title: 'Gudang', render: (_, o) => o.warehouse.name },
+            { title: t('Gudang'), render: (_, o) => o.warehouse.name },
             {
               title: 'Status',
               dataIndex: 'status',
@@ -143,7 +144,7 @@ function CreateModal({
           <Form.Item name="batches" label="Jumlah batch" rules={[{ required: true }]}>
             <InputNumber min={0.0001} style={{ width: 140 }} />
           </Form.Item>
-          <Form.Item name="warehouseId" label="Gudang (bahan & hasil)" rules={[{ required: true }]}>
+          <Form.Item name="warehouseId" label={t('Gudang (bahan & hasil)')} rules={[{ required: true }]}>
             <Select style={{ width: 220 }} options={warehouses?.map((w) => ({ value: w.id, label: w.name }))} />
           </Form.Item>
           <Form.Item name="date" label="Tanggal">
@@ -229,7 +230,7 @@ function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               <Tag color={COLOR[o.status]}>{PRODUCTION_STATUS_LABELS[o.status]}</Tag>
             </Descriptions.Item>
             <Descriptions.Item label="Resep">{o.bom.code}</Descriptions.Item>
-            <Descriptions.Item label="Gudang">{o.warehouse.name}</Descriptions.Item>
+            <Descriptions.Item label={t('Gudang')}>{o.warehouse.name}</Descriptions.Item>
             <Descriptions.Item label="Batch">{fmtQty(o.batches)}</Descriptions.Item>
             <Descriptions.Item label="Rencana hasil">
               {fmtQty(o.plannedQty)} {o.product.unit}
@@ -309,7 +310,7 @@ function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                     name="outputQty"
                     label={`Hasil baik (${o.product.unit})`}
                     rules={[{ required: true }]}
-                    extra="Produk cacat/susut normal tidak dihitung"
+                    extra={t('Produk cacat/susut normal tidak dihitung')}
                   >
                     <InputNumber min={0.0001} style={{ width: 160 }} />
                   </Form.Item>
