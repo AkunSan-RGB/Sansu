@@ -6,11 +6,11 @@
  *  - menyiapkan kategori aset tetap bawaan
  * Aman dijalankan berulang (idempoten) dan tidak pernah mengubah nama akun buatan pengguna.
  */
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
 import { BUSINESS_MODEL_KEYS, type BusinessModel } from '@sansu/shared';
-import { accounts, assetCategories, tenants } from '../../db/schema';
-import { coaName, coaNameVariants, DEFAULT_COA, guessReportGroup } from './default-coa';
+import { accounts, assetCategories, journalLines, tenants } from '../../db/schema';
+import { COA_FAMILIES, COA_UNUSED_MARK, coaName, coaNameVariants, DEFAULT_COA, guessReportGroup } from './default-coa';
 
 /** Nama induk lama yang boleh diganti ke nama standar baru */
 const HEADER_RENAMES: Record<string, string[]> = {
@@ -34,7 +34,39 @@ async function businessModelOf(db: DbOrTx, tenantId: string): Promise<BusinessMo
   return (BUSINESS_MODEL_KEYS as readonly string[]).includes(m) ? (m as BusinessModel) : 'DAGANG';
 }
 
-export async function syncChartOfAccounts(db: DbOrTx, tenantId: string) {
+/**
+ * Sesuaikan relevansi akun dengan jenis usaha dan aplikasi aktif: akun tidak relevan yang belum pernah dipakai dinonaktifkan,
+ * akun yang sebelumnya dinonaktifkan otomatis diaktifkan kembali bila kini relevan. Nonaktif buatan pengguna tidak disentuh.
+ */
+export async function applyChartRelevance(db: DbOrTx, tenantId: string, model: BusinessModel, apps: ReadonlySet<string>) {
+  const all = await db.select().from(accounts).where(eq(accounts.tenantId, tenantId));
+  const byCode = new Map(all.map((a) => [a.code, a]));
+  let deactivated = 0;
+  let activated = 0;
+  for (const fam of COA_FAMILIES) {
+    const rows = fam.codes.map((c) => byCode.get(c)).filter((a): a is NonNullable<typeof a> => !!a);
+    if (!rows.length) continue;
+    if (fam.relevant(model, apps)) {
+      for (const a of rows.filter((x) => !x.isActive && x.description === COA_UNUSED_MARK)) {
+        await db.update(accounts).set({ isActive: true, description: null }).where(eq(accounts.id, a.id));
+        activated++;
+      }
+      continue;
+    }
+    const used = await db
+      .selectDistinct({ id: journalLines.accountId })
+      .from(journalLines)
+      .where(inArray(journalLines.accountId, rows.map((a) => a.id)));
+    const usedIds = new Set(used.map((u) => u.id));
+    for (const a of rows.filter((x) => x.isActive && !usedIds.has(x.id))) {
+      await db.update(accounts).set({ isActive: false, description: COA_UNUSED_MARK }).where(eq(accounts.id, a.id));
+      deactivated++;
+    }
+  }
+  return { deactivated, activated };
+}
+
+export async function syncChartOfAccounts(db: DbOrTx, tenantId: string, opts: { apps?: ReadonlySet<string> } = {}) {
   const model = await businessModelOf(db, tenantId);
   const existing = await db.select().from(accounts).where(eq(accounts.tenantId, tenantId));
   const byCode = new Map(existing.map((a) => [a.code, a]));
@@ -124,5 +156,7 @@ export async function syncChartOfAccounts(db: DbOrTx, tenantId: string) {
       });
     }
   }
-  return { created, classified: unclassified.length };
+  // Relevansi hanya diterapkan bila pemanggil menyebut aplikasi aktif (perusahaan baru / ganti jenis usaha), bukan tiap startup
+  const relevance = opts.apps ? await applyChartRelevance(db, tenantId, model, opts.apps) : { deactivated: 0, activated: 0 };
+  return { created, classified: unclassified.length, ...relevance };
 }

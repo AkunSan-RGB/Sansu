@@ -260,3 +260,19 @@ export function guessReportGroup(code: string, type: AccountType): ReportGroup {
       return 'ADMIN_EXPENSE';
   }
 }
+
+
+/** Penanda pada keterangan akun yang dinonaktifkan otomatis karena tidak relevan untuk jenis usaha (agar bisa dibedakan dari nonaktif buatan pengguna) */
+export const COA_UNUSED_MARK = 'Tidak dipakai pada jenis usaha ini. Aktifkan bila diperlukan.';
+
+/**
+ * Kelompok akun yang hanya relevan untuk jenis usaha / aplikasi tertentu. Akun di luar relevansi dinonaktifkan
+ * (tersembunyi dari pilihan jurnal manual dan bagan akun) selama belum pernah dipakai; jurnal otomatis tetap bisa memakainya.
+ */
+export const COA_FAMILIES: { name: string; codes: string[]; relevant: (model: BusinessModel, apps: ReadonlySet<string>) => boolean }[] = [
+  { name: 'Persediaan', codes: ['1-1400', '1-1410', '5-2000', '5-3000'], relevant: (m, a) => m !== 'JASA' || a.has('inventory') },
+  { name: 'Produksi', codes: ['1-1420', '5-4100', '5-4200', '5-4900'], relevant: (m) => m === 'PRODUKSI' },
+  { name: 'Kontrak jasa & proyek', codes: ['1-1360', '2-1750', '4-2100'], relevant: (m, a) => m === 'JASA' || a.has('crm') },
+  { name: 'Marketplace', codes: ['6-2400'], relevant: (m) => m !== 'JASA' },
+  { name: 'Kasir', codes: ['6-9100'], relevant: (m, a) => m === 'RITEL' || a.has('pos') },
+];
