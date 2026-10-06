@@ -22,6 +22,7 @@ import {
   UpdateRecurringDto,
 } from './dto/accounting.dto';
 import { PostingService } from './posting.service';
+import { loadSourceDocument } from './source-document';
 import { resolveSourceRoutes } from './source-route';
 
 interface BalanceRow {
@@ -155,6 +156,13 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
     });
     if (!j) throw new NotFoundException('Jurnal tidak ditemukan');
     return { ...j, docRoute: (await resolveSourceRoutes(this.db, tenantId, [j]))[0] };
+  }
+
+  /** Rincian dokumen asal sebuah jurnal (faktur pembelian, mutasi stok, kas, kasir, setoran pajak, dst.) beserta jurnalnya */
+  async journalDocument(tenantId: string, id: string) {
+    const journal = await this.getJournal(tenantId, id);
+    const document = await loadSourceDocument(this.db, tenantId, journal.sourceType, journal.sourceId);
+    return { journal, document };
   }
 
   /** Jurnal manual. Bernilai besar dari peran yang tidak berwenang: dikirim sebagai permintaan persetujuan dan baru diposting setelah disetujui. */
@@ -563,7 +571,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       ORDER BY j.date, j.number, l.id
       LIMIT 5000`);
 
-    const routes = await resolveSourceRoutes(this.db, tenantId, res.rows.map((r) => ({ sourceType: r.source_type, sourceId: r.source_id })));
+    const routes = await resolveSourceRoutes(this.db, tenantId, res.rows.map((r) => ({ id: r.journal_id, sourceType: r.source_type, sourceId: r.source_id })));
     let running = opening;
     let totalDebit: Dec = ZERO;
     let totalCredit: Dec = ZERO;

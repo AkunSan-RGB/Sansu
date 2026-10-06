@@ -128,6 +128,11 @@ export class AccountingController {
     return this.svc.getJournal(u.tenantId, id);
   }
 
+  @Get('journals/:id/document')
+  journalDocument(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.svc.journalDocument(u.tenantId, id);
+  }
+
   @Post('journals')
   createJournal(@CurrentUser() u: AuthUser, @Body() dto: CreateJournalDto) {
     return this.svc.createManualJournal(u, dto);

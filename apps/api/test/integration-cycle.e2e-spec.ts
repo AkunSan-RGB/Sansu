@@ -59,6 +59,12 @@ describe('Keterpaduan modul per jenis usaha (e2e)', () => {
       expect({ label, utang: bal('2-1100') }).toEqual({ label, utang: ap });
       const dash = (await get('/api/dashboard').expect(200)).body;
       if (dash.stockValue !== null && dash.stockValue !== undefined) expect({ label, persediaan: bal('1-1400') + bal('1-1410') }).toEqual({ label, persediaan: n(dash.stockValue) });
+      // setiap jurnal bisa ditelusuri: dokumen asal yang dijanjikan rutenya memang bisa dimuat
+      const journals = (await get('/api/accounting/journals').expect(200)).body as { id: string; sourceType: string; docRoute: string | null }[];
+      for (const j of journals) {
+        const doc = await get(`/api/accounting/journals/${j.id}/document`).expect(200);
+        if (j.docRoute?.startsWith('/documents/')) expect({ label, source: j.sourceType, hasDocument: !!doc.body.document }).toEqual({ label, source: j.sourceType, hasDocument: true });
+      }
       const health = (await get('/api/accounting/health').expect(200)).body.checks as { key: string; status: string; title: string }[];
       expect({ label, errors: health.filter((c) => c.status === 'ERROR').map((c) => `${c.key}: ${c.title}`) }).toEqual({ label, errors: [] });
       return { bal, inc, dash };

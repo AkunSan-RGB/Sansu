@@ -68,4 +68,79 @@ describe('Penelusuran laporan → buku besar → jurnal → dokumen asal (e2e)',
     expect(rev.accounts.length).toBeGreaterThan(0);
     expect(rev.accounts[0].id).toMatch(/^[0-9a-f-]{36}$/);
   });
+
+  describe('dokumen per baris untuk pembelian, stok, kas, kasir, pajak, dan gaji', () => {
+    const journalOf = async (source: string) => {
+      const list = (await get('/api/accounting/journals?source=' + source).expect(200)).body as { id: string; sourceType: string; docRoute: string | null }[];
+      expect(list.length).toBeGreaterThan(0);
+      return list[0];
+    };
+    const documentOf = async (source: string) => {
+      const j = await journalOf(source);
+      expect(j.docRoute).toBe(`/documents/${j.id}`);
+      return (await get(`/api/accounting/journals/${j.id}/document`).expect(200)).body as {
+        journal: { sourceType: string };
+        document: { title: string; number: string | null; fields: { label: string; value: string }[]; table: { rows: Record<string, string | null>[] } | null };
+      };
+    };
+
+    beforeAll(async () => {
+      // pembelian: bayar sebagian lalu retur; stok: penyesuaian + transfer; kas: masuk, keluar; kasir; pajak
+      const invs = (await get('/api/purchase-invoices').expect(200)).body as { id: string; lines: { id: string }[] }[];
+      const pi = (await get(`/api/purchase-invoices/${invs[0].id}`).expect(200)).body;
+      await post('/api/purchase-invoices/payments', { purchaseInvoiceId: pi.id, amount: '10000' }).expect(201);
+      await post('/api/purchase-returns', { invoiceId: pi.id, lines: [{ invoiceLineId: pi.lines[0].id, qty: '1' }] }).expect(201);
+      const wh = (await get('/api/warehouses').expect(200)).body[0].id;
+      const wh2 = (await post('/api/warehouses', { code: 'GDG-02', name: 'Gudang Dua' }).expect(201)).body.id;
+      const productId = (await get('/api/products').expect(200)).body[0].id;
+      await post('/api/inventory/adjustments', { warehouseId: wh, reason: 'OPENING', lines: [{ productId, qty: '1', unitCost: '10000' }] }).expect((r) => { if (![200, 201].includes(r.status)) throw new Error(JSON.stringify(r.body)); });
+      const tr = await post('/api/inventory/transfers', { mode: 'IN_TRANSIT', fromWarehouseId: wh, toWarehouseId: wh2, lines: [{ productId, qty: '2' }] });
+      expect([200, 201]).toContain(tr.status);
+      const accs = (await get('/api/accounting/accounts').expect(200)).body as { id: string; code: string }[];
+      const bank = accs.find((a) => a.code === '1-1200')!.id;
+      const modal = accs.find((a) => a.code === '3-1000')!.id;
+      const biaya = accs.find((a) => a.code === '6-9000')!.id;
+      await post('/api/cash/transactions', { type: 'IN', cashAccountId: bank, date: new Date().toISOString().slice(0, 10), lines: [{ accountId: modal, amount: '500000' }], description: 'Setoran' }).expect(201);
+      await post('/api/cash/transactions', { type: 'OUT', cashAccountId: bank, date: new Date().toISOString().slice(0, 10), lines: [{ accountId: biaya, amount: '30000' }], description: 'Biaya lain' }).expect(201);
+    });
+
+    it('faktur pembelian: pemasok, total, dan baris barang', async () => {
+      const r = await documentOf('PURCHASE_INVOICE');
+      expect(r.document.title).toBe('Faktur pembelian');
+      expect(r.document.fields.map((f) => f.label)).toContain('Pemasok');
+      expect(r.document.table!.rows.length).toBeGreaterThan(0);
+    });
+    it('pembayaran utang dan retur pembelian menunjuk faktur yang dibayar / diretur', async () => {
+      const pay = await documentOf('SUPPLIER_PAYMENT');
+      expect(pay.document.fields.find((f) => f.label === 'Faktur dibayar')!.value).toMatch(/^FB\//);
+      const ret = await documentOf('PURCHASE_RETURN');
+      expect(ret.document.fields.find((f) => f.label === 'Atas faktur')!.value).toMatch(/^FB\//);
+      expect(ret.document.table!.rows).toHaveLength(1);
+    });
+    it('penyesuaian stok dan transfer menampilkan barang, gudang, dan nilai', async () => {
+      const adj = await documentOf('STOCK_ADJUSTMENT');
+      expect(adj.document.table!.rows.length).toBeGreaterThan(0);
+      expect(adj.document.table!.rows[0].product).toMatch(/DD-1/);
+      const trf = await documentOf('STOCK_TRANSFER');
+      expect(trf.document.fields.map((f) => f.label)).toEqual(expect.arrayContaining(['Dari gudang', 'Ke gudang']));
+    });
+    it('kas masuk dan keluar menampilkan akun kas dan akun lawan', async () => {
+      const kas = await documentOf('CASH_IN');
+      expect(kas.document.title).toBe('Kas masuk');
+      expect(kas.document.table!.rows[0].account).toMatch(/3-1000/);
+      expect((await documentOf('CASH_OUT')).document.title).toBe('Kas keluar');
+    });
+    it('jurnal manual tidak punya dokumen, tetapi rincian jurnalnya tetap bisa dibuka', async () => {
+      const m = await journalOf('MANUAL');
+      expect(m.docRoute).toBeNull();
+      const r = (await get(`/api/accounting/journals/${m.id}/document`).expect(200)).body;
+      expect(r.document).toBeNull();
+      expect(r.journal.lines.length).toBeGreaterThan(1);
+    });
+    it('dokumen milik perusahaan lain tidak bisa dibuka', async () => {
+      const other = (await http.post('/api/auth/register').send({ companyName: 'PT Lain', name: 'P', email: `dd2-${Date.now()}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
+      const j = await journalOf('PURCHASE_INVOICE');
+      await http.get(`/api/accounting/journals/${j.id}/document`).set({ Authorization: `Bearer ${other}` }).expect(404);
+    });
+  });
 });

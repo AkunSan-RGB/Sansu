@@ -36,6 +36,7 @@ import { Amount } from './statements/format';
 import { fixedAssetsSheet } from '@/lib/xlsx/reports';
 import { useAuth } from '@/auth/AuthContext';
 import { t } from '@/lib/terms';
+import { useSearchParams } from 'react-router-dom';
 
 const KEYS = ['assets', 'asset-runs', 'asset-roll', ...LEDGER_KEYS];
 const groupOptions = Object.entries(FISCAL_ASSET_GROUP_INFO).map(([k, v]) => ({ value: k, label: v.label }));
@@ -271,7 +272,9 @@ function AssetList() {
   const { me } = useAuth();
   const [asOf, setAsOf] = useState(today());
   const [adding, setAdding] = useState(false);
-  const [detail, setDetail] = useState<string | null>(null);
+  const [params] = useSearchParams();
+  // tautan dari jurnal / buku besar: ?asset=ID langsung membuka rincian aset
+  const [detail, setDetail] = useState<string | null>(params.get('asset'));
   const [status, setStatus] = useState<'ACTIVE' | 'ALL'>('ACTIVE');
   const assets = useQuery({ queryKey: ['assets', 'list', asOf], queryFn: () => get<FixedAsset[]>(`/assets?asOf=${asOf}`) });
   const cats = useQuery({ queryKey: ['assets', 'categories'], queryFn: () => get<AssetCategory[]>('/assets/categories') });
@@ -531,10 +534,12 @@ function CategoriesTab() {
 }
 
 export default function FixedAssetsPage() {
+  const [params] = useSearchParams();
   return (
     <>
       <PageHeader title="Aset Tetap & Penyusutan" />
       <Tabs
+        defaultActiveKey={params.get('tab') === 'depreciation' ? 'dep' : 'list'}
         items={[
           { key: 'list', label: 'Daftar aset', children: <AssetList /> },
           { key: 'dep', label: 'Penyusutan', children: <DepreciationTab /> },

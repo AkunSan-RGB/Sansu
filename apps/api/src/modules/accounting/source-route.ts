@@ -4,35 +4,23 @@
  */
 import { inArray, sql } from 'drizzle-orm';
 import { Db } from '../../db/db';
+import { DOCUMENT_VIEW_TYPES } from './source-document';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Halaman daftar untuk jenis sumber yang belum punya halaman rincian per dokumen */
+/** Halaman daftar untuk jenis sumber yang tidak punya dokumen tunggal (penyusutan bulanan, hitung kas, deposit, dst.) */
 const LIST_ROUTE: Record<string, string> = {
-  SALES_RETURN: '/returns?tab=sales',
-  PURCHASE_INVOICE: '/purchase-invoices',
-  SUPPLIER_PAYMENT: '/purchase-invoices',
-  PURCHASE_RETURN: '/returns?tab=purchase',
-  STOCK_ADJUSTMENT: '/inventory',
-  STOCK_TRANSFER: '/inventory/transfers',
-  STOCK_COUNT: '/inventory/counts',
-  INVENTORY_WRITEDOWN: '/inventory/writedowns',
-  CASH_IN: '/cash',
-  CASH_OUT: '/cash',
-  TRANSFER: '/cash',
   CASH_COUNT: '/cash/counts',
-  POS: '/pos/sessions',
-  POS_CLOSE: '/pos/sessions',
-  PAYROLL: '/payroll',
-  PAYROLL_PAYMENT: '/payroll',
-  DEPRECIATION: '/fixed-assets',
-  ASSET_ACQUISITION: '/fixed-assets',
-  ASSET_DISPOSAL: '/fixed-assets',
-  TAX_PAYMENT: '/tax',
+  DEPRECIATION: '/fixed-assets?tab=depreciation',
+  CUSTOMER_DEPOSIT: '/customer-deposits',
+  DEPOSIT_APPLICATION: '/customer-deposits',
+  PROJECT_PROGRESS: '/projects',
+  CLOSING: '/closing',
+  INCOME_TAX: '/fiscal',
 };
 
 /** Alamat halaman dokumen asal untuk setiap pasangan (jenis sumber, id sumber); null bila tidak ada dokumen (mis. jurnal manual) */
-export async function resolveSourceRoutes(db: Db, tenantId: string, items: { sourceType: string; sourceId: string | null }[]): Promise<(string | null)[]> {
+export async function resolveSourceRoutes(db: Db, tenantId: string, items: { id: string; sourceType: string; sourceId: string | null }[]): Promise<(string | null)[]> {
   const paymentIds = [...new Set(items.filter((i) => i.sourceType === 'PAYMENT' && i.sourceId && UUID.test(i.sourceId)).map((i) => i.sourceId!))];
   const invoiceOf = new Map<string, string>();
   if (paymentIds.length) {
@@ -50,7 +38,15 @@ export async function resolveSourceRoutes(db: Db, tenantId: string, items: { sou
         return id ? `/deliveries/${id}` : null;
       case 'PAYMENT':
         return id && invoiceOf.has(id) ? `/invoices/${invoiceOf.get(id)}` : null;
+      case 'PAYROLL':
+      case 'PAYROLL_PAYMENT':
+        return id ? `/payroll/${id}` : null;
+      case 'ASSET_ACQUISITION':
+      case 'ASSET_DISPOSAL':
+        return id ? `/fixed-assets?asset=${id}` : null;
       default:
+        // dokumen tanpa halaman sendiri dibuka di halaman rincian dokumen (berdasarkan jurnalnya)
+        if (DOCUMENT_VIEW_TYPES.has(i.sourceType) && id) return `/documents/${i.id}`;
         return LIST_ROUTE[i.sourceType] ?? null;
     }
   });
