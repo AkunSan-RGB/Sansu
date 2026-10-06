@@ -6,8 +6,9 @@ import { PeriodService } from '../../common/period/period.service';
 import { DocDate } from '../../common/utils/dates';
 import { D, Dec, DecValue, money, qty4 } from '../../common/utils/money';
 import { Tx } from '../../db/db';
-import { products, StockMoveType, stockMoves, warehouses } from '../../db/schema';
-import { movingAverage } from './costing';
+import { products, StockMoveType, stockLayers, stockMoves, warehouses } from '../../db/schema';
+import { isInventoryMethod, type InventoryMethod } from '@sansu/shared';
+import { consumeLayers, movingAverage } from './costing';
 
 export interface MoveInput {
   tenantId: string;
@@ -46,6 +47,30 @@ export interface MoveResult {
 export class StockService {
   constructor(private readonly period: PeriodService) {}
 
+  /** Metode biaya persediaan perusahaan (bawaan rata-rata bergerak) */
+  async methodOf(tx: Tx, tenantId: string): Promise<InventoryMethod> {
+    const r = await tx.execute<{ m: string | null }>(sql`SELECT settings->'inventory'->>'method' AS m FROM tenants WHERE id = ${tenantId}`);
+    const m = r.rows[0]?.m;
+    return isInventoryMethod(m) ? m : 'AVERAGE';
+  }
+
+  /** Lapisan FIFO harus cocok dengan saldo; bila tidak (mis. baru beralih metode), dibangun ulang sebagai satu lapisan pada biaya rata-rata saat ini */
+  private async fifoLayers(tx: Tx, m: { tenantId: string; productId: string; warehouseId: string; date: DocDate }, balQty: Dec, balAvg: Dec) {
+    const rows = await tx.execute<{ id: string; qty: string; unit_cost: string }>(sql`
+      SELECT id, qty_remaining AS qty, unit_cost FROM stock_layers
+      WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId} AND qty_remaining > 0
+      ORDER BY received_date, created_at, id FOR UPDATE`);
+    const total = rows.rows.reduce<Dec>((a, r) => a.plus(r.qty), D(0));
+    if (total.eq(balQty)) return rows.rows.map((r) => ({ id: r.id, qty: r.qty, unitCost: r.unit_cost }));
+    await tx.execute(sql`DELETE FROM stock_layers WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
+    if (balQty.lte(0)) return [];
+    const [l] = await tx
+      .insert(stockLayers)
+      .values({ tenantId: m.tenantId, productId: m.productId, warehouseId: m.warehouseId, receivedDate: '1970-01-01', qtyRemaining: balQty.toFixed(4), unitCost: balAvg.toFixed(4) })
+      .returning({ id: stockLayers.id });
+    return [{ id: l.id, qty: balQty.toFixed(4), unitCost: balAvg.toFixed(4) }];
+  }
+
   async move(tx: Tx, m: MoveInput): Promise<MoveResult> {
     const qty = qty4(m.qty);
     if (qty.isZero()) throw new BadRequestException('Kuantitas mutasi tidak boleh nol');
@@ -75,10 +100,19 @@ export class StockService {
     let moveWu: Dec;
     let newWu: Dec;
     let wdValue: Dec;
+    let fifoValue: Dec | undefined;
+    const method = await this.methodOf(tx, m.tenantId);
     if (qty.isPositive()) {
       if (m.unitCost === undefined) throw new BadRequestException('Biaya satuan wajib untuk barang masuk');
       unitCost = qty4(m.unitCost);
-      newAvg = movingAverage(oldQty, oldAvg, qty, unitCost);
+      if (method === 'FIFO') {
+        const layers = await this.fifoLayers(tx, m, oldQty, oldAvg);
+        await tx.insert(stockLayers).values({ tenantId: m.tenantId, productId: m.productId, warehouseId: m.warehouseId, receivedDate: m.date, qtyRemaining: qty.toFixed(4), unitCost: unitCost.toFixed(4) });
+        const oldValue = layers.reduce<Dec>((a, l) => a.plus(D(l.qty).times(l.unitCost)), D(0));
+        newAvg = qty4(oldValue.plus(qty.times(unitCost)).div(oldQty.plus(qty)));
+      } else {
+        newAvg = movingAverage(oldQty, oldAvg, qty, unitCost);
+      }
       moveWu = qty4(m.writedownUnit ?? 0);
       const base = oldQty.gt(0) ? oldQty : D(0);
       newWu = qty4(base.times(oldWu).plus(qty.times(moveWu)).div(base.plus(qty)));
@@ -92,6 +126,17 @@ export class StockService {
       }
       unitCost = oldAvg;
       newAvg = oldAvg;
+      if (method === 'FIFO') {
+        const layers = await this.fifoLayers(tx, m, oldQty, oldAvg);
+        const used = consumeLayers(layers, qty.abs());
+        for (const r of used.remaining) await tx.execute(sql`UPDATE stock_layers SET qty_remaining = ${r.qty.toFixed(4)} WHERE id = ${r.id}`);
+        await tx.execute(sql`DELETE FROM stock_layers WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId} AND qty_remaining <= 0`);
+        unitCost = qty4(used.cost.div(qty.abs()));
+        fifoValue = money(used.cost);
+        const left = used.remaining.reduce<Dec>((a, r, i) => a.plus(r.qty.times(layers[i].unitCost)), D(0));
+        const leftQty = oldQty.minus(qty.abs());
+        if (leftQty.gt(0)) newAvg = qty4(left.div(leftQty));
+      }
       moveWu = oldWu;
       newWu = oldWu;
       wdValue = money(qty.abs().times(oldWu)).negated();
@@ -124,7 +169,7 @@ export class StockService {
       date: m.date,
     });
 
-    return { unitCost, value: money(qty.abs().times(unitCost)), balanceAfter, writedownUnit: moveWu };
+    return { unitCost, value: fifoValue ?? money(qty.abs().times(unitCost)), balanceAfter, writedownUnit: moveWu };
   }
 
   /**
@@ -193,6 +238,12 @@ export class StockService {
     await tx.execute(sql`
       UPDATE stock_balances SET avg_cost = ${newCost.toFixed(4)}, writedown_unit = ${newWu.toFixed(4)}
       WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
+    // FIFO: seluruh lapisan dinilai ulang dengan rasio yang sama agar nilai total ikut turun/pulih
+    if (!oldCost.isZero()) {
+      await tx.execute(sql`
+        UPDATE stock_layers SET unit_cost = round(unit_cost * ${newCost.toFixed(4)}::numeric / ${oldCost.toFixed(4)}::numeric, 4)
+        WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
+    }
     await tx.insert(stockMoves).values({
       tenantId: m.tenantId,
       productId: m.productId,

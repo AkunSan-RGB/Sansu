@@ -4,7 +4,7 @@
  * dan rincian setiap pos laporan dengan angka pembanding. Teks dapat diubah pengguna per tahun.
  */
 import { Injectable } from '@nestjs/common';
-import { activityFor, DEPRECIATION_METHOD_LABELS, FISCAL_ASSET_GROUP_INFO, type FiscalAssetGroup, LEGAL_FORM_LABELS, type LegalForm, type ReportGroup, REPORT_TERMS } from '@sansu/shared';
+import { INVENTORY_METHOD_INFO, isInventoryMethod, activityFor, DEPRECIATION_METHOD_LABELS, FISCAL_ASSET_GROUP_INFO, type FiscalAssetGroup, LEGAL_FORM_LABELS, type LegalForm, type ReportGroup, REPORT_TERMS } from '@sansu/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import { SettingsService } from '../../common/settings.service';
 import { todayJakarta } from '../../common/utils/dates';
@@ -68,6 +68,8 @@ export class NotesService {
     ]);
     const model = await this.statements.businessModel(tenantId);
     const terms = REPORT_TERMS[model];
+    const invSetting = (await this.settings.section(this.db, tenantId, 'inventory', { method: 'AVERAGE' as string })).method;
+    const invMethod = isInventoryMethod(invSetting) ? invSetting : 'AVERAGE';
     const ep = reporting.framework === 'SAK_EP';
     const std = ep ? 'Standar Akuntansi Keuangan Entitas Privat (SAK EP)' : 'Standar Akuntansi Keuangan Entitas Mikro, Kecil, dan Menengah (SAK EMKM)';
     const yPrev = year - 1;
@@ -151,7 +153,7 @@ export class NotesService {
             (ep
               ? 'Persediaan diukur pada jumlah yang lebih rendah antara biaya perolehan dan harga jual estimasian dikurangi biaya untuk menyelesaikan dan menjual. '
               : 'Persediaan diukur sebesar biaya perolehan. ') +
-              'Biaya perolehan ditentukan dengan metode rata-rata tertimbang (moving average) yang dihitung ulang setiap terjadi pembelian.',
+              INVENTORY_METHOD_INFO[invMethod].policy,
             ...(hasProduction
               ? [
                   'Biaya produk jadi dan barang dalam proses terdiri dari bahan baku, upah langsung, dan alokasi overhead produksi berdasarkan tarif standar per batch. Selisih antara biaya produksi sesungguhnya dan yang dibebankan ke persediaan diakui sebagai beban pokok penjualan pada periode terjadinya.',
