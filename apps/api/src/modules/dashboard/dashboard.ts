@@ -13,6 +13,18 @@ import { InsightsModule } from '../insights/insights.module';
 import { TaxModule, TaxService, TAX_LABEL } from '../tax/tax.module';
 import { addDays } from '../../common/utils/dates';
 
+/** Bidang beranda yang boleh dilihat tiap peran (prinsip "perlu tahu"); selain itu dikirim null */
+const SALES_FIELDS = ['salesMonth', 'invoicesMonth', 'arOutstanding', 'arOverdue', 'overdueCount', 'ordersPending', 'recentInvoices'] as const;
+const WAREHOUSE_FIELDS = ['ordersPending'] as const;
+
+export function redactDashboard<T extends Record<string, unknown> & { recentInvoices: unknown[] }>(full: T, role: string) {
+  if (['OWNER', 'ADMIN', 'FINANCE'].includes(role)) return full;
+  const keep: readonly string[] = role === 'SALES' ? SALES_FIELDS : role === 'WAREHOUSE' ? WAREHOUSE_FIELDS : [];
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(full)) out[k] = keep.includes(k) ? full[k] : k === 'recentInvoices' ? [] : null;
+  return out as { [K in keyof T]: T[K] | null };
+}
+
 @Injectable()
 export class DashboardService {
   constructor(
@@ -83,7 +95,7 @@ export class DashboardService {
   }
 
   /** Ringkasan untuk pemilik: penjualan bulan ini, piutang, nilai stok, faktur jatuh tempo. */
-  async summary(tenantId: string) {
+  async summary(tenantId: string, role: string) {
     const today = todayJakarta();
     const outstanding = sql<string>`COALESCE(SUM(${invoices.total} - ${invoices.paidAmount} - ${invoices.returnedAmount}), 0)`;
 
@@ -133,7 +145,7 @@ export class DashboardService {
 
     const salesMonth = D(sales.sales);
     const grossProfit = salesMonth.minus(sales.cogs);
-    return {
+    return redactDashboard({
       salesMonth: salesMonth.toFixed(2),
       grossProfitMonth: grossProfit.toFixed(2),
       grossMarginPct: salesMonth.isZero() ? '0' : grossProfit.div(salesMonth).times(100).toFixed(1),
@@ -146,7 +158,7 @@ export class DashboardService {
       cashBalance: D(cash.v).toFixed(2),
       ordersPending: pending.n,
       recentInvoices: recent,
-    };
+    }, role);
   }
 }
 
@@ -158,7 +170,7 @@ export class DashboardController {
 
   @Get()
   summary(@CurrentUser() u: AuthUser) {
-    return this.svc.summary(u.tenantId);
+    return this.svc.summary(u.tenantId, u.role);
   }
 
   @Get('attention')

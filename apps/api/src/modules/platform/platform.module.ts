@@ -42,6 +42,7 @@ import { normalizeWarehouseIds } from '../../common/auth/warehouse-ids';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { Role, roleEnum, tenants, users } from '../../db/schema';
+import { IsNpwp } from '../../common/validators/npwp';
 
 // ---------- DTO ----------
 export class UpdateUserDto {
@@ -61,7 +62,7 @@ export class UpdateUserDto {
 
 export class UpdateCompanyDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(160) name?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() npwp?: string;
+  @ApiPropertyOptional({ example: '0123456789012345' }) @IsOptional() @IsString() @IsNpwp() npwp?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() address?: string;
   @ApiPropertyOptional({ example: '11' }) @IsOptional() @IsNumberString() ppnRate?: string;
   @ApiPropertyOptional({ description: 'Pengusaha Kena Pajak (memungut PPN)' }) @IsOptional() @IsBoolean() pkp?: boolean;

@@ -26,13 +26,15 @@ export default function DashboardPage() {
     info: <InfoCircleFilled style={{ color: '#1677ff' }} />,
   };
 
-  const cards: { title: string; value: string; sub: string; to?: string }[] = [
-    { title: 'Penjualan bulan ini (DPP)', value: fmtMoney(data?.salesMonth), sub: `${data?.invoicesMonth ?? 0} faktur` },
-    { title: 'Laba kotor bulan ini', value: fmtMoney(data?.grossProfitMonth), sub: `Margin ${data?.grossMarginPct ?? 0}%` },
-    { title: 'Piutang beredar', value: fmtMoney(data?.arOutstanding), sub: `Jatuh tempo: ${fmtMoney(data?.arOverdue)}` },
-    { title: 'Nilai persediaan', value: fmtMoney(data?.stockValue), sub: `${data?.ordersPending ?? 0} order belum difakturkan` },
-    { title: 'Saldo kas & bank', value: fmtMoney(data?.cashBalance), sub: 'Semua akun kas dan rekening', to: '/cash' },
-    { title: 'Hutang ke supplier', value: fmtMoney(data?.apOutstanding), sub: 'Faktur pembelian belum lunas', to: '/purchase-invoices' },
+  // Angka yang tidak boleh dilihat peran ini dikirim null oleh server: kartunya disembunyikan, bukan ditampilkan sebagai Rp0
+  const cards: { title: string; value: string; sub: string; to?: string; hidden?: boolean }[] = [
+    { title: 'Penjualan bulan ini (DPP)', value: fmtMoney(data?.salesMonth), sub: `${data?.invoicesMonth ?? 0} faktur`, hidden: data?.salesMonth === null },
+    { title: 'Laba kotor bulan ini', value: fmtMoney(data?.grossProfitMonth), sub: `Margin ${data?.grossMarginPct ?? 0}%`, hidden: data?.grossProfitMonth === null },
+    { title: 'Piutang beredar', value: fmtMoney(data?.arOutstanding), sub: `Jatuh tempo: ${fmtMoney(data?.arOverdue)}`, hidden: data?.arOutstanding === null },
+    { title: 'Nilai persediaan', value: fmtMoney(data?.stockValue), sub: `${data?.ordersPending ?? 0} order belum difakturkan`, hidden: data?.stockValue === null },
+    { title: 'Order belum difakturkan', value: String(data?.ordersPending ?? 0), sub: 'Draft dan terkonfirmasi', hidden: data?.stockValue !== null || data?.ordersPending == null },
+    { title: 'Saldo kas & bank', value: fmtMoney(data?.cashBalance), sub: 'Semua akun kas dan rekening', to: '/cash', hidden: data?.cashBalance === null },
+    { title: 'Hutang ke supplier', value: fmtMoney(data?.apOutstanding), sub: 'Faktur pembelian belum lunas', to: '/purchase-invoices', hidden: data?.apOutstanding === null },
   ];
 
   return (
@@ -41,7 +43,7 @@ export default function DashboardPage() {
       {isError && (
         <Alert type="error" showIcon style={{ marginBottom: 16 }} message="Ringkasan gagal dimuat" description={(error as Error).message} action={<a onClick={() => refetch()}>Coba lagi</a>} />
       )}
-      {!!data?.overdueCount && (
+      {!!data?.overdueCount && data.arOverdue !== null && (
         <Alert
           type="warning"
           showIcon
@@ -50,7 +52,7 @@ export default function DashboardPage() {
         />
       )}
       <Row gutter={[16, 16]}>
-        {cards.map((c) => (
+        {cards.filter((c) => !c.hidden).map((c) => (
           <Col xs={24} sm={12} xl={8} key={c.title}>
             <Card loading={isLoading} hoverable={!!c.to} onClick={() => c.to && navigate(c.to)}>
               <Statistic title={c.title} value={c.value} />
@@ -92,6 +94,7 @@ export default function DashboardPage() {
           )}
         </Card>
       )}
+      {(isLoading || data?.salesMonth !== null) && (
       <Card title="Faktur terbaru" style={{ marginTop: 16 }}>
         <Table
           rowKey="id"
@@ -110,6 +113,7 @@ export default function DashboardPage() {
           locale={{ emptyText: <Tag>Belum ada faktur</Tag> }}
         />
       </Card>
+      )}
     </>
   );
 }

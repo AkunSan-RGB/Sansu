@@ -3,7 +3,7 @@
  * laporan ditandatangani, ditambah rasio keuangan dengan penjelasan bahasa awam.
  */
 import { Injectable } from '@nestjs/common';
-import { REPORT_GROUPS } from '@sansu/shared';
+import { REPORT_GROUPS, taxDueDate } from '@sansu/shared';
 import { sql } from 'drizzle-orm';
 import { PeriodService } from '../../common/period/period.service';
 import { addDays, diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
@@ -442,10 +442,7 @@ export class HealthService {
       ['PPH21', 'PPH21_PAYABLE', prevPeriod, 'PPh 21'],
       ['PPN', 'VAT_OUT', prevPrev, 'PPN'],
     ] as const) {
-      const due =
-        type === 'PPN'
-          ? addDays(`${addDays(`${period}-28`, 10).slice(0, 7)}-01`, 30)
-          : `${addDays(`${period}-28`, 10).slice(0, 7)}-15`;
+      const due = taxDueDate(type, period);
       if (asOf <= due) continue;
       const [acc] = await q<{ n: number }>(sql`
         SELECT COUNT(*)::int AS n FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id

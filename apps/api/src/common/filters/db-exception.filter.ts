@@ -73,6 +73,14 @@ export class DbExceptionFilter extends BaseExceptionFilter {
           .json({ statusCode: 400, message: 'Data masih dipakai atau referensi tidak valid' });
       case '22P02':
         return res.status(HttpStatus.BAD_REQUEST).json({ statusCode: 400, message: 'Format data tidak valid' });
+      // Tanggal / periode yang polanya benar tetapi tidak ada di kalender (mis. 2026-13-45) atau tidak terbaca
+      case '22007':
+      case '22008':
+        return res.status(HttpStatus.BAD_REQUEST).json({ statusCode: 400, message: 'Tanggal atau periode tidak valid' });
+      case '22003':
+        return res.status(HttpStatus.BAD_REQUEST).json({ statusCode: 400, message: 'Angka di luar batas yang diizinkan' });
+      case '22001':
+        return res.status(HttpStatus.BAD_REQUEST).json({ statusCode: 400, message: 'Teks terlalu panjang' });
       default:
         this.report(exception, host, 500);
         return super.catch(exception, host);

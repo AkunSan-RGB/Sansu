@@ -984,11 +984,13 @@ export class ServiceBillingController {
   }
 
   @Get('projects')
+  @Roles('ADMIN', 'FINANCE', 'SALES')
   projects(@CurrentUser() u: AuthUser) {
     return this.svc.listProjects(u.tenantId);
   }
 
   @Get('projects/:id')
+  @Roles('ADMIN', 'FINANCE', 'SALES')
   project(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.getProject(u.tenantId, id);
   }
@@ -1012,6 +1014,7 @@ export class ServiceBillingController {
   }
 
   @Get('deposits')
+  @Roles('ADMIN', 'FINANCE', 'SALES')
   deposits(@CurrentUser() u: AuthUser, @Query('customerId') customerId?: string, @Query('open') open?: string) {
     return this.svc.listDeposits(u.tenantId, {
       customerId: customerId || undefined,

@@ -67,7 +67,7 @@ export default function HomePage() {
   const greet = hour < 11 ? 'Selamat pagi' : hour < 15 ? 'Selamat siang' : hour < 18 ? 'Selamat sore' : 'Selamat malam';
 
   const tiles: Tile[] = [
-    ...(can('accounting') || can('sales')
+    ...((can('accounting') || can('sales')) && ['OWNER', 'ADMIN', 'FINANCE', 'SALES'].includes(me?.role ?? '')
       ? [{ key: 'dashboard', name: 'Dashboard', color: '#334155', to: '/dashboard', icon: APP_ICONS.dashboard }]
       : []),
     // urutan ubin mengikuti alur kerja, sama dengan sidebar

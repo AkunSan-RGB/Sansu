@@ -16,13 +16,14 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { INVOICE_STATUSES, InvoiceStatus, PURCHASE_ORDER_STATUSES, PurchaseOrderStatus } from '@sansu/shared';
+import { IsNpwp } from '../../common/validators/npwp';
 
 export class CreateSupplierDto {
   @ApiProperty({ example: 'SUP-INDOFOOD' }) @IsString() @MaxLength(30) code: string;
   @ApiProperty({ example: 'PT Sumber Pangan Prima' }) @IsString() @MaxLength(160) name: string;
   @ApiPropertyOptional() @IsOptional() @IsString() phone?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() address?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() npwp?: string;
+  @ApiPropertyOptional({ example: '0123456789012345' }) @IsOptional() @IsString() @IsNpwp() npwp?: string;
   @ApiPropertyOptional({ example: 30 }) @IsOptional() @IsInt() @Min(0) @Max(365) paymentTermDays?: number;
 }
 

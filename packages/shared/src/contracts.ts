@@ -351,18 +351,19 @@ export interface BalanceRow {
   balance: string;
 }
 
+/** Angka yang tidak boleh dilihat peran pembaca dikirim null (bukan 0, agar tidak terbaca sebagai nilai nol) */
 export interface Dashboard {
-  salesMonth: string;
-  grossProfitMonth: string;
-  grossMarginPct: string;
-  invoicesMonth: number;
-  arOutstanding: string;
-  arOverdue: string;
-  overdueCount: number;
-  stockValue: string;
-  apOutstanding: string;
-  cashBalance: string;
-  ordersPending: number;
+  salesMonth: string | null;
+  grossProfitMonth: string | null;
+  grossMarginPct: string | null;
+  invoicesMonth: number | null;
+  arOutstanding: string | null;
+  arOverdue: string | null;
+  overdueCount: number | null;
+  stockValue: string | null;
+  apOutstanding: string | null;
+  cashBalance: string | null;
+  ordersPending: number | null;
   recentInvoices: (Invoice & { customer: { name: string } })[];
 }
 

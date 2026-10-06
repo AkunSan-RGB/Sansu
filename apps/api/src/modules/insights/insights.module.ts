@@ -1,8 +1,9 @@
-import { Body, Controller, Delete, Get, Module, Param, ParseIntPipe, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Module, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsNumberString, IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
+import { YearPipe } from '../../common/pipes/year.pipe';
 import { isDocDate } from '../../common/utils/dates';
 import { AccountingModule } from '../accounting/accounting.module';
 import { AssetsModule } from '../assets/assets.module';
@@ -55,28 +56,28 @@ export class InsightsController {
   }
 
   @Get('fiscal/:year')
-  reconcile(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number) {
+  reconcile(@CurrentUser() u: AuthUser, @Param('year', YearPipe) year: number) {
     return this.fiscal.reconcile(u.tenantId, year);
   }
   @Put('fiscal/:year')
-  saveYear(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number, @Body() dto: FiscalYearDto) {
+  saveYear(@CurrentUser() u: AuthUser, @Param('year', YearPipe) year: number, @Body() dto: FiscalYearDto) {
     return this.fiscal.saveYear(u.tenantId, year, dto);
   }
   @Post('fiscal/:year/adjustments')
-  addAdjustment(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number, @Body() dto: FiscalAdjustmentDto) {
+  addAdjustment(@CurrentUser() u: AuthUser, @Param('year', YearPipe) year: number, @Body() dto: FiscalAdjustmentDto) {
     return this.fiscal.addAdjustment(u.tenantId, year, dto);
   }
   @Delete('fiscal/:year/adjustments/:id')
-  removeAdjustment(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number, @Param('id', ParseUUIDPipe) id: string) {
+  removeAdjustment(@CurrentUser() u: AuthUser, @Param('year', YearPipe) year: number, @Param('id', ParseUUIDPipe) id: string) {
     return this.fiscal.removeAdjustment(u.tenantId, year, id);
   }
   @Post('fiscal/:year/journal')
-  postTax(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number) {
+  postTax(@CurrentUser() u: AuthUser, @Param('year', YearPipe) year: number) {
     return this.fiscal.postTax(u, year);
   }
 
   @Get('notes/:year')
-  getNotes(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number) {
+  getNotes(@CurrentUser() u: AuthUser, @Param('year', YearPipe) year: number) {
     return this.notes.build(u.tenantId, year);
   }
   /** Peringatan ambang pajak: PKP, PPh final UMKM, Pasal 31E, kriteria UMKM */
@@ -100,16 +101,16 @@ export class InsightsController {
   }
 
   @Get('appendix/:year')
-  getAppendix(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number) {
+  getAppendix(@CurrentUser() u: AuthUser, @Param('year', YearPipe) year: number) {
     return this.appendix.build(u.tenantId, year);
   }
 
   @Put('notes/:year/:key')
-  saveNote(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number, @Param('key') key: string, @Body() dto: NoteDto) {
+  saveNote(@CurrentUser() u: AuthUser, @Param('year', YearPipe) year: number, @Param('key') key: string, @Body() dto: NoteDto) {
     return this.notes.save(u.tenantId, year, key.slice(0, 40), dto.content);
   }
   @Delete('notes/:year/:key')
-  resetNote(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number, @Param('key') key: string) {
+  resetNote(@CurrentUser() u: AuthUser, @Param('year', YearPipe) year: number, @Param('key') key: string) {
     return this.notes.reset(u.tenantId, year, key.slice(0, 40));
   }
 }
