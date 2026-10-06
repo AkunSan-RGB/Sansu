@@ -59,6 +59,7 @@ import ExportButtons from '@/components/ExportButtons';
 import { subscriptionVatSheet } from '@/lib/xlsx/reports';
 import BillingInvoiceModal from '../billing/BillingInvoiceDoc';
 import { SUB_COLOR } from '../billing/BillingPage';
+import { t } from '@/lib/terms';
 
 interface Overview {
   tenants: number;
@@ -341,7 +342,7 @@ function TenantsTab() {
               r.endsAt ? `${fmtDate(r.endsAt)}${r.daysLeft ? ` (${r.daysLeft} hr)` : ''}` : 'Tanpa batas',
           },
           { title: 'Pengguna', dataIndex: 'users', align: 'right' },
-          { title: 'Faktur dibuat', dataIndex: 'sales_invoices', align: 'right' },
+          { title: t('Faktur dibuat'), dataIndex: 'sales_invoices', align: 'right' },
           {
             title: 'Login terakhir',
             dataIndex: 'last_login',
@@ -416,7 +417,7 @@ function TenantDrawer({ id, onClose }: { id: string | null; onClose: () => void 
               </Descriptions.Item>
               <Descriptions.Item label="Terdaftar">{fmtDate(d.tenant.createdAt)}</Descriptions.Item>
               <Descriptions.Item label="Pengguna aktif">{d.usage.users}</Descriptions.Item>
-              <Descriptions.Item label="Gudang">{d.usage.warehouses}</Descriptions.Item>
+              <Descriptions.Item label={t('Gudang')}>{d.usage.warehouses}</Descriptions.Item>
               <Descriptions.Item label="NPWP" span={2}>
                 {d.tenant.npwp || '-'}
               </Descriptions.Item>
@@ -718,7 +719,7 @@ function PaymentsTab() {
       <Modal
         open={!!rejecting}
         title={`Tolak bukti ${rejecting?.number ?? ''}`}
-        okText="Tolak & beri tahu pelanggan"
+        okText={t('Tolak & beri tahu pelanggan')}
         okButtonProps={{ danger: true, disabled: !reason.trim(), loading: reject.isPending }}
         onOk={() => rejecting && reject.mutate({ id: rejecting.id, reason })}
         onCancel={() => setRejecting(null)}
@@ -782,7 +783,7 @@ function PlansTab() {
           { title: 'Bulanan', dataIndex: 'priceMonthly', align: 'right', render: fmtMoney },
           { title: 'Tahunan', dataIndex: 'priceYearly', align: 'right', render: fmtMoney },
           { title: 'Maks. pengguna', dataIndex: 'maxUsers', render: (v) => v ?? 'Tanpa batas' },
-          { title: 'Maks. gudang', dataIndex: 'maxWarehouses', render: (v) => v ?? 'Tanpa batas' },
+          { title: t('Maks. gudang'), dataIndex: 'maxWarehouses', render: (v) => v ?? 'Tanpa batas' },
           {
             title: 'Dijual',
             dataIndex: 'isActive',
@@ -858,7 +859,7 @@ function PlansTab() {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="maxWarehouses" label="Maks. gudang" extra="Kosong = tanpa batas">
+              <Form.Item name="maxWarehouses" label={t('Maks. gudang')} extra="Kosong = tanpa batas">
                 <InputNumber min={1} style={{ width: '100%' }} />
               </Form.Item>
             </Col>

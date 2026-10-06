@@ -22,7 +22,7 @@ export default function SalesOrdersPage() {
   return (
     <>
       <PageHeader
-        title="Sales Order"
+        title={t('Sales Order')}
         extra={
           <Space wrap>
             <Select allowClear placeholder="Semua status" style={{ width: 180 }} options={SO_STATUS_OPTIONS} onChange={setStatus} />

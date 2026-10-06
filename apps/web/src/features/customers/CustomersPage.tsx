@@ -9,6 +9,7 @@ import type { Customer } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { fmtMoney } from '@/lib/format';
 import ResponsiveTable from '@/components/ResponsiveTable';
+import { t } from '@/lib/terms';
 
 interface FormValues {
   code: string;
@@ -53,7 +54,7 @@ export default function CustomersPage() {
   return (
     <>
       <PageHeader
-        title="Pelanggan"
+        title={t('Pelanggan')}
         extra={
           <Space wrap>
             <Input.Search placeholder="Cari kode / nama" allowClear onChange={(e) => setSearch(e.target.value)} />

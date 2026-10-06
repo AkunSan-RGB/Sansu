@@ -37,7 +37,7 @@ export default function WithheldPage() {
   return (
     <>
       <PageHeader
-        title="PPh dipotong pelanggan"
+        title={t('PPh dipotong pelanggan')}
         extra={
           <Space>
             <Select
@@ -61,7 +61,7 @@ export default function WithheldPage() {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="PPh 23 yang dipotong pelanggan adalah kredit pajak Anda"
+        message={t('PPh 23 yang dipotong pelanggan adalah kredit pajak Anda')}
         description={`Nilainya mengurangi PPh Badan terutang di SPT Tahunan (dicatat di akun Pajak Dibayar Dimuka) — syaratnya ada bukti potong dari pelanggan; cocokkan dengan bukti potong di Coretax lalu catat nomornya di sini. PPh 4(2) (jasa konstruksi, sewa) bersifat final: tercatat sebagai beban PPh final dan pendapatannya dikeluarkan dari PPh tarif umum.`}
       />
       <Row gutter={16} style={{ marginBottom: 16 }}>
@@ -144,7 +144,7 @@ export default function WithheldPage() {
       >
         <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
           <Form.Item name="slipNo" label="Nomor bukti potong" rules={[{ required: true, min: 3 }]}>
-            <Input placeholder="Nomor dari Coretax / bukti potong pelanggan" />
+            <Input placeholder={t('Nomor dari Coretax / bukti potong pelanggan')} />
           </Form.Item>
           <Form.Item name="slipDate" label="Tanggal bukti potong" rules={[{ required: true }]}>
             <Input type="date" />

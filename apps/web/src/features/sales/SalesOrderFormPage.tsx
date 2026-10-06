@@ -95,7 +95,7 @@ export default function SalesOrderFormPage() {
         <Card>
           <Row gutter={16}>
             <Col xs={24} md={10}>
-              <Form.Item name="customerId" label="Pelanggan" rules={[{ required: true }]}>
+              <Form.Item name="customerId" label={t('Pelanggan')} rules={[{ required: true }]}>
                 <Select
                   showSearch
                   optionFilterProp="label"
@@ -104,7 +104,7 @@ export default function SalesOrderFormPage() {
               </Form.Item>
             </Col>
             <Col xs={24} md={8}>
-              <Form.Item name="warehouseId" label="Gudang" rules={[{ required: true }]}>
+              <Form.Item name="warehouseId" label={t('Gudang')} rules={[{ required: true }]}>
                 <Select options={warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
               </Form.Item>
             </Col>
@@ -129,12 +129,12 @@ export default function SalesOrderFormPage() {
                       title: t('Produk'),
                       width: 320,
                       render: (_, f) => (
-                        <Form.Item name={[f.name, 'productId']} rules={[{ required: true, message: 'Pilih produk' }]} noStyle>
+                        <Form.Item name={[f.name, 'productId']} rules={[{ required: true, message: t('Pilih produk') }]} noStyle>
                           <Select
                             showSearch
                             optionFilterProp="label"
                             style={{ width: '100%' }}
-                            placeholder="Pilih produk"
+                            placeholder={t('Pilih produk')}
                             onChange={(v) => onProduct(f.name, v)}
                             options={products?.filter((p) => p.isActive).map((p) => ({ value: p.id, label: `${p.sku} · ${p.name}` }))}
                           />

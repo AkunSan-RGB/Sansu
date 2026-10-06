@@ -11,6 +11,7 @@ import { printDoc } from '@/lib/print';
 import { DocHeader, PartyBlock, PrintSheet, Signatures } from '@/components/print/Letterhead';
 import { waLink } from './LeadDrawer';
 import { QuotationStatusTag } from './QuotationsPage';
+import { t } from '@/lib/terms';
 
 export default function QuotationDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -50,7 +51,7 @@ export default function QuotationDetailPage() {
               )}
               {open && (
                 <>
-                  <Popconfirm title="Pelanggan setuju? Sales Order draft akan dibuat dengan harga yang sama." onConfirm={() => convert.mutate(undefined)}>
+                  <Popconfirm title={t('Pelanggan setuju? Sales Order draft akan dibuat dengan harga yang sama.')} onConfirm={() => convert.mutate(undefined)}>
                     <Button type="primary" loading={convert.isPending}>
                       Disetujui → buat Sales Order
                     </Button>

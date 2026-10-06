@@ -61,7 +61,7 @@ export default function PurchaseInvoicesPage() {
   return (
     <>
       <PageHeader
-        title="Faktur Pembelian & Hutang"
+        title={t('Faktur Pembelian & Hutang')}
         extra={
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setBillOpen(true)}>
             Tagihan biaya / aset
@@ -74,7 +74,7 @@ export default function PurchaseInvoicesPage() {
           items={[
             {
               key: 'list',
-              label: 'Daftar faktur',
+              label: t('Daftar faktur'),
               children: (
                 <>
                   <Select allowClear placeholder="Semua status" style={{ width: 200, marginBottom: 12 }} options={INV_STATUS_OPTIONS} onChange={setStatus} />
@@ -85,7 +85,7 @@ export default function PurchaseInvoicesPage() {
                     scroll={{ x: 1250 }}
                     columns={[
                       { title: 'Nomor', dataIndex: 'number' },
-                      { title: 'No. faktur supplier', dataIndex: 'supplierInvoiceNo' },
+                      { title: t('No. faktur supplier'), dataIndex: 'supplierInvoiceNo' },
                       {
                         title: 'Jenis',
                         dataIndex: 'kind',

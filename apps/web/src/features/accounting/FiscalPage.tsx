@@ -15,11 +15,12 @@ import { fiscalSheets } from '@/lib/xlsx/reports';
 import { fmtMoney } from '@/lib/format';
 import { acc } from './statements/format';
 import { useAuth } from '@/auth/AuthContext';
+import { t } from '@/lib/terms';
 
 const SOURCE: Record<FiscalItem['source'], { label: string; color: string }> = {
   ACCOUNT: { label: 'Otomatis dari akun', color: 'blue' },
   DEPRECIATION: { label: 'Penyusutan', color: 'purple' },
-  INVENTORY: { label: 'Persediaan (penurunan nilai)', color: 'orange' },
+  INVENTORY: { label: t('Persediaan (penurunan nilai)'), color: 'orange' },
   FINAL_COST: { label: 'Biaya penghasilan PPh final', color: 'magenta' },
   MANUAL: { label: 'Manual', color: 'default' },
 };
@@ -204,7 +205,7 @@ export default function FiscalPage() {
               {d.deferred && (
                 <Card title="Pajak tangguhan (SAK EP)" style={{ marginBottom: 16 }}>
                   <Descriptions size="small" column={1} bordered styles={{ content: { whiteSpace: 'nowrap', textAlign: 'right' } }}>
-                    <Descriptions.Item label="Beda temporer aset tetap & persediaan (fiskal − komersial)">{acc(d.deferred.temporaryDifference)}</Descriptions.Item>
+                    <Descriptions.Item label={t('Beda temporer aset tetap & persediaan (fiskal − komersial)')}>{acc(d.deferred.temporaryDifference)}</Descriptions.Item>
                     <Descriptions.Item label="Aset (liabilitas) pajak tangguhan seharusnya">{acc(d.deferred.target)}</Descriptions.Item>
                     <Descriptions.Item label="Saldo di buku saat ini">{acc(d.deferred.current)}</Descriptions.Item>
                     <Descriptions.Item label="Penyesuaian tahun ini">{acc(d.deferred.adjustment)}</Descriptions.Item>

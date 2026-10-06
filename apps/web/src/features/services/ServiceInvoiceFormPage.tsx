@@ -14,6 +14,7 @@ import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
 import { fmtMoney, today } from '@/lib/format';
 import { outputVatRate, vatTotals } from '@/lib/vat';
+import { t } from '@/lib/terms';
 
 interface Line {
   description?: string;
@@ -138,7 +139,7 @@ export default function ServiceInvoiceFormPage() {
 
   return (
     <>
-      <PageHeader title="Faktur jasa baru" />
+      <PageHeader title={t('Faktur jasa baru')} />
       <Form
         form={form}
         layout="vertical"
@@ -153,7 +154,7 @@ export default function ServiceInvoiceFormPage() {
         <Card>
           <Row gutter={16}>
             <Col xs={24} md={8}>
-              <Form.Item name="customerId" label="Pelanggan" rules={[{ required: true }]}>
+              <Form.Item name="customerId" label={t('Pelanggan')} rules={[{ required: true }]}>
                 <Select
                   showSearch
                   optionFilterProp="label"
@@ -180,7 +181,7 @@ export default function ServiceInvoiceFormPage() {
               </Form.Item>
             </Col>
             <Col xs={12} md={4}>
-              <Form.Item name="dueDate" label="Jatuh tempo" extra="Kosong = termin pelanggan">
+              <Form.Item name="dueDate" label="Jatuh tempo" extra={t('Kosong = termin pelanggan')}>
                 <Input type="date" />
               </Form.Item>
             </Col>
@@ -221,12 +222,12 @@ export default function ServiceInvoiceFormPage() {
             <Col xs={24} md={16}>
               <Form.Item
                 name="preset"
-                label="PPh yang dipotong pelanggan"
-                extra="Pelanggan badan / instansi biasanya memotong PPh atas pembayaran jasa"
+                label={t('PPh yang dipotong pelanggan')}
+                extra={t('Pelanggan badan / instansi biasanya memotong PPh atas pembayaran jasa')}
               >
                 <Select
                   allowClear
-                  placeholder="Tidak dipotong (pelanggan perorangan)"
+                  placeholder={t('Tidak dipotong (pelanggan perorangan)')}
                   options={CUSTOMER_WITHHOLDING_PRESETS.map((p) => ({ value: p.key, label: p.label }))}
                 />
               </Form.Item>
@@ -319,7 +320,7 @@ export default function ServiceInvoiceFormPage() {
               <Descriptions column={1} size="small" bordered>
                 <Descriptions.Item label="DPP">{fmtMoney(subtotal)}</Descriptions.Item>
                 <Descriptions.Item label={rate ? `PPN ${rate}%` : 'PPN'}>{fmtMoney(tax)}</Descriptions.Item>
-                <Descriptions.Item label="Total faktur">
+                <Descriptions.Item label={t('Total faktur')}>
                   <strong>{fmtMoney(total)}</strong>
                 </Descriptions.Item>
                 {presetInfo && (

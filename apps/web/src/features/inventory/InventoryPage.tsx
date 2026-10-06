@@ -57,10 +57,10 @@ export default function InventoryPage() {
   return (
     <>
       <PageHeader
-        title="Inventori"
+        title={t('Inventori')}
         extra={
           <Space wrap>
-            <Select allowClear placeholder="Semua gudang" style={{ width: 200 }} options={whOptions} onChange={setWarehouseId} />
+            <Select allowClear placeholder={t('Semua gudang')} style={{ width: 200 }} options={whOptions} onChange={setWarehouseId} />
             <Button
               type="primary"
               icon={<PlusOutlined />}
@@ -98,7 +98,7 @@ export default function InventoryPage() {
                   summary={() => (
                     <Table.Summary.Row>
                       <Table.Summary.Cell index={0} colSpan={5}>
-                        <Typography.Text strong>Total nilai persediaan</Typography.Text>
+                        <Typography.Text strong>{t('Total nilai persediaan')}</Typography.Text>
                       </Table.Summary.Cell>
                       <Table.Summary.Cell index={5} align="right">
                         <Typography.Text strong>{fmtMoney(totalValue)}</Typography.Text>
@@ -117,7 +117,7 @@ export default function InventoryPage() {
                     allowClear
                     showSearch
                     optionFilterProp="label"
-                    placeholder="Filter produk"
+                    placeholder={t('Filter produk')}
                     style={{ width: '100%', maxWidth: 360, marginBottom: 12 }}
                     options={prodOptions}
                     onChange={setProductId}
@@ -163,7 +163,7 @@ export default function InventoryPage() {
       >
         <Form form={form} layout="vertical" onFinish={(v) => adjust.mutate(v)}>
           <Space wrap>
-            <Form.Item name="warehouseId" label="Gudang" rules={[{ required: true }]}>
+            <Form.Item name="warehouseId" label={t('Gudang')} rules={[{ required: true }]}>
               <Select style={{ width: 220 }} options={whOptions} />
             </Form.Item>
             <Form.Item name="reason" label="Alasan" rules={[{ required: true }]}>
@@ -181,8 +181,8 @@ export default function InventoryPage() {
               <>
                 {fields.map((f) => (
                   <Space key={f.key} align="baseline" wrap>
-                    <Form.Item name={[f.name, 'productId']} rules={[{ required: true, message: 'Pilih produk' }]}>
-                      <Select showSearch optionFilterProp="label" placeholder="Produk" style={{ width: 300 }} options={prodOptions} />
+                    <Form.Item name={[f.name, 'productId']} rules={[{ required: true, message: t('Pilih produk') }]}>
+                      <Select showSearch optionFilterProp="label" placeholder={t('Produk')} style={{ width: 300 }} options={prodOptions} />
                     </Form.Item>
                     <Form.Item name={[f.name, 'qty']} rules={[{ required: true, message: 'Qty' }]}>
                       <InputNumber placeholder="Qty" style={{ width: 110 }} />

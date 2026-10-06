@@ -27,6 +27,7 @@ import { get, patch, post } from '@/api/client';
 import { useAction, useCustomers } from '@/api/queries';
 import type { CrmStage, Lead } from '@/api/types';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 export const LEAD_STATUS_COLOR = { OPEN: 'blue', WON: 'green', LOST: 'red' } as const;
 
@@ -41,7 +42,7 @@ export function LeadForm({ form, stages, onFinish }: { form: FormInstance<any>; 
       <Form.Item name="title" label="Judul peluang" rules={[{ required: true }]}>
         <Input placeholder="Toko Makmur — pasok mi & minuman" />
       </Form.Item>
-      <Form.Item name="customerId" label="Pelanggan terdaftar (jika sudah ada)">
+      <Form.Item name="customerId" label={t('Pelanggan terdaftar (jika sudah ada)')}>
         <Select allowClear showSearch optionFilterProp="label" options={customers?.map((c) => ({ value: c.id, label: `${c.code} · ${c.name}` }))} />
       </Form.Item>
       <Form.Item name="companyName" label="Nama toko / perusahaan">
@@ -154,7 +155,7 @@ export default function LeadDrawer({ leadId, stages, onClose }: { leadId: string
           {lead.status === 'LOST' && lead.lostReason && <Typography.Paragraph type="danger">Alasan kalah: {lead.lostReason}</Typography.Paragraph>}
           <Descriptions column={1} size="small" bordered>
             <Descriptions.Item label="Perkiraan nilai">{fmtMoney(lead.expectedRevenue)}</Descriptions.Item>
-            <Descriptions.Item label="Pelanggan">{lead.customer ? `${lead.customer.code} · ${lead.customer.name}` : lead.companyName ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label={t('Pelanggan')}>{lead.customer ? `${lead.customer.code} · ${lead.customer.name}` : lead.companyName ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="Kontak">{lead.contactName ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="Telepon">
               {lead.phone ? (

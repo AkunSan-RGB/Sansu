@@ -18,6 +18,11 @@ describe('istilah antarmuka per jenis usaha', () => {
     expect(localize('Inventori', 'JASA')).toBe('Bahan kerja');
     expect(localize('Penjualan bulan ini (DPP)', 'JASA')).toBe('Pendapatan bulan ini (DPP)');
   });
+  it('judul dokumen cetak huruf besar ikut berubah', () => {
+    expect(localize('FAKTUR', 'JASA')).toBe('TAGIHAN');
+    expect(localize('FAKTUR JASA', 'JASA')).toBe('FAKTUR JASA');
+    expect(localize('FAKTUR', 'DAGANG')).toBe('FAKTUR');
+  });
   it('kata penjualan di dalam kalimat lain tidak ikut berubah untuk jasa', () => {
     expect(localize('Laporan penjualan harian', 'JASA')).toBe('Laporan penjualan harian');
   });

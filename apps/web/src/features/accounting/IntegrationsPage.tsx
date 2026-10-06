@@ -152,7 +152,7 @@ function MarketplaceTab() {
             <InboxOutlined />
           </p>
           <p>{fileName ?? 'Seret file ekspor pesanan (Excel/CSV) dari Seller Center ke sini'}</p>
-          <Typography.Text type="secondary">Satu baris per produk; pesanan dengan nomor sama digabung. SKU harus sama dengan SKU di SANSU.</Typography.Text>
+          <Typography.Text type="secondary">{t('Satu baris per produk; pesanan dengan nomor sama digabung. SKU harus sama dengan SKU di SANSU.')}</Typography.Text>
         </Upload.Dragger>
         {grid.length > 0 && (
           <>
@@ -275,8 +275,8 @@ function CoretaxTab() {
         type="info"
         showIcon
         style={{ marginBottom: 12 }}
-        message="Ekspor faktur penjualan & uang muka ber-PPN ke file XML Coretax"
-        description="Unggah file di Coretax DJP (e-Faktur → Pajak Keluaran → Impor Data), periksa draf, lalu tanda tangani. Format mengikuti template XML impor faktur keluaran DJP (TrxCode 04, DPP nilai lain 11/12 untuk PPN 12%). Selalu cek ulang dengan template terbaru di pajak.go.id."
+        message={t('Ekspor faktur penjualan & uang muka ber-PPN ke file XML Coretax')}
+        description={t('Unggah file di Coretax DJP (e-Faktur → Pajak Keluaran → Impor Data), periksa draf, lalu tanda tangani. Format mengikuti template XML impor faktur keluaran DJP (TrxCode 04, DPP nilai lain 11/12 untuk PPN 12%). Selalu cek ulang dengan template terbaru di pajak.go.id.')}
       />
       <Space wrap style={{ marginBottom: 12 }}>
         <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -364,7 +364,7 @@ export default function IntegrationsPage() {
         items={[
           { key: 'marketplace', label: 'Pesanan marketplace', children: <MarketplaceTab /> },
           ...(isFinance ? [{ key: 'sync', label: 'Sinkron otomatis', children: <MarketplaceSyncTab /> }] : []),
-          ...(can('accounting') ? [{ key: 'coretax', label: 'e-Faktur Coretax', children: <CoretaxTab /> }] : []),
+          ...(can('accounting') ? [{ key: 'coretax', label: t('e-Faktur Coretax'), children: <CoretaxTab /> }] : []),
         ]}
       />
     </>

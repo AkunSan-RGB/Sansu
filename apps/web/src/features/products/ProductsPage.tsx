@@ -9,6 +9,7 @@ import type { Product } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { fmtMoney, fmtQty } from '@/lib/format';
 import ResponsiveTable from '@/components/ResponsiveTable';
+import { t } from '@/lib/terms';
 
 interface FormValues {
   sku: string;
@@ -63,7 +64,7 @@ export default function ProductsPage() {
   return (
     <>
       <PageHeader
-        title="Produk"
+        title={t('Produk')}
         extra={
           <Space wrap>
             <Input.Search placeholder="Cari SKU / nama" allowClear onChange={(e) => setSearch(e.target.value)} />
@@ -121,7 +122,7 @@ export default function ProductsPage() {
           <Form.Item name="sku" label="SKU" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="name" label="Nama produk" rules={[{ required: true }]}>
+          <Form.Item name="name" label={t('Nama produk')} rules={[{ required: true }]}>
             <Input />
           </Form.Item>
           <Form.Item name="barcode" label="Barcode (untuk scan di kasir)">

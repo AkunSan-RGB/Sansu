@@ -8,6 +8,7 @@ import { get, patch, post } from '@/api/client';
 import { useAction, useWarehouses } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
+import { t } from '@/lib/terms';
 
 /** Daftar gudang: tambah, ubah nama/alamat, nonaktifkan. Jumlah gudang aktif dibatasi paket langganan. */
 export default function WarehousesPage() {
@@ -46,7 +47,7 @@ export default function WarehousesPage() {
   return (
     <>
       <PageHeader
-        title="Gudang"
+        title={t('Gudang')}
         extra={
           isAdmin && (
             <Button type="primary" icon={<PlusOutlined />} disabled={full} onClick={() => setEditing({})}>
@@ -83,7 +84,7 @@ export default function WarehousesPage() {
                 type="info"
                 showIcon
                 message={`Paket ${me?.subscription.plan?.name} dibatasi ${max} gudang aktif.`}
-                description="Untuk menambah gudang, tingkatkan paket — atau nonaktifkan gudang yang sudah tidak dipakai (stoknya harus kosong)."
+                description={t('Untuk menambah gudang, tingkatkan paket — atau nonaktifkan gudang yang sudah tidak dipakai (stoknya harus kosong).')}
                 action={
                   <Button size="small" type="primary" onClick={() => navigate('/billing')}>
                     Lihat paket
@@ -156,8 +157,8 @@ export default function WarehousesPage() {
           >
             <Input placeholder="GDG-02" disabled={!!editing?.id} />
           </Form.Item>
-          <Form.Item name="name" label="Nama gudang" rules={[{ required: true }, { max: 120 }]}>
-            <Input placeholder="Gudang Cabang Bekasi" />
+          <Form.Item name="name" label={t('Nama gudang')} rules={[{ required: true }, { max: 120 }]}>
+            <Input placeholder={t('Gudang Cabang Bekasi')} />
           </Form.Item>
           <Form.Item name="address" label="Alamat">
             <Input.TextArea rows={2} maxLength={300} />

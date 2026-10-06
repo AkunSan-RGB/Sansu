@@ -80,7 +80,7 @@ export default function CountsPage() {
         showIcon
         style={{ marginBottom: 16 }}
         message="Alur stock opname"
-        description="1) Mulai & cetak lembar hitung · 2) Hitung barang di gudang · 3) Isi jumlah fisik (bisa bertahap, tersimpan) · 4) Bukukan selisih: SANSU membandingkan dengan stok sistem saat itu, lalu membuat penyesuaian stok & jurnal selisih persediaan otomatis."
+        description={t('1) Mulai & cetak lembar hitung · 2) Hitung barang di gudang · 3) Isi jumlah fisik (bisa bertahap, tersimpan) · 4) Bukukan selisih: SANSU membandingkan dengan stok sistem saat itu, lalu membuat penyesuaian stok & jurnal selisih persediaan otomatis.')}
       />
       <Card>
         <Table
@@ -102,13 +102,13 @@ export default function CountsPage() {
       </Card>
       <Modal open={open} title="Mulai stock opname" footer={null} onCancel={() => setOpen(false)} destroyOnHidden>
         <Form layout="vertical" initialValues={{ date: today(), warehouseId: warehouses?.[0]?.id }} onFinish={(v) => create.mutate(v)}>
-          <Form.Item name="warehouseId" label="Gudang" rules={[{ required: true }]}>
+          <Form.Item name="warehouseId" label={t('Gudang')} rules={[{ required: true }]}>
             <Select options={warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
           </Form.Item>
           <Form.Item name="date" label="Tanggal opname" rules={[{ required: true }]}>
             <Input type="date" />
           </Form.Item>
-          <Form.Item name="category" label="Kategori produk (opsional)" extra="Kosongkan untuk menghitung semua produk. Untuk gudang besar, opname bisa dibagi per kategori.">
+          <Form.Item name="category" label={t('Kategori produk (opsional)')} extra={t('Kosongkan untuk menghitung semua produk. Untuk gudang besar, opname bisa dibagi per kategori.')}>
             <Select allowClear options={categories.map((c) => ({ value: c, label: c }))} />
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={create.isPending}>
@@ -228,7 +228,7 @@ function CountSheet({ c }: { c: CountDetail }) {
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <Card size="small" className="no-print">
           <Space size={32} wrap>
-            <Statistic title="Gudang" value={`${c.warehouse.code} · ${c.warehouse.name}`} valueStyle={{ fontSize: 16 }} />
+            <Statistic title={t('Gudang')} value={`${c.warehouse.code} · ${c.warehouse.name}`} valueStyle={{ fontSize: 16 }} />
             <Statistic title="Tanggal" value={fmtDate(c.date)} valueStyle={{ fontSize: 16 }} />
             <Statistic title="Sudah dihitung" value={`${done} / ${all}`} valueStyle={{ fontSize: 16 }} />
             <Statistic title="Selisih lebih" value={fmtMoney(plus)} valueStyle={{ fontSize: 16, color: '#15803d' }} />

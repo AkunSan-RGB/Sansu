@@ -48,7 +48,7 @@ export default function QuotationsPage() {
             { title: t('Pelanggan'), render: (_, q) => q.customer.name },
             { title: 'Total', dataIndex: 'total', align: 'right', render: fmtMoney },
             { title: 'Status', render: (_, q) => <QuotationStatusTag q={q} /> },
-            { title: 'Sales Order', render: (_, q) => q.salesOrder?.number ?? '-' },
+            { title: t('Sales Order'), render: (_, q) => q.salesOrder?.number ?? '-' },
           ]}
         />
       </Card>

@@ -118,11 +118,11 @@ export default function WritedownsPage() {
   if (!canPost) {
     return (
       <>
-        <PageHeader title="Penurunan nilai persediaan" />
+        <PageHeader title={t('Penurunan nilai persediaan')} />
         <Alert
           type="info"
           showIcon
-          message="Hanya Pemilik, Admin, atau Keuangan yang bisa mencatat penurunan nilai persediaan."
+          message={t('Hanya Pemilik, Admin, atau Keuangan yang bisa mencatat penurunan nilai persediaan.')}
         />
       </>
     );
@@ -131,13 +131,13 @@ export default function WritedownsPage() {
   const potential = (candidates.data ?? []).reduce((a, r) => a + Number(r.loss), 0);
   return (
     <>
-      <PageHeader title="Penurunan nilai persediaan" />
+      <PageHeader title={t('Penurunan nilai persediaan')} />
       <Alert
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="Persediaan dicatat sebesar yang lebih rendah antara harga pokok dan nilai realisasi neto (SAK EP Bab 13)"
-        description="Nilai realisasi neto = taksiran harga jual − taksiran biaya untuk menjual. Bila lebih rendah dari harga pokok rata-rata (barang rusak, usang, kedaluwarsa, atau harga pasar turun), turunkan nilainya di sini. Selisihnya dicatat sebagai Kerugian Penurunan Nilai Persediaan (bagian beban pokok penjualan). Lakukan minimal setiap tutup buku akhir tahun."
+        message={t('Persediaan dicatat sebesar yang lebih rendah antara harga pokok dan nilai realisasi neto (SAK EP Bab 13)')}
+        description={t('Nilai realisasi neto = taksiran harga jual − taksiran biaya untuk menjual. Bila lebih rendah dari harga pokok rata-rata (barang rusak, usang, kedaluwarsa, atau harga pasar turun), turunkan nilainya di sini. Selisihnya dicatat sebagai Kerugian Penurunan Nilai Persediaan (bagian beban pokok penjualan). Lakukan minimal setiap tutup buku akhir tahun.')}
       />
       <Card
         title="Indikasi: harga jual di bawah harga pokok"

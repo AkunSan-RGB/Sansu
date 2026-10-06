@@ -121,9 +121,9 @@ function ProjectModal({ open, onClose, onDone }: { open: boolean; onClose: () =>
     >
       <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)} preserve={false}>
         <Form.Item name="name" label="Nama proyek / pekerjaan" rules={[{ required: true, min: 3 }]}>
-          <Input placeholder="Mis. Renovasi gudang PT Maju Jaya" />
+          <Input placeholder={t('Mis. Renovasi gudang PT Maju Jaya')} />
         </Form.Item>
-        <Form.Item name="customerId" label="Pelanggan (pemberi kerja)" rules={[{ required: true }]}>
+        <Form.Item name="customerId" label={t('Pelanggan (pemberi kerja)')} rules={[{ required: true }]}>
           <Select
             showSearch
             optionFilterProp="label"
@@ -233,7 +233,7 @@ export function ProjectDetailPage() {
         <>
           <Card style={{ marginBottom: 16 }}>
             <Descriptions column={{ xs: 1, md: 3 }} size="small">
-              <Descriptions.Item label="Pelanggan">{p.customer.name}</Descriptions.Item>
+              <Descriptions.Item label={t('Pelanggan')}>{p.customer.name}</Descriptions.Item>
               <Descriptions.Item label="Nilai kontrak (DPP)">{fmtMoney(p.contractValue)}</Descriptions.Item>
               <Descriptions.Item label="Periode">
                 {fmtDate(p.startDate)} – {fmtDate(p.endDate)}

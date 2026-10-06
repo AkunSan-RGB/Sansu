@@ -22,6 +22,7 @@ npm run test:e2e                    # e2e api: mereset dan memigrasi database `a
 | Jejak audit | `journal-immutable` | Jurnal terposting tidak bisa diubah/dihapus (trigger database) |
 | Kalender pajak & PPN | `tax-calendar-vat` | Tenggat digeser ke hari kerja berikutnya; pembulatan PPN ke rupiah penuh |
 | Bagan akun per jenis usaha | `coa-per-model` | Akun khusus, nama inti, relevansi (akun tak terpakai dinonaktifkan) per jenis usaha; nama buatan pengguna tidak tertimpa |
+| Fitur pajak per usaha | `tax-features` | Menu dan kewajiban pajak mengikuti jenis usaha, status PKP, dan skema PPh |
 | Saldo awal | `opening-balance` | Akun kontrol (piutang, utang, persediaan, penyeimbang) tidak bisa diisi manual; ringkasan kesiapan dan peringatan |
 
 ## Uji acak invarian

@@ -1,6 +1,7 @@
 import type { WithholdingRow } from '@sansu/shared';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { cell, DocHeader, head, PartyBlock, PrintSheet, Signatures, useLetterhead } from './Letterhead';
+import { t } from '@/lib/terms';
 
 const TITLE: Record<WithholdingRow['type'], string> = {
   PPH23: 'BUKTI PEMOTONGAN PPh PASAL 23',
@@ -57,7 +58,7 @@ export default function WithholdingSlip({ row }: { row: WithholdingRow }) {
         </tbody>
       </table>
       {!row.supplierNpwp && (
-        <p style={{ fontSize: 12, color: '#b91c1c' }}>NPWP/NIK penerima belum diisi. Lengkapi di menu Supplier sebelum bukti potong diterbitkan resmi.</p>
+        <p style={{ fontSize: 12, color: '#b91c1c' }}>{t('NPWP/NIK penerima belum diisi. Lengkapi di menu Supplier sebelum bukti potong diterbitkan resmi.')}</p>
       )}
       <Signatures labels={[['Penerima penghasilan'], ['Pemotong pajak', c?.name]]} />
       <p style={{ fontSize: 11, color: '#64748b', marginTop: 24 }}>

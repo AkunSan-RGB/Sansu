@@ -7,4 +7,5 @@ export * from './entity-profile.js';
 export * from './report-terms.js';
 export * from './ui-terms.js';
 export * from './tax-thresholds.js';
+export * from './tax-features.js';
 export * from './version.js';

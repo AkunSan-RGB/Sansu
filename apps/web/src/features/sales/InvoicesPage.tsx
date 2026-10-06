@@ -27,7 +27,7 @@ export default function InvoicesPage() {
   return (
     <>
       <PageHeader
-        title="Faktur & Piutang"
+        title={t('Faktur & Piutang')}
         extra={
           <Button icon={<PlusOutlined />} onClick={() => navigate('/invoices/services/new')}>
             Faktur jasa
@@ -39,7 +39,7 @@ export default function InvoicesPage() {
           items={[
             {
               key: 'list',
-              label: 'Daftar faktur',
+              label: t('Daftar faktur'),
               children: (
                 <>
                   <Select allowClear placeholder="Semua status" style={{ width: 200, marginBottom: 12 }} options={INV_STATUS_OPTIONS} onChange={setStatus} />

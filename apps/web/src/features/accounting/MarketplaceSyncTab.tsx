@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, get, patch, post } from '@/api/client';
 import { LEDGER_KEYS, useAction, useWarehouses } from '@/api/queries';
+import { t } from '@/lib/terms';
 
 interface ProviderInfo {
   key: 'SHOPEE' | 'TIKTOK' | 'LAZADA' | 'SIMULASI';
@@ -89,7 +90,7 @@ export default function MarketplaceSyncTab() {
         type="info"
         showIcon
         message="Cara kerja sinkron otomatis"
-        description="Setelah toko tersambung, SANSU menarik pesanan setiap 15 menit. Pesanan yang sudah DIKIRIM otomatis menjadi faktur (stok keluar, HPP, PPN, piutang ke marketplace). Pesanan yang belum dikirim ditunggu, pesanan batal dilewati. SKU di marketplace harus sama dengan SKU produk di SANSU. Pencairan dana tetap dicatat di tab Pesanan marketplace."
+        description={t('Setelah toko tersambung, SANSU menarik pesanan setiap 15 menit. Pesanan yang sudah DIKIRIM otomatis menjadi faktur (stok keluar, HPP, PPN, piutang ke marketplace). Pesanan yang belum dikirim ditunggu, pesanan batal dilewati. SKU di marketplace harus sama dengan SKU produk di SANSU. Pencairan dana tetap dicatat di tab Pesanan marketplace.')}
       />
 
       <Row gutter={[16, 16]}>
@@ -136,7 +137,7 @@ export default function MarketplaceSyncTab() {
                 <Button key="d" type="link" onClick={() => setDetails(c)}>
                   Detail
                 </Button>,
-                <Popconfirm key="x" title="Putuskan toko ini? Faktur yang sudah dibuat tidak terhapus." okText="Putuskan" cancelText="Batal" onConfirm={() => remove.mutate(c.id)}>
+                <Popconfirm key="x" title={t('Putuskan toko ini? Faktur yang sudah dibuat tidak terhapus.')} okText="Putuskan" cancelText="Batal" onConfirm={() => remove.mutate(c.id)}>
                   <Button type="text" danger icon={<DeleteOutlined />} aria-label="Putuskan" />
                 </Popconfirm>,
               ]}
@@ -178,7 +179,7 @@ export default function MarketplaceSyncTab() {
         destroyOnHidden
       >
         <Form form={form} layout="vertical" preserve={false} initialValues={{ warehouseId: wh.data?.[0]?.id, pricesIncludeVat: true }} onFinish={(v) => start.mutate({ ...v, provider: adding!.key })}>
-          <Form.Item name="warehouseId" label="Stok diambil dari gudang" rules={[{ required: true }]}>
+          <Form.Item name="warehouseId" label={t('Stok diambil dari gudang')} rules={[{ required: true }]}>
             <Select options={(wh.data ?? []).map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
           </Form.Item>
           <Form.Item name="pricesIncludeVat" valuePropName="checked">
@@ -187,7 +188,7 @@ export default function MarketplaceSyncTab() {
           {adding?.key !== 'SIMULASI' ? (
             <Typography.Paragraph type="secondary">Anda akan diarahkan ke {adding?.label} untuk masuk dengan akun penjual dan memberi izin kepada SANSU membaca pesanan.</Typography.Paragraph>
           ) : (
-            <Typography.Paragraph type="secondary">Toko simulasi membuat 1–3 pesanan contoh dari produk Anda setiap kali tombol "Sinkron sekarang" ditekan — untuk mencoba alurnya tanpa akun marketplace.</Typography.Paragraph>
+            <Typography.Paragraph type="secondary">{t('Toko simulasi membuat 1–3 pesanan contoh dari produk Anda setiap kali tombol "Sinkron sekarang" ditekan — untuk mencoba alurnya tanpa akun marketplace.')}</Typography.Paragraph>
           )}
         </Form>
       </Modal>
@@ -206,7 +207,7 @@ export default function MarketplaceSyncTab() {
               options={(wh.data ?? []).map((w) => ({ value: w.id, label: `Gudang: ${w.code} · ${w.name}` }))}
             />
             {details.lastResult?.imported?.length ? (
-              <Card size="small" title="Faktur dibuat (sinkron terakhir)">
+              <Card size="small" title={t('Faktur dibuat (sinkron terakhir)')}>
                 {details.lastResult.imported.map((i) => (
                   <div key={i.orderNo}>
                     #{i.orderNo} → {i.invoice}

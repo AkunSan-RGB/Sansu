@@ -362,7 +362,7 @@ function Withholding() {
                         showIcon
                         style={{ marginTop: 8 }}
                         message={`Buku besar ${fmtMoney(s.ledger)} berbeda ${fmtMoney(s.unexplained)} dari daftar faktur`}
-                        description="Biasanya karena jurnal manual langsung ke akun utang PPh. Pastikan setiap potongan tercatat lewat tagihan supplier agar bukti potongnya lengkap."
+                        description={t('Biasanya karena jurnal manual langsung ke akun utang PPh. Pastikan setiap potongan tercatat lewat tagihan supplier agar bukti potongnya lengkap.')}
                       />
                     )}
                   </Card>
@@ -373,7 +373,7 @@ function Withholding() {
               <Alert
                 type="error"
                 showIcon
-                message="Supplier tanpa NPWP/NIK"
+                message={t('Supplier tanpa NPWP/NIK')}
                 description={`${w.missingNpwp.join(', ')}. Bukti potong membutuhkan NPWP atau NIK penerima penghasilan; tanpa NPWP tarif PPh 23 menjadi 100% lebih tinggi (4%). Lengkapi di menu Supplier.`}
               />
             )}

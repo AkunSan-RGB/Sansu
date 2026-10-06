@@ -10,6 +10,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
+import { taxFeatures } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { Db } from '../../db/db';
@@ -344,11 +345,25 @@ export class AuthService {
       apps: [...(await this.apps.enabled(u.tenantId))],
       businessModel: await this.settings.businessModel(this.db, u.tenantId),
       taxProfile: await this.settings.taxProfile(this.db, u.tenantId),
+      taxFeatures: await this.taxFeatures(u.tenantId),
       emailVerified: !!emailVerifiedAt,
       verificationRequired: verificationRequired(this.mail),
       isPlatformAdmin: isPlatformAdmin(row.email),
       subscription: await this.subs.state(u.tenantId, true),
     };
+  }
+
+  /** Fitur pajak yang relevan: jenis usaha + status PKP + skema PPh (aturan di @sansu/shared taxFeatures) */
+  private async taxFeatures(tenantId: string) {
+    const [model, tax, reporting] = await Promise.all([
+      this.settings.businessModel(this.db, tenantId),
+      this.settings.taxProfile(this.db, tenantId),
+      this.settings.reporting(this.db, tenantId),
+    ]);
+    const withheld = await this.db.execute<{ n: boolean }>(
+      sql`SELECT EXISTS (SELECT 1 FROM invoices WHERE tenant_id = ${tenantId} AND withholding_amount > 0) AS n`,
+    );
+    return taxFeatures({ model, pkp: tax.pkp, taxScheme: reporting.taxScheme, hasData: { withheldByCustomers: !!withheld.rows[0]?.n } });
   }
 
   listUsers(tenantId: string) {

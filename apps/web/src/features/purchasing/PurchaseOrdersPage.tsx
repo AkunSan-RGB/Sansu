@@ -22,7 +22,7 @@ export default function PurchaseOrdersPage() {
   return (
     <>
       <PageHeader
-        title="Purchase Order"
+        title={t('Purchase Order')}
         extra={
           <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/purchase-orders/new')}>
             PO baru

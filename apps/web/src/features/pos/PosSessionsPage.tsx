@@ -68,7 +68,7 @@ export default function PosSessionsPage() {
             { title: 'Tutup', dataIndex: 'closedAt', render: dt },
             { title: 'Status', dataIndex: 'status', render: (s) => (s === 'OPEN' ? <Tag color="green">Buka</Tag> : <Tag>Tutup</Tag>) },
             { title: 'Transaksi', dataIndex: 'orderCount', align: 'right' },
-            { title: 'Penjualan', dataIndex: 'totalSales', align: 'right', render: fmtMoney },
+            { title: t('Penjualan'), dataIndex: 'totalSales', align: 'right', render: fmtMoney },
             {
               title: 'Selisih kas',
               dataIndex: 'difference',

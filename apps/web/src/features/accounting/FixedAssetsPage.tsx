@@ -35,6 +35,7 @@ import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { Amount } from './statements/format';
 import { fixedAssetsSheet } from '@/lib/xlsx/reports';
 import { useAuth } from '@/auth/AuthContext';
+import { t } from '@/lib/terms';
 
 const KEYS = ['assets', 'asset-runs', 'asset-roll', ...LEDGER_KEYS];
 const groupOptions = Object.entries(FISCAL_ASSET_GROUP_INFO).map(([k, v]) => ({ value: k, label: v.label }));
@@ -169,7 +170,7 @@ function AssetForm({ categories, onDone }: { categories: AssetCategory[]; onDone
       <Row gutter={12}>
         <Col xs={24} md={12}>
           <Form.Item name="location" label="Lokasi / pemegang">
-            <Input placeholder="Gudang Cikarang" />
+            <Input placeholder={t('Gudang Cikarang')} />
           </Form.Item>
         </Col>
         <Col xs={24} md={12}>

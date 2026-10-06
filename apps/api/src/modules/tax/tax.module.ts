@@ -170,11 +170,13 @@ export class TaxService {
     const to = monthEnd(period);
     const result: TaxObligation[] = [];
 
-    // PPN
+    // PPN: perusahaan non-PKP tidak memungut PPN; barisnya hanya muncul bila ternyata ada saldo PPN
     const vat = await this.vatPosition(db, tenantId, period);
     const vatPaid = await this.paidIn(db, tenantId, 'PPN', period);
     const vatDue = this.dueDate('PPN', period, holidays);
-    result.push({
+    const pkp = (await this.settings.taxProfile(db, tenantId)).pkp;
+    const showVat = pkp || !vat.remOut.isZero() || !vat.remIn.isZero() || vatPaid.gt(0);
+    if (showVat) result.push({
       type: 'PPN',
       period,
       outstanding: (vat.payable.gt(0) ? vat.payable : vat.remOut.gt(0) ? ZERO : vat.payable).toFixed(2),

@@ -79,14 +79,14 @@ export default function PurchaseOrderDetailPage() {
         {o && (
           <>
             <Descriptions bordered size="small" column={{ xs: 1, md: 2 }} style={{ marginBottom: 16 }}>
-              <Descriptions.Item label="Supplier">
+              <Descriptions.Item label={t('Supplier')}>
                 {o.supplier.code} · {o.supplier.name}
               </Descriptions.Item>
               <Descriptions.Item label="Status">
                 <PurchaseOrderStatusTag status={o.status} />
               </Descriptions.Item>
               <Descriptions.Item label="Tanggal">{fmtDate(o.date)}</Descriptions.Item>
-              <Descriptions.Item label="Gudang penerima">{o.warehouse?.name}</Descriptions.Item>
+              <Descriptions.Item label={t('Gudang penerima')}>{o.warehouse?.name}</Descriptions.Item>
               {o.notes && <Descriptions.Item label="Catatan">{o.notes}</Descriptions.Item>}
             </Descriptions>
             <Table
@@ -121,7 +121,7 @@ export default function PurchaseOrderDetailPage() {
                 />
                 <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
                   <div style={{ flex: 1 }}>
-                    <PartyBlock label="Kepada (supplier)" name={o.supplier.name} lines={[o.supplier.address, o.supplier.phone && `Telp. ${o.supplier.phone}`]} />
+                    <PartyBlock label={t('Kepada (supplier)')} name={o.supplier.name} lines={[o.supplier.address, o.supplier.phone && `Telp. ${o.supplier.phone}`]} />
                   </div>
                   <div style={{ flex: 1 }}>
                     <PartyBlock label="Kirim ke" name={o.warehouse?.name ?? ''} lines={[o.warehouse?.address]} />
@@ -181,7 +181,7 @@ export default function PurchaseOrderDetailPage() {
       </Card>
 
       <Modal
-        title="Terima barang & catat faktur supplier"
+        title={t('Terima barang & catat faktur supplier')}
         open={receiving}
         onCancel={() => setReceiving(false)}
         onOk={() => form.submit()}
@@ -192,10 +192,10 @@ export default function PurchaseOrderDetailPage() {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message="Stok bertambah di gudang penerima dan HPP rata-rata diperbarui. Jurnal: Persediaan + PPN Masukan (debit) / Hutang Usaha (kredit)."
+          message={t('Stok bertambah di gudang penerima dan HPP rata-rata diperbarui. Jurnal: Persediaan + PPN Masukan (debit) / Hutang Usaha (kredit).')}
         />
         <Form form={form} layout="vertical" onFinish={(v) => receive.mutate(v)}>
-          <Form.Item name="supplierInvoiceNo" label="Nomor faktur dari supplier" rules={[{ required: true }]}>
+          <Form.Item name="supplierInvoiceNo" label={t('Nomor faktur dari supplier')} rules={[{ required: true }]}>
             <Input placeholder="INV/SPP/2026/0912" />
           </Form.Item>
           <Form.Item name="date" label="Tanggal terima" rules={[{ required: true }]}>

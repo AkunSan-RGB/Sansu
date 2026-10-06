@@ -58,11 +58,13 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export function localize(text: string, model: BusinessModel | undefined): string {
   const t = TERMS[model ?? 'DAGANG'] ?? TERMS.DAGANG;
   if (t.exact[text]) return t.exact[text];
+  for (const [k, v] of Object.entries(t.exact)) if (text === k.toUpperCase()) return v.toUpperCase();
   let out = text;
   for (const [from, to] of t.words) {
     for (const [f, r] of [
       [from, to],
       [lowerFirst(from), lowerFirst(to)],
+      [from.toUpperCase(), to.toUpperCase()],
     ]) {
       out = out.replace(new RegExp(`(?<![\\p{L}])${escape(f)}(?![\\p{L}])`, 'gu'), r);
     }
