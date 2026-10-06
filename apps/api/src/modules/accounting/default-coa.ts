@@ -276,7 +276,9 @@ export const COA_FAMILIES: { name: string; codes: string[]; relevant: (model: Bu
   // ED SAK EMKM Bab 8: piutang dicatat sebesar jumlah tagihan; tidak ada cadangan kerugian penurunan nilai (kerugian diakui saat dihapus)
   { name: 'Penurunan nilai piutang', codes: ['1-1310', '6-7300'], relevant: (_m, _a, fw) => fw === 'SAK_EP' },
   { name: 'Produksi', codes: ['1-1420', '5-4100', '5-4200', '5-4900'], relevant: (m) => m === 'PRODUKSI' },
-  { name: 'Kontrak jasa & proyek', codes: ['1-1360', '2-1750', '4-2100'], relevant: (m, a) => m === 'JASA' || a.has('crm') },
+  { name: 'Kontrak jasa & proyek', codes: ['4-2100'], relevant: (m, a) => m === 'JASA' || a.has('crm') },
+  // Aset/liabilitas kontrak hanya timbul dari pengakuan pendapatan berdasarkan persentase penyelesaian (SAK EP); EMKM mengakui sebesar tagihan (ED 14.5)
+  { name: 'Aset & liabilitas kontrak', codes: ['1-1360', '2-1750'], relevant: (m, a, fw) => fw === 'SAK_EP' && (m === 'JASA' || a.has('crm')) },
   { name: 'Marketplace', codes: ['6-2400'], relevant: (m) => m !== 'JASA' },
   { name: 'Kasir', codes: ['6-9100'], relevant: (m, a) => m === 'RITEL' || a.has('pos') },
   // SAK EMKM tidak mengakui pajak tangguhan (pajak penghasilan diakui sebesar pajak kini)
