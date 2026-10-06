@@ -11,6 +11,7 @@ import { addDays, diffDays, toDocDate, todayJakarta } from '../../common/utils/d
 import { D, Dec, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
+import { frameworkOf } from '../accounting/coa-sync';
 import { get, loadAccounts, natural, sumByAccount } from '../accounting/ledger-data';
 import { StatementsService } from '../accounting/statements.service';
 import { AssetsService } from '../assets/assets.module';
@@ -516,6 +517,7 @@ export class HealthService {
       SELECT COALESCE(SUM(total - paid_amount - returned_amount), 0) AS v, COUNT(*)::int AS n FROM invoices
       WHERE tenant_id = ${tenantId} AND status <> 'PAID' AND due_date < ${addDays(asOf, -90)}`);
     const allowance = groupTotal(['ALLOWANCE_RECEIVABLE']).negated();
+    if ((await frameworkOf(this.db, tenantId)) === 'SAK_EP')
     checks.push({
       key: 'bad-debt',
       category: 'Kewajaran',

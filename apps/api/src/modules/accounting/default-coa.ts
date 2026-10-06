@@ -270,7 +270,11 @@ export const COA_UNUSED_MARK = 'Tidak dipakai pada jenis usaha ini. Aktifkan bil
  * (tersembunyi dari pilihan jurnal manual dan bagan akun) selama belum pernah dipakai; jurnal otomatis tetap bisa memakainya.
  */
 export const COA_FAMILIES: { name: string; codes: string[]; relevant: (model: BusinessModel, apps: ReadonlySet<string>, framework: 'SAK_EP' | 'SAK_EMKM') => boolean }[] = [
-  { name: 'Persediaan', codes: ['1-1400', '1-1410', '5-2000', '5-3000'], relevant: (m, a) => m !== 'JASA' || a.has('inventory') },
+  { name: 'Persediaan', codes: ['1-1400', '1-1410', '5-2000'], relevant: (m, a) => m !== 'JASA' || a.has('inventory') },
+  // ED SAK EMKM Bab 9: persediaan diukur sebesar biaya perolehan, tanpa penurunan ke nilai realisasi neto
+  { name: 'Penurunan nilai persediaan', codes: ['5-3000'], relevant: (m, a, fw) => fw === 'SAK_EP' && (m !== 'JASA' || a.has('inventory')) },
+  // ED SAK EMKM Bab 8: piutang dicatat sebesar jumlah tagihan; tidak ada cadangan kerugian penurunan nilai (kerugian diakui saat dihapus)
+  { name: 'Penurunan nilai piutang', codes: ['1-1310', '6-7300'], relevant: (_m, _a, fw) => fw === 'SAK_EP' },
   { name: 'Produksi', codes: ['1-1420', '5-4100', '5-4200', '5-4900'], relevant: (m) => m === 'PRODUKSI' },
   { name: 'Kontrak jasa & proyek', codes: ['1-1360', '2-1750', '4-2100'], relevant: (m, a) => m === 'JASA' || a.has('crm') },
   { name: 'Marketplace', codes: ['6-2400'], relevant: (m) => m !== 'JASA' },

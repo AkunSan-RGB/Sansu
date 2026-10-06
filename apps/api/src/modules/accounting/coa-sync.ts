@@ -67,7 +67,7 @@ export async function applyChartRelevance(db: DbOrTx, tenantId: string, model: B
 }
 
 /** Standar pelaporan perusahaan (SAK EP bila belum dipilih) */
-async function frameworkOf(db: DbOrTx, tenantId: string): Promise<'SAK_EP' | 'SAK_EMKM'> {
+export async function frameworkOf(db: DbOrTx, tenantId: string): Promise<'SAK_EP' | 'SAK_EMKM'> {
   const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
   const fw = (t?.settings as { reporting?: { framework?: string } } | null)?.reporting?.framework;
   return fw === 'SAK_EMKM' ? 'SAK_EMKM' : 'SAK_EP';

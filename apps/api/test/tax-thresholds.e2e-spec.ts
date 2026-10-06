@@ -17,7 +17,7 @@ describe('Peringatan ambang pajak (e2e)', () => {
   let token: string;
   const stamp = Date.now();
   const year = new Date().getFullYear();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10); // hari ini menurut WIB, sama seperti aplikasi
   const as = (t = token) => ({ Authorization: `Bearer ${t}` });
   const get = (url: string) => http.get(url).set(as());
   const post = (url: string, body: object = {}) => http.post(url).set(as()).send(body);

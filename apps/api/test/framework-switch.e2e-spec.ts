@@ -72,10 +72,26 @@ describe('Pindah standar SAK EP ↔ SAK EMKM mengubah seluruh akuntansi (e2e)', 
     expect(s.noteSections).not.toContain('revenue');
     expect(s.deferredTax ?? null).toBeNull();
     expect(s.healthKeys).toContain('threshold-umkm-size');
-    expect(s.inactive).toEqual(expect.arrayContaining(['1-2600', '2-2300', '9-1100', '2-2200']));
+    expect(s.inactive).toEqual(expect.arrayContaining(['1-2600', '2-2300', '9-1100', '2-2200', '1-1310', '6-7300', '5-3000']));
+    expect(s.healthKeys).not.toContain('bad-debt');
     // pergantian standar tidak mengubah angka pembukuan
     expect(s.netProfit).toBe(before.netProfit);
     expect(s.balanced).toBe(true);
+  });
+
+  it('SAK EMKM: CALK tanpa penurunan nilai, nilai residu aset ditolak, penyesuaian piutang tidak berlaku', async () => {
+    await setFramework('SAK_EMKM');
+    const notes = JSON.stringify((await get(`/api/accounting/notes/${year}`).expect(200)).body);
+    expect(notes).toContain('Piutang usaha dicatat sebesar jumlah tagihan');
+    expect(notes).toContain('Persediaan diukur sebesar biaya perolehan');
+    expect(notes).not.toContain('akumulasi rugi penurunan nilai');
+    expect(notes).not.toContain('nilai realisasi neto');
+    const cat = ((await get('/api/assets/categories').expect(200)).body as { id: string; name: string }[]).find((c) => c.name === 'Inventaris Kantor')!.id;
+    const accs = (await get('/api/accounting/accounts').expect(200)).body as { id: string; code: string }[];
+    const res = await post('/api/assets', { name: 'Meja', categoryId: cat, acquisitionDate: today, cost: '5000000', residualValue: '500000', funding: 'CASH', cashAccountId: accs.find((a) => a.code === '1-1200')!.id });
+    expect(res.status).toBe(400);
+    const chk = (await get(`/api/accounting/adjustments/checklist?period=${today.slice(0, 7)}`).expect(200)).body.items as { key: string; status: string }[];
+    expect(chk.find((i) => i.key === 'bad-debt')?.status).toBe('NA');
   });
 
   it('kembali ke SAK EP: semuanya pulih', async () => {
@@ -87,6 +103,8 @@ describe('Pindah standar SAK EP ↔ SAK EMKM mengubah seluruh akuntansi (e2e)', 
     expect(s.deferredTax).toBeTruthy();
     expect(s.inactive).not.toContain('1-2600');
     expect(s.inactive).not.toContain('2-2200');
+    expect(s.inactive).not.toEqual(expect.arrayContaining(['1-1310']));
+    expect(s.healthKeys).toContain('bad-debt');
     expect(s.healthKeys).not.toContain('threshold-umkm-size');
   });
 });
