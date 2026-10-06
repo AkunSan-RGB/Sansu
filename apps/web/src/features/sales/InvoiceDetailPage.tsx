@@ -9,6 +9,7 @@ import { cell, DocHeader, head, PartyBlock, PrintSheet, Signatures, useLetterhea
 import QueryState from '@/components/QueryState';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
+import DocumentChain from '@/components/DocumentChain';
 import { printDoc } from '@/lib/print';
 import { terbilang } from '@/lib/terbilang';
 import { hasPhone, invoiceMessage, waLink } from '@/lib/wa';
@@ -310,6 +311,7 @@ export default function InvoiceDetailPage() {
                 />
               </Card>
             )}
+            <DocumentChain invoiceId={inv.id} />
           </>
         )}
       </QueryState>

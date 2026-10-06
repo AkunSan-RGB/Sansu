@@ -123,7 +123,7 @@ export class DashboardService {
       this.db
         .select({ n: count() })
         .from(salesOrders)
-        .where(and(eq(salesOrders.tenantId, tenantId), inArray(salesOrders.status, ['DRAFT', 'CONFIRMED']))),
+        .where(and(eq(salesOrders.tenantId, tenantId), inArray(salesOrders.status, ['DRAFT', 'CONFIRMED', 'DELIVERED']))),
       this.db.query.invoices.findMany({
         where: eq(invoices.tenantId, tenantId),
         with: { customer: { columns: { name: true } } },

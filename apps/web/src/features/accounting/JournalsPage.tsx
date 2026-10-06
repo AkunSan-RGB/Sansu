@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { MinusCircleOutlined, PlayCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { JOURNAL_SOURCE_LABELS, type JournalSource, RECURRING_FREQUENCY_LABELS, toOptions } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
@@ -32,6 +32,7 @@ import { t } from '@/lib/terms';
 
 export const SOURCE_COLOR: Partial<Record<JournalSource, string>> = {
   INVOICE: 'green',
+  DELIVERY: 'lime',
   PAYMENT: 'blue',
   STOCK_ADJUSTMENT: 'purple',
   STOCK_TRANSFER: 'purple',
@@ -127,7 +128,8 @@ const toLines = (lines: LineValue[]) =>
   }));
 
 function JournalList() {
-  const [filter, setFilter] = useState<{ from?: string; to?: string; source?: string; q?: string }>({});
+  const [initial] = useSearchParams();
+  const [filter, setFilter] = useState<{ from?: string; to?: string; source?: string; q?: string }>({ q: initial.get('q') || undefined });
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm();
   const journals = useQuery({ queryKey: ['journals', filter], queryFn: () => get<JournalEntry[]>(`/accounting/journals${qs(filter)}`) });
@@ -147,7 +149,7 @@ function JournalList() {
     <>
       <Card>
         <Space wrap style={{ marginBottom: 12 }}>
-          <Input.Search placeholder="Cari nomor / keterangan / bukti" allowClear onSearch={(q) => setFilter((f) => ({ ...f, q: q || undefined }))} style={{ width: 280 }} />
+          <Input.Search placeholder="Cari nomor / keterangan / bukti" allowClear defaultValue={filter.q} onSearch={(q) => setFilter((f) => ({ ...f, q: q || undefined }))} style={{ width: 280 }} />
           <Select
             allowClear
             placeholder="Semua jenis"
@@ -197,6 +199,10 @@ function JournalList() {
             { title: 'No. bukti', dataIndex: 'reference', render: (r) => r ?? <Typography.Text type="secondary">—</Typography.Text> },
             { title: 'Jenis', dataIndex: 'sourceType', render: (s: JournalSource) => <Tag color={SOURCE_COLOR[s]}>{JOURNAL_SOURCE_LABELS[s] ?? s}</Tag> },
             { title: 'Nilai', align: 'right', render: (_, j) => fmtMoney(j.lines.reduce((a, l) => a + Number(l.debit), 0)) },
+            {
+              title: 'Dokumen asal',
+              render: (_, j) => (j.docRoute ? <Link to={j.docRoute}>Buka dokumen</Link> : <Typography.Text type="secondary">—</Typography.Text>),
+            },
             {
               render: (_, j) =>
                 REVERSIBLE.includes(j.sourceType) &&

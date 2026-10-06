@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { REPORT_GROUPS } from '@sansu/shared';
 import { and, asc, desc, eq, gte, ilike, inArray, lte, or, sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { PeriodService } from '../../common/period/period.service';
 import { addDays, DocDate, toDocDate, todayJakarta } from '../../common/utils/dates';
@@ -21,6 +22,8 @@ import {
   UpdateRecurringDto,
 } from './dto/accounting.dto';
 import { PostingService } from './posting.service';
+import { loadSourceDocument } from './source-document';
+import { resolveSourceRoutes } from './source-route';
 
 interface BalanceRow {
   id: string;
@@ -59,6 +62,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
     private readonly posting: PostingService,
     private readonly period: PeriodService,
     private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   /** Jurnal berulang dijalankan otomatis setiap jam untuk semua perusahaan */
@@ -125,9 +129,9 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
 
   // ---------- Jurnal ----------
 
-  listJournals(tenantId: string, q: JournalQueryDto) {
+  async listJournals(tenantId: string, q: JournalQueryDto) {
     const term = q.q?.trim();
-    return this.db.query.journalEntries.findMany({
+    const rows = await this.db.query.journalEntries.findMany({
       where: and(
         eq(journalEntries.tenantId, tenantId),
         q.from ? gte(journalEntries.date, toDocDate(q.from)) : undefined,
@@ -141,6 +145,8 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       orderBy: [desc(journalEntries.date), desc(journalEntries.number)],
       limit: 300,
     });
+    const routes = await resolveSourceRoutes(this.db, tenantId, rows);
+    return rows.map((r, i) => ({ ...r, docRoute: routes[i] }));
   }
 
   async getJournal(tenantId: string, id: string) {
@@ -149,10 +155,26 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       with: { lines: { with: { account: { columns: { code: true, name: true } } } } },
     });
     if (!j) throw new NotFoundException('Jurnal tidak ditemukan');
-    return j;
+    return { ...j, docRoute: (await resolveSourceRoutes(this.db, tenantId, [j]))[0] };
   }
 
-  createManualJournal(user: AuthUser, dto: CreateJournalDto) {
+  /** Rincian dokumen asal sebuah jurnal (faktur pembelian, mutasi stok, kas, kasir, setoran pajak, dst.) beserta jurnalnya */
+  async journalDocument(tenantId: string, id: string) {
+    const journal = await this.getJournal(tenantId, id);
+    const document = await loadSourceDocument(this.db, tenantId, journal.sourceType, journal.sourceId, journal.id);
+    return { journal, document };
+  }
+
+  /** Jurnal manual. Bernilai besar dari peran yang tidak berwenang: dikirim sebagai permintaan persetujuan dan baru diposting setelah disetujui. */
+  async createManualJournal(user: AuthUser, dto: CreateJournalDto, opts: { approved?: boolean } = {}) {
+    if (!opts.approved) {
+      const total = dto.lines.reduce((a, l) => a + Number(l.debit ?? 0), 0);
+      const limit = await this.approvals.needs(this.db, user, 'MANUAL_JOURNAL', total);
+      if (limit !== null) {
+        const req = await this.approvals.create(this.db, user, { kind: 'MANUAL_JOURNAL', refId: null, title: `Jurnal manual: ${dto.description}`, amount: total, payload: JSON.parse(JSON.stringify(dto)) });
+        throw this.approvals.required(req.id, 'Nilai jurnal mencapai batas persetujuan; permintaan dikirim ke pemilik atau admin dan jurnal diposting setelah disetujui.');
+      }
+    }
     return this.db.transaction((tx) =>
       this.posting.post(tx, {
         tenantId: user.tenantId,
@@ -536,11 +558,12 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       date: string;
       description: string;
       source_type: string;
+      source_id: string | null;
       debit: string;
       credit: string;
       memo: string | null;
     }>(sql`
-      SELECT j.id AS journal_id, j.number, j.date, j.description, j.source_type, l.debit, l.credit, l.memo
+      SELECT j.id AS journal_id, j.number, j.date, j.description, j.source_type, j.source_id, l.debit, l.credit, l.memo
       FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
       WHERE l.account_id = ${accountId}
         ${fromDate ? sql`AND j.date >= ${fromDate}` : sql``}
@@ -548,10 +571,11 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       ORDER BY j.date, j.number, l.id
       LIMIT 5000`);
 
+    const routes = await resolveSourceRoutes(this.db, tenantId, res.rows.map((r) => ({ id: r.journal_id, sourceType: r.source_type, sourceId: r.source_id })));
     let running = opening;
     let totalDebit: Dec = ZERO;
     let totalCredit: Dec = ZERO;
-    const rows = res.rows.map((r) => {
+    const rows = res.rows.map((r, idx) => {
       running = running.plus(normal(acc.type, r.debit, r.credit));
       totalDebit = totalDebit.plus(r.debit);
       totalCredit = totalCredit.plus(r.credit);
@@ -561,6 +585,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
         date: r.date,
         description: r.memo ? `${r.description} — ${r.memo}` : r.description,
         sourceType: r.source_type,
+        docRoute: routes[idx],
         debit: D(r.debit).toFixed(2),
         credit: D(r.credit).toFixed(2),
         balance: running.toFixed(2),

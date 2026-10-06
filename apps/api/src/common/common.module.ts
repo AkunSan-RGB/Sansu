@@ -9,10 +9,11 @@ import { SettingsService } from './settings.service';
 import { MailService } from './mail/mail.service';
 import { SubscriptionService } from './billing/subscription.service';
 import { TwoFactorPolicy } from './auth/two-factor-policy';
+import { ApprovalsService } from './approvals/approvals.service';
 
 @Global()
 @Module({
-  providers: [SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
-  exports: [SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
+  providers: [ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
+  exports: [ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
 })
 export class CommonModule {}

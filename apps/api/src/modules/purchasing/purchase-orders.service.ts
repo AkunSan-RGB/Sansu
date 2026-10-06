@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { AuditService } from '../../common/audit/audit.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
@@ -19,6 +20,7 @@ export class PurchaseOrdersService {
     @InjectDb() private readonly db: Db,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   list(tenantId: string, q: PurchaseOrderQueryDto) {
@@ -100,6 +102,9 @@ export class PurchaseOrdersService {
   }
 
   async confirm(user: AuthUser, id: string) {
+    // Pesanan bernilai besar dari peran yang tidak berwenang: butuh persetujuan (permintaan dibuat di luar transaksi)
+    const [po] = await this.db.select({ number: purchaseOrders.number, total: purchaseOrders.total, status: purchaseOrders.status }).from(purchaseOrders).where(and(eq(purchaseOrders.id, id), eq(purchaseOrders.tenantId, user.tenantId)));
+    if (po?.status === 'DRAFT') await this.approvals.gateDocument(this.db, user, { kind: 'PURCHASE_ORDER', refId: id, title: `PO ${po.number}`, amount: Number(po.total) });
     await this.db.transaction(async (tx) => {
       const order = await this.lock(tx, user.tenantId, id);
       if (order.status !== 'DRAFT') throw new BadRequestException(`PO berstatus ${order.status}, tidak bisa dikonfirmasi`);

@@ -171,6 +171,25 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
         const inv = await tryPost('inv', '/invoices', { salesOrderId: so.body.id, ...when });
         if (inv.status === 201) salesInvoices.push(inv.body.id);
       },
+      /** Jalur kirim dulu: surat jalan → (batal | faktur kemudian, mungkin bertanggal berbeda) */
+      async deliverThenInvoice() {
+        const w = pick([wh1, wh1, wh2]);
+        const p = pick(products);
+        const have = await stockOf(p, w);
+        const qty = have > 0 && rand() < 0.9 ? int(1, Math.max(1, Math.min(have, 8))) : int(1, 4);
+        const when = maybePast();
+        const so = await tryPost('so', '/sales-orders', { customerId: pick(customers), warehouseId: w, ...when, lines: [{ productId: p, qty: String(qty) }] });
+        if (so.status !== 201) return;
+        await tryPost('so-confirm', `/sales-orders/${so.body.id}/confirm`, {});
+        const del = await tryPost('deliver', `/sales-orders/${so.body.id}/deliver`, { ...when });
+        if (del.status !== 201) return;
+        if (rand() < 0.3) {
+          await tryPost('deliver-cancel', `/deliveries/${del.body.id}/cancel`, {});
+          return;
+        }
+        const inv = await tryPost('inv-after-delivery', '/invoices', { salesOrderId: so.body.id, ...when });
+        if (inv.status === 201) salesInvoices.push(inv.body.id);
+      },
       async payAR() {
         if (!salesInvoices.length) return;
         const id = pick(salesInvoices);
@@ -305,7 +324,7 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
         await tryPost('tax-pay', '/tax/payments', { type, period, date: todayStr });
       },
     });
-    const weighted: [string, number][] = [['buy', 8], ['sell', 10], ['payAR', 7], ['payAP', 5], ['salesReturn', 4], ['purchaseReturn', 3], ['adjust', 4], ['transfer', 3], ['pos', 6], ['journal', 3], ['reverse', 1], ['bill', 2], ['asset', 1], ['cash', 3], ['opname', 1], ['depreciate', 2], ['disposeAsset', 1], ['production', 4], ['payroll', 2], ['taxPayment', 2]];
+    const weighted: [string, number][] = [['buy', 8], ['sell', 10], ['deliverThenInvoice', 6], ['payAR', 7], ['payAP', 5], ['salesReturn', 4], ['purchaseReturn', 3], ['adjust', 4], ['transfer', 3], ['pos', 6], ['journal', 3], ['reverse', 1], ['bill', 2], ['asset', 1], ['cash', 3], ['opname', 1], ['depreciate', 2], ['disposeAsset', 1], ['production', 4], ['payroll', 2], ['taxPayment', 2]];
     const bag = weighted.flatMap(([k, w]) => Array(w).fill(k) as string[]);
 
     // bekal awal agar ada dokumen untuk dibayar/diretur

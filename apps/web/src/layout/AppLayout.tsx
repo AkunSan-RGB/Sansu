@@ -1,9 +1,11 @@
-import { AppstoreOutlined, CrownOutlined, MenuOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, AuditOutlined, CrownOutlined, MenuOutlined } from '@ant-design/icons';
 import { localize, type AppKey, type BusinessModel } from '@sansu/shared';
-import { Button, Drawer, Grid, Layout, Menu, type MenuProps, Spin, Typography } from 'antd';
+import { useQuery } from '@tanstack/react-query';
+import { Badge, Button, Drawer, Grid, Layout, Menu, type MenuProps, Spin, Typography } from 'antd';
 import { useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { BRAND } from '@sansu/shared';
+import { get } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import Logo from '@/brand/Logo';
 import ServerStatus from '@/components/ServerStatus';
@@ -14,7 +16,7 @@ import { APP_ICONS, useApps } from '@/lib/apps';
 import { t } from '@/lib/terms';
 
 /** `app`: item hanya tampil bila aplikasi itu aktif (mis. menu pajak yang butuh aplikasi Penjualan) */
-type Item = { key: string; label: string; app?: AppKey; /** Hanya tampil bila fitur pajak ini relevan (lihat taxFeatures di @sansu/shared) */ tax?: 'vat' | 'coretax' | 'withheldByCustomers' | 'fiscalReconciliation' };
+type Item = { key: string; label: string; app?: AppKey; /** Disembunyikan untuk jenis usaha ini (mis. surat jalan untuk usaha jasa murni) */ hideFor?: BusinessModel[]; /** Hanya tampil bila fitur pajak ini relevan (lihat taxFeatures di @sansu/shared) */ tax?: 'vat' | 'coretax' | 'withheldByCustomers' | 'fiscalReconciliation' };
 /** Submenu boleh dikelompokkan dengan judul kecil (mis. "Akhir periode") */
 type Sub = Item | { section: string; items: Item[] };
 type Group = {
@@ -70,6 +72,7 @@ const MENU: Group[] = [
     children: [
       { key: '/sales-orders', label: t('Sales Order') },
       { key: '/integrations?tab=marketplace', label: 'Marketplace' },
+      { key: '/deliveries', label: 'Surat jalan', hideFor: ['JASA'] },
       { key: '/invoices', label: t('Faktur & piutang') },
       { key: '/projects', label: 'Proyek & termin' },
       { key: '/customer-deposits', label: t('Uang muka pelanggan') },
@@ -230,6 +233,7 @@ const MENU: Group[] = [
   },
 
   // ---------- Administrasi ----------
+  { part: 'Administrasi', key: '/approvals', label: 'Persetujuan', icon: <AuditOutlined />, to: '/approvals' },
   {
     part: 'Administrasi',
     key: 'settings',
@@ -253,6 +257,12 @@ export default function AppLayout() {
   const { pathname, search } = useLocation();
   const { can, isAdmin } = useApps();
   const screens = Grid.useBreakpoint();
+  const pendingApprovals = useQuery({
+    queryKey: ['approvals', 'count'],
+    queryFn: () => get<{ count: number }>('/approvals/pending-count'),
+    enabled: !!me && ['OWNER', 'ADMIN'].includes(me.role),
+    refetchInterval: 60_000,
+  });
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [openState, setOpenState] = useState<{ for: string | undefined; keys: string[] }>();
@@ -273,7 +283,7 @@ export default function AppLayout() {
   );
   const L = (text: string) => localize(text, me.businessModel);
   // Fitur pajak yang tidak relevan (non-PKP, PPh final, usaha penjualan barang) tidak ditampilkan
-  const taxOk = (i: Item) => !i.tax || me.taxFeatures?.[i.tax] !== false;
+  const taxOk = (i: Item) => (!i.tax || me.taxFeatures?.[i.tax] !== false) && !i.hideFor?.includes(me.businessModel);
   const toMenu = (g: Group): NonNullable<MenuProps['items']>[number] =>
     g.children
       ? {
@@ -293,7 +303,7 @@ export default function AppLayout() {
                 : { key: c.key, label: L(c.label) },
             ),
         }
-      : { key: g.key, icon: g.icon, label: L(g.label) };
+      : { key: g.key, icon: g.icon, label: g.key === '/approvals' && pendingApprovals.data?.count ? <Badge count={pendingApprovals.data.count} offset={[14, 2]}>{L(g.label)}</Badge> : L(g.label) };
   // Menu utama dikelompokkan per bagian alur kerja (judul kecil hanya tampil saat sidebar terbuka)
   const parts = [...new Set(visible.map((g) => g.part))];
   const items: MenuProps['items'] = [

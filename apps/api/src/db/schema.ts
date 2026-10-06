@@ -332,6 +332,83 @@ export const salesOrderLines = pgTable('sales_order_lines', {
   priceInclVat: money('price_incl_vat'),
 });
 
+/** Permintaan persetujuan atas transaksi bernilai besar (pesanan pembelian, jurnal manual) dari peran yang tidak berwenang */
+export const approvalRequests = pgTable(
+  'approval_requests',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL'>().notNull(),
+    /** Dokumen yang dimintakan persetujuan (PO); kosong untuk jurnal manual yang baru diposting setelah disetujui */
+    refId: text('ref_id'),
+    title: text('title').notNull(),
+    amount: money('amount').notNull(),
+    /** Isi permintaan yang dijalankan saat disetujui (jurnal manual) */
+    payload: jsonb('payload').$type<Record<string, unknown>>(),
+    status: text('status').$type<'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'>().notNull().default('PENDING'),
+    requestedById: uuid('requested_by_id').notNull(),
+    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+    decidedById: uuid('decided_by_id'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
+    /** Nomor dokumen hasil persetujuan (mis. nomor jurnal) */
+    resultRef: text('result_ref'),
+  },
+  (t) => [
+    index('approval_requests_status_idx').on(t.tenantId, t.status, t.requestedAt),
+    uniqueIndex('approval_requests_pending_uq').on(t.tenantId, t.kind, t.refId).where(sql`status IN ('PENDING', 'APPROVED') AND ref_id IS NOT NULL`),
+  ],
+);
+
+/** Surat jalan: pengiriman barang atas pesanan penjualan. Stok keluar dan HPP dicatat saat surat jalan (atau saat faktur bila langsung difakturkan). */
+export const deliveryOrders = pgTable(
+  'delivery_orders',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    date: date('date').notNull(),
+    salesOrderId: uuid('sales_order_id')
+      .notNull()
+      .references(() => salesOrders.id),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    warehouseId: uuid('warehouse_id')
+      .notNull()
+      .references(() => warehouses.id),
+    status: text('status').$type<'DELIVERED' | 'CANCELLED'>().notNull().default('DELIVERED'),
+    cogsAmount: money('cogs_amount').notNull().default('0'),
+    /** Jurnal HPP saat kirim; kosong bila langsung difakturkan (jurnal ada di faktur) */
+    journalId: uuid('journal_id'),
+    invoiceId: uuid('invoice_id'),
+    notes: text('notes'),
+    createdById: uuid('created_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('delivery_orders_number_uq').on(t.tenantId, t.number),
+    uniqueIndex('delivery_orders_order_uq').on(t.salesOrderId).where(sql`status = 'DELIVERED'`),
+    index('delivery_orders_date_idx').on(t.tenantId, t.date),
+  ],
+);
+
+export const deliveryOrderLines = pgTable('delivery_order_lines', {
+  id: id(),
+  deliveryId: uuid('delivery_id')
+    .notNull()
+    .references(() => deliveryOrders.id, { onDelete: 'cascade' }),
+  orderLineId: uuid('order_line_id').notNull(),
+  productId: uuid('product_id')
+    .notNull()
+    .references(() => products.id),
+  uom: text('uom').notNull(),
+  uomFactor: qty('uom_factor').notNull(),
+  qty: qty('qty').notNull(),
+  /** Harga pokok per satuan dasar saat dikirim */
+  unitCost: numeric('unit_cost', { precision: 18, scale: 4 }).notNull(),
+});
+
 export const invoices = pgTable(
   'invoices',
   {
@@ -344,6 +421,8 @@ export const invoices = pgTable(
       .notNull()
       .references(() => customers.id),
     salesOrderId: uuid('sales_order_id').references(() => salesOrders.id),
+    /** Surat jalan asal faktur (rantai pesanan → surat jalan → faktur) */
+    deliveryOrderId: uuid('delivery_order_id'),
     /** Faktur saldo awal (piutang dari sistem lama) — bukan penjualan periode berjalan, tanpa PPN */
     isOpening: boolean('is_opening').notNull().default(false),
     subtotal: money('subtotal').notNull(),
@@ -1268,6 +1347,17 @@ export const salesOrdersRelations = relations(salesOrders, ({ one, many }) => ({
 export const salesOrderLinesRelations = relations(salesOrderLines, ({ one }) => ({
   order: one(salesOrders, { fields: [salesOrderLines.orderId], references: [salesOrders.id] }),
   product: one(products, { fields: [salesOrderLines.productId], references: [products.id] }),
+}));
+export const deliveryOrdersRelations = relations(deliveryOrders, ({ one, many }) => ({
+  customer: one(customers, { fields: [deliveryOrders.customerId], references: [customers.id] }),
+  warehouse: one(warehouses, { fields: [deliveryOrders.warehouseId], references: [warehouses.id] }),
+  salesOrder: one(salesOrders, { fields: [deliveryOrders.salesOrderId], references: [salesOrders.id] }),
+  invoice: one(invoices, { fields: [deliveryOrders.invoiceId], references: [invoices.id] }),
+  lines: many(deliveryOrderLines),
+}));
+export const deliveryOrderLinesRelations = relations(deliveryOrderLines, ({ one }) => ({
+  delivery: one(deliveryOrders, { fields: [deliveryOrderLines.deliveryId], references: [deliveryOrders.id] }),
+  product: one(products, { fields: [deliveryOrderLines.productId], references: [products.id] }),
 }));
 export const invoicesRelations = relations(invoices, ({ one, many }) => ({
   customer: one(customers, { fields: [invoices.customerId], references: [customers.id] }),

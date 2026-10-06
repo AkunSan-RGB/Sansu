@@ -6,6 +6,7 @@ import { DocDate, period } from '../utils/dates';
 export const DOC_PREFIX = {
   SALES_ORDER: 'SO',
   INVOICE: 'INV',
+  DELIVERY: 'SJ',
   PAYMENT: 'PAY',
   JOURNAL: 'JU',
   STOCK_ADJUSTMENT: 'ADJ',

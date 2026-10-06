@@ -160,7 +160,7 @@ export default function ReportsPage() {
           )}
           {showsDetail && (
             <Checkbox checked={detail} onChange={(e) => setDetail(e.target.checked)}>
-              Rincian per akun
+              Rincian per akun (klik akun untuk membuka buku besar dan dokumen asalnya)
             </Checkbox>
           )}
           {framework === 'SAK_EMKM' && (

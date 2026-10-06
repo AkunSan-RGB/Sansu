@@ -7,10 +7,11 @@ import { addDays, diffDays, toDocDate, todayJakarta } from '../../../common/util
 import { D, Dec, money, ZERO } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, invoiceLines, invoices, payments, salesOrders } from '../../../db/schema';
+import { customers, deliveryOrders, invoiceLines, invoices, payments, salesOrders } from '../../../db/schema';
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { StockService } from '../../inventory/stock.service';
+import { DeliveriesService } from '../deliveries/deliveries.service';
 import { SalesOrdersService } from '../orders/sales-orders.service';
 import { CreateInvoiceDto, InvoiceQueryDto } from '../sales.dto';
 
@@ -20,6 +21,7 @@ export class InvoicesService {
     @InjectDb() private readonly db: Db,
     private readonly seq: SequenceService,
     private readonly stock: StockService,
+    private readonly deliveries: DeliveriesService,
     private readonly posting: PostingService,
     private readonly orders: SalesOrdersService,
     private readonly audit: AuditService,
@@ -66,9 +68,12 @@ export class InvoicesService {
     const date = toDocDate(dto.date);
     const result = await this.db.transaction(async (tx) => {
       const order = await this.orders.lockOrder(tx, user.tenantId, dto.salesOrderId);
-      if (order.status !== 'CONFIRMED') {
-        throw new BadRequestException(`Order berstatus ${order.status}; hanya order CONFIRMED yang bisa difakturkan`);
+      if (order.status !== 'CONFIRMED' && order.status !== 'DELIVERED') {
+        throw new BadRequestException(`Order berstatus ${order.status}; hanya order CONFIRMED atau sudah dikirim yang bisa difakturkan`);
       }
+      // Sudah dikirim: stok dan HPP dicatat di surat jalan, faktur hanya piutang + penjualan + PPN
+      const delivery = order.status === 'DELIVERED' ? await this.deliveries.activeFor(tx, order.id) : undefined;
+      if (order.status === 'DELIVERED' && !delivery) throw new BadRequestException('Surat jalan pesanan ini tidak ditemukan');
       const [customer] = await tx.select().from(customers).where(eq(customers.id, order.customerId));
       const number = await this.seq.next(tx, user.tenantId, 'INVOICE', date);
 
@@ -82,6 +87,7 @@ export class InvoicesService {
           dueDate: addDays(date, customer.paymentTermDays),
           customerId: customer.id,
           salesOrderId: order.id,
+          deliveryOrderId: delivery?.id,
           subtotal: order.subtotal,
           taxAmount: order.taxAmount,
           total: order.total,
@@ -89,20 +95,30 @@ export class InvoicesService {
         .returning();
 
       let cogs: Dec = ZERO;
+      const costs = new Map<string, { unitCost: Dec }>();
       for (const line of order.lines) {
-        const baseQty = D(line.qty).times(line.uomFactor);
-        const moved = await this.stock.move(tx, {
-          tenantId: user.tenantId,
-          productId: line.productId,
-          warehouseId: order.warehouseId,
-          type: 'SALE',
-          qty: baseQty.negated(),
-          refType: 'INVOICE',
-          refId: invoice.id,
-          refNumber: number,
-          date,
-        });
-        cogs = cogs.plus(moved.value);
+        let unitCost: Dec;
+        if (delivery) {
+          const dl = delivery.lines.find((x) => x.orderLineId === line.id);
+          if (!dl) throw new BadRequestException('Baris surat jalan tidak cocok dengan pesanan');
+          unitCost = D(dl.unitCost);
+        } else {
+          const baseQty = D(line.qty).times(line.uomFactor);
+          const moved = await this.stock.move(tx, {
+            tenantId: user.tenantId,
+            productId: line.productId,
+            warehouseId: order.warehouseId,
+            type: 'SALE',
+            qty: baseQty.negated(),
+            refType: 'INVOICE',
+            refId: invoice.id,
+            refNumber: number,
+            date,
+          });
+          cogs = cogs.plus(moved.value);
+          unitCost = moved.unitCost;
+        }
+        costs.set(line.id, { unitCost });
         await tx.insert(invoiceLines).values({
           invoiceId: invoice.id,
           productId: line.productId,
@@ -112,10 +128,10 @@ export class InvoicesService {
           price: line.price,
           discountPct: line.discountPct,
           lineTotal: line.lineTotal,
-          unitCost: moved.unitCost.toFixed(4),
+          unitCost: unitCost.toFixed(4),
         });
       }
-      cogs = money(cogs);
+      cogs = delivery ? D(delivery.cogsAmount) : money(cogs);
 
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
@@ -128,11 +144,16 @@ export class InvoicesService {
           { key: SYS.AR, debit: order.total },
           { key: SYS.SALES, credit: order.subtotal },
           { key: SYS.VAT_OUT, credit: order.taxAmount },
-          { key: SYS.COGS, debit: cogs },
-          { key: SYS.INVENTORY, credit: cogs },
+          ...(delivery ? [] : [{ key: SYS.COGS, debit: cogs }, { key: SYS.INVENTORY, credit: cogs }]),
         ],
       });
 
+      if (delivery) {
+        await tx.update(deliveryOrders).set({ invoiceId: invoice.id }).where(eq(deliveryOrders.id, delivery.id));
+      } else {
+        const sj = await this.deliveries.recordWithInvoice(tx, user, { order, date, invoiceId: invoice.id, cogs, costs });
+        await tx.update(invoices).set({ deliveryOrderId: sj.id }).where(eq(invoices.id, invoice.id));
+      }
       await tx.update(salesOrders).set({ status: 'INVOICED' }).where(eq(salesOrders.id, order.id));
       await tx
         .update(invoices)

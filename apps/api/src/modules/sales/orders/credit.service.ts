@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { and, asc, eq, lt, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, lt, ne, sql } from 'drizzle-orm';
 import { todayJakarta } from '../../../common/utils/dates';
 import { D, Dec } from '../../../common/utils/money';
 import { Tx } from '../../../db/db';
@@ -48,7 +48,7 @@ export class CreditService {
         and(
           eq(salesOrders.tenantId, tenantId),
           eq(salesOrders.customerId, customerId),
-          eq(salesOrders.status, 'CONFIRMED'),
+          inArray(salesOrders.status, ['CONFIRMED', 'DELIVERED']),
           excludeOrderId ? ne(salesOrders.id, excludeOrderId) : undefined,
         ),
       );

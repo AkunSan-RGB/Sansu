@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, Empty, Input, Select, Space, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { get, qs } from '@/api/client';
 import { useAccounts } from '@/api/queries';
 import type { LedgerReport } from '@/api/types';
@@ -86,9 +86,13 @@ export default function LedgerPage() {
             }
             columns={[
               { title: 'Tanggal', dataIndex: 'date', render: fmtDate, width: 110 },
-              { title: 'Nomor', dataIndex: 'number', width: 150 },
+              { title: 'Nomor', dataIndex: 'number', width: 150, render: (n: string) => <Link to={`/journals?q=${encodeURIComponent(n)}`}>{n}</Link> },
               { title: 'Keterangan', dataIndex: 'description' },
-              { title: 'Sumber', dataIndex: 'sourceType', render: (s: keyof typeof JOURNAL_SOURCE_LABELS) => <Tag>{JOURNAL_SOURCE_LABELS[s]}</Tag> },
+              {
+                title: 'Sumber',
+                dataIndex: 'sourceType',
+                render: (s: keyof typeof JOURNAL_SOURCE_LABELS, r) => (r.docRoute ? <Link to={r.docRoute}><Tag color="blue" style={{ cursor: 'pointer' }}>{JOURNAL_SOURCE_LABELS[s]} ↗</Tag></Link> : <Tag>{JOURNAL_SOURCE_LABELS[s]}</Tag>),
+              },
               { title: 'Debit', dataIndex: 'debit', align: 'right', render: (v) => (Number(v) ? fmtMoney(v) : '') },
               { title: 'Kredit', dataIndex: 'credit', align: 'right', render: (v) => (Number(v) ? fmtMoney(v) : '') },
               { title: 'Saldo', dataIndex: 'balance', align: 'right', render: fmtMoney },

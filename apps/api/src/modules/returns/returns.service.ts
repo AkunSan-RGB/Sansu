@@ -157,7 +157,7 @@ export class ReturnsService {
         // Barang kembali membawa penurunan nilai yang melekat saat dijual (agar koreksi fiskal ikut terbalik)
         const wd = await tx.execute<{ wu: string }>(sql`
           SELECT COALESCE(SUM(-writedown_value) / NULLIF(SUM(-qty), 0), 0) AS wu FROM stock_moves
-          WHERE ref_type = 'INVOICE' AND ref_id = ${inv.id} AND product_id = ${l.src.productId} AND type = 'SALE'`);
+          WHERE ((ref_type = 'INVOICE' AND ref_id = ${inv.id}) OR (ref_type = 'DELIVERY' AND ref_id = ${inv.deliveryOrderId ?? inv.id})) AND product_id = ${l.src.productId} AND type = 'SALE'`);
         const moved = await this.stock.move(tx, {
           tenantId: user.tenantId,
           productId: l.src.productId,
