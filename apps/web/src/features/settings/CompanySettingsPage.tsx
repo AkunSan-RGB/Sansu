@@ -6,6 +6,7 @@ import {
   BgColorsOutlined,
   ClusterOutlined,
   FileProtectOutlined,
+  PercentageOutlined,
   SolutionOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
@@ -93,12 +94,13 @@ export default function CompanySettingsPage() {
   const screens = Grid.useBreakpoint();
   const { data } = useQuery({ queryKey: ['company'], queryFn: () => get<CompanySettings>('/settings/company') });
   const [company] = Form.useForm();
+  const [tax] = Form.useForm();
   const [payroll] = Form.useForm<PayrollSettings>();
   const [reporting] = Form.useForm<ReportingSettings>();
   const [policy] = Form.useForm<ReportingSettings>();
   const framework = Form.useWatch('framework', policy);
   const scheme = Form.useWatch('taxScheme', reporting);
-  const pkp = Form.useWatch('pkp', company) ?? true;
+  const pkp = Form.useWatch('pkp', tax) ?? true;
   // Wizard bisa dibuka dari panduan mulai lewat ?wizard=1
   const [params, setParams] = useSearchParams();
   const [wizard, setWizard] = useState(params.get('wizard') === '1');
@@ -117,21 +119,22 @@ export default function CompanySettingsPage() {
   };
   useEffect(() => {
     if (data) {
-      company.setFieldsValue({ ...data, ppnRate: Number(data.ppnRate), ...data.taxProfile });
+      company.setFieldsValue(data);
+      tax.setFieldsValue({ ...data, ppnRate: Number(data.ppnRate), ...data.taxProfile });
       payroll.setFieldsValue(data.payroll);
       if (data.reporting) {
         reporting.setFieldsValue(data.reporting);
         policy.setFieldsValue(data.reporting);
       }
     }
-  }, [data, company, payroll, reporting, policy]);
+  }, [data, company, tax, payroll, reporting, policy]);
   const saveReporting = useAction((v: ReportingSettings) => patch('/settings/reporting', v), {
     success: 'Pengaturan pelaporan disimpan',
     invalidate: ['company', 'framework', 'statements', 'notes', 'fiscal', 'tax-thresholds', 'entity-profile'],
   });
 
   const saveCompany = useAction(
-    (v: { ppnRate: number; pkp?: boolean; posPricesIncludeVat?: boolean; salesPricesIncludeVat?: boolean; holidays?: string[]; vatRounding?: string }) => patch('/settings/company', { ...v, ppnRate: String(v.ppnRate) }),
+    (v: { name?: string; npwp?: string; address?: string; ppnRate?: number; pkp?: boolean; posPricesIncludeVat?: boolean; salesPricesIncludeVat?: boolean; holidays?: string[]; vatRounding?: string }) => patch('/settings/company', { ...v, ...(v.ppnRate !== undefined && { ppnRate: String(v.ppnRate) }) }),
     { success: 'Data perusahaan disimpan', invalidate: ['company', 'me', 'tax-thresholds'] },
   );
   const savePayroll = useAction((v: PayrollSettings) => patch('/settings/payroll', v), { success: 'Pengaturan penggajian disimpan', invalidate: ['company'] });
@@ -146,7 +149,7 @@ export default function CompanySettingsPage() {
   const tabs = [
     {
       key: 'profil',
-      label: 'Profil & pajak',
+      label: 'Profil perusahaan',
       icon: <BankOutlined />,
       children: (
         <Card style={wide}>
@@ -170,7 +173,18 @@ export default function CompanySettingsPage() {
                 </Col>
               </Row>
             </Section>
-            <Divider />
+            <SaveBar loading={saveCompany.isPending} />
+          </Form>
+        </Card>
+      ),
+    },
+    {
+      key: 'pajak',
+      label: 'Pajak',
+      icon: <PercentageOutlined />,
+      children: (
+        <Card style={wide}>
+          <Form form={tax} layout="vertical" onFinish={(v) => saveCompany.mutate(v)} requiredMark={false}>
             <Section title="Pajak Pertambahan Nilai (PPN)" desc="Menentukan cara faktur, kasir, dan pembelian menghitung PPN.">
               <Form.Item
                 name="pkp"
