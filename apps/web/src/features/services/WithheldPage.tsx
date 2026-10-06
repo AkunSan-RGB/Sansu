@@ -9,6 +9,7 @@ import { get, put, qs } from '@/api/client';
 import { useAction } from '@/api/queries';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 const TYPE_LABEL = { PPH23: 'PPh 23', PPH4_2: 'PPh 4(2) final' } as const;
 
@@ -101,12 +102,12 @@ export default function WithheldPage() {
           locale={{ emptyText: 'Tidak ada faktur yang dipotong PPh pada periode ini' }}
           columns={[
             {
-              title: 'Faktur',
+              title: t('Faktur'),
               dataIndex: 'number',
               render: (v, r) => <a onClick={() => navigate(`/invoices/${r.invoiceId}`)}>{v}</a>,
             },
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: 'Pelanggan', dataIndex: 'customer' },
+            { title: t('Pelanggan'), dataIndex: 'customer' },
             { title: 'NPWP pemotong', dataIndex: 'customerNpwp', render: (v) => v ?? <Tag color="orange">kosong</Tag> },
             { title: 'Jenis', dataIndex: 'type', render: (t: keyof typeof TYPE_LABEL) => TYPE_LABEL[t] },
             { title: 'Tarif', dataIndex: 'rate', align: 'right', render: (v) => `${Number(v)}%` },

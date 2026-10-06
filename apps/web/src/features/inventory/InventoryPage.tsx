@@ -8,6 +8,7 @@ import { useAction, useProducts, useWarehouses } from '@/api/queries';
 import type { StockBalance, StockMove } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 const REASONS = toOptions(ADJUSTMENT_REASON_LABELS);
 
@@ -88,8 +89,8 @@ export default function InventoryPage() {
                   scroll={{ x: 700 }}
                   columns={[
                     { title: 'SKU', dataIndex: 'sku' },
-                    { title: 'Produk', dataIndex: 'productName' },
-                    { title: 'Gudang', dataIndex: 'warehouseCode' },
+                    { title: t('Produk'), dataIndex: 'productName' },
+                    { title: t('Gudang'), dataIndex: 'warehouseCode' },
                     { title: 'Qty', dataIndex: 'qty', align: 'right', render: (v, r) => `${fmtQty(v)} ${r.baseUom}` },
                     { title: 'HPP rata-rata', dataIndex: 'avgCost', align: 'right', render: fmtMoney },
                     { title: 'Nilai', dataIndex: 'value', align: 'right', render: fmtMoney },
@@ -130,8 +131,8 @@ export default function InventoryPage() {
                     columns={[
                       { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
                       { title: 'Dokumen', dataIndex: 'refNumber' },
-                      { title: 'Produk', render: (_, m) => `${m.product.sku} · ${m.product.name}` },
-                      { title: 'Gudang', dataIndex: ['warehouse', 'code'] },
+                      { title: t('Produk'), render: (_, m) => `${m.product.sku} · ${m.product.name}` },
+                      { title: t('Gudang'), dataIndex: ['warehouse', 'code'] },
                       { title: 'Jenis', dataIndex: 'type', render: (t) => <Tag>{STOCK_MOVE_LABELS[t as StockMoveType] ?? t}</Tag> },
                       {
                         title: 'Qty',

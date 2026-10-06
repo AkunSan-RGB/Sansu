@@ -1,5 +1,5 @@
 import { AppstoreOutlined, CrownOutlined, MenuOutlined } from '@ant-design/icons';
-import type { AppKey, BusinessModel } from '@sansu/shared';
+import { localize, type AppKey, type BusinessModel } from '@sansu/shared';
 import { Button, Drawer, Grid, Layout, Menu, type MenuProps, Spin, Typography } from 'antd';
 import { useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -270,12 +270,13 @@ export default function AppLayout() {
       (!g.models || g.models.includes(me.businessModel)) &&
       (g.admin ? isAdmin : g.app ? can(g.app) : (can('accounting') || can('sales')) && (g.key !== '/dashboard' || dashboardRole)),
   );
+  const L = (text: string) => localize(text, me.businessModel);
   const toMenu = (g: Group): NonNullable<MenuProps['items']>[number] =>
     g.children
       ? {
           key: g.key,
           icon: g.icon,
-          label: g.label,
+          label: L(g.label),
           children: g.children
             .filter((c) => 'section' in c || !c.app || can(c.app))
             .map((c) =>
@@ -283,13 +284,13 @@ export default function AppLayout() {
                 ? {
                     type: 'group' as const,
                     key: `${g.key}:${c.section}`,
-                    label: <span style={SECTION_STYLE}>{c.section}</span>,
-                    children: c.items.filter((i) => !i.app || can(i.app)).map(({ key, label }) => ({ key, label })),
+                    label: <span style={SECTION_STYLE}>{L(c.section)}</span>,
+                    children: c.items.filter((i) => !i.app || can(i.app)).map(({ key, label }) => ({ key, label: L(label) })),
                   }
-                : { key: c.key, label: c.label },
+                : { key: c.key, label: L(c.label) },
             ),
         }
-      : { key: g.key, icon: g.icon, label: g.label };
+      : { key: g.key, icon: g.icon, label: L(g.label) };
   // Menu utama dikelompokkan per bagian alur kerja (judul kecil hanya tampil saat sidebar terbuka)
   const parts = [...new Set(visible.map((g) => g.part))];
   const items: MenuProps['items'] = [
@@ -301,7 +302,7 @@ export default function AppLayout() {
             {
               type: 'group' as const,
               key: `part:${part}`,
-              label: <span style={PART_STYLE}>{part}</span>,
+              label: <span style={PART_STYLE}>{L(part)}</span>,
               children: groups,
             },
           ]

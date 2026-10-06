@@ -9,6 +9,7 @@ import type { CrmActivity, CrmStage, Lead } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import LeadDrawer, { LEAD_STATUS_COLOR, LeadForm, waLink } from './LeadDrawer';
+import { t } from '@/lib/terms';
 
 interface Summary {
   stages: { id: string; name: string; count: number; value: string; weighted: string }[];
@@ -260,7 +261,7 @@ export default function PipelinePage() {
                   onRow={(l) => ({ onClick: () => setOpenId(l.id), style: { cursor: 'pointer' } })}
                   columns={[
                     { title: 'Prospek', dataIndex: 'title' },
-                    { title: 'Pelanggan', render: (_, l) => l.customer?.name ?? l.companyName ?? '-' },
+                    { title: t('Pelanggan'), render: (_, l) => l.customer?.name ?? l.companyName ?? '-' },
                     { title: 'Tahap', render: (_, l) => l.stage?.name },
                     { title: 'Nilai', dataIndex: 'expectedRevenue', align: 'right', render: fmtMoney },
                     { title: 'Status', dataIndex: 'status', render: (s: Lead['status']) => <Tag color={LEAD_STATUS_COLOR[s]}>{LEAD_STATUS_LABELS[s]}</Tag> },

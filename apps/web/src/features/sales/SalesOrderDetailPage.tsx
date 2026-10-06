@@ -7,6 +7,7 @@ import type { Invoice, SalesOrder } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, fmtQty } from '@/lib/format';
 import { SalesOrderStatusTag } from './status';
+import { t } from '@/lib/terms';
 
 export default function SalesOrderDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -73,7 +74,7 @@ export default function SalesOrderDetailPage() {
               dataSource={o.lines}
               scroll={{ x: 700 }}
               columns={[
-                { title: 'Produk', render: (_, l) => `${l.product.sku} · ${l.product.name}` },
+                { title: t('Produk'), render: (_, l) => `${l.product.sku} · ${l.product.name}` },
                 { title: 'Qty', align: 'right', render: (_, l) => `${fmtQty(l.qty)} ${l.uom}` },
                 { title: 'Harga', dataIndex: 'price', align: 'right', render: fmtMoney },
                 { title: 'Diskon', dataIndex: 'discountPct', align: 'right', render: (v) => `${Number(v)}%` },

@@ -36,6 +36,7 @@ import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { InvoiceStatusTag } from '../sales/status';
 import MarketplaceSyncTab from './MarketplaceSyncTab';
 import { useAuth } from '@/auth/AuthContext';
+import { t } from '@/lib/terms';
 
 const CHANNELS = ['Shopee', 'Tokopedia', 'TikTok Shop', 'Lazada', 'Blibli', 'Website'];
 type MpMap = { orderNo?: number; date?: number; sku?: number; qty?: number; price?: number };
@@ -224,7 +225,7 @@ function MarketplaceTab() {
           columns={[
             { title: 'No. pesanan', dataIndex: 'orderNo' },
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: 'Faktur', dataIndex: 'invoiceNumber' },
+            { title: t('Faktur'), dataIndex: 'invoiceNumber' },
             { title: 'Total', dataIndex: 'total', align: 'right', render: fmtMoney },
             { title: 'Status', dataIndex: 'status', render: (s) => s && <InvoiceStatusTag status={s} /> },
           ]}
@@ -322,7 +323,7 @@ function CoretaxTab() {
         scroll={{ x: 900 }}
         columns={[
           {
-            title: 'Faktur',
+            title: t('Faktur'),
             dataIndex: 'number',
             render: (v: string, r) =>
               r.kind === 'DEPOSIT' ? (

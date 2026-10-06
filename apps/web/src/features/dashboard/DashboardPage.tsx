@@ -8,6 +8,7 @@ import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { InvoiceStatusTag } from '../sales/status';
+import { t } from '@/lib/terms';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -55,7 +56,7 @@ export default function DashboardPage() {
         {cards.filter((c) => !c.hidden).map((c) => (
           <Col xs={24} sm={12} xl={8} key={c.title}>
             <Card loading={isLoading} hoverable={!!c.to} onClick={() => c.to && navigate(c.to)}>
-              <Statistic title={c.title} value={c.value} />
+              <Statistic title={t(c.title)} value={c.value} />
               <div style={{ color: '#8c8c8c', marginTop: 4 }}>{c.sub}</div>
             </Card>
           </Col>
@@ -95,7 +96,7 @@ export default function DashboardPage() {
         </Card>
       )}
       {(isLoading || data?.salesMonth !== null) && (
-      <Card title="Faktur terbaru" style={{ marginTop: 16 }}>
+      <Card title={t('Faktur terbaru')} style={{ marginTop: 16 }}>
         <Table
           rowKey="id"
           size="small"
@@ -106,7 +107,7 @@ export default function DashboardPage() {
           columns={[
             { title: 'Nomor', dataIndex: 'number' },
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: 'Pelanggan', dataIndex: ['customer', 'name'] },
+            { title: t('Pelanggan'), dataIndex: ['customer', 'name'] },
             { title: 'Total', dataIndex: 'total', align: 'right', render: fmtMoney },
             { title: 'Status', dataIndex: 'status', render: (s) => <InvoiceStatusTag status={s} /> },
           ]}

@@ -10,6 +10,7 @@ import { cell, DocHeader, head, PrintSheet, Signatures } from '@/components/prin
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
 import { printDoc } from '@/lib/print';
+import { t } from '@/lib/terms';
 
 type Status = 'DRAFT' | 'POSTED' | 'CANCELLED';
 const STATUS: Record<Status, [string, string]> = { DRAFT: ['Sedang dihitung', 'blue'], POSTED: ['Selesai', 'green'], CANCELLED: ['Dibatalkan', 'default'] };
@@ -91,7 +92,7 @@ export default function CountsPage() {
           columns={[
             { title: 'Nomor', dataIndex: 'number' },
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: 'Gudang', render: (_, r) => `${r.warehouseCode} · ${r.warehouseName}` },
+            { title: t('Gudang'), render: (_, r) => `${r.warehouseCode} · ${r.warehouseName}` },
             { title: 'Kategori', dataIndex: 'category', render: (v) => v ?? 'Semua' },
             { title: 'Progres', render: (_, r) => <Progress percent={r.lines ? Math.round((r.counted / r.lines) * 100) : 0} size="small" format={() => `${r.counted}/${r.lines}`} style={{ width: 160 }} /> },
             { title: 'Status', dataIndex: 'status', render: (s: Status) => <Tag color={STATUS[s][1]}>{STATUS[s][0]}</Tag> },

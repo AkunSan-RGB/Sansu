@@ -28,6 +28,7 @@ import type { InventoryWritedown, StockBalance, WritedownCandidate, WritedownRec
 import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 interface Line {
   productId: string;
@@ -289,7 +290,7 @@ export default function WritedownsPage() {
                 k === 'REVERSAL' ? <Tag color="green">Pemulihan</Tag> : <Tag color="volcano">Penurunan</Tag>,
             },
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: 'Gudang', dataIndex: 'warehouseName' },
+            { title: t('Gudang'), dataIndex: 'warehouseName' },
             { title: 'Alasan', dataIndex: 'reason', ellipsis: true },
             { title: 'Barang', align: 'right', render: (_, r) => r.lines.length },
             { title: 'Nilai', dataIndex: 'total', align: 'right', render: fmtMoney },

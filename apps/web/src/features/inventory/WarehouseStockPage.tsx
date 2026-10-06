@@ -11,6 +11,7 @@ import ExportButtons from '@/components/ExportButtons';
 import PageHeader from '@/layout/PageHeader';
 import { fmtMoney, fmtQty } from '@/lib/format';
 import { n, SheetBuilder, type SheetSpec } from '@/lib/xlsx/book';
+import { t } from '@/lib/terms';
 
 interface Matrix {
   warehouses: (Warehouse & { isActive: boolean })[];
@@ -197,7 +198,7 @@ function LowTab() {
         scroll={{ x: 760 }}
         locale={{ emptyText: <Empty description="Tidak ada stok di bawah minimum. Atur stok minimum di tab sebelah." /> }}
         columns={[
-          { title: 'Gudang', render: (_, r) => `${r.warehouseCode} · ${r.warehouseName}` },
+          { title: t('Gudang'), render: (_, r) => `${r.warehouseCode} · ${r.warehouseName}` },
           { title: 'SKU', dataIndex: 'sku' },
           { title: 'Nama', dataIndex: 'name' },
           { title: 'Stok', dataIndex: 'qty', align: 'right', render: (v, r) => <Typography.Text type="danger">{fmtQty(v)} {r.baseUom}</Typography.Text> },

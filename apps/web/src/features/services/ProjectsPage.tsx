@@ -26,6 +26,7 @@ import { LEDGER_KEYS, useAction, useCustomers } from '@/api/queries';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { InvoiceStatusTag } from '../sales/status';
+import { t } from '@/lib/terms';
 
 const STATUS: Record<Project['status'], { label: string; color: string }> = {
   ACTIVE: { label: 'Berjalan', color: 'blue' },
@@ -58,7 +59,7 @@ export default function ProjectsPage() {
           columns={[
             { title: 'Kode', dataIndex: 'code' },
             { title: 'Proyek', dataIndex: 'name' },
-            { title: 'Pelanggan', render: (_, r) => r.customer.name },
+            { title: t('Pelanggan'), render: (_, r) => r.customer.name },
             { title: 'Nilai kontrak', dataIndex: 'contractValue', align: 'right', render: fmtMoney },
             {
               title: 'Ditagih',
@@ -269,7 +270,7 @@ export function ProjectDetailPage() {
               dataSource={p.invoices}
               onRow={(r) => ({ onClick: () => navigate(`/invoices/${r.id}`), style: { cursor: 'pointer' } })}
               columns={[
-                { title: 'Faktur', dataIndex: 'number' },
+                { title: t('Faktur'), dataIndex: 'number' },
                 { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
                 { title: 'Termin', dataIndex: 'termLabel' },
                 { title: 'DPP', dataIndex: 'subtotal', align: 'right', render: fmtMoney },

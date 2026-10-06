@@ -8,6 +8,7 @@ import { LEDGER_KEYS, useAction } from '@/api/queries';
 import type { Invoice, InvoiceDetail, PurchaseInvoice, PurchaseInvoiceDetail, ReturnDoc } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 type Kind = 'sales' | 'purchase';
 
@@ -126,7 +127,7 @@ function NewReturnModal({ kind, open, initialInvoice, onClose }: { kind: Kind; o
             scroll={{ x: 650 }}
             style={{ marginBottom: 16 }}
             columns={[
-              { title: 'Produk', render: (_, l) => `${l.product.sku} · ${l.product.name}` },
+              { title: t('Produk'), render: (_, l) => `${l.product.sku} · ${l.product.name}` },
               { title: 'Qty faktur', align: 'right', render: (_, l) => `${fmtQty(l.qty)} ${l.uom}` },
               { title: 'Sudah diretur', align: 'right', render: (_, l) => fmtQty(l.returnedQty) },
               {
@@ -193,7 +194,7 @@ function ReturnList({ kind }: { kind: Kind }) {
             pagination={false}
             dataSource={r.lines}
             columns={[
-              { title: 'Produk', render: (_, l) => `${l.product.sku} · ${l.product.name}` },
+              { title: t('Produk'), render: (_, l) => `${l.product.sku} · ${l.product.name}` },
               { title: 'Qty', align: 'right', render: (_, l) => `${fmtQty(l.qty)} ${l.uom}` },
               { title: 'Nilai', dataIndex: 'lineTotal', align: 'right', render: fmtMoney },
             ]}

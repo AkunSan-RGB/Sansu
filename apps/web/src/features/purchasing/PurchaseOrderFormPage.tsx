@@ -8,6 +8,7 @@ import type { PurchaseOrder } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
 import { fmtMoney, today } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 interface Line {
   productId?: string;
@@ -107,7 +108,7 @@ export default function PurchaseOrderFormPage() {
                   scroll={{ x: 900 }}
                   columns={[
                     {
-                      title: 'Produk',
+                      title: t('Produk'),
                       width: 320,
                       render: (_, f) => (
                         <Form.Item name={[f.name, 'productId']} rules={[{ required: true, message: 'Pilih produk' }]} noStyle>

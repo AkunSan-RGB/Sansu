@@ -24,6 +24,7 @@ import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAction, useWarehouses } from '@/api/queries';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 const COLOR: Record<ProductionStatus, string> = {
   DRAFT: 'default',
@@ -61,7 +62,7 @@ export default function ProductionOrdersPage() {
           columns={[
             { title: 'Nomor', dataIndex: 'number' },
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: 'Produk', render: (_, o) => `${o.product.sku} · ${o.product.name}` },
+            { title: t('Produk'), render: (_, o) => `${o.product.sku} · ${o.product.name}` },
             { title: 'Rencana', align: 'right', render: (_, o) => `${fmtQty(o.plannedQty)} ${o.product.unit}` },
             {
               title: 'Hasil',
@@ -73,7 +74,7 @@ export default function ProductionOrdersPage() {
               align: 'right',
               render: (_, o) => (o.status === 'COMPLETED' ? fmtMoney(o.unitCost) : '-'),
             },
-            { title: 'Gudang', render: (_, o) => o.warehouse.name },
+            { title: t('Gudang'), render: (_, o) => o.warehouse.name },
             {
               title: 'Status',
               dataIndex: 'status',

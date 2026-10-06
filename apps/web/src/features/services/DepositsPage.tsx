@@ -26,6 +26,7 @@ import CashAccountSelect from '@/components/CashAccountSelect';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { outputVatRate } from '@/lib/vat';
+import { t } from '@/lib/terms';
 
 const INVALIDATE = ['deposits', 'invoices', 'invoice', 'projects', 'customers', ...LEDGER_KEYS];
 
@@ -86,7 +87,7 @@ export default function DepositsPage() {
           columns={[
             { title: 'No.', dataIndex: 'number' },
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: 'Pelanggan', render: (_, r) => r.customer.name },
+            { title: t('Pelanggan'), render: (_, r) => r.customer.name },
             { title: 'Proyek', render: (_, r) => r.project?.name ?? '-' },
             { title: 'Diterima', dataIndex: 'amount', align: 'right', render: fmtMoney },
             { title: 'PPN', dataIndex: 'taxAmount', align: 'right', render: fmtMoney },

@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { get, qs } from '@/api/client';
 import PageHeader from '@/layout/PageHeader';
 import { fmtMoney, fmtQty } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 export default function ProductionReportPage() {
   const [year, setYear] = useState(dayjs().year());
@@ -101,7 +102,7 @@ export default function ProductionReportPage() {
           pagination={false}
           locale={{ emptyText: 'Tidak ada produksi yang selesai pada periode ini' }}
           columns={[
-            { title: 'Produk', render: (_, p) => `${p.sku} · ${p.name}` },
+            { title: t('Produk'), render: (_, p) => `${p.sku} · ${p.name}` },
             { title: 'Perintah', dataIndex: 'orders', align: 'right' },
             { title: 'Hasil', align: 'right', render: (_, p) => `${fmtQty(p.qty)} ${p.unit}` },
             { title: 'Bahan', dataIndex: 'material', align: 'right', render: fmtMoney },

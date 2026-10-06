@@ -13,6 +13,7 @@ import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { INV_STATUS_OPTIONS, InvoiceStatusTag } from '../sales/status';
 import BillModal from './BillModal';
 import ResponsiveTable from '@/components/ResponsiveTable';
+import { t } from '@/lib/terms';
 
 interface SupplierPayment {
   id: string;
@@ -107,7 +108,7 @@ export default function PurchaseInvoicesPage() {
                         dataIndex: 'dueDate',
                         render: (d, i) => (isOverdue(i) ? <Tag color="red">{fmtDate(d)}</Tag> : fmtDate(d)),
                       },
-                      { title: 'Supplier', render: (_, i) => i.supplier.name },
+                      { title: t('Supplier'), render: (_, i) => i.supplier.name },
                       {
                         title: 'Total',
                         dataIndex: 'total',
@@ -167,8 +168,8 @@ export default function PurchaseInvoicesPage() {
                   columns={[
                     { title: 'Nomor', dataIndex: 'number' },
                     { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-                    { title: 'Supplier', render: (_, p) => p.supplier.name },
-                    { title: 'Faktur', render: (_, p) => `${p.invoice.number} (${p.invoice.supplierInvoiceNo})` },
+                    { title: t('Supplier'), render: (_, p) => p.supplier.name },
+                    { title: t('Faktur'), render: (_, p) => `${p.invoice.number} (${p.invoice.supplierInvoiceNo})` },
                     { title: 'Dari', render: (_, p) => p.cashAccount?.name ?? '-' },
                     { title: 'Jumlah', dataIndex: 'amount', align: 'right', render: fmtMoney },
                   ]}

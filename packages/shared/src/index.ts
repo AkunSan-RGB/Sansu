@@ -5,5 +5,6 @@ export * from './apps.js';
 export * from './accounting.js';
 export * from './entity-profile.js';
 export * from './report-terms.js';
+export * from './ui-terms.js';
 export * from './tax-thresholds.js';
 export * from './version.js';

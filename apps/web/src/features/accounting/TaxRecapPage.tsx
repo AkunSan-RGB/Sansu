@@ -42,6 +42,7 @@ import { useApps } from '@/lib/apps';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { printDoc } from '@/lib/print';
 import { annualTaxSheets, bpjsSheets, withholdingSheets } from '@/lib/xlsx/reports';
+import { t } from '@/lib/terms';
 
 const STATUS: Record<TaxRecapStatus, { color: string; label: string }> = {
   NIHIL: { color: 'default', label: 'Nihil' },
@@ -394,7 +395,7 @@ function Withholding() {
                   },
                   { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
                   {
-                    title: 'Faktur',
+                    title: t('Faktur'),
                     dataIndex: 'number',
                     render: (n, r) => (
                       <>
@@ -403,7 +404,7 @@ function Withholding() {
                       </>
                     ),
                   },
-                  { title: 'Supplier', dataIndex: 'supplierName' },
+                  { title: t('Supplier'), dataIndex: 'supplierName' },
                   {
                     title: 'NPWP / NIK',
                     dataIndex: 'supplierNpwp',

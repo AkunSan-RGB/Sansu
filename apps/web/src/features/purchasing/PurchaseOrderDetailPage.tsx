@@ -11,6 +11,7 @@ import { cell, DocHeader, head, PartyBlock, PrintSheet, Signatures, useLetterhea
 import { printDoc } from '@/lib/print';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
 import { PurchaseOrderStatusTag } from '../sales/status';
+import { t } from '@/lib/terms';
 
 export default function PurchaseOrderDetailPage() {
   const lh = useLetterhead();
@@ -95,7 +96,7 @@ export default function PurchaseOrderDetailPage() {
               dataSource={o.lines}
               scroll={{ x: 700 }}
               columns={[
-                { title: 'Produk', render: (_, l) => `${l.product.sku} · ${l.product.name}` },
+                { title: t('Produk'), render: (_, l) => `${l.product.sku} · ${l.product.name}` },
                 { title: 'Qty', align: 'right', render: (_, l) => `${fmtQty(l.qty)} ${l.uom}` },
                 { title: 'Harga beli', dataIndex: 'price', align: 'right', render: fmtMoney },
                 { title: 'Diskon', dataIndex: 'discountPct', align: 'right', render: (v) => `${Number(v)}%` },

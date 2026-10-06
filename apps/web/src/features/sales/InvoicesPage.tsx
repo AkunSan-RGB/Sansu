@@ -11,6 +11,7 @@ import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { INV_STATUS_OPTIONS, InvoiceStatusTag } from './status';
 import PaymentModal, { outstanding } from './PaymentModal';
 import ResponsiveTable from '@/components/ResponsiveTable';
+import { t } from '@/lib/terms';
 
 export default function InvoicesPage() {
   const navigate = useNavigate();
@@ -69,7 +70,7 @@ export default function InvoicesPage() {
                         dataIndex: 'dueDate',
                         render: (d, i) => (isOverdue(i) ? <Tag color="red">{fmtDate(d)}</Tag> : fmtDate(d)),
                       },
-                      { title: 'Pelanggan', render: (_, i) => i.customer.name },
+                      { title: t('Pelanggan'), render: (_, i) => i.customer.name },
                       { title: 'Total', dataIndex: 'total', align: 'right', render: fmtMoney },
                       { title: 'Sisa', align: 'right', render: (_, i) => fmtMoney(outstanding(i)) },
                       { title: 'Status', dataIndex: 'status', render: (s) => <InvoiceStatusTag status={s} /> },
