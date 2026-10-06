@@ -27,6 +27,7 @@ npm run test:e2e                    # e2e api: mereset dan memigrasi database `a
 | Keterpaduan antar modul | `integration-cycle` | Siklus khas tiap jenis usaha; semua laporan, daftar piutang/utang, stok, dan kas saling cocok setelah setiap tahap |
 | Penelusuran | `drilldown` | Buku besar dan jurnal membuka dokumen asal |
 | Persetujuan | `approvals` | Batas nilai, keputusan, penolakan, pembatalan, dan persetujuan serentak |
+| Pindah standar SAK EP ↔ EMKM | `framework-switch` | Satu perusahaan berganti standar: bagan akun, laba rugi, CALK, pajak tangguhan, dan cek kesehatan ikut berubah; angka tetap sama |
 | Saldo awal | `opening-balance` | Akun kontrol (piutang, utang, persediaan, penyeimbang) tidak bisa diisi manual; ringkasan kesiapan dan peringatan |
 
 ## Uji acak invarian
