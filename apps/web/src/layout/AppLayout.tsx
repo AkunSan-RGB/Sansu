@@ -392,9 +392,9 @@ export default function AppLayout() {
       )}
       <Layout>
         <Layout.Header
+          className="sansu-header"
           style={{
-            padding: '0 16px',
-            borderBottom: '1px solid #e6e9ef',
+            padding: '0 24px',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
