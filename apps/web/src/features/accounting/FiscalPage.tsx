@@ -179,7 +179,11 @@ export default function FiscalPage() {
                       <Descriptions.Item label={Number(d.pph29) >= 0 ? 'PPh Pasal 29 kurang bayar' : 'Lebih bayar'}>
                         <strong>{fmtMoney(Math.abs(Number(d.pph29)))}</strong>
                       </Descriptions.Item>
-                      <Descriptions.Item label="Angsuran PPh 25 tahun depan / bulan">{fmtMoney(d.installment25)}</Descriptions.Item>
+                      <Descriptions.Item label="Kredit pihak lain (PPh 21/22/23/24 dipotong)">{fmtMoney(d.withheldCredits)}</Descriptions.Item>
+                      <Descriptions.Item label="Angsuran PPh 25 tahun depan / bulan">
+                        {fmtMoney(d.installment25)}
+                        <div style={{ color: '#8c8c8c' }}>(PPh terutang − kredit pihak lain) ÷ 12; PPh 25 yang sudah disetor tidak mengurangi dasar ini.</div>
+                      </Descriptions.Item>
                     </>
                   )}
                 </Descriptions>

@@ -1147,6 +1147,8 @@ export interface FiscalReconciliation {
   taxDue: string;
   credits: string;
   pph29: string;
+  /** PPh 21/22/23/24 yang dipotong pihak lain pada tahun itu (pengurang dasar angsuran PPh 25) */
+  withheldCredits: string;
   installment25: string;
   deferred: { temporaryDifference: string; target: string; current: string; adjustment: string } | null;
   depreciation: {

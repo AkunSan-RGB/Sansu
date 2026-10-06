@@ -62,6 +62,8 @@ async function main() {
 async function removeTenant(db: Db, tenantId: string) {
   await db.transaction(async (tx) => {
     await tx.execute(sql`SET LOCAL session_replication_role = replica`);
+    // Reset demo adalah satu-satunya jalur sah menghapus jurnal (lihat trigger journal_*_immutable)
+    await tx.execute(sql`SELECT set_config('sansu.allow_journal_delete', 'on', true)`);
     const tables = (
       await tx.execute<{ t: string }>(sql`
         SELECT c.table_name AS t FROM information_schema.columns c

@@ -198,6 +198,20 @@ export class FiscalService {
     const credits = prepaid ? natural(prepaid.type, get(yearEnd, prepaid.id)) : ZERO;
     const pph29 = taxDue.minus(credits);
 
+    // Dasar angsuran PPh 25 tahun berikutnya (PMK 215/PMK.03/2018): PPh terutang dikurangi PPh 21/22/23/24 yang
+    // dipotong/dipungut pihak lain pada tahun itu. PPh 25 yang sudah disetor sendiri TIDAK dikurangkan
+    // (ia hanya mengurangi PPh 29). Kredit pihak lain = debit akun Pajak Dibayar Dimuka tahun itu di luar
+    // setoran pajak sendiri dan jurnal pajak akhir tahun.
+    const [wc] = (
+      await this.db.execute<{ v: string }>(sql`
+        SELECT COALESCE(SUM(l.debit - l.credit), 0) AS v
+        FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
+        WHERE j.tenant_id = ${tenantId} AND a.system_key = ${SYS.PREPAID_TAX} AND j.date BETWEEN ${from} AND ${to}
+          AND j.source_type NOT IN ('TAX_PAYMENT', 'INCOME_TAX', 'CLOSING')`)
+    ).rows;
+    const withheldCredits = Decimal.max(D(wc?.v), ZERO);
+    const installmentBase = taxDue.minus(withheldCredits);
+
     // Pajak tangguhan (hanya SAK EP + tarif umum): beda temporer nilai buku aset tetap
     let deferred = null as null | { temporaryDifference: string; target: string; current: string; adjustment: string };
     if (reporting.framework === 'SAK_EP' && reporting.taxScheme === 'GENERAL') {
@@ -234,7 +248,8 @@ export class FiscalService {
       taxDue: f(taxDue),
       credits: f(credits),
       pph29: f(pph29),
-      installment25: f(reporting.taxScheme === 'GENERAL' && pph29.gt(0) ? taxDue.minus(credits).div(12).floor() : ZERO),
+      withheldCredits: f(withheldCredits),
+      installment25: f(reporting.taxScheme === 'GENERAL' && installmentBase.gt(0) ? installmentBase.div(12).floor() : ZERO),
       deferred,
       depreciation: assetRows,
       warnings,
