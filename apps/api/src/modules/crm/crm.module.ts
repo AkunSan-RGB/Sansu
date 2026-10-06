@@ -38,7 +38,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { SequenceService } from '../../common/sequence/sequence.service';
-import { outputVatRate } from '../../common/settings.service';
+import { outputVatRate, taxProfileOf } from '../../common/settings.service';
 import { addDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D } from '../../common/utils/money';
 import { Db, DbOrTx } from '../../db/db';
@@ -393,7 +393,7 @@ export class CrmService {
       const inclusive = !!dto.pricesIncludeVat && D(rate).gt(0);
       const totals = inclusive
         ? inclusiveDocument(built, rate)
-        : { lines: built.map((l) => ({ ...l, priceInclVat: null })), ...documentTotals(built, rate) };
+        : { lines: built.map((l) => ({ ...l, priceInclVat: null })), ...documentTotals(built, rate, taxProfileOf(tenant.settings).vatRounding) };
       const lines = totals.lines;
       const number = await this.seq.next(tx, user.tenantId, 'QUOTATION', date);
       const [q] = await tx

@@ -201,7 +201,7 @@ export const WITHHOLDING_LABELS: Record<(typeof WITHHOLDING_TYPES)[number], stri
  *  - PPN: akhir bulan berikutnya (sebelum SPT Masa PPN)
  *  - PPh 29 badan (period = tahun pajak 'YYYY' atau 'YYYY-MM'): 30 April tahun berikutnya
  *  - BPJS: tanggal 10 bulan berikutnya (Kesehatan; Ketenagakerjaan tanggal 15 ditampilkan di rekap BPJS)
- * Penggeseran karena akhir pekan atau hari libur tidak dimodelkan.
+ * Ini tanggal nominal menurut peraturan; tenggat efektif (geser ke hari kerja berikutnya) ada di taxDeadline.
  */
 export function taxDueDate(type: TaxPaymentType, period: string): string {
   const y = Number(period.slice(0, 4));
@@ -216,4 +216,25 @@ export function taxDueDate(type: TaxPaymentType, period: string): string {
   }
   if (type === 'PPH25' || type === 'PPH_FINAL') return `${ym}-15`;
   return `${ym}-10`;
+}
+
+/**
+ * Hari kerja pada atau setelah tanggal ini: lewati Sabtu, Minggu, dan hari libur yang diberikan (YYYY-MM-DD).
+ * Dasar: bila batas waktu jatuh pada hari libur, penyetoran dan pelaporan dapat dilakukan pada hari kerja berikutnya.
+ */
+export function nextWorkday(date: string, holidays: readonly string[] = []): string {
+  const off = new Set(holidays);
+  const d = new Date(`${date}T00:00:00Z`);
+  for (let i = 0; i < 31; i++) {
+    const dow = d.getUTCDay();
+    const iso = d.toISOString().slice(0, 10);
+    if (dow !== 0 && dow !== 6 && !off.has(iso)) return iso;
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return date;
+}
+
+/** Tenggat efektif setor/lapor: tanggal nominal (taxDueDate) digeser ke hari kerja berikutnya bila jatuh di akhir pekan atau hari libur */
+export function taxDeadline(type: TaxPaymentType, period: string, holidays: readonly string[] = []): string {
+  return nextWorkday(taxDueDate(type, period), holidays);
 }

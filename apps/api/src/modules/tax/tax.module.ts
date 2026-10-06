@@ -10,7 +10,7 @@
 import { BadRequestException, Body, Controller, Delete, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsDateString, IsIn, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
-import { TAX_PAYMENT_TYPES, type TaxPaymentType, taxDueDate } from '@sansu/shared';
+import { nextWorkday, TAX_PAYMENT_TYPES, type TaxPaymentType, taxDeadline } from '@sansu/shared';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -146,9 +146,13 @@ export class TaxService {
       }, ZERO);
   }
 
-  /** Aturan tenggat ada di @sansu/shared (taxDueDate) agar cek kesehatan dan rekap pajak selalu sama */
-  private dueDate(type: TaxPaymentType, period: string) {
-    return taxDueDate(type, period);
+  /** Aturan tenggat ada di @sansu/shared (taxDeadline) agar cek kesehatan dan rekap pajak selalu sama; digeser bila jatuh di akhir pekan/libur */
+  private async holidays(tenantId: string): Promise<string[]> {
+    return (await this.settings.taxProfile(this.db, tenantId)).holidays ?? [];
+  }
+
+  private dueDate(type: TaxPaymentType, period: string, holidays: readonly string[]) {
+    return taxDeadline(type, period, holidays);
   }
 
   private status(outstanding: Dec, paid: Dec, due: string, optional = false): TaxObligation['status'] {
@@ -162,13 +166,14 @@ export class TaxService {
     const db = this.db;
     const keys = await this.keyAccounts(db, tenantId);
     const reporting = await this.settings.reporting(db, tenantId);
+    const holidays = (await this.settings.taxProfile(db, tenantId)).holidays ?? [];
     const to = monthEnd(period);
     const result: TaxObligation[] = [];
 
     // PPN
     const vat = await this.vatPosition(db, tenantId, period);
     const vatPaid = await this.paidIn(db, tenantId, 'PPN', period);
-    const vatDue = this.dueDate('PPN', period);
+    const vatDue = this.dueDate('PPN', period, holidays);
     result.push({
       type: 'PPN',
       period,
@@ -189,7 +194,7 @@ export class TaxService {
       const paidAll = (await this.paidThrough(db, tenantId, type, period)).amount;
       const paid = await this.paidIn(db, tenantId, type, period);
       const outstanding = accrued.minus(paidAll);
-      const due = this.dueDate(type, period);
+      const due = this.dueDate(type, period, holidays);
       result.push({ type, period, outstanding: outstanding.toFixed(2), paid: paid.toFixed(2), dueDate: due, status: this.status(outstanding, paid, due) });
     }
 
@@ -198,7 +203,7 @@ export class TaxService {
       const tax = money(gross.times(0.5).div(100)).floor();
       const paid = await this.paidIn(db, tenantId, 'PPH_FINAL', period);
       const outstanding = tax.minus(paid);
-      const due = this.dueDate('PPH_FINAL', period);
+      const due = this.dueDate('PPH_FINAL', period, holidays);
       result.push({
         type: 'PPH_FINAL',
         period,
@@ -218,7 +223,7 @@ export class TaxService {
       }
       const paid = await this.paidIn(db, tenantId, 'PPH25', period);
       const outstanding = installment.minus(paid);
-      const due = this.dueDate('PPH25', period);
+      const due = this.dueDate('PPH25', period, holidays);
       result.push({
         type: 'PPH25',
         period,
@@ -234,7 +239,7 @@ export class TaxService {
         const accrued = await this.balanceExclPayments(db, tenantId, keys.get(SYS.CORPORATE_TAX_PAYABLE), monthEnd(pphYear), 'credit');
         const paidAll = (await this.paidThrough(db, tenantId, 'PPH29', pphYear)).amount;
         const outstanding29 = accrued.minus(paidAll);
-        const due = this.dueDate('PPH29', pphYear);
+        const due = this.dueDate('PPH29', pphYear, holidays);
         if (!outstanding29.isZero() || period === pphYear) {
           result.push({
             type: 'PPH29',
@@ -358,6 +363,7 @@ export class TaxService {
    */
   async annualRecap(tenantId: string, year: number) {
     const db = this.db;
+    const holidays = await this.holidays(tenantId);
     const keys = await this.keyAccounts(db, tenantId);
     const reporting = await this.settings.reporting(db, tenantId);
     const today = todayJakarta();
@@ -415,7 +421,7 @@ export class TaxService {
         }
         const p = pay(type, period);
         const paid = D(p?.amount ?? 0);
-        const due = this.dueDate(type, period);
+        const due = this.dueDate(type, period, holidays);
         // PPN lebih bayar: tidak ada yang disetor, selisih dikompensasi ke masa berikutnya
         const target = type === 'PPN' && payable.lt(0) ? ZERO : payable;
         const diff = target.minus(paid);
@@ -467,7 +473,7 @@ export class TaxService {
         method: f.method,
         journalPosted: !!f.journal,
         paid29,
-        dueDate: this.dueDate('PPH29', `${year}-12`),
+        dueDate: this.dueDate('PPH29', `${year}-12`, await this.holidays(tenantId)),
       };
     } catch {
       return null;
@@ -479,6 +485,7 @@ export class TaxService {
    * `period` = YYYY-MM (satu masa) atau YYYY (setahun).
    */
   async withholdingRecap(tenantId: string, period: string) {
+    const holidays = await this.holidays(tenantId);
     const isYear = /^\d{4}$/.test(period);
     const from = isYear ? `${period}-01-01` : `${period}-01`;
     const to = isYear ? `${period}-12-31` : monthEnd(period);
@@ -510,8 +517,8 @@ export class TaxService {
         ledger: ledger.toFixed(2),
         /** selisih buku besar vs daftar faktur (mis. jurnal manual ke akun utang PPh) */
         unexplained: ledger.minus(amount).toFixed(2),
-        dueDate: isYear ? null : this.dueDate(type, period),
-        reportDue: isYear ? null : `${nextMonth(period)}-20`,
+        dueDate: isYear ? null : this.dueDate(type, period, holidays),
+        reportDue: isYear ? null : nextWorkday(`${nextMonth(period)}-20`, holidays),
       };
     });
     const bySupplier = new Map<string, { supplierName: string; supplierNpwp: string | null; type: string; base: Dec; amount: Dec; count: number }>();

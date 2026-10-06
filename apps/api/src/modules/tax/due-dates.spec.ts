@@ -1,4 +1,4 @@
-import { TAX_PAYMENT_TYPES, taxDueDate } from '@sansu/shared';
+import { nextWorkday, TAX_PAYMENT_TYPES, taxDeadline, taxDueDate } from '@sansu/shared';
 
 describe('tenggat setor pajak', () => {
   it('PPh 21, 23, dan 4(2) disetor tanggal 10 bulan berikutnya', () => {
@@ -31,5 +31,28 @@ describe('tenggat setor pajak', () => {
       expect(d).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(d > '2026-06-30').toBe(true);
     }
+  });
+
+  describe('tenggat efektif: digeser ke hari kerja berikutnya', () => {
+    it('akhir pekan digeser ke Senin', () => {
+      // 10 Januari 2027 = Minggu, 10 Oktober 2026 = Sabtu
+      expect(taxDeadline('PPH21', '2026-12')).toBe('2027-01-11');
+      expect(taxDeadline('PPH23', '2026-09')).toBe('2026-10-12');
+    });
+    it('hari kerja biasa tidak berubah', () => {
+      expect(taxDeadline('PPH21', '2026-02')).toBe('2026-03-10'); // Selasa
+    });
+    it('hari libur yang diisi pengguna ikut menggeser, termasuk libur beruntun dan akhir pekan sesudahnya', () => {
+      expect(taxDeadline('PPH25', '2026-05', ['2026-06-15'])).toBe('2026-06-16');
+      expect(nextWorkday('2026-06-12', ['2026-06-12', '2026-06-15'])).toBe('2026-06-16'); // Jumat libur + Sabtu/Minggu + Senin libur
+    });
+    it('PPN akhir bulan yang jatuh di akhir pekan digeser, melewati pergantian bulan dan tahun', () => {
+      expect(taxDeadline('PPN', '2026-10')).toBe('2026-11-30'); // Senin, tidak berubah
+      expect(taxDeadline('PPN', '2026-04')).toBe('2026-06-01'); // 31 Mei 2026 = Minggu
+      expect(nextWorkday('2026-12-31', ['2026-12-31'])).toBe('2027-01-01');
+    });
+    it('tanggal nominal tetap tersedia lewat taxDueDate', () => {
+      expect(taxDueDate('PPH21', '2026-12')).toBe('2027-01-10');
+    });
   });
 });

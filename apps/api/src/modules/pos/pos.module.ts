@@ -177,7 +177,7 @@ export class PosService {
       // Harga rak termasuk PPN → DPP & PPN dihitung mundur; non-PKP → tanpa PPN
       const inclusive = taxProfileOf(tenant.settings).posPricesIncludeVat;
       const rate = outputVatRate(tenant);
-      const totals = inclusive ? inclusiveTotals(lines, rate) : documentTotals(lines, rate);
+      const totals = inclusive ? inclusiveTotals(lines, rate) : documentTotals(lines, rate, taxProfileOf(tenant.settings).vatRounding);
 
       // Pembayaran: non-tunai tidak boleh lebih dari tagihan; kelebihan tunai = kembalian
       let nonCash: Dec = ZERO;
