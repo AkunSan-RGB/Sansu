@@ -1,6 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { LEGAL_FORM_LABELS, REPORTING_FRAMEWORK_LABELS, TAX_SCHEME_LABELS, toOptions } from '@sansu/shared';
-import { Alert, Button, Card, Col, Form, Input, InputNumber, Radio, Row, Select, Switch } from 'antd';
+import {
+  AuditOutlined,
+  BankOutlined,
+  BgColorsOutlined,
+  ClusterOutlined,
+  FileProtectOutlined,
+  TeamOutlined,
+} from '@ant-design/icons';
+import { BUSINESS_MODEL_BY_KEY } from '@sansu/shared';
+import { Alert, Button, Card, Col, Divider, Form, Grid, Input, InputNumber, Radio, Row, Select, Space, Switch, Tabs, Tag, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { get, patch, put } from '@/api/client';
@@ -47,9 +56,40 @@ function ApprovalPolicyCard() {
   );
 }
 
+
+/** Kelompok isian dengan judul dan penjelasan singkat, agar form panjang mudah dipindai */
+function Section({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <Typography.Title level={5} style={{ margin: 0 }}>
+        {title}
+      </Typography.Title>
+      {desc && (
+        <Typography.Paragraph type="secondary" style={{ margin: '2px 0 16px' }}>
+          {desc}
+        </Typography.Paragraph>
+      )}
+      {!desc && <div style={{ height: 12 }} />}
+      {children}
+    </div>
+  );
+}
+
+/** Batang simpan menempel di bawah layar saat form panjang */
+function SaveBar({ loading, label = 'Simpan perubahan' }: { loading: boolean; label?: string }) {
+  return (
+    <div className="save-bar">
+      <Button type="primary" htmlType="submit" size="large" loading={loading}>
+        {label}
+      </Button>
+    </div>
+  );
+}
+
 export default function CompanySettingsPage() {
   const { can } = useApps();
   const { me } = useAuth();
+  const screens = Grid.useBreakpoint();
   const { data } = useQuery({ queryKey: ['company'], queryFn: () => get<CompanySettings>('/settings/company') });
   const [company] = Form.useForm();
   const [payroll] = Form.useForm<PayrollSettings>();
@@ -60,6 +100,12 @@ export default function CompanySettingsPage() {
   // Wizard bisa dibuka dari panduan mulai lewat ?wizard=1
   const [params, setParams] = useSearchParams();
   const [wizard, setWizard] = useState(params.get('wizard') === '1');
+  const [tab, setTab] = useState(params.get('wizard') === '1' ? 'pelaporan' : (params.get('tab') ?? 'profil'));
+  const pickTab = (k: string) => {
+    setTab(k);
+    params.set('tab', k);
+    setParams(params, { replace: true });
+  };
   const closeWizard = () => {
     setWizard(false);
     if (params.has('wizard')) {
@@ -85,32 +131,45 @@ export default function CompanySettingsPage() {
   );
   const savePayroll = useAction((v: PayrollSettings) => patch('/settings/payroll', v), { success: 'Pengaturan penggajian disimpan', invalidate: ['company'] });
 
-  return (
-    <>
-      <PageHeader title="Perusahaan" />
-      <EntityProfileWizard open={wizard} onClose={closeWizard} />
-      <Row gutter={[16, 16]}>
-        <Col xs={24}>
-          <BusinessModelCard />
-        </Col>
-        <Col xs={24}>
-          <InventoryMethodCard />
-        </Col>
-        <Col xs={24} lg={12}>
-          <Card title="Identitas & pajak">
-            <Form form={company} layout="vertical" onFinish={(v) => saveCompany.mutate(v)}>
-              <Form.Item name="name" label="Nama perusahaan" rules={[{ required: true }]}>
-                <Input />
-              </Form.Item>
-              <Form.Item name="npwp" label="NPWP" extra="Tampil di penawaran, slip gaji, dan rekap pajak">
-                <Input />
-              </Form.Item>
-              <Form.Item name="address" label="Alamat">
-                <Input.TextArea rows={3} />
-              </Form.Item>
+  const radioVat = [
+    { value: true, label: 'Sudah termasuk PPN' },
+    { value: false, label: 'Belum termasuk PPN' },
+  ];
+  const model = me?.businessModel ? BUSINESS_MODEL_BY_KEY[me.businessModel] : undefined;
+  const wide = { maxWidth: 860 };
+
+  const tabs = [
+    {
+      key: 'profil',
+      label: 'Profil & pajak',
+      icon: <BankOutlined />,
+      children: (
+        <Card style={wide}>
+          <Form form={company} layout="vertical" onFinish={(v) => saveCompany.mutate(v)} requiredMark={false}>
+            <Section title="Identitas perusahaan" desc="Tampil di penawaran, faktur, slip gaji, dan rekap pajak.">
+              <Row gutter={16}>
+                <Col xs={24} md={12}>
+                  <Form.Item name="name" label="Nama perusahaan" rules={[{ required: true, message: 'Nama perusahaan wajib diisi' }]}>
+                    <Input />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={12}>
+                  <Form.Item name="npwp" label="NPWP">
+                    <Input placeholder="00.000.000.0-000.000" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24}>
+                  <Form.Item name="address" label="Alamat">
+                    <Input.TextArea rows={3} />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </Section>
+            <Divider />
+            <Section title="Pajak Pertambahan Nilai (PPN)" desc="Menentukan cara faktur, kasir, dan pembelian menghitung PPN.">
               <Form.Item
                 name="pkp"
-                label="Pengusaha Kena Pajak (PKP)"
+                label="Status Pengusaha Kena Pajak (PKP)"
                 valuePropName="checked"
                 extra={
                   pkp
@@ -120,42 +179,49 @@ export default function CompanySettingsPage() {
               >
                 <Switch checkedChildren="PKP" unCheckedChildren="Non-PKP" />
               </Form.Item>
-              <Form.Item name="ppnRate" label="Tarif PPN" extra="Berlaku untuk dokumen baru (tarif efektif 11% = 12% × DPP nilai lain 11/12)">
-                <InputNumber min={0} max={100} suffix="%" />
-              </Form.Item>
+              {pkp && (
+                <Row gutter={16}>
+                  <Col xs={24} md={8}>
+                    <Form.Item name="ppnRate" label="Tarif PPN" extra="Berlaku untuk dokumen baru">
+                      <InputNumber min={0} max={100} suffix="%" style={{ width: '100%' }} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={16}>
+                    <Form.Item
+                      name="vatRounding"
+                      label="Pembulatan PPN"
+                      extra={t('Faktur pajak memuat PPN dalam rupiah penuh. Berlaku untuk dokumen dengan harga belum termasuk PPN; harga yang sudah termasuk PPN tetap sama dengan harga yang dibayar. Tanyakan konsultan pajak bila ragu.')}
+                    >
+                      <Select
+                        options={[
+                          { value: 'NONE', label: 'Tanpa pembulatan (dua desimal)' },
+                          { value: 'NEAREST', label: 'Bulatkan ke rupiah terdekat' },
+                          { value: 'DOWN', label: 'Bulatkan ke bawah' },
+                        ]}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              )}
               {pkp && (can('sales') || can('crm')) && (
                 <Form.Item
                   name="salesPricesIncludeVat"
                   label={t('Harga di penawaran & pesanan penjualan')}
                   extra="Bawaan pilihan 'harga termasuk PPN' saat membuat dokumen baru. Faktur tetap menampilkan DPP dan PPN."
                 >
-                  <Radio.Group
-                    options={[
-                      { value: true, label: 'Sudah termasuk PPN' },
-                      { value: false, label: 'Belum termasuk PPN' },
-                    ]}
-                  />
+                  <Radio.Group options={radioVat} />
                 </Form.Item>
               )}
               {pkp && can('pos') && (
-                <Form.Item
-                  name="posPricesIncludeVat"
-                  label="Harga di kasir"
-                  extra="Termasuk PPN: harga rak = harga bayar; struk menampilkan DPP dan PPN yang terkandung."
-                >
-                  <Radio.Group
-                    options={[
-                      { value: true, label: 'Sudah termasuk PPN' },
-                      { value: false, label: 'Belum termasuk PPN' },
-                    ]}
-                  />
+                <Form.Item name="posPricesIncludeVat" label="Harga di kasir" extra="Termasuk PPN: harga rak = harga bayar; struk menampilkan DPP dan PPN yang terkandung.">
+                  <Radio.Group options={radioVat} />
                 </Form.Item>
               )}
               {!!me?.taxFeatures?.reasons.length && (
                 <Alert
                   type="info"
                   showIcon
-                  style={{ marginBottom: 16 }}
+                  style={{ marginBottom: 8 }}
                   message="Menu pajak disesuaikan dengan usaha Anda"
                   description={
                     <ul style={{ margin: 0, paddingLeft: 18 }}>
@@ -166,178 +232,238 @@ export default function CompanySettingsPage() {
                   }
                 />
               )}
-              {pkp && (
-                <Form.Item
-                  name="vatRounding"
-                  label="Pembulatan PPN"
-                  extra={t('Faktur pajak memuat PPN dalam rupiah penuh. Berlaku untuk dokumen dengan harga belum termasuk PPN; harga yang sudah termasuk PPN tetap sama dengan harga yang dibayar. Tanyakan konsultan pajak bila ragu.')}
-                >
-                  <Select
-                    options={[
-                      { value: 'NONE', label: 'Tanpa pembulatan (dua desimal)' },
-                      { value: 'NEAREST', label: 'Bulatkan ke rupiah terdekat' },
-                      { value: 'DOWN', label: 'Bulatkan ke bawah' },
-                    ]}
-                  />
-                </Form.Item>
-              )}
-              {can('accounting') && (
-                <Form.Item
-                  name="holidays"
-                  label="Hari libur nasional & cuti bersama"
-                  extra="Tenggat setor/lapor pajak yang jatuh di Sabtu, Minggu, atau tanggal di sini digeser ke hari kerja berikutnya. Ketik tanggal berformat 2026-12-25 lalu Enter; perbarui tiap tahun sesuai SKB tiga menteri."
-                  rules={[{ validator: (_, v: string[] | undefined) => ((v ?? []).every((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) ? Promise.resolve() : Promise.reject(new Error('Format tanggal YYYY-MM-DD'))) }]}
-                >
-                  <Select mode="tags" tokenSeparators={[',', ' ']} open={false} placeholder="2026-12-25" />
-                </Form.Item>
-              )}
-              <Button type="primary" htmlType="submit" loading={saveCompany.isPending}>
-                Simpan
-              </Button>
-            </Form>
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
-          <BrandingCard />
-        </Col>
-        <Col xs={24} lg={12}>
-          <ApprovalPolicyCard />
-        </Col>
-        {can('accounting') && (
-          <Col xs={24} lg={12}>
-            <Card
-              title="Pelaporan keuangan & PPh Badan"
-              extra={
-                <Button size="small" onClick={() => setWizard(true)}>
-                  Wizard rekomendasi
-                </Button>
-              }
-            >
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 16 }}
-                message="Bingung memilih SAK EMKM atau SAK EP, atau skema PPh? Wizard menghitung ukuran usaha dari pembukuan lalu menyarankan pilihan yang sesuai."
-              />
-              <Form form={reporting} layout="vertical" onFinish={(v) => saveReporting.mutate(v)}>
-                <Form.Item
-                  name="framework"
-                  label="Standar akuntansi"
-                  extra={
-                    framework === 'SAK_EMKM'
-                      ? 'SAK EMKM: untuk usaha mikro/kecil — laporan posisi keuangan, laba rugi, dan CALK; aset tetap dengan biaya historis.'
-                      : 'SAK EP (berlaku sejak 1 Januari 2025): untuk entitas tanpa akuntabilitas publik — 5 laporan lengkap dengan pembanding.'
-                  }
-                >
-                  <Radio.Group options={toOptions(REPORTING_FRAMEWORK_LABELS)} />
-                </Form.Item>
-                <Row gutter={12}>
-                  <Col xs={24} md={12}>
-                    <Form.Item name="legalForm" label="Bentuk badan usaha">
-                      <Select options={toOptions(LEGAL_FORM_LABELS)} />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={12}>
-                    <Form.Item name="establishedYear" label="Tahun berdiri">
-                      <InputNumber min={1900} max={2100} style={{ width: '100%' }} />
-                    </Form.Item>
-                  </Col>
-                </Row>
-                <Form.Item name="businessActivity" label="Kegiatan usaha utama" extra="Dipakai di CALK bagian Umum">
-                  <Input placeholder="Distribusi dan perdagangan besar barang konsumsi" />
-                </Form.Item>
-                <Row gutter={12}>
-                  <Col xs={24} md={8}>
-                    <Form.Item name="city" label="Kota">
-                      <Input placeholder="Bekasi" />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item name="directorName" label="Penandatangan">
-                      <Input />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item name="directorTitle" label="Jabatan">
-                      <Input />
-                    </Form.Item>
-                  </Col>
-                </Row>
-                <Form.Item name="taxScheme" label="Skema PPh">
-                  <Radio.Group options={toOptions(TAX_SCHEME_LABELS)} />
-                </Form.Item>
-                {scheme === 'FINAL_UMKM' && (
-                  <Form.Item name="taxRegisteredYear" label="Tahun terdaftar sebagai wajib pajak" extra="Untuk mengecek batas waktu PPh final 0,5%">
-                    <InputNumber min={1980} max={2100} style={{ width: '100%' }} />
+            </Section>
+            {can('accounting') && (
+              <>
+                <Divider />
+                <Section title="Kalender pajak" desc="Tenggat setor/lapor yang jatuh di akhir pekan atau hari libur digeser ke hari kerja berikutnya.">
+                  <Form.Item
+                    name="holidays"
+                    label="Hari libur nasional & cuti bersama"
+                    extra="Ketik tanggal berformat 2026-12-25 lalu Enter. Perbarui tiap tahun sesuai SKB tiga menteri."
+                    rules={[{ validator: (_, v: string[] | undefined) => ((v ?? []).every((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) ? Promise.resolve() : Promise.reject(new Error('Format tanggal YYYY-MM-DD'))) }]}
+                  >
+                    <Select mode="tags" tokenSeparators={[',', ' ']} open={false} placeholder="2026-12-25" />
                   </Form.Item>
-                )}
-                <Form.Item
-                  name="capitalizationThreshold"
-                  label="Batas kapitalisasi aset tetap (per unit)"
-                  extra="Pembelian aset di bawah batas ini langsung dibebankan ke 'Beban Peralatan Kecil', tidak didaftarkan sebagai aset. Isi 0 untuk mengapitalisasi semuanya. Tanah selalu dikapitalisasi."
-                >
-                  <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
-                </Form.Item>
-                <Button type="primary" htmlType="submit" loading={saveReporting.isPending}>
-                  Simpan pengaturan pelaporan
-                </Button>
-              </Form>
-            </Card>
-          </Col>
-        )}
-        {can('payroll') && (
-          <Col xs={24} lg={12}>
-            <Card title="Penggajian & BPJS">
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 16 }}
-                message="Nilai bawaan mengikuti ketentuan 2026. Perbarui bila pemerintah mengubah batas upah atau kelompok risiko JKK perusahaan Anda berbeda."
-              />
-              <Form form={payroll} layout="vertical" onFinish={(v) => savePayroll.mutate(v)}>
-                <Form.Item name="workDaysPerWeek" label="Hari kerja">
-                  <Radio.Group
-                    options={[
-                      { value: 6, label: 'Senin–Sabtu (6 hari)' },
-                      { value: 5, label: 'Senin–Jumat (5 hari)' },
-                    ]}
-                  />
-                </Form.Item>
-                <Row gutter={12}>
-                  <Col span={12}>
-                    <Form.Item name="bpjsKesCap" label="Batas upah BPJS Kesehatan">
-                      <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
+                </Section>
+              </>
+            )}
+            <SaveBar loading={saveCompany.isPending} />
+          </Form>
+        </Card>
+      ),
+    },
+    {
+      key: 'model',
+      label: 'Jenis usaha & persediaan',
+      icon: <ClusterOutlined />,
+      children: (
+        <Space direction="vertical" size={16} style={{ ...wide, width: '100%' }}>
+          <BusinessModelCard />
+          <InventoryMethodCard />
+        </Space>
+      ),
+    },
+    ...(can('accounting')
+      ? [
+          {
+            key: 'pelaporan',
+            label: 'Pelaporan keuangan',
+            icon: <AuditOutlined />,
+            children: (
+              <Card style={wide}>
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 20 }}
+                  message="Bingung memilih SAK EMKM atau SAK EP, atau skema PPh?"
+                  description="Wizard menghitung ukuran usaha dari pembukuan lalu menyarankan pilihan yang sesuai."
+                  action={
+                    <Button type="primary" onClick={() => setWizard(true)}>
+                      Buka wizard
+                    </Button>
+                  }
+                />
+                <Form form={reporting} layout="vertical" onFinish={(v) => saveReporting.mutate(v)} requiredMark={false}>
+                  <Section title="Standar akuntansi" desc="Mengubah susunan laporan, catatan (CALK), akun yang ditampilkan, dan fitur yang tersedia.">
+                    <Form.Item
+                      name="framework"
+                      extra={
+                        framework === 'SAK_EMKM'
+                          ? 'SAK EMKM: untuk usaha mikro/kecil — laporan posisi keuangan, laba rugi, dan CALK; aset tetap dengan biaya historis.'
+                          : 'SAK EP (berlaku sejak 1 Januari 2025): untuk entitas tanpa akuntabilitas publik — 5 laporan lengkap dengan pembanding.'
+                      }
+                    >
+                      <Radio.Group optionType="button" buttonStyle="solid" options={toOptions(REPORTING_FRAMEWORK_LABELS)} />
                     </Form.Item>
-                  </Col>
-                  <Col span={12}>
-                    <Form.Item name="jpCap" label="Batas upah Jaminan Pensiun">
-                      <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
+                  </Section>
+                  <Divider />
+                  <Section title="Profil badan usaha" desc="Dipakai di CALK bagian Umum dan tanda tangan laporan.">
+                    <Row gutter={16}>
+                      <Col xs={24} md={12}>
+                        <Form.Item name="legalForm" label="Bentuk badan usaha">
+                          <Select options={toOptions(LEGAL_FORM_LABELS)} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={12}>
+                        <Form.Item name="establishedYear" label="Tahun berdiri">
+                          <InputNumber min={1900} max={2100} style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24}>
+                        <Form.Item name="businessActivity" label="Kegiatan usaha utama">
+                          <Input placeholder="Distribusi dan perdagangan besar barang konsumsi" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={8}>
+                        <Form.Item name="city" label="Kota">
+                          <Input placeholder="Bekasi" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={8}>
+                        <Form.Item name="directorName" label="Penandatangan">
+                          <Input />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={8}>
+                        <Form.Item name="directorTitle" label="Jabatan">
+                          <Input />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  </Section>
+                  <Divider />
+                  <Section title="Pajak penghasilan" desc="Skema PPh badan yang dipakai di rekonsiliasi fiskal dan peringatan batas pajak.">
+                    <Form.Item name="taxScheme">
+                      <Radio.Group optionType="button" buttonStyle="solid" options={toOptions(TAX_SCHEME_LABELS)} />
                     </Form.Item>
-                  </Col>
-                  <Col span={8}>
-                    <Form.Item name="jkkRate" label="Tarif JKK">
-                      <InputNumber min={0} max={5} step={0.01} suffix="%" />
+                    {scheme === 'FINAL_UMKM' && (
+                      <Form.Item name="taxRegisteredYear" label="Tahun terdaftar sebagai wajib pajak" extra="Untuk mengecek batas waktu PPh final 0,5%">
+                        <InputNumber min={1980} max={2100} style={{ width: 200 }} />
+                      </Form.Item>
+                    )}
+                  </Section>
+                  <Divider />
+                  <Section title="Aset tetap">
+                    <Form.Item
+                      name="capitalizationThreshold"
+                      label="Batas kapitalisasi (per unit)"
+                      extra="Pembelian di bawah batas ini langsung dibebankan ke 'Beban Peralatan Kecil', tidak didaftarkan sebagai aset. Isi 0 untuk mengapitalisasi semuanya. Tanah selalu dikapitalisasi."
+                    >
+                      <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%', maxWidth: 320 }} prefix="Rp" />
                     </Form.Item>
-                  </Col>
-                  <Col span={8}>
-                    <Form.Item name="jkmRate" label="Tarif JKM">
-                      <InputNumber min={0} max={5} step={0.01} suffix="%" />
+                  </Section>
+                  <SaveBar loading={saveReporting.isPending} />
+                </Form>
+              </Card>
+            ),
+          },
+        ]
+      : []),
+    {
+      key: 'tampilan',
+      label: 'Logo & dokumen',
+      icon: <BgColorsOutlined />,
+      children: (
+        <div style={wide}>
+          <BrandingCard />
+        </div>
+      ),
+    },
+    {
+      key: 'persetujuan',
+      label: 'Persetujuan',
+      icon: <FileProtectOutlined />,
+      children: (
+        <div style={wide}>
+          <ApprovalPolicyCard />
+        </div>
+      ),
+    },
+    ...(can('payroll')
+      ? [
+          {
+            key: 'gaji',
+            label: 'Penggajian & BPJS',
+            icon: <TeamOutlined />,
+            children: (
+              <Card style={wide}>
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 20 }}
+                  message="Nilai bawaan mengikuti ketentuan 2026. Perbarui bila pemerintah mengubah batas upah atau kelompok risiko JKK perusahaan Anda berbeda."
+                />
+                <Form form={payroll} layout="vertical" onFinish={(v) => savePayroll.mutate(v)} requiredMark={false}>
+                  <Section title="Jam kerja">
+                    <Form.Item name="workDaysPerWeek" label="Hari kerja">
+                      <Radio.Group
+                        options={[
+                          { value: 6, label: 'Senin–Sabtu (6 hari)' },
+                          { value: 5, label: 'Senin–Jumat (5 hari)' },
+                        ]}
+                      />
                     </Form.Item>
-                  </Col>
-                  <Col span={8}>
-                    <Form.Item name="overtimeDivisor" label="Pembagi upah lembur" extra="UU: 1/173">
-                      <InputNumber min={1} />
+                    <Form.Item name="overtimeDivisor" label="Pembagi upah lembur" extra="Ketentuan: 1/173 upah sebulan" style={{ maxWidth: 240 }}>
+                      <InputNumber min={1} style={{ width: '100%' }} />
                     </Form.Item>
-                  </Col>
-                </Row>
-                <Button type="primary" htmlType="submit" loading={savePayroll.isPending}>
-                  Simpan pengaturan gaji
-                </Button>
-              </Form>
-            </Card>
-          </Col>
-        )}
-      </Row>
+                  </Section>
+                  <Divider />
+                  <Section title="BPJS" desc="Batas upah dan tarif iuran perusahaan.">
+                    <Row gutter={16}>
+                      <Col xs={24} md={12}>
+                        <Form.Item name="bpjsKesCap" label="Batas upah BPJS Kesehatan">
+                          <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={12}>
+                        <Form.Item name="jpCap" label="Batas upah Jaminan Pensiun">
+                          <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Form.Item name="jkkRate" label="Tarif JKK">
+                          <InputNumber min={0} max={5} step={0.01} suffix="%" style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Form.Item name="jkmRate" label="Tarif JKM">
+                          <InputNumber min={0} max={5} step={0.01} suffix="%" style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  </Section>
+                  <SaveBar loading={savePayroll.isPending} />
+                </Form>
+              </Card>
+            ),
+          },
+        ]
+      : []),
+  ];
+
+  return (
+    <>
+      <PageHeader title="Pengaturan perusahaan" />
+      <EntityProfileWizard open={wizard} onClose={closeWizard} />
+      <div className="settings-summary">
+        <div>
+          <div className="settings-summary-name">{data?.name ?? me?.tenantName}</div>
+          <Space size={6} wrap style={{ marginTop: 6 }}>
+            {model && <Tag color="blue">{model.name}</Tag>}
+            {data?.reporting && <Tag color="gold">{data.reporting.framework === 'SAK_EMKM' ? 'SAK EMKM' : 'SAK EP'}</Tag>}
+            <Tag color={pkp ? 'green' : 'default'}>{pkp ? 'PKP' : 'Non-PKP'}</Tag>
+          </Space>
+        </div>
+      </div>
+      <Tabs
+        className="settings-tabs"
+        tabPosition={screens.lg ? 'left' : 'top'}
+        activeKey={tab}
+        onChange={pickTab}
+        items={tabs}
+        destroyInactiveTabPane={false}
+      />
     </>
   );
 }

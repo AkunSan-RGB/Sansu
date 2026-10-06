@@ -7,6 +7,7 @@ import { get, post, qs } from '@/api/client';
 import { useAction, useProducts, useWarehouses } from '@/api/queries';
 import type { StockBalance, StockMove } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
+import InventoryMethodBadge from './InventoryMethodBadge';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
 import { t } from '@/lib/terms';
 
@@ -60,6 +61,7 @@ export default function InventoryPage() {
         title={t('Inventori')}
         extra={
           <Space wrap>
+            <InventoryMethodBadge />
             <Select allowClear placeholder={t('Semua gudang')} style={{ width: 200 }} options={whOptions} onChange={setWarehouseId} />
             <Button
               type="primary"

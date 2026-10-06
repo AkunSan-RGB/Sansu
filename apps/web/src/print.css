@@ -104,3 +104,17 @@ body { background: #F6F6F3; -webkit-font-smoothing: antialiased; }
 .ant-alert-info { background: #F1F4FB; border-color: #DCE4F5; }
 .dash-hero .hero-grid { display: grid; grid-template-columns: minmax(220px, 1.1fr) repeat(auto-fit, minmax(190px, 1fr)); gap: 20px 28px; align-items: center; }
 @media (max-width: 767px) { .dash-hero { padding: 20px; border-radius: 16px; } .dash-hero .hero-grid { grid-template-columns: 1fr; } }
+
+/* Pengaturan perusahaan */
+.settings-summary { display: flex; align-items: center; justify-content: space-between; margin: -4px 0 18px; padding: 16px 20px;
+  background: #fff; border: 1px solid #ECEAE3; border-radius: 16px; box-shadow: 0 1px 2px rgba(13,22,40,.04); }
+.settings-summary-name { font-size: 18px; font-weight: 700; color: #101C33; }
+.settings-tabs.ant-tabs-left > .ant-tabs-nav { min-width: 220px; }
+.settings-tabs.ant-tabs-left > .ant-tabs-nav .ant-tabs-tab { padding: 12px 16px; border-radius: 10px; margin: 0 0 4px; }
+.settings-tabs.ant-tabs-left > .ant-tabs-nav .ant-tabs-tab-active { background: #EEF2FA; }
+.settings-tabs.ant-tabs-left > .ant-tabs-nav .ant-tabs-ink-bar { display: none; }
+.settings-tabs.ant-tabs-left > .ant-tabs-content-holder { border-left: 0; padding-left: 8px; min-width: 0; }
+.settings-tabs.ant-tabs-left > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane { padding-left: 16px; }
+.save-bar { position: sticky; bottom: 0; z-index: 5; margin: 24px -24px -24px; padding: 14px 24px; background: rgba(255,255,255,.92);
+  backdrop-filter: blur(8px); border-top: 1px solid #ECEAE3; border-radius: 0 0 16px 16px; }
+@media (max-width: 991px) { .settings-tabs .ant-tabs-nav { margin-bottom: 12px; } }

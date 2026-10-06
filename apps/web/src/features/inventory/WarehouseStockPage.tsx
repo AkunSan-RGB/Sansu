@@ -9,6 +9,7 @@ import { useAction, useProducts, useWarehouses } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
 import ExportButtons from '@/components/ExportButtons';
 import PageHeader from '@/layout/PageHeader';
+import InventoryMethodBadge from './InventoryMethodBadge';
 import { fmtMoney, fmtQty } from '@/lib/format';
 import { n, SheetBuilder, type SheetSpec } from '@/lib/xlsx/book';
 import { t } from '@/lib/terms';
@@ -46,7 +47,7 @@ export default function WarehouseStockPage() {
   const tab = params.get('tab') ?? 'matrix';
   return (
     <>
-      <PageHeader title={t('Stok per gudang')} />
+      <PageHeader title={t('Stok per gudang')} extra={<InventoryMethodBadge />} />
       <Tabs
         activeKey={tab}
         onChange={(t) => setParams({ tab: t }, { replace: true })}
