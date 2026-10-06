@@ -161,7 +161,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
   /** Rincian dokumen asal sebuah jurnal (faktur pembelian, mutasi stok, kas, kasir, setoran pajak, dst.) beserta jurnalnya */
   async journalDocument(tenantId: string, id: string) {
     const journal = await this.getJournal(tenantId, id);
-    const document = await loadSourceDocument(this.db, tenantId, journal.sourceType, journal.sourceId);
+    const document = await loadSourceDocument(this.db, tenantId, journal.sourceType, journal.sourceId, journal.id);
     return { journal, document };
   }
 

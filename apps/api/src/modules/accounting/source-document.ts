@@ -53,7 +53,7 @@ const stockTable = async (db: Db, tenantId: string, refId: string): Promise<DocT
 });
 
 /** Dokumen asal untuk jenis sumber tertentu; null bila jenis ini tidak punya dokumen terpisah */
-export async function loadSourceDocument(db: Db, tenantId: string, sourceType: string, sourceId: string | null): Promise<SourceDocument | null> {
+export async function loadSourceDocument(db: Db, tenantId: string, sourceType: string, sourceId: string | null, journalId?: string): Promise<SourceDocument | null> {
   if (!sourceId) return null;
   switch (sourceType) {
     case 'PURCHASE_INVOICE': {
@@ -183,10 +183,79 @@ export async function loadSourceDocument(db: Db, tenantId: string, sourceType: s
       if (!d) return null;
       return { title: 'Setoran pajak', number: d.number, date: d.date, fields: [f('Jenis', d.type), f('Masa', d.period), f('Jumlah', d.amount, true), f('NTPN', d.ntpn), f('Kode billing', d.billing_code), f('Dibayar dari', d.account), f('Catatan', d.notes)], table: null, related: [{ label: 'Setoran pajak & BPJS', route: '/tax' }] };
     }
+    case 'CUSTOMER_DEPOSIT': {
+      const d = await one(db, sql`
+        SELECT d.number, d.date::text, d.amount, d.dpp, d.tax_amount, d.applied_amount, d.method, d.description, c.name AS customer, pr.code || ' · ' || pr.name AS project
+        FROM customer_deposits d JOIN customers c ON c.id = d.customer_id LEFT JOIN projects pr ON pr.id = d.project_id
+        WHERE d.tenant_id = ${tenantId} AND d.id = ${sourceId}`);
+      if (!d) return null;
+      return {
+        title: 'Uang muka pelanggan', number: d.number, date: d.date,
+        fields: [f('Pelanggan', d.customer), f('Proyek', d.project), f('Jumlah diterima', d.amount, true), f('DPP', d.dpp, true), f('PPN', d.tax_amount, true), f('Sudah dipakai', d.applied_amount, true), f('Metode', d.method), f('Keterangan', d.description)],
+        table: {
+          columns: [{ key: 'number', title: 'Pemakaian' }, { key: 'date', title: 'Tanggal' }, { key: 'invoice', title: 'Faktur' }, { key: 'amount', title: 'Jumlah', align: 'right', money: true }],
+          rows: await q(db, sql`SELECT a.number, a.date::text, i.number AS invoice, a.amount FROM deposit_applications a JOIN invoices i ON i.id = a.invoice_id WHERE a.deposit_id = ${sourceId} ORDER BY a.date, a.number`),
+        },
+        related: [{ label: 'Daftar uang muka pelanggan', route: '/customer-deposits' }],
+      };
+    }
+    case 'DEPOSIT_APPLICATION': {
+      const d = await one(db, sql`
+        SELECT a.number, a.date::text, a.amount, a.dpp, a.tax_amount, dep.number AS deposit_number, i.number AS invoice_number, i.id AS invoice_id, c.name AS customer
+        FROM deposit_applications a JOIN customer_deposits dep ON dep.id = a.deposit_id JOIN invoices i ON i.id = a.invoice_id JOIN customers c ON c.id = i.customer_id
+        WHERE a.tenant_id = ${tenantId} AND a.id = ${sourceId}`);
+      if (!d) return null;
+      return {
+        title: 'Pemakaian uang muka', number: d.number, date: d.date,
+        fields: [f('Pelanggan', d.customer), f('Uang muka', d.deposit_number), f('Dipakai melunasi faktur', d.invoice_number), f('Jumlah', d.amount, true), f('DPP', d.dpp, true), f('PPN', d.tax_amount, true)],
+        table: null,
+        related: [{ label: `Faktur ${d.invoice_number}`, route: `/invoices/${d.invoice_id}` }],
+      };
+    }
+    case 'PROJECT_PROGRESS': {
+      const d = await one(db, sql`
+        SELECT g.number, g.date::text, g.percent, g.earned, g.billed, g.accrual_before, g.accrual_after, g.adjustment, g.notes, pr.code || ' · ' || pr.name AS project, c.name AS customer, pr.contract_value
+        FROM project_progress g JOIN projects pr ON pr.id = g.project_id JOIN customers c ON c.id = pr.customer_id
+        WHERE g.tenant_id = ${tenantId} AND g.id = ${sourceId}`);
+      if (!d) return null;
+      return {
+        title: 'Kemajuan proyek', number: d.number, date: d.date,
+        fields: [f('Proyek', d.project), f('Pelanggan', d.customer), f('Nilai kontrak', d.contract_value, true), f('Kemajuan (%)', d.percent), f('Pendapatan diakui', d.earned, true), f('Sudah ditagih', d.billed, true), f('Pendapatan belum ditagih sebelum', d.accrual_before, true), f('Pendapatan belum ditagih sesudah', d.accrual_after, true), f('Penyesuaian jurnal', d.adjustment, true), f('Catatan', d.notes)],
+        table: null,
+        related: [{ label: 'Proyek & termin', route: '/projects' }],
+      };
+    }
+    case 'CASH_COUNT': {
+      const d = await one(db, sql`
+        SELECT c.number, c.date::text, c.book_balance, c.counted_total, c.difference, c.status, c.reason, c.custodian_name, c.notes, a.name AS account
+        FROM cash_counts c JOIN accounts a ON a.id = c.account_id WHERE c.tenant_id = ${tenantId} AND c.id = ${sourceId}`);
+      if (!d) return null;
+      return {
+        title: 'Hitung kas', number: d.number, date: d.date,
+        fields: [f('Akun kas', d.account), f('Penghitung', d.custodian_name), f('Saldo buku', d.book_balance, true), f('Hasil hitung', d.counted_total, true), f('Selisih', d.difference, true), f('Status', d.status), f('Alasan selisih', d.reason), f('Catatan', d.notes)],
+        table: {
+          columns: [{ key: 'denomination', title: 'Pecahan', money: true }, { key: 'count', title: 'Jumlah lembar / keping', align: 'right', qty: true }],
+          // kunci pecahan berbentuk K100000 (kertas) atau C500 (logam): ambil angka nominalnya
+          rows: await q(db, sql`SELECT substring(key from '[0-9]+') AS denomination, value AS count FROM cash_counts c, jsonb_each_text(c.denominations) WHERE c.id = ${sourceId} AND value ~ '^[0-9]+$' AND value::numeric > 0 ORDER BY substring(key from '[0-9]+')::numeric DESC`),
+        },
+        related: [{ label: 'Daftar hitung kas', route: '/cash/counts' }],
+      };
+    }
+    case 'DEPRECIATION': {
+      if (!journalId) return null;
+      const rows = await q(db, sql`SELECT a.code || ' · ' || a.name AS asset, d.amount FROM asset_depreciations d JOIN fixed_assets a ON a.id = d.asset_id WHERE d.tenant_id = ${tenantId} AND d.journal_id = ${journalId} ORDER BY a.code`);
+      const total = rows.reduce((s, r) => s + Number(r.amount ?? 0), 0).toFixed(2);
+      return {
+        title: 'Penyusutan bulanan', number: sourceId, date: null,
+        fields: [f('Masa', sourceId), f('Jumlah aset', String(rows.length)), f('Total penyusutan', total, true)],
+        table: { columns: [{ key: 'asset', title: 'Aset' }, { key: 'amount', title: 'Penyusutan', align: 'right', money: true }], rows },
+        related: [{ label: 'Aset tetap & penyusutan', route: '/fixed-assets?tab=depreciation' }],
+      };
+    }
     default:
       return null;
   }
 }
 
 /** Jenis sumber yang dokumennya dapat dibuka di halaman rincian dokumen */
-export const DOCUMENT_VIEW_TYPES = new Set(['PURCHASE_INVOICE', 'SUPPLIER_PAYMENT', 'PURCHASE_RETURN', 'SALES_RETURN', 'STOCK_ADJUSTMENT', 'STOCK_TRANSFER', 'PRODUCTION', 'INVENTORY_WRITEDOWN', 'CASH_IN', 'CASH_OUT', 'TRANSFER', 'POS', 'POS_CLOSE', 'TAX_PAYMENT']);
+export const DOCUMENT_VIEW_TYPES = new Set(['PURCHASE_INVOICE', 'SUPPLIER_PAYMENT', 'PURCHASE_RETURN', 'SALES_RETURN', 'STOCK_ADJUSTMENT', 'STOCK_TRANSFER', 'PRODUCTION', 'INVENTORY_WRITEDOWN', 'CASH_IN', 'CASH_OUT', 'TRANSFER', 'POS', 'POS_CLOSE', 'TAX_PAYMENT', 'CUSTOMER_DEPOSIT', 'DEPOSIT_APPLICATION', 'PROJECT_PROGRESS', 'CASH_COUNT', 'DEPRECIATION']);

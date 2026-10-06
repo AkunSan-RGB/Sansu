@@ -8,13 +8,8 @@ import { DOCUMENT_VIEW_TYPES } from './source-document';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Halaman daftar untuk jenis sumber yang tidak punya dokumen tunggal (penyusutan bulanan, hitung kas, deposit, dst.) */
+/** Halaman daftar untuk jenis sumber yang tidak punya dokumen tunggal (tutup buku, PPh badan) */
 const LIST_ROUTE: Record<string, string> = {
-  CASH_COUNT: '/cash/counts',
-  DEPRECIATION: '/fixed-assets?tab=depreciation',
-  CUSTOMER_DEPOSIT: '/customer-deposits',
-  DEPOSIT_APPLICATION: '/customer-deposits',
-  PROJECT_PROGRESS: '/projects',
   CLOSING: '/closing',
   INCOME_TAX: '/fiscal',
 };
@@ -46,7 +41,7 @@ export async function resolveSourceRoutes(db: Db, tenantId: string, items: { id:
         return id ? `/fixed-assets?asset=${id}` : null;
       default:
         // dokumen tanpa halaman sendiri dibuka di halaman rincian dokumen (berdasarkan jurnalnya)
-        if (DOCUMENT_VIEW_TYPES.has(i.sourceType) && id) return `/documents/${i.id}`;
+        if (DOCUMENT_VIEW_TYPES.has(i.sourceType) && (id || i.sourceType === 'DEPRECIATION')) return `/documents/${i.id}`;
         return LIST_ROUTE[i.sourceType] ?? null;
     }
   });

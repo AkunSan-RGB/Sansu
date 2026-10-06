@@ -130,6 +130,36 @@ describe('Penelusuran laporan → buku besar → jurnal → dokumen asal (e2e)',
       expect(kas.document.table!.rows[0].account).toMatch(/3-1000/);
       expect((await documentOf('CASH_OUT')).document.title).toBe('Kas keluar');
     });
+    it('penyusutan bulanan, hitung kas, uang muka, dan kemajuan proyek menampilkan dokumennya', async () => {
+      const accs = (await get('/api/accounting/accounts').expect(200)).body as { id: string; code: string }[];
+      const acc = (c: string) => accs.find((a) => a.code === c)!.id;
+      const cats = (await get('/api/assets/categories').expect(200)).body as { id: string; name: string }[];
+      await post('/api/assets', { name: 'Laptop', categoryId: cats.find((c) => c.name === 'Inventaris Kantor')!.id, acquisitionDate: '2026-01-10', cost: '12000000', funding: 'CASH', cashAccountId: acc('1-1200') }).expect(201);
+      await post('/api/assets/depreciation/run', { period: '2026-03' }).expect(201);
+      const dep = await documentOf('DEPRECIATION');
+      expect(dep.document.title).toBe('Penyusutan bulanan');
+      expect(dep.document.table!.rows.length).toBeGreaterThan(0);
+
+      const today = new Date().toISOString().slice(0, 10);
+      await post('/api/accounting/journals', { date: today, description: 'Isi kas kecil', lines: [{ accountId: acc('1-1110'), debit: '100000' }, { accountId: acc('3-1000'), credit: '100000' }] }).expect(201);
+      const cc = (await post('/api/cash/counts', { accountId: acc('1-1110'), date: today, custodianName: 'Rina' }).expect(201)).body;
+      await http.put(`/api/cash/counts/${cc.id}`).set(as()).send({ denominations: { K50000: 1 }, reason: 'Uji selisih' }).expect(200);
+      await post(`/api/cash/counts/${cc.id}/finish`).expect(200);
+      const count = await documentOf('CASH_COUNT');
+      expect(count.document.title).toBe('Hitung kas');
+      expect(count.document.table!.rows[0]).toMatchObject({ denomination: '50000', count: '1' });
+
+      const cust = (await post('/api/customers', { code: 'C-DP', name: 'Klien Uang Muka', npwp: '0987654321098765' }).expect(201)).body.id;
+      const prj = (await post('/api/services/projects', { name: 'Proyek DP', customerId: cust, contractValue: '10000000', startDate: today }).expect(201)).body;
+      const dp = (await post('/api/services/deposits', { customerId: cust, projectId: prj.id, date: today, amount: '1110000', description: 'DP' }).expect(201)).body;
+      expect((await documentOf('CUSTOMER_DEPOSIT')).document.fields.find((f) => f.label === 'Proyek')!.value).toMatch(/Proyek DP/);
+      const inv = (await post('/api/services/invoices', { customerId: cust, projectId: prj.id, date: today, lines: [{ description: 'Termin', price: '2000000' }] }).expect(201)).body;
+      await post(`/api/services/deposits/${dp.id}/apply`, { invoiceId: inv.id }).expect(201);
+      expect((await documentOf('DEPOSIT_APPLICATION')).document.fields.find((f) => f.label === 'Uang muka')!.value).toMatch(/^UMP\//);
+      await post(`/api/services/projects/${prj.id}/progress`, { date: today, percent: '30' }).expect(201);
+      expect((await documentOf('PROJECT_PROGRESS')).document.title).toBe('Kemajuan proyek');
+    });
+
     it('jurnal manual tidak punya dokumen, tetapi rincian jurnalnya tetap bisa dibuka', async () => {
       const m = await journalOf('MANUAL');
       expect(m.docRoute).toBeNull();
