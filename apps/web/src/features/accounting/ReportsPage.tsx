@@ -197,8 +197,8 @@ export default function ReportsPage() {
           activeKey={tab}
           onChange={setTab}
           items={[
-            { key: 'position', label: SHORT.position, children: <QueryState q={position}>{(d) => <PositionView d={d} refs={refs} compare={compare} detail={detail} />}</QueryState> },
-            { key: 'income', label: SHORT.income, children: <QueryState q={income}>{(d) => <IncomeView d={d} refs={refs} compare={compare} detail={detail} />}</QueryState> },
+            { key: 'position', label: SHORT.position, children: <QueryState q={position}>{(d) => <PositionView d={d} refs={refs} compare={compare} detail={detail} signer={notes.data?.company} />}</QueryState> },
+            { key: 'income', label: SHORT.income, children: <QueryState q={income}>{(d) => <IncomeView d={d} refs={refs} compare={compare} detail={detail} signer={notes.data?.company} />}</QueryState> },
             { key: 'equity', label: SHORT.equity, children: <QueryState q={equity}>{(d) => <EquityView d={d} compare={compare} />}</QueryState> },
             { key: 'cashflow', label: SHORT.cashflow, children: <QueryState q={cashflow}>{(d) => <CashFlowView d={d} compare={compare} />}</QueryState> },
             { key: 'notes', label: SHORT.notes, children: <QueryState q={notes}>{(d) => <NotesView d={d} />}</QueryState> },
