@@ -8,8 +8,8 @@
  */
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
-import { BUSINESS_MODEL_KEYS, type BusinessModel } from '@sansu/shared';
-import { accounts, assetCategories, journalLines, tenants } from '../../db/schema';
+import { BUSINESS_MODEL_BY_KEY, BUSINESS_MODEL_KEYS, type AppKey, type BusinessModel, withDependencies } from '@sansu/shared';
+import { accounts, assetCategories, journalLines, tenantApps, tenants } from '../../db/schema';
 import { COA_FAMILIES, COA_UNUSED_MARK, coaName, coaNameVariants, DEFAULT_COA, guessReportGroup } from './default-coa';
 
 /** Nama induk lama yang boleh diganti ke nama standar baru */
@@ -38,7 +38,7 @@ async function businessModelOf(db: DbOrTx, tenantId: string): Promise<BusinessMo
  * Sesuaikan relevansi akun dengan jenis usaha dan aplikasi aktif: akun tidak relevan yang belum pernah dipakai dinonaktifkan,
  * akun yang sebelumnya dinonaktifkan otomatis diaktifkan kembali bila kini relevan. Nonaktif buatan pengguna tidak disentuh.
  */
-export async function applyChartRelevance(db: DbOrTx, tenantId: string, model: BusinessModel, apps: ReadonlySet<string>) {
+export async function applyChartRelevance(db: DbOrTx, tenantId: string, model: BusinessModel, apps: ReadonlySet<string>, framework: 'SAK_EP' | 'SAK_EMKM' = 'SAK_EP') {
   const all = await db.select().from(accounts).where(eq(accounts.tenantId, tenantId));
   const byCode = new Map(all.map((a) => [a.code, a]));
   let deactivated = 0;
@@ -46,7 +46,7 @@ export async function applyChartRelevance(db: DbOrTx, tenantId: string, model: B
   for (const fam of COA_FAMILIES) {
     const rows = fam.codes.map((c) => byCode.get(c)).filter((a): a is NonNullable<typeof a> => !!a);
     if (!rows.length) continue;
-    if (fam.relevant(model, apps)) {
+    if (fam.relevant(model, apps, framework)) {
       for (const a of rows.filter((x) => !x.isActive && x.description === COA_UNUSED_MARK)) {
         await db.update(accounts).set({ isActive: true, description: null }).where(eq(accounts.id, a.id));
         activated++;
@@ -64,6 +64,29 @@ export async function applyChartRelevance(db: DbOrTx, tenantId: string, model: B
     }
   }
   return { deactivated, activated };
+}
+
+/** Standar pelaporan perusahaan (SAK EP bila belum dipilih) */
+export async function frameworkOf(db: DbOrTx, tenantId: string): Promise<'SAK_EP' | 'SAK_EMKM'> {
+  const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+  const fw = (t?.settings as { reporting?: { framework?: string } } | null)?.reporting?.framework;
+  return fw === 'SAK_EMKM' ? 'SAK_EMKM' : 'SAK_EP';
+}
+
+/**
+ * Selaraskan relevansi bagan akun dengan profil perusahaan saat ini (jenis usaha, standar pelaporan, aplikasi aktif).
+ * Dipanggil setiap kali salah satunya berubah, sehingga bagan akun mengikuti otomatis.
+ */
+export async function refreshChartRelevance(db: DbOrTx, tenantId: string) {
+  const model = await businessModelOf(db, tenantId);
+  const framework = await frameworkOf(db, tenantId);
+  const rows = await db.select({ k: tenantApps.appKey }).from(tenantApps).where(eq(tenantApps.tenantId, tenantId));
+  // Aplikasi yang hanya terpasang sebagai dependensi paket jenis usaha (mis. Inventori pada usaha jasa) tidak membuat akunnya relevan;
+  // sama dengan perhitungan saat perusahaan dibuat, sehingga pergantian standar pelaporan tidak mengubah tampilan bagan akun
+  const base: AppKey[] = BUSINESS_MODEL_BY_KEY[model].apps;
+  const implied = new Set<string>(base.flatMap((k) => withDependencies(k)).filter((k) => !base.includes(k)));
+  const apps = new Set<string>([...rows.map((r) => r.k).filter((k) => !implied.has(k)), 'accounting']);
+  return applyChartRelevance(db, tenantId, model, apps, framework);
 }
 
 export async function syncChartOfAccounts(db: DbOrTx, tenantId: string, opts: { apps?: ReadonlySet<string> } = {}) {
@@ -157,6 +180,6 @@ export async function syncChartOfAccounts(db: DbOrTx, tenantId: string, opts: { 
     }
   }
   // Relevansi hanya diterapkan bila pemanggil menyebut aplikasi aktif (perusahaan baru / ganti jenis usaha), bukan tiap startup
-  const relevance = opts.apps ? await applyChartRelevance(db, tenantId, model, opts.apps) : { deactivated: 0, activated: 0 };
+  const relevance = opts.apps ? await applyChartRelevance(db, tenantId, model, opts.apps, await frameworkOf(db, tenantId)) : { deactivated: 0, activated: 0 };
   return { created, classified: unclassified.length, ...relevance };
 }

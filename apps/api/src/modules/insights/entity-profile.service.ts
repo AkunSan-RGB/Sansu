@@ -29,6 +29,7 @@ import { InjectDb } from '../../db/db.module';
 import { SYS } from '../accounting/default-coa';
 import { get, loadAccounts, natural, sumByAccount } from '../accounting/ledger-data';
 import { AssetsService } from '../assets/assets.module';
+import { refreshChartRelevance } from '../accounting/coa-sync';
 
 export class EntityAnswersDto {
   @ApiProperty() @IsBoolean() publicAccountability: boolean;
@@ -181,6 +182,7 @@ export class EntityProfileService {
         ...(dto.taxRegisteredYear ? { taxRegisteredYear: dto.taxRegisteredYear } : {}),
       });
       if (dto.pkp !== undefined) await this.settings.saveTaxProfile(tx, user.tenantId, { pkp: dto.pkp });
+      await refreshChartRelevance(tx, user.tenantId);
       await this.settings.saveSection(tx, user.tenantId, 'entityProfile', {}, {
         publicAccountability: dto.publicAccountability,
         legalForm: dto.legalForm,

@@ -59,6 +59,7 @@ import {
   serviceInvoiceLines,
   tenants,
 } from '../../../db/schema';
+import { frameworkOf } from '../../accounting/coa-sync';
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { documentTotals, inclusiveDocument } from '../pricing';
@@ -525,6 +526,8 @@ export class ServiceBillingService {
     const date = toDocDate(dto.date);
     const pct = D(dto.percent);
     if (pct.lt(0) || pct.gt(100)) throw new BadRequestException('Persentase selesai harus 0–100');
+    // ED SAK EMKM 14.5: pendapatan jasa/konstruksi diakui sebesar tagihan, bukan persentase penyelesaian
+    if ((await frameworkOf(this.db, user.tenantId)) === 'SAK_EMKM') throw new BadRequestException('SAK EMKM mengakui pendapatan sebesar jumlah tagihan; pengakuan berdasarkan persentase penyelesaian hanya untuk SAK EP. Tagih per termin.');
     return this.db.transaction(async (tx) => {
       const lock = await tx.execute(
         sql`SELECT id FROM projects WHERE id = ${projectId} AND tenant_id = ${user.tenantId} FOR UPDATE`,

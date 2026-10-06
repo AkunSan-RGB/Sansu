@@ -124,4 +124,66 @@ describe('Bagan akun per jenis usaha (e2e)', () => {
       expect((await accounts('DAGANG')).find((a) => a.code === '1-1420')!.isActive).toBe(true); // sudah dipakai: tetap aktif
     });
   });
+
+  describe('standar pelaporan: SAK EMKM tidak mengenal pajak tangguhan', () => {
+    const DEFERRED = ['1-2600', '2-2300', '9-1100', '2-2200']; // pajak tangguhan dan liabilitas imbalan kerja aktuaria
+    it('bawaan (SAK EP) pajak tangguhan aktif; pindah ke SAK EMKM menyembunyikannya; kembali ke SAK EP mengaktifkannya lagi', async () => {
+      const t = tokens.PRODUKSI;
+      const auth = { Authorization: `Bearer ${t}` };
+      const state = async () => Object.fromEntries((await accounts('PRODUKSI')).filter((a) => DEFERRED.includes(a.code)).map((a) => [a.code, a.isActive]));
+      expect(await state()).toEqual({ '1-2600': true, '2-2300': true, '9-1100': true, '2-2200': true });
+      await http.patch('/api/settings/reporting').set(auth).send({ framework: 'SAK_EMKM' }).expect(200);
+      expect(await state()).toEqual({ '1-2600': false, '2-2300': false, '9-1100': false, '2-2200': false });
+      const hidden = (await accounts('PRODUKSI')).find((a) => a.code === '1-2600')!;
+      expect(hidden.description).toMatch(/^Tidak dipakai/);
+      await http.patch('/api/settings/reporting').set(auth).send({ framework: 'SAK_EP' }).expect(200);
+      expect(await state()).toEqual({ '1-2600': true, '2-2300': true, '9-1100': true, '2-2200': true });
+    });
+    it('lewat wizard standar: EMKM menyembunyikan pajak tangguhan; akun yang sudah punya saldo tetap terlihat', async () => {
+      const t = tokens.DAGANG;
+      const auth = { Authorization: `Bearer ${t}` };
+      const list = await accounts('DAGANG');
+      const dta = list.find((a) => a.code === '1-2600')!;
+      const cap = list.find((a) => a.code === '3-1000')!;
+      await http.post('/api/accounting/journals').set(auth).send({ date: '2026-01-05', description: 'Saldo pajak tangguhan', lines: [{ accountId: dta.id, debit: '1000' }, { accountId: cap.id, credit: '1000' }] }).expect(201);
+      await http.post('/api/accounting/entity-profile/apply').set(auth).send({ framework: 'SAK_EMKM', taxScheme: 'GENERAL', legalForm: 'UD', publicAccountability: false, assets: 300000000, revenue: 1200000000 }).expect(201);
+      const after = await accounts('DAGANG');
+      expect(after.find((a) => a.code === '1-2600')!.isActive).toBe(true); // ada saldo: tidak disembunyikan
+      expect(after.find((a) => a.code === '2-2300')!.isActive).toBe(false);
+      expect(after.find((a) => a.code === '9-1100')!.isActive).toBe(false);
+    });
+  });
+  describe('SAK EMKM berlaku untuk semua jenis usaha', () => {
+    const EP_ONLY = ['1-2600', '2-2300', '9-1100', '2-2200', '1-1310', '6-7300', '5-3000', '1-1360', '2-1750'];
+    const zero = '00000000-0000-4000-8000-000000000000';
+    for (const m of MODELS) {
+      it(`${m}: pindah ke EMKM menyembunyikan akun EP, CALK dan fitur EP menyesuaikan; kembali ke EP memulihkan`, async () => {
+        const token = (await http.post('/api/auth/register').send({ companyName: `Matriks ${m}`, name: 'Pemilik', email: `mx-${m}-${stamp}@uji.id`, password: 'rahasia123', businessModel: m }).expect(201)).body.accessToken;
+        const auth = { Authorization: `Bearer ${token}` };
+        const list = async () => (await http.get('/api/accounting/accounts').set(auth).expect(200)).body as Acc[];
+        const before = (await list()).filter((a) => EP_ONLY.includes(a.code));
+        const wasActive = before.filter((a) => a.isActive).map((a) => a.code);
+        expect(wasActive).toEqual(expect.arrayContaining(['1-2600', '1-1310']));
+        await http.patch('/api/settings/reporting').set(auth).send({ framework: 'SAK_EMKM' }).expect(200);
+        const hidden = (await list()).filter((a) => EP_ONLY.includes(a.code) && !a.isActive).map((a) => a.code);
+        expect(hidden).toEqual(expect.arrayContaining(wasActive)); // akun EP yang aktif kini tersembunyi (yang memang tak relevan tetap tersembunyi)
+        expect((await list()).filter((a) => EP_ONLY.includes(a.code) && a.isActive)).toEqual([]);
+        const me = (await http.get('/api/auth/me').set(auth).expect(200)).body;
+        expect(me.framework).toBe('SAK_EMKM');
+        const inc = (await http.get('/api/accounting/statements/income').set(auth).expect(200)).body.lines.map((l: { key: string }) => l.key);
+        expect(inc).not.toContain('OCI');
+        const notes = JSON.stringify((await http.get(`/api/accounting/notes/${new Date().getFullYear()}`).set(auth).expect(200)).body);
+        expect(notes).toContain('Piutang usaha dicatat sebesar jumlah tagihan');
+        expect(notes).not.toContain('nilai realisasi neto');
+        if (m !== 'RITEL') {
+          // Ritel tidak mengaktifkan aplikasi Penjualan/proyek
+          const pr = await http.post(`/api/services/projects/${zero}/progress`).set(auth).send({ date: '2026-01-31', percent: '30' });
+          expect(pr.body.message).toContain('SAK EMKM');
+        }
+        await http.patch('/api/settings/reporting').set(auth).send({ framework: 'SAK_EP' }).expect(200);
+        const restored = (await list()).filter((a) => EP_ONLY.includes(a.code) && a.isActive).map((a) => a.code);
+        expect(restored.sort()).toEqual([...wasActive].sort()); // pergantian standar tidak mengubah bagan akun usaha lain (mis. persediaan pada usaha jasa)
+      });
+    }
+  });
 });

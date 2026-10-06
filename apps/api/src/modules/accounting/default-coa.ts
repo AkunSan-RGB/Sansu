@@ -266,13 +266,24 @@ export function guessReportGroup(code: string, type: AccountType): ReportGroup {
 export const COA_UNUSED_MARK = 'Tidak dipakai pada jenis usaha ini. Aktifkan bila diperlukan.';
 
 /**
- * Kelompok akun yang hanya relevan untuk jenis usaha / aplikasi tertentu. Akun di luar relevansi dinonaktifkan
+ * Kelompok akun yang hanya relevan untuk jenis usaha, aplikasi, atau standar pelaporan (SAK EP / SAK EMKM) tertentu. Akun di luar relevansi dinonaktifkan
  * (tersembunyi dari pilihan jurnal manual dan bagan akun) selama belum pernah dipakai; jurnal otomatis tetap bisa memakainya.
  */
-export const COA_FAMILIES: { name: string; codes: string[]; relevant: (model: BusinessModel, apps: ReadonlySet<string>) => boolean }[] = [
-  { name: 'Persediaan', codes: ['1-1400', '1-1410', '5-2000', '5-3000'], relevant: (m, a) => m !== 'JASA' || a.has('inventory') },
+export const COA_FAMILIES: { name: string; codes: string[]; relevant: (model: BusinessModel, apps: ReadonlySet<string>, framework: 'SAK_EP' | 'SAK_EMKM') => boolean }[] = [
+  { name: 'Persediaan', codes: ['1-1400', '1-1410', '5-2000'], relevant: (m, a) => m !== 'JASA' || a.has('inventory') },
+  // ED SAK EMKM Bab 9: persediaan diukur sebesar biaya perolehan, tanpa penurunan ke nilai realisasi neto
+  { name: 'Penurunan nilai persediaan', codes: ['5-3000'], relevant: (m, a, fw) => fw === 'SAK_EP' && (m !== 'JASA' || a.has('inventory')) },
+  // ED SAK EMKM Bab 8: piutang dicatat sebesar jumlah tagihan; tidak ada cadangan kerugian penurunan nilai (kerugian diakui saat dihapus)
+  { name: 'Penurunan nilai piutang', codes: ['1-1310', '6-7300'], relevant: (_m, _a, fw) => fw === 'SAK_EP' },
   { name: 'Produksi', codes: ['1-1420', '5-4100', '5-4200', '5-4900'], relevant: (m) => m === 'PRODUKSI' },
-  { name: 'Kontrak jasa & proyek', codes: ['1-1360', '2-1750', '4-2100'], relevant: (m, a) => m === 'JASA' || a.has('crm') },
+  { name: 'Kontrak jasa & proyek', codes: ['4-2100'], relevant: (m, a) => m === 'JASA' || a.has('crm') },
+  // Aset/liabilitas kontrak hanya timbul dari pengakuan pendapatan berdasarkan persentase penyelesaian (SAK EP); EMKM mengakui sebesar tagihan (ED 14.5)
+  { name: 'Aset & liabilitas kontrak', codes: ['1-1360', '2-1750'], relevant: (m, a, fw) => fw === 'SAK_EP' && (m === 'JASA' || a.has('crm')) },
   { name: 'Marketplace', codes: ['6-2400'], relevant: (m) => m !== 'JASA' },
   { name: 'Kasir', codes: ['6-9100'], relevant: (m, a) => m === 'RITEL' || a.has('pos') },
+  // SAK EMKM tidak mengakui pajak tangguhan (pajak penghasilan diakui sebesar pajak kini)
+  { name: 'Pajak tangguhan', codes: ['1-2600', '2-2300', '9-1100'], relevant: (_m, _a, fw) => fw === 'SAK_EP' },
+  // SAK EMKM tidak memiliki bab imbalan kerja dan tidak mengakui provisi: gaji dan tunjangan diakui sebagai beban pada saat terjadi (akrual),
+  // sehingga liabilitas imbalan pascakerja hasil perhitungan aktuaria hanya untuk SAK EP
+  { name: 'Imbalan kerja jangka panjang', codes: ['2-2200'], relevant: (_m, _a, fw) => fw === 'SAK_EP' },
 ];

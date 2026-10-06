@@ -140,13 +140,18 @@ export class NotesService {
         {
           title: 'd. Piutang usaha',
           paragraphs: [
-            'Piutang usaha diakui sebesar jumlah tagihan kepada pelanggan dikurangi cadangan kerugian penurunan nilai. Penurunan nilai diakui bila terdapat bukti objektif bahwa piutang tidak dapat ditagih, antara lain piutang yang telah melewati jatuh tempo lebih dari 90 hari.',
+            ep
+              ? 'Piutang usaha diakui sebesar jumlah tagihan kepada pelanggan dikurangi cadangan kerugian penurunan nilai. Penurunan nilai diakui bila terdapat bukti objektif bahwa piutang tidak dapat ditagih, antara lain piutang yang telah melewati jatuh tempo lebih dari 90 hari.'
+              : 'Piutang usaha dicatat sebesar jumlah tagihan kepada pelanggan. Piutang yang tidak dapat ditagih dihapuskan dan diakui sebagai beban pada periode penghapusan.',
           ],
         },
         {
           title: 'e. Persediaan',
           paragraphs: [
-            'Persediaan diukur pada jumlah yang lebih rendah antara biaya perolehan dan harga jual estimasian dikurangi biaya untuk menyelesaikan dan menjual. Biaya perolehan ditentukan dengan metode rata-rata tertimbang (moving average) yang dihitung ulang setiap terjadi pembelian.',
+            (ep
+              ? 'Persediaan diukur pada jumlah yang lebih rendah antara biaya perolehan dan harga jual estimasian dikurangi biaya untuk menyelesaikan dan menjual. '
+              : 'Persediaan diukur sebesar biaya perolehan. ') +
+              'Biaya perolehan ditentukan dengan metode rata-rata tertimbang (moving average) yang dihitung ulang setiap terjadi pembelian.',
             ...(hasProduction
               ? [
                   'Biaya produk jadi dan barang dalam proses terdiri dari bahan baku, upah langsung, dan alokasi overhead produksi berdasarkan tarif standar per batch. Selisih antara biaya produksi sesungguhnya dan yang dibebankan ke persediaan diakui sebagai beban pokok penjualan pada periode terjadinya.',
@@ -162,13 +167,19 @@ export class NotesService {
                   `Pengeluaran untuk perolehan aset tetap dikapitalisasi bila harga perolehan per unit mencapai ${fmtRp(reporting.capitalizationThreshold)} atau lebih (batas kapitalisasi). Pengeluaran per unit di bawah batas tersebut langsung dibebankan pada laba rugi periode berjalan. Tanah selalu dikapitalisasi tanpa memperhatikan batas kapitalisasi.`,
                 ]
               : []),
-            'Aset tetap diukur menggunakan model biaya, yaitu harga perolehan dikurangi akumulasi penyusutan dan akumulasi rugi penurunan nilai. Tanah tidak disusutkan. Penyusutan dimulai pada bulan aset siap digunakan dengan taksiran masa manfaat sebagai berikut:',
+            ep
+              ? 'Aset tetap diukur menggunakan model biaya, yaitu harga perolehan dikurangi akumulasi penyusutan dan akumulasi rugi penurunan nilai. Tanah tidak disusutkan. Penyusutan dimulai pada bulan aset siap digunakan dengan taksiran masa manfaat sebagai berikut:'
+              : 'Aset tetap diukur sebesar harga perolehan dikurangi akumulasi penyusutan. Penyusutan dihitung tanpa nilai residu dengan metode garis lurus atau saldo menurun selama taksiran masa manfaat. Tanah tidak disusutkan. Penyusutan dimulai pada bulan aset siap digunakan dengan taksiran masa manfaat sebagai berikut:',
           ],
           table: policyTable,
         },
         {
           title: 'g. Pengakuan pendapatan dan beban',
-          paragraphs: [terms.recognitionPolicy],
+          paragraphs: [
+            !ep && model === 'JASA'
+              ? 'Pendapatan jasa dan pekerjaan konstruksi diakui sebesar jumlah yang ditagihkan kepada pelanggan (per termin atau per penyerahan jasa). Uang muka pelanggan disajikan sebagai liabilitas sampai dipakai melunasi tagihan. Beban diakui pada saat terjadinya (dasar akrual).'
+              : terms.recognitionPolicy,
+          ],
         },
         {
           title: 'h. Pajak Pertambahan Nilai (PPN)',
@@ -183,7 +194,9 @@ export class NotesService {
           title: 'k. Pertimbangan, estimasi, dan asumsi akuntansi signifikan',
           paragraphs: [
             'Penyusunan laporan keuangan mengharuskan manajemen membuat pertimbangan, estimasi, dan asumsi yang memengaruhi jumlah aset, liabilitas, pendapatan, dan beban yang dilaporkan. Hasil sesungguhnya dapat berbeda dari estimasi tersebut. Estimasi dan asumsi ditinjau secara berkala dan perubahannya diakui pada periode terjadinya perubahan.',
-            'Sumber utama ketidakpastian estimasi meliputi: taksiran masa manfaat dan nilai sisa aset tetap, cadangan kerugian penurunan nilai piutang usaha, nilai realisasi neto persediaan, serta pengakuan aset dan liabilitas pajak tangguhan.',
+            ep
+              ? 'Sumber utama ketidakpastian estimasi meliputi: taksiran masa manfaat dan nilai sisa aset tetap, cadangan kerugian penurunan nilai piutang usaha, nilai realisasi neto persediaan, serta pengakuan aset dan liabilitas pajak tangguhan.'
+              : 'Sumber utama ketidakpastian estimasi adalah taksiran masa manfaat aset tetap dan kolektibilitas piutang usaha.',
           ],
         },
       ],
@@ -263,7 +276,9 @@ export class NotesService {
       'Persediaan',
       ['INVENTORY'],
       [
-        writedown > 0 || writeup > 0
+        !ep
+          ? `${terms.inventoryNote} Persediaan dicatat sebesar biaya perolehan.`
+          : writedown > 0 || writeup > 0
           ? `${terms.inventoryNote} Selama tahun ${year} perusahaan ${[
               writedown > 0 ? `menurunkan nilai persediaan ke nilai realisasi neto sebesar ${rp(writedown)}` : '',
               writeup > 0 ? `memulihkan penurunan nilai sebesar ${rp(writeup)} karena harga jual kembali naik` : '',
@@ -297,7 +312,7 @@ export class NotesService {
         groups: ['FIXED_ASSET', 'ACCUMULATED_DEPRECIATION', 'INTANGIBLE_ASSET', 'ACCUMULATED_AMORTIZATION'],
         paragraphs: [
           `Nilai tercatat aset tetap adalah ${fmtRp(bvClose)} (${yPrev}: ${fmtRp(bvOpen)}). Beban penyusutan tahun berjalan sebesar ${fmtRp(depYear)} dibebankan pada beban umum dan administrasi.`,
-          'Manajemen berpendapat tidak terdapat indikasi penurunan nilai aset tetap pada tanggal pelaporan.',
+          ...(ep ? ['Manajemen berpendapat tidak terdapat indikasi penurunan nilai aset tetap pada tanggal pelaporan.'] : []),
         ],
         tables: roll.length ? [t('Harga perolehan', 'cost'), t('Akumulasi penyusutan', 'accumulated')] : [],
       });

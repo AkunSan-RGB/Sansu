@@ -9,6 +9,7 @@ import { addDays, DocDate } from '../../common/utils/dates';
 import { D, Dec } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
+import { frameworkOf } from './coa-sync';
 import { ADJUSTING_SOURCES } from './ledger-data';
 
 const rp = (v: Dec) => 'Rp ' + Number(v.toFixed(0)).toLocaleString('id-ID');
@@ -122,6 +123,16 @@ export class AdjustmentsService {
     });
 
     // 4. Cadangan kerugian piutang (piutang lewat jatuh tempo > 90 hari)
+    // SAK EMKM (ED Bab 8): piutang dicatat sebesar jumlah tagihan, tanpa cadangan penurunan nilai
+    if ((await frameworkOf(this.db, tenantId)) === 'SAK_EMKM') {
+      items.push({
+        key: 'bad-debt',
+        title: 'Piutang tak tertagih',
+        status: 'NA',
+        message: 'SAK EMKM tidak mengenal cadangan kerugian penurunan nilai. Piutang yang pasti tak tertagih dihapuskan langsung sebagai beban saat itu.',
+        link: '/invoices',
+      });
+    } else {
     const ar = await this.one<{ v: string }>(sql`
       SELECT COALESCE(SUM(total - paid_amount - returned_amount), 0) AS v FROM invoices
       WHERE tenant_id = ${tenantId} AND status <> 'PAID' AND date <= ${to} AND due_date < ${addDays(to, -90)}`);
@@ -143,6 +154,7 @@ export class AdjustmentsService {
       link: '/invoices',
       template: gap.gt(0) ? { kind: 'BAD_DEBT', amount: gap.toFixed(2), description: `Cadangan kerugian piutang ${period}` } : undefined,
     });
+    }
 
     // 5. Gaji bulan ini sudah diakui (akrual)
     const payroll = await this.one<{ n: number; posted: number }>(sql`

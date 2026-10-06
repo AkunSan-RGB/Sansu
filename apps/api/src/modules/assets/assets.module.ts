@@ -26,6 +26,7 @@ import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { accounts, assetCategories, assetDepreciations, fixedAssets } from '../../db/schema';
 import { AccountingModule } from '../accounting/accounting.module';
+import { frameworkOf } from '../accounting/coa-sync';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { accumulatedThrough, fiscalDepreciation, lastDay, monthIndex, monthlyDepreciation, periodOf } from './depreciation';
@@ -203,6 +204,8 @@ export class AssetsService {
       const cost = money(dto.cost);
       const residual = money(dto.residualValue ?? '0');
       if (cost.lte(0)) throw new BadRequestException('Harga perolehan harus > 0');
+      // ED SAK EMKM 11.12: penyusutan dihitung dari harga perolehan tanpa nilai residu
+      if (residual.gt(0) && (await frameworkOf(tx, user.tenantId)) === 'SAK_EMKM') throw new BadRequestException('SAK EMKM tidak mengenal nilai residu: penyusutan dihitung dari seluruh harga perolehan');
       if (residual.gte(cost)) throw new BadRequestException('Nilai residu harus lebih kecil dari harga perolehan');
       const opening = money(dto.openingAccumulated ?? '0');
       if (dto.funding !== 'EXISTING' && opening.gt(0)) throw new BadRequestException('Akumulasi awal hanya untuk aset lama');
