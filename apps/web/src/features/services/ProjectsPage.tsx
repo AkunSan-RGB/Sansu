@@ -3,6 +3,7 @@ import { ArrowLeftOutlined, FileAddOutlined, PlusOutlined } from '@ant-design/ic
 import type { CustomerDeposit, Invoice, Project, ProjectCost, ProjectProgress } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import {
+  Alert,
   Button,
   Card,
   Col,
@@ -22,6 +23,7 @@ import {
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { get, patch, post } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import { LEDGER_KEYS, useAction, useCustomers } from '@/api/queries';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
@@ -335,6 +337,7 @@ export function ProjectDetailPage() {
 
 /** Kemajuan pekerjaan → pendapatan diakui sesuai % selesai (SAK EP Bab 23) */
 function ProgressCard({ project: p }: { project: ProjectDetail }) {
+  const emkm = useAuth().me?.framework === 'SAK_EMKM';
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm<{ date: string; percent: number; notes?: string }>();
   const pct = Form.useWatch('percent', form);
@@ -362,7 +365,7 @@ function ProgressCard({ project: p }: { project: ProjectDetail }) {
       title="Kemajuan pekerjaan & pengakuan pendapatan"
       style={{ marginBottom: 16 }}
       extra={
-        p.status !== 'CANCELLED' && (
+        p.status !== 'CANCELLED' && !emkm && (
           <Button
             onClick={() => {
               form.setFieldsValue({ date: today(), percent: p.progressPct ?? undefined, notes: undefined });
@@ -374,7 +377,16 @@ function ProgressCard({ project: p }: { project: ProjectDetail }) {
         )
       }
     >
-      <Typography.Paragraph type="secondary">
+      {emkm && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="SAK EMKM: pendapatan diakui sebesar tagihan"
+          description="Standar EMKM tidak mengenal pengakuan berdasarkan persentase penyelesaian. Tagih pekerjaan per termin lewat faktur proyek; pendapatan tercatat saat ditagih."
+        />
+      )}
+      <Typography.Paragraph type="secondary" hidden={emkm}>
         Pendapatan jasa diakui sesuai persentase pekerjaan yang sudah selesai (SAK EP Bab 23), bukan sekadar saat
         ditagih. Catat % selesai tiap akhir bulan dari berita acara / opname lapangan: bila pekerjaan lebih maju dari
         tagihan, selisihnya dicatat sebagai Pendapatan Belum Ditagih; bila tagihan lebih dulu, sebagai Pendapatan

@@ -45,6 +45,7 @@ import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { inventoryWritedowns, products, users, warehouses } from '../../db/schema';
+import { frameworkOf } from '../accounting/coa-sync';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from './stock.service';
@@ -244,6 +245,8 @@ export class WritedownService {
     const ids = dto.lines.map((l) => l.productId);
     if (new Set(ids).size !== ids.length) throw new BadRequestException('Barang yang sama tercantum lebih dari sekali');
     assertWarehouseAccess(user, dto.warehouseId);
+    // ED SAK EMKM Bab 9: persediaan hanya sebesar biaya perolehan
+    if ((await frameworkOf(this.db, user.tenantId)) === 'SAK_EMKM') throw new BadRequestException('SAK EMKM mengukur persediaan sebesar biaya perolehan; penurunan nilai persediaan hanya untuk SAK EP');
     return this.db.transaction(async (tx) => {
       const [wh] = await tx
         .select({ id: warehouses.id, name: warehouses.name })

@@ -94,6 +94,20 @@ describe('Pindah standar SAK EP ↔ SAK EMKM mengubah seluruh akuntansi (e2e)', 
     expect(chk.find((i) => i.key === 'bad-debt')?.status).toBe('NA');
   });
 
+  it('SAK EMKM: penurunan nilai persediaan dan akrual persentase penyelesaian ditolak, menu mengikuti', async () => {
+    await setFramework('SAK_EMKM');
+    expect((await get('/api/auth/me').expect(200)).body.framework).toBe('SAK_EMKM');
+    const zero = '00000000-0000-4000-8000-000000000000';
+    const wd = await post('/api/inventory/writedowns', { date: today, warehouseId: zero, reason: 'Harga turun', lines: [{ productId: zero, newCost: '1' }] });
+    expect(wd.status).toBe(400);
+    expect(wd.body.message).toContain('SAK EMKM');
+    const pr = await post(`/api/services/projects/${zero}/progress`, { date: today, percent: '30' });
+    expect(pr.status).toBe(400);
+    expect(pr.body.message).toContain('SAK EMKM');
+    await setFramework('SAK_EP');
+    expect((await get('/api/auth/me').expect(200)).body.framework).toBe('SAK_EP');
+  });
+
   it('kembali ke SAK EP: semuanya pulih', async () => {
     await setFramework('SAK_EP');
     const s = await snapshot();

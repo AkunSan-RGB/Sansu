@@ -16,7 +16,7 @@ import { APP_ICONS, useApps } from '@/lib/apps';
 import { t } from '@/lib/terms';
 
 /** `app`: item hanya tampil bila aplikasi itu aktif (mis. menu pajak yang butuh aplikasi Penjualan) */
-type Item = { key: string; label: string; app?: AppKey; /** Disembunyikan untuk jenis usaha ini (mis. surat jalan untuk usaha jasa murni) */ hideFor?: BusinessModel[]; /** Hanya tampil bila fitur pajak ini relevan (lihat taxFeatures di @sansu/shared) */ tax?: 'vat' | 'coretax' | 'withheldByCustomers' | 'fiscalReconciliation' };
+type Item = { key: string; label: string; /** Hanya untuk SAK EP (tidak diakui SAK EMKM) */ epOnly?: boolean; app?: AppKey; /** Disembunyikan untuk jenis usaha ini (mis. surat jalan untuk usaha jasa murni) */ hideFor?: BusinessModel[]; /** Hanya tampil bila fitur pajak ini relevan (lihat taxFeatures di @sansu/shared) */ tax?: 'vat' | 'coretax' | 'withheldByCustomers' | 'fiscalReconciliation' };
 /** Submenu boleh dikelompokkan dengan judul kecil (mis. "Akhir periode") */
 type Sub = Item | { section: string; items: Item[] };
 type Group = {
@@ -117,7 +117,7 @@ const MENU: Group[] = [
       { key: '/inventory/warehouses', label: t('Stok per gudang') },
       { key: '/inventory/transfers', label: t('Transfer gudang') },
       { key: '/inventory/counts', label: 'Stock opname' },
-      { key: '/inventory/writedowns', label: 'Penurunan nilai' },
+      { key: '/inventory/writedowns', label: 'Penurunan nilai', epOnly: true },
       {
         section: 'Data',
         items: [
@@ -283,7 +283,7 @@ export default function AppLayout() {
   );
   const L = (text: string) => localize(text, me.businessModel);
   // Fitur pajak yang tidak relevan (non-PKP, PPh final, usaha penjualan barang) tidak ditampilkan
-  const taxOk = (i: Item) => (!i.tax || me.taxFeatures?.[i.tax] !== false) && !i.hideFor?.includes(me.businessModel);
+  const taxOk = (i: Item) => (!i.tax || me.taxFeatures?.[i.tax] !== false) && !i.hideFor?.includes(me.businessModel) && !(i.epOnly && me.framework === 'SAK_EMKM');
   const toMenu = (g: Group): NonNullable<MenuProps['items']>[number] =>
     g.children
       ? {

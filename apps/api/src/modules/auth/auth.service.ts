@@ -344,6 +344,7 @@ export class AuthService {
       twoFactor: { enabled: !!totpEnabledAt, required: await this.twoFactor.requiredFor(u.tenantId, row.role) },
       apps: [...(await this.apps.enabled(u.tenantId))],
       businessModel: await this.settings.businessModel(this.db, u.tenantId),
+      framework: (await this.settings.reporting(this.db, u.tenantId)).framework,
       taxProfile: await this.settings.taxProfile(this.db, u.tenantId),
       taxFeatures: await this.taxFeatures(u.tenantId),
       emailVerified: !!emailVerifiedAt,

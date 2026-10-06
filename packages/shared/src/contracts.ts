@@ -44,6 +44,8 @@ export interface Me {
   taxFeatures: TaxFeatures;
   /** Model bisnis perusahaan (Dagang, Ritel, Jasa, Produksi) */
   businessModel: BusinessModel;
+  /** Standar pelaporan: SAK EMKM tidak mengenal penurunan nilai persediaan dan pengakuan pendapatan berdasarkan persentase penyelesaian */
+  framework: 'SAK_EP' | 'SAK_EMKM';
   emailVerified: boolean;
   /** Server mewajibkan verifikasi email sebelum mengubah data */
   verificationRequired: boolean;
