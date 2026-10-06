@@ -233,6 +233,22 @@ export interface StatementMeta {
   framework: 'SAK_EP' | 'SAK_EMKM';
   refs?: Record<string, string>;
   detail?: boolean;
+  /** Penandatangan laporan (hanya Posisi Keuangan dan Laba Rugi; CALK tidak ditandatangani) */
+  signer?: { name: string; city?: string | null; directorName?: string | null; directorTitle?: string | null };
+}
+/** Blok tanda tangan di bawah laporan: kota & tanggal (hari dikosongkan), perusahaan, ruang tanda tangan, nama, jabatan */
+function signatureBlock(s: SheetBuilder, m: StatementMeta, year: number) {
+  const g = m.signer;
+  if (!g) return;
+  s.blank();
+  s.blank();
+  s.row({ label: `${g.city || '……………'}, … Maret ${year + 1}` }, 'note');
+  s.row({ label: g.name }, 'note');
+  s.blank();
+  s.blank();
+  s.blank();
+  s.row({ label: g.directorName || '(nama)' }, 'heading');
+  if (g.directorTitle) s.row({ label: g.directorTitle }, 'note');
 }
 const basis = (fw: StatementMeta['framework']) => `Disusun berdasarkan ${REPORTING_FRAMEWORK_LABELS[fw]}`;
 
@@ -349,6 +365,7 @@ export function positionSheet(p: FinancialPosition, m: StatementMeta): SheetSpec
   );
   s.check(s.ref('cur', c));
   s.check(s.ref('cmp', c));
+  signatureBlock(s, m, Number(p.asOf.slice(0, 4)));
   return [s.spec];
 }
 
@@ -365,6 +382,7 @@ export function incomeSheet(p: IncomeStatement, m: StatementMeta): SheetSpec[] {
   });
   const rowOf = new Map<string, number>();
   for (const l of p.lines) statementLine(s, l, { ...m, framework: p.framework }, rowOf);
+  signatureBlock(s, m, Number(p.period.to.slice(0, 4)));
   return [s.spec];
 }
 

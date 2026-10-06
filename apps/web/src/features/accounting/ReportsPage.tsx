@@ -100,7 +100,7 @@ export default function ReportsPage() {
   const yearly = tab === 'notes' || tab === 'appendix';
   const period = pointInTime ? `Per ${longDate(to)}` : `Periode ${longDate(from)} s/d ${longDate(to)}`;
   const sheets = (): SheetSpec[] | null => {
-    const meta = { company: me?.tenantName, framework, refs, detail };
+    const meta = { company: me?.tenantName, framework, refs, detail, signer: notes.data?.company };
     if (tab === 'position' && position.data) return positionSheet(position.data, meta);
     if (tab === 'income' && income.data) return incomeSheet(income.data, meta);
     if (tab === 'equity' && equity.data) return equitySheet(equity.data, meta);

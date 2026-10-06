@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
 import { colLetter, d, SheetBuilder } from './book';
 import { buildXlsx } from './render';
-import { appendixSheet, cashCountSheet, ledgerSheet, subscriptionVatSheet, trialBalanceSheet } from './reports';
+import { appendixSheet, cashCountSheet, incomeSheet, ledgerSheet, positionSheet, subscriptionVatSheet, trialBalanceSheet } from './reports';
 
 describe('penyusun Excel', () => {
   it('huruf kolom', () => {
@@ -238,5 +238,24 @@ describe('penyusun Excel', () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(bytes as unknown as ArrayBuffer);
     expect(wb.getWorksheet('Lampiran')).toBeTruthy();
+  });
+
+  it('tanda tangan hanya di Posisi Keuangan dan Laba Rugi', () => {
+    const signer = { name: 'PT Uji', city: 'Bekasi', directorName: 'Budi', directorTitle: 'Direktur' };
+    const pos = {
+      asOf: '2026-12-31',
+      compareAsOf: '2025-12-31',
+      sections: [],
+      totals: { assets: { amount: '0', compare: '0' }, liabilities: { amount: '0', compare: '0' }, equity: { amount: '0', compare: '0' }, liabilitiesEquity: { amount: '0', compare: '0' } },
+      balanced: true,
+    } as never;
+    const inc = { framework: 'SAK_EP', period: { from: '2026-01-01', to: '2026-12-31' }, comparePeriod: { from: '2025-01-01', to: '2025-12-31' }, lines: [] } as never;
+    const text = (sheets: ReturnType<typeof positionSheet>) => JSON.stringify(sheets[0].rows.map((r) => r.values));
+    for (const t of [text(positionSheet(pos, { framework: 'SAK_EP', signer })), text(incomeSheet(inc, { framework: 'SAK_EP', signer }))]) {
+      expect(t).toContain('Bekasi, … Maret 2027');
+      expect(t).toContain('Budi');
+      expect(t).toContain('Direktur');
+    }
+    expect(text(positionSheet(pos, { framework: 'SAK_EP' }))).not.toContain('Budi');
   });
 });
