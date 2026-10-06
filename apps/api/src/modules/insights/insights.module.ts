@@ -7,6 +7,7 @@ import { AccountingModule } from '../accounting/accounting.module';
 import { AssetsModule } from '../assets/assets.module';
 import { FiscalService } from './fiscal.service';
 import { HealthService } from './health.service';
+import { AppendixService } from './appendix.service';
 import { NotesService } from './notes.service';
 
 export class FiscalYearDto {
@@ -40,6 +41,7 @@ export class InsightsController {
     private readonly health: HealthService,
     private readonly fiscal: FiscalService,
     private readonly notes: NotesService,
+    private readonly appendix: AppendixService,
   ) {}
 
   @Get('health')
@@ -72,6 +74,11 @@ export class InsightsController {
   getNotes(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number) {
     return this.notes.build(u.tenantId, year);
   }
+  @Get('appendix/:year')
+  getAppendix(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number) {
+    return this.appendix.build(u.tenantId, year);
+  }
+
   @Put('notes/:year/:key')
   saveNote(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number, @Param('key') key: string, @Body() dto: NoteDto) {
     return this.notes.save(u.tenantId, year, key.slice(0, 40), dto.content);
@@ -85,7 +92,7 @@ export class InsightsController {
 @Module({
   imports: [AccountingModule, AssetsModule],
   controllers: [InsightsController],
-  providers: [HealthService, FiscalService, NotesService],
+  providers: [HealthService, FiscalService, NotesService, AppendixService],
   exports: [FiscalService, HealthService],
 })
 export class InsightsModule {}

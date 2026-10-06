@@ -1019,6 +1019,15 @@ export interface FinancialNotes {
   refs: Record<string, string>;
 }
 
+/** Lampiran laporan keuangan: daftar rincian pendukung (umur piutang/utang, aset tetap, persediaan, neraca saldo) */
+export interface FinancialAppendix {
+  year: number;
+  framework: 'SAK_EP' | 'SAK_EMKM';
+  company: { name: string; address: string | null; npwp: string | null; city: string; directorName: string; directorTitle: string };
+  period: { from: string; to: string };
+  sections: { key: string; number: string; title: string; paragraphs: string[]; tables: NoteTable[] }[];
+}
+
 export interface RecurringJournal {
   id: string;
   name: string;

@@ -8,6 +8,7 @@ import { get, qs } from '@/api/client';
 import type {
   CashFlowStatement,
   EquityStatement,
+  FinancialAppendix,
   FinancialNotes,
   FinancialPosition,
   IncomeStatement,
@@ -17,7 +18,8 @@ import ExportButtons from '@/components/ExportButtons';
 import QueryState from '@/components/QueryState';
 import PageHeader from '@/layout/PageHeader';
 import type { SheetSpec } from '@/lib/export';
-import { cashFlowSheet, equitySheet, incomeSheet, notesSheet, positionSheet } from '@/lib/xlsx/reports';
+import { appendixSheet, cashFlowSheet, equitySheet, incomeSheet, notesSheet, positionSheet } from '@/lib/xlsx/reports';
+import AppendixView from './statements/AppendixView';
 import NotesView from './statements/NotesView';
 import { CashFlowView, EquityView, IncomeView, PositionView } from './statements/views';
 import { longDate } from './statements/format';
@@ -28,6 +30,7 @@ const TABS = {
   equity: 'Laporan Perubahan Ekuitas',
   cashflow: 'Laporan Arus Kas',
   notes: 'Catatan atas Laporan Keuangan',
+  appendix: 'Lampiran Laporan Keuangan',
 } as const;
 /** Laporan pembukuan yang kini punya halaman sendiri (tautan lama tetap berfungsi) */
 const MOVED: Record<string, string> = { tb: '/trial-balance', worksheet: '/worksheet', vat: '/vat' };
@@ -38,6 +41,7 @@ const SHORT: Record<TabKey, string> = {
   equity: 'Perubahan Ekuitas',
   cashflow: 'Arus Kas',
   notes: 'CALK',
+  appendix: 'Lampiran',
 };
 
 export default function ReportsPage() {
@@ -82,10 +86,17 @@ export default function ReportsPage() {
     queryFn: () => get<FinancialNotes>(`/accounting/notes/${fy}`),
     enabled: ['position', 'income', 'notes'].includes(tab),
   });
+  const appendix = useQuery({
+    queryKey: ['appendix', fy],
+    queryFn: () => get<FinancialAppendix>(`/accounting/appendix/${fy}`),
+    enabled: on('appendix'),
+  });
   const refs = notes.data?.refs ?? {};
 
   const moved = MOVED[params.get('tab') ?? ''];
   const pointInTime = tab === 'position';
+  /** CALK dan Lampiran disusun per tahun buku, bukan per rentang tanggal */
+  const yearly = tab === 'notes' || tab === 'appendix';
   const period = pointInTime ? `Per ${longDate(to)}` : `Periode ${longDate(from)} s/d ${longDate(to)}`;
   const sheets = (): SheetSpec[] | null => {
     const meta = { company: me?.tenantName, framework, refs, detail };
@@ -94,6 +105,7 @@ export default function ReportsPage() {
     if (tab === 'equity' && equity.data) return equitySheet(equity.data, meta);
     if (tab === 'cashflow' && cashflow.data) return cashFlowSheet(cashflow.data, meta);
     if (tab === 'notes' && notes.data) return notesSheet(notes.data, me?.tenantName);
+    if (tab === 'appendix' && appendix.data) return appendixSheet(appendix.data, me?.tenantName);
     return null;
   };
 
@@ -111,13 +123,13 @@ export default function ReportsPage() {
             <Tag color="blue" style={{ cursor: 'pointer' }} onClick={() => navigate('/settings/company')}>
               {REPORTING_FRAMEWORK_LABELS[framework]}
             </Tag>
-            {!pointInTime && tab !== 'notes' && (
+            {!pointInTime && !yearly && (
               <>
                 <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
                 <span>s/d</span>
               </>
             )}
-            {tab === 'notes' ? (
+            {yearly ? (
               <Select
                 style={{ width: 150 }}
                 value={fy}
@@ -181,6 +193,7 @@ export default function ReportsPage() {
             { key: 'equity', label: SHORT.equity, children: <QueryState q={equity}>{(d) => <EquityView d={d} compare={compare} />}</QueryState> },
             { key: 'cashflow', label: SHORT.cashflow, children: <QueryState q={cashflow}>{(d) => <CashFlowView d={d} compare={compare} />}</QueryState> },
             { key: 'notes', label: SHORT.notes, children: <QueryState q={notes}>{(d) => <NotesView d={d} />}</QueryState> },
+            { key: 'appendix', label: SHORT.appendix, children: <QueryState q={appendix}>{(d) => <AppendixView d={d} />}</QueryState> },
           ]}
         />
       </Card>

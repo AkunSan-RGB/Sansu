@@ -14,6 +14,7 @@ import { InjectDb } from '../../db/db.module';
 import { reportNotes, tenants } from '../../db/schema';
 import { StatementLine, StatementsService } from '../accounting/statements.service';
 import { AssetsService } from '../assets/assets.module';
+import { AGING_BUCKETS, openBalanceAging } from './aging';
 import { FiscalService } from './fiscal.service';
 
 type Cell = string | number | null;
@@ -178,6 +179,13 @@ export class NotesService {
           paragraphs: ['Imbalan kerja jangka pendek berupa gaji, tunjangan, dan iuran BPJS diakui sebagai beban pada periode pekerja memberikan jasa.'],
         },
         { title: 'j. Pajak penghasilan', paragraphs: taxPolicy },
+        {
+          title: 'k. Pertimbangan, estimasi, dan asumsi akuntansi signifikan',
+          paragraphs: [
+            'Penyusunan laporan keuangan mengharuskan manajemen membuat pertimbangan, estimasi, dan asumsi yang memengaruhi jumlah aset, liabilitas, pendapatan, dan beban yang dilaporkan. Hasil sesungguhnya dapat berbeda dari estimasi tersebut. Estimasi dan asumsi ditinjau secara berkala dan perubahannya diakui pada periode terjadinya perubahan.',
+            'Sumber utama ketidakpastian estimasi meliputi: taksiran masa manfaat dan nilai sisa aset tetap, cadangan kerugian penurunan nilai piutang usaha, nilai realisasi neto persediaan, serta pengakuan aset dan liabilitas pajak tangguhan.',
+          ],
+        },
       ],
       tables: [],
     });
@@ -294,7 +302,29 @@ export class NotesService {
         tables: roll.length ? [t('Harga perolehan', 'cost'), t('Akumulasi penyusutan', 'accumulated')] : [],
       });
     }
-    itemNote('payables', 'Utang usaha', ['TRADE_PAYABLE'], ['Utang usaha merupakan utang kepada pemasok barang dagang, tanpa jaminan dan tanpa bunga, dengan jangka waktu kredit 14–60 hari.']);
+    const apRows = await openBalanceAging(this.db, tenantId, to, 'AP');
+    const apAging = AGING_BUCKETS.map((label, i) => [label, apRows.reduce((a, r) => a + r.cells[i], 0)] as Cell[]).filter((r) => n(r[1] as number) !== 0);
+    itemNote(
+      'payables',
+      'Utang usaha',
+      ['TRADE_PAYABLE'],
+      ['Utang usaha merupakan utang kepada pemasok barang dagang, tanpa jaminan dan tanpa bunga, dengan jangka waktu kredit 14–60 hari.'],
+      [
+        ...(apRows.length
+          ? [
+              {
+                title: 'Berdasarkan pemasok (10 terbesar)',
+                columns: ['Pemasok', `${year}`],
+                align: ['left', 'right'] as ('left' | 'right')[],
+                rows: [...apRows].sort((a, b) => b.total - a.total).slice(0, 10).map((r) => [r.label, r.total] as Cell[]),
+              },
+            ]
+          : []),
+        ...(apAging.length
+          ? [{ title: 'Berdasarkan umur (sejak jatuh tempo)', columns: ['Umur', `${year}`], align: ['left', 'right'] as ('left' | 'right')[], rows: apAging }]
+          : []),
+      ],
+    );
     itemNote('other-payables', 'Utang lain-lain dan beban akrual', ['OTHER_PAYABLE', 'ACCRUED_EXPENSE', 'UNEARNED_REVENUE'], ['Rincian utang lain-lain dan beban yang masih harus dibayar:']);
     itemNote('tax-payable', 'Utang pajak', ['TAX_PAYABLE'], ['Rincian utang pajak:']);
     itemNote('loans', 'Utang bank', ['SHORT_TERM_LOAN', 'LONG_TERM_LOAN'], ['Rincian pinjaman bank. Syarat, suku bunga, dan jaminan pinjaman diungkapkan sesuai perjanjian kredit.']);
@@ -356,6 +386,41 @@ export class NotesService {
         tables: fiscal.scheme === 'FINAL_UMKM' ? [] : [{ columns: ['Keterangan', `${year}`], align: ['left', 'right'], rows }],
       });
     }
+
+    // Komitmen: pesanan pembelian terkonfirmasi yang belum ditagih
+    const commitRows = (
+      await this.db.execute<{ number: string; supplier: string; date: string; total: string }>(sql`
+        SELECT o.number, s.name AS supplier, o.date, o.total FROM purchase_orders o JOIN suppliers s ON s.id = o.supplier_id
+        WHERE o.tenant_id = ${tenantId} AND o.status = 'CONFIRMED' AND o.date <= ${to} ORDER BY o.date, o.number`)
+    ).rows;
+    const commitTotal = commitRows.reduce((a, r) => a + n(r.total), 0);
+    push({
+      key: 'commitments',
+      title: 'Komitmen dan kontinjensi',
+      paragraphs: [
+        commitRows.length
+          ? `Pada tanggal laporan, Perusahaan memiliki komitmen pembelian atas ${commitRows.length} pesanan pembelian yang telah dikonfirmasi kepada pemasok namun belum diterima dan ditagih, dengan nilai sebesar ${fmtRp(commitTotal)}.`
+          : 'Pada tanggal laporan, tidak terdapat komitmen pembelian yang signifikan atas pesanan pembelian yang telah dikonfirmasi namun belum ditagih.',
+        'Tidak terdapat kewajiban kontinjensi yang signifikan, termasuk perkara hukum, pada tanggal laporan keuangan.',
+      ],
+      tables: commitRows.length
+        ? [
+            {
+              title: 'Pesanan pembelian terkonfirmasi yang belum ditagih',
+              columns: ['No. PO', 'Pemasok', 'Tanggal', 'Nilai'],
+              align: ['left', 'left', 'left', 'right'],
+              rows: commitRows.map((r) => [r.number, r.supplier, r.date, n(r.total)]),
+              total: ['Jumlah', '', '', commitTotal],
+            },
+          ]
+        : [],
+    });
+    push({
+      key: 'related-parties',
+      title: 'Transaksi dengan pihak berelasi',
+      paragraphs: [`Tidak terdapat transaksi maupun saldo yang signifikan dengan pihak berelasi pada tahun ${year}.`],
+      tables: [],
+    });
 
     push({
       key: 'subsequent',
