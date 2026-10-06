@@ -12,6 +12,7 @@ import PageHeader from '@/layout/PageHeader';
 import { rupiahInput } from '@/lib/format';
 import BrandingCard from './BrandingCard';
 import BusinessModelCard from './BusinessModelCard';
+import InventoryMethodCard from './InventoryMethodCard';
 import EntityProfileWizard from './EntityProfileWizard';
 import { t } from '@/lib/terms';
 
@@ -91,6 +92,9 @@ export default function CompanySettingsPage() {
       <Row gutter={[16, 16]}>
         <Col xs={24}>
           <BusinessModelCard />
+        </Col>
+        <Col xs={24}>
+          <InventoryMethodCard />
         </Col>
         <Col xs={24} lg={12}>
           <Card title="Identitas & pajak">

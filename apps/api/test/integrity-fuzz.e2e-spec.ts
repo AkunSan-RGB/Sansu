@@ -59,6 +59,8 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
     ).body.accessToken;
     const tenantId = (await http.get('/api/auth/me').set({ Authorization: `Bearer ${token}` })).body.tenantId as string;
     const H = { Authorization: `Bearer ${token}` };
+    // benih ganjil memakai MPKP/FIFO, genap rata-rata bergerak: invarian harus sama untuk keduanya
+    await http.put('/api/settings/inventory-method').set(H).send({ method: seed % 2 === 1 ? 'FIFO' : 'AVERAGE' }).expect(200);
     const call = async (method: 'get' | 'post' | 'put' | 'patch', url: string, body?: object) => {
       const r = await (http as any)[method](`/api${url}`).set(H).send(body);
       if (r.status >= 500) throw new Error(`ERROR SERVER ${r.status} ${method.toUpperCase()} ${url} ${JSON.stringify(body)}\n${JSON.stringify(r.body).slice(0, 400)}\nlangkah: ${log.slice(-6).join(' | ')}`);

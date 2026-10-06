@@ -251,6 +251,27 @@ export const stockBalances = pgTable(
   (t) => [primaryKey({ columns: [t.productId, t.warehouseId] }), index('stock_balances_tenant_idx').on(t.tenantId)],
 );
 
+/** Lapisan biaya persediaan untuk metode FIFO (MPKP): satu baris per penerimaan, dikonsumsi dari yang paling lama */
+export const stockLayers = pgTable(
+  'stock_layers',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    warehouseId: uuid('warehouse_id')
+      .notNull()
+      .references(() => warehouses.id),
+    receivedDate: date('received_date').notNull(),
+    /** Sisa kuantitas lapisan (satuan dasar) */
+    qtyRemaining: qty('qty_remaining').notNull(),
+    unitCost: qty('unit_cost').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('stock_layers_fifo_idx').on(t.productId, t.warehouseId, t.receivedDate, t.id)],
+);
+
 /** Kartu stok: setiap perubahan stok tercatat dan tidak pernah diedit */
 export const stockMoves = pgTable(
   'stock_moves',
