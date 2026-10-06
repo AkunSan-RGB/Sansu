@@ -46,6 +46,7 @@ import { InjectDb } from '../../db/db.module';
 import { Role, roleEnum, tenants, users } from '../../db/schema';
 import { IsNpwp } from '../../common/validators/npwp';
 import { isDocDate } from '../../common/utils/dates';
+import { refreshChartRelevance } from '../accounting/coa-sync';
 
 // ---------- DTO ----------
 export class UpdateUserDto {
@@ -275,6 +276,8 @@ export class PlatformService {
 
   async updateReporting(actor: AuthUser, dto: ReportingSettingsDto) {
     await this.settings.saveReporting(this.db, actor.tenantId, dto);
+    // Standar pelaporan berubah (SAK EP ↔ EMKM): akun yang tidak relevan (mis. pajak tangguhan) mengikuti otomatis
+    if (dto.framework !== undefined) await refreshChartRelevance(this.db, actor.tenantId);
     return this.company(actor.tenantId);
   }
 

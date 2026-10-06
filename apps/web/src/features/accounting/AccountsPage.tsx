@@ -1,12 +1,14 @@
-import { ACCOUNT_TYPE_LABELS, type AccountType, FISCAL_TREATMENT_LABELS, type FiscalTreatment, REPORT_GROUPS, type ReportGroup, reportGroupsFor, toOptions } from '@sansu/shared';
+import { BUSINESS_MODEL_BY_KEY, BUSINESS_MODELS, type BusinessModel, ACCOUNT_TYPE_LABELS, type AccountType, FISCAL_TREATMENT_LABELS, type FiscalTreatment, REPORT_GROUPS, type ReportGroup, reportGroupsFor, toOptions } from '@sansu/shared';
 import { PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Card, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip } from 'antd';
+import { Button, Card, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, Typography } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { useMemo, useState } from 'react';
-import { api, get, patch, post } from '@/api/client';
+import { api, get, patch, post, put } from '@/api/client';
 import { useAction } from '@/api/queries';
-import type { Account } from '@/api/types';
+import type { Account, CompanySettings } from '@/api/types';
+import { useAuth } from '@/auth/AuthContext';
+import { useApps } from '@/lib/apps';
 import PageHeader from '@/layout/PageHeader';
 
 type Node = Account & { children?: Node[] };
@@ -24,6 +26,61 @@ function toTree(rows: Account[]): Node[] {
     else roots.push(n);
   }
   return roots;
+}
+
+/**
+ * Profil bagan akun: bagan mengikuti jenis usaha dan standar pelaporan perusahaan. Mengubah jenis usaha di sini sama dengan
+ * mengubahnya di Pengaturan; akun khusus, nama inti, dan akun yang tidak relevan menyesuaikan otomatis.
+ */
+function ChartProfileBar({ hiddenCount }: { hiddenCount: number }) {
+  const { me } = useAuth();
+  const { isAdmin } = useApps();
+  const navigate = useNavigate();
+  const company = useQuery({ queryKey: ['company'], queryFn: () => get<CompanySettings>('/settings/company') });
+  const framework = company.data?.reporting.framework ?? 'SAK_EP';
+  const change = useAction((model: BusinessModel) => put('/settings/business', { model, applyApps: false }), {
+    success: 'Bagan akun disesuaikan dengan jenis usaha',
+    invalidate: ['accounts', 'me', 'onboarding', 'company', 'reports', 'statements'],
+  });
+  const info = me ? BUSINESS_MODEL_BY_KEY[me.businessModel] : undefined;
+  return (
+    <Card size="small" style={{ marginBottom: 16 }}>
+      <Space wrap size={[16, 8]} align="center">
+        <span>
+          <Typography.Text type="secondary">Jenis usaha: </Typography.Text>
+          <Select
+            value={me?.businessModel}
+            disabled={!isAdmin}
+            loading={change.isPending}
+            style={{ width: 170 }}
+            options={BUSINESS_MODELS.map((m) => ({ value: m.key, label: m.name }))}
+            onChange={(v) =>
+              Modal.confirm({
+                title: `Ganti bagan akun ke jenis usaha ${BUSINESS_MODEL_BY_KEY[v as BusinessModel].name}?`,
+                content: 'Akun khusus jenis usaha ditambahkan, nama akun inti disesuaikan, dan akun yang tidak relevan disembunyikan. Akun yang sudah punya jurnal tidak dihapus.',
+                okText: 'Ganti',
+                cancelText: 'Batal',
+                onOk: () => change.mutateAsync(v as BusinessModel),
+              })
+            }
+          />
+        </span>
+        <span>
+          <Typography.Text type="secondary">Standar pelaporan: </Typography.Text>
+          <Tag color={framework === 'SAK_EMKM' ? 'gold' : 'blue'}>{framework === 'SAK_EMKM' ? 'SAK EMKM' : 'SAK EP'}</Tag>
+          {isAdmin && (
+            <Button size="small" type="link" onClick={() => navigate('/settings/company')}>
+              Ubah lewat wizard
+            </Button>
+          )}
+        </span>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {info?.summary}. {hiddenCount > 0 ? `${hiddenCount} akun disembunyikan karena tidak sesuai profil ini` : 'Semua akun sesuai profil ini'}
+          {framework === 'SAK_EMKM' ? ' (SAK EMKM tidak mengakui pajak tangguhan).' : '.'}
+        </Typography.Text>
+      </Space>
+    </Card>
+  );
 }
 
 export default function AccountsPage() {
@@ -69,6 +126,7 @@ export default function AccountsPage() {
           </Space>
         }
       />
+      <ChartProfileBar hiddenCount={unusedCount} />
       <Card>
         {!isLoading && (
           <Table
