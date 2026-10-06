@@ -67,6 +67,8 @@ import ProjectsPage, { ProjectDetailPage } from './features/services/ProjectsPag
 import DepositsPage from './features/services/DepositsPage';
 import WithheldPage from './features/services/WithheldPage';
 import ProductsPage from './features/products/ProductsPage';
+import DeliveriesPage from './features/sales/DeliveriesPage';
+import DeliveryDetailPage from './features/sales/DeliveryDetailPage';
 import InvoiceDetailPage from './features/sales/InvoiceDetailPage';
 import InvoicesPage from './features/sales/InvoicesPage';
 import SalesOrderDetailPage from './features/sales/SalesOrderDetailPage';
@@ -108,6 +110,8 @@ export default function App() {
           <Route path="sales-orders/:id" element={<SalesOrderDetailPage />} />
           <Route path="invoices" element={<InvoicesPage />} />
           <Route path="invoices/services/new" element={<ServiceInvoiceFormPage />} />
+          <Route path="deliveries" element={<DeliveriesPage />} />
+          <Route path="deliveries/:id" element={<DeliveryDetailPage />} />
           <Route path="invoices/:id" element={<InvoiceDetailPage />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />

@@ -25,11 +25,12 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   EXPENSE: 'Beban',
 };
 
-export const SALES_ORDER_STATUSES = ['DRAFT', 'CONFIRMED', 'INVOICED', 'CANCELLED'] as const;
+export const SALES_ORDER_STATUSES = ['DRAFT', 'CONFIRMED', 'DELIVERED', 'INVOICED', 'CANCELLED'] as const;
 export type SalesOrderStatus = (typeof SALES_ORDER_STATUSES)[number];
 export const SALES_ORDER_STATUS_LABELS: Record<SalesOrderStatus, string> = {
   DRAFT: 'Draft',
   CONFIRMED: 'Dikonfirmasi',
+  DELIVERED: 'Sudah dikirim',
   INVOICED: 'Difakturkan',
   CANCELLED: 'Batal',
 };
@@ -93,6 +94,7 @@ export const JOURNAL_SOURCES = [
   'MANUAL',
   'OPENING',
   'INVOICE',
+  'DELIVERY',
   'PAYMENT',
   'SALES_RETURN',
   'PURCHASE_INVOICE',
@@ -129,6 +131,7 @@ export const JOURNAL_SOURCE_LABELS: Record<JournalSource, string> = {
   MANUAL: 'Manual',
   OPENING: 'Saldo awal',
   INVOICE: 'Faktur jual',
+  DELIVERY: 'Surat jalan (HPP)',
   PAYMENT: 'Terima piutang',
   SALES_RETURN: 'Retur jual',
   PURCHASE_INVOICE: 'Faktur beli',

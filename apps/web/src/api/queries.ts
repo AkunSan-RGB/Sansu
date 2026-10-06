@@ -19,7 +19,7 @@ export const useAccounts = () => useQuery({ queryKey: ['accounts'], queryFn: () 
 export const useCashAccounts = () => useQuery({ queryKey: ['cash-accounts'], queryFn: () => get<CashAccount[]>('/cash/accounts') });
 
 /** Query key yang terdampak setiap kali ada posting jurnal */
-export const LEDGER_KEYS = ['journals', 'reports', 'dashboard', 'cash-accounts', 'cash-tx', 'ledger', 'statements', 'notes', 'health', 'fiscal', 'assets', 'tax-thresholds'];
+export const LEDGER_KEYS = ['journals', 'reports', 'dashboard', 'cash-accounts', 'cash-tx', 'ledger', 'statements', 'notes', 'health', 'fiscal', 'assets', 'tax-thresholds', 'doc-chain', 'deliveries'];
 
 /**
  * Mutasi dengan notifikasi sukses/gagal standar dan refresh data terkait.

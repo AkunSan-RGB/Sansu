@@ -23,6 +23,7 @@ npm run test:e2e                    # e2e api: mereset dan memigrasi database `a
 | Kalender pajak & PPN | `tax-calendar-vat` | Tenggat digeser ke hari kerja berikutnya; pembulatan PPN ke rupiah penuh |
 | Bagan akun per jenis usaha | `coa-per-model` | Akun khusus, nama inti, relevansi (akun tak terpakai dinonaktifkan) per jenis usaha; nama buatan pengguna tidak tertimpa |
 | Fitur pajak per usaha | `tax-features` | Menu dan kewajiban pajak mengikuti jenis usaha, status PKP, dan skema PPh |
+| Rantai dokumen penjualan | `delivery-chain` | Penawaran → pesanan → surat jalan → faktur → bayar → retur; stok, HPP, piutang, dan jejak dokumen cocok; jalur surat jalan juga masuk uji acak |
 | Saldo awal | `opening-balance` | Akun kontrol (piutang, utang, persediaan, penyeimbang) tidak bisa diisi manual; ringkasan kesiapan dan peringatan |
 
 ## Uji acak invarian

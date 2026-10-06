@@ -1,0 +1,264 @@
+/**
+ * Surat jalan (pengiriman barang) — mata rantai antara pesanan dan faktur:
+ *   penawaran → pesanan → surat jalan → faktur → pembayaran → jurnal & laporan
+ *
+ * Dua jalur, hasil pembukuan sama:
+ *  - Kirim dulu: surat jalan mengeluarkan stok dan mencatat HPP (Dr HPP | Cr Persediaan). Faktur menyusul dan hanya mencatat
+ *    piutang, penjualan, dan PPN keluaran. Surat jalan yang belum difakturkan bisa dibatalkan (stok dan jurnal dibalik).
+ *  - Langsung faktur: stok dan HPP dicatat bersama faktur (seperti sebelumnya) dan surat jalan dibuat otomatis, sudah terkait faktur.
+ * Seluruh pesanan dikirim sekaligus (belum ada pengiriman parsial).
+ */
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { AuditService } from '../../../common/audit/audit.service';
+import { AuthUser } from '../../../common/auth/auth-user';
+import { SequenceService } from '../../../common/sequence/sequence.service';
+import { DocDate, toDocDate } from '../../../common/utils/dates';
+import { D, Dec, money, ZERO } from '../../../common/utils/money';
+import { Db, Tx } from '../../../db/db';
+import { InjectDb } from '../../../db/db.module';
+import { customers, deliveryOrderLines, deliveryOrders, salesOrders } from '../../../db/schema';
+import { SYS } from '../../accounting/default-coa';
+import { PostingService } from '../../accounting/posting.service';
+import { StockService } from '../../inventory/stock.service';
+import { SalesOrdersService } from '../orders/sales-orders.service';
+
+type OrderWithLines = Awaited<ReturnType<SalesOrdersService['lockOrder']>>;
+
+@Injectable()
+export class DeliveriesService {
+  constructor(
+    @InjectDb() private readonly db: Db,
+    private readonly seq: SequenceService,
+    private readonly stock: StockService,
+    private readonly posting: PostingService,
+    private readonly orders: SalesOrdersService,
+    private readonly audit: AuditService,
+  ) {}
+
+  /** Kirim barang atas pesanan CONFIRMED: stok keluar, HPP dijurnal, pesanan → DELIVERED */
+  async deliver(user: AuthUser, orderId: string, dto: { date?: string; notes?: string }) {
+    const date = toDocDate(dto.date);
+    const id = await this.db.transaction(async (tx) => {
+      const order = await this.orders.lockOrder(tx, user.tenantId, orderId);
+      if (order.status !== 'CONFIRMED') {
+        throw new BadRequestException(`Pesanan berstatus ${order.status}; hanya pesanan CONFIRMED yang bisa dikirim`);
+      }
+      const [customer] = await tx.select().from(customers).where(eq(customers.id, order.customerId));
+      const number = await this.seq.next(tx, user.tenantId, 'DELIVERY', date);
+      const [delivery] = await tx
+        .insert(deliveryOrders)
+        .values({
+          tenantId: user.tenantId,
+          number,
+          date,
+          salesOrderId: order.id,
+          customerId: order.customerId,
+          warehouseId: order.warehouseId,
+          notes: dto.notes,
+          createdById: user.sub,
+        })
+        .returning();
+
+      let cogs: Dec = ZERO;
+      for (const line of order.lines) {
+        const moved = await this.stock.move(tx, {
+          tenantId: user.tenantId,
+          productId: line.productId,
+          warehouseId: order.warehouseId,
+          type: 'SALE',
+          qty: D(line.qty).times(line.uomFactor).negated(),
+          refType: 'DELIVERY',
+          refId: delivery.id,
+          refNumber: number,
+          date,
+        });
+        cogs = cogs.plus(moved.value);
+        await tx.insert(deliveryOrderLines).values({
+          deliveryId: delivery.id,
+          orderLineId: line.id,
+          productId: line.productId,
+          uom: line.uom,
+          uomFactor: line.uomFactor,
+          qty: line.qty,
+          unitCost: moved.unitCost.toFixed(4),
+        });
+      }
+      cogs = money(cogs);
+      let journalId: string | null = null;
+      if (cogs.gt(0)) {
+        const journal = await this.posting.post(tx, {
+          tenantId: user.tenantId,
+          date,
+          description: `Pengiriman ${number} - ${customer.name}`,
+          sourceType: 'DELIVERY',
+          sourceId: delivery.id,
+          createdById: user.sub,
+          lines: [
+            { key: SYS.COGS, debit: cogs },
+            { key: SYS.INVENTORY, credit: cogs },
+          ],
+        });
+        journalId = journal.id;
+      }
+      await tx.update(deliveryOrders).set({ cogsAmount: cogs.toFixed(2), journalId }).where(eq(deliveryOrders.id, delivery.id));
+      await tx.update(salesOrders).set({ status: 'DELIVERED' }).where(eq(salesOrders.id, order.id));
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'DeliveryOrder', entityId: delivery.id, data: { number } });
+      return delivery.id;
+    });
+    return this.get(user.tenantId, id);
+  }
+
+  /** Batalkan surat jalan yang belum difakturkan: stok kembali dengan harga pokok semula, jurnal HPP dibalik, pesanan → CONFIRMED */
+  async cancel(user: AuthUser, id: string, dto: { date?: string }) {
+    const date = toDocDate(dto.date);
+    await this.db.transaction(async (tx) => {
+      const locked = await tx.execute(sql`SELECT id FROM delivery_orders WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      if (!locked.rows.length) throw new NotFoundException('Surat jalan tidak ditemukan');
+      const delivery = await tx.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.id, id), with: { lines: true } });
+      if (!delivery) throw new NotFoundException('Surat jalan tidak ditemukan');
+      if (delivery.status === 'CANCELLED') throw new BadRequestException('Surat jalan sudah dibatalkan');
+      if (delivery.invoiceId) throw new BadRequestException('Surat jalan sudah difakturkan; koreksi lewat retur penjualan');
+      await this.orders.lockOrder(tx, user.tenantId, delivery.salesOrderId);
+      for (const l of delivery.lines) {
+        const wd = await tx.execute<{ wu: string }>(sql`
+          SELECT COALESCE(SUM(-writedown_value) / NULLIF(SUM(-qty), 0), 0) AS wu FROM stock_moves
+          WHERE ref_type = 'DELIVERY' AND ref_id = ${delivery.id} AND product_id = ${l.productId} AND type = 'SALE'`);
+        await this.stock.move(tx, {
+          tenantId: user.tenantId,
+          productId: l.productId,
+          warehouseId: delivery.warehouseId,
+          type: 'SALE_RETURN',
+          qty: D(l.qty).times(l.uomFactor),
+          unitCost: l.unitCost,
+          writedownUnit: D(wd.rows[0]?.wu ?? 0),
+          refType: 'DELIVERY_CANCEL',
+          refId: delivery.id,
+          refNumber: delivery.number,
+          date,
+        });
+      }
+      if (delivery.journalId) await this.posting.reverse(tx, user.tenantId, delivery.journalId, date, user.sub, true);
+      await tx.update(deliveryOrders).set({ status: 'CANCELLED' }).where(eq(deliveryOrders.id, id));
+      await tx.update(salesOrders).set({ status: 'CONFIRMED' }).where(eq(salesOrders.id, delivery.salesOrderId));
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'DeliveryOrder', entityId: id });
+    });
+    return this.get(user.tenantId, id);
+  }
+
+  /**
+   * Dipanggil faktur yang langsung dibuat dari pesanan (stok sudah keluar bersama faktur): catat surat jalan otomatis
+   * yang sudah terkait faktur, supaya rantai dokumen selalu lengkap.
+   */
+  async recordWithInvoice(
+    tx: Tx,
+    user: AuthUser,
+    p: { order: OrderWithLines; date: DocDate; invoiceId: string; cogs: Dec; costs: Map<string, { unitCost: Dec }> },
+  ) {
+    const number = await this.seq.next(tx, user.tenantId, 'DELIVERY', p.date);
+    const [delivery] = await tx
+      .insert(deliveryOrders)
+      .values({
+        tenantId: user.tenantId,
+        number,
+        date: p.date,
+        salesOrderId: p.order.id,
+        customerId: p.order.customerId,
+        warehouseId: p.order.warehouseId,
+        cogsAmount: p.cogs.toFixed(2),
+        invoiceId: p.invoiceId,
+        notes: 'Dibuat otomatis bersama faktur',
+        createdById: user.sub,
+      })
+      .returning();
+    for (const line of p.order.lines) {
+      await tx.insert(deliveryOrderLines).values({
+        deliveryId: delivery.id,
+        orderLineId: line.id,
+        productId: line.productId,
+        uom: line.uom,
+        uomFactor: line.uomFactor,
+        qty: line.qty,
+        unitCost: (p.costs.get(line.id)?.unitCost ?? ZERO).toFixed(4),
+      });
+    }
+    return delivery;
+  }
+
+  /** Surat jalan aktif (belum dibatalkan) untuk sebuah pesanan */
+  activeFor(tx: Tx, orderId: string) {
+    return tx.query.deliveryOrders.findFirst({
+      where: and(eq(deliveryOrders.salesOrderId, orderId), eq(deliveryOrders.status, 'DELIVERED')),
+      with: { lines: true },
+    });
+  }
+
+  async list(tenantId: string, q: { from?: string; to?: string }) {
+    const where = [eq(deliveryOrders.tenantId, tenantId)];
+    if (q.from) where.push(gte(deliveryOrders.date, q.from));
+    if (q.to) where.push(lte(deliveryOrders.date, q.to));
+    return this.db.query.deliveryOrders.findMany({
+      where: and(...where),
+      orderBy: [desc(deliveryOrders.date), desc(deliveryOrders.number)],
+      limit: 500,
+      with: {
+        customer: { columns: { id: true, code: true, name: true } },
+        salesOrder: { columns: { id: true, number: true } },
+        invoice: { columns: { id: true, number: true } },
+      },
+    });
+  }
+
+  async get(tenantId: string, id: string) {
+    const d = await this.db.query.deliveryOrders.findFirst({
+      where: and(eq(deliveryOrders.id, id), eq(deliveryOrders.tenantId, tenantId)),
+      with: {
+        customer: true,
+        warehouse: true,
+        salesOrder: { columns: { id: true, number: true } },
+        invoice: { columns: { id: true, number: true } },
+        lines: { with: { product: { columns: { id: true, sku: true, name: true } } } },
+      },
+    });
+    if (!d) throw new NotFoundException('Surat jalan tidak ditemukan');
+    return d;
+  }
+
+  /**
+   * Jejak dokumen: penawaran → pesanan → surat jalan → faktur → pembayaran / retur → jurnal.
+   * Bisa dimulai dari pesanan atau dari faktur.
+   */
+  async chain(tenantId: string, ref: { orderId?: string; invoiceId?: string }) {
+    let orderId = ref.orderId;
+    let invoiceId = ref.invoiceId;
+    if (!orderId && invoiceId) {
+      const r = await this.db.execute<{ sales_order_id: string | null }>(sql`SELECT sales_order_id FROM invoices WHERE id = ${invoiceId} AND tenant_id = ${tenantId}`);
+      if (!r.rows.length) throw new NotFoundException('Faktur tidak ditemukan');
+      orderId = r.rows[0].sales_order_id ?? undefined;
+    }
+    const rows = async <T extends Record<string, unknown>>(q: ReturnType<typeof sql>) => (await this.db.execute<T>(q)).rows;
+    const quotation = orderId ? (await rows<{ id: string; number: string; status: string }>(sql`SELECT id, number, status FROM quotations WHERE tenant_id = ${tenantId} AND sales_order_id = ${orderId} LIMIT 1`))[0] ?? null : null;
+    const order = orderId ? (await rows<{ id: string; number: string; status: string; total: string; date: string }>(sql`SELECT id, number, status, total, date::text FROM sales_orders WHERE tenant_id = ${tenantId} AND id = ${orderId}`))[0] ?? null : null;
+    const deliveries = orderId
+      ? await rows<{ id: string; number: string; status: string; date: string; journal_id: string | null; cogs_amount: string }>(sql`SELECT id, number, status, date::text, journal_id, cogs_amount FROM delivery_orders WHERE tenant_id = ${tenantId} AND sales_order_id = ${orderId} ORDER BY created_at`)
+      : [];
+    const invoice = (
+      await rows<{ id: string; number: string; status: string; total: string; paid_amount: string; date: string; journal_id: string | null }>(
+        invoiceId
+          ? sql`SELECT id, number, status, total, paid_amount, date::text, journal_id FROM invoices WHERE tenant_id = ${tenantId} AND id = ${invoiceId}`
+          : sql`SELECT id, number, status, total, paid_amount, date::text, journal_id FROM invoices WHERE tenant_id = ${tenantId} AND sales_order_id = ${orderId} ORDER BY created_at LIMIT 1`,
+      )
+    )[0] ?? null;
+    const payments = invoice
+      ? await rows<{ id: string; number: string; date: string; amount: string; method: string; journal_id: string | null }>(sql`SELECT id, number, date::text, amount, method, journal_id FROM payments WHERE tenant_id = ${tenantId} AND invoice_id = ${invoice.id} ORDER BY date, number`)
+      : [];
+    const returns = invoice
+      ? await rows<{ id: string; number: string; date: string; total: string; journal_id: string | null }>(sql`SELECT id, number, date::text, total, journal_id FROM sales_returns WHERE tenant_id = ${tenantId} AND invoice_id = ${invoice.id} ORDER BY date, number`)
+      : [];
+    const journalIds = [...deliveries.map((d) => d.journal_id), invoice?.journal_id, ...payments.map((p) => p.journal_id), ...returns.map((r) => r.journal_id)].filter((x): x is string => !!x);
+    const journals = journalIds.length
+      ? await rows<{ id: string; number: string; date: string; description: string; source_type: string }>(sql`SELECT id, number, date::text, description, source_type FROM journal_entries WHERE tenant_id = ${tenantId} AND id IN (${sql.join(journalIds.map((j) => sql`${j}`), sql`, `)}) ORDER BY date, number`)
+      : [];
+    return { quotation, order, deliveries, invoice, payments, returns, journals };
+  }
+}

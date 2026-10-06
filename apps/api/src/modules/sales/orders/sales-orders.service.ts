@@ -149,6 +149,7 @@ export class SalesOrdersService {
     await this.db.transaction(async (tx) => {
       const order = await this.lockOrder(tx, user.tenantId, id);
       if (order.status === 'INVOICED') throw new BadRequestException('Order sudah difakturkan; buat retur penjualan');
+      if (order.status === 'DELIVERED') throw new BadRequestException('Barang sudah dikirim; batalkan surat jalannya dulu atau buat faktur');
       if (order.status === 'CANCELLED') throw new BadRequestException('Order sudah dibatalkan');
       await tx.update(salesOrders).set({ status: 'CANCELLED' }).where(eq(salesOrders.id, id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'SalesOrder', entityId: id });

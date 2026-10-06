@@ -32,6 +32,7 @@ import { t } from '@/lib/terms';
 
 export const SOURCE_COLOR: Partial<Record<JournalSource, string>> = {
   INVOICE: 'green',
+  DELIVERY: 'lime',
   PAYMENT: 'blue',
   STOCK_ADJUSTMENT: 'purple',
   STOCK_TRANSFER: 'purple',
@@ -127,7 +128,8 @@ const toLines = (lines: LineValue[]) =>
   }));
 
 function JournalList() {
-  const [filter, setFilter] = useState<{ from?: string; to?: string; source?: string; q?: string }>({});
+  const [initial] = useSearchParams();
+  const [filter, setFilter] = useState<{ from?: string; to?: string; source?: string; q?: string }>({ q: initial.get('q') || undefined });
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm();
   const journals = useQuery({ queryKey: ['journals', filter], queryFn: () => get<JournalEntry[]>(`/accounting/journals${qs(filter)}`) });
@@ -147,7 +149,7 @@ function JournalList() {
     <>
       <Card>
         <Space wrap style={{ marginBottom: 12 }}>
-          <Input.Search placeholder="Cari nomor / keterangan / bukti" allowClear onSearch={(q) => setFilter((f) => ({ ...f, q: q || undefined }))} style={{ width: 280 }} />
+          <Input.Search placeholder="Cari nomor / keterangan / bukti" allowClear defaultValue={filter.q} onSearch={(q) => setFilter((f) => ({ ...f, q: q || undefined }))} style={{ width: 280 }} />
           <Select
             allowClear
             placeholder="Semua jenis"

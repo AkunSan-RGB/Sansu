@@ -6,6 +6,7 @@ import { useAction } from '@/api/queries';
 import type { Invoice, SalesOrder } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, fmtQty } from '@/lib/format';
+import DocumentChain from '@/components/DocumentChain';
 import { SalesOrderStatusTag } from './status';
 import { t } from '@/lib/terms';
 
@@ -13,10 +14,16 @@ export default function SalesOrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: o, isLoading } = useQuery({ queryKey: ['sales-orders', 'detail', id], queryFn: () => get<SalesOrder>(`/sales-orders/${id}`) });
-  const refresh = ['sales-orders', 'invoices', 'stock', 'stock-moves', 'dashboard', 'journals'];
+  const refresh = ['sales-orders', 'invoices', 'stock', 'stock-moves', 'dashboard', 'journals', 'deliveries', 'doc-chain'];
 
   const confirm = useAction(() => post(`/sales-orders/${id}/confirm`), { success: 'Order dikonfirmasi', invalidate: refresh });
   const cancel = useAction(() => post(`/sales-orders/${id}/cancel`), { success: 'Order dibatalkan', invalidate: refresh });
+  const deliver = useAction(() => post<{ id: string; number: string }>(`/sales-orders/${id}/deliver`), {
+    success: (r) => `Surat jalan ${r.number} dibuat · stok keluar`,
+    invalidate: refresh,
+    // langsung ke surat jalan agar bisa dicetak
+    onSuccess: (r) => navigate(`/deliveries/${r.id}`),
+  });
   const invoice = useAction(() => post<Invoice & { journalNumber: string }>('/invoices', { salesOrderId: id }), {
     success: (r) => `Faktur ${r.number} dibuat · jurnal ${r.journalNumber}`,
     invalidate: refresh,
@@ -37,9 +44,19 @@ export default function SalesOrderDetailPage() {
                 </Button>
               )}
               {o.status === 'CONFIRMED' && (
-                <Popconfirm title={t('Buat faktur? Stok akan dikurangi dan jurnal diposting.')} onConfirm={() => invoice.mutate(undefined)}>
-                  <Button type="primary" loading={invoice.isPending}>
-                    Buat faktur
+                <Popconfirm title="Kirim barang? Surat jalan dibuat, stok dikurangi, dan HPP dijurnal. Faktur bisa dibuat sesudahnya." onConfirm={() => deliver.mutate(undefined)}>
+                  <Button type="primary" loading={deliver.isPending}>
+                    Kirim barang (surat jalan)
+                  </Button>
+                </Popconfirm>
+              )}
+              {(o.status === 'CONFIRMED' || o.status === 'DELIVERED') && (
+                <Popconfirm
+                  title={o.status === 'DELIVERED' ? 'Buat faktur dari surat jalan? Piutang, penjualan, dan PPN dijurnal.' : t('Buat faktur? Stok akan dikurangi dan jurnal diposting.')}
+                  onConfirm={() => invoice.mutate(undefined)}
+                >
+                  <Button type={o.status === 'DELIVERED' ? 'primary' : 'default'} loading={invoice.isPending}>
+                    {o.status === 'CONFIRMED' ? 'Langsung buat faktur' : 'Buat faktur'}
                   </Button>
                 </Popconfirm>
               )}
@@ -91,6 +108,7 @@ export default function SalesOrderDetailPage() {
           </>
         )}
       </Card>
+      {id && <DocumentChain orderId={id} />}
     </>
   );
 }

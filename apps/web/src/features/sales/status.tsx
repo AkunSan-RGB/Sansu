@@ -9,7 +9,7 @@ import {
 } from '@sansu/shared';
 import { Tag } from 'antd';
 
-const SO_COLOR: Record<SalesOrderStatus, string> = { DRAFT: 'default', CONFIRMED: 'blue', INVOICED: 'green', CANCELLED: 'red' };
+const SO_COLOR: Record<SalesOrderStatus, string> = { DRAFT: 'default', CONFIRMED: 'blue', DELIVERED: 'cyan', INVOICED: 'green', CANCELLED: 'red' };
 const PO_COLOR: Record<PurchaseOrderStatus, string> = { DRAFT: 'default', CONFIRMED: 'blue', BILLED: 'green', CANCELLED: 'red' };
 const INV_COLOR: Record<InvoiceStatus, string> = { UNPAID: 'orange', PARTIAL: 'gold', PAID: 'green' };
 
