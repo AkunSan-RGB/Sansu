@@ -12,7 +12,12 @@ html, body { margin: 0; }
   body.printing-report .ant-card { box-shadow: none !important; border: none !important; }
   body.printing-report .print-only { display: block; }
   body.printing-report .ant-table { font-size: 11px; }
-  @page { size: A4; margin: 14mm; }
+  /* Margin halaman 0 supaya browser tidak mencetak judul halaman dan alamat (URL) di tepi kertas;
+     jarak tepi dibuat lewat padding yang diulang di setiap halaman (box-decoration-break: clone) */
+  @page { size: A4; margin: 0; }
+  body.printing-report, body.printing-report .ant-layout { background: #fff !important; }
+  body.printing-report .ant-table-wrapper, body.printing-report .ant-table-content, body.printing-report .ant-card { overflow: visible !important; max-width: none !important; }
+  body.printing-report .ant-layout-content { padding: 14mm !important; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 }
 
 /* Angka rupiah di tabel jangan terpotong ke baris baru */
@@ -39,6 +44,7 @@ td.ant-table-cell[style*='text-align: right'],
 @media print {
   body.printing-doc > *:not(#print-root) { display: none !important; }
   body.printing-doc #print-root { display: block; }
+  body.printing-doc #print-root { padding: 14mm; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
   #print-root .print-doc { max-width: none !important; min-width: 0 !important; margin: 0 !important; }
   #print-root .print-doc + .print-doc { page-break-before: always; }
   #print-root table { page-break-inside: auto; }
