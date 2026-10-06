@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
 import { APP_ICONS, useApps } from '@/lib/apps';
 import OnboardingCard from './OnboardingCard';
+import TaxThresholdAlerts from './TaxThresholdAlerts';
 
 interface Tile {
   key: string;
@@ -111,6 +112,7 @@ export default function HomePage() {
       <Typography.Paragraph type="secondary" style={{ marginBottom: 24 }}>
         {me?.tenantName} · pilih aplikasi untuk mulai bekerja
       </Typography.Paragraph>
+      <TaxThresholdAlerts />
       <OnboardingCard />
       <Card styles={{ body: { padding: 16 } }}>
         <Row gutter={[8, 8]}>

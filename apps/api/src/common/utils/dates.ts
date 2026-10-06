@@ -33,6 +33,14 @@ export function toDocDate(input?: string): DocDate {
   return s;
 }
 
+/** 'YYYY-MM-DD' yang benar-benar ada di kalender (menolak 2026-13-45 dan 2026-02-30) */
+export function isDocDate(s: unknown): s is DocDate {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
 export function addDays(date: DocDate, days: number): DocDate {
   const [y, m, d] = date.split('-').map(Number);
   const r = new Date(Date.UTC(y, m - 1, d + days));

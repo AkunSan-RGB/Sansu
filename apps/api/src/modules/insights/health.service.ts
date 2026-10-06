@@ -13,6 +13,7 @@ import { InjectDb } from '../../db/db.module';
 import { get, loadAccounts, natural, sumByAccount } from '../accounting/ledger-data';
 import { StatementsService } from '../accounting/statements.service';
 import { AssetsService } from '../assets/assets.module';
+import { ThresholdsService } from './thresholds.service';
 
 type Status = 'OK' | 'WARN' | 'ERROR' | 'INFO';
 export interface Check {
@@ -34,6 +35,7 @@ export class HealthService {
     private readonly statements: StatementsService,
     private readonly assets: AssetsService,
     private readonly period: PeriodService,
+    private readonly thresholds: ThresholdsService,
   ) {}
 
   async run(tenantId: string, asOfInput?: string) {
@@ -464,6 +466,11 @@ export class HealthService {
         : 'Setoran PPh 21 & PPN masa sebelumnya sudah dicatat',
       link: '/tax',
     });
+
+    // Ambang pajak: batas PKP / PPh final Rp4,8 miliar, fasilitas Pasal 31E, kriteria UMKM
+    for (const a of (await this.thresholds.evaluate(tenantId, asOf)).alerts) {
+      checks.push({ key: `threshold-${a.key}`, category: 'Kepatuhan', title: a.title, status: a.level, message: a.message, link: a.link });
+    }
 
     // 12. Kunci periode
     const locked = await this.period.lockedUntil(this.db, tenantId);

@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestj
 import { IsIn, IsNumberString, IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
+import { isDocDate } from '../../common/utils/dates';
 import { AccountingModule } from '../accounting/accounting.module';
 import { AssetsModule } from '../assets/assets.module';
 import { FiscalService } from './fiscal.service';
@@ -10,6 +11,7 @@ import { HealthService } from './health.service';
 import { AppendixService } from './appendix.service';
 import { ApplyEntityProfileDto, EntityAnswersDto, EntityProfileService } from './entity-profile.service';
 import { NotesService } from './notes.service';
+import { ThresholdsService } from './thresholds.service';
 
 export class FiscalYearDto {
   @ApiPropertyOptional({ example: '0', description: 'Kompensasi kerugian fiskal tahun-tahun sebelumnya' }) @IsOptional() @IsNumberString() lossCarryforward?: string;
@@ -44,11 +46,12 @@ export class InsightsController {
     private readonly notes: NotesService,
     private readonly appendix: AppendixService,
     private readonly profile: EntityProfileService,
+    private readonly thresholds: ThresholdsService,
   ) {}
 
   @Get('health')
   check(@CurrentUser() u: AuthUser, @Query('asOf') asOf?: string) {
-    return this.health.run(u.tenantId, asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : undefined);
+    return this.health.run(u.tenantId, isDocDate(asOf) ? asOf : undefined);
   }
 
   @Get('fiscal/:year')
@@ -76,6 +79,12 @@ export class InsightsController {
   getNotes(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number) {
     return this.notes.build(u.tenantId, year);
   }
+  /** Peringatan ambang pajak: PKP, PPh final UMKM, Pasal 31E, kriteria UMKM */
+  @Get('tax-thresholds')
+  taxThresholds(@CurrentUser() u: AuthUser, @Query('asOf') asOf?: string) {
+    return this.thresholds.evaluate(u.tenantId, isDocDate(asOf) ? asOf : undefined);
+  }
+
   /** Wizard standar akuntansi & pajak: keadaan saat ini, ukuran usaha dari pembukuan, dan rekomendasi */
   @Get('entity-profile')
   entityProfile(@CurrentUser() u: AuthUser) {
@@ -108,7 +117,7 @@ export class InsightsController {
 @Module({
   imports: [AccountingModule, AssetsModule],
   controllers: [InsightsController],
-  providers: [HealthService, FiscalService, NotesService, AppendixService, EntityProfileService],
-  exports: [FiscalService, HealthService, EntityProfileService],
+  providers: [HealthService, FiscalService, NotesService, AppendixService, EntityProfileService, ThresholdsService],
+  exports: [FiscalService, HealthService, EntityProfileService, ThresholdsService],
 })
 export class InsightsModule {}

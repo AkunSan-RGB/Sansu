@@ -43,6 +43,14 @@ export function outputVatRate(t: { ppnRate: string; settings: Record<string, unk
   return taxProfileOf(t.settings).pkp ? t.ppnRate : '0';
 }
 
+/**
+ * Buang properti undefined dari patch. DTO yang sudah ditransformasi membawa properti undefined untuk
+ * field yang tidak dikirim; bila ikut digabung, nilai tersimpan tertimpa dan kembali ke bawaan.
+ */
+export function definedOnly<T extends object>(patch: T): Partial<T> {
+  return Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
 @Injectable()
 export class SettingsService {
   async taxProfile(db: DbOrTx, tenantId: string): Promise<TaxProfile> {
@@ -61,7 +69,7 @@ export class SettingsService {
   async saveReporting(db: DbOrTx, tenantId: string, patch: Partial<ReportingSettings>) {
     const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
     const current = (t?.settings ?? {}) as Record<string, unknown>;
-    const reporting = { ...DEFAULT_REPORTING, ...((current.reporting as object) ?? {}), ...patch };
+    const reporting = { ...DEFAULT_REPORTING, ...((current.reporting as object) ?? {}), ...definedOnly(patch) };
     await db.update(tenants).set({ settings: { ...current, reporting } }).where(eq(tenants.id, tenantId));
     return reporting;
   }
@@ -74,7 +82,7 @@ export class SettingsService {
   async savePayroll(db: DbOrTx, tenantId: string, patch: Partial<PayrollSettings>) {
     const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
     const current = (t?.settings ?? {}) as Record<string, unknown>;
-    const payroll = { ...DEFAULT_PAYROLL, ...((current.payroll as object) ?? {}), ...patch };
+    const payroll = { ...DEFAULT_PAYROLL, ...((current.payroll as object) ?? {}), ...definedOnly(patch) };
     await db.update(tenants).set({ settings: { ...current, payroll } }).where(eq(tenants.id, tenantId));
     return payroll;
   }
@@ -94,7 +102,7 @@ export class SettingsService {
   async saveSection<T extends object>(db: DbOrTx, tenantId: string, key: string, defaults: T, patch: Partial<T>): Promise<T> {
     const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
     const current = (t?.settings ?? {}) as Record<string, unknown>;
-    const merged = { ...defaults, ...((current[key] as object) ?? {}), ...patch } as T;
+    const merged = { ...defaults, ...((current[key] as object) ?? {}), ...definedOnly(patch) } as T;
     await db.update(tenants).set({ settings: { ...current, [key]: merged } }).where(eq(tenants.id, tenantId));
     return merged;
   }

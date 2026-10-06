@@ -87,7 +87,7 @@ export default function EntityProfileWizard({ open, onClose }: { open: boolean; 
       }),
     {
       success: 'Standar akuntansi & pajak diterapkan',
-      invalidate: ['company', 'me', 'framework', 'statements', 'notes', 'appendix', 'fiscal', 'entity-profile', 'onboarding', 'health'],
+      invalidate: ['company', 'me', 'framework', 'statements', 'notes', 'appendix', 'fiscal', 'entity-profile', 'onboarding', 'health', 'tax-thresholds'],
       onSuccess: setResult,
     },
   );

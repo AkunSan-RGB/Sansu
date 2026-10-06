@@ -40,12 +40,12 @@ export default function CompanySettingsPage() {
   }, [data, company, payroll, reporting]);
   const saveReporting = useAction((v: ReportingSettings) => patch('/settings/reporting', v), {
     success: 'Pengaturan pelaporan disimpan',
-    invalidate: ['company', 'framework', 'statements', 'notes', 'fiscal'],
+    invalidate: ['company', 'framework', 'statements', 'notes', 'fiscal', 'tax-thresholds', 'entity-profile'],
   });
 
   const saveCompany = useAction(
     (v: { ppnRate: number; pkp?: boolean; posPricesIncludeVat?: boolean; salesPricesIncludeVat?: boolean }) => patch('/settings/company', { ...v, ppnRate: String(v.ppnRate) }),
-    { success: 'Data perusahaan disimpan', invalidate: ['company', 'me'] },
+    { success: 'Data perusahaan disimpan', invalidate: ['company', 'me', 'tax-thresholds'] },
   );
   const savePayroll = useAction((v: PayrollSettings) => patch('/settings/payroll', v), { success: 'Pengaturan penggajian disimpan', invalidate: ['company'] });
 

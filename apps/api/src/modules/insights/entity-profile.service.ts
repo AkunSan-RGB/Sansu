@@ -62,18 +62,22 @@ export class EntityProfileService {
     private readonly assets: AssetsService,
   ) {}
 
+  /** Peredaran bruto (penjualan neto + pendapatan lain) antara dua tanggal, dari buku besar; jurnal penutup tidak dihitung */
+  async revenueBetween(tenantId: string, from: string, to: string): Promise<number> {
+    const accs = await loadAccounts(this.db, tenantId);
+    const moves = await sumByAccount(this.db, tenantId, { from, to, excludeSources: ['CLOSING'] });
+    const revenue = accs
+      .filter((a) => a.isPostable && a.type === 'REVENUE' && ['SALES_REVENUE', 'SALES_DEDUCTION', 'OTHER_INCOME'].includes(a.reportGroup))
+      .reduce<Dec>((s, a) => s.plus(natural(a.type, get(moves, a.id))), ZERO);
+    return Math.max(0, Math.round(revenue.toNumber() * 100) / 100);
+  }
+
   /** Ukuran usaha dari pembukuan: peredaran 12 bulan terakhir & aset di luar tanah dan bangunan */
   async measure(tenantId: string) {
     const to = todayJakarta();
     const from = addDays(to, -364);
     const accs = await loadAccounts(this.db, tenantId);
-    const [moves, balances] = await Promise.all([
-      sumByAccount(this.db, tenantId, { from, to, excludeSources: ['CLOSING'] }),
-      sumByAccount(this.db, tenantId, { to }),
-    ]);
-    const revenue = accs
-      .filter((a) => a.isPostable && a.type === 'REVENUE' && ['SALES_REVENUE', 'SALES_DEDUCTION', 'OTHER_INCOME'].includes(a.reportGroup))
-      .reduce<Dec>((s, a) => s.plus(natural(a.type, get(moves, a.id))), ZERO);
+    const [revenue, balances] = await Promise.all([this.revenueBetween(tenantId, from, to), sumByAccount(this.db, tenantId, { to })]);
     const totalAssets = accs.filter((a) => a.isPostable && a.type === 'ASSET').reduce<Dec>((s, a) => s.plus(natural(a.type, get(balances, a.id))), ZERO);
     // Tanah & bangunan dikecualikan berdasarkan akun buku besar kategori asetnya (akun aset dan akumulasi penyusutan),
     // sehingga tanah yang dibukukan lewat jurnal manual pun ikut dikecualikan. Akun yang juga dipakai
@@ -85,8 +89,7 @@ export class EntityProfileService {
     const landBuilding = accs
       .filter((a) => landBuildingAccounts.has(a.id))
       .reduce<Dec>((s, a) => s.plus(natural(a.type, get(balances, a.id))), ZERO);
-    const clamp = (v: Dec) => Math.max(0, Math.round(v.toNumber()));
-    return { from, to, revenue: clamp(revenue), assets: clamp(totalAssets.minus(landBuilding)) };
+    return { from, to, revenue: Math.round(revenue), assets: Math.max(0, Math.round(totalAssets.minus(landBuilding).toNumber())) };
   }
 
   async state(tenantId: string) {
