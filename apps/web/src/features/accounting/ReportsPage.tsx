@@ -55,6 +55,7 @@ export default function ReportsPage() {
   const [compare, setCompare] = useState(true);
   const [detail, setDetail] = useState(false);
   const [method, setMethod] = useState<'indirect' | 'direct'>('indirect');
+  const [showOptional, setShowOptional] = useState(false);
   const range = { from, to };
   const fy = Number(to.slice(0, 4));
 
@@ -112,6 +113,9 @@ export default function ReportsPage() {
   const showsCompare = ['position', 'income', 'equity', 'cashflow'].includes(tab);
   const showsDetail = ['position', 'income'].includes(tab);
   const emkmOptional = framework === 'SAK_EMKM' && ['equity', 'cashflow'].includes(tab);
+  // SAK EMKM hanya mewajibkan Posisi Keuangan, Laba Rugi, dan CALK → dua laporan lain opsional (tersembunyi bawaan).
+  // Tab yang sedang dibuka lewat tautan tetap tampil agar tidak "hilang" dari pengguna.
+  const hideOptional = framework === 'SAK_EMKM' && !showOptional && !['equity', 'cashflow'].includes(tab);
 
   if (moved) return <Navigate to={moved} replace />;
   return (
@@ -159,6 +163,11 @@ export default function ReportsPage() {
               Rincian per akun
             </Checkbox>
           )}
+          {framework === 'SAK_EMKM' && (
+            <Checkbox checked={showOptional || emkmOptional} disabled={emkmOptional} onChange={(e) => setShowOptional(e.target.checked)}>
+              Tampilkan laporan opsional (Perubahan Ekuitas, Arus Kas)
+            </Checkbox>
+          )}
           {tab === 'cashflow' && (
             <Radio.Group size="small" value={method} onChange={(e) => setMethod(e.target.value)} optionType="button">
               <Radio value="indirect">Metode tidak langsung</Radio>
@@ -194,7 +203,7 @@ export default function ReportsPage() {
             { key: 'cashflow', label: SHORT.cashflow, children: <QueryState q={cashflow}>{(d) => <CashFlowView d={d} compare={compare} />}</QueryState> },
             { key: 'notes', label: SHORT.notes, children: <QueryState q={notes}>{(d) => <NotesView d={d} />}</QueryState> },
             { key: 'appendix', label: SHORT.appendix, children: <QueryState q={appendix}>{(d) => <AppendixView d={d} />}</QueryState> },
-          ]}
+          ].filter((i) => !(hideOptional && (i.key === 'equity' || i.key === 'cashflow')))}
         />
       </Card>
     </>

@@ -8,6 +8,7 @@ import { AssetsModule } from '../assets/assets.module';
 import { FiscalService } from './fiscal.service';
 import { HealthService } from './health.service';
 import { AppendixService } from './appendix.service';
+import { ApplyEntityProfileDto, EntityAnswersDto, EntityProfileService } from './entity-profile.service';
 import { NotesService } from './notes.service';
 
 export class FiscalYearDto {
@@ -42,6 +43,7 @@ export class InsightsController {
     private readonly fiscal: FiscalService,
     private readonly notes: NotesService,
     private readonly appendix: AppendixService,
+    private readonly profile: EntityProfileService,
   ) {}
 
   @Get('health')
@@ -74,6 +76,20 @@ export class InsightsController {
   getNotes(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number) {
     return this.notes.build(u.tenantId, year);
   }
+  /** Wizard standar akuntansi & pajak: keadaan saat ini, ukuran usaha dari pembukuan, dan rekomendasi */
+  @Get('entity-profile')
+  entityProfile(@CurrentUser() u: AuthUser) {
+    return this.profile.state(u.tenantId);
+  }
+  @Post('entity-profile/recommend')
+  recommendProfile(@Body() dto: EntityAnswersDto) {
+    return this.profile.recommend(dto);
+  }
+  @Post('entity-profile/apply')
+  applyProfile(@CurrentUser() u: AuthUser, @Body() dto: ApplyEntityProfileDto) {
+    return this.profile.apply(u, dto);
+  }
+
   @Get('appendix/:year')
   getAppendix(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number) {
     return this.appendix.build(u.tenantId, year);
@@ -92,7 +108,7 @@ export class InsightsController {
 @Module({
   imports: [AccountingModule, AssetsModule],
   controllers: [InsightsController],
-  providers: [HealthService, FiscalService, NotesService, AppendixService],
-  exports: [FiscalService, HealthService],
+  providers: [HealthService, FiscalService, NotesService, AppendixService, EntityProfileService],
+  exports: [FiscalService, HealthService, EntityProfileService],
 })
 export class InsightsModule {}

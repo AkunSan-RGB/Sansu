@@ -88,6 +88,7 @@ export class OnboardingService {
       SELECT
         (t.npwp IS NOT NULL AND t.npwp <> '' AND t.address IS NOT NULL AND t.address <> '') AS company,
         COALESCE(t.settings->'branding'->>'logo', '') <> '' AS logo,
+        COALESCE(t.settings->'entityProfile'->>'appliedAt', '') <> '' AS standard,
         EXISTS (SELECT 1 FROM products p WHERE p.tenant_id = t.id) AS products,
         EXISTS (SELECT 1 FROM customers c WHERE c.tenant_id = t.id) AS customers,
         EXISTS (SELECT 1 FROM journal_entries j WHERE j.tenant_id = t.id
@@ -131,6 +132,14 @@ export class OnboardingService {
         description: 'NPWP dan alamat tampil di faktur dan laporan pajak.',
         done: !!s.company,
         link: '/settings/company',
+      },
+      {
+        key: 'standard',
+        title: 'Tentukan standar akuntansi & pajak',
+        description: 'Wizard mengukur ukuran usaha dari pembukuan lalu menyarankan SAK EMKM atau SAK EP, skema PPh, dan status PKP.',
+        done: !!s.standard,
+        link: '/settings/company?wizard=1',
+        app: 'accounting',
       },
       {
         key: 'logo',

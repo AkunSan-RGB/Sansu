@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { LEGAL_FORM_LABELS, REPORTING_FRAMEWORK_LABELS, TAX_SCHEME_LABELS, toOptions } from '@sansu/shared';
 import { Alert, Button, Card, Col, Form, Input, InputNumber, Radio, Row, Select, Switch } from 'antd';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { get, patch } from '@/api/client';
 import { useAction } from '@/api/queries';
 import type { CompanySettings, PayrollSettings, ReportingSettings } from '@/api/types';
@@ -9,6 +10,7 @@ import { useApps } from '@/lib/apps';
 import PageHeader from '@/layout/PageHeader';
 import BrandingCard from './BrandingCard';
 import BusinessModelCard from './BusinessModelCard';
+import EntityProfileWizard from './EntityProfileWizard';
 
 export default function CompanySettingsPage() {
   const { can } = useApps();
@@ -19,6 +21,16 @@ export default function CompanySettingsPage() {
   const framework = Form.useWatch('framework', reporting);
   const scheme = Form.useWatch('taxScheme', reporting);
   const pkp = Form.useWatch('pkp', company) ?? true;
+  // Wizard bisa dibuka dari panduan mulai lewat ?wizard=1
+  const [params, setParams] = useSearchParams();
+  const [wizard, setWizard] = useState(params.get('wizard') === '1');
+  const closeWizard = () => {
+    setWizard(false);
+    if (params.has('wizard')) {
+      params.delete('wizard');
+      setParams(params, { replace: true });
+    }
+  };
   useEffect(() => {
     if (data) {
       company.setFieldsValue({ ...data, ppnRate: Number(data.ppnRate), ...data.taxProfile });
@@ -40,6 +52,7 @@ export default function CompanySettingsPage() {
   return (
     <>
       <PageHeader title="Perusahaan" />
+      <EntityProfileWizard open={wizard} onClose={closeWizard} />
       <Row gutter={[16, 16]}>
         <Col xs={24}>
           <BusinessModelCard />
@@ -110,7 +123,20 @@ export default function CompanySettingsPage() {
         </Col>
         {can('accounting') && (
           <Col xs={24} lg={12}>
-            <Card title="Pelaporan keuangan & PPh Badan">
+            <Card
+              title="Pelaporan keuangan & PPh Badan"
+              extra={
+                <Button size="small" onClick={() => setWizard(true)}>
+                  Wizard rekomendasi
+                </Button>
+              }
+            >
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message="Bingung memilih SAK EMKM atau SAK EP, atau skema PPh? Wizard menghitung ukuran usaha dari pembukuan lalu menyarankan pilihan yang sesuai."
+              />
               <Form form={reporting} layout="vertical" onFinish={(v) => saveReporting.mutate(v)}>
                 <Form.Item
                   name="framework"

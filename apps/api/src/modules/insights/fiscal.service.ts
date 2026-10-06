@@ -9,6 +9,7 @@
  *  - Pajak tangguhan dari beda temporer aset tetap (SAK EP)
  */
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { FACILITY_31E_REVENUE_LIMIT, FINAL_TAX_EXCLUDED_FORMS, type LegalForm, TAX_REVENUE_LIMIT } from '@sansu/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SettingsService } from '../../common/settings.service';
@@ -24,8 +25,8 @@ import { StatementsService } from '../accounting/statements.service';
 import { AssetsService } from '../assets/assets.module';
 
 export const CORPORATE_RATE = 22;
-const THRESHOLD_FULL = D(4_800_000_000);
-const THRESHOLD_31E = D(50_000_000_000);
+const THRESHOLD_FULL = D(TAX_REVENUE_LIMIT);
+const THRESHOLD_31E = D(FACILITY_31E_REVENUE_LIMIT);
 
 /** PPh Badan tarif umum dengan fasilitas Pasal 31E UU PPh */
 export function corporateTax(pkp: Dec, grossRevenue: Dec) {
@@ -179,7 +180,7 @@ export class FiscalService {
     if (reporting.taxScheme === 'FINAL_UMKM') {
       taxDue = money(grossRevenue.times(0.5).div(100)).floor();
       method = 'PPh final 0,5% × peredaran bruto (PP 55/2022 jo. PP 20/2026)';
-      if (['PT', 'CV', 'FIRMA'].includes(reporting.legalForm)) {
+      if (FINAL_TAX_EXCLUDED_FORMS.includes(reporting.legalForm as LegalForm)) {
         warnings.push(
           'Sejak PP 20/2026, CV, Firma, dan PT (bukan PT Perorangan) tidak lagi menjadi subjek PPh final 0,5% kecuali masih dalam masa transisi jangka waktu semula. Pastikan perusahaan masih berhak.',
         );
