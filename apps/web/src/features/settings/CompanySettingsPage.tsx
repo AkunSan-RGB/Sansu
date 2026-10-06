@@ -8,6 +8,7 @@ import { useAction } from '@/api/queries';
 import type { CompanySettings, PayrollSettings, ReportingSettings } from '@/api/types';
 import { useApps } from '@/lib/apps';
 import PageHeader from '@/layout/PageHeader';
+import { rupiahInput } from '@/lib/format';
 import BrandingCard from './BrandingCard';
 import BusinessModelCard from './BusinessModelCard';
 import EntityProfileWizard from './EntityProfileWizard';
@@ -194,7 +195,7 @@ export default function CompanySettingsPage() {
                   label="Batas kapitalisasi aset tetap (per unit)"
                   extra="Pembelian aset di bawah batas ini langsung dibebankan ke 'Beban Peralatan Kecil', tidak didaftarkan sebagai aset. Isi 0 untuk mengapitalisasi semuanya. Tanah selalu dikapitalisasi."
                 >
-                  <InputNumber min={0} max={1_000_000_000_000} precision={0} step={500_000} style={{ width: '100%' }} prefix="Rp" />
+                  <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
                 </Form.Item>
                 <Button type="primary" htmlType="submit" loading={saveReporting.isPending}>
                   Simpan pengaturan pelaporan

@@ -19,7 +19,7 @@ import { useEffect, useState } from 'react';
 import { get, post } from '@/api/client';
 import { useAction } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
-import { fmtMoney } from '@/lib/format';
+import { fmtMoney, rupiahInput } from '@/lib/format';
 
 const SIZE_COLOR = { MICRO: 'green', SMALL: 'cyan', MEDIUM: 'blue', LARGE: 'purple' } as const;
 
@@ -170,10 +170,10 @@ export default function EntityProfileWizard({ open, onClose }: { open: boolean; 
             />
           )}
           <Form.Item label="Peredaran bruto setahun" extra="Seluruh penjualan dan pendapatan usaha dalam satu tahun, sebelum dikurangi biaya.">
-            <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" value={draft.revenue} onChange={(v) => set({ revenue: Number(v ?? 0) })} />
+            <InputNumber {...rupiahInput} min={0} style={{ width: '100%' }} prefix="Rp" value={draft.revenue} onChange={(v) => set({ revenue: Number(v ?? 0) })} />
           </Form.Item>
           <Form.Item label="Total aset di luar tanah dan bangunan" extra="Pendekatan modal usaha menurut kriteria UMKM (kas, piutang, persediaan, peralatan, kendaraan, dan lainnya).">
-            <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" value={draft.assets} onChange={(v) => set({ assets: Number(v ?? 0) })} />
+            <InputNumber {...rupiahInput} min={0} style={{ width: '100%' }} prefix="Rp" value={draft.assets} onChange={(v) => set({ assets: Number(v ?? 0) })} />
           </Form.Item>
           <Space>
             <Typography.Text>Ukuran usaha:</Typography.Text>
@@ -254,7 +254,7 @@ export default function EntityProfileWizard({ open, onClose }: { open: boolean; 
       open={open}
       width={720}
       onCancel={onClose}
-      destroyOnClose
+      destroyOnHidden
       footer={
         result ? (
           <Button type="primary" onClick={onClose}>
