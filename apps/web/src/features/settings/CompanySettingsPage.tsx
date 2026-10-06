@@ -6,6 +6,7 @@ import {
   BgColorsOutlined,
   ClusterOutlined,
   FileProtectOutlined,
+  SolutionOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
 import { BUSINESS_MODEL_BY_KEY } from '@sansu/shared';
@@ -94,7 +95,8 @@ export default function CompanySettingsPage() {
   const [company] = Form.useForm();
   const [payroll] = Form.useForm<PayrollSettings>();
   const [reporting] = Form.useForm<ReportingSettings>();
-  const framework = Form.useWatch('framework', reporting);
+  const [policy] = Form.useForm<ReportingSettings>();
+  const framework = Form.useWatch('framework', policy);
   const scheme = Form.useWatch('taxScheme', reporting);
   const pkp = Form.useWatch('pkp', company) ?? true;
   // Wizard bisa dibuka dari panduan mulai lewat ?wizard=1
@@ -117,9 +119,12 @@ export default function CompanySettingsPage() {
     if (data) {
       company.setFieldsValue({ ...data, ppnRate: Number(data.ppnRate), ...data.taxProfile });
       payroll.setFieldsValue(data.payroll);
-      if (data.reporting) reporting.setFieldsValue(data.reporting);
+      if (data.reporting) {
+        reporting.setFieldsValue(data.reporting);
+        policy.setFieldsValue(data.reporting);
+      }
     }
-  }, [data, company, payroll, reporting]);
+  }, [data, company, payroll, reporting, policy]);
   const saveReporting = useAction((v: ReportingSettings) => patch('/settings/reporting', v), {
     success: 'Pengaturan pelaporan disimpan',
     invalidate: ['company', 'framework', 'statements', 'notes', 'fiscal', 'tax-thresholds', 'entity-profile'],
@@ -255,20 +260,60 @@ export default function CompanySettingsPage() {
     },
     {
       key: 'model',
-      label: 'Jenis usaha & persediaan',
+      label: 'Jenis usaha',
       icon: <ClusterOutlined />,
       children: (
-        <Space direction="vertical" size={16} style={{ ...wide, width: '100%' }}>
+        <div style={wide}>
           <BusinessModelCard />
-          <InventoryMethodCard />
-        </Space>
+        </div>
       ),
     },
     ...(can('accounting')
       ? [
           {
+            key: 'kebijakan',
+            label: 'Kebijakan akuntansi',
+            icon: <SolutionOutlined />,
+            children: (
+              <Space direction="vertical" size={16} style={{ ...wide, width: '100%' }}>
+                <Card>
+                  <Form form={policy} layout="vertical" onFinish={(v) => saveReporting.mutate({ framework: v.framework, capitalizationThreshold: v.capitalizationThreshold } as ReportingSettings)} requiredMark={false}>
+                  <Section title="Standar akuntansi" desc="Mengubah susunan laporan, catatan (CALK), akun yang ditampilkan, dan fitur yang tersedia.">
+                    <Form.Item
+                      name="framework"
+                      extra={
+                        framework === 'SAK_EMKM'
+                          ? 'SAK EMKM: untuk usaha mikro/kecil — laporan posisi keuangan, laba rugi, dan CALK; aset tetap dengan biaya historis.'
+                          : 'SAK EP (berlaku sejak 1 Januari 2025): untuk entitas tanpa akuntabilitas publik — 5 laporan lengkap dengan pembanding.'
+                      }
+                    >
+                      <Radio.Group optionType="button" buttonStyle="solid" options={toOptions(REPORTING_FRAMEWORK_LABELS)} />
+                    </Form.Item>
+                  </Section>
+                    <Divider />
+                  <Section title="Aset tetap">
+                    <Form.Item
+                      name="capitalizationThreshold"
+                      label="Batas kapitalisasi (per unit)"
+                      extra="Pembelian di bawah batas ini langsung dibebankan ke 'Beban Peralatan Kecil', tidak didaftarkan sebagai aset. Isi 0 untuk mengapitalisasi semuanya. Tanah selalu dikapitalisasi."
+                    >
+                      <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%', maxWidth: 320 }} prefix="Rp" />
+                    </Form.Item>
+                  </Section>
+                    <SaveBar loading={saveReporting.isPending} />
+                  </Form>
+                </Card>
+                <InventoryMethodCard />
+              </Space>
+            ),
+          },
+        ]
+      : []),
+    ...(can('accounting')
+      ? [
+          {
             key: 'pelaporan',
-            label: 'Pelaporan keuangan',
+            label: 'Pelaporan & PPh',
             icon: <AuditOutlined />,
             children: (
               <Card style={wide}>
@@ -285,19 +330,6 @@ export default function CompanySettingsPage() {
                   }
                 />
                 <Form form={reporting} layout="vertical" onFinish={(v) => saveReporting.mutate(v)} requiredMark={false}>
-                  <Section title="Standar akuntansi" desc="Mengubah susunan laporan, catatan (CALK), akun yang ditampilkan, dan fitur yang tersedia.">
-                    <Form.Item
-                      name="framework"
-                      extra={
-                        framework === 'SAK_EMKM'
-                          ? 'SAK EMKM: untuk usaha mikro/kecil — laporan posisi keuangan, laba rugi, dan CALK; aset tetap dengan biaya historis.'
-                          : 'SAK EP (berlaku sejak 1 Januari 2025): untuk entitas tanpa akuntabilitas publik — 5 laporan lengkap dengan pembanding.'
-                      }
-                    >
-                      <Radio.Group optionType="button" buttonStyle="solid" options={toOptions(REPORTING_FRAMEWORK_LABELS)} />
-                    </Form.Item>
-                  </Section>
-                  <Divider />
                   <Section title="Profil badan usaha" desc="Dipakai di CALK bagian Umum dan tanda tangan laporan.">
                     <Row gutter={16}>
                       <Col xs={24} md={12}>
@@ -342,16 +374,6 @@ export default function CompanySettingsPage() {
                         <InputNumber min={1980} max={2100} style={{ width: 200 }} />
                       </Form.Item>
                     )}
-                  </Section>
-                  <Divider />
-                  <Section title="Aset tetap">
-                    <Form.Item
-                      name="capitalizationThreshold"
-                      label="Batas kapitalisasi (per unit)"
-                      extra="Pembelian di bawah batas ini langsung dibebankan ke 'Beban Peralatan Kecil', tidak didaftarkan sebagai aset. Isi 0 untuk mengapitalisasi semuanya. Tanah selalu dikapitalisasi."
-                    >
-                      <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%', maxWidth: 320 }} prefix="Rp" />
-                    </Form.Item>
                   </Section>
                   <SaveBar loading={saveReporting.isPending} />
                 </Form>

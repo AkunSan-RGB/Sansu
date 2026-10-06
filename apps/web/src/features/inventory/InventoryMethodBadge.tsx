@@ -21,7 +21,7 @@ export default function InventoryMethodBadge() {
         {isAdmin && (
           <>
             {' · '}
-            <Link to="/settings/company?tab=model">
+            <Link to="/settings/company?tab=kebijakan">
               <SettingOutlined /> Ubah
             </Link>
           </>
