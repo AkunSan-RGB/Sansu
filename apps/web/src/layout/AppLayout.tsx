@@ -1,9 +1,11 @@
-import { AppstoreOutlined, CrownOutlined, MenuOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, AuditOutlined, CrownOutlined, MenuOutlined } from '@ant-design/icons';
 import { localize, type AppKey, type BusinessModel } from '@sansu/shared';
-import { Button, Drawer, Grid, Layout, Menu, type MenuProps, Spin, Typography } from 'antd';
+import { useQuery } from '@tanstack/react-query';
+import { Badge, Button, Drawer, Grid, Layout, Menu, type MenuProps, Spin, Typography } from 'antd';
 import { useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { BRAND } from '@sansu/shared';
+import { get } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import Logo from '@/brand/Logo';
 import ServerStatus from '@/components/ServerStatus';
@@ -231,6 +233,7 @@ const MENU: Group[] = [
   },
 
   // ---------- Administrasi ----------
+  { part: 'Administrasi', key: '/approvals', label: 'Persetujuan', icon: <AuditOutlined />, to: '/approvals' },
   {
     part: 'Administrasi',
     key: 'settings',
@@ -254,6 +257,12 @@ export default function AppLayout() {
   const { pathname, search } = useLocation();
   const { can, isAdmin } = useApps();
   const screens = Grid.useBreakpoint();
+  const pendingApprovals = useQuery({
+    queryKey: ['approvals', 'count'],
+    queryFn: () => get<{ count: number }>('/approvals/pending-count'),
+    enabled: !!me && ['OWNER', 'ADMIN'].includes(me.role),
+    refetchInterval: 60_000,
+  });
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [openState, setOpenState] = useState<{ for: string | undefined; keys: string[] }>();
@@ -294,7 +303,7 @@ export default function AppLayout() {
                 : { key: c.key, label: L(c.label) },
             ),
         }
-      : { key: g.key, icon: g.icon, label: L(g.label) };
+      : { key: g.key, icon: g.icon, label: g.key === '/approvals' && pendingApprovals.data?.count ? <Badge count={pendingApprovals.data.count} offset={[14, 2]}>{L(g.label)}</Badge> : L(g.label) };
   // Menu utama dikelompokkan per bagian alur kerja (judul kecil hanya tampil saat sidebar terbuka)
   const parts = [...new Set(visible.map((g) => g.part))];
   const items: MenuProps['items'] = [

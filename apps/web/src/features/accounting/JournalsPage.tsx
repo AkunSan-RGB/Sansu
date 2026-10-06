@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { MinusCircleOutlined, PlayCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { JOURNAL_SOURCE_LABELS, type JournalSource, RECURRING_FREQUENCY_LABELS, toOptions } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
@@ -199,6 +199,10 @@ function JournalList() {
             { title: 'No. bukti', dataIndex: 'reference', render: (r) => r ?? <Typography.Text type="secondary">—</Typography.Text> },
             { title: 'Jenis', dataIndex: 'sourceType', render: (s: JournalSource) => <Tag color={SOURCE_COLOR[s]}>{JOURNAL_SOURCE_LABELS[s] ?? s}</Tag> },
             { title: 'Nilai', align: 'right', render: (_, j) => fmtMoney(j.lines.reduce((a, l) => a + Number(l.debit), 0)) },
+            {
+              title: 'Dokumen asal',
+              render: (_, j) => (j.docRoute ? <Link to={j.docRoute}>Buka dokumen</Link> : <Typography.Text type="secondary">—</Typography.Text>),
+            },
             {
               render: (_, j) =>
                 REVERSIBLE.includes(j.sourceType) &&

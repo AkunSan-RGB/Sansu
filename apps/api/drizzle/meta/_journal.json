@@ -169,6 +169,13 @@
       "when": 1791300660957,
       "tag": "0023_delivery_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791301886484,
+      "tag": "0024_approvals",
+      "breakpoints": true
     }
   ]
 }

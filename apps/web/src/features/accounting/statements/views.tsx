@@ -1,11 +1,14 @@
 import { Alert, Descriptions, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import { Link } from 'react-router-dom';
 import type { CashFlowStatement, EquityStatement, FinancialPosition, FullTrialBalance, IncomeStatement, StatementLine, VatReport, Worksheet } from '@/api/types';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { Amount, longDate } from './format';
 
 type Row = {
   key: string;
+  /** Akun asal baris rincian: label menjadi tautan ke buku besar */
+  accountId?: string;
   label: string;
   note?: string;
   amount?: string;
@@ -14,7 +17,7 @@ type Row = {
 };
 
 /** Tabel laporan bergaya laporan keuangan: kolom pos, catatan, tahun berjalan, pembanding */
-function StatementTable({ rows, current, previous, compare }: { rows: Row[]; current: string; previous: string; compare: boolean }) {
+function StatementTable({ rows, current, previous, compare, ledgerRange }: { rows: Row[]; current: string; previous: string; compare: boolean; ledgerRange: { from: string; to: string } }) {
   const strong = (r: Row) => ['subtotal', 'total', 'grand'].includes(r.kind);
   const columns: ColumnsType<Row> = [
     {
@@ -22,7 +25,14 @@ function StatementTable({ rows, current, previous, compare }: { rows: Row[]; cur
       dataIndex: 'label',
       render: (l: string, r) => {
         if (r.kind === 'header') return <Typography.Text strong>{l.toUpperCase()}</Typography.Text>;
-        if (r.kind === 'account') return <Typography.Text type="secondary" style={{ paddingLeft: 32 }}>{l}</Typography.Text>;
+        if (r.kind === 'account')
+          return r.accountId ? (
+            <Link to={`/ledger?accountId=${r.accountId}&from=${ledgerRange.from}&to=${ledgerRange.to}`} style={{ paddingLeft: 32 }} title="Buka buku besar akun ini">
+              {l}
+            </Link>
+          ) : (
+            <Typography.Text type="secondary" style={{ paddingLeft: 32 }}>{l}</Typography.Text>
+          );
         if (r.kind === 'grand') return <Typography.Text strong>{l.toUpperCase()}</Typography.Text>;
         if (strong(r)) return <Typography.Text strong>{l}</Typography.Text>;
         return <span style={{ paddingLeft: 16 }}>{l}</span>;
@@ -64,7 +74,7 @@ const lineRows = (lines: StatementLine[], refs: Record<string, string>, detail: 
     const kind: Row['kind'] = l.kind === 'group' ? 'line' : l.kind === 'total' ? 'grand' : 'subtotal';
     const row: Row = { key: `${prefix}${l.key}`, label: l.label, note: refs[l.key], amount: l.amount, compare: l.compare, kind };
     const acc: Row[] = detail
-      ? (l.accounts ?? []).map((a) => ({ key: `${prefix}${l.key}-${a.id}`, label: `${a.code} · ${a.name}`, amount: a.amount, compare: a.compare, kind: 'account' }))
+      ? (l.accounts ?? []).map((a) => ({ key: `${prefix}${l.key}-${a.id}`, accountId: a.id, label: `${a.code} · ${a.name}`, amount: a.amount, compare: a.compare, kind: 'account' }))
       : [];
     return [row, ...acc];
   });
@@ -93,7 +103,7 @@ export function PositionView({ d, refs, compare, detail }: { d: FinancialPositio
   return (
     <>
       {!d.balanced && <Alert type="error" showIcon message="Aset tidak sama dengan liabilitas + ekuitas — buka Cek Kesehatan untuk mencari penyebabnya." style={{ marginBottom: 12 }} />}
-      <StatementTable rows={rows} current={longDate(d.asOf)} previous={longDate(d.compareAsOf)} compare={compare} />
+      <StatementTable rows={rows} current={longDate(d.asOf)} previous={longDate(d.compareAsOf)} compare={compare} ledgerRange={{ from: `${d.asOf.slice(0, 4)}-01-01`, to: d.asOf }} />
     </>
   );
 }
@@ -131,7 +141,7 @@ export function IncomeView({ d, refs, compare, detail }: { d: IncomeStatement; r
   return (
     <>
       {periodNote(d, compare)}
-      <StatementTable rows={rows} current={periodText(d.period)} previous={periodText(d.comparePeriod)} compare={compare} />
+      <StatementTable rows={rows} current={periodText(d.period)} previous={periodText(d.comparePeriod)} compare={compare} ledgerRange={d.period} />
     </>
   );
 }
@@ -211,7 +221,7 @@ export function CashFlowView({ d, compare }: { d: CashFlowStatement; compare: bo
         />
       )}
       {periodNote(d, compare)}
-      <StatementTable rows={rows} current={p(d.period)} previous={p(d.comparePeriod)} compare={compare} />
+      <StatementTable rows={rows} current={p(d.period)} previous={p(d.comparePeriod)} compare={compare} ledgerRange={d.period} />
     </>
   );
 }

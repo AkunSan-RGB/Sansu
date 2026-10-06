@@ -13,6 +13,7 @@ import { CommonModule } from './common/common.module';
 import { DbExceptionFilter } from './common/filters/db-exception.filter';
 import { DbModule } from './db/db.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
+import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { DashboardModule } from './modules/dashboard/dashboard';
 import { HealthModule } from './modules/health/health';
@@ -65,6 +66,7 @@ import { ProductionModule } from './modules/production/production.module';
     ProductionModule,
     SalesModule,
     PurchasingModule,
+    ApprovalsModule,
     ReturnsModule,
     CashModule,
     PlatformModule,

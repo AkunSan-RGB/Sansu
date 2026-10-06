@@ -3,7 +3,7 @@ import { LEGAL_FORM_LABELS, REPORTING_FRAMEWORK_LABELS, TAX_SCHEME_LABELS, toOpt
 import { Alert, Button, Card, Col, Form, Input, InputNumber, Radio, Row, Select, Switch } from 'antd';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { get, patch } from '@/api/client';
+import { get, patch, put } from '@/api/client';
 import { useAction } from '@/api/queries';
 import type { CompanySettings, PayrollSettings, ReportingSettings } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
@@ -14,6 +14,37 @@ import BrandingCard from './BrandingCard';
 import BusinessModelCard from './BusinessModelCard';
 import EntityProfileWizard from './EntityProfileWizard';
 import { t } from '@/lib/terms';
+
+/** Batas nilai yang memerlukan persetujuan pemilik / admin (0 = nonaktif) */
+function ApprovalPolicyCard() {
+  const [form] = Form.useForm<{ purchaseOrder: number; manualJournal: number }>();
+  const policy = useQuery({ queryKey: ['approvals', 'policy'], queryFn: () => get<{ purchaseOrder: number; manualJournal: number }>('/approvals/policy') });
+  useEffect(() => {
+    if (policy.data) form.setFieldsValue(policy.data);
+  }, [policy.data, form]);
+  const save = useAction((v: { purchaseOrder: number; manualJournal: number }) => put('/approvals/policy', v), { success: 'Batas persetujuan disimpan', invalidate: ['approvals'] });
+  return (
+    <Card title="Persetujuan transaksi besar">
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="Transaksi bernilai di atas batas dari peran selain pemilik dan admin menunggu persetujuan. Isi 0 untuk mematikan."
+      />
+      <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)} initialValues={{ purchaseOrder: 0, manualJournal: 0 }}>
+        <Form.Item name="purchaseOrder" label="Pesanan pembelian dengan total mulai dari" extra="Konfirmasi pesanan oleh keuangan menunggu persetujuan.">
+          <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
+        </Form.Item>
+        <Form.Item name="manualJournal" label="Jurnal manual dengan total debit mulai dari" extra="Jurnal baru diposting setelah disetujui.">
+          <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
+        </Form.Item>
+        <Button type="primary" htmlType="submit" loading={save.isPending}>
+          Simpan
+        </Button>
+      </Form>
+    </Card>
+  );
+}
 
 export default function CompanySettingsPage() {
   const { can } = useApps();
@@ -164,6 +195,9 @@ export default function CompanySettingsPage() {
         </Col>
         <Col xs={24} lg={12}>
           <BrandingCard />
+        </Col>
+        <Col xs={24} lg={12}>
+          <ApprovalPolicyCard />
         </Col>
         {can('accounting') && (
           <Col xs={24} lg={12}>

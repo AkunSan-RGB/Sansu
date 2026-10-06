@@ -332,6 +332,34 @@ export const salesOrderLines = pgTable('sales_order_lines', {
   priceInclVat: money('price_incl_vat'),
 });
 
+/** Permintaan persetujuan atas transaksi bernilai besar (pesanan pembelian, jurnal manual) dari peran yang tidak berwenang */
+export const approvalRequests = pgTable(
+  'approval_requests',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL'>().notNull(),
+    /** Dokumen yang dimintakan persetujuan (PO); kosong untuk jurnal manual yang baru diposting setelah disetujui */
+    refId: text('ref_id'),
+    title: text('title').notNull(),
+    amount: money('amount').notNull(),
+    /** Isi permintaan yang dijalankan saat disetujui (jurnal manual) */
+    payload: jsonb('payload').$type<Record<string, unknown>>(),
+    status: text('status').$type<'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'>().notNull().default('PENDING'),
+    requestedById: uuid('requested_by_id').notNull(),
+    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+    decidedById: uuid('decided_by_id'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
+    /** Nomor dokumen hasil persetujuan (mis. nomor jurnal) */
+    resultRef: text('result_ref'),
+  },
+  (t) => [
+    index('approval_requests_status_idx').on(t.tenantId, t.status, t.requestedAt),
+    uniqueIndex('approval_requests_pending_uq').on(t.tenantId, t.kind, t.refId).where(sql`status IN ('PENDING', 'APPROVED') AND ref_id IS NOT NULL`),
+  ],
+);
+
 /** Surat jalan: pengiriman barang atas pesanan penjualan. Stok keluar dan HPP dicatat saat surat jalan (atau saat faktur bila langsung difakturkan). */
 export const deliveryOrders = pgTable(
   'delivery_orders',

@@ -341,6 +341,8 @@ export interface JournalEntry {
   sourceType: JournalSource;
   reference: string | null;
   reversalOfId: string | null;
+  /** Halaman dokumen asal jurnal (faktur, surat jalan, dst.); null bila tidak ada */
+  docRoute?: string | null;
   lines: { id: string; debit: string; credit: string; account: { code: string; name: string } }[];
 }
 
@@ -498,6 +500,7 @@ export interface LedgerReport {
     date: string;
     description: string;
     sourceType: JournalSource;
+    docRoute?: string | null;
     debit: string;
     credit: string;
     balance: string;

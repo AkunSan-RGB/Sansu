@@ -24,6 +24,9 @@ npm run test:e2e                    # e2e api: mereset dan memigrasi database `a
 | Bagan akun per jenis usaha | `coa-per-model` | Akun khusus, nama inti, relevansi (akun tak terpakai dinonaktifkan) per jenis usaha; nama buatan pengguna tidak tertimpa |
 | Fitur pajak per usaha | `tax-features` | Menu dan kewajiban pajak mengikuti jenis usaha, status PKP, dan skema PPh |
 | Rantai dokumen penjualan | `delivery-chain` | Penawaran → pesanan → surat jalan → faktur → bayar → retur; stok, HPP, piutang, dan jejak dokumen cocok; jalur surat jalan juga masuk uji acak |
+| Keterpaduan antar modul | `integration-cycle` | Siklus khas tiap jenis usaha; semua laporan, daftar piutang/utang, stok, dan kas saling cocok setelah setiap tahap |
+| Penelusuran | `drilldown` | Buku besar dan jurnal membuka dokumen asal |
+| Persetujuan | `approvals` | Batas nilai, keputusan, penolakan, pembatalan, dan persetujuan serentak |
 | Saldo awal | `opening-balance` | Akun kontrol (piutang, utang, persediaan, penyeimbang) tidak bisa diisi manual; ringkasan kesiapan dan peringatan |
 
 ## Uji acak invarian
