@@ -45,7 +45,7 @@ const subItems = (c: Sub[] = []): Item[] => c.flatMap((x) => ('section' in x ? x
 /**
  * Sidebar disusun mengikuti alur kerja usaha:
  * jual (calon pelanggan → pesanan → faktur → retur) → beli & stok → uang masuk/keluar →
- * pembukuan (persiapan → harian → akhir periode) → pajak → SDM → administrasi.
+ * pembukuan (persiapan → harian → aset & penyusutan → akhir periode) → pajak → SDM → administrasi.
  * Submenu juga berurutan dari langkah pertama ke terakhir; data master di akhir.
  */
 const MENU: Group[] = [
@@ -173,8 +173,11 @@ const MENU: Group[] = [
         section: 'Harian',
         items: [
           { key: '/journals', label: 'Jurnal umum' },
-          { key: '/fixed-assets', label: 'Aset tetap' },
         ],
+      },
+      {
+        section: 'Aset & penyusutan',
+        items: [{ key: '/fixed-assets', label: 'Aset tetap' }],
       },
       {
         section: 'Akhir periode',
