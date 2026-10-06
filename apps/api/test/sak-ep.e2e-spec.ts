@@ -134,7 +134,13 @@ describe('Akuntansi SAK EP (e2e)', () => {
     expect(line(r, 'OTHER_EXPENSE')).toBe(-1_000_000); // rugi pelepasan
     expect(line(r, 'FINANCE_INCOME')).toBe(500_000);
     expect(line(r, 'PROFIT_BEFORE_TAX')).toBe(12_250_000);
-    expect(r.comparePeriod).toEqual({ from: '2025-01-01', to: '2025-10-04' });
+    // periode dari 1 Januari: pembanding tahun buku lalu penuh, berakhir 31 Desember seperti pembanding posisi keuangan
+    expect(r.comparePeriod).toEqual({ from: '2025-01-01', to: '2025-12-31' });
+    // periode lain dibandingkan dengan rentang yang sama tahun lalu
+    const mid = (await get('/api/accounting/statements/income?from=2026-03-01&to=2026-06-30').expect(200)).body;
+    expect(mid.comparePeriod).toEqual({ from: '2025-03-01', to: '2025-06-30' });
+    const pos = (await get('/api/accounting/statements/financial-position?asOf=2026-10-04').expect(200)).body;
+    expect(pos.compareAsOf).toBe(r.comparePeriod.to);
     const emkm = (await get(`/api/accounting/statements/income${P}&framework=SAK_EMKM`).expect(200)).body;
     expect(line(emkm, 'NET_PROFIT')).toBe(12_250_000);
   });

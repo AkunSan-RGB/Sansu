@@ -75,13 +75,17 @@ export class StatementsService {
     return (BUSINESS_MODEL_KEYS as readonly string[]).includes(m) ? (m as BusinessModel) : 'DAGANG';
   }
 
-  /** Normalisasi parameter periode: bawaan awal tahun berjalan s/d hari ini, pembanding tahun lalu */
+  /**
+   * Normalisasi parameter periode: bawaan awal tahun berjalan s/d hari ini.
+   * Pembanding: bila periode dimulai 1 Januari, tahun buku lalu penuh (1 Jan – 31 Des) sehingga kolom pembanding laba rugi
+   * berakhir di 31 Desember seperti pembanding laporan posisi keuangan; periode lain dibandingkan dengan rentang yang sama tahun lalu.
+   */
   ranges(q: { from?: string; to?: string; compareFrom?: string; compareTo?: string }) {
     const to = toDocDate(q.to);
     const from = q.from ? toDocDate(q.from) : `${to.slice(0, 4)}-01-01`;
     const cmp: Range = {
       from: q.compareFrom ? toDocDate(q.compareFrom) : previousYear(from),
-      to: q.compareTo ? toDocDate(q.compareTo) : previousYear(to),
+      to: q.compareTo ? toDocDate(q.compareTo) : from.slice(5) === '01-01' ? `${Number(from.slice(0, 4)) - 1}-12-31` : previousYear(to),
     };
     return { cur: { from, to }, cmp };
   }
