@@ -54,6 +54,7 @@ export const SYS = {
   DIRECT_LABOR: 'DIRECT_LABOR',
   FACTORY_OVERHEAD: 'FACTORY_OVERHEAD',
   APPLIED_PRODUCTION_COST: 'APPLIED_PRODUCTION_COST',
+  SMALL_ASSET_EXPENSE: 'SMALL_ASSET_EXPENSE',
 } as const;
 export type SystemKey = (typeof SYS)[keyof typeof SYS];
 
@@ -177,6 +178,7 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '6-5000', name: 'Beban Penyusutan', type: 'EXPENSE', parent: '6-0000', key: SYS.DEPRECIATION_EXPENSE, group: 'ADMIN_EXPENSE' },
   { code: '6-5100', name: 'Beban Amortisasi', type: 'EXPENSE', parent: '6-0000', group: 'ADMIN_EXPENSE' },
   { code: '6-6000', name: 'Beban Perlengkapan Kantor', type: 'EXPENSE', parent: '6-0000', group: 'ADMIN_EXPENSE' },
+  { code: '6-6100', name: 'Beban Peralatan Kecil (di Bawah Batas Kapitalisasi)', type: 'EXPENSE', parent: '6-0000', key: SYS.SMALL_ASSET_EXPENSE, group: 'ADMIN_EXPENSE' },
   { code: '6-7000', name: 'Beban Perbaikan & Pemeliharaan', type: 'EXPENSE', parent: '6-0000', group: 'ADMIN_EXPENSE' },
   { code: '6-7100', name: 'Beban Asuransi', type: 'EXPENSE', parent: '6-0000', group: 'ADMIN_EXPENSE' },
   { code: '6-7200', name: 'Beban Jasa Profesional', type: 'EXPENSE', parent: '6-0000', group: 'ADMIN_EXPENSE' },

@@ -163,6 +163,13 @@ export default function CompanySettingsPage() {
                     <InputNumber min={1980} max={2100} style={{ width: '100%' }} />
                   </Form.Item>
                 )}
+                <Form.Item
+                  name="capitalizationThreshold"
+                  label="Batas kapitalisasi aset tetap (per unit)"
+                  extra="Pembelian aset di bawah batas ini langsung dibebankan ke 'Beban Peralatan Kecil', tidak didaftarkan sebagai aset. Isi 0 untuk mengapitalisasi semuanya. Tanah selalu dikapitalisasi."
+                >
+                  <InputNumber min={0} max={1_000_000_000_000} precision={0} step={500_000} style={{ width: '100%' }} prefix="Rp" />
+                </Form.Item>
                 <Button type="primary" htmlType="submit" loading={saveReporting.isPending}>
                   Simpan pengaturan pelaporan
                 </Button>

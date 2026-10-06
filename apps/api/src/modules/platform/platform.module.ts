@@ -115,6 +115,12 @@ export class ReportingSettingsDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(80) directorTitle?: string;
   @ApiPropertyOptional({ enum: TAX_SCHEMES }) @IsOptional() @IsIn(TAX_SCHEMES) taxScheme?: 'GENERAL' | 'FINAL_UMKM';
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1980) @Max(2100) taxRegisteredYear?: number;
+  @ApiPropertyOptional({ description: 'Batas kapitalisasi aset tetap (Rp per unit); 0 = kapitalisasi semua' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1_000_000_000_000)
+  capitalizationThreshold?: number;
 }
 
 export class PayrollSettingsDto {

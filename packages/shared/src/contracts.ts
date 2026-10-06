@@ -574,6 +574,11 @@ export interface ReportingSettings {
   taxScheme: 'GENERAL' | 'FINAL_UMKM';
   /** Tahun mulai terdaftar sebagai WP (untuk batas waktu PPh final) */
   taxRegisteredYear: number | null;
+  /**
+   * Batas kapitalisasi aset tetap (Rp per unit). Pengeluaran per unit di bawah batas langsung dibebankan,
+   * bukan dicatat sebagai aset. 0 = semua pembelian aset dikapitalisasi.
+   */
+  capitalizationThreshold: number;
 }
 
 /**

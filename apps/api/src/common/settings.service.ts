@@ -27,6 +27,7 @@ export const DEFAULT_REPORTING: ReportingSettings = {
   directorTitle: 'Direktur',
   taxScheme: 'GENERAL',
   taxRegisteredYear: null,
+  capitalizationThreshold: 0,
 };
 
 /** Bawaan: PKP, harga kasir belum termasuk PPN (perusahaan lama tetap seperti sebelumnya) */

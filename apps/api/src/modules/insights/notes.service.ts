@@ -154,6 +154,11 @@ export class NotesService {
         {
           title: 'f. Aset tetap',
           paragraphs: [
+            ...(reporting.capitalizationThreshold > 0
+              ? [
+                  `Pengeluaran untuk perolehan aset tetap dikapitalisasi bila harga perolehan per unit mencapai ${fmtRp(reporting.capitalizationThreshold)} atau lebih (batas kapitalisasi). Pengeluaran per unit di bawah batas tersebut langsung dibebankan pada laba rugi periode berjalan. Tanah selalu dikapitalisasi tanpa memperhatikan batas kapitalisasi.`,
+                ]
+              : []),
             'Aset tetap diukur menggunakan model biaya, yaitu harga perolehan dikurangi akumulasi penyusutan dan akumulasi rugi penurunan nilai. Tanah tidak disusutkan. Penyusutan dimulai pada bulan aset siap digunakan dengan taksiran masa manfaat sebagai berikut:',
           ],
           table: policyTable,

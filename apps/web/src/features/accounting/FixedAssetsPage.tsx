@@ -5,6 +5,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Col,
   Descriptions,
   Drawer,
@@ -26,7 +27,7 @@ import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { get, patch, post } from '@/api/client';
 import { LEDGER_KEYS, useAccounts, useAction } from '@/api/queries';
-import type { AssetCategory, FixedAsset } from '@/api/types';
+import type { AssetCategory, CompanySettings, FixedAsset } from '@/api/types';
 import CashAccountSelect from '@/components/CashAccountSelect';
 import ExportButtons from '@/components/ExportButtons';
 import PageHeader from '@/layout/PageHeader';
@@ -43,6 +44,11 @@ function AssetForm({ categories, onDone }: { categories: AssetCategory[]; onDone
   const funding = Form.useWatch('funding', form);
   const catId = Form.useWatch('categoryId', form);
   const cat = categories.find((c) => c.id === catId);
+  const cost = Form.useWatch('cost', form) as number | undefined;
+  const company = useQuery({ queryKey: ['company'], queryFn: () => get<CompanySettings>('/settings/company') });
+  const threshold = company.data?.reporting?.capitalizationThreshold ?? 0;
+  // Sama dengan aturan server: aset baru di bawah batas ditolak, kecuali tanah / aset lama / dipaksa
+  const belowThreshold = threshold > 0 && !!cost && cost < threshold && funding !== 'EXISTING' && !!cat && cat.method !== 'NONE' && cat.fiscalGroup !== 'LAND';
   const create = useAction(
     (v: Record<string, unknown>) =>
       post<FixedAsset>('/assets', {
@@ -125,6 +131,22 @@ function AssetForm({ categories, onDone }: { categories: AssetCategory[]; onDone
           ]}
         />
       </Form.Item>
+      {belowThreshold && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`Harga perolehan di bawah batas kapitalisasi ${fmtMoney(threshold)}`}
+          description={
+            <>
+              Pengeluaran sekecil ini lazimnya langsung dibebankan (catat lewat Tagihan Pembelian atau Jurnal). Jika tetap ingin menjadikannya aset:
+              <Form.Item name="ignoreCapitalizationThreshold" valuePropName="checked" style={{ marginBottom: 0 }}>
+                <Checkbox>Tetap kapitalisasi sebagai aset tetap</Checkbox>
+              </Form.Item>
+            </>
+          }
+        />
+      )}
       {funding === 'CASH' && (
         <Form.Item name="cashAccountId" label="Dibayar dari" rules={[{ required: true }]}>
           <CashAccountSelect />

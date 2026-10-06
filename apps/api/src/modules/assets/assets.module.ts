@@ -13,12 +13,13 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags, PartialType } from '@nestjs/swagger';
-import { IsDateString, IsIn, IsInt, IsNumberString, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsInt, IsNumberString, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
 import { DEPRECIATION_METHODS, FISCAL_ASSET_GROUPS, type FiscalAssetGroup } from '@sansu/shared';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
+import { SettingsService } from '../../common/settings.service';
 import { toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
@@ -59,6 +60,10 @@ export class CreateAssetDto {
   @ApiPropertyOptional({ description: 'Aset lama: akumulasi penyusutan s/d sebelum mulai disusutkan di SANSU' }) @IsOptional() @IsNumberString() openingAccumulated?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() location?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() notes?: string;
+  @ApiPropertyOptional({ description: 'Tetap kapitalisasi walau di bawah batas kapitalisasi perusahaan' })
+  @IsOptional()
+  @IsBoolean()
+  ignoreCapitalizationThreshold?: boolean;
 }
 
 export class UpdateAssetDto {
@@ -87,7 +92,13 @@ export class AssetsService {
     @InjectDb() private readonly db: Db,
     private readonly posting: PostingService,
     private readonly audit: AuditService,
+    private readonly settings: SettingsService,
   ) {}
+
+  /** Tanah & kategori tak disusutkan selalu dikapitalisasi, berapa pun nilainya */
+  isThresholdExempt(cat: { method: string; fiscalGroup: string }) {
+    return cat.method === 'NONE' || cat.fiscalGroup === 'LAND';
+  }
 
   listCategories(tenantId: string) {
     return this.db.query.assetCategories.findMany({
@@ -196,6 +207,15 @@ export class AssetsService {
       const opening = money(dto.openingAccumulated ?? '0');
       if (dto.funding !== 'EXISTING' && opening.gt(0)) throw new BadRequestException('Akumulasi awal hanya untuk aset lama');
       if (opening.gt(cost.minus(residual))) throw new BadRequestException('Akumulasi awal melebihi nilai yang dapat disusutkan');
+      if (dto.funding !== 'EXISTING' && !dto.ignoreCapitalizationThreshold && !this.isThresholdExempt(cat)) {
+        const { capitalizationThreshold: threshold } = await this.settings.reporting(tx, user.tenantId);
+        if (threshold > 0 && cost.lt(threshold)) {
+          throw new BadRequestException(
+            `Harga perolehan Rp${cost.toNumber().toLocaleString('id-ID')} di bawah batas kapitalisasi Rp${threshold.toLocaleString('id-ID')}. ` +
+              'Catat sebagai beban (Tagihan Pembelian → baris Aset otomatis dibebankan), atau pilih "tetap kapitalisasi".',
+          );
+        }
+      }
       const acquisitionDate = toDocDate(dto.acquisitionDate);
       const depStart = `${toDocDate(dto.depreciationStart ?? dto.acquisitionDate).slice(0, 7)}-01`;
       const asset = await this.insertAsset(tx, user.tenantId, cat, {

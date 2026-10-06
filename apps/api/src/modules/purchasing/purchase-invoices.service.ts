@@ -3,7 +3,7 @@ import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { AuditService } from '../../common/audit/audit.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
-import { taxProfileOf } from '../../common/settings.service';
+import { SettingsService, taxProfileOf } from '../../common/settings.service';
 import { addDays, diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, qty4, ZERO } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
@@ -25,6 +25,9 @@ import { StockService } from '../inventory/stock.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { CreateBillDto, CreatePurchaseInvoiceDto, CreateSupplierPaymentDto, PurchaseInvoiceQueryDto } from './purchasing.dto';
 
+/** Satu aset per unit (maks. 50 unit per baris) agar penyusutan & pelepasannya bisa per barang */
+const assetUnitCount = (qty: Dec) => (qty.isInteger() && qty.lte(50) ? qty.toNumber() : 1);
+
 @Injectable()
 export class PurchaseInvoicesService {
   constructor(
@@ -35,6 +38,7 @@ export class PurchaseInvoicesService {
     private readonly orders: PurchaseOrdersService,
     private readonly audit: AuditService,
     private readonly assets: AssetsService,
+    private readonly settings: SettingsService,
   ) {}
 
   list(tenantId: string, q: PurchaseInvoiceQueryDto) {
@@ -191,18 +195,20 @@ export class PurchaseInvoicesService {
         if (!p) throw new BadRequestException('Proyek tidak ditemukan');
       }
 
-      type Line = { dto: (typeof dto.lines)[number]; qty: Dec; total: Dec; debitAccountId: string };
+      type Line = { dto: (typeof dto.lines)[number]; qty: Dec; total: Dec; debitAccountId: string; exempt: boolean };
       const lines: Line[] = [];
       for (const l of dto.lines) {
         const q = D(l.qty ?? '1');
         const price = money(l.price);
         if (q.lte(0) || price.lte(0)) throw new BadRequestException(`Jumlah & harga baris "${l.description}" harus > 0`);
         let debitAccountId: string;
+        let exempt = false;
         if (l.type === 'ASSET') {
           if (!l.assetCategoryId) throw new BadRequestException(`Pilih kategori aset untuk "${l.description}"`);
           const cat = await this.assets.category(user.tenantId, l.assetCategoryId);
           if (!cat) throw new BadRequestException('Kategori aset tidak ditemukan');
           debitAccountId = cat.assetAccountId;
+          exempt = this.assets.isThresholdExempt(cat);
         } else {
           if (!l.accountId) throw new BadRequestException(`Pilih akun untuk "${l.description}"`);
           const [acc] = await tx.select().from(accounts).where(and(eq(accounts.id, l.accountId), eq(accounts.tenantId, user.tenantId)));
@@ -210,7 +216,7 @@ export class PurchaseInvoicesService {
           if (acc.isCashAccount) throw new BadRequestException('Akun kas/bank tidak bisa dipakai di baris tagihan');
           debitAccountId = acc.id;
         }
-        lines.push({ dto: l, qty: q, total: money(q.times(price)), debitAccountId });
+        lines.push({ dto: l, qty: q, total: money(q.times(price)), debitAccountId, exempt });
       }
       const subtotal = lines.reduce<Dec>((a, l) => a.plus(l.total), ZERO);
       const tax = dto.withVat === false ? ZERO : money(subtotal.times(tenant.ppnRate).div(100));
@@ -228,6 +234,20 @@ export class PurchaseInvoicesService {
           costs[i] = l.total.plus(share);
           left = left.minus(share);
         });
+      }
+
+      // Batas kapitalisasi: harga perolehan per unit (sudah termasuk PPN yang tidak dapat dikreditkan)
+      // di bawah batas → langsung beban, tidak didaftarkan sebagai aset
+      const { capitalizationThreshold: threshold } = await this.settings.reporting(tx, user.tenantId);
+      const expensed = lines.map((l, i) => l.dto.type === 'ASSET' && !l.exempt && threshold > 0 && costs[i].div(assetUnitCount(l.qty)).lt(threshold));
+      let smallAssetAccountId: string | undefined;
+      if (expensed.some(Boolean)) {
+        const [small] = await tx
+          .select({ id: accounts.id })
+          .from(accounts)
+          .where(and(eq(accounts.tenantId, user.tenantId), eq(accounts.systemKey, SYS.SMALL_ASSET_EXPENSE)));
+        if (!small) throw new BadRequestException('Akun "Beban Peralatan Kecil" belum ada di bagan akun');
+        smallAssetAccountId = small.id;
       }
 
       const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_INVOICE', date);
@@ -263,7 +283,11 @@ export class PurchaseInvoicesService {
         reference: dto.supplierInvoiceNo,
         createdById: user.sub,
         lines: [
-          ...lines.map((l, i) => ({ accountId: l.debitAccountId, debit: costs[i], memo: l.dto.description })),
+          ...lines.map((l, i) =>
+            expensed[i]
+              ? { accountId: smallAssetAccountId, debit: costs[i], memo: `${l.dto.description} (di bawah batas kapitalisasi, dibebankan)` }
+              : { accountId: l.debitAccountId, debit: costs[i], memo: l.dto.description },
+          ),
           { key: SYS.VAT_IN, debit: capitalize ? 0 : tax },
           { key: SYS.AP, credit: total },
           { key: dto.withholdingType === 'PPH4_2' ? SYS.PPH4_2_PAYABLE : SYS.PPH23_PAYABLE, credit: withholding },
@@ -272,10 +296,10 @@ export class PurchaseInvoicesService {
 
       for (const [idx, l] of lines.entries()) {
         let assetId: string | undefined;
-        if (l.dto.type === 'ASSET') {
+        if (l.dto.type === 'ASSET' && !expensed[idx]) {
           // Satu aset per unit agar penyusutan & pelepasannya bisa per barang
           const lineCost = costs[idx];
-          const n = l.qty.isInteger() && l.qty.lte(50) ? l.qty.toNumber() : 1;
+          const n = assetUnitCount(l.qty);
           const unitCost = n > 1 ? money(lineCost.div(n)) : lineCost;
           for (let i = 0; i < n; i++) {
             const cost = i === n - 1 ? lineCost.minus(unitCost.times(n - 1)) : unitCost;
@@ -296,7 +320,7 @@ export class PurchaseInvoicesService {
         await tx.insert(purchaseInvoiceLines).values({
           invoiceId: invoice.id,
           lineType: l.dto.type,
-          accountId: l.dto.type === 'EXPENSE' ? l.debitAccountId : null,
+          accountId: l.dto.type === 'EXPENSE' ? l.debitAccountId : expensed[idx] ? smallAssetAccountId : null,
           assetCategoryId: l.dto.assetCategoryId,
           assetId,
           description: l.dto.description,
@@ -317,9 +341,9 @@ export class PurchaseInvoicesService {
         entityId: invoice.id,
         data: { number, journal: journal.number },
       });
-      return { id: invoice.id, journalNumber: journal.number };
+      return { id: invoice.id, journalNumber: journal.number, expensedLines: expensed.filter(Boolean).length };
     });
-    return { ...(await this.get(user.tenantId, result.id)), journalNumber: result.journalNumber };
+    return { ...(await this.get(user.tenantId, result.id)), journalNumber: result.journalNumber, expensedLines: result.expensedLines };
   }
 
   /** Pembayaran hutang: Dr Hutang Usaha | Cr Kas/Bank */
