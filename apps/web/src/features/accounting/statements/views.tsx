@@ -14,6 +14,8 @@ type Row = {
   amount?: string;
   compare?: string;
   kind: 'header' | 'line' | 'account' | 'subtotal' | 'total' | 'grand' | 'spacer';
+  /** Saat dicetak, baris ini memulai halaman baru */
+  breakBefore?: boolean;
 };
 
 /** Tabel laporan bergaya laporan keuangan: kolom pos, catatan, tahun berjalan, pembanding */
@@ -64,7 +66,7 @@ function StatementTable({ rows, current, previous, compare, ledgerRange }: { row
       dataSource={rows}
       columns={columns}
       scroll={{ x: 560 }}
-      rowClassName={(r) => `st-${r.kind}`}
+      rowClassName={(r) => `st-${r.kind}${r.breakBefore ? ' st-pagebreak' : ''}`}
     />
   );
 }
@@ -85,7 +87,9 @@ export function PositionView({ d, refs, compare, detail, signer }: { d: Financia
   const isLiab = (k: string) => k.endsWith('_LIABILITY');
   d.sections.forEach((s, i) => {
     const next = d.sections[i + 1]?.key ?? '';
-    rows.push({ key: `h-${s.key}`, label: s.label, kind: 'header' });
+    // cetak: aset di halaman pertama, liabilitas dan ekuitas mulai di halaman kedua
+    const prevKey = d.sections[i - 1]?.key ?? '';
+    rows.push({ key: `h-${s.key}`, label: s.label, kind: 'header', breakBefore: isLiab(s.key) && !isLiab(prevKey) });
     rows.push(...lineRows(s.lines, refs, detail, `${s.key}-`));
     rows.push({ key: `t-${s.key}`, label: `Jumlah ${s.label.toLowerCase()}`, amount: s.total, compare: s.compareTotal, kind: 'total' });
     if (isAsset(s.key) && !isAsset(next)) rows.push({ key: 'g-assets', label: 'Jumlah aset', amount: d.totals.assets.amount, compare: d.totals.assets.compare, kind: 'grand' });
