@@ -324,14 +324,21 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
       Number((await q(`SELECT COALESCE(SUM(CASE WHEN a.type='REVENUE' THEN l.credit-l.debit ELSE l.debit-l.credit END * CASE WHEN a.type='REVENUE' THEN 1 ELSE -1 END),0) AS v FROM journal_lines l JOIN journal_entries j ON j.id=l.journal_id JOIN accounts a ON a.id=l.account_id WHERE j.tenant_id=$1 AND a.type IN ('REVENUE','EXPENSE') AND j.date BETWEEN $2 AND $3 ${excludeClosing ? "AND j.source_type<>'CLOSING'" : ''}`, [tenantId, `${lastYear}-01-01`, `${lastYear}-12-31`]))[0].v);
     const profitBefore = await pnl(true);
     const closed = await call('post', '/accounting/period/close-year', { year: lastYear });
+    byLabel['tutup-buku'] = [closed.status === 201 ? 1 : 0, closed.status === 201 ? 0 : 1];
     if (closed.status === 201) {
       expect(await pnl(false)).toBeCloseTo(0, 2); // semua akun sementara tahun lalu nol
       expect(Number(closed.body.netIncome)).toBeCloseTo(profitBefore, 2);
       const again = await call('post', '/accounting/period/close-year', { year: lastYear });
       expect(again.status).toBe(400); // tidak boleh ditutup dua kali
+      // laporan tahun yang sudah ditutup tetap terbaca utuh (jurnal penutup diabaikan) dan neraca akhir tahun seimbang
+      const inc = (await call('get', `/accounting/statements/income?from=${lastYear}-01-01&to=${lastYear}-12-31`)).body;
+      expect(Number(inc.lines.find((l: { key: string }) => l.key === 'NET_PROFIT').amount)).toBeCloseTo(profitBefore, 2);
+      const fpEnd = (await call('get', `/accounting/statements/financial-position?asOf=${lastYear}-12-31`)).body;
+      expect(fpEnd.balanced).toBe(true);
       await checkInvariants('setelah tutup buku');
     } else {
-      expect(closed.status).toBe(400); // hanya boleh ditolak bila tidak ada saldo
+      // hanya boleh ditolak karena tidak ada saldo pendapatan/beban di tahun itu (tidak ada dokumen bertanggal mundur terpilih)
+      expect({ status: closed.status, message: closed.body.message }).toEqual({ status: 400, message: expect.stringMatching(/Tidak ada saldo pendapatan\/beban/) });
     }
 
     // ---- pemeriksaan akhir lewat API ----
