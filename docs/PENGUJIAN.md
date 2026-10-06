@@ -20,6 +20,7 @@ npm run test:e2e                    # e2e api: mereset dan memigrasi database `a
 | **Isolasi & hak akses** | `security`, `role-access` | Perusahaan lain tidak bisa membaca/mengubah data; peran hanya melihat yang perlu |
 | **Konkurensi** | `concurrency` | Permintaan serentak tidak melanggar pembukuan |
 | Jejak audit | `journal-immutable` | Jurnal terposting tidak bisa diubah/dihapus (trigger database) |
+| Kalender pajak & PPN | `tax-calendar-vat` | Tenggat digeser ke hari kerja berikutnya; pembulatan PPN ke rupiah penuh |
 | Saldo awal | `opening-balance` | Akun kontrol (piutang, utang, persediaan, penyeimbang) tidak bisa diisi manual; ringkasan kesiapan dan peringatan |
 
 ## Uji acak invarian
@@ -60,4 +61,4 @@ Tes ini menggunakan database `akurata_test`; jangan diarahkan ke database berisi
 
 - Aturan yang bergantung pada peraturan (tarif, tenggat, batas) diberi rujukan di komentar kode. Peraturan berubah:
   tinjau ulang bersama konsultan pajak secara berkala, terutama tabel TER, batas upah BPJS, dan aturan PPh final.
-- Penggeseran tenggat karena akhir pekan atau hari libur belum dimodelkan.
+- Tenggat yang jatuh di akhir pekan digeser otomatis; hari libur nasional dan cuti bersama diisi pengguna di Pengaturan perusahaan tiap tahun (tidak ditanam di kode karena berubah-ubah).

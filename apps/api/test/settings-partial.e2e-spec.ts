@@ -69,6 +69,6 @@ describe('PATCH pengaturan sebagian (e2e)', () => {
   it('profil pajak: mengubah satu pilihan mempertahankan yang lain', async () => {
     await patch('/api/settings/company', { pkp: false, posPricesIncludeVat: true, salesPricesIncludeVat: true }).expect(200);
     await patch('/api/settings/company', { salesPricesIncludeVat: false }).expect(200);
-    expect((await company()).taxProfile).toEqual({ pkp: false, posPricesIncludeVat: true, salesPricesIncludeVat: false });
+    expect((await company()).taxProfile).toEqual({ pkp: false, posPricesIncludeVat: true, salesPricesIncludeVat: false, vatRounding: 'NONE' });
   });
 });
