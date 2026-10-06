@@ -1,0 +1,68 @@
+import { APP_BY_KEY, BUSINESS_MODEL_BY_KEY, type BusinessModel } from '@sansu/shared';
+import { useQueryClient } from '@tanstack/react-query';
+import { Alert, Button, Card, Space, Steps, Typography } from 'antd';
+import { useEffect, useState } from 'react';
+import { put } from '@/api/client';
+import { useAction } from '@/api/queries';
+import { useAuth } from '@/auth/AuthContext';
+import BusinessModelPicker from '@/components/BusinessModelPicker';
+
+/** Model bisnis perusahaan: menentukan aplikasi yang disarankan & langkah panduan mulai */
+export default function BusinessModelCard() {
+  const { me } = useAuth();
+  const qc = useQueryClient();
+  const [model, setModel] = useState<BusinessModel>(me?.businessModel ?? 'DAGANG');
+  useEffect(() => setModel(me?.businessModel ?? 'DAGANG'), [me?.businessModel]);
+  const info = BUSINESS_MODEL_BY_KEY[model];
+  const missing = info.apps.filter((a) => !me?.apps.includes(a));
+  const isAdmin = me?.role === 'OWNER' || me?.role === 'ADMIN';
+  const save = useAction(
+    (applyApps: boolean) => put<{ installed: string[] }>('/settings/business', { model, applyApps }),
+    {
+      success: (r) =>
+        r.installed.length
+          ? `Model bisnis disimpan · ${r.installed.length} aplikasi dinyalakan`
+          : 'Model bisnis disimpan',
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['me'] });
+        qc.invalidateQueries({ queryKey: ['onboarding'] });
+        qc.invalidateQueries({ queryKey: ['apps'] });
+      },
+    },
+  );
+  const changed = model !== me?.businessModel;
+  return (
+    <Card title="Model bisnis">
+      <Typography.Paragraph type="secondary">
+        Menentukan aplikasi yang disarankan dan langkah panduan mulai. Semua aplikasi tetap bisa dinyalakan atau
+        dimatikan di Pengaturan › Aplikasi.
+      </Typography.Paragraph>
+      <BusinessModelPicker value={model} onChange={isAdmin ? setModel : undefined} detailed />
+      <div style={{ margin: '16px 0 8px', fontWeight: 600 }}>Alur yang dihubungkan SANSU</div>
+      <Steps
+        size="small"
+        progressDot
+        current={info.flow.length}
+        items={info.flow.map((f) => ({ title: <span style={{ fontSize: 12 }}>{f}</span> }))}
+      />
+      {info.note && <Alert type="info" showIcon style={{ marginTop: 12 }} message={info.note} />}
+      {isAdmin && (
+        <Space wrap style={{ marginTop: 16 }}>
+          {missing.length > 0 && (
+            <Button type="primary" loading={save.isPending} onClick={() => save.mutate(true)}>
+              Simpan & nyalakan {missing.map((a) => APP_BY_KEY[a].name).join(', ')}
+            </Button>
+          )}
+          <Button
+            type={missing.length ? 'default' : 'primary'}
+            disabled={!changed}
+            loading={save.isPending}
+            onClick={() => save.mutate(false)}
+          >
+            Simpan
+          </Button>
+        </Space>
+      )}
+    </Card>
+  );
+}

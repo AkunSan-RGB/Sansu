@@ -1,0 +1,25 @@
+# Development: hanya database. Jalankan API & web dengan `npm run dev`.
+# Nama proyek dikunci agar data tetap sama walau nama folder berubah (akurata -> SANSU).
+name: akurata
+services:
+  db:
+    image: postgres:18.6
+    container_name: akurata-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: akurata
+      POSTGRES_PASSWORD: akurata
+      POSTGRES_DB: akurata
+    ports:
+      - "5434:5432"  # port 5434 di komputer agar tidak bentrok dengan PostgreSQL lain
+    volumes:
+      - akurata-pg18-data:/var/lib/postgresql  # PG 18: mount di /var/lib/postgresql (bukan /data)
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U akurata"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  akurata-pg18-data:

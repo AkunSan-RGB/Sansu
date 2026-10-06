@@ -1,0 +1,34 @@
+{
+  "name": "sansu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SANSU — ERP untuk distributor & grosir",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "postinstall": "npm run build -w packages/shared",
+    "dev": "turbo run dev",
+    "dev:api": "turbo run dev --filter=@sansu/api",
+    "dev:web": "turbo run dev --filter=@sansu/web",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e --filter=@sansu/api",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "db:generate": "npm run db:generate -w apps/api",
+    "db:migrate": "npm run db:migrate -w apps/api",
+    "db:seed": "npm run db:seed -w apps/api",
+    "stack:up": "docker compose -f docker-compose.prod.yml up -d --build",
+    "stack:down": "docker compose -f docker-compose.prod.yml down"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "npm@10.9.4",
+  "devDependencies": {
+    "turbo": "^2.5.8"
+  }
+}

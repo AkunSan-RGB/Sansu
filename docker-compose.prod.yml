@@ -1,0 +1,153 @@
+# SANSU — layanan online (produksi).
+# Pemasangan pertama di server: bash deploy/install.sh   (lihat docs/PANDUAN-SERVER.md)
+# Sehari-hari: ./sansu.sh status | logs | backup | restore | update
+#
+#   internet ──443──▶ caddy (HTTPS otomatis) ──▶ web (nginx: aplikasi + /api) ──▶ api ──▶ db
+#                                                                           backup ──┘ (harian + offsite)
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "20m", max-file: "5" }
+
+services:
+  db:
+    image: postgres:18.6
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_USER: sansu
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env}
+      POSTGRES_DB: sansu
+      TZ: Asia/Jakarta
+    command: ["postgres", "-c", "shared_buffers=${PG_SHARED_BUFFERS:-256MB}", "-c", "max_connections=100", "-c", "log_min_duration_statement=2000"]
+    volumes:
+      - sansu-pg18-data:/var/lib/postgresql  # PG 18: mount di /var/lib/postgresql (bukan /data)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sansu"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: sansu-api:latest
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      NODE_ENV: production
+      TZ: Asia/Jakarta
+      DATABASE_URL: postgresql://sansu:${POSTGRES_PASSWORD}@db:5432/sansu
+      JWT_SECRET: ${JWT_SECRET:?isi JWT_SECRET di .env}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-12h}
+      PORT: 3000
+      CORS_ORIGIN: https://${DOMAIN:?isi DOMAIN di .env}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
+      RATE_LIMIT_PER_MIN: ${RATE_LIMIT_PER_MIN:-600}
+      APP_URL: https://${DOMAIN}
+      PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-}
+      REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-true}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      MIDTRANS_SERVER_KEY: ${MIDTRANS_SERVER_KEY:-}
+      MIDTRANS_PRODUCTION: ${MIDTRANS_PRODUCTION:-false}
+      XENDIT_SECRET_KEY: ${XENDIT_SECRET_KEY:-}
+      XENDIT_CALLBACK_TOKEN: ${XENDIT_CALLBACK_TOKEN:-}
+      SHOPEE_PARTNER_ID: ${SHOPEE_PARTNER_ID:-}
+      SHOPEE_PARTNER_KEY: ${SHOPEE_PARTNER_KEY:-}
+      SHOPEE_SANDBOX: ${SHOPEE_SANDBOX:-false}
+      TIKTOK_APP_KEY: ${TIKTOK_APP_KEY:-}
+      TIKTOK_APP_SECRET: ${TIKTOK_APP_SECRET:-}
+      TIKTOK_SERVICE_ID: ${TIKTOK_SERVICE_ID:-}
+      LAZADA_APP_KEY: ${LAZADA_APP_KEY:-}
+      LAZADA_APP_SECRET: ${LAZADA_APP_SECRET:-}
+      MARKETPLACE_SYNC_MINUTES: ${MARKETPLACE_SYNC_MINUTES:-15}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      BACKUP_DIR: /backups
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 6
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: sansu-web:latest
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      api:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+
+  backup:
+    build: ./deploy/backup
+    image: sansu-backup:latest
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      TZ: Asia/Jakarta
+      PGHOST: db
+      PGUSER: sansu
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: sansu
+      BACKUP_TIME: ${BACKUP_TIME:-01:30}
+      BACKUP_KEEP_DAILY: ${BACKUP_KEEP_DAILY:-14}
+      BACKUP_KEEP_WEEKLY: ${BACKUP_KEEP_WEEKLY:-8}
+      BACKUP_KEEP_MONTHLY: ${BACKUP_KEEP_MONTHLY:-12}
+      BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE:-}
+      RCLONE_REMOTE: ${RCLONE_REMOTE:-}
+      RCLONE_CONFIG_OFFSITE_TYPE: s3
+      RCLONE_CONFIG_OFFSITE_PROVIDER: ${S3_PROVIDER:-Other}
+      RCLONE_CONFIG_OFFSITE_ENDPOINT: ${S3_ENDPOINT:-}
+      RCLONE_CONFIG_OFFSITE_REGION: ${S3_REGION:-}
+      RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-}
+      RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      HEALTH_URL: http://api:3000/api/health
+      WEB_URL: http://web/
+      DISK_ALERT_PCT: ${DISK_ALERT_PCT:-85}
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  sansu-pg18-data:
+  caddy-data:
+  caddy-config:

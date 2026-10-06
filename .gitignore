@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.test
+*.log
+.DS_Store
+.vscode/
+.idea/
+*.tsbuildinfo
+.turbo/
+
+# backup database di server
+/backups/

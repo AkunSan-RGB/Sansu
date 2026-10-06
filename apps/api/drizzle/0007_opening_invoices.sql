@@ -1,0 +1,1 @@
+ALTER TABLE "invoices" ADD COLUMN "is_opening" boolean DEFAULT false NOT NULL;

@@ -1,0 +1,1 @@
+ALTER TABLE "journal_lines" ADD COLUMN "project_id" uuid;

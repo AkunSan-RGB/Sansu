@@ -1,0 +1,91 @@
+import { Body, Controller, Delete, Get, Module, Param, ParseIntPipe, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { IsIn, IsNumberString, IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator';
+import { AuthUser } from '../../common/auth/auth-user';
+import { CurrentUser, Roles } from '../../common/auth/decorators';
+import { AccountingModule } from '../accounting/accounting.module';
+import { AssetsModule } from '../assets/assets.module';
+import { FiscalService } from './fiscal.service';
+import { HealthService } from './health.service';
+import { NotesService } from './notes.service';
+
+export class FiscalYearDto {
+  @ApiPropertyOptional({ example: '0', description: 'Kompensasi kerugian fiskal tahun-tahun sebelumnya' }) @IsOptional() @IsNumberString() lossCarryforward?: string;
+  @ApiPropertyOptional({ description: 'Peredaran bruto manual (null = otomatis)' })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumberString()
+  grossRevenueOverride?: string | null;
+  @ApiPropertyOptional({ description: 'Biaya untuk penghasilan PPh final, manual (null = otomatis)' })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumberString()
+  finalCostOverride?: string | null;
+}
+export class FiscalAdjustmentDto {
+  @ApiProperty({ example: 'Biaya natura tidak memenuhi syarat' }) @IsString() @MaxLength(200) description: string;
+  @ApiProperty({ enum: ['POSITIVE', 'NEGATIVE'] }) @IsIn(['POSITIVE', 'NEGATIVE']) kind: 'POSITIVE' | 'NEGATIVE';
+  @ApiProperty({ example: '2500000' }) @IsNumberString() amount: string;
+}
+export class NoteDto {
+  @ApiProperty() @IsString() @MaxLength(20000) content: string;
+}
+
+@ApiTags('Analisis & pajak')
+@ApiBearerAuth()
+@Roles('ADMIN', 'FINANCE')
+@Controller('accounting')
+export class InsightsController {
+  constructor(
+    private readonly health: HealthService,
+    private readonly fiscal: FiscalService,
+    private readonly notes: NotesService,
+  ) {}
+
+  @Get('health')
+  check(@CurrentUser() u: AuthUser, @Query('asOf') asOf?: string) {
+    return this.health.run(u.tenantId, asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : undefined);
+  }
+
+  @Get('fiscal/:year')
+  reconcile(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number) {
+    return this.fiscal.reconcile(u.tenantId, year);
+  }
+  @Put('fiscal/:year')
+  saveYear(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number, @Body() dto: FiscalYearDto) {
+    return this.fiscal.saveYear(u.tenantId, year, dto);
+  }
+  @Post('fiscal/:year/adjustments')
+  addAdjustment(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number, @Body() dto: FiscalAdjustmentDto) {
+    return this.fiscal.addAdjustment(u.tenantId, year, dto);
+  }
+  @Delete('fiscal/:year/adjustments/:id')
+  removeAdjustment(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number, @Param('id', ParseUUIDPipe) id: string) {
+    return this.fiscal.removeAdjustment(u.tenantId, year, id);
+  }
+  @Post('fiscal/:year/journal')
+  postTax(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number) {
+    return this.fiscal.postTax(u, year);
+  }
+
+  @Get('notes/:year')
+  getNotes(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number) {
+    return this.notes.build(u.tenantId, year);
+  }
+  @Put('notes/:year/:key')
+  saveNote(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number, @Param('key') key: string, @Body() dto: NoteDto) {
+    return this.notes.save(u.tenantId, year, key.slice(0, 40), dto.content);
+  }
+  @Delete('notes/:year/:key')
+  resetNote(@CurrentUser() u: AuthUser, @Param('year', ParseIntPipe) year: number, @Param('key') key: string) {
+    return this.notes.reset(u.tenantId, year, key.slice(0, 40));
+  }
+}
+
+@Module({
+  imports: [AccountingModule, AssetsModule],
+  controllers: [InsightsController],
+  providers: [HealthService, FiscalService, NotesService],
+  exports: [FiscalService, HealthService],
+})
+export class InsightsModule {}

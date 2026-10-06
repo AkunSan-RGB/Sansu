@@ -1,0 +1,160 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791016090973,
+      "tag": "0000_init",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791036259222,
+      "tag": "0001_pg18_uuidv7",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791048379425,
+      "tag": "0002_full_accounting_cycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791084577429,
+      "tag": "0003_platform_pos_crm_hr",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791088208176,
+      "tag": "0004_sak_ep_accounting",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791091159058,
+      "tag": "0005_integrations",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791108847369,
+      "tag": "0006_sessions_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791112183533,
+      "tag": "0007_opening_invoices",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791126085118,
+      "tag": "0008_perf_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791132770041,
+      "tag": "0009_saas",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791169621829,
+      "tag": "0010_warehouses",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791172836502,
+      "tag": "0011_saas_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791175144510,
+      "tag": "0012_remove_pos_offline",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791176208556,
+      "tag": "0013_cash_count",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791187345997,
+      "tag": "0014_withholding_base",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1791192321971,
+      "tag": "0015_ppn_profile_writedown",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791193594587,
+      "tag": "0016_writedown_reversal_inclusive",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791194916644,
+      "tag": "0017_service_business",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791204870206,
+      "tag": "0018_final_cost_progress",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791205838542,
+      "tag": "0019_project_cost_tagging",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791206615986,
+      "tag": "0020_journal_line_project",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791207211388,
+      "tag": "0021_production",
+      "breakpoints": true
+    }
+  ]
+}

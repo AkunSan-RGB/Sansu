@@ -1,0 +1,1 @@
+CREATE INDEX "journal_lines_journal_idx" ON "journal_lines" USING btree ("journal_id");

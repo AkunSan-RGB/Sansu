@@ -1,0 +1,4 @@
+*.bat text eol=crlf
+*.sh text eol=lf
+Caddyfile text eol=lf
+deploy/** text eol=lf
