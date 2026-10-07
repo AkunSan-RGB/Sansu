@@ -31,6 +31,8 @@ export async function resolveSourceRoutes(db: Db, tenantId: string, items: { id:
         return id ? `/invoices/${id}` : null;
       case 'DELIVERY':
         return id ? `/deliveries/${id}` : null;
+      case 'GOODS_RECEIPT':
+        return id ? `/goods-receipts/${id}` : null;
       case 'PAYMENT':
         return id && invoiceOf.has(id) ? `/invoices/${invoiceOf.get(id)}` : null;
       case 'PAYROLL':

@@ -11,9 +11,12 @@ import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import {
   accounts,
+  goodsReceiptLines,
+  goodsReceipts,
   purchaseInvoiceLines,
   purchaseInvoices,
   projects,
+  purchaseOrderLines,
   purchaseOrders,
   supplierPayments,
   suppliers,
@@ -23,6 +26,7 @@ import { AssetsService } from '../assets/assets.module';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
+import { GoodsReceiptsService, QTY_EPS } from './goods-receipts.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { CreateBillDto, CreatePurchaseInvoiceDto, CreateSupplierPaymentDto, PurchaseInvoiceQueryDto } from './purchasing.dto';
 
@@ -37,6 +41,7 @@ export class PurchaseInvoicesService {
     private readonly stock: StockService,
     private readonly posting: PostingService,
     private readonly orders: PurchaseOrdersService,
+    private readonly receipts: GoodsReceiptsService,
     private readonly audit: AuditService,
     private readonly assets: AssetsService,
     private readonly settings: SettingsService,
@@ -77,9 +82,10 @@ export class PurchaseInvoicesService {
   }
 
   /**
-   * Terima barang + faktur supplier dari PO — satu transaksi:
-   *  1. Stok masuk (biaya = DPP baris / qty dasar) → HPP rata-rata diperbarui
-   *  2. Jurnal: Dr Persediaan, Dr PPN Masukan | Cr Hutang Usaha
+   * Faktur supplier atas pesanan pembelian. Dua jalur:
+   *  - Pesanan belum ada penerimaan barang dan `lines` kosong → barang diterima dan ditagih sekaligus (satu jurnal), penerimaan dibuat otomatis.
+   *  - Sudah ada penerimaan barang → faktur menagih barang yang sudah diterima tetapi belum ditagih (seluruhnya atau sebagian,
+   *    lewat `lines`) dan menutup "Barang Diterima Belum Ditagih" ke Utang Usaha.
    */
   async createFromOrder(user: AuthUser, dto: CreatePurchaseInvoiceDto) {
     const date = toDocDate(dto.date);
@@ -88,90 +94,230 @@ export class PurchaseInvoicesService {
       if (order.status !== 'CONFIRMED') {
         throw new BadRequestException(`PO berstatus ${order.status}; hanya PO yang sudah dikonfirmasi yang bisa difakturkan`);
       }
-      const [supplier] = await tx.select().from(suppliers).where(eq(suppliers.id, order.supplierId));
-      // Non-PKP: PPN masukan tidak bisa dikreditkan → menjadi bagian harga perolehan persediaan
-      const capitalize = D(order.taxAmount).gt(0) && !(await this.isPkp(tx, user.tenantId));
-      const costBase = capitalize ? D(order.total) : D(order.subtotal);
-      const factor = D(order.subtotal).gt(0) ? costBase.div(order.subtotal) : D(1);
-      const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_INVOICE', date);
-      const [invoice] = await tx
-        .insert(purchaseInvoices)
-        .values({
-          tenantId: user.tenantId,
-          number,
-          supplierInvoiceNo: dto.supplierInvoiceNo.trim(),
-          date,
-          dueDate: addDays(date, supplier.paymentTermDays),
-          supplierId: supplier.id,
-          purchaseOrderId: order.id,
-          warehouseId: order.warehouseId,
-          subtotal: order.subtotal,
-          taxAmount: order.taxAmount,
-          total: order.total,
-          vatCapitalized: capitalize,
-        })
-        .returning();
-
-      let stockValue: Dec = ZERO;
-      for (const line of order.lines) {
-        const baseQty = D(line.qty).times(line.uomFactor);
-        const unitCost = qty4(D(line.lineTotal).times(factor).div(baseQty));
-        const moved = await this.stock.move(tx, {
-          tenantId: user.tenantId,
-          productId: line.productId,
-          warehouseId: order.warehouseId,
-          type: 'PURCHASE',
-          qty: baseQty,
-          unitCost,
-          refType: 'PURCHASE_INVOICE',
-          refId: invoice.id,
-          refNumber: number,
-          date,
-        });
-        stockValue = stockValue.plus(moved.value);
-        await tx.insert(purchaseInvoiceLines).values({
-          invoiceId: invoice.id,
-          productId: line.productId,
-          uom: line.uom,
-          uomFactor: line.uomFactor,
-          qty: line.qty,
-          price: line.price,
-          discountPct: line.discountPct,
-          lineTotal: line.lineTotal,
-          unitCost: unitCost.toFixed(4),
-        });
-      }
-      // Selisih pembulatan antara DPP (atau DPP+PPN bila non-PKP) dan nilai stok (biaya satuan 4 desimal) → Selisih Persediaan
-      const rounding = money(costBase.minus(stockValue));
-
-      const journal = await this.posting.post(tx, {
-        tenantId: user.tenantId,
-        date,
-        description: `Pembelian ${number} (${dto.supplierInvoiceNo}) - ${supplier.name}`,
-        sourceType: 'PURCHASE_INVOICE',
-        sourceId: invoice.id,
-        createdById: user.sub,
-        lines: [
-          { key: SYS.INVENTORY, debit: stockValue },
-          { key: SYS.INVENTORY_ADJ, debit: rounding.gt(0) ? rounding : 0, credit: rounding.lt(0) ? rounding.abs() : 0 },
-          { key: SYS.VAT_IN, debit: capitalize ? 0 : order.taxAmount },
-          { key: SYS.AP, credit: order.total },
-        ],
-      });
-
-      await tx.update(purchaseOrders).set({ status: 'BILLED' }).where(eq(purchaseOrders.id, order.id));
-      await tx.update(purchaseInvoices).set({ journalId: journal.id }).where(eq(purchaseInvoices.id, invoice.id));
-      await this.audit.log(tx, {
-        tenantId: user.tenantId,
-        userId: user.sub,
-        action: 'CREATE',
-        entity: 'PurchaseInvoice',
-        entityId: invoice.id,
-        data: { number, journal: journal.number },
-      });
-      return { id: invoice.id, journalNumber: journal.number };
+      const active = await tx.query.goodsReceipts.findMany({ where: and(eq(goodsReceipts.purchaseOrderId, order.id), eq(goodsReceipts.status, 'RECEIVED')), columns: { id: true } });
+      return active.length || dto.lines ? this.billReceived(tx, user, order, dto, date) : this.receiveAndBill(tx, user, order, dto, date);
     });
     return { ...(await this.get(user.tenantId, result.id)), journalNumber: result.journalNumber };
+  }
+
+  /** Jalur langsung faktur: barang diterima dan ditagih sekaligus (satu jurnal), seluruh pesanan */
+  private async receiveAndBill(tx: Tx, user: AuthUser, order: Awaited<ReturnType<PurchaseOrdersService['lock']>>, dto: CreatePurchaseInvoiceDto, date: string) {
+    const [supplier] = await tx.select().from(suppliers).where(eq(suppliers.id, order.supplierId));
+    // Non-PKP: PPN masukan tidak bisa dikreditkan → menjadi bagian harga perolehan persediaan
+    const capitalize = D(order.taxAmount).gt(0) && !(await this.isPkp(tx, user.tenantId));
+    const costBase = capitalize ? D(order.total) : D(order.subtotal);
+    const factor = D(order.subtotal).gt(0) ? costBase.div(order.subtotal) : D(1);
+    const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_INVOICE', date);
+    const [invoice] = await tx
+      .insert(purchaseInvoices)
+      .values({
+        tenantId: user.tenantId,
+        number,
+        supplierInvoiceNo: dto.supplierInvoiceNo.trim(),
+        date,
+        dueDate: addDays(date, supplier.paymentTermDays),
+        supplierId: supplier.id,
+        purchaseOrderId: order.id,
+        warehouseId: order.warehouseId,
+        subtotal: order.subtotal,
+        taxAmount: order.taxAmount,
+        total: order.total,
+        vatCapitalized: capitalize,
+      })
+      .returning();
+
+    let stockValue: Dec = ZERO;
+    const values = new Map<string, { unitCost: Dec; value: Dec }>();
+    for (const line of order.lines) {
+      const baseQty = D(line.qty).times(line.uomFactor);
+      const unitCost = qty4(D(line.lineTotal).times(factor).div(baseQty));
+      const moved = await this.stock.move(tx, {
+        tenantId: user.tenantId,
+        productId: line.productId,
+        warehouseId: order.warehouseId,
+        type: 'PURCHASE',
+        qty: baseQty,
+        unitCost,
+        refType: 'PURCHASE_INVOICE',
+        refId: invoice.id,
+        refNumber: number,
+        date,
+      });
+      stockValue = stockValue.plus(moved.value);
+      values.set(line.id, { unitCost, value: moved.value });
+      await tx.insert(purchaseInvoiceLines).values({
+        invoiceId: invoice.id,
+        productId: line.productId,
+        uom: line.uom,
+        uomFactor: line.uomFactor,
+        qty: line.qty,
+        price: line.price,
+        discountPct: line.discountPct,
+        lineTotal: line.lineTotal,
+        unitCost: unitCost.toFixed(4),
+        orderLineId: line.id,
+      });
+    }
+    // Selisih pembulatan antara DPP (atau DPP+PPN bila non-PKP) dan nilai stok (biaya satuan 4 desimal) → Selisih Persediaan
+    const rounding = money(costBase.minus(stockValue));
+
+    const journal = await this.posting.post(tx, {
+      tenantId: user.tenantId,
+      date,
+      description: `Pembelian ${number} (${dto.supplierInvoiceNo}) - ${supplier.name}`,
+      sourceType: 'PURCHASE_INVOICE',
+      sourceId: invoice.id,
+      createdById: user.sub,
+      lines: [
+        { key: SYS.INVENTORY, debit: stockValue },
+        { key: SYS.INVENTORY_ADJ, debit: rounding.gt(0) ? rounding : 0, credit: rounding.lt(0) ? rounding.abs() : 0 },
+        { key: SYS.VAT_IN, debit: capitalize ? 0 : order.taxAmount },
+        { key: SYS.AP, credit: order.total },
+      ],
+    });
+
+    await this.receipts.recordWithInvoice(tx, user, { order, date, invoiceId: invoice.id, capitalize, values });
+    await tx.update(purchaseOrders).set({ status: 'BILLED' }).where(eq(purchaseOrders.id, order.id));
+    await tx.update(purchaseInvoices).set({ journalId: journal.id }).where(eq(purchaseInvoices.id, invoice.id));
+    await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PurchaseInvoice', entityId: invoice.id, data: { number, journal: journal.number } });
+    return { id: invoice.id, journalNumber: journal.number };
+  }
+
+  /**
+   * Jalur terima dulu: tagih barang yang sudah diterima. Jurnal: Dr Barang Diterima Belum Ditagih (nilai penerimaan), Dr PPN Masukan
+   * | Cr Utang Usaha. Selisih pembulatan antara DPP dan nilai penerimaan masuk ke Selisih Persediaan.
+   */
+  private async billReceived(tx: Tx, user: AuthUser, order: Awaited<ReturnType<PurchaseOrdersService['lock']>>, dto: CreatePurchaseInvoiceDto, date: string) {
+    const [supplier] = await tx.select().from(suppliers).where(eq(suppliers.id, order.supplierId));
+    const picks = new Map<string, Dec>();
+    if (dto.lines) {
+      for (const p of dto.lines) {
+        if (!order.lines.some((l) => l.id === p.orderLineId)) throw new BadRequestException('Baris pesanan tidak ditemukan');
+        if (picks.has(p.orderLineId)) throw new BadRequestException('Baris pesanan yang sama tercantum lebih dari sekali');
+        const q = D(p.qty);
+        if (q.lt(0)) throw new BadRequestException('Jumlah ditagih tidak boleh negatif');
+        picks.set(p.orderLineId, q);
+      }
+    }
+    const want = (l: (typeof order.lines)[number]) => (dto.lines ? (picks.get(l.id) ?? ZERO) : D(l.receivedQty).minus(l.billedQty));
+    const items = order.lines.map((line) => ({ line, q: want(line) })).filter((x) => x.q.gt(QTY_EPS));
+    if (!items.length) {
+      throw new BadRequestException(dto.lines ? 'Tidak ada barang yang ditagih: isi jumlah pada minimal satu baris' : 'Tidak ada barang yang sudah diterima dan belum ditagih. Terima barang dulu.');
+    }
+    for (const { line, q } of items) {
+      const open = D(line.receivedQty).minus(line.billedQty);
+      if (q.gt(open.plus(QTY_EPS))) {
+        throw new BadRequestException(`Jumlah ditagih melebihi barang yang sudah diterima dan belum ditagih (${open.toString()} dari ${D(line.qty).toString()} dipesan). Terima barang dulu atau kurangi jumlahnya.`);
+      }
+    }
+
+    // Penerimaan paling lama ditagih lebih dulu
+    const recLines = await tx
+      .select({ rl: goodsReceiptLines, date: goodsReceipts.date, number: goodsReceipts.number, capitalized: goodsReceipts.vatCapitalized })
+      .from(goodsReceiptLines)
+      .innerJoin(goodsReceipts, eq(goodsReceipts.id, goodsReceiptLines.receiptId))
+      .where(and(eq(goodsReceipts.purchaseOrderId, order.id), eq(goodsReceipts.status, 'RECEIVED')))
+      .orderBy(asc(goodsReceipts.date), asc(goodsReceipts.number), asc(goodsReceiptLines.id))
+      .for('update', { of: goodsReceiptLines });
+
+    let subtotal: Dec = ZERO;
+    let grni: Dec = ZERO;
+    let capitalized = false;
+    const invLines: { line: (typeof order.lines)[number]; q: Dec; dpp: Dec; value: Dec; baseQty: Dec }[] = [];
+    for (const { line, q } of items) {
+      let need = q;
+      let value: Dec = ZERO;
+      for (const r of recLines.filter((x) => x.rl.orderLineId === line.id)) {
+        if (need.lte(QTY_EPS)) break;
+        const open = D(r.rl.qty).minus(r.rl.billedQty);
+        if (open.lte(QTY_EPS)) continue;
+        const take = open.lt(need) ? open : need;
+        const finishes = D(r.rl.billedQty).plus(take).plus(QTY_EPS).gte(r.rl.qty);
+        const chunk = finishes ? D(r.rl.value).minus(r.rl.billedValue) : money(D(r.rl.value).times(take).div(r.rl.qty));
+        value = value.plus(chunk);
+        need = need.minus(take);
+        if (r.capitalized) capitalized = true;
+        await tx
+          .update(goodsReceiptLines)
+          .set({ billedQty: sql`${goodsReceiptLines.billedQty} + ${take.toFixed(4)}`, billedValue: sql`${goodsReceiptLines.billedValue} + ${chunk.toFixed(2)}` })
+          .where(eq(goodsReceiptLines.id, r.rl.id));
+        r.rl.billedQty = D(r.rl.billedQty).plus(take).toFixed(4);
+        r.rl.billedValue = D(r.rl.billedValue).plus(chunk).toFixed(2);
+      }
+      const done = D(line.billedQty).plus(q).plus(QTY_EPS).gte(line.qty);
+      const dpp = done ? D(line.lineTotal).minus(line.billedAmount) : money(D(line.lineTotal).times(q).div(line.qty));
+      subtotal = subtotal.plus(dpp);
+      grni = grni.plus(value);
+      invLines.push({ line, q, dpp, value, baseQty: q.times(line.uomFactor) });
+    }
+
+    // PPN: sebanding dengan DPP yang sudah ditagih; faktur yang menuntaskan pesanan memikul sisa pembulatan
+    const prior = (await tx.execute<{ tax: string; sub: string }>(sql`
+      SELECT COALESCE(SUM(tax_amount), 0) AS tax, COALESCE(SUM(subtotal), 0) AS sub FROM purchase_invoices WHERE purchase_order_id = ${order.id}`)).rows[0];
+    const cumulative = D(prior.sub).plus(subtotal);
+    const complete = cumulative.plus(0.005).gte(order.subtotal);
+    const tax = complete ? money(D(order.taxAmount).minus(prior.tax)) : money(D(order.taxAmount).times(cumulative).div(order.subtotal).minus(prior.tax));
+    const total = subtotal.plus(tax);
+    const rounding = money(subtotal.plus(capitalized ? tax : 0).minus(grni));
+
+    const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_INVOICE', date);
+    const [invoice] = await tx
+      .insert(purchaseInvoices)
+      .values({
+        tenantId: user.tenantId,
+        number,
+        supplierInvoiceNo: dto.supplierInvoiceNo.trim(),
+        date,
+        dueDate: addDays(date, supplier.paymentTermDays),
+        supplierId: supplier.id,
+        purchaseOrderId: order.id,
+        warehouseId: order.warehouseId,
+        subtotal: subtotal.toFixed(2),
+        taxAmount: tax.toFixed(2),
+        total: total.toFixed(2),
+        vatCapitalized: capitalized,
+      })
+      .returning();
+    for (const x of invLines) {
+      await tx.insert(purchaseInvoiceLines).values({
+        invoiceId: invoice.id,
+        productId: x.line.productId,
+        uom: x.line.uom,
+        uomFactor: x.line.uomFactor,
+        qty: x.q.toFixed(4),
+        price: x.line.price,
+        discountPct: x.line.discountPct,
+        lineTotal: x.dpp.toFixed(2),
+        unitCost: qty4(x.value.div(x.baseQty)).toFixed(4),
+        orderLineId: x.line.id,
+      });
+      await tx
+        .update(purchaseOrderLines)
+        .set({ billedQty: sql`${purchaseOrderLines.billedQty} + ${x.q.toFixed(4)}`, billedAmount: sql`${purchaseOrderLines.billedAmount} + ${x.dpp.toFixed(2)}` })
+        .where(eq(purchaseOrderLines.id, x.line.id));
+    }
+    const journal = await this.posting.post(tx, {
+      tenantId: user.tenantId,
+      date,
+      description: `Pembelian ${number} (${dto.supplierInvoiceNo}) - ${supplier.name}`,
+      sourceType: 'PURCHASE_INVOICE',
+      sourceId: invoice.id,
+      createdById: user.sub,
+      lines: [
+        { key: SYS.GRNI, debit: grni },
+        { key: SYS.INVENTORY_ADJ, debit: rounding.gt(0) ? rounding : 0, credit: rounding.lt(0) ? rounding.abs() : 0 },
+        { key: SYS.VAT_IN, debit: capitalized ? 0 : tax },
+        { key: SYS.AP, credit: total },
+      ],
+    });
+    await tx.update(purchaseInvoices).set({ journalId: journal.id }).where(eq(purchaseInvoices.id, invoice.id));
+    // pesanan tuntas bila seluruh barang sudah ditagih
+    const after = await tx.select({ qty: purchaseOrderLines.qty, billedQty: purchaseOrderLines.billedQty }).from(purchaseOrderLines).where(eq(purchaseOrderLines.orderId, order.id));
+    if (after.every((l) => D(l.billedQty).plus(QTY_EPS).gte(l.qty))) {
+      await tx.update(purchaseOrders).set({ status: 'BILLED' }).where(eq(purchaseOrders.id, order.id));
+    }
+    await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PurchaseInvoice', entityId: invoice.id, data: { number, journal: journal.number } });
+    return { id: invoice.id, journalNumber: journal.number };
   }
 
   /**

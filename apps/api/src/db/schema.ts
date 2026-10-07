@@ -650,6 +650,74 @@ export const purchaseOrderLines = pgTable('purchase_order_lines', {
   price: money('price').notNull(),
   discountPct: numeric('discount_pct', { precision: 5, scale: 2 }).notNull().default('0'),
   lineTotal: money('line_total').notNull(),
+  /** Jumlah yang sudah diterima gudang (satuan `uom` baris) — penerimaan barang bisa bertahap */
+  receivedQty: qty('received_qty').notNull().default('0'),
+  /** Jumlah yang sudah difakturkan dan nilai DPP-nya */
+  billedQty: qty('billed_qty').notNull().default('0'),
+  billedAmount: money('billed_amount').notNull().default('0'),
+});
+
+/**
+ * Penerimaan barang (GRN) atas pesanan pembelian — mata rantai antara pesanan dan faktur:
+ *   pesanan → penerimaan (bisa bertahap) → faktur supplier (bisa bertahap) → pembayaran
+ * Penerimaan menambah stok dan mencatat Dr Persediaan | Cr Barang Diterima Belum Ditagih; faktur menutup akun itu ke Utang Usaha.
+ */
+export const goodsReceipts = pgTable(
+  'goods_receipts',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    date: date('date').notNull(),
+    purchaseOrderId: uuid('purchase_order_id')
+      .notNull()
+      .references(() => purchaseOrders.id),
+    supplierId: uuid('supplier_id')
+      .notNull()
+      .references(() => suppliers.id),
+    warehouseId: uuid('warehouse_id')
+      .notNull()
+      .references(() => warehouses.id),
+    status: text('status').$type<'RECEIVED' | 'CANCELLED'>().notNull().default('RECEIVED'),
+    /** Nomor surat jalan dari supplier */
+    supplierDeliveryNo: text('supplier_delivery_no'),
+    /** Nilai persediaan yang diterima (dasar jurnal) */
+    value: money('value').notNull().default('0'),
+    /** Non-PKP: PPN supplier ikut ke harga perolehan sejak penerimaan */
+    vatCapitalized: boolean('vat_capitalized').notNull().default(false),
+    /** Jurnal Dr Persediaan | Cr Barang Diterima Belum Ditagih; kosong bila dibuat otomatis bersama faktur */
+    journalId: uuid('journal_id'),
+    /** Terisi bila penerimaan ini dibuat otomatis bersama faktur (jalur langsung faktur) */
+    autoInvoiceId: uuid('auto_invoice_id'),
+    notes: text('notes'),
+    createdById: uuid('created_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('goods_receipts_number_uq').on(t.tenantId, t.number),
+    index('goods_receipts_order_idx').on(t.purchaseOrderId),
+    index('goods_receipts_date_idx').on(t.tenantId, t.date),
+  ],
+);
+
+export const goodsReceiptLines = pgTable('goods_receipt_lines', {
+  id: id(),
+  receiptId: uuid('receipt_id')
+    .notNull()
+    .references(() => goodsReceipts.id, { onDelete: 'cascade' }),
+  orderLineId: uuid('order_line_id').notNull(),
+  productId: uuid('product_id')
+    .notNull()
+    .references(() => products.id),
+  uom: text('uom').notNull(),
+  uomFactor: qty('uom_factor').notNull(),
+  qty: qty('qty').notNull(),
+  unitCost: qty('unit_cost').notNull(),
+  /** Nilai persediaan baris ini (dibulatkan 2 desimal) */
+  value: money('value').notNull(),
+  /** Bagian yang sudah ditagih oleh faktur */
+  billedQty: qty('billed_qty').notNull().default('0'),
+  billedValue: money('billed_value').notNull().default('0'),
 });
 
 export const purchaseInvoices = pgTable(
@@ -692,7 +760,7 @@ export const purchaseInvoices = pgTable(
   },
   (t) => [
     uniqueIndex('purchase_invoices_number_uq').on(t.tenantId, t.number),
-    uniqueIndex('purchase_invoices_po_uq').on(t.purchaseOrderId),
+    index('purchase_invoices_po_idx').on(t.purchaseOrderId),
     uniqueIndex('purchase_invoices_supplier_no_uq').on(t.tenantId, t.supplierId, t.supplierInvoiceNo),
   ],
 );
@@ -718,6 +786,8 @@ export const purchaseInvoiceLines = pgTable('purchase_invoice_lines', {
   /** Biaya per satuan dasar (DPP / qty dasar) yang masuk ke persediaan */
   unitCost: qty('unit_cost').notNull(),
   returnedQty: qty('returned_qty').notNull().default('0'),
+  /** Baris pesanan pembelian yang ditagih (faktur dari pesanan) */
+  orderLineId: uuid('order_line_id'),
 });
 
 export const supplierPayments = pgTable(
@@ -1407,7 +1477,18 @@ export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many })
   supplier: one(suppliers, { fields: [purchaseOrders.supplierId], references: [suppliers.id] }),
   warehouse: one(warehouses, { fields: [purchaseOrders.warehouseId], references: [warehouses.id] }),
   lines: many(purchaseOrderLines),
-  invoice: one(purchaseInvoices, { fields: [purchaseOrders.id], references: [purchaseInvoices.purchaseOrderId] }),
+  invoices: many(purchaseInvoices),
+  receipts: many(goodsReceipts),
+}));
+export const goodsReceiptsRelations = relations(goodsReceipts, ({ one, many }) => ({
+  order: one(purchaseOrders, { fields: [goodsReceipts.purchaseOrderId], references: [purchaseOrders.id] }),
+  supplier: one(suppliers, { fields: [goodsReceipts.supplierId], references: [suppliers.id] }),
+  warehouse: one(warehouses, { fields: [goodsReceipts.warehouseId], references: [warehouses.id] }),
+  lines: many(goodsReceiptLines),
+}));
+export const goodsReceiptLinesRelations = relations(goodsReceiptLines, ({ one }) => ({
+  receipt: one(goodsReceipts, { fields: [goodsReceiptLines.receiptId], references: [goodsReceipts.id] }),
+  product: one(products, { fields: [goodsReceiptLines.productId], references: [products.id] }),
 }));
 export const purchaseOrderLinesRelations = relations(purchaseOrderLines, ({ one }) => ({
   order: one(purchaseOrders, { fields: [purchaseOrderLines.orderId], references: [purchaseOrders.id] }),

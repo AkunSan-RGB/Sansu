@@ -416,8 +416,30 @@ export interface PurchaseOrder {
     npwp?: string | null;
   };
   warehouse?: { id: string; code: string; name: string; address?: string | null };
-  lines?: DocLine[];
+  lines?: (DocLine & { receivedQty?: string; billedQty?: string })[];
+  /** Faktur pertama (tampilan lama); semua faktur bertahap ada di `invoices` */
   invoice: { id: string; number: string } | null;
+  invoices?: { id: string; number: string; supplierInvoiceNo: string; date: string; total: string; status: InvoiceStatus }[];
+  receipts?: { id: string; number: string; date: string; status: 'RECEIVED' | 'CANCELLED'; value: string; supplierDeliveryNo: string | null; autoInvoiceId: string | null }[];
+  /** Kemajuan penerimaan barang dan penagihan: NONE / PARTIAL / FULL */
+  receiptStatus?: 'NONE' | 'PARTIAL' | 'FULL';
+  billingStatus?: 'NONE' | 'PARTIAL' | 'FULL';
+}
+
+export interface GoodsReceipt {
+  id: string;
+  number: string;
+  date: string;
+  status: 'RECEIVED' | 'CANCELLED';
+  value: string;
+  vatCapitalized: boolean;
+  supplierDeliveryNo: string | null;
+  autoInvoiceId: string | null;
+  notes: string | null;
+  supplier: { id?: string; code: string; name: string; address?: string | null; phone?: string | null };
+  order: { id?: string; number: string };
+  warehouse?: { id?: string; name: string };
+  lines?: { id: string; orderLineId: string; qty: string; uom: string; unitCost: string; value: string; billedQty: string; billedValue: string; product: { sku: string; name: string } }[];
 }
 
 export interface PurchaseInvoice {

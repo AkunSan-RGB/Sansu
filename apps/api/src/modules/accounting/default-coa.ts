@@ -28,6 +28,7 @@ export const SYS = {
   CASH_DIFF: 'CASH_DIFF',
   PREPAID_TAX: 'PREPAID_TAX',
   OTHER_PAYABLE: 'OTHER_PAYABLE',
+  GRNI: 'GRNI',
   CORPORATE_TAX_PAYABLE: 'CORPORATE_TAX_PAYABLE',
   DEFERRED_TAX_ASSET: 'DEFERRED_TAX_ASSET',
   DEFERRED_TAX_LIABILITY: 'DEFERRED_TAX_LIABILITY',
@@ -131,6 +132,7 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '2-1000', name: 'Liabilitas Jangka Pendek', type: 'LIABILITY', parent: '2-0000', header: true },
   { code: '2-1100', name: 'Utang Usaha', type: 'LIABILITY', parent: '2-1000', key: SYS.AP, group: 'TRADE_PAYABLE' },
   { code: '2-1150', name: 'Utang Lain-lain', type: 'LIABILITY', parent: '2-1000', key: SYS.OTHER_PAYABLE, group: 'OTHER_PAYABLE' },
+  { code: '2-1160', name: 'Barang Diterima Belum Ditagih', type: 'LIABILITY', parent: '2-1000', key: SYS.GRNI, group: 'ACCRUED_EXPENSE' },
   { code: '2-1200', name: 'PPN Keluaran', type: 'LIABILITY', parent: '2-1000', key: SYS.VAT_OUT, group: 'TAX_PAYABLE' },
   { code: '2-1300', name: 'Utang Pajak Lainnya', type: 'LIABILITY', parent: '2-1000', group: 'TAX_PAYABLE' },
   { code: '2-1310', name: 'Utang PPh Pasal 21', type: 'LIABILITY', parent: '2-1000', key: SYS.PPH21_PAYABLE, group: 'TAX_PAYABLE' },
@@ -270,7 +272,7 @@ export const COA_UNUSED_MARK = 'Tidak dipakai pada jenis usaha ini. Aktifkan bil
  * (tersembunyi dari pilihan jurnal manual dan bagan akun) selama belum pernah dipakai; jurnal otomatis tetap bisa memakainya.
  */
 export const COA_FAMILIES: { name: string; codes: string[]; relevant: (model: BusinessModel, apps: ReadonlySet<string>, framework: 'SAK_EP' | 'SAK_EMKM') => boolean }[] = [
-  { name: 'Persediaan', codes: ['1-1400', '1-1410', '5-2000'], relevant: (m, a) => m !== 'JASA' || a.has('inventory') },
+  { name: 'Persediaan', codes: ['1-1400', '1-1410', '5-2000', '2-1160'], relevant: (m, a) => m !== 'JASA' || a.has('inventory') },
   // ED SAK EMKM Bab 9: persediaan diukur sebesar biaya perolehan, tanpa penurunan ke nilai realisasi neto
   { name: 'Penurunan nilai persediaan', codes: ['5-3000'], relevant: (m, a, fw) => fw === 'SAK_EP' && (m !== 'JASA' || a.has('inventory')) },
   // ED SAK EMKM Bab 8: piutang dicatat sebesar jumlah tagihan; tidak ada cadangan kerugian penurunan nilai (kerugian diakui saat dihapus)

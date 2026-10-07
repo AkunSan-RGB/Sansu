@@ -29,6 +29,7 @@ npm run test:e2e                    # e2e api: mereset dan memigrasi database `a
 | Persetujuan | `approvals` | Batas nilai, keputusan, penolakan, pembatalan, dan persetujuan serentak |
 | Pindah standar SAK EP ↔ EMKM | `framework-switch` | Satu perusahaan (diuji untuk Dagang, Ritel, Jasa, Produksi) berganti standar: bagan akun, laba rugi, CALK (kebijakan piutang, persediaan, aset tetap), pajak tangguhan, cadangan piutang, nilai residu aset, menu dan API penurunan nilai persediaan, akrual persentase penyelesaian proyek, dan cek kesehatan ikut berubah; angka tetap sama |
 | Metode biaya persediaan | `inventory-method` | Rata-rata bergerak dan MPKP/FIFO untuk keempat jenis usaha dan kedua standar: LIFO ditolak, HPP FIFO 16.000 vs rata-rata 16.500, beralih metode tidak mengubah nilai stok, CALK mengikuti metode; uji acak invarian memakai FIFO pada benih ganjil |
+| Rantai pembelian | `purchase-chain` | Pesanan → penerimaan barang bertahap → faktur supplier bertahap: akun Barang Diterima Belum Ditagih terbentuk dan tertutup, stok dan utang cocok, batal penerimaan, jalur langsung faktur, non-PKP, FIFO, retur; uji acak invarian memuat operasi penerimaan dan faktur bertahap |
 | Saldo awal | `opening-balance` | Akun kontrol (piutang, utang, persediaan, penyeimbang) tidak bisa diisi manual; ringkasan kesiapan dan peringatan |
 
 ## Uji acak invarian

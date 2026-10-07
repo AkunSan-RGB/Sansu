@@ -1,6 +1,6 @@
 import { PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Card, Select } from 'antd';
+import { Button, Card, Select, Tag } from 'antd';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, qs } from '@/api/client';
@@ -43,7 +43,15 @@ export default function PurchaseOrdersPage() {
             { title: t('Supplier'), render: (_, o) => o.supplier.name },
             { title: 'Total', dataIndex: 'total', align: 'right', render: fmtMoney },
             { title: 'Status', dataIndex: 'status', render: (s) => <PurchaseOrderStatusTag status={s} /> },
-            { title: t('Faktur'), render: (_, o) => o.invoice?.number ?? '-' },
+            {
+              title: 'Penerimaan',
+              render: (_, o) =>
+                o.status !== 'CONFIRMED' && o.status !== 'BILLED' ? '-' : o.receiptStatus === 'FULL' ? <Tag color="green">Lengkap</Tag> : o.receiptStatus === 'PARTIAL' ? <Tag color="gold">Sebagian</Tag> : <Tag>Belum</Tag>,
+            },
+            {
+              title: t('Faktur'),
+              render: (_, o) => (o.invoices?.length ? `${o.invoices[0].number}${o.invoices.length > 1 ? ` +${o.invoices.length - 1}` : ''}` : '-'),
+            },
           ]}
         />
       </Card>
