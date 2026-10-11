@@ -72,6 +72,7 @@ interface Overview {
   new30: number;
   paid_month: string;
   waiting: number;
+  billingEnabled: boolean;
   signups: { month: string; n: number }[];
   revenue: { month: string; amount: string }[];
   gateway: string | null;
@@ -125,25 +126,35 @@ export default function PlatformAdminPage() {
   const { me } = useAuth();
   const [params, setParams] = useSearchParams();
   const tab = params.get('tab') ?? 'overview';
+  const billing = useBillingEnabled();
   if (!me?.isPlatformAdmin) return <Alert type="error" showIcon message="Khusus pemilik layanan SANSU" />;
-  return (
-    <>
-      <PageHeader title="Panel SANSU — pemilik layanan" />
-      <Tabs
-        activeKey={tab}
-        onChange={(t) => setParams({ tab: t }, { replace: true })}
-        items={[
-          { key: 'overview', label: 'Ringkasan', children: <OverviewTab /> },
-          { key: 'tenants', label: 'Perusahaan', children: <TenantsTab /> },
+  // Pembayaran, paket, dan PPN hanya relevan bila langganan dinyalakan (tahap uji: dimatikan)
+  const items = [
+    { key: 'overview', label: 'Ringkasan', children: <OverviewTab /> },
+    { key: 'pulse', label: 'Pantauan uji', children: <PulseTab /> },
+    { key: 'tenants', label: 'Perusahaan', children: <TenantsTab /> },
+    ...(billing
+      ? [
           { key: 'payments', label: 'Pembayaran', children: <PaymentsTab /> },
           { key: 'plans', label: 'Paket', children: <PlansTab /> },
           { key: 'vat', label: 'Laporan PPN', children: <VatTab /> },
-          { key: 'system', label: 'Sistem', children: <SystemTab /> },
-          { key: 'settings', label: 'Pengaturan', children: <SettingsTab /> },
-        ]}
-      />
+        ]
+      : []),
+    { key: 'system', label: 'Sistem', children: <SystemTab /> },
+    { key: 'settings', label: 'Pengaturan', children: <SettingsTab /> },
+  ];
+  return (
+    <>
+      <PageHeader title="Panel SANSU — pemilik layanan" />
+      <Tabs activeKey={items.some((i) => i.key === tab) ? tab : 'overview'} onChange={(t) => setParams({ tab: t }, { replace: true })} items={items} />
     </>
   );
+}
+
+/** Saklar langganan: mati selama tahap uji */
+function useBillingEnabled() {
+  const q = useQuery({ queryKey: [...KEYS, 'overview'], queryFn: () => get<Overview>('/platform-admin/overview') });
+  return q.data?.billingEnabled === true;
 }
 
 // ---------------- Ringkasan ----------------
@@ -151,10 +162,12 @@ function Bars({
   rows,
   value,
   fmt,
+  label = (r) => dayjs(`${r.month}-01`).format('MMM YY'),
 }: {
   rows: { month: string }[];
   value: (r: never) => number;
   fmt: (n: number) => string;
+  label?: (r: { month: string }) => string;
 }) {
   const vals = rows.map((r) => value(r as never));
   const max = Math.max(1, ...vals);
@@ -166,7 +179,7 @@ function Bars({
           key={r.month}
           style={{ display: 'grid', gridTemplateColumns: '64px 1fr auto', gap: 10, alignItems: 'center', fontSize: 13 }}
         >
-          <span>{dayjs(`${r.month}-01`).format('MMM YY')}</span>
+          <span>{label(r)}</span>
           <div style={{ background: BRAND.colors.primarySoft, borderRadius: 4, height: 14 }}>
             <div
               style={{
@@ -186,13 +199,27 @@ function Bars({
 }
 
 function OverviewTab() {
+  const billing = useBillingEnabled();
   const q = useQuery({ queryKey: [...KEYS, 'overview'], queryFn: () => get<Overview>('/platform-admin/overview') });
   const [, setParams] = useSearchParams();
   return (
     <QueryState q={q}>
       {(o) => (
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          {o.waiting > 0 && (
+          {!o.billingEnabled && (
+            <Alert
+              type="info"
+              showIcon
+              message="Langganan dimatikan — mode uji"
+              description="Semua perusahaan memakai SANSU tanpa uji coba, batas paket, atau tagihan. Lihat siapa yang aktif di tab Pantauan uji; nyalakan langganan di tab Pengaturan saat siap berjualan."
+              action={
+                <Button size="small" onClick={() => setParams({ tab: 'pulse' })}>
+                  Buka pantauan
+                </Button>
+              }
+            />
+          )}
+          {billing && o.waiting > 0 && (
             <Alert
               type="info"
               showIcon
@@ -228,16 +255,22 @@ function OverviewTab() {
             />
           )}
           <Row gutter={[16, 16]}>
-            {[
-              { t: 'Pendapatan berulang / bulan (MRR)', v: fmtMoney(o.mrr) },
-              { t: 'Diterima bulan ini', v: fmtMoney(o.paid_month) },
-              { t: 'Pelanggan berbayar aktif', v: o.active },
-              { t: 'Sedang uji coba', v: o.trial },
-              { t: 'Kedaluwarsa', v: o.expired },
-              { t: 'Ditangguhkan / berhenti', v: o.suspended },
-              { t: 'Total perusahaan', v: o.tenants },
-              { t: 'Daftar 30 hari terakhir', v: o.new30 },
-            ].map((s) => (
+            {(o.billingEnabled
+              ? [
+                  { t: 'Pendapatan berulang / bulan (MRR)', v: fmtMoney(o.mrr) },
+                  { t: 'Diterima bulan ini', v: fmtMoney(o.paid_month) },
+                  { t: 'Pelanggan berbayar aktif', v: o.active },
+                  { t: 'Sedang uji coba', v: o.trial },
+                  { t: 'Kedaluwarsa', v: o.expired },
+                  { t: 'Ditangguhkan / berhenti', v: o.suspended },
+                  { t: 'Total perusahaan', v: o.tenants },
+                  { t: 'Daftar 30 hari terakhir', v: o.new30 },
+                ]
+              : [
+                  { t: 'Total perusahaan', v: o.tenants },
+                  { t: 'Daftar 30 hari terakhir', v: o.new30 },
+                ]
+            ).map((s) => (
               <Col xs={12} md={6} key={s.t}>
                 <Card size="small">
                   <Statistic title={s.t} value={s.v} />
@@ -251,11 +284,13 @@ function OverviewTab() {
                 <Bars rows={o.signups} value={(r: { n: number }) => r.n} fmt={(n) => String(n)} />
               </Card>
             </Col>
-            <Col xs={24} md={12}>
-              <Card title="Pendapatan per bulan" size="small">
-                <Bars rows={o.revenue} value={(r: { amount: string }) => Number(r.amount)} fmt={(n) => fmtMoney(n)} />
-              </Card>
-            </Col>
+            {billing && (
+              <Col xs={24} md={12}>
+                <Card title="Pendapatan per bulan" size="small">
+                  <Bars rows={o.revenue} value={(r: { amount: string }) => Number(r.amount)} fmt={(n) => fmtMoney(n)} />
+                </Card>
+              </Col>
+            )}
           </Row>
           <Typography.Text type="secondary">
             Akun pemilik layanan: {o.admins.join(', ') || '—'} (diatur lewat PLATFORM_ADMIN_EMAILS di file .env server).{' '}
@@ -267,8 +302,112 @@ function OverviewTab() {
   );
 }
 
+// ---------------- Pantauan uji ----------------
+interface Pulse {
+  users: number;
+  d1: number;
+  d7: number;
+  d30: number;
+  tenants: number;
+  tenants7: number;
+  selling: number;
+  events24: number;
+  events7: number;
+  docs: { label: string; n7: number; total: number }[];
+  daily: { day: string; n: number; users: number }[];
+  top: { id: string; name: string; events: number; users: number; last: string | null }[];
+  recent: { id: number; at: string; tenant: string; user: string | null; action: string; entity: string }[];
+}
+const ACTION_COLOR: Record<string, string> = { CREATE: 'green', UPDATE: 'blue', DELETE: 'red', CANCEL: 'orange', CONFIRM: 'cyan', POST: 'geekblue' };
+
+/** Siapa yang memakai SANSU, seberapa sering, dan apa yang mereka kerjakan — untuk memantau tahap uji */
+function PulseTab() {
+  const q = useQuery({ queryKey: [...KEYS, 'pulse'], queryFn: () => get<Pulse>('/platform-admin/pulse'), refetchInterval: 60_000 });
+  const [, setParams] = useSearchParams();
+  return (
+    <QueryState q={q}>
+      {(p) => (
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Row gutter={[16, 16]}>
+            {[
+              { t: 'Pengguna login 24 jam', v: p.d1, s: `${p.users} pengguna aktif` },
+              { t: 'Pengguna login 7 hari', v: p.d7 },
+              { t: 'Pengguna login 30 hari', v: p.d30 },
+              { t: 'Perusahaan aktif 7 hari', v: p.tenants7, s: `dari ${p.tenants} perusahaan` },
+              { t: 'Sudah bertransaksi', v: p.selling, s: 'punya faktur atau transaksi kasir' },
+              { t: 'Aktivitas 24 jam', v: p.events24 },
+              { t: 'Aktivitas 7 hari', v: p.events7 },
+            ].map((x) => (
+              <Col xs={12} md={6} key={x.t}>
+                <Card size="small">
+                  <Statistic title={x.t} value={x.v} />
+                  {x.s && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{x.s}</Typography.Text>}
+                </Card>
+              </Col>
+            ))}
+          </Row>
+          <Row gutter={[16, 16]}>
+            <Col xs={24} md={12}>
+              <Card title="Aktivitas per hari (14 hari)" size="small">
+                <Bars rows={p.daily.map((d) => ({ month: d.day, ...d }))} value={(r: { n: number }) => r.n} fmt={(n) => String(n)} label={(r) => dayjs(r.month).format('DD MMM')} />
+              </Card>
+            </Col>
+            <Col xs={24} md={12}>
+              <Card title="Dokumen dibuat" size="small">
+                <Table
+                  size="small"
+                  rowKey="label"
+                  pagination={false}
+                  dataSource={p.docs}
+                  columns={[
+                    { title: 'Jenis', dataIndex: 'label' },
+                    { title: '7 hari', dataIndex: 'n7', align: 'right' },
+                    { title: 'Seluruhnya', dataIndex: 'total', align: 'right' },
+                  ]}
+                />
+              </Card>
+            </Col>
+          </Row>
+          <Card title="Perusahaan paling aktif (7 hari)" size="small" extra={<Button size="small" onClick={() => setParams({ tab: 'tenants' })}>Semua perusahaan</Button>}>
+            <Table
+              size="small"
+              rowKey="id"
+              pagination={false}
+              dataSource={p.top}
+              locale={{ emptyText: 'Belum ada aktivitas' }}
+              columns={[
+                { title: 'Perusahaan', dataIndex: 'name' },
+                { title: 'Pengguna aktif', dataIndex: 'users', align: 'right' },
+                { title: 'Aktivitas', dataIndex: 'events', align: 'right' },
+                { title: 'Terakhir', dataIndex: 'last', render: (v: string | null) => (v ? dayjs(v).format('DD MMM HH:mm') : '-') },
+              ]}
+            />
+          </Card>
+          <Card title="Aktivitas terbaru" size="small">
+            <Table
+              size="small"
+              rowKey="id"
+              pagination={{ pageSize: 15, showSizeChanger: false }}
+              dataSource={p.recent}
+              scroll={{ x: 700 }}
+              columns={[
+                { title: 'Waktu', dataIndex: 'at', width: 130, render: (v: string) => dayjs(v).format('DD MMM HH:mm') },
+                { title: 'Perusahaan', dataIndex: 'tenant' },
+                { title: 'Pengguna', dataIndex: 'user', render: (v: string | null) => v ?? '—' },
+                { title: 'Aksi', dataIndex: 'action', render: (v: string) => <Tag color={ACTION_COLOR[v] ?? 'default'}>{v}</Tag> },
+                { title: 'Objek', dataIndex: 'entity' },
+              ]}
+            />
+          </Card>
+        </Space>
+      )}
+    </QueryState>
+  );
+}
+
 // ---------------- Perusahaan ----------------
 function TenantsTab() {
+  const billing = useBillingEnabled();
   const [term, setTerm] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<string>('ALL');
@@ -290,7 +429,7 @@ function TenantsTab() {
           style={{ width: 300 }}
           enterButton={<SearchOutlined />}
         />
-        <Segmented
+        {billing && <Segmented
           value={status}
           onChange={(v) => setStatus(String(v))}
           options={[
@@ -300,7 +439,7 @@ function TenantsTab() {
               label: SUBSCRIPTION_STATUS_LABELS[s],
             })),
           ]}
-        />
+        />}
       </Space>
       <Table
         rowKey="id"
@@ -328,19 +467,20 @@ function TenantsTab() {
               </div>
             ),
           },
-          { title: 'Paket', dataIndex: 'plan_name', render: (v) => v ?? '—' },
-          {
-            title: 'Status',
-            dataIndex: 'state',
-            render: (s: SubscriptionStatus, r) => (
-              <Tag color={SUB_COLOR[s]}>{r.status ? SUBSCRIPTION_STATUS_LABELS[s] : 'Tanpa langganan'}</Tag>
-            ),
-          },
-          {
-            title: 'Berakhir',
-            render: (_, r) =>
-              r.endsAt ? `${fmtDate(r.endsAt)}${r.daysLeft ? ` (${r.daysLeft} hr)` : ''}` : 'Tanpa batas',
-          },
+          ...(billing
+            ? [
+                { title: 'Paket', dataIndex: 'plan_name', render: (v: string | null) => v ?? '—' },
+                {
+                  title: 'Status',
+                  dataIndex: 'state',
+                  render: (s: SubscriptionStatus, r: TenantRow) => <Tag color={SUB_COLOR[s]}>{r.status ? SUBSCRIPTION_STATUS_LABELS[s] : 'Tanpa langganan'}</Tag>,
+                },
+                {
+                  title: 'Berakhir',
+                  render: (_: unknown, r: TenantRow) => (r.endsAt ? `${fmtDate(r.endsAt)}${r.daysLeft ? ` (${r.daysLeft} hr)` : ''}` : 'Tanpa batas'),
+                },
+              ]
+            : []),
           { title: 'Pengguna', dataIndex: 'users', align: 'right' },
           { title: t('Faktur dibuat'), dataIndex: 'sales_invoices', align: 'right' },
           {
@@ -401,6 +541,7 @@ function TenantDrawer({ id, onClose }: { id: string | null; onClose: () => void 
     success: 'Langganan diperbarui',
     invalidate: KEYS,
   });
+  const billing = useBillingEnabled();
   const d = q.data;
   return (
     <Drawer open={!!id} onClose={onClose} width={720} title={d?.tenant.name ?? 'Perusahaan'} destroyOnHidden>
@@ -408,13 +549,15 @@ function TenantDrawer({ id, onClose }: { id: string | null; onClose: () => void 
         {(d) => (
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
             <Descriptions size="small" column={2} bordered>
-              <Descriptions.Item label="Status">
-                <Tag color={SUB_COLOR[d.state.status]}>{SUBSCRIPTION_STATUS_LABELS[d.state.status]}</Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="Paket">{d.state.plan?.name ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="Berakhir">
-                {d.state.endsAt ? fmtDate(d.state.endsAt) : 'Tanpa batas'}
-              </Descriptions.Item>
+              {billing && (
+                <Descriptions.Item label="Status">
+                  <Tag color={SUB_COLOR[d.state.status]}>{SUBSCRIPTION_STATUS_LABELS[d.state.status]}</Tag>
+                </Descriptions.Item>
+              )}
+              {billing && <Descriptions.Item label="Paket">{d.state.plan?.name ?? '—'}</Descriptions.Item>}
+              {billing && (
+                <Descriptions.Item label="Berakhir">{d.state.endsAt ? fmtDate(d.state.endsAt) : 'Tanpa batas'}</Descriptions.Item>
+              )}
               <Descriptions.Item label="Terdaftar">{fmtDate(d.tenant.createdAt)}</Descriptions.Item>
               <Descriptions.Item label="Pengguna aktif">{d.usage.users}</Descriptions.Item>
               <Descriptions.Item label={t('Gudang')}>{d.usage.warehouses}</Descriptions.Item>
@@ -423,7 +566,7 @@ function TenantDrawer({ id, onClose }: { id: string | null; onClose: () => void 
               </Descriptions.Item>
             </Descriptions>
 
-            <Card size="small" title="Atur langganan">
+            {billing && <Card size="small" title="Atur langganan">
               <Form
                 form={form}
                 layout="vertical"
@@ -516,7 +659,7 @@ function TenantDrawer({ id, onClose }: { id: string | null; onClose: () => void 
                   Simpan
                 </Button>
               </Form>
-            </Card>
+            </Card>}
 
             <Card size="small" title="Pengguna">
               <Table
@@ -545,7 +688,7 @@ function TenantDrawer({ id, onClose }: { id: string | null; onClose: () => void 
                 ]}
               />
             </Card>
-            <Card size="small" title="Tagihan">
+            {billing && <Card size="small" title="Tagihan">
               <Table
                 rowKey="id"
                 size="small"
@@ -566,7 +709,7 @@ function TenantDrawer({ id, onClose }: { id: string | null; onClose: () => void 
                   { title: 'Lunas', dataIndex: 'paidAt', render: (v) => (v ? fmtDate(v) : '-') },
                 ]}
               />
-            </Card>
+            </Card>}
           </Space>
         )}
       </QueryState>
@@ -882,6 +1025,7 @@ function PlansTab() {
 
 // ---------------- Pengaturan ----------------
 interface PSettings {
+  enabled: boolean;
   bankName: string;
   bankAccount: string;
   bankHolder: string;
@@ -916,6 +1060,39 @@ function SettingsTab() {
     <QueryState q={q}>
       {(s) => (
         <Row gutter={[16, 16]}>
+          <Col xs={24}>
+            <Card title="Langganan">
+              <Space align="start" size={16} wrap>
+                <Switch
+                  checked={s.enabled}
+                  loading={save.isPending}
+                  onChange={(on) =>
+                    on
+                      ? Modal.confirm({
+                          title: 'Nyalakan langganan?',
+                          content: 'Perusahaan baru mendapat uji coba, paket membatasi pengguna/gudang, dan perusahaan yang masa aktifnya habis menjadi baca saja. Perusahaan yang sudah terdaftar tanpa langganan tetap tanpa batas sampai Anda memberinya paket.',
+                          okText: 'Nyalakan',
+                          onOk: () => save.mutateAsync({ enabled: true }),
+                        })
+                      : save.mutate({ enabled: false })
+                  }
+                />
+                <div>
+                  <Typography.Text strong>{s.enabled ? 'Langganan aktif' : 'Langganan dimatikan — mode uji'}</Typography.Text>
+                  <div style={{ color: '#6b7280', fontSize: 13, maxWidth: 640 }}>
+                    {s.enabled
+                      ? 'Uji coba, batas paket, tagihan, dan mode baca saja berlaku. Matikan untuk kembali ke mode uji.'
+                      : 'Semua perusahaan memakai SANSU tanpa uji coba, batas paket, tagihan, atau penguncian; menu Langganan dan banner disembunyikan. Data paket dan tagihan tidak dihapus.'}
+                  </div>
+                </div>
+              </Space>
+            </Card>
+          </Col>
+          {!s.enabled && (
+            <Col xs={24}>
+              <Alert type="info" showIcon message="Pengaturan pembayaran di bawah baru berlaku setelah langganan dinyalakan." />
+            </Col>
+          )}
           <Col xs={24} lg={14}>
             <Card title="Pembayaran & uji coba">
               <Form

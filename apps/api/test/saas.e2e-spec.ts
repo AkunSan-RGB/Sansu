@@ -38,13 +38,16 @@ describe('Langganan, email & panel admin (e2e)', () => {
     db = app.get<Db>(DB);
     mail = app.get(MailService);
     http = request(app.getHttpServer());
+    const a = await http.post('/api/auth/register').send({ companyName: 'SANSU Pusat', name: 'Admin SANSU', email: adminEmail, password: 'rahasia123' }).expect(201);
+    admin = a.body.accessToken;
+    // langganan dimatikan secara bawaan selama tahap uji; suite ini menguji perilakunya saat dinyalakan
+    await http.put('/api/platform-admin/settings').set(as(admin)).send({ enabled: true }).expect(200);
     const r = await http.post('/api/auth/register').send({ companyName: 'PT Uji Langganan', name: 'Bu Sari', email: ownerEmail, password: 'rahasia123' }).expect(201);
     owner = r.body.accessToken;
     tenantId = r.body.user.tenantId;
-    const a = await http.post('/api/auth/register').send({ companyName: 'SANSU Pusat', name: 'Admin SANSU', email: adminEmail, password: 'rahasia123' }).expect(201);
-    admin = a.body.accessToken;
   });
   afterAll(async () => {
+    await http.put('/api/platform-admin/settings').set(as(admin)).send({ enabled: false });
     delete process.env.PLATFORM_ADMIN_EMAILS;
     await app.close();
   });

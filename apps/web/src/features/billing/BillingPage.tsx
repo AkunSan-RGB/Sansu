@@ -38,6 +38,7 @@ import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { useAction } from '@/api/queries';
+import { useAuth } from '@/auth/AuthContext';
 import QueryState from '@/components/QueryState';
 import PageHeader from '@/layout/PageHeader';
 import BillingInvoiceModal from './BillingInvoiceDoc';
@@ -68,6 +69,19 @@ const readFile = (f: File) =>
   });
 
 export default function BillingPage() {
+  const { me } = useAuth();
+  if (me?.subscription.enabled === false) {
+    return (
+      <>
+        <PageHeader title="Langganan SANSU" />
+        <Alert type="info" showIcon message="Langganan belum diaktifkan" description="SANSU masih dalam tahap uji, jadi semua fitur bisa dipakai tanpa batas waktu, batas pengguna, atau tagihan. Informasi paket akan muncul di sini saat langganan dibuka." />
+      </>
+    );
+  }
+  return <BillingContent />;
+}
+
+function BillingContent() {
   const q = useQuery({ queryKey: ['billing'], queryFn: () => get<BillingOverview>('/billing') });
   const [params] = useSearchParams();
   return (

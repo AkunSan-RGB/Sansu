@@ -18,6 +18,7 @@ export default function AccountStatusBanner() {
   });
   if (!me) return null;
   const s = me.subscription;
+  const subOn = s.enabled !== false; // saklar langganan dimatikan di Panel SANSU (tahap uji): tanpa banner langganan
   const toBilling = isAdmin ? (
     <Button size="small" type="primary" onClick={() => navigate('/billing')}>
       {s.readOnly ? 'Perpanjang sekarang' : 'Pilih paket'}
@@ -41,7 +42,7 @@ export default function AccountStatusBanner() {
       />,
     );
   }
-  if (s.readOnly) {
+  if (subOn && s.readOnly) {
     banners.push(
       <Alert
         key="sub"
@@ -52,9 +53,9 @@ export default function AccountStatusBanner() {
         action={toBilling}
       />,
     );
-  } else if (s.status === 'OVERDUE') {
+  } else if (subOn && s.status === 'OVERDUE') {
     banners.push(<Alert key="sub" type="warning" showIcon message={`Masa aktif sudah berakhir. Masa tenggang sampai ${fmtDate(s.graceUntil)}.`} action={toBilling} />);
-  } else if (s.status === 'TRIAL') {
+  } else if (subOn && s.status === 'TRIAL') {
     banners.push(
       <Alert
         key="sub"
