@@ -12,6 +12,7 @@ import {
   type LegalForm,
   recommendProfile,
   REPORTING_FRAMEWORKS,
+  REPORTING_FRAMEWORK_SHORT,
   type ReportingFramework,
   simplificationsFor,
   TAX_SCHEMES,
@@ -149,10 +150,11 @@ export class EntityProfileService {
 
   async apply(user: AuthUser, dto: ApplyEntityProfileDto) {
     const rec = recommendProfile(dto);
-    if (rec.outOfScope) throw new BadRequestException(rec.warnings[0]);
+    // Akuntabilitas publik: hanya IFRS (PSAK berbasis IFRS) yang boleh dipilih
+    if (rec.outOfScope && dto.framework !== 'IFRS') throw new BadRequestException(rec.warnings[0]);
     if (dto.framework !== rec.framework && !rec.frameworkAlternatives.includes(dto.framework)) {
       throw new BadRequestException(
-        `${dto.framework === 'SAK_EMKM' ? 'SAK EMKM' : 'SAK EP'} tidak memenuhi syarat untuk usaha ini (${rec.reasons[0]})`,
+        `${REPORTING_FRAMEWORK_SHORT[dto.framework]} tidak memenuhi syarat untuk usaha ini (${rec.reasons[0]})`,
       );
     }
     if (dto.taxScheme === 'FINAL_UMKM' && !rec.finalTaxEligible) {

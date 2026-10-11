@@ -7,7 +7,7 @@
  *  - Neraca Saldo lengkap (saldo awal, mutasi, saldo akhir) dan Neraca Lajur (worksheet)
  */
 import { Injectable } from '@nestjs/common';
-import { REPORT_GROUPS, type ReportGroup, type ReportingFramework, SECTION_LABELS, type StatementSection, BUSINESS_MODEL_KEYS, type BusinessModel, REPORT_TERMS } from '@sansu/shared';
+import { asFramework, REPORT_GROUPS, type ReportGroup, type ReportingFramework, SECTION_LABELS, type StatementSection, BUSINESS_MODEL_KEYS, type BusinessModel, REPORT_TERMS } from '@sansu/shared';
 import { eq, sql } from 'drizzle-orm';
 import { addDays, DocDate, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, ZERO } from '../../common/utils/money';
@@ -65,7 +65,7 @@ export class StatementsService {
   async framework(tenantId: string): Promise<ReportingFramework> {
     const [t] = await this.db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
     const fw = (t?.settings as { reporting?: { framework?: string } })?.reporting?.framework;
-    return fw === 'SAK_EMKM' ? 'SAK_EMKM' : 'SAK_EP';
+    return asFramework(fw);
   }
 
   /** Jenis usaha perusahaan (Dagang bila belum pernah dipilih) — menentukan istilah di laporan */

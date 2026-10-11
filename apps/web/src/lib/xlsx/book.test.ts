@@ -312,3 +312,15 @@ describe('CSV rapi', () => {
     expect(l).toEqual(['CV Contoh', 'Laporan', 'Per 31 Desember 2026', '', 'Uraian;2026', 'ASET;', '"  Kas";10,00', 'Jumlah;10,00']);
   });
 });
+
+describe('judul laporan menurut standar', () => {
+  it('IFRS dwibahasa; SAK EP lengkap; SAK EMKM ringkas', async () => {
+    const { statementTitle } = await import('@sansu/shared');
+    expect(statementTitle('position', 'IFRS')).toBe('Laporan Posisi Keuangan (Statement of Financial Position)');
+    expect(statementTitle('income', 'IFRS')).toBe('Laporan Laba Rugi dan Penghasilan Komprehensif Lain (Statement of Profit or Loss and Other Comprehensive Income)');
+    expect(statementTitle('income', 'SAK_EP')).toBe('Laporan Laba Rugi dan Penghasilan Komprehensif Lain');
+    expect(statementTitle('income', 'SAK_EMKM')).toBe('Laporan Laba Rugi');
+    expect(statementTitle('cashflow', 'IFRS')).toContain('Statement of Cash Flows');
+    expect(statementTitle('notes', 'SAK_EP')).toBe('Catatan atas Laporan Keuangan');
+  });
+});

@@ -517,7 +517,7 @@ export class HealthService {
       SELECT COALESCE(SUM(total - paid_amount - returned_amount), 0) AS v, COUNT(*)::int AS n FROM invoices
       WHERE tenant_id = ${tenantId} AND status <> 'PAID' AND due_date < ${addDays(asOf, -90)}`);
     const allowance = groupTotal(['ALLOWANCE_RECEIVABLE']).negated();
-    if ((await frameworkOf(this.db, tenantId)) === 'SAK_EP')
+    if ((await frameworkOf(this.db, tenantId)) !== 'SAK_EMKM')
     checks.push({
       key: 'bad-debt',
       category: 'Kewajaran',

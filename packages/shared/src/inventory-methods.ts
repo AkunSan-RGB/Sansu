@@ -4,6 +4,7 @@
  *  - LIFO tidak diakui kedua standar (dan tidak diterima untuk pajak penghasilan), sehingga tidak disediakan.
  * Metode berlaku untuk seluruh persediaan perusahaan (konsistensi kebijakan akuntansi).
  */
+import { FRAMEWORK_REFS, type ReportingFramework } from './accounting.js';
 import type { BusinessModel } from './apps.js';
 
 export const INVENTORY_METHODS = ['AVERAGE', 'FIFO'] as const;
@@ -29,9 +30,9 @@ export const isInventoryMethod = (v: unknown): v is InventoryMethod => (INVENTOR
 export const DEFAULT_INVENTORY_METHOD: InventoryMethod = 'AVERAGE';
 
 /** Saran per jenis usaha (kedua metode sah untuk SAK EP maupun SAK EMKM; yang berbeda hanya kecocokan dengan kegiatan usaha) */
-export function inventoryMethodGuide(model: BusinessModel, framework: 'SAK_EP' | 'SAK_EMKM'): { recommended: InventoryMethod | null; notes: string[] } {
-  const std = framework === 'SAK_EP' ? 'SAK EP Bab 13' : 'ED SAK EMKM Bab 9';
-  const base = [`${std} membolehkan MPKP (FIFO) dan rata-rata tertimbang; LIFO tidak diakui.`];
+export function inventoryMethodGuide(model: BusinessModel, framework: ReportingFramework): { recommended: InventoryMethod | null; notes: string[] } {
+  const std = FRAMEWORK_REFS[framework].inventory;
+  const base = [`${std} membolehkan MPKP (FIFO) dan rata-rata tertimbang; LIFO ${framework === 'IFRS' ? 'dilarang (IAS 2.25)' : 'tidak diakui'}.`];
   switch (model) {
     case 'JASA':
       return { recommended: null, notes: ['Usaha jasa umumnya tidak menyimpan persediaan dagang; metode hanya berlaku bila Inventori dipakai untuk bahan atau perlengkapan.', ...base] };

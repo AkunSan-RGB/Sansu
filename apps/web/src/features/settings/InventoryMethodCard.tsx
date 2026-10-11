@@ -1,4 +1,4 @@
-import type { InventoryMethod } from '@sansu/shared';
+import { FRAMEWORK_REFS, type InventoryMethod, type ReportingFramework } from '@sansu/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Card, Radio, Space, Tag, Typography } from 'antd';
 import { useEffect, useState } from 'react';
@@ -8,7 +8,7 @@ import { useAuth } from '@/auth/AuthContext';
 
 interface MethodInfo {
   method: InventoryMethod;
-  framework: 'SAK_EP' | 'SAK_EMKM';
+  framework: ReportingFramework;
   options: { key: InventoryMethod; label: string; how: string }[];
   guide: { recommended: InventoryMethod | null; notes: string[] };
 }
@@ -29,7 +29,7 @@ export default function InventoryMethodCard() {
     },
   });
   if (!data) return null;
-  const std = data.framework === 'SAK_EP' ? 'SAK EP Bab 13' : 'ED SAK EMKM Bab 9';
+  const std = FRAMEWORK_REFS[data.framework].inventory;
   return (
     <Card title="Metode biaya persediaan" extra={<Tag color="blue">{std}</Tag>}>
       <Typography.Paragraph type="secondary">

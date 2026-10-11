@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { LEGAL_FORM_LABELS, REPORTING_FRAMEWORK_LABELS, TAX_SCHEME_LABELS, toOptions } from '@sansu/shared';
+import { LEGAL_FORM_LABELS, REPORTING_FRAMEWORK_LABELS, REPORTING_FRAMEWORK_SHORT, TAX_SCHEME_LABELS, toOptions } from '@sansu/shared';
 import {
   AuditOutlined,
   BankOutlined,
@@ -320,7 +320,9 @@ export default function CompanySettingsPage() {
                       extra={
                         framework === 'SAK_EMKM'
                           ? 'SAK EMKM: untuk usaha mikro/kecil — laporan posisi keuangan, laba rugi, dan CALK; aset tetap dengan biaya historis.'
-                          : 'SAK EP (berlaku sejak 1 Januari 2025): untuk entitas tanpa akuntabilitas publik — 5 laporan lengkap dengan pembanding.'
+                          : framework === 'IFRS'
+                            ? 'IFRS (standar akuntansi umum, di Indonesia berbentuk PSAK berbasis IFRS): untuk entitas akuntabilitas publik, afiliasi grup asing, atau bila bank/investor mensyaratkannya — 5 laporan lengkap dengan judul dwibahasa dan CALK dengan pengungkapan IFRS (risiko keuangan, manajemen modal, sewa, instrumen keuangan). Pengungkapan khusus seperti laba per saham dan segmen operasi belum tercakup.'
+                            : 'SAK EP (berlaku sejak 1 Januari 2025): untuk entitas tanpa akuntabilitas publik — 5 laporan lengkap dengan pembanding.'
                       }
                     >
                       <Radio.Group optionType="button" buttonStyle="solid" options={toOptions(REPORTING_FRAMEWORK_LABELS)} />
@@ -519,7 +521,7 @@ export default function CompanySettingsPage() {
           <div className="settings-summary-name">{data?.name ?? me?.tenantName}</div>
           <Space size={6} wrap style={{ marginTop: 6 }}>
             {model && <Tag color="blue">{model.name}</Tag>}
-            {data?.reporting && <Tag color="gold">{data.reporting.framework === 'SAK_EMKM' ? 'SAK EMKM' : 'SAK EP'}</Tag>}
+            {data?.reporting && <Tag color="gold">{REPORTING_FRAMEWORK_SHORT[data.reporting.framework]}</Tag>}
             <Tag color={pkp ? 'green' : 'default'}>{pkp ? 'PKP' : 'Non-PKP'}</Tag>
           </Space>
         </div>

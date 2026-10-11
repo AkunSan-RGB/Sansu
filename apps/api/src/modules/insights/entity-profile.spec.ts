@@ -50,16 +50,18 @@ describe('rekomendasi standar akuntansi, skema PPh, dan PKP', () => {
     }
   });
 
-  it('menengah → SAK EP dengan SAK EMKM sebagai alternatif; besar → SAK EP saja', () => {
+  it('menengah → SAK EP dengan SAK EMKM dan IFRS sebagai alternatif; besar → SAK EP dengan IFRS sukarela', () => {
     const mid = rec({ assets: 8_000_000_000, revenue: 20_000_000_000 });
-    expect(mid).toMatchObject({ size: 'MEDIUM', framework: 'SAK_EP', frameworkAlternatives: ['SAK_EMKM'] });
+    expect(mid).toMatchObject({ size: 'MEDIUM', framework: 'SAK_EP', frameworkAlternatives: ['SAK_EMKM', 'IFRS'] });
     const big = rec({ assets: 20_000_000_000, revenue: 90_000_000_000 });
-    expect(big).toMatchObject({ size: 'LARGE', framework: 'SAK_EP', frameworkAlternatives: [] });
+    expect(big).toMatchObject({ size: 'LARGE', framework: 'SAK_EP', frameworkAlternatives: ['IFRS'] });
   });
 
-  it('akuntabilitas publik: di luar cakupan dan diberi peringatan', () => {
+  it('akuntabilitas publik: wajib IFRS (tanpa alternatif) dan diberi peringatan', () => {
     const r = rec({ publicAccountability: true, assets: 1, revenue: 1 });
     expect(r.outOfScope).toBe(true);
+    expect(r.framework).toBe('IFRS');
+    expect(r.frameworkAlternatives).toEqual([]);
     expect(r.warnings.join(' ')).toMatch(/akuntabilitas publik/i);
   });
 
@@ -97,13 +99,15 @@ describe('rekomendasi standar akuntansi, skema PPh, dan PKP', () => {
         for (const revenue of [0, 2e9, 4.8e9, 15e9, 50e9, 1e11]) {
           for (const publicAccountability of [false, true]) {
             const r = rec({ legalForm, assets, revenue, publicAccountability });
-            expect(['SAK_EMKM', 'SAK_EP']).toContain(r.framework);
+            expect(['SAK_EMKM', 'SAK_EP', 'IFRS']).toContain(r.framework);
             expect(r.frameworkAlternatives).not.toContain(r.framework);
             expect(r.reasons.length).toBeGreaterThan(0);
             // skema final hanya bila berhak
             if (r.taxScheme === 'FINAL_UMKM') expect(r.finalTaxEligible).toBe(true);
             // standar EMKM tidak pernah disarankan untuk usaha besar
-            if (r.size === 'LARGE') expect(r.framework).toBe('SAK_EP');
+            if (r.size === 'LARGE') expect(r.framework).toBe(publicAccountability ? 'IFRS' : 'SAK_EP');
+            // akuntabilitas publik selalu IFRS
+            if (publicAccountability) expect(r.framework).toBe('IFRS');
           }
         }
       }

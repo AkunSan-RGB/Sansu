@@ -45,6 +45,24 @@ export const HELP_ARTICLES: HelpArticle[] = [
     keywords: 'awal setup onboarding mulai baru pertama',
   },
   {
+    id: 'standar-akuntansi',
+    category: 'Memulai',
+    title: 'Memilih standar akuntansi: SAK EMKM, SAK EP, atau IFRS',
+    summary: 'Standar menentukan susunan laporan, isi CALK, dan akun yang tampil. Pembukuan dan angkanya tidak berubah saat Anda berpindah standar.',
+    paths: ['/settings/company'],
+    steps: [
+      'Buka Pengaturan › Perusahaan › Kebijakan akuntansi, atau jalankan wizard standar & pajak agar SANSU menyarankan yang sesuai ukuran usaha.',
+      'SAK EMKM: usaha mikro dan kecil — Laporan Posisi Keuangan, Laba Rugi, dan CALK; biaya historis, tanpa pajak tangguhan.',
+      'SAK EP: entitas tanpa akuntabilitas publik — lima laporan dengan pembanding, pajak tangguhan, cadangan penurunan nilai, dan penurunan nilai persediaan.',
+      'IFRS (standar akuntansi umum, PSAK berbasis IFRS): wajib untuk akuntabilitas publik, boleh dipilih sukarela oleh usaha menengah/besar (mis. afiliasi grup asing atau syarat bank/investor). Pengukuran sama dengan SAK EP; judul laporan dwibahasa dan CALK memuat pengungkapan IFRS (instrumen keuangan, sewa, risiko keuangan, manajemen modal, standar baru).',
+    ],
+    tips: [
+      'Belum tercakup untuk IFRS: laba per saham, segmen operasi, serta aset hak-guna dan liabilitas sewa otomatis (IFRS 16). Lengkapi bersama akuntan bila relevan.',
+      'Pindah standar kapan saja tidak mengubah jurnal; yang berubah hanya penyajian, CALK, dan akun yang ditampilkan.',
+    ],
+    keywords: 'standar akuntansi IFRS PSAK SAK EP SAK EMKM IAS pilih ganti kerangka pelaporan',
+  },
+  {
     id: 'impor',
     category: 'Memulai',
     title: 'Impor produk, pelanggan, supplier, dan stok awal dari Excel',

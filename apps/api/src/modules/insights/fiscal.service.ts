@@ -214,7 +214,7 @@ export class FiscalService {
 
     // Pajak tangguhan (hanya SAK EP + tarif umum): beda temporer nilai buku aset tetap
     let deferred = null as null | { temporaryDifference: string; target: string; current: string; adjustment: string };
-    if (reporting.framework === 'SAK_EP' && reporting.taxScheme === 'GENERAL') {
+    if (reporting.framework !== 'SAK_EMKM' && reporting.taxScheme === 'GENERAL') {
       // beda temporer: nilai buku aset tetap (fiskal − komersial) + penurunan nilai persediaan yang masih melekat
       const temp = assetRows.reduce<Dec>((s, r) => s.plus(r.fiscalBookValue).minus(r.commercialBookValue), ZERO).plus(wd.reserve);
       const target = money(temp.times(CORPORATE_RATE).div(100));

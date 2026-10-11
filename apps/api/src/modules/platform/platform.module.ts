@@ -32,7 +32,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { and, eq, ne, sql } from 'drizzle-orm';
-import { APP_KEYS, type AppKey, LEGAL_FORMS, REPORTING_FRAMEWORKS, TAX_SCHEMES, VAT_ROUNDINGS, type VatRounding } from '@sansu/shared';
+import { APP_KEYS, type AppKey, LEGAL_FORMS, REPORTING_FRAMEWORKS, type ReportingFramework, TAX_SCHEMES, VAT_ROUNDINGS, type VatRounding } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -117,8 +117,7 @@ export class BrandingDto {
 }
 
 export class ReportingSettingsDto {
-  @ApiPropertyOptional({ enum: REPORTING_FRAMEWORKS }) @IsOptional() @IsIn(REPORTING_FRAMEWORKS) framework?:
-    'SAK_EP' | 'SAK_EMKM';
+  @ApiPropertyOptional({ enum: REPORTING_FRAMEWORKS }) @IsOptional() @IsIn(REPORTING_FRAMEWORKS) framework?: ReportingFramework;
   @ApiPropertyOptional({ enum: LEGAL_FORMS }) @IsOptional() @IsIn(LEGAL_FORMS) legalForm?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) businessActivity?: string;
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1900) @Max(2100) establishedYear?: number;

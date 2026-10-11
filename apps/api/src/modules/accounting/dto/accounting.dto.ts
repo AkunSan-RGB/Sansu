@@ -15,7 +15,7 @@ import {
   MaxLength,
   ValidateNested,
 } from 'class-validator';
-import { FISCAL_TREATMENTS, type FiscalTreatment, RECURRING_FREQUENCIES, type RecurringFrequency, REPORT_GROUP_KEYS, type ReportGroup } from '@sansu/shared';
+import { FISCAL_TREATMENTS, type FiscalTreatment, REPORTING_FRAMEWORKS, type ReportingFramework, RECURRING_FREQUENCIES, type RecurringFrequency, REPORT_GROUP_KEYS, type ReportGroup } from '@sansu/shared';
 import { PartialType } from '@nestjs/swagger';
 import { AccountType, accountTypeEnum } from '../../../db/schema';
 
@@ -107,7 +107,7 @@ export class StatementQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsDateString() to?: string;
   @ApiPropertyOptional({ description: 'Pembanding: awal periode' }) @IsOptional() @IsDateString() compareFrom?: string;
   @ApiPropertyOptional({ description: 'Pembanding: akhir periode' }) @IsOptional() @IsDateString() compareTo?: string;
-  @ApiPropertyOptional({ enum: ['SAK_EP', 'SAK_EMKM'] }) @IsOptional() @IsIn(['SAK_EP', 'SAK_EMKM']) framework?: 'SAK_EP' | 'SAK_EMKM';
+  @ApiPropertyOptional({ enum: REPORTING_FRAMEWORKS }) @IsOptional() @IsIn(REPORTING_FRAMEWORKS) framework?: ReportingFramework;
   @ApiPropertyOptional({ enum: ['indirect', 'direct'] }) @IsOptional() @IsIn(['indirect', 'direct']) method?: string;
   @ApiPropertyOptional() @IsOptional() @IsIn(['true', 'false']) hideZero?: string;
 }

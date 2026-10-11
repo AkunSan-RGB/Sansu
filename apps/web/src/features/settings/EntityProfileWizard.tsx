@@ -187,9 +187,8 @@ export default function EntityProfileWizard({ open, onClose }: { open: boolean; 
     const { framework: fw, taxScheme: ts, pkp } = chosen!;
     return (
       <>
-        {rec.outOfScope ? (
-          rec.warnings.map((w) => <Alert key={w} type="error" showIcon message={w} />)
-        ) : (
+        {rec.outOfScope && rec.warnings.map((w) => <Alert key={w} type="warning" showIcon message={w} style={{ marginBottom: 12 }} />)}
+        {(
           <>
             <Descriptions size="small" column={1} bordered>
               <Descriptions.Item label="Ukuran usaha">
@@ -270,7 +269,7 @@ export default function EntityProfileWizard({ open, onClose }: { open: boolean; 
               </Button>
             )}
             {last && (
-              <Button type="primary" loading={apply.isPending} disabled={!draft || !!rec?.outOfScope} onClick={() => draft && apply.mutate(draft)}>
+              <Button type="primary" loading={apply.isPending} disabled={!draft} onClick={() => draft && apply.mutate(draft)}>
                 Terapkan
               </Button>
             )}
