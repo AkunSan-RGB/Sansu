@@ -31,7 +31,7 @@ import { t } from '@/lib/terms';
 
 /** Batas nilai yang memerlukan persetujuan pemilik / admin (0 = nonaktif) */
 function ApprovalPolicyCard() {
-  type Policy = { purchaseOrder: number; manualJournal: number; purchaseRequestAuto: number };
+  type Policy = { purchaseOrder: number; manualJournal: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number };
   const [form] = Form.useForm<Policy>();
   const policy = useQuery({ queryKey: ['approvals', 'policy'], queryFn: () => get<Policy>('/approvals/policy') });
   useEffect(() => {
@@ -46,7 +46,7 @@ function ApprovalPolicyCard() {
         style={{ marginBottom: 16 }}
         message="Transaksi bernilai di atas batas dari peran selain pemilik dan admin menunggu persetujuan. Isi 0 untuk mematikan."
       />
-      <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)} initialValues={{ purchaseOrder: 0, manualJournal: 0, purchaseRequestAuto: 0 }}>
+      <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)} initialValues={{ purchaseOrder: 0, manualJournal: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10 }}>
         <Form.Item name="purchaseOrder" label="Pesanan pembelian dengan total mulai dari" extra="Konfirmasi pesanan oleh keuangan menunggu persetujuan.">
           <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
         </Form.Item>
@@ -56,6 +56,18 @@ function ApprovalPolicyCard() {
           extra="Permintaan dari gudang/divisi dengan perkiraan nilai sampai batas ini langsung disetujui tanpa menunggu (harga harus diketahui). Isi 0 bila semua permintaan harus diputuskan."
         >
           <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
+        </Form.Item>
+        <Typography.Title level={5} style={{ marginTop: 8 }}>
+          Pengendalian harga faktur supplier (anti-fraud)
+        </Typography.Title>
+        <Form.Item name="priceControl" valuePropName="checked" extra="Selisih harga faktur terhadap PO wajib beralasan dan tercatat. Kenaikan di atas toleransi atau jauh di atas harga pasar harus disetujui pemilik/admin sebelum faktur dicatat.">
+          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
+        </Form.Item>
+        <Form.Item name="priceTolerancePct" label="Toleransi kenaikan harga faktur vs PO (%)" extra="Per baris barang. Di atas ini perlu persetujuan.">
+          <InputNumber min={0} max={1000} step={1} style={{ width: '100%' }} suffix="%" />
+        </Form.Item>
+        <Form.Item name="priceBenchmarkPct" label="Toleransi di atas rata-rata harga beli 90 hari (%)" extra="Harga faktur yang melebihi rata-rata harga beli 90 hari terakhir sebesar ini juga perlu persetujuan, walau PO-nya sudah mahal.">
+          <InputNumber min={0} max={1000} step={1} style={{ width: '100%' }} suffix="%" />
         </Form.Item>
         <Form.Item name="manualJournal" label="Jurnal manual dengan total debit mulai dari" extra="Jurnal baru diposting setelah disetujui.">
           <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />

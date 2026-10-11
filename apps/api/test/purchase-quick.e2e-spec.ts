@@ -52,7 +52,7 @@ describe('Pembelian cepat & riwayat harga (e2e)', () => {
     expect(r).toMatchObject({ status: 'CONFIRMED', receiptStatus: 'FULL', priceEstimate: true });
     const stock = (await get(owner, `/api/inventory/balances?productId=${p1}`).expect(200)).body[0];
     expect(Number(stock.qty)).toBe(50);
-    const inv = (await post(owner, '/api/purchase-invoices', { purchaseOrderId: r.id, supplierInvoiceNo: 'INV-A-1', prices: [{ orderLineId: r.lines[0].id, price: '2300' }] }).expect(201)).body;
+    const inv = (await post(owner, '/api/purchase-invoices', { purchaseOrderId: r.id, supplierInvoiceNo: 'INV-A-1', varianceReason: 'MARKET_VOLATILITY', prices: [{ orderLineId: r.lines[0].id, price: '2300' }] }).expect(201)).body;
     expect(inv.priceVariance).toBe('15000.00');
     expect(Number((await get(owner, `/api/inventory/balances?productId=${p1}`).expect(200)).body[0].avgCost)).toBe(2300);
   });

@@ -106,6 +106,8 @@ export default function App() {
         <Route element={<AppGate app={['accounting', 'sales']} />}>
           <Route path="dashboard" element={<DashboardPage />} />
         </Route>
+        <Route path="approvals" element={<ApprovalsPage />} />
+        <Route path="documents/:id" element={<DocumentViewPage />} />
         <Route element={<AppGate app="crm" />}>
           <Route path="crm" element={<LeadsPipelinePage />} />
           <Route path="quotations" element={<QuotationsPage />} />
@@ -118,10 +120,6 @@ export default function App() {
           <Route path="sales-orders/:id" element={<SalesOrderDetailPage />} />
           <Route path="invoices" element={<InvoicesPage />} />
           <Route path="invoices/services/new" element={<ServiceInvoiceFormPage />} />
-          <Route path="approvals" element={<ApprovalsPage />} />
-          <Route path="documents/:id" element={<DocumentViewPage />} />
-          <Route path="goods-receipts" element={<GoodsReceiptsPage />} />
-          <Route path="goods-receipts/:id" element={<GoodsReceiptDetailPage />} />
           <Route path="deliveries" element={<DeliveriesPage />} />
           <Route path="deliveries/:id" element={<DeliveryDetailPage />} />
           <Route path="invoices/:id" element={<InvoiceDetailPage />} />
@@ -140,6 +138,8 @@ export default function App() {
           <Route path="pos/sessions" element={<PosSessionsPage />} />
         </Route>
         <Route element={<AppGate app="purchase" />}>
+          <Route path="goods-receipts" element={<GoodsReceiptsPage />} />
+          <Route path="goods-receipts/:id" element={<GoodsReceiptDetailPage />} />
           <Route path="purchase-requests" element={<PurchaseRequestsPage />} />
           <Route path="purchase-requests/new" element={<PurchaseRequestFormPage />} />
           <Route path="purchase-requests/:id" element={<PurchaseRequestDetailPage />} />

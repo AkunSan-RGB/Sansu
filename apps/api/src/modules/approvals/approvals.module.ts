@@ -4,7 +4,7 @@
  */
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { APPROVAL_KIND_LABELS, ApprovalPolicy, ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -17,12 +17,17 @@ import { AccountingModule } from '../accounting/accounting.module';
 import { AccountingService } from '../accounting/accounting.service';
 import { CreateJournalDto } from '../accounting/dto/accounting.dto';
 import { PurchaseOrdersService } from '../purchasing/purchase-orders.service';
+import { PurchaseInvoicesService } from '../purchasing/purchase-invoices.service';
+import { CreatePurchaseInvoiceDto } from '../purchasing/purchasing.dto';
 import { PurchasingModule } from '../purchasing/purchasing.module';
 
 class PolicyDto implements Partial<ApprovalPolicy> {
   @ApiPropertyOptional({ description: 'Pesanan pembelian dengan total ≥ nilai ini perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) purchaseOrder?: number;
   @ApiPropertyOptional({ description: 'Jurnal manual dengan total debit ≥ nilai ini perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) manualJournal?: number;
   @ApiPropertyOptional({ description: 'Permintaan pembelian dengan perkiraan nilai ≤ batas ini langsung disetujui otomatis; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) purchaseRequestAuto?: number;
+  @ApiPropertyOptional({ description: 'Aktifkan pengendalian selisih harga faktur terhadap PO' }) @IsOptional() @IsBoolean() priceControl?: boolean;
+  @ApiPropertyOptional({ description: 'Toleransi kenaikan harga faktur vs PO (%) per baris' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(1000) priceTolerancePct?: number;
+  @ApiPropertyOptional({ description: 'Toleransi harga faktur di atas rata-rata harga beli 90 hari (%)' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(1000) priceBenchmarkPct?: number;
 }
 class DecisionDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) note?: string;
@@ -38,6 +43,7 @@ export class ApprovalRequestsService {
     @InjectDb() private readonly db: Db,
     private readonly approvals: ApprovalsService,
     private readonly orders: PurchaseOrdersService,
+    private readonly invoices: PurchaseInvoicesService,
     private readonly accounting: AccountingService,
     private readonly audit: AuditService,
   ) {}
@@ -90,6 +96,10 @@ export class ApprovalRequestsService {
       if (req.kind === 'PURCHASE_ORDER') {
         const po = await this.orders.confirm(user, req.refId!);
         resultRef = po.number;
+      } else if (req.kind === 'PURCHASE_INVOICE_PRICE') {
+        // faktur dicatat atas nama pemohon; penyetuju tercatat di permintaan dan faktur
+        const inv = await this.invoices.createFromOrder({ ...user, sub: req.requestedById }, req.payload as unknown as CreatePurchaseInvoiceDto, { approvalId: id });
+        resultRef = inv.number;
       } else {
         // dicatat atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
         const j = await this.accounting.createManualJournal({ ...user, sub: req.requestedById }, req.payload as unknown as CreateJournalDto, { approved: true });

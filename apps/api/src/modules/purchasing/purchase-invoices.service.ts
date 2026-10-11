@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { AuditService } from '../../common/audit/audit.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
@@ -45,6 +46,7 @@ export class PurchaseInvoicesService {
     private readonly audit: AuditService,
     private readonly assets: AssetsService,
     private readonly settings: SettingsService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   list(tenantId: string, q: PurchaseInvoiceQueryDto) {
@@ -87,17 +89,142 @@ export class PurchaseInvoicesService {
    *  - Sudah ada penerimaan barang → faktur menagih barang yang sudah diterima tetapi belum ditagih (seluruhnya atau sebagian,
    *    lewat `lines`) dan menutup "Barang Diterima Belum Ditagih" ke Utang Usaha.
    */
-  async createFromOrder(user: AuthUser, dto: CreatePurchaseInvoiceDto) {
+  async createFromOrder(user: AuthUser, dto: CreatePurchaseInvoiceDto, opts: { approvalId?: string } = {}) {
     const date = toDocDate(dto.date);
+    const control = await this.priceControl(user, dto, opts);
     const result = await this.db.transaction(async (tx) => {
       const order = await this.orders.lock(tx, user.tenantId, dto.purchaseOrderId);
       if (order.status !== 'CONFIRMED') {
         throw new BadRequestException(`PO berstatus ${order.status}; hanya PO yang sudah dikonfirmasi yang bisa difakturkan`);
       }
       const active = await tx.query.goodsReceipts.findMany({ where: and(eq(goodsReceipts.purchaseOrderId, order.id), eq(goodsReceipts.status, 'RECEIVED')), columns: { id: true } });
-      return active.length || dto.lines ? this.billReceived(tx, user, order, dto, date) : this.receiveAndBill(tx, user, order, dto, date);
+      const r = active.length || dto.lines ? await this.billReceived(tx, user, order, dto, date) : await this.receiveAndBill(tx, user, order, dto, date);
+      // jejak pengendalian harga: pembuat, alasan, penanda, dan persetujuan
+      await tx
+        .update(purchaseInvoices)
+        .set({
+          createdById: user.sub,
+          approvalId: opts.approvalId ?? null,
+          varianceReason: control.hasVariance ? dto.varianceReason : null,
+          varianceNote: control.hasVariance ? (dto.varianceNote?.trim() || null) : null,
+          priceFlags: control.flags.length ? control.flags.join(',') : null,
+        })
+        .where(eq(purchaseInvoices.id, r.id));
+      return r;
     });
     return { ...(await this.get(user.tenantId, result.id)), journalNumber: result.journalNumber };
+  }
+
+  /**
+   * Pengendalian selisih harga (anti-fraud). Selisih apa pun wajib beralasan. Kenaikan harga per baris di atas toleransi, atau harga
+   * di atas rata-rata harga beli 90 hari terakhir melebihi batas pembanding, harus disetujui pemilik/admin sebelum faktur dicatat
+   * (permintaan menyimpan isi faktur dan menjalankannya saat disetujui). Pemilik/admin tidak terkena batas tetapi tetap tercatat.
+   */
+  private async priceControl(user: AuthUser, dto: CreatePurchaseInvoiceDto, opts: { approvalId?: string }) {
+    const none = { hasVariance: false, flags: [] as string[] };
+    if (!dto.prices?.length) return none;
+    const order = await this.db.query.purchaseOrders.findFirst({ where: and(eq(purchaseOrders.id, dto.purchaseOrderId), eq(purchaseOrders.tenantId, user.tenantId)), with: { lines: true } });
+    if (!order) return none; // ditolak pada langkah berikutnya (PO tidak ditemukan)
+    const diffs = dto.prices
+      .map((p) => {
+        const line = order.lines.find((l) => l.id === p.orderLineId);
+        if (!line) return null;
+        const oldP = Number(line.price);
+        const newP = Number(p.price);
+        return newP === oldP ? null : { line, oldP, newP, pct: oldP > 0 ? ((newP - oldP) / oldP) * 100 : 100 };
+      })
+      .filter((d): d is NonNullable<typeof d> => !!d);
+    if (!diffs.length) return none;
+    if (!dto.varianceReason) throw new BadRequestException('Harga faktur berbeda dari PO: pilih alasan selisih harga');
+    if (dto.varianceReason === 'OTHER' && (dto.varianceNote?.trim().length ?? 0) < 5) throw new BadRequestException('Jelaskan alasan selisih harga pada catatan (minimal 5 huruf)');
+
+    const policy = await this.approvals.policy(this.db, user.tenantId);
+    const flags: string[] = [];
+    let exceeded = false;
+    const hist = policy.priceControl ? await this.orders.priceHistory(user.tenantId, [...new Set(diffs.map((d) => d.line.productId))]) : {};
+    for (const d of diffs) {
+      if (d.pct > policy.priceTolerancePct + 1e-9) exceeded = true;
+      const h = hist[d.line.productId];
+      if (h?.avg90 != null && d.newP / Number(d.line.uomFactor) > h.avg90 * (1 + policy.priceBenchmarkPct / 100)) {
+        flags.push('ABOVE_MARKET');
+        exceeded = true;
+      }
+    }
+    if (policy.priceControl && exceeded && !this.approvals.isApprover(user.role) && !opts.approvalId) {
+      const [dup] = (
+        await this.db.execute<{ id: string }>(sql`
+          SELECT id FROM approval_requests WHERE tenant_id = ${user.tenantId} AND kind = 'PURCHASE_INVOICE_PRICE' AND status = 'PENDING'
+            AND ref_id = ${order.id} AND payload->>'supplierInvoiceNo' = ${dto.supplierInvoiceNo.trim()}`)
+      ).rows;
+      if (dup) throw this.approvals.required(dup.id, 'Faktur ini sudah dimintakan persetujuan dan masih menunggu keputusan pemilik atau admin.');
+      const worst = diffs.reduce((a, d) => (d.pct > a ? d.pct : a), 0);
+      const amount = diffs.reduce((a, d) => a + Math.max(0, (d.newP - d.oldP) * Number(d.line.qty)), 0);
+      const req = await this.approvals.create(this.db, user, {
+        kind: 'PURCHASE_INVOICE_PRICE',
+        refId: order.id,
+        title: `Faktur ${dto.supplierInvoiceNo.trim()} (PO ${order.number}): harga ${worst > 0 ? `+${worst.toFixed(1)}%` : 'berbeda'} dari PO`,
+        amount,
+        payload: JSON.parse(JSON.stringify({ ...dto, supplierInvoiceNo: dto.supplierInvoiceNo.trim() })),
+      });
+      throw this.approvals.required(req.id, 'Harga faktur melebihi toleransi atau jauh di atas harga pasar; permintaan persetujuan dikirim ke pemilik atau admin. Faktur dicatat setelah disetujui.');
+    }
+    return { hasVariance: true, flags: [...new Set(flags)] };
+  }
+
+  /** Laporan selisih harga faktur terhadap PO, dengan penanda untuk ditinjau (anti-fraud) */
+  async priceVarianceReport(tenantId: string, from?: string, to?: string) {
+    const rows = (
+      await this.db.execute<{
+        id: string; number: string; date: string; supplier_invoice_no: string; supplier: string; sku: string; product: string; po_number: string | null;
+        po_price: string | null; inv_price: string; qty: string; variance: string; reason: string | null; note: string | null; flags: string | null;
+        created_by: string | null; approved_by: string | null; same_user: boolean | null;
+      }>(sql`
+        SELECT i.id, i.number, i.date::text AS date, i.supplier_invoice_no, s.name AS supplier, p.sku, p.name AS product, po.number AS po_number,
+               ol.price AS po_price, l.price AS inv_price, l.qty, l.price_variance AS variance, i.variance_reason AS reason, i.variance_note AS note,
+               i.price_flags AS flags, uc.name AS created_by, ua.name AS approved_by,
+               (po.created_by_id IS NOT NULL AND po.created_by_id = i.created_by_id) AS same_user
+        FROM purchase_invoice_lines l
+        JOIN purchase_invoices i ON i.id = l.invoice_id
+        JOIN suppliers s ON s.id = i.supplier_id
+        LEFT JOIN products p ON p.id = l.product_id
+        LEFT JOIN purchase_order_lines ol ON ol.id = l.order_line_id
+        LEFT JOIN purchase_orders po ON po.id = i.purchase_order_id
+        LEFT JOIN users uc ON uc.id = i.created_by_id
+        LEFT JOIN approval_requests ar ON ar.id = i.approval_id
+        LEFT JOIN users ua ON ua.id = ar.decided_by_id
+        WHERE i.tenant_id = ${tenantId} AND l.price_variance <> 0
+          ${from ? sql`AND i.date >= ${from}` : sql``} ${to ? sql`AND i.date <= ${to}` : sql``}
+        ORDER BY i.date DESC, i.number DESC LIMIT 500`)
+    ).rows;
+    const out = rows.map((r) => {
+      const variance = Number(r.variance);
+      const flags = [...(r.flags ? r.flags.split(',') : []), ...(r.same_user && variance > 0 ? ['SAME_USER'] : []), ...(variance > 0 && !r.approved_by ? ['NO_APPROVAL'] : [])];
+      const po = r.po_price != null ? Number(r.po_price) : null;
+      return {
+        invoiceId: r.id, invoiceNumber: r.number, date: r.date, supplierInvoiceNo: r.supplier_invoice_no, supplier: r.supplier, sku: r.sku, product: r.product,
+        poNumber: r.po_number, poPrice: po, invoicePrice: Number(r.inv_price), qty: Number(r.qty), variance, pct: po ? Math.round(((Number(r.inv_price) - po) / po) * 1000) / 10 : null,
+        reason: r.reason, note: r.note, createdBy: r.created_by, approvedBy: r.approved_by, flags,
+      };
+    });
+    const group = (key: (r: (typeof out)[number]) => string | null) => {
+      const m = new Map<string, { name: string; count: number; total: number; increase: number; flagged: number }>();
+      for (const r of out) {
+        const k = key(r) ?? '(tidak tercatat)';
+        const g = m.get(k) ?? { name: k, count: 0, total: 0, increase: 0, flagged: 0 };
+        g.count++;
+        g.total += r.variance;
+        if (r.variance > 0) g.increase += r.variance;
+        if (r.flags.some((f) => f !== 'NO_APPROVAL')) g.flagged++;
+        m.set(k, g);
+      }
+      return [...m.values()].sort((a, b) => b.increase - a.increase);
+    };
+    return {
+      rows: out,
+      bySupplier: group((r) => r.supplier),
+      byUser: group((r) => r.createdBy),
+      totals: { count: out.length, net: out.reduce((a, r) => a + r.variance, 0), increase: out.reduce((a, r) => a + Math.max(0, r.variance), 0), flagged: out.filter((r) => r.flags.some((f) => f !== 'NO_APPROVAL')).length },
+    };
   }
 
   /** Harga faktur per baris pesanan yang menimpa harga PO (kosong = semua memakai harga PO) */

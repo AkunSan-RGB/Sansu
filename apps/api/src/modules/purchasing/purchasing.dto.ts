@@ -70,6 +70,10 @@ export class PurchaseOrderQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsUUID() supplierId?: string;
 }
 
+/** Alasan harga faktur berbeda dari PO (wajib bila ada selisih; tercatat untuk audit) */
+export const VARIANCE_REASONS = ['MARKET_VOLATILITY', 'SUPPLIER_INCREASE', 'SPEC_CHANGE', 'DISCOUNT_ADJUST', 'OTHER'] as const;
+export type VarianceReason = (typeof VARIANCE_REASONS)[number];
+
 /** Harga satuan sesuai faktur supplier untuk satu baris pesanan (menimpa harga PO) */
 export class OrderLinePriceDto {
   @ApiProperty() @IsUUID() orderLineId: string;
@@ -104,6 +108,13 @@ export class CreatePurchaseInvoiceDto {
   @Type(() => OrderLinePriceDto)
   @ArrayMaxSize(500)
   prices?: OrderLinePriceDto[];
+  @ApiPropertyOptional({ enum: VARIANCE_REASONS, description: 'Wajib bila harga faktur berbeda dari PO' }) @IsOptional() @IsIn(VARIANCE_REASONS) varianceReason?: VarianceReason;
+  @ApiPropertyOptional({ description: 'Wajib (min. 5 huruf) bila alasan = OTHER' }) @IsOptional() @IsString() @MaxLength(300) varianceNote?: string;
+}
+
+export class PriceVarianceQueryDto {
+  @ApiPropertyOptional({ example: '2026-01-01' }) @IsOptional() @IsDateString() from?: string;
+  @ApiPropertyOptional({ example: '2026-12-31' }) @IsOptional() @IsDateString() to?: string;
 }
 
 /** Jumlah per baris pesanan pembelian (penerimaan barang atau penagihan sebagian) */

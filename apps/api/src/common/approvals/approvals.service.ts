@@ -14,7 +14,7 @@ import { AuthUser } from '../auth/auth-user';
 import { SettingsService } from '../settings.service';
 
 export const APPROVER_ROLES: readonly Role[] = ['OWNER', 'ADMIN'];
-export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL';
+export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE';
 
 export interface ApprovalPolicy {
   /** Pesanan pembelian dengan total ≥ nilai ini perlu persetujuan (0 = nonaktif) */
@@ -23,12 +23,19 @@ export interface ApprovalPolicy {
   manualJournal: number;
   /** Permintaan pembelian dengan perkiraan nilai ≤ batas ini langsung disetujui otomatis (0 = nonaktif, semua menunggu keputusan) */
   purchaseRequestAuto: number;
+  /** Pengendalian selisih harga faktur terhadap PO (anti-fraud) */
+  priceControl: boolean;
+  /** Faktur yang harganya lebih mahal dari PO melebihi persen ini (per baris) butuh persetujuan */
+  priceTolerancePct: number;
+  /** Harga faktur di atas rata-rata harga beli 90 hari terakhir lebih dari persen ini juga butuh persetujuan */
+  priceBenchmarkPct: number;
 }
-export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, purchaseRequestAuto: 0 };
+export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10 };
 
 export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PURCHASE_ORDER: 'Pesanan pembelian',
   MANUAL_JOURNAL: 'Jurnal manual',
+  PURCHASE_INVOICE_PRICE: 'Faktur supplier — harga di atas toleransi',
 };
 
 @Injectable()

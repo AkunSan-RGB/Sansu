@@ -156,7 +156,7 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
     const stockOf = async (p: string, w: string) => Number((await q<{ qty: string }>(`SELECT qty FROM stock_balances WHERE tenant_id=$1 AND product_id=$2 AND warehouse_id=$3`, [tenantId, p, w]))[0]?.qty ?? 0);
     /** Sepertiga faktur datang dengan harga berbeda dari PO (harga volatil) */
     const repriced = (po: { lines: { id: string; price: string }[] }) =>
-      rand() < 0.35 ? { prices: po.lines.map((l) => ({ orderLineId: l.id, price: String(Math.max(1, Math.round(Number(l.price) * (0.7 + rand() * 0.7)))) })) } : {};
+      rand() < 0.35 ? { varianceReason: 'MARKET_VOLATILITY', prices: po.lines.map((l) => ({ orderLineId: l.id, price: String(Math.max(1, Math.round(Number(l.price) * (0.7 + rand() * 0.7)))) })) } : {};
     const ops: Record<string, () => Promise<void>> = {
       async buy() {
         const lines = Array.from({ length: int(1, 2) }, () => ({ productId: pick(products), qty: String(int(1, 40)), price: String(int(3, 9) * 1000) }));

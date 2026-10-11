@@ -31,7 +31,7 @@ describe('Selisih harga faktur terhadap PO (e2e)', () => {
     return (await get(`/api/purchase-orders/${po.id}`).expect(200)).body;
   };
   let n = 0;
-  const bill = (poId: string, extra: object = {}) => post('/api/purchase-invoices', { purchaseOrderId: poId, supplierInvoiceNo: `F-${stamp}-${++n}`, ...extra });
+  const bill = (poId: string, extra: object = {}) => post('/api/purchase-invoices', { purchaseOrderId: poId, supplierInvoiceNo: `F-${stamp}-${++n}`, varianceReason: 'MARKET_VOLATILITY', ...extra });
   const lineOf = (po: { lines: { id: string; productId: string }[] }, productId: string) => po.lines.find((l) => l.productId === productId)!.id;
 
   beforeAll(async () => {

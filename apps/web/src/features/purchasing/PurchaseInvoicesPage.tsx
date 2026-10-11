@@ -12,6 +12,7 @@ import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { INV_STATUS_OPTIONS, InvoiceStatusTag } from '../sales/status';
 import BillModal from './BillModal';
+import PriceVarianceReport from './PriceVarianceReport';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import { t } from '@/lib/terms';
 
@@ -154,6 +155,11 @@ export default function PurchaseInvoicesPage() {
                   />
                 </>
               ),
+            },
+            {
+              key: 'variance',
+              label: 'Selisih harga',
+              children: <PriceVarianceReport />,
             },
             {
               key: 'aging',

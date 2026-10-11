@@ -361,7 +361,7 @@ export const approvalRequests = pgTable(
   {
     id: id(),
     tenantId: tenantId(),
-    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL'>().notNull(),
+    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE'>().notNull(),
     /** Dokumen yang dimintakan persetujuan (PO); kosong untuk jurnal manual yang baru diposting setelah disetujui */
     refId: text('ref_id'),
     title: text('title').notNull(),
@@ -809,6 +809,12 @@ export const purchaseInvoices = pgTable(
     returnedAmount: money('returned_amount').notNull().default('0'),
     /** Selisih DPP faktur terhadap harga PO (+ faktur lebih mahal); biaya perolehan stok mengikuti harga faktur */
     priceVariance: money('price_variance').notNull().default('0'),
+    /** Pengendalian selisih harga: alasan, catatan, penanda (mis. ABOVE_MARKET), pembuat faktur, dan persetujuan yang menyetujuinya */
+    varianceReason: text('variance_reason'),
+    varianceNote: text('variance_note'),
+    priceFlags: text('price_flags'),
+    createdById: uuid('created_by_id'),
+    approvalId: uuid('approval_id'),
     status: invoiceStatusEnum('status').notNull().default('UNPAID'),
     journalId: uuid('journal_id'),
     createdAt: createdAt(),

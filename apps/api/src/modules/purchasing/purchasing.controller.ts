@@ -15,6 +15,7 @@ import {
   CreatePurchaseOrderDto,
   CreateSupplierDto,
   CreateSupplierPaymentDto,
+  PriceVarianceQueryDto,
   PurchaseInvoiceQueryDto,
   PriceHistoryQueryDto,
   PurchaseOrderQueryDto,
@@ -160,6 +161,13 @@ export class PurchaseInvoicesController {
   @Roles('ADMIN', 'FINANCE')
   apAging(@CurrentUser() u: AuthUser) {
     return this.svc.apAging(u.tenantId);
+  }
+
+  /** Laporan selisih harga faktur vs PO + penanda untuk ditinjau (anti-fraud) */
+  @Get('reports/price-variances')
+  @Roles('ADMIN', 'FINANCE')
+  priceVariances(@CurrentUser() u: AuthUser, @Query() q: PriceVarianceQueryDto) {
+    return this.svc.priceVarianceReport(u.tenantId, q.from, q.to);
   }
 
   @Get('payments')
