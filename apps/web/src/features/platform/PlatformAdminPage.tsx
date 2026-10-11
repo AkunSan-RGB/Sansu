@@ -1053,6 +1053,7 @@ function SettingsTab() {
   });
   const [to, setTo] = useState(me?.email ?? '');
   const test = useAction(() => post('/platform-admin/test-email', { to }), { success: `Email uji terkirim ke ${to}` });
+  const mailCheck = useAction(() => get<{ from: string; domain: string | null; checks: { key: string; title: string; status: 'OK' | 'WARN' | 'ERROR'; message: string }[] }>('/platform-admin/mail-check'));
   const reminders = useAction(() => post<{ checked: number; sent: number }>('/platform-admin/run-reminders'), {
     success: (r) => `${r.checked} langganan diperiksa, ${r.sent} pengingat dikirim`,
   });
@@ -1216,6 +1217,16 @@ function SettingsTab() {
                     Kirim email uji
                   </Button>
                 </Space.Compact>
+                <Button style={{ marginTop: 12 }} loading={mailCheck.isPending} onClick={() => mailCheck.mutate(undefined)}>
+                  Periksa kesiapan email (anti-spam)
+                </Button>
+                {mailCheck.data && (
+                  <Space direction="vertical" size={8} style={{ width: '100%', marginTop: 12 }}>
+                    {mailCheck.data.checks.map((c) => (
+                      <Alert key={c.key} showIcon type={c.status === 'OK' ? 'success' : c.status === 'WARN' ? 'warning' : 'error'} message={c.title} description={c.message} />
+                    ))}
+                  </Space>
+                )}
               </Card>
               <Card title="Pembayaran online">
                 {s.gateway ? (
