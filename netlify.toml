@@ -1,2 +1,23 @@
+# Konfigurasi Netlify untuk tampilan web SANSU (apps/web).
+# Netlify hanya menampung tampilan. API (NestJS) harus berjalan di server lain (Render, Railway, VPS, ...) — isi alamatnya di bawah.
+
+[build]
+  command = "npm ci && npm run build -w @sansu/shared && npm run build -w @sansu/web"
+  publish = "apps/web/dist"
+
 [build.environment]
-SECRETS_SCAN_OMIT_KEYS = "CORS_ORIGIN, API_PORT, JWT_SECRET, SMTP_PASS, DATABASE_URL, SMTP_HOST, SMTP_USER, TELEGRAM_BOT_TOKEN"
+  NODE_VERSION = "22"
+
+# 1) Panggilan /api/* diteruskan ke server API. GANTI alamatnya dengan alamat API Anda (tanpa garis miring di akhir).
+#    Selama alamat ini belum diganti, halaman terbuka tetapi login belum bisa.
+[[redirects]]
+  from = "/api/*"
+  to = "https://GANTI-DENGAN-ALAMAT-API-ANDA/api/:splat"
+  status = 200
+  force = true
+
+# 2) Aplikasi satu halaman: semua alamat (/login, /invoices, ...) dikembalikan ke index.html agar tidak muncul "Page not found".
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
