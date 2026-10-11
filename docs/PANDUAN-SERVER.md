@@ -84,6 +84,8 @@ Lalu `./sansu.sh restart` dan `./sansu.sh backup`. File offsite **dienkripsi** d
 2. Kirim pesan apa saja ke bot Anda, lalu chat **@userinfobot** untuk melihat chat id → isi `TELEGRAM_CHAT_ID`.
 3. `./sansu.sh restart`.
 
+**Notifikasi persetujuan untuk pengguna:** isi juga `TELEGRAM_BOT_USERNAME` (nama bot tanpa @). Setiap pengguna menghubungkan akunnya sekali di SANSU › Keamanan akun › Hubungkan Telegram (klik tautan, tekan Start). Permintaan persetujuan lalu dikirim ke chat pribadinya beserta tautan keputusan; email tetap menjadi cadangan. SANSU menarik pesan bot lewat long polling, jadi tidak perlu alamat publik; jangan pasang webhook pada bot yang sama.
+
 ### 4c. Memulihkan data
 
 ```bash
