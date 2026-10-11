@@ -31,7 +31,7 @@ import { t } from '@/lib/terms';
 
 /** Batas nilai yang memerlukan persetujuan pemilik / admin (0 = nonaktif) */
 function ApprovalPolicyCard() {
-  type Policy = { purchaseOrder: number; manualJournal: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number };
+  type Policy = { purchaseOrder: number; manualJournal: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; telegramLinkHours: number };
   const [form] = Form.useForm<Policy>();
   const policy = useQuery({ queryKey: ['approvals', 'policy'], queryFn: () => get<Policy>('/approvals/policy') });
   useEffect(() => {
@@ -46,7 +46,7 @@ function ApprovalPolicyCard() {
         style={{ marginBottom: 16 }}
         message="Transaksi bernilai di atas batas dari peran selain pemilik dan admin menunggu persetujuan. Isi 0 untuk mematikan."
       />
-      <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)} initialValues={{ purchaseOrder: 0, manualJournal: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10 }}>
+      <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)} initialValues={{ purchaseOrder: 0, manualJournal: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, telegramLinkHours: 72 }}>
         <Form.Item name="purchaseOrder" label="Pesanan pembelian dengan total mulai dari" extra="Konfirmasi pesanan oleh keuangan menunggu persetujuan.">
           <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
         </Form.Item>
@@ -68,6 +68,9 @@ function ApprovalPolicyCard() {
         </Form.Item>
         <Form.Item name="priceBenchmarkPct" label="Toleransi di atas rata-rata harga beli 90 hari (%)" extra="Harga faktur yang melebihi rata-rata harga beli 90 hari terakhir sebesar ini juga perlu persetujuan, walau PO-nya sudah mahal.">
           <InputNumber min={0} max={1000} step={1} style={{ width: '100%' }} suffix="%" />
+        </Form.Item>
+        <Form.Item name="telegramLinkHours" label="Masa berlaku tautan persetujuan lewat Telegram (jam)" extra="1–72 jam. Lebih pendek = lebih aman bila chat terbaca orang lain, tetapi pemberi persetujuan harus memutuskan lebih cepat. Tautan lewat email tetap 72 jam.">
+          <InputNumber min={1} max={72} step={1} precision={0} style={{ width: '100%' }} suffix="jam" />
         </Form.Item>
         <Form.Item name="manualJournal" label="Jurnal manual dengan total debit mulai dari" extra="Jurnal baru diposting setelah disetujui.">
           <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />

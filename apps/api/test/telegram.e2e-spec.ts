@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
+import { verifyApprovalLink } from '../src/common/approvals/approval-link';
 import { TelegramService } from '../src/common/telegram/telegram.service';
 import { DB, Db } from '../src/db/db';
 import { auditLogs, users } from '../src/db/schema';
@@ -108,6 +109,27 @@ describe('Notifikasi Telegram (e2e)', () => {
     await tg.handleUpdate({ update_id: 1, message: { text: '/stop', chat: { id: 555, type: 'private' } } });
     expect((await get(owner, '/api/auth/telegram')).body.linked).toBe(false);
     expect(await approvalPing(5_000_000)).toHaveLength(0);
+  });
+
+  it('masa berlaku tautan Telegram mengikuti pengaturan perusahaan (1–72 jam); validasi rentang', async () => {
+    await http.put('/api/approvals/policy').set(as(owner)).send({ telegramLinkHours: 0 }).expect(400);
+    await http.put('/api/approvals/policy').set(as(owner)).send({ telegramLinkHours: 73 }).expect(400);
+    await http.put('/api/approvals/policy').set(as(owner)).send({ telegramLinkHours: 6 }).expect(200);
+    expect((await get(owner, '/api/approvals/policy').expect(200)).body.telegramLinkHours).toBe(6);
+    const l = (await post(owner, '/api/auth/telegram/link').expect(201)).body;
+    await start(l.code, 888);
+    const msgs = await approvalPing(6_000_000);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].text).toMatch(/berlaku 6 jam/);
+    const token = msgs[0].text.match(/\/approve\/([\w.-]+)/)![1];
+    const p = verifyApprovalLink(token)!;
+    const hours = (p.exp - Date.now()) / 3_600_000;
+    expect(hours).toBeGreaterThan(5.9);
+    expect(hours).toBeLessThanOrEqual(6);
+    // pengaturan 72 jam = bawaan
+    await http.put('/api/approvals/policy').set(as(owner)).send({ telegramLinkHours: 72 }).expect(200);
+    const again = await approvalPing(7_000_000);
+    expect(again[0].text).toMatch(/berlaku 72 jam/);
   });
 
   it('keamanan: percobaan kode salah dibatasi per chat, nonaktif/ganti peran/reset sandi memutus Telegram, tautan dibatasi laju, jejak audit', async () => {
