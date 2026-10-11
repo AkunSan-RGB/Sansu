@@ -66,6 +66,37 @@ export class CreatePurchaseInvoiceDto {
   @IsOptional()
   @IsDateString()
   date?: string;
+  @ApiPropertyOptional({
+    type: () => [OrderLineQtyDto],
+    description: 'Jumlah yang ditagih per baris pesanan. Kosong = seluruh barang yang sudah diterima dan belum ditagih (pesanan tanpa penerimaan: diterima dan ditagih sekaligus).',
+  })
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => OrderLineQtyDto)
+  @ArrayMinSize(1)
+  lines?: OrderLineQtyDto[];
+}
+
+/** Jumlah per baris pesanan pembelian (penerimaan barang atau penagihan sebagian) */
+export class OrderLineQtyDto {
+  @ApiProperty() @IsUUID() orderLineId: string;
+  @ApiProperty({ example: '6' }) @IsNumberString() qty: string;
+}
+
+export class CreateGoodsReceiptDto {
+  @ApiPropertyOptional({ example: '2026-10-03', description: 'Tanggal barang diterima' }) @IsOptional() @IsDateString() date?: string;
+  @ApiPropertyOptional({ description: 'Nomor surat jalan dari supplier' }) @IsOptional() @IsString() @MaxLength(60) supplierDeliveryNo?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) notes?: string;
+  @ApiPropertyOptional({ type: () => [OrderLineQtyDto], description: 'Jumlah diterima per baris; kosong = seluruh sisa pesanan' })
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => OrderLineQtyDto)
+  @ArrayMinSize(1)
+  lines?: OrderLineQtyDto[];
+}
+
+export class CancelGoodsReceiptDto {
+  @ApiPropertyOptional() @IsOptional() @IsDateString() date?: string;
 }
 
 export class PurchaseInvoiceQueryDto {

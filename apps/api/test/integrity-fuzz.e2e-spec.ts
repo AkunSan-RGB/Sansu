@@ -143,6 +143,9 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
       const stock = Number((await q(`SELECT COALESCE(SUM(qty*avg_cost),0) AS v FROM stock_balances WHERE tenant_id=$1`, [tenantId]))[0].v);
       // Persediaan di gudang (1-1400) = nilai stok; barang dalam perjalanan ada di 1-1410 dan nol bila tak ada transfer berjalan
       expect({ ctx, inventoryGL: await glBalance('1-1400') }).toEqual({ ctx, inventoryGL: expect.closeTo(stock, -1) }); // toleransi pembulatan biaya rata-rata
+      // Barang diterima belum ditagih (2-1160) = nilai penerimaan aktif yang belum difakturkan (jalur terima dulu)
+      const grni = Number((await q(`SELECT COALESCE(SUM(l.value - l.billed_value),0) AS v FROM goods_receipt_lines l JOIN goods_receipts g ON g.id = l.receipt_id WHERE g.tenant_id=$1 AND g.status='RECEIVED' AND g.auto_invoice_id IS NULL`, [tenantId]))[0].v);
+      expect({ ctx, grni: -(await glBalance('2-1160')) }).toEqual({ ctx, grni: expect.closeTo(grni, 1) });
       const inTransit = Number((await q(`SELECT COUNT(*) AS n FROM stock_transfers WHERE tenant_id=$1 AND status='IN_TRANSIT'`, [tenantId]))[0].n);
       const transitGL = await glBalance('1-1410');
       expect({ ctx, transitGL }).toEqual({ ctx, transitGL: inTransit ? expect.any(Number) : expect.closeTo(0, 1) });
@@ -160,6 +163,29 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
         await tryPost('po-confirm', `/purchase-orders/${po.body.id}/confirm`, {});
         const pi = await tryPost('pi', '/purchase-invoices', { purchaseOrderId: po.body.id, supplierInvoiceNo: `F-${seed}-${++seq}`, ...when });
         if (pi.status === 201) purchaseInvoices.push(pi.body.id);
+      },
+      /** Jalur terima dulu: penerimaan bertahap (kadang dibatalkan) lalu faktur bertahap atau penuh */
+      async receiveThenBill() {
+        const lines = Array.from({ length: int(1, 2) }, () => ({ productId: pick(products), qty: String(int(2, 30)), price: String(int(3, 9) * 1000) }));
+        const when = maybePast();
+        const po = await tryPost('po', '/purchase-orders', { supplierId: pick(suppliers), warehouseId: pick([wh1, wh1, wh2]), lines, ...when });
+        if (po.status !== 201) return;
+        await tryPost('po-confirm', `/purchase-orders/${po.body.id}/confirm`, {});
+        const full = (await http.get(`/api/purchase-orders/${po.body.id}`).set(H)).body as { lines: { id: string; qty: string }[] };
+        const part = full.lines.map((l) => ({ orderLineId: l.id, qty: String(Math.max(1, Math.floor(Number(l.qty) * (0.3 + rand() * 0.5)))) }));
+        const g1 = await tryPost('gr', `/purchase-orders/${po.body.id}/receipts`, { lines: part, ...when });
+        if (g1.status !== 201) return;
+        if (rand() < 0.2) {
+          await tryPost('gr-cancel', `/goods-receipts/${g1.body.id}/cancel`, {});
+          return;
+        }
+        if (rand() < 0.5) {
+          const bill1 = await tryPost('pi-gr', '/purchase-invoices', { purchaseOrderId: po.body.id, supplierInvoiceNo: `G-${seed}-${++seq}`, lines: part.map((l) => ({ ...l, qty: String(Math.max(1, Math.floor(Number(l.qty) / 2))) })), ...when });
+          if (bill1.status === 201) purchaseInvoices.push(bill1.body.id);
+        }
+        await tryPost('gr', `/purchase-orders/${po.body.id}/receipts`, { ...when });
+        const bill2 = await tryPost('pi-gr', '/purchase-invoices', { purchaseOrderId: po.body.id, supplierInvoiceNo: `G-${seed}-${++seq}`, ...when });
+        if (bill2.status === 201) purchaseInvoices.push(bill2.body.id);
       },
       async sell() {
         const w = pick([wh1, wh1, wh2]);
@@ -326,7 +352,7 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
         await tryPost('tax-pay', '/tax/payments', { type, period, date: todayStr });
       },
     });
-    const weighted: [string, number][] = [['buy', 8], ['sell', 10], ['deliverThenInvoice', 6], ['payAR', 7], ['payAP', 5], ['salesReturn', 4], ['purchaseReturn', 3], ['adjust', 4], ['transfer', 3], ['pos', 6], ['journal', 3], ['reverse', 1], ['bill', 2], ['asset', 1], ['cash', 3], ['opname', 1], ['depreciate', 2], ['disposeAsset', 1], ['production', 4], ['payroll', 2], ['taxPayment', 2]];
+    const weighted: [string, number][] = [['buy', 6], ['receiveThenBill', 5], ['sell', 10], ['deliverThenInvoice', 6], ['payAR', 7], ['payAP', 5], ['salesReturn', 4], ['purchaseReturn', 3], ['adjust', 4], ['transfer', 3], ['pos', 6], ['journal', 3], ['reverse', 1], ['bill', 2], ['asset', 1], ['cash', 3], ['opname', 1], ['depreciate', 2], ['disposeAsset', 1], ['production', 4], ['payroll', 2], ['taxPayment', 2]];
     const bag = weighted.flatMap(([k, w]) => Array(w).fill(k) as string[]);
 
     // bekal awal agar ada dokumen untuk dibayar/diretur

@@ -4,10 +4,13 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { ListQueryDto } from '../master-data/products/products.dto';
+import { GoodsReceiptsService } from './goods-receipts.service';
 import { PurchaseInvoicesService } from './purchase-invoices.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import {
+  CancelGoodsReceiptDto,
   CreateBillDto,
+  CreateGoodsReceiptDto,
   CreatePurchaseInvoiceDto,
   CreatePurchaseOrderDto,
   CreateSupplierDto,
@@ -53,7 +56,10 @@ export class SuppliersController {
 @RequireApp('purchase')
 @Controller('purchase-orders')
 export class PurchaseOrdersController {
-  constructor(private readonly svc: PurchaseOrdersService) {}
+  constructor(
+    private readonly svc: PurchaseOrdersService,
+    private readonly receipts: GoodsReceiptsService,
+  ) {}
 
   @Get()
   list(@CurrentUser() u: AuthUser, @Query() q: PurchaseOrderQueryDto) {
@@ -81,6 +87,37 @@ export class PurchaseOrdersController {
   @Roles('ADMIN', 'FINANCE')
   cancel(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.cancel(u, id);
+  }
+
+  /** Terima barang atas pesanan (bisa bertahap) */
+  @Post(':id/receipts')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  receive(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CreateGoodsReceiptDto) {
+    return this.receipts.receive(u, id, dto);
+  }
+}
+
+@ApiTags('Pembelian')
+@ApiBearerAuth()
+@RequireApp('purchase')
+@Controller('goods-receipts')
+export class GoodsReceiptsController {
+  constructor(private readonly svc: GoodsReceiptsService) {}
+
+  @Get()
+  list(@CurrentUser() u: AuthUser, @Query('from') from?: string, @Query('to') to?: string, @Query('purchaseOrderId') purchaseOrderId?: string) {
+    return this.svc.list(u.tenantId, { from, to, purchaseOrderId });
+  }
+
+  @Get(':id')
+  get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.svc.get(u.tenantId, id);
+  }
+
+  @Post(':id/cancel')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  cancel(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CancelGoodsReceiptDto) {
+    return this.svc.cancel(u, id, dto);
   }
 }
 

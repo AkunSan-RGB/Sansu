@@ -70,6 +70,8 @@ import ProductsPage from './features/products/ProductsPage';
 import DocumentViewPage from './features/accounting/DocumentViewPage';
 import ApprovalsPage from './features/approvals/ApprovalsPage';
 import DeliveriesPage from './features/sales/DeliveriesPage';
+import GoodsReceiptDetailPage from './features/purchasing/GoodsReceiptDetailPage';
+import GoodsReceiptsPage from './features/purchasing/GoodsReceiptsPage';
 import DeliveryDetailPage from './features/sales/DeliveryDetailPage';
 import InvoiceDetailPage from './features/sales/InvoiceDetailPage';
 import InvoicesPage from './features/sales/InvoicesPage';
@@ -114,6 +116,8 @@ export default function App() {
           <Route path="invoices/services/new" element={<ServiceInvoiceFormPage />} />
           <Route path="approvals" element={<ApprovalsPage />} />
           <Route path="documents/:id" element={<DocumentViewPage />} />
+          <Route path="goods-receipts" element={<GoodsReceiptsPage />} />
+          <Route path="goods-receipts/:id" element={<GoodsReceiptDetailPage />} />
           <Route path="deliveries" element={<DeliveriesPage />} />
           <Route path="deliveries/:id" element={<DeliveryDetailPage />} />
           <Route path="invoices/:id" element={<InvoiceDetailPage />} />

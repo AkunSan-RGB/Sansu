@@ -101,6 +101,7 @@ const MENU: Group[] = [
     icon: APP_ICONS.purchase,
     children: [
       { key: '/purchase-orders', label: t('Purchase Order') },
+      { key: '/goods-receipts', label: 'Penerimaan barang' },
       { key: '/purchase-invoices', label: t('Faktur & hutang') },
       { key: '/returns?tab=purchase', label: t('Retur pembelian') },
       { section: 'Data', items: [{ key: '/suppliers', label: t('Supplier') }] },

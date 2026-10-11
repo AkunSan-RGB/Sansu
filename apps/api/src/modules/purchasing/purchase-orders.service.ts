@@ -23,17 +23,33 @@ export class PurchaseOrdersService {
     private readonly approvals: ApprovalsService,
   ) {}
 
-  list(tenantId: string, q: PurchaseOrderQueryDto) {
-    return this.db.query.purchaseOrders.findMany({
+  /** Status penerimaan dan penagihan turunan dari baris pesanan: NONE / PARTIAL / FULL */
+  static progress(lines: { qty: string; receivedQty: string; billedQty: string }[]) {
+    const state = (pick: 'receivedQty' | 'billedQty') => {
+      const done = lines.reduce((a, l) => a + Number(l[pick]), 0);
+      const all = lines.reduce((a, l) => a + Number(l.qty), 0);
+      return done <= 0 ? 'NONE' : done + 0.00005 >= all ? 'FULL' : 'PARTIAL';
+    };
+    return { receiptStatus: state('receivedQty') as 'NONE' | 'PARTIAL' | 'FULL', billingStatus: state('billedQty') as 'NONE' | 'PARTIAL' | 'FULL' };
+  }
+
+  async list(tenantId: string, q: PurchaseOrderQueryDto) {
+    const rows = await this.db.query.purchaseOrders.findMany({
       where: and(
         eq(purchaseOrders.tenantId, tenantId),
         q.status ? eq(purchaseOrders.status, q.status) : undefined,
         q.supplierId ? eq(purchaseOrders.supplierId, q.supplierId) : undefined,
       ),
-      with: { supplier: { columns: { code: true, name: true } }, invoice: { columns: { id: true, number: true } } },
+      with: {
+        supplier: { columns: { code: true, name: true } },
+        invoices: { columns: { id: true, number: true } },
+        lines: { columns: { qty: true, receivedQty: true, billedQty: true } },
+      },
       orderBy: [desc(purchaseOrders.date), desc(purchaseOrders.number)],
       limit: 300,
     });
+    // `invoice` (faktur pertama) dipertahankan untuk tampilan lama; `invoices` memuat semua faktur bertahap
+    return rows.map(({ lines, ...o }) => ({ ...o, invoice: o.invoices[0] ?? null, ...PurchaseOrdersService.progress(lines) }));
   }
 
   async get(tenantId: string, id: string, db: DbOrTx = this.db) {
@@ -43,11 +59,12 @@ export class PurchaseOrdersService {
         supplier: { columns: { id: true, code: true, name: true, address: true, phone: true, npwp: true } },
         warehouse: { columns: { id: true, code: true, name: true, address: true } },
         lines: { with: { product: { columns: { sku: true, name: true, baseUom: true } } } },
-        invoice: { columns: { id: true, number: true } },
+        invoices: { columns: { id: true, number: true, supplierInvoiceNo: true, date: true, total: true, status: true } },
+        receipts: { columns: { id: true, number: true, date: true, status: true, value: true, supplierDeliveryNo: true, autoInvoiceId: true } },
       },
     });
     if (!o) throw new NotFoundException('Purchase order tidak ditemukan');
-    return o;
+    return { ...o, invoice: o.invoices[0] ?? null, ...PurchaseOrdersService.progress(o.lines) };
   }
 
   async create(user: AuthUser, dto: CreatePurchaseOrderDto) {
@@ -119,6 +136,8 @@ export class PurchaseOrdersService {
       const order = await this.lock(tx, user.tenantId, id);
       if (order.status === 'BILLED') throw new BadRequestException('PO sudah difakturkan; buat retur pembelian');
       if (order.status === 'CANCELLED') throw new BadRequestException('PO sudah dibatalkan');
+      const [{ receipts }] = (await tx.execute<{ receipts: number }>(sql`SELECT COUNT(*)::int AS receipts FROM goods_receipts WHERE purchase_order_id = ${id} AND status = 'RECEIVED'`)).rows;
+      if (receipts > 0) throw new BadRequestException('PO sudah ada penerimaan barang; batalkan penerimaannya dulu atau buat retur pembelian');
       await tx.update(purchaseOrders).set({ status: 'CANCELLED' }).where(eq(purchaseOrders.id, id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'PurchaseOrder', entityId: id });
     });

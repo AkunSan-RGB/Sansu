@@ -1,8 +1,8 @@
 import { PrinterOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Descriptions, Form, Input, Modal, Popconfirm, Space, Table } from 'antd';
+import { Alert, Button, Card, Descriptions, Form, Input, InputNumber, Modal, Popconfirm, Space, Table, Tag } from 'antd';
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAction } from '@/api/queries';
 import type { PurchaseInvoice, PurchaseOrder } from '@/api/types';
@@ -10,15 +10,16 @@ import PageHeader from '@/layout/PageHeader';
 import { cell, DocHeader, head, PartyBlock, PrintSheet, Signatures, useLetterhead } from '@/components/print/Letterhead';
 import { printDoc } from '@/lib/print';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
+import { ReceiptStatusTag } from './GoodsReceiptsPage';
 import { PurchaseOrderStatusTag } from '../sales/status';
 import { t } from '@/lib/terms';
 
 export default function PurchaseOrderDetailPage() {
   const lh = useLetterhead();
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const [receiving, setReceiving] = useState(false);
-  const [form] = Form.useForm<{ supplierInvoiceNo: string; date: string }>();
+  /** both = terima dan faktur sekaligus (satu jurnal); receive = terima barang saja; bill = faktur atas barang yang sudah diterima */
+  const [mode, setMode] = useState<'both' | 'receive' | 'bill' | null>(null);
+  const [form] = Form.useForm<Record<string, string | number>>();
   const { data: o, isLoading } = useQuery({
     queryKey: ['purchase-orders', 'detail', id],
     queryFn: () => get<PurchaseOrder>(`/purchase-orders/${id}`),
@@ -27,15 +28,27 @@ export default function PurchaseOrderDetailPage() {
 
   const confirm = useAction(() => post(`/purchase-orders/${id}/confirm`), { success: 'PO dikonfirmasi — siap dikirim ke supplier', invalidate: refresh });
   const cancel = useAction(() => post(`/purchase-orders/${id}/cancel`), { success: 'PO dibatalkan', invalidate: refresh });
-  const receive = useAction(
-    (v: { supplierInvoiceNo: string; date: string }) =>
-      post<PurchaseInvoice & { journalNumber: string }>('/purchase-invoices', { ...v, purchaseOrderId: id }),
-    {
-      success: (r) => `Barang diterima · faktur ${r.number} · jurnal ${r.journalNumber}`,
-      invalidate: refresh,
-      onSuccess: () => setReceiving(false),
-    },
+  const refreshAll = [...refresh, 'goods-receipts'];
+  const both = useAction(
+    (v: { supplierInvoiceNo: string; date: string }) => post<PurchaseInvoice & { journalNumber: string }>('/purchase-invoices', { supplierInvoiceNo: v.supplierInvoiceNo, date: v.date, purchaseOrderId: id }),
+    { success: (r) => `Barang diterima · faktur ${r.number} · jurnal ${r.journalNumber}`, invalidate: refreshAll, onSuccess: () => setMode(null) },
   );
+  const receive = useAction(
+    (v: { date: string; supplierDeliveryNo?: string; lines: { orderLineId: string; qty: string }[] }) => post<{ number: string }>(`/purchase-orders/${id}/receipts`, v),
+    { success: (r) => `Barang diterima · penerimaan ${r.number}`, invalidate: refreshAll, onSuccess: () => setMode(null) },
+  );
+  const bill = useAction(
+    (v: { supplierInvoiceNo: string; date: string; lines: { orderLineId: string; qty: string }[] }) => post<PurchaseInvoice & { journalNumber: string }>('/purchase-invoices', { ...v, purchaseOrderId: id }),
+    { success: (r) => `Faktur ${r.number} dicatat · jurnal ${r.journalNumber}`, invalidate: refreshAll, onSuccess: () => setMode(null) },
+  );
+  const left = (l: NonNullable<PurchaseOrder['lines']>[number]) => Math.max(0, Number(l.qty) - Number(l.receivedQty ?? 0));
+  const open = (l: NonNullable<PurchaseOrder['lines']>[number]) => Math.max(0, Number(l.receivedQty ?? 0) - Number(l.billedQty ?? 0));
+  const qtyFields = (pick: (l: NonNullable<PurchaseOrder['lines']>[number]) => number) => Object.fromEntries((o?.lines ?? []).map((l) => [`q_${l.id}`, pick(l)]));
+  const linesPayload = (v: Record<string, string | number>) =>
+    (o?.lines ?? []).map((l) => ({ orderLineId: l.id, qty: String(v[`q_${l.id}`] ?? 0) })).filter((l) => Number(l.qty) > 0);
+  const canReceive = !!o && o.status === 'CONFIRMED' && (o.lines ?? []).some((l) => left(l) > 0.00005);
+  const canBill = !!o && o.status === 'CONFIRMED' && (o.lines ?? []).some((l) => open(l) > 0.00005);
+  const untouched = !!o && o.receiptStatus === 'NONE';
 
   return (
     <>
@@ -54,23 +67,46 @@ export default function PurchaseOrderDetailPage() {
                   Konfirmasi
                 </Button>
               )}
-              {o.status === 'CONFIRMED' && (
+              {canReceive && (
                 <Button
                   type="primary"
                   onClick={() => {
-                    form.setFieldsValue({ supplierInvoiceNo: '', date: today() });
-                    setReceiving(true);
+                    form.resetFields();
+                    form.setFieldsValue({ supplierDeliveryNo: '', date: today(), ...qtyFields(left) });
+                    setMode('receive');
                   }}
                 >
-                  Terima barang & faktur
+                  Terima barang
                 </Button>
               )}
-              {(o.status === 'DRAFT' || o.status === 'CONFIRMED') && (
+              {canBill && (
+                <Button
+                  type={canReceive ? 'default' : 'primary'}
+                  onClick={() => {
+                    form.resetFields();
+                    form.setFieldsValue({ supplierInvoiceNo: '', date: today(), ...qtyFields(open) });
+                    setMode('bill');
+                  }}
+                >
+                  Catat faktur supplier
+                </Button>
+              )}
+              {o.status === 'CONFIRMED' && untouched && (
+                <Button
+                  onClick={() => {
+                    form.resetFields();
+                    form.setFieldsValue({ supplierInvoiceNo: '', date: today() });
+                    setMode('both');
+                  }}
+                >
+                  Terima & faktur sekaligus
+                </Button>
+              )}
+              {(o.status === 'DRAFT' || (o.status === 'CONFIRMED' && untouched)) && (
                 <Popconfirm title="Batalkan PO ini?" onConfirm={() => cancel.mutate(undefined)}>
                   <Button danger>Batalkan</Button>
                 </Popconfirm>
               )}
-              {o.invoice && <Button onClick={() => navigate('/purchase-invoices')}>Lihat faktur {o.invoice.number}</Button>}
             </Space>
           )
         }
@@ -87,6 +123,18 @@ export default function PurchaseOrderDetailPage() {
               </Descriptions.Item>
               <Descriptions.Item label="Tanggal">{fmtDate(o.date)}</Descriptions.Item>
               <Descriptions.Item label={t('Gudang penerima')}>{o.warehouse?.name}</Descriptions.Item>
+              {o.status === 'CONFIRMED' && (
+                <Descriptions.Item label="Kemajuan">
+                  <Space wrap>
+                    <Tag color={o.receiptStatus === 'FULL' ? 'green' : o.receiptStatus === 'PARTIAL' ? 'gold' : 'default'}>
+                      Barang: {o.receiptStatus === 'FULL' ? 'diterima semua' : o.receiptStatus === 'PARTIAL' ? 'diterima sebagian' : 'belum diterima'}
+                    </Tag>
+                    <Tag color={o.billingStatus === 'FULL' ? 'green' : o.billingStatus === 'PARTIAL' ? 'gold' : 'default'}>
+                      Faktur: {o.billingStatus === 'FULL' ? 'lengkap' : o.billingStatus === 'PARTIAL' ? 'sebagian' : 'belum ada'}
+                    </Tag>
+                  </Space>
+                </Descriptions.Item>
+              )}
               {o.notes && <Descriptions.Item label="Catatan">{o.notes}</Descriptions.Item>}
             </Descriptions>
             <Table
@@ -97,7 +145,9 @@ export default function PurchaseOrderDetailPage() {
               scroll={{ x: 700 }}
               columns={[
                 { title: t('Produk'), render: (_, l) => `${l.product.sku} · ${l.product.name}` },
-                { title: 'Qty', align: 'right', render: (_, l) => `${fmtQty(l.qty)} ${l.uom}` },
+                { title: 'Dipesan', align: 'right', render: (_, l) => `${fmtQty(l.qty)} ${l.uom}` },
+                { title: 'Diterima', align: 'right', className: 'no-print', render: (_, l) => fmtQty(l.receivedQty ?? '0') },
+                { title: 'Ditagih', align: 'right', className: 'no-print', render: (_, l) => fmtQty(l.billedQty ?? '0') },
                 { title: 'Harga beli', dataIndex: 'price', align: 'right', render: fmtMoney },
                 { title: 'Diskon', dataIndex: 'discountPct', align: 'right', render: (v) => `${Number(v)}%` },
                 { title: 'Jumlah', dataIndex: 'lineTotal', align: 'right', render: fmtMoney },
@@ -110,6 +160,36 @@ export default function PurchaseOrderDetailPage() {
                 <strong>{fmtMoney(o.total)}</strong>
               </Descriptions.Item>
             </Descriptions>
+            {(!!o.receipts?.length || !!o.invoices?.length) && (
+              <Card size="small" title="Dokumen terkait" className="no-print" style={{ marginTop: 16 }}>
+                <Space align="start" size={32} wrap>
+                  <div>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>Penerimaan barang</div>
+                    {o.receipts?.length ? (
+                      o.receipts.map((r) => (
+                        <div key={r.id}>
+                          <Link to={`/goods-receipts/${r.id}`}>{r.number}</Link> <span style={{ color: '#64748b' }}>{fmtDate(r.date)}</span> <ReceiptStatusTag r={r} />
+                        </div>
+                      ))
+                    ) : (
+                      <span style={{ color: '#94a3b8' }}>Belum ada</span>
+                    )}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>Faktur supplier</div>
+                    {o.invoices?.length ? (
+                      o.invoices.map((i) => (
+                        <div key={i.id}>
+                          <Link to="/purchase-invoices">{i.number}</Link> <span style={{ color: '#64748b' }}>{i.supplierInvoiceNo} · {fmtMoney(i.total)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <span style={{ color: '#94a3b8' }}>Belum ada</span>
+                    )}
+                  </div>
+                </Space>
+              </Card>
+            )}
             <div className="doc-print-only">
               <PrintSheet>
                 <DocHeader
@@ -181,26 +261,70 @@ export default function PurchaseOrderDetailPage() {
       </Card>
 
       <Modal
-        title={t('Terima barang & catat faktur supplier')}
-        open={receiving}
-        onCancel={() => setReceiving(false)}
+        title={mode === 'receive' ? 'Terima barang' : mode === 'bill' ? t('Catat faktur supplier') : t('Terima barang & catat faktur supplier')}
+        open={!!mode}
+        onCancel={() => setMode(null)}
         onOk={() => form.submit()}
-        confirmLoading={receive.isPending}
+        confirmLoading={both.isPending || receive.isPending || bill.isPending}
         okText="Posting"
+        width={mode === 'both' ? 520 : 640}
       >
         <Alert
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message={t('Stok bertambah di gudang penerima dan HPP rata-rata diperbarui. Jurnal: Persediaan + PPN Masukan (debit) / Hutang Usaha (kredit).')}
+          message={
+            mode === 'receive'
+              ? 'Stok bertambah di gudang penerima. Nilainya ditampung di "Barang Diterima Belum Ditagih" sampai faktur supplier dicatat. Boleh menerima sebagian dulu.'
+              : mode === 'bill'
+                ? 'Faktur menagih barang yang sudah diterima. Boleh sebagian sesuai faktur supplier. Jurnal: Barang Diterima Belum Ditagih + PPN Masukan (debit) / Hutang Usaha (kredit).'
+                : t('Stok bertambah di gudang penerima dan HPP rata-rata diperbarui. Jurnal: Persediaan + PPN Masukan (debit) / Hutang Usaha (kredit).')
+          }
         />
-        <Form form={form} layout="vertical" onFinish={(v) => receive.mutate(v)}>
-          <Form.Item name="supplierInvoiceNo" label={t('Nomor faktur dari supplier')} rules={[{ required: true }]}>
-            <Input placeholder="INV/SPP/2026/0912" />
-          </Form.Item>
-          <Form.Item name="date" label="Tanggal terima" rules={[{ required: true }]}>
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={(v) => {
+            if (mode === 'both') both.mutate({ supplierInvoiceNo: String(v.supplierInvoiceNo), date: String(v.date) });
+            else if (mode === 'receive') receive.mutate({ date: String(v.date), supplierDeliveryNo: v.supplierDeliveryNo ? String(v.supplierDeliveryNo) : undefined, lines: linesPayload(v) });
+            else if (mode === 'bill') bill.mutate({ supplierInvoiceNo: String(v.supplierInvoiceNo), date: String(v.date), lines: linesPayload(v) });
+          }}
+        >
+          {mode !== 'receive' && (
+            <Form.Item name="supplierInvoiceNo" label={t('Nomor faktur dari supplier')} rules={[{ required: true }]}>
+              <Input placeholder="INV/SPP/2026/0912" />
+            </Form.Item>
+          )}
+          {mode === 'receive' && (
+            <Form.Item name="supplierDeliveryNo" label="Nomor surat jalan supplier (opsional)">
+              <Input />
+            </Form.Item>
+          )}
+          <Form.Item name="date" label={mode === 'bill' ? 'Tanggal faktur' : 'Tanggal terima'} rules={[{ required: true }]}>
             <Input type="date" />
           </Form.Item>
+          {mode && mode !== 'both' && (
+            <Table
+              size="small"
+              rowKey="id"
+              pagination={false}
+              dataSource={o?.lines}
+              columns={[
+                { title: t('Produk'), render: (_, l) => `${l.product.sku} · ${l.product.name}` },
+                { title: mode === 'receive' ? 'Sisa' : 'Siap ditagih', align: 'right', render: (_, l) => `${fmtQty(String(mode === 'receive' ? left(l) : open(l)))} ${l.uom}` },
+                {
+                  title: mode === 'receive' ? 'Diterima kali ini' : 'Ditagih kali ini',
+                  align: 'right',
+                  width: 150,
+                  render: (_, l) => (
+                    <Form.Item name={`q_${l.id}`} noStyle>
+                      <InputNumber min={0} max={mode === 'receive' ? left(l) : open(l)} disabled={(mode === 'receive' ? left(l) : open(l)) <= 0} style={{ width: 120 }} />
+                    </Form.Item>
+                  ),
+                },
+              ]}
+            />
+          )}
         </Form>
       </Modal>
     </>

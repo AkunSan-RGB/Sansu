@@ -27,6 +27,11 @@ export interface MoveInput {
   skipAccessCheck?: boolean;
   /** Barang masuk: penurunan nilai per satuan yang ikut terbawa (transfer, retur jual). Bawaan 0. */
   writedownUnit?: DecValue;
+  /**
+   * Barang keluar yang membatalkan penerimaan: dikeluarkan pada biaya penerimaan semula (bukan biaya rata-rata saat ini) dan biaya
+   * rata-rata/lapisan dikembalikan, sehingga pembatalan tidak menimbulkan selisih nilai.
+   */
+  reverseCost?: DecValue;
 }
 
 export interface MoveResult {
@@ -126,7 +131,31 @@ export class StockService {
       }
       unitCost = oldAvg;
       newAvg = oldAvg;
-      if (method === 'FIFO') {
+      if (m.reverseCost !== undefined) {
+        // pembatalan penerimaan: keluarkan pada biaya semula dan pulihkan biaya rata-rata / lapisan
+        unitCost = qty4(m.reverseCost);
+        fifoValue = money(qty.abs().times(unitCost));
+        const leftQty = oldQty.minus(qty.abs());
+        if (method === 'FIFO') {
+          const layers = await this.fifoLayers(tx, m, oldQty, oldAvg);
+          const rank = (l: { unitCost: string }) => (qty4(l.unitCost).eq(unitCost) ? 0 : 1);
+          const order = [...layers].reverse().sort((x, y) => rank(x) - rank(y));
+          let need = qty.abs();
+          const kept = new Map(layers.map((l) => [l.id, D(l.qty)]));
+          for (const l of order) {
+            if (need.lte(0)) break;
+            const take = kept.get(l.id)!.lt(need) ? kept.get(l.id)! : need;
+            kept.set(l.id, kept.get(l.id)!.minus(take));
+            need = need.minus(take);
+            await tx.execute(sql`UPDATE stock_layers SET qty_remaining = ${kept.get(l.id)!.toFixed(4)} WHERE id = ${l.id}`);
+          }
+          await tx.execute(sql`DELETE FROM stock_layers WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId} AND qty_remaining <= 0`);
+          if (leftQty.gt(0)) newAvg = qty4(layers.reduce<Dec>((a, l) => a.plus(kept.get(l.id)!.times(l.unitCost)), D(0)).div(leftQty));
+        } else if (leftQty.gt(0)) {
+          const v = oldQty.times(oldAvg).minus(qty.abs().times(unitCost)).div(leftQty);
+          newAvg = v.isNegative() ? D(0) : qty4(v);
+        }
+      } else if (method === 'FIFO') {
         const layers = await this.fifoLayers(tx, m, oldQty, oldAvg);
         const used = consumeLayers(layers, qty.abs());
         for (const r of used.remaining) await tx.execute(sql`UPDATE stock_layers SET qty_remaining = ${r.qty.toFixed(4)} WHERE id = ${r.id}`);

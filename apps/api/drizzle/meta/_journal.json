@@ -183,6 +183,13 @@
       "when": 1791388286484,
       "tag": "0025_stock_layers",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791474686484,
+      "tag": "0026_goods_receipts",
+      "breakpoints": true
     }
   ]
 }
