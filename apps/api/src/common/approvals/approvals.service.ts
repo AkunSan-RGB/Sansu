@@ -21,8 +21,10 @@ export interface ApprovalPolicy {
   purchaseOrder: number;
   /** Jurnal manual dengan total debit ≥ nilai ini perlu persetujuan (0 = nonaktif) */
   manualJournal: number;
+  /** Permintaan pembelian dengan perkiraan nilai ≤ batas ini langsung disetujui otomatis (0 = nonaktif, semua menunggu keputusan) */
+  purchaseRequestAuto: number;
 }
-export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0 };
+export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, purchaseRequestAuto: 0 };
 
 export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PURCHASE_ORDER: 'Pesanan pembelian',

@@ -19,6 +19,8 @@ import {
   PurchaseOrderQueryDto,
   UpdateSupplierDto,
 } from './purchasing.dto';
+import { PurchaseRequestsService } from './purchase-requests.service';
+import { ConvertPurchaseRequestDto, CreatePurchaseRequestDto, DecisionNoteDto, PurchaseRequestQueryDto, SuggestionQueryDto } from './purchase-requests.dto';
 import { SuppliersService } from './suppliers.service';
 
 @ApiTags('Pembelian')
@@ -166,5 +168,66 @@ export class PurchaseInvoicesController {
   @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreatePurchaseInvoiceDto) {
     return this.svc.createFromOrder(u, dto);
+  }
+}
+
+@ApiTags('Pembelian')
+@ApiBearerAuth()
+@RequireApp('purchase')
+@Controller('purchase-requests')
+export class PurchaseRequestsController {
+  constructor(private readonly svc: PurchaseRequestsService) {}
+
+  @Get()
+  list(@CurrentUser() u: AuthUser, @Query() q: PurchaseRequestQueryDto) {
+    return this.svc.list(u.tenantId, q.status);
+  }
+
+  /** Usulan dari stok minimum (produk yang perlu dipesan) */
+  @Get('suggestions')
+  suggestions(@CurrentUser() u: AuthUser, @Query() q: SuggestionQueryDto) {
+    return this.svc.suggestions(u.tenantId, q.warehouseId);
+  }
+
+  @Get(':id')
+  get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.svc.get(u.tenantId, id);
+  }
+
+  @Post()
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  create(@CurrentUser() u: AuthUser, @Body() dto: CreatePurchaseRequestDto) {
+    return this.svc.create(u, dto);
+  }
+
+  @Post(':id/submit')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  submit(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.svc.submit(u, id);
+  }
+
+  @Post(':id/approve')
+  @Roles('ADMIN')
+  approve(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: DecisionNoteDto) {
+    return this.svc.decide(u, id, true, dto.note);
+  }
+
+  @Post(':id/reject')
+  @Roles('ADMIN')
+  reject(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: DecisionNoteDto) {
+    return this.svc.decide(u, id, false, dto.note);
+  }
+
+  @Post(':id/cancel')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  cancel(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.svc.cancel(u, id);
+  }
+
+  /** Jadikan PO draft per supplier */
+  @Post(':id/convert')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  convert(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ConvertPurchaseRequestDto) {
+    return this.svc.convert(u, id, dto);
   }
 }

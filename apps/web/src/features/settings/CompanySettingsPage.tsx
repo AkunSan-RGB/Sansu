@@ -31,12 +31,13 @@ import { t } from '@/lib/terms';
 
 /** Batas nilai yang memerlukan persetujuan pemilik / admin (0 = nonaktif) */
 function ApprovalPolicyCard() {
-  const [form] = Form.useForm<{ purchaseOrder: number; manualJournal: number }>();
-  const policy = useQuery({ queryKey: ['approvals', 'policy'], queryFn: () => get<{ purchaseOrder: number; manualJournal: number }>('/approvals/policy') });
+  type Policy = { purchaseOrder: number; manualJournal: number; purchaseRequestAuto: number };
+  const [form] = Form.useForm<Policy>();
+  const policy = useQuery({ queryKey: ['approvals', 'policy'], queryFn: () => get<Policy>('/approvals/policy') });
   useEffect(() => {
     if (policy.data) form.setFieldsValue(policy.data);
   }, [policy.data, form]);
-  const save = useAction((v: { purchaseOrder: number; manualJournal: number }) => put('/approvals/policy', v), { success: 'Batas persetujuan disimpan', invalidate: ['approvals'] });
+  const save = useAction((v: Policy) => put('/approvals/policy', v), { success: 'Batas persetujuan disimpan', invalidate: ['approvals'] });
   return (
     <Card title="Persetujuan transaksi besar">
       <Alert
@@ -45,8 +46,15 @@ function ApprovalPolicyCard() {
         style={{ marginBottom: 16 }}
         message="Transaksi bernilai di atas batas dari peran selain pemilik dan admin menunggu persetujuan. Isi 0 untuk mematikan."
       />
-      <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)} initialValues={{ purchaseOrder: 0, manualJournal: 0 }}>
+      <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)} initialValues={{ purchaseOrder: 0, manualJournal: 0, purchaseRequestAuto: 0 }}>
         <Form.Item name="purchaseOrder" label="Pesanan pembelian dengan total mulai dari" extra="Konfirmasi pesanan oleh keuangan menunggu persetujuan.">
+          <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
+        </Form.Item>
+        <Form.Item
+          name="purchaseRequestAuto"
+          label="Permintaan pembelian disetujui otomatis sampai"
+          extra="Permintaan dari gudang/divisi dengan perkiraan nilai sampai batas ini langsung disetujui tanpa menunggu (harga harus diketahui). Isi 0 bila semua permintaan harus diputuskan."
+        >
           <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
         </Form.Item>
         <Form.Item name="manualJournal" label="Jurnal manual dengan total debit mulai dari" extra="Jurnal baru diposting setelah disetujui.">

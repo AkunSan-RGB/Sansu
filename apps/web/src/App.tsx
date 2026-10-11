@@ -36,6 +36,9 @@ import PurchaseInvoicesPage from './features/purchasing/PurchaseInvoicesPage';
 import PurchaseOrderDetailPage from './features/purchasing/PurchaseOrderDetailPage';
 import PurchaseOrderFormPage from './features/purchasing/PurchaseOrderFormPage';
 import PurchaseOrdersPage from './features/purchasing/PurchaseOrdersPage';
+import PurchaseRequestDetailPage from './features/purchasing/PurchaseRequestDetailPage';
+import PurchaseRequestFormPage from './features/purchasing/PurchaseRequestFormPage';
+import PurchaseRequestsPage from './features/purchasing/PurchaseRequestsPage';
 import SuppliersPage from './features/purchasing/SuppliersPage';
 import ReturnsPage from './features/returns/ReturnsPage';
 import JournalsPage from './features/accounting/JournalsPage';
@@ -136,6 +139,9 @@ export default function App() {
           <Route path="pos/sessions" element={<PosSessionsPage />} />
         </Route>
         <Route element={<AppGate app="purchase" />}>
+          <Route path="purchase-requests" element={<PurchaseRequestsPage />} />
+          <Route path="purchase-requests/new" element={<PurchaseRequestFormPage />} />
+          <Route path="purchase-requests/:id" element={<PurchaseRequestDetailPage />} />
           <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
           <Route path="purchase-orders/new" element={<PurchaseOrderFormPage />} />
           <Route path="purchase-orders/:id" element={<PurchaseOrderDetailPage />} />
