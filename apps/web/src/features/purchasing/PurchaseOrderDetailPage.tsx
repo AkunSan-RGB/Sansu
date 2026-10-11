@@ -1,6 +1,6 @@
 import { PrinterOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Descriptions, Form, Input, InputNumber, Modal, Popconfirm, Space, Table, Tag } from 'antd';
+import { Alert, Button, Card, Descriptions, Form, Input, InputNumber, Modal, Popconfirm, Space, Table, Tag, Select } from 'antd';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { get, post } from '@/api/client';
@@ -8,6 +8,7 @@ import { LEDGER_KEYS, useAction } from '@/api/queries';
 import type { PurchaseInvoice, PurchaseOrder } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { cell, DocHeader, head, PartyBlock, PrintSheet, Signatures, useLetterhead } from '@/components/print/Letterhead';
+import { VARIANCE_REASONS } from './PriceVarianceReport';
 import { printDoc } from '@/lib/print';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
 import { ReceiptStatusTag } from './GoodsReceiptsPage';
@@ -28,9 +29,10 @@ export default function PurchaseOrderDetailPage() {
 
   const confirm = useAction(() => post(`/purchase-orders/${id}/confirm`), { success: 'PO dikonfirmasi — siap dikirim ke supplier', invalidate: refresh });
   const cancel = useAction(() => post(`/purchase-orders/${id}/cancel`), { success: 'PO dibatalkan', invalidate: refresh });
-  const refreshAll = [...refresh, 'goods-receipts'];
+  const refreshAll = [...refresh, 'goods-receipts', 'approvals'];
   const both = useAction(
-    (v: { supplierInvoiceNo: string; date: string }) => post<PurchaseInvoice & { journalNumber: string }>('/purchase-invoices', { supplierInvoiceNo: v.supplierInvoiceNo, date: v.date, purchaseOrderId: id }),
+    (v: { supplierInvoiceNo: string; date: string; prices: { orderLineId: string; price: string }[]; varianceReason?: string; varianceNote?: string }) =>
+      post<PurchaseInvoice & { journalNumber: string }>('/purchase-invoices', { supplierInvoiceNo: v.supplierInvoiceNo, date: v.date, prices: v.prices.length ? v.prices : undefined, varianceReason: v.prices.length ? v.varianceReason : undefined, varianceNote: v.prices.length ? v.varianceNote : undefined, purchaseOrderId: id }),
     { success: (r) => `Barang diterima · faktur ${r.number} · jurnal ${r.journalNumber}`, invalidate: refreshAll, onSuccess: () => setMode(null) },
   );
   const receive = useAction(
@@ -38,7 +40,8 @@ export default function PurchaseOrderDetailPage() {
     { success: (r) => `Barang diterima · penerimaan ${r.number}`, invalidate: refreshAll, onSuccess: () => setMode(null) },
   );
   const bill = useAction(
-    (v: { supplierInvoiceNo: string; date: string; lines: { orderLineId: string; qty: string }[] }) => post<PurchaseInvoice & { journalNumber: string }>('/purchase-invoices', { ...v, purchaseOrderId: id }),
+    (v: { supplierInvoiceNo: string; date: string; lines: { orderLineId: string; qty: string }[]; prices: { orderLineId: string; price: string }[]; varianceReason?: string; varianceNote?: string }) =>
+      post<PurchaseInvoice & { journalNumber: string }>('/purchase-invoices', { ...v, prices: v.prices.length ? v.prices : undefined, varianceReason: v.prices.length ? v.varianceReason : undefined, varianceNote: v.prices.length ? v.varianceNote : undefined, purchaseOrderId: id }),
     { success: (r) => `Faktur ${r.number} dicatat · jurnal ${r.journalNumber}`, invalidate: refreshAll, onSuccess: () => setMode(null) },
   );
   const left = (l: NonNullable<PurchaseOrder['lines']>[number]) => Math.max(0, Number(l.qty) - Number(l.receivedQty ?? 0));
@@ -46,6 +49,12 @@ export default function PurchaseOrderDetailPage() {
   const qtyFields = (pick: (l: NonNullable<PurchaseOrder['lines']>[number]) => number) => Object.fromEntries((o?.lines ?? []).map((l) => [`q_${l.id}`, pick(l)]));
   const linesPayload = (v: Record<string, string | number>) =>
     (o?.lines ?? []).map((l) => ({ orderLineId: l.id, qty: String(v[`q_${l.id}`] ?? 0) })).filter((l) => Number(l.qty) > 0);
+  const priceFields = () => Object.fromEntries((o?.lines ?? []).map((l) => [`p_${l.id}`, Number(l.price)]));
+  /** Hanya harga yang berbeda dari PO yang dikirim */
+  const pricesPayload = (v: Record<string, string | number>, only?: { orderLineId: string }[]) =>
+    (o?.lines ?? [])
+      .filter((l) => v[`p_${l.id}`] != null && Number(v[`p_${l.id}`]) !== Number(l.price) && (!only || only.some((x) => x.orderLineId === l.id)))
+      .map((l) => ({ orderLineId: l.id, price: String(v[`p_${l.id}`]) }));
   const canReceive = !!o && o.status === 'CONFIRMED' && (o.lines ?? []).some((l) => left(l) > 0.00005);
   const canBill = !!o && o.status === 'CONFIRMED' && (o.lines ?? []).some((l) => open(l) > 0.00005);
   const untouched = !!o && o.receiptStatus === 'NONE';
@@ -84,7 +93,7 @@ export default function PurchaseOrderDetailPage() {
                   type={canReceive ? 'default' : 'primary'}
                   onClick={() => {
                     form.resetFields();
-                    form.setFieldsValue({ supplierInvoiceNo: '', date: today(), ...qtyFields(open) });
+                    form.setFieldsValue({ supplierInvoiceNo: '', date: today(), ...qtyFields(open), ...priceFields() });
                     setMode('bill');
                   }}
                 >
@@ -95,7 +104,7 @@ export default function PurchaseOrderDetailPage() {
                 <Button
                   onClick={() => {
                     form.resetFields();
-                    form.setFieldsValue({ supplierInvoiceNo: '', date: today() });
+                    form.setFieldsValue({ supplierInvoiceNo: '', date: today(), ...priceFields() });
                     setMode('both');
                   }}
                 >
@@ -114,6 +123,14 @@ export default function PurchaseOrderDetailPage() {
       <Card loading={isLoading}>
         {o && (
           <>
+            {o.priceEstimate && o.status !== 'BILLED' && o.status !== 'CANCELLED' && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="Harga di PO ini estimasi (dari penawaran supplier). Saat faktur tiba, isi “Harga faktur” — biaya perolehan persediaan mengikuti faktur."
+              />
+            )}
             <Descriptions bordered size="small" column={{ xs: 1, md: 2 }} style={{ marginBottom: 16 }}>
               <Descriptions.Item label={t('Supplier')}>
                 {o.supplier.code} · {o.supplier.name}
@@ -267,7 +284,7 @@ export default function PurchaseOrderDetailPage() {
         onOk={() => form.submit()}
         confirmLoading={both.isPending || receive.isPending || bill.isPending}
         okText="Posting"
-        width={mode === 'both' ? 520 : 640}
+        width={700}
       >
         <Alert
           type="info"
@@ -285,9 +302,9 @@ export default function PurchaseOrderDetailPage() {
           form={form}
           layout="vertical"
           onFinish={(v) => {
-            if (mode === 'both') both.mutate({ supplierInvoiceNo: String(v.supplierInvoiceNo), date: String(v.date) });
+            if (mode === 'both') both.mutate({ supplierInvoiceNo: String(v.supplierInvoiceNo), date: String(v.date), prices: pricesPayload(v), varianceReason: v.varianceReason ? String(v.varianceReason) : undefined, varianceNote: v.varianceNote ? String(v.varianceNote) : undefined });
             else if (mode === 'receive') receive.mutate({ date: String(v.date), supplierDeliveryNo: v.supplierDeliveryNo ? String(v.supplierDeliveryNo) : undefined, lines: linesPayload(v) });
-            else if (mode === 'bill') bill.mutate({ supplierInvoiceNo: String(v.supplierInvoiceNo), date: String(v.date), lines: linesPayload(v) });
+            else if (mode === 'bill') bill.mutate({ supplierInvoiceNo: String(v.supplierInvoiceNo), date: String(v.date), lines: linesPayload(v), prices: pricesPayload(v, linesPayload(v)), varianceReason: v.varianceReason ? String(v.varianceReason) : undefined, varianceNote: v.varianceNote ? String(v.varianceNote) : undefined });
           }}
         >
           {mode !== 'receive' && (
@@ -303,7 +320,7 @@ export default function PurchaseOrderDetailPage() {
           <Form.Item name="date" label={mode === 'bill' ? 'Tanggal faktur' : 'Tanggal terima'} rules={[{ required: true }]}>
             <Input type="date" />
           </Form.Item>
-          {mode && mode !== 'both' && (
+          {mode && (
             <Table
               size="small"
               rowKey="id"
@@ -311,19 +328,64 @@ export default function PurchaseOrderDetailPage() {
               dataSource={o?.lines}
               columns={[
                 { title: t('Produk'), render: (_, l) => `${l.product.sku} · ${l.product.name}` },
-                { title: mode === 'receive' ? 'Sisa' : 'Siap ditagih', align: 'right', render: (_, l) => `${fmtQty(String(mode === 'receive' ? left(l) : open(l)))} ${l.uom}` },
-                {
-                  title: mode === 'receive' ? 'Diterima kali ini' : 'Ditagih kali ini',
-                  align: 'right',
-                  width: 150,
-                  render: (_, l) => (
-                    <Form.Item name={`q_${l.id}`} noStyle>
-                      <InputNumber min={0} max={mode === 'receive' ? left(l) : open(l)} disabled={(mode === 'receive' ? left(l) : open(l)) <= 0} style={{ width: 120 }} />
-                    </Form.Item>
-                  ),
-                },
+                ...(mode === 'both'
+                  ? [{ title: 'Jumlah', align: 'right' as const, render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => `${fmtQty(String(l.qty))} ${l.uom}` }]
+                  : [
+                      { title: mode === 'receive' ? 'Sisa' : 'Siap ditagih', align: 'right' as const, render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => `${fmtQty(String(mode === 'receive' ? left(l) : open(l)))} ${l.uom}` },
+                      {
+                        title: mode === 'receive' ? 'Diterima kali ini' : 'Ditagih kali ini',
+                        align: 'right' as const,
+                        width: 140,
+                        render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => (
+                          <Form.Item name={`q_${l.id}`} noStyle>
+                            <InputNumber min={0} max={mode === 'receive' ? left(l) : open(l)} disabled={(mode === 'receive' ? left(l) : open(l)) <= 0} style={{ width: 110 }} />
+                          </Form.Item>
+                        ),
+                      },
+                    ]),
+                ...(mode !== 'receive'
+                  ? [
+                      { title: 'Harga PO', align: 'right' as const, render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => fmtMoney(l.price) },
+                      {
+                        title: 'Harga faktur',
+                        align: 'right' as const,
+                        width: 150,
+                        render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => (
+                          <Form.Item name={`p_${l.id}`} noStyle>
+                            <InputNumber min={1} style={{ width: 130 }} />
+                          </Form.Item>
+                        ),
+                      },
+                    ]
+                  : []),
               ]}
             />
+          )}
+          {mode && mode !== 'receive' && (
+            <Form.Item noStyle shouldUpdate>
+              {() => {
+                const v = form.getFieldsValue() as Record<string, number | string>;
+                const diff = (o?.lines ?? []).reduce((a, l) => {
+                  const q = mode === 'both' ? Number(l.qty) : Number(v[`q_${l.id}`] ?? 0);
+                  return a + q * (Number(v[`p_${l.id}`] ?? l.price) - Number(l.price)) * (1 - Number(l.discountPct ?? 0) / 100);
+                }, 0);
+                return Math.abs(diff) < 0.005 ? (
+                  <div style={{ marginTop: 8, fontSize: 12, opacity: 0.65 }}>Ubah "Harga faktur" bila harga di faktur supplier berbeda dari PO — biaya perolehan persediaan mengikuti harga faktur.</div>
+                ) : (
+                  <>
+                    <Alert style={{ marginTop: 12 }} type={diff > 0 ? 'warning' : 'success'} showIcon message={`Faktur ${diff > 0 ? 'lebih mahal' : 'lebih murah'} ${fmtMoney(Math.abs(diff))} (sebelum PPN) dari PO. Nilai persediaan dan HPP disesuaikan otomatis.${diff > 0 ? ' Kenaikan di atas toleransi atau jauh di atas harga pasar perlu persetujuan pemilik/admin.' : ''}`} />
+                    <Form.Item name="varianceReason" label="Alasan selisih harga (tercatat untuk audit)" rules={[{ required: true, message: 'Pilih alasan' }]} style={{ marginTop: 12 }}>
+                      <Select options={Object.entries(VARIANCE_REASONS).map(([value, label]) => ({ value, label }))} placeholder="Pilih alasan" />
+                    </Form.Item>
+                    {v.varianceReason === 'OTHER' && (
+                      <Form.Item name="varianceNote" label="Jelaskan" rules={[{ required: true, min: 5, message: 'Jelaskan alasannya (min. 5 huruf)' }]}>
+                        <Input.TextArea rows={2} maxLength={300} />
+                      </Form.Item>
+                    )}
+                  </>
+                );
+              }}
+            </Form.Item>
           )}
         </Form>
       </Modal>

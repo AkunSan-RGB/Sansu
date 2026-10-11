@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   IsBoolean,
   IsDateString,
@@ -10,6 +11,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -25,6 +27,8 @@ export class CreateSupplierDto {
   @ApiPropertyOptional() @IsOptional() @IsString() address?: string;
   @ApiPropertyOptional({ example: '0123456789012345' }) @IsOptional() @IsString() @IsNpwp() npwp?: string;
   @ApiPropertyOptional({ example: 30 }) @IsOptional() @IsInt() @Min(0) @Max(365) paymentTermDays?: number;
+  @ApiPropertyOptional({ description: 'Supplier favorit: PO / permintaan sampai batas di bawah ini disetujui otomatis' }) @IsOptional() @IsBoolean() isPreferred?: boolean;
+  @ApiPropertyOptional({ example: '50000000', description: 'Batas nilai persetujuan otomatis untuk supplier favorit (0 = tidak ada)' }) @IsOptional() @Matches(/^\d{1,15}$/) autoApproveLimit?: string;
 }
 
 export class UpdateSupplierDto extends PartialType(CreateSupplierDto) {
@@ -44,6 +48,7 @@ export class CreatePurchaseOrderDto {
   @ApiProperty() @IsUUID() warehouseId: string;
   @ApiPropertyOptional({ example: '2026-10-03' }) @IsOptional() @IsDateString() date?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) notes?: string;
+  @ApiPropertyOptional({ description: 'true = harga dari penawaran supplier (estimasi); harga final mengikuti faktur' }) @IsOptional() @IsBoolean() priceEstimate?: boolean;
   @ApiProperty({ type: [PurchaseLineDto] })
   @ValidateNested({ each: true })
   @Type(() => PurchaseLineDto)
@@ -51,9 +56,30 @@ export class CreatePurchaseOrderDto {
   lines: PurchaseLineDto[];
 }
 
+/** Pembelian cepat atas penawaran supplier: PO langsung dikonfirmasi, harga dianggap estimasi sampai faktur tiba */
+export class QuickPurchaseDto extends CreatePurchaseOrderDto {
+  @ApiPropertyOptional({ description: 'true = barang sudah tiba, langsung diterima ke gudang' }) @IsOptional() @IsBoolean() receiveNow?: boolean;
+}
+
+export class PriceHistoryQueryDto {
+  @ApiProperty({ description: 'ID produk dipisah koma (maks. 50)' })
+  @Matches(/^[0-9a-fA-F-]{36}(,[0-9a-fA-F-]{36}){0,49}$/)
+  productIds: string;
+}
+
 export class PurchaseOrderQueryDto {
   @ApiPropertyOptional({ enum: PURCHASE_ORDER_STATUSES }) @IsOptional() @IsIn(PURCHASE_ORDER_STATUSES) status?: PurchaseOrderStatus;
   @ApiPropertyOptional() @IsOptional() @IsUUID() supplierId?: string;
+}
+
+/** Alasan harga faktur berbeda dari PO (wajib bila ada selisih; tercatat untuk audit) */
+export const VARIANCE_REASONS = ['MARKET_VOLATILITY', 'SUPPLIER_INCREASE', 'SPEC_CHANGE', 'DISCOUNT_ADJUST', 'OTHER'] as const;
+export type VarianceReason = (typeof VARIANCE_REASONS)[number];
+
+/** Harga satuan sesuai faktur supplier untuk satu baris pesanan (menimpa harga PO) */
+export class OrderLinePriceDto {
+  @ApiProperty() @IsUUID() orderLineId: string;
+  @ApiProperty({ example: '2150', description: 'Harga per satuan baris, belum PPN, sesuai faktur supplier' }) @Matches(/^\d{1,15}(\.\d{1,2})?$/) price: string;
 }
 
 export class CreatePurchaseInvoiceDto {
@@ -75,6 +101,22 @@ export class CreatePurchaseInvoiceDto {
   @Type(() => OrderLineQtyDto)
   @ArrayMinSize(1)
   lines?: OrderLineQtyDto[];
+  @ApiPropertyOptional({
+    type: () => [OrderLinePriceDto],
+    description: 'Harga faktur supplier yang berbeda dari PO. Biaya perolehan persediaan mengikuti harga faktur (bukan PO); selisih dicatat. Baris tanpa isian memakai harga PO.',
+  })
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => OrderLinePriceDto)
+  @ArrayMaxSize(500)
+  prices?: OrderLinePriceDto[];
+  @ApiPropertyOptional({ enum: VARIANCE_REASONS, description: 'Wajib bila harga faktur berbeda dari PO' }) @IsOptional() @IsIn(VARIANCE_REASONS) varianceReason?: VarianceReason;
+  @ApiPropertyOptional({ description: 'Wajib (min. 5 huruf) bila alasan = OTHER' }) @IsOptional() @IsString() @MaxLength(300) varianceNote?: string;
+}
+
+export class PriceVarianceQueryDto {
+  @ApiPropertyOptional({ example: '2026-01-01' }) @IsOptional() @IsDateString() from?: string;
+  @ApiPropertyOptional({ example: '2026-12-31' }) @IsOptional() @IsDateString() to?: string;
 }
 
 /** Jumlah per baris pesanan pembelian (penerimaan barang atau penagihan sebagian) */

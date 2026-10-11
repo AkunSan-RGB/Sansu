@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import LoginPage from './auth/LoginPage';
+import ApproveLinkPage from './auth/ApproveLinkPage';
 import { ForgotPasswordPage, ResetPasswordPage, VerifyEmailPage } from './auth/AccountPages';
 import BillingPage from './features/billing/BillingPage';
 import WarehousesPage from './features/settings/WarehousesPage';
@@ -38,6 +39,7 @@ import PurchaseOrderFormPage from './features/purchasing/PurchaseOrderFormPage';
 import PurchaseOrdersPage from './features/purchasing/PurchaseOrdersPage';
 import PurchaseRequestDetailPage from './features/purchasing/PurchaseRequestDetailPage';
 import PurchaseRequestFormPage from './features/purchasing/PurchaseRequestFormPage';
+import QuickPurchasePage from './features/purchasing/QuickPurchasePage';
 import PurchaseRequestsPage from './features/purchasing/PurchaseRequestsPage';
 import SuppliersPage from './features/purchasing/SuppliersPage';
 import ReturnsPage from './features/returns/ReturnsPage';
@@ -90,6 +92,7 @@ export default function App() {
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
+      <Route path="/approve/:token" element={<ApproveLinkPage />} />
       <Route
         path="/pos"
         element={
@@ -105,6 +108,8 @@ export default function App() {
         <Route element={<AppGate app={['accounting', 'sales']} />}>
           <Route path="dashboard" element={<DashboardPage />} />
         </Route>
+        <Route path="approvals" element={<ApprovalsPage />} />
+        <Route path="documents/:id" element={<DocumentViewPage />} />
         <Route element={<AppGate app="crm" />}>
           <Route path="crm" element={<LeadsPipelinePage />} />
           <Route path="quotations" element={<QuotationsPage />} />
@@ -117,10 +122,6 @@ export default function App() {
           <Route path="sales-orders/:id" element={<SalesOrderDetailPage />} />
           <Route path="invoices" element={<InvoicesPage />} />
           <Route path="invoices/services/new" element={<ServiceInvoiceFormPage />} />
-          <Route path="approvals" element={<ApprovalsPage />} />
-          <Route path="documents/:id" element={<DocumentViewPage />} />
-          <Route path="goods-receipts" element={<GoodsReceiptsPage />} />
-          <Route path="goods-receipts/:id" element={<GoodsReceiptDetailPage />} />
           <Route path="deliveries" element={<DeliveriesPage />} />
           <Route path="deliveries/:id" element={<DeliveryDetailPage />} />
           <Route path="invoices/:id" element={<InvoiceDetailPage />} />
@@ -139,11 +140,14 @@ export default function App() {
           <Route path="pos/sessions" element={<PosSessionsPage />} />
         </Route>
         <Route element={<AppGate app="purchase" />}>
+          <Route path="goods-receipts" element={<GoodsReceiptsPage />} />
+          <Route path="goods-receipts/:id" element={<GoodsReceiptDetailPage />} />
           <Route path="purchase-requests" element={<PurchaseRequestsPage />} />
           <Route path="purchase-requests/new" element={<PurchaseRequestFormPage />} />
           <Route path="purchase-requests/:id" element={<PurchaseRequestDetailPage />} />
           <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
           <Route path="purchase-orders/new" element={<PurchaseOrderFormPage />} />
+          <Route path="purchase-orders/quick" element={<QuickPurchasePage />} />
           <Route path="purchase-orders/:id" element={<PurchaseOrderDetailPage />} />
           <Route path="purchase-invoices" element={<PurchaseInvoicesPage />} />
           <Route path="suppliers" element={<SuppliersPage />} />

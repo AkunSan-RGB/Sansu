@@ -12,6 +12,7 @@ import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { INV_STATUS_OPTIONS, InvoiceStatusTag } from '../sales/status';
 import BillModal from './BillModal';
+import PriceVarianceReport from './PriceVarianceReport';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import { t } from '@/lib/terms';
 
@@ -98,6 +99,10 @@ export default function PurchaseInvoicesPage() {
                             <Tooltip title="Utang dari sistem lama (saldo awal)">
                               <Tag color="gold">Saldo awal</Tag>
                             </Tooltip>
+                          ) : Number(i.priceVariance ?? 0) !== 0 ? (
+                            <Tooltip title={`Harga faktur ${Number(i.priceVariance) > 0 ? 'lebih mahal' : 'lebih murah'} ${fmtMoney(Math.abs(Number(i.priceVariance)))} dari PO (sebelum PPN); biaya perolehan stok mengikuti faktur`}>
+                              <Tag color={Number(i.priceVariance) > 0 ? 'orange' : 'green'}>Barang · {Number(i.priceVariance) > 0 ? '+' : '−'}{fmtMoney(Math.abs(Number(i.priceVariance)))}</Tag>
+                            </Tooltip>
                           ) : (
                             <Tag>Barang</Tag>
                           ),
@@ -150,6 +155,11 @@ export default function PurchaseInvoicesPage() {
                   />
                 </>
               ),
+            },
+            {
+              key: 'variance',
+              label: 'Selisih harga',
+              children: <PriceVarianceReport />,
             },
             {
               key: 'aging',

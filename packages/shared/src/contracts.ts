@@ -419,6 +419,9 @@ export interface Supplier {
   npwp: string | null;
   paymentTermDays: number;
   isActive: boolean;
+  /** Supplier favorit: persetujuan otomatis sampai `autoApproveLimit` */
+  isPreferred?: boolean;
+  autoApproveLimit?: string;
   outstanding?: string;
 }
 
@@ -441,6 +444,8 @@ export interface PurchaseOrder {
   subtotal: string;
   taxAmount: string;
   total: string;
+  /** Harga dari penawaran supplier (pembelian cepat); final mengikuti faktur */
+  priceEstimate?: boolean;
   notes: string | null;
   supplier: {
     id?: string;
@@ -494,6 +499,8 @@ export interface PurchaseInvoice {
   description?: string | null;
   withholdingType?: 'PPH23' | 'PPH4_2' | null;
   withholdingAmount?: string;
+  /** Selisih DPP faktur terhadap harga PO (+ faktur lebih mahal) */
+  priceVariance?: string;
   /** PPN tidak dapat dikreditkan (perusahaan non-PKP) → masuk harga perolehan */
   vatCapitalized?: boolean;
   supplier: { code: string; name: string };

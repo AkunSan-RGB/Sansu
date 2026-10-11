@@ -3,7 +3,6 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
-import { appUrl, MailService } from '../../common/mail/mail.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { toDocDate } from '../../common/utils/dates';
 import { Db, DbOrTx, Tx } from '../../db/db';
@@ -29,7 +28,6 @@ export class PurchaseRequestsService {
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
     private readonly orders: PurchaseOrdersService,
-    private readonly mail: MailService,
   ) {}
 
   private async names(db: DbOrTx, ids: (string | null)[]) {
@@ -156,7 +154,14 @@ export class PurchaseRequestsService {
     const est = await this.estimate(tx, user.tenantId, r.lines);
     const isApprover = this.approvals.isApprover(user.role);
     // Pemberi persetujuan yang mengajukan = otomatis disetujui; peminta lain: otomatis bila nilainya ≤ batas dan semua harga diketahui
-    const auto = !isApprover && policy.purchaseRequestAuto > 0 && est.complete && est.total <= policy.purchaseRequestAuto;
+    // Supplier favorit: bila semua barang sudah punya supplier favorit, batasnya adalah yang terkecil di antara mereka
+    const supIds = [...new Set(r.lines.map((l) => l.supplierId))];
+    let preferredLimit = 0;
+    if (supIds.length && supIds.every((x): x is string => !!x)) {
+      const sups = await tx.select({ preferred: suppliers.isPreferred, limit: suppliers.autoApproveLimit }).from(suppliers).where(and(eq(suppliers.tenantId, user.tenantId), inArray(suppliers.id, supIds as string[])));
+      if (sups.length === supIds.length && sups.every((x) => x.preferred && Number(x.limit) > 0)) preferredLimit = Math.min(...sups.map((x) => Number(x.limit)));
+    }
+    const auto = !isApprover && est.complete && ((policy.purchaseRequestAuto > 0 && est.total <= policy.purchaseRequestAuto) || (preferredLimit > 0 && est.total <= preferredLimit));
     const approved = isApprover || auto;
     await tx
       .update(purchaseRequests)
@@ -299,25 +304,16 @@ export class PurchaseRequestsService {
     return (await tx.query.purchaseRequests.findFirst({ where: eq(purchaseRequests.id, id), with: { lines: true } }))!;
   }
 
-  /** Beri tahu pemilik dan admin lewat email agar persetujuan tidak menunggu sampai mereka membuka aplikasi */
-  private async notifyApprovers(tenantId: string, r: { id: string; number: string; requestedBy: string | null; estimatedTotal: number; estimateComplete: boolean; lines: unknown[]; warehouse: { name: string } }) {
-    try {
-      if (!this.mail.configured) return;
-      const to = await this.db.select({ email: users.email }).from(users).where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, ['OWNER', 'ADMIN'])));
-      for (const t of to) {
-        await this.mail.send({
-          to: t.email,
-          subject: `Permintaan pembelian ${r.number} menunggu persetujuan`,
-          heading: 'Permintaan pembelian menunggu persetujuan',
-          paragraphs: [
-            `${r.requestedBy ?? 'Seorang pengguna'} mengajukan permintaan pembelian ${r.number} untuk gudang ${r.warehouse.name} (${r.lines.length} barang${r.estimateComplete ? `, perkiraan ${rp(r.estimatedTotal)}` : ''}).`,
-            'Buka aplikasi untuk menyetujui atau menolaknya; setelah disetujui, bagian pembelian bisa langsung menjadikannya pesanan.',
-          ],
-          action: { label: 'Tinjau permintaan', url: `${appUrl()}/purchase-requests/${r.id}` },
-        });
-      }
-    } catch (e) {
-      this.logger.warn(`Email pemberitahuan gagal: ${(e as Error).message}`);
-    }
+  /** Beri tahu pemilik dan admin lewat email (dengan tautan persetujuan tanpa login) */
+  private notifyApprovers(tenantId: string, r: { id: string; number: string; requestedById: string | null; requestedBy: string | null; estimatedTotal: number; estimateComplete: boolean; lines: unknown[]; warehouse: { name: string } }) {
+    return this.approvals.notifyApprovers(tenantId, {
+      kind: 'PR',
+      id: r.id,
+      requesterId: r.requestedById,
+      title: `Permintaan pembelian ${r.number}`,
+      lines: [
+        `${r.requestedBy ?? 'Seorang pengguna'} meminta ${r.lines.length} barang untuk gudang ${r.warehouse.name}${r.estimateComplete ? `, perkiraan ${rp(r.estimatedTotal)}` : ''}.`,
+      ],
+    });
   }
 }

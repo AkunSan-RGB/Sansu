@@ -204,6 +204,34 @@
       "when": 1791647486484,
       "tag": "0028_purchase_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791733886484,
+      "tag": "0029_invoice_price_variance",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791820286484,
+      "tag": "0030_po_price_estimate",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791906686484,
+      "tag": "0031_price_variance_control",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791993086484,
+      "tag": "0032_preferred_suppliers",
+      "breakpoints": true
     }
   ]
 }

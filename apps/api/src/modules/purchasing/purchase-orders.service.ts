@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -100,6 +100,7 @@ export class PurchaseOrdersService {
           supplierId: supplier.id,
           warehouseId: wh.id,
           notes: dto.notes,
+          priceEstimate: dto.priceEstimate ?? false,
           createdById: user.sub,
           subtotal: totals.subtotal.toFixed(2),
           taxAmount: totals.taxAmount.toFixed(2),
@@ -123,10 +124,73 @@ export class PurchaseOrdersService {
     }
   }
 
+  /** Buat dan langsung konfirmasi PO dari penawaran supplier; bila nilainya perlu persetujuan, PO tetap draft dan `approvalPending` true */
+  async quick(user: AuthUser, dto: CreatePurchaseOrderDto) {
+    const created = await this.create(user, { ...dto, priceEstimate: true });
+    try {
+      await this.confirm(user, created.id);
+    } catch (e) {
+      if (e instanceof ConflictException) return { ...(await this.get(user.tenantId, created.id)), approvalPending: true, approvalMessage: e.message };
+      throw e;
+    }
+    return { ...(await this.get(user.tenantId, created.id)), approvalPending: false, approvalMessage: null as string | null };
+  }
+
+  /**
+   * Riwayat harga beli aktual (dari faktur supplier, 12 bulan terakhir) per produk: terakhir, rata-rata 90 hari, terendah, tertinggi,
+   * dan rincian per supplier — semuanya per satuan dasar, sebelum PPN.
+   */
+  async priceHistory(tenantId: string, productIds: string[]) {
+    const ids = [...new Set(productIds)];
+    const rows = (
+      await this.db.execute<{ product_id: string; supplier_id: string; supplier_name: string; date: string; unit: string }>(sql`
+        SELECT l.product_id, i.supplier_id, s.name AS supplier_name, i.date::text AS date,
+               l.line_total / NULLIF(l.qty * l.uom_factor, 0) AS unit
+        FROM purchase_invoice_lines l
+        JOIN purchase_invoices i ON i.id = l.invoice_id
+        JOIN suppliers s ON s.id = i.supplier_id
+        WHERE i.tenant_id = ${tenantId} AND i.kind = 'GOODS' AND l.product_id IN (${sql.join(ids.map((x) => sql`${x}`), sql`, `)})
+          AND i.date >= CURRENT_DATE - 365 AND l.qty * l.uom_factor > 0
+        ORDER BY i.date DESC, i.created_at DESC`)
+    ).rows;
+    const today = Date.now();
+    const out: Record<string, { last: number; lastDate: string; lastSupplier: string; avg90: number | null; min: number; max: number; count: number; suppliers: { supplierId: string; name: string; last: number; lastDate: string; avg: number; count: number }[] }> = {};
+    for (const id of ids) {
+      const mine = rows.filter((r) => r.product_id === id);
+      if (!mine.length) continue;
+      const u = mine.map((r) => Number(r.unit));
+      const recent = mine.filter((r) => today - new Date(r.date).getTime() <= 90 * 86_400_000).map((r) => Number(r.unit));
+      const bySup = new Map<string, typeof mine>();
+      for (const r of mine) bySup.set(r.supplier_id, [...(bySup.get(r.supplier_id) ?? []), r]);
+      const r2 = (x: number) => Math.round(x * 100) / 100;
+      out[id] = {
+        last: r2(u[0]),
+        lastDate: mine[0].date,
+        lastSupplier: mine[0].supplier_name,
+        avg90: recent.length ? r2(recent.reduce((a, b) => a + b, 0) / recent.length) : null,
+        min: r2(Math.min(...u)),
+        max: r2(Math.max(...u)),
+        count: mine.length,
+        suppliers: [...bySup.entries()].map(([supplierId, rs]) => ({
+          supplierId,
+          name: rs[0].supplier_name,
+          last: r2(Number(rs[0].unit)),
+          lastDate: rs[0].date,
+          avg: r2(rs.reduce((a, b) => a + Number(b.unit), 0) / rs.length),
+          count: rs.length,
+        })),
+      };
+    }
+    return out;
+  }
+
   async confirm(user: AuthUser, id: string) {
     // Pesanan bernilai besar dari peran yang tidak berwenang: butuh persetujuan (permintaan dibuat di luar transaksi)
-    const [po] = await this.db.select({ number: purchaseOrders.number, total: purchaseOrders.total, status: purchaseOrders.status }).from(purchaseOrders).where(and(eq(purchaseOrders.id, id), eq(purchaseOrders.tenantId, user.tenantId)));
-    if (po?.status === 'DRAFT') await this.approvals.gateDocument(this.db, user, { kind: 'PURCHASE_ORDER', refId: id, title: `PO ${po.number}`, amount: Number(po.total) });
+    const [po] = await this.db.select({ number: purchaseOrders.number, total: purchaseOrders.total, status: purchaseOrders.status, supplierId: purchaseOrders.supplierId }).from(purchaseOrders).where(and(eq(purchaseOrders.id, id), eq(purchaseOrders.tenantId, user.tenantId)));
+    // Supplier favorit: pesanan sampai batas yang ditetapkan untuknya disetujui otomatis
+    const [sup] = po ? await this.db.select({ preferred: suppliers.isPreferred, limit: suppliers.autoApproveLimit }).from(suppliers).where(eq(suppliers.id, po.supplierId)) : [];
+    const autoApproved = !!sup?.preferred && Number(sup.limit) > 0 && Number(po!.total) <= Number(sup.limit);
+    if (po?.status === 'DRAFT' && !autoApproved) await this.approvals.gateDocument(this.db, user, { kind: 'PURCHASE_ORDER', refId: id, title: `Pesanan ${po.number}`, amount: Number(po.total) });
     await this.db.transaction(async (tx) => {
       const order = await this.lock(tx, user.tenantId, id);
       if (order.status !== 'DRAFT') throw new BadRequestException(`PO berstatus ${order.status}, tidak bisa dikonfirmasi`);

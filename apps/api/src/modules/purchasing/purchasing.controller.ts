@@ -15,8 +15,11 @@ import {
   CreatePurchaseOrderDto,
   CreateSupplierDto,
   CreateSupplierPaymentDto,
+  PriceVarianceQueryDto,
   PurchaseInvoiceQueryDto,
+  PriceHistoryQueryDto,
   PurchaseOrderQueryDto,
+  QuickPurchaseDto,
   UpdateSupplierDto,
 } from './purchasing.dto';
 import { PurchaseRequestsService } from './purchase-requests.service';
@@ -43,12 +46,14 @@ export class SuppliersController {
   @Post()
   @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreateSupplierDto) {
+    this.svc.assertCanSetPreferred(u, dto);
     return this.svc.create(u.tenantId, dto);
   }
 
   @Patch(':id')
   @Roles('ADMIN', 'FINANCE')
   update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateSupplierDto) {
+    this.svc.assertCanSetPreferred(u, dto);
     return this.svc.update(u.tenantId, id, dto);
   }
 }
@@ -68,9 +73,28 @@ export class PurchaseOrdersController {
     return this.svc.list(u.tenantId, q);
   }
 
+  /** Riwayat harga beli aktual per produk (untuk menilai penawaran supplier) */
+  @Get('price-history')
+  priceHistory(@CurrentUser() u: AuthUser, @Query() q: PriceHistoryQueryDto) {
+    return this.svc.priceHistory(u.tenantId, q.productIds.split(','));
+  }
+
   @Get(':id')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
+  }
+
+  /** Pembelian cepat atas penawaran supplier: buat + konfirmasi (+ terima barang bila sudah tiba) dalam satu langkah */
+  @Post('quick')
+  @Roles('ADMIN', 'FINANCE')
+  async quick(@CurrentUser() u: AuthUser, @Body() dto: QuickPurchaseDto) {
+    const { receiveNow, ...po } = dto;
+    const out = await this.svc.quick(u, po);
+    if (receiveNow && !out.approvalPending) {
+      await this.receipts.receive(u, out.id, { date: dto.date });
+      return { ...(await this.svc.get(u.tenantId, out.id)), approvalPending: false, approvalMessage: null as string | null };
+    }
+    return out;
   }
 
   @Post()
@@ -139,6 +163,13 @@ export class PurchaseInvoicesController {
   @Roles('ADMIN', 'FINANCE')
   apAging(@CurrentUser() u: AuthUser) {
     return this.svc.apAging(u.tenantId);
+  }
+
+  /** Laporan selisih harga faktur vs PO + penanda untuk ditinjau (anti-fraud) */
+  @Get('reports/price-variances')
+  @Roles('ADMIN', 'FINANCE')
+  priceVariances(@CurrentUser() u: AuthUser, @Query() q: PriceVarianceQueryDto) {
+    return this.svc.priceVarianceReport(u.tenantId, q.from, q.to);
   }
 
   @Get('payments')

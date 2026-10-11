@@ -361,7 +361,7 @@ export const approvalRequests = pgTable(
   {
     id: id(),
     tenantId: tenantId(),
-    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL'>().notNull(),
+    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE'>().notNull(),
     /** Dokumen yang dimintakan persetujuan (PO); kosong untuk jurnal manual yang baru diposting setelah disetujui */
     refId: text('ref_id'),
     title: text('title').notNull(),
@@ -608,6 +608,9 @@ export const suppliers = pgTable(
     npwp: text('npwp'),
     paymentTermDays: integer('payment_term_days').notNull().default(30),
     isActive: boolean('is_active').notNull().default(true),
+    /** Supplier favorit: PO / permintaan pembelian sampai batas ini disetujui otomatis (0 = tidak ada) */
+    isPreferred: boolean('is_preferred').notNull().default(false),
+    autoApproveLimit: money('auto_approve_limit').notNull().default('0'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('suppliers_code_uq').on(t.tenantId, t.code)],
@@ -630,6 +633,8 @@ export const purchaseOrders = pgTable(
     subtotal: money('subtotal').notNull().default('0'),
     taxAmount: money('tax_amount').notNull().default('0'),
     total: money('total').notNull().default('0'),
+    /** Harga berasal dari penawaran supplier (pembelian cepat) — final menunggu faktur; biaya perolehan mengikuti faktur */
+    priceEstimate: boolean('price_estimate').notNull().default(false),
     notes: text('notes'),
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
@@ -805,6 +810,14 @@ export const purchaseInvoices = pgTable(
     total: money('total').notNull(),
     paidAmount: money('paid_amount').notNull().default('0'),
     returnedAmount: money('returned_amount').notNull().default('0'),
+    /** Selisih DPP faktur terhadap harga PO (+ faktur lebih mahal); biaya perolehan stok mengikuti harga faktur */
+    priceVariance: money('price_variance').notNull().default('0'),
+    /** Pengendalian selisih harga: alasan, catatan, penanda (mis. ABOVE_MARKET), pembuat faktur, dan persetujuan yang menyetujuinya */
+    varianceReason: text('variance_reason'),
+    varianceNote: text('variance_note'),
+    priceFlags: text('price_flags'),
+    createdById: uuid('created_by_id'),
+    approvalId: uuid('approval_id'),
     status: invoiceStatusEnum('status').notNull().default('UNPAID'),
     journalId: uuid('journal_id'),
     createdAt: createdAt(),
@@ -836,6 +849,8 @@ export const purchaseInvoiceLines = pgTable('purchase_invoice_lines', {
   lineTotal: money('line_total').notNull(),
   /** Biaya per satuan dasar (DPP / qty dasar) yang masuk ke persediaan */
   unitCost: qty('unit_cost').notNull(),
+  /** Selisih DPP baris terhadap harga PO (+ faktur lebih mahal) */
+  priceVariance: money('price_variance').notNull().default('0'),
   returnedQty: qty('returned_qty').notNull().default('0'),
   /** Baris pesanan pembelian yang ditagih (faktur dari pesanan) */
   orderLineId: uuid('order_line_id'),

@@ -154,6 +154,9 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
 
     // ---- operasi ----
     const stockOf = async (p: string, w: string) => Number((await q<{ qty: string }>(`SELECT qty FROM stock_balances WHERE tenant_id=$1 AND product_id=$2 AND warehouse_id=$3`, [tenantId, p, w]))[0]?.qty ?? 0);
+    /** Sepertiga faktur datang dengan harga berbeda dari PO (harga volatil) */
+    const repriced = (po: { lines: { id: string; price: string }[] }) =>
+      rand() < 0.35 ? { varianceReason: 'MARKET_VOLATILITY', prices: po.lines.map((l) => ({ orderLineId: l.id, price: String(Math.max(1, Math.round(Number(l.price) * (0.7 + rand() * 0.7)))) })) } : {};
     const ops: Record<string, () => Promise<void>> = {
       async buy() {
         const lines = Array.from({ length: int(1, 2) }, () => ({ productId: pick(products), qty: String(int(1, 40)), price: String(int(3, 9) * 1000) }));
@@ -161,7 +164,7 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
         const po = await tryPost('po', '/purchase-orders', { supplierId: pick(suppliers), warehouseId: pick([wh1, wh1, wh2]), lines, ...when });
         if (po.status !== 201) return;
         await tryPost('po-confirm', `/purchase-orders/${po.body.id}/confirm`, {});
-        const pi = await tryPost('pi', '/purchase-invoices', { purchaseOrderId: po.body.id, supplierInvoiceNo: `F-${seed}-${++seq}`, ...when });
+        const pi = await tryPost('pi', '/purchase-invoices', { purchaseOrderId: po.body.id, supplierInvoiceNo: `F-${seed}-${++seq}`, ...repriced(po.body), ...when });
         if (pi.status === 201) purchaseInvoices.push(pi.body.id);
       },
       /** Jalur terima dulu: penerimaan bertahap (kadang dibatalkan) lalu faktur bertahap atau penuh */
@@ -180,11 +183,11 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
           return;
         }
         if (rand() < 0.5) {
-          const bill1 = await tryPost('pi-gr', '/purchase-invoices', { purchaseOrderId: po.body.id, supplierInvoiceNo: `G-${seed}-${++seq}`, lines: part.map((l) => ({ ...l, qty: String(Math.max(1, Math.floor(Number(l.qty) / 2))) })), ...when });
+          const bill1 = await tryPost('pi-gr', '/purchase-invoices', { purchaseOrderId: po.body.id, supplierInvoiceNo: `G-${seed}-${++seq}`, lines: part.map((l) => ({ ...l, qty: String(Math.max(1, Math.floor(Number(l.qty) / 2))) })), ...repriced(po.body), ...when });
           if (bill1.status === 201) purchaseInvoices.push(bill1.body.id);
         }
         await tryPost('gr', `/purchase-orders/${po.body.id}/receipts`, { ...when });
-        const bill2 = await tryPost('pi-gr', '/purchase-invoices', { purchaseOrderId: po.body.id, supplierInvoiceNo: `G-${seed}-${++seq}`, ...when });
+        const bill2 = await tryPost('pi-gr', '/purchase-invoices', { purchaseOrderId: po.body.id, supplierInvoiceNo: `G-${seed}-${++seq}`, ...repriced(po.body), ...when });
         if (bill2.status === 201) purchaseInvoices.push(bill2.body.id);
       },
       async sell() {

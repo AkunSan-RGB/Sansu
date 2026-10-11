@@ -1,10 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { AuditService } from '../../common/audit/audit.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { SettingsService, taxProfileOf } from '../../common/settings.service';
-import { roundVat } from '../sales/pricing';
+import { lineTotal, roundVat } from '../sales/pricing';
 import { addDays, diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, qty4, ZERO } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
@@ -45,6 +46,7 @@ export class PurchaseInvoicesService {
     private readonly audit: AuditService,
     private readonly assets: AssetsService,
     private readonly settings: SettingsService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   list(tenantId: string, q: PurchaseInvoiceQueryDto) {
@@ -87,17 +89,161 @@ export class PurchaseInvoicesService {
    *  - Sudah ada penerimaan barang → faktur menagih barang yang sudah diterima tetapi belum ditagih (seluruhnya atau sebagian,
    *    lewat `lines`) dan menutup "Barang Diterima Belum Ditagih" ke Utang Usaha.
    */
-  async createFromOrder(user: AuthUser, dto: CreatePurchaseInvoiceDto) {
+  async createFromOrder(user: AuthUser, dto: CreatePurchaseInvoiceDto, opts: { approvalId?: string } = {}) {
     const date = toDocDate(dto.date);
+    const control = await this.priceControl(user, dto, opts);
     const result = await this.db.transaction(async (tx) => {
       const order = await this.orders.lock(tx, user.tenantId, dto.purchaseOrderId);
       if (order.status !== 'CONFIRMED') {
         throw new BadRequestException(`PO berstatus ${order.status}; hanya PO yang sudah dikonfirmasi yang bisa difakturkan`);
       }
       const active = await tx.query.goodsReceipts.findMany({ where: and(eq(goodsReceipts.purchaseOrderId, order.id), eq(goodsReceipts.status, 'RECEIVED')), columns: { id: true } });
-      return active.length || dto.lines ? this.billReceived(tx, user, order, dto, date) : this.receiveAndBill(tx, user, order, dto, date);
+      const r = active.length || dto.lines ? await this.billReceived(tx, user, order, dto, date) : await this.receiveAndBill(tx, user, order, dto, date);
+      // jejak pengendalian harga: pembuat, alasan, penanda, dan persetujuan
+      await tx
+        .update(purchaseInvoices)
+        .set({
+          createdById: user.sub,
+          approvalId: opts.approvalId ?? null,
+          varianceReason: control.hasVariance ? dto.varianceReason : null,
+          varianceNote: control.hasVariance ? (dto.varianceNote?.trim() || null) : null,
+          priceFlags: control.flags.length ? control.flags.join(',') : null,
+        })
+        .where(eq(purchaseInvoices.id, r.id));
+      return r;
     });
     return { ...(await this.get(user.tenantId, result.id)), journalNumber: result.journalNumber };
+  }
+
+  /**
+   * Pengendalian selisih harga (anti-fraud). Selisih apa pun wajib beralasan. Kenaikan harga per baris di atas toleransi, atau harga
+   * di atas rata-rata harga beli 90 hari terakhir melebihi batas pembanding, harus disetujui pemilik/admin sebelum faktur dicatat
+   * (permintaan menyimpan isi faktur dan menjalankannya saat disetujui). Pemilik/admin tidak terkena batas tetapi tetap tercatat.
+   */
+  private async priceControl(user: AuthUser, dto: CreatePurchaseInvoiceDto, opts: { approvalId?: string }) {
+    const none = { hasVariance: false, flags: [] as string[] };
+    if (!dto.prices?.length) return none;
+    const order = await this.db.query.purchaseOrders.findFirst({ where: and(eq(purchaseOrders.id, dto.purchaseOrderId), eq(purchaseOrders.tenantId, user.tenantId)), with: { lines: true } });
+    if (!order) return none; // ditolak pada langkah berikutnya (PO tidak ditemukan)
+    const diffs = dto.prices
+      .map((p) => {
+        const line = order.lines.find((l) => l.id === p.orderLineId);
+        if (!line) return null;
+        const oldP = Number(line.price);
+        const newP = Number(p.price);
+        return newP === oldP ? null : { line, oldP, newP, pct: oldP > 0 ? ((newP - oldP) / oldP) * 100 : 100 };
+      })
+      .filter((d): d is NonNullable<typeof d> => !!d);
+    if (!diffs.length) return none;
+    if (!dto.varianceReason) throw new BadRequestException('Harga faktur berbeda dari PO: pilih alasan selisih harga');
+    if (dto.varianceReason === 'OTHER' && (dto.varianceNote?.trim().length ?? 0) < 5) throw new BadRequestException('Jelaskan alasan selisih harga pada catatan (minimal 5 huruf)');
+
+    const policy = await this.approvals.policy(this.db, user.tenantId);
+    const flags: string[] = [];
+    let exceeded = false;
+    const hist = policy.priceControl ? await this.orders.priceHistory(user.tenantId, [...new Set(diffs.map((d) => d.line.productId))]) : {};
+    for (const d of diffs) {
+      if (d.pct > policy.priceTolerancePct + 1e-9) exceeded = true;
+      const h = hist[d.line.productId];
+      if (h?.avg90 != null && d.newP / Number(d.line.uomFactor) > h.avg90 * (1 + policy.priceBenchmarkPct / 100)) {
+        flags.push('ABOVE_MARKET');
+        exceeded = true;
+      }
+    }
+    if (policy.priceControl && exceeded && !this.approvals.isApprover(user.role) && !opts.approvalId) {
+      const [dup] = (
+        await this.db.execute<{ id: string }>(sql`
+          SELECT id FROM approval_requests WHERE tenant_id = ${user.tenantId} AND kind = 'PURCHASE_INVOICE_PRICE' AND status = 'PENDING'
+            AND ref_id = ${order.id} AND payload->>'supplierInvoiceNo' = ${dto.supplierInvoiceNo.trim()}`)
+      ).rows;
+      if (dup) throw this.approvals.required(dup.id, 'Faktur ini sudah dimintakan persetujuan dan masih menunggu keputusan pemilik atau admin.');
+      const worst = diffs.reduce((a, d) => (d.pct > a ? d.pct : a), 0);
+      const amount = diffs.reduce((a, d) => a + Math.max(0, (d.newP - d.oldP) * Number(d.line.qty)), 0);
+      const req = await this.approvals.create(this.db, user, {
+        kind: 'PURCHASE_INVOICE_PRICE',
+        refId: order.id,
+        title: `Faktur ${dto.supplierInvoiceNo.trim()} (PO ${order.number}): harga ${worst > 0 ? `+${worst.toFixed(1)}%` : 'berbeda'} dari PO`,
+        amount,
+        payload: JSON.parse(JSON.stringify({ ...dto, supplierInvoiceNo: dto.supplierInvoiceNo.trim() })),
+      });
+      throw this.approvals.required(req.id, 'Harga faktur melebihi toleransi atau jauh di atas harga pasar; permintaan persetujuan dikirim ke pemilik atau admin. Faktur dicatat setelah disetujui.');
+    }
+    return { hasVariance: true, flags: [...new Set(flags)] };
+  }
+
+  /** Laporan selisih harga faktur terhadap PO, dengan penanda untuk ditinjau (anti-fraud) */
+  async priceVarianceReport(tenantId: string, from?: string, to?: string) {
+    const rows = (
+      await this.db.execute<{
+        id: string; number: string; date: string; supplier_invoice_no: string; supplier: string; sku: string; product: string; po_number: string | null;
+        po_price: string | null; inv_price: string; qty: string; variance: string; reason: string | null; note: string | null; flags: string | null;
+        created_by: string | null; approved_by: string | null; same_user: boolean | null;
+      }>(sql`
+        SELECT i.id, i.number, i.date::text AS date, i.supplier_invoice_no, s.name AS supplier, p.sku, p.name AS product, po.number AS po_number,
+               ol.price AS po_price, l.price AS inv_price, l.qty, l.price_variance AS variance, i.variance_reason AS reason, i.variance_note AS note,
+               i.price_flags AS flags, uc.name AS created_by, ua.name AS approved_by,
+               (po.created_by_id IS NOT NULL AND po.created_by_id = i.created_by_id) AS same_user
+        FROM purchase_invoice_lines l
+        JOIN purchase_invoices i ON i.id = l.invoice_id
+        JOIN suppliers s ON s.id = i.supplier_id
+        LEFT JOIN products p ON p.id = l.product_id
+        LEFT JOIN purchase_order_lines ol ON ol.id = l.order_line_id
+        LEFT JOIN purchase_orders po ON po.id = i.purchase_order_id
+        LEFT JOIN users uc ON uc.id = i.created_by_id
+        LEFT JOIN approval_requests ar ON ar.id = i.approval_id
+        LEFT JOIN users ua ON ua.id = ar.decided_by_id
+        WHERE i.tenant_id = ${tenantId} AND l.price_variance <> 0
+          ${from ? sql`AND i.date >= ${from}` : sql``} ${to ? sql`AND i.date <= ${to}` : sql``}
+        ORDER BY i.date DESC, i.number DESC LIMIT 500`)
+    ).rows;
+    const out = rows.map((r) => {
+      const variance = Number(r.variance);
+      const flags = [...(r.flags ? r.flags.split(',') : []), ...(r.same_user && variance > 0 ? ['SAME_USER'] : []), ...(variance > 0 && !r.approved_by ? ['NO_APPROVAL'] : [])];
+      const po = r.po_price != null ? Number(r.po_price) : null;
+      return {
+        invoiceId: r.id, invoiceNumber: r.number, date: r.date, supplierInvoiceNo: r.supplier_invoice_no, supplier: r.supplier, sku: r.sku, product: r.product,
+        poNumber: r.po_number, poPrice: po, invoicePrice: Number(r.inv_price), qty: Number(r.qty), variance, pct: po ? Math.round(((Number(r.inv_price) - po) / po) * 1000) / 10 : null,
+        reason: r.reason, note: r.note, createdBy: r.created_by, approvedBy: r.approved_by, flags,
+      };
+    });
+    const group = (key: (r: (typeof out)[number]) => string | null) => {
+      const m = new Map<string, { name: string; count: number; total: number; increase: number; flagged: number }>();
+      for (const r of out) {
+        const k = key(r) ?? '(tidak tercatat)';
+        const g = m.get(k) ?? { name: k, count: 0, total: 0, increase: 0, flagged: 0 };
+        g.count++;
+        g.total += r.variance;
+        if (r.variance > 0) g.increase += r.variance;
+        if (r.flags.some((f) => f !== 'NO_APPROVAL')) g.flagged++;
+        m.set(k, g);
+      }
+      return [...m.values()].sort((a, b) => b.increase - a.increase);
+    };
+    return {
+      rows: out,
+      bySupplier: group((r) => r.supplier),
+      byUser: group((r) => r.createdBy),
+      totals: { count: out.length, net: out.reduce((a, r) => a + r.variance, 0), increase: out.reduce((a, r) => a + Math.max(0, r.variance), 0), flagged: out.filter((r) => r.flags.some((f) => f !== 'NO_APPROVAL')).length },
+    };
+  }
+
+  /** Harga faktur per baris pesanan yang menimpa harga PO (kosong = semua memakai harga PO) */
+  private priceOverrides(order: Awaited<ReturnType<PurchaseOrdersService['lock']>>, dto: CreatePurchaseInvoiceDto) {
+    const m = new Map<string, Dec>();
+    for (const p of dto.prices ?? []) {
+      if (!order.lines.some((l) => l.id === p.orderLineId)) throw new BadRequestException('Baris pesanan tidak ditemukan');
+      if (m.has(p.orderLineId)) throw new BadRequestException('Harga untuk baris pesanan yang sama tercantum lebih dari sekali');
+      const price = money(p.price);
+      if (price.lte(0)) throw new BadRequestException('Harga faktur harus lebih dari 0');
+      m.set(p.orderLineId, price);
+    }
+    return m;
+  }
+
+  /** PPN faktur dari DPP-nya (tarif dan pembulatan sesuai pengaturan perusahaan) */
+  private async vatOn(tx: Tx, tenantId: string, dpp: Dec) {
+    const [t] = await tx.select({ ppnRate: tenants.ppnRate, settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+    return roundVat(money(dpp.times(t.ppnRate).div(100)), taxProfileOf(t.settings).vatRounding);
   }
 
   /** Jalur langsung faktur: barang diterima dan ditagih sekaligus (satu jurnal), seluruh pesanan */
@@ -105,8 +251,14 @@ export class PurchaseInvoicesService {
     const [supplier] = await tx.select().from(suppliers).where(eq(suppliers.id, order.supplierId));
     // Non-PKP: PPN masukan tidak bisa dikreditkan → menjadi bagian harga perolehan persediaan
     const capitalize = D(order.taxAmount).gt(0) && !(await this.isPkp(tx, user.tenantId));
-    const costBase = capitalize ? D(order.total) : D(order.subtotal);
-    const factor = D(order.subtotal).gt(0) ? costBase.div(order.subtotal) : D(1);
+    // Harga faktur (bila berbeda dari PO) menjadi biaya perolehan sejak awal; tanpa isian memakai harga PO
+    const over = this.priceOverrides(order, dto);
+    const dppOf = (l: (typeof order.lines)[number]) => (over.has(l.id) ? lineTotal({ qty: l.qty, price: over.get(l.id)!, discountPct: l.discountPct }) : D(l.lineTotal));
+    const subtotal = order.lines.reduce<Dec>((a, l) => a.plus(dppOf(l)), ZERO);
+    const taxAmount = over.size && D(order.taxAmount).gt(0) ? await this.vatOn(tx, user.tenantId, subtotal) : D(order.taxAmount);
+    const total = subtotal.plus(taxAmount);
+    const costBase = capitalize ? total : subtotal;
+    const factor = subtotal.gt(0) ? costBase.div(subtotal) : D(1);
     const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_INVOICE', date);
     const [invoice] = await tx
       .insert(purchaseInvoices)
@@ -119,9 +271,10 @@ export class PurchaseInvoicesService {
         supplierId: supplier.id,
         purchaseOrderId: order.id,
         warehouseId: order.warehouseId,
-        subtotal: order.subtotal,
-        taxAmount: order.taxAmount,
-        total: order.total,
+        subtotal: subtotal.toFixed(2),
+        taxAmount: taxAmount.toFixed(2),
+        total: total.toFixed(2),
+        priceVariance: subtotal.minus(order.subtotal).toFixed(2),
         vatCapitalized: capitalize,
       })
       .returning();
@@ -130,7 +283,8 @@ export class PurchaseInvoicesService {
     const values = new Map<string, { unitCost: Dec; value: Dec }>();
     for (const line of order.lines) {
       const baseQty = D(line.qty).times(line.uomFactor);
-      const unitCost = qty4(D(line.lineTotal).times(factor).div(baseQty));
+      const dpp = dppOf(line);
+      const unitCost = qty4(dpp.times(factor).div(baseQty));
       const moved = await this.stock.move(tx, {
         tenantId: user.tenantId,
         productId: line.productId,
@@ -151,10 +305,11 @@ export class PurchaseInvoicesService {
         uom: line.uom,
         uomFactor: line.uomFactor,
         qty: line.qty,
-        price: line.price,
+        price: (over.get(line.id) ?? D(line.price)).toFixed(2),
         discountPct: line.discountPct,
-        lineTotal: line.lineTotal,
+        lineTotal: dpp.toFixed(2),
         unitCost: unitCost.toFixed(4),
+        priceVariance: dpp.minus(line.lineTotal).toFixed(2),
         orderLineId: line.id,
       });
     }
@@ -171,8 +326,8 @@ export class PurchaseInvoicesService {
       lines: [
         { key: SYS.INVENTORY, debit: stockValue },
         { key: SYS.INVENTORY_ADJ, debit: rounding.gt(0) ? rounding : 0, credit: rounding.lt(0) ? rounding.abs() : 0 },
-        { key: SYS.VAT_IN, debit: capitalize ? 0 : order.taxAmount },
-        { key: SYS.AP, credit: order.total },
+        { key: SYS.VAT_IN, debit: capitalize ? 0 : taxAmount },
+        { key: SYS.AP, credit: total },
       ],
     });
 
@@ -220,10 +375,13 @@ export class PurchaseInvoicesService {
       .orderBy(asc(goodsReceipts.date), asc(goodsReceipts.number), asc(goodsReceiptLines.id))
       .for('update', { of: goodsReceiptLines });
 
+    const over = this.priceOverrides(order, dto);
+    for (const id of over.keys()) if (!items.some((x) => x.line.id === id)) throw new BadRequestException('Harga faktur diisi untuk baris yang tidak ditagih pada faktur ini');
     let subtotal: Dec = ZERO;
+    let poSubtotal: Dec = ZERO;
     let grni: Dec = ZERO;
     let capitalized = false;
-    const invLines: { line: (typeof order.lines)[number]; q: Dec; dpp: Dec; value: Dec; baseQty: Dec }[] = [];
+    const invLines: { line: (typeof order.lines)[number]; q: Dec; dpp: Dec; poDpp: Dec; value: Dec; baseQty: Dec }[] = [];
     for (const { line, q } of items) {
       let need = q;
       let value: Dec = ZERO;
@@ -245,20 +403,30 @@ export class PurchaseInvoicesService {
         r.rl.billedValue = D(r.rl.billedValue).plus(chunk).toFixed(2);
       }
       const done = D(line.billedQty).plus(q).plus(QTY_EPS).gte(line.qty);
-      const dpp = done ? D(line.lineTotal).minus(line.billedAmount) : money(D(line.lineTotal).times(q).div(line.qty));
+      const poDpp = done ? D(line.lineTotal).minus(line.billedAmount) : money(D(line.lineTotal).times(q).div(line.qty));
+      // harga faktur menggantikan harga PO untuk baris yang diisi
+      const dpp = over.has(line.id) ? lineTotal({ qty: q, price: over.get(line.id)!, discountPct: line.discountPct }) : poDpp;
       subtotal = subtotal.plus(dpp);
+      poSubtotal = poSubtotal.plus(poDpp);
       grni = grni.plus(value);
-      invLines.push({ line, q, dpp, value, baseQty: q.times(line.uomFactor) });
+      invLines.push({ line, q, dpp, poDpp, value, baseQty: q.times(line.uomFactor) });
     }
 
     // PPN: sebanding dengan DPP yang sudah ditagih; faktur yang menuntaskan pesanan memikul sisa pembulatan
-    const prior = (await tx.execute<{ tax: string; sub: string }>(sql`
-      SELECT COALESCE(SUM(tax_amount), 0) AS tax, COALESCE(SUM(subtotal), 0) AS sub FROM purchase_invoices WHERE purchase_order_id = ${order.id}`)).rows[0];
-    const cumulative = D(prior.sub).plus(subtotal);
-    const complete = cumulative.plus(0.005).gte(order.subtotal);
-    const tax = complete ? money(D(order.taxAmount).minus(prior.tax)) : money(D(order.taxAmount).times(cumulative).div(order.subtotal).minus(prior.tax));
+    const prior = (await tx.execute<{ tax: string; sub: string; var: string }>(sql`
+      SELECT COALESCE(SUM(tax_amount), 0) AS tax, COALESCE(SUM(subtotal), 0) AS sub, COALESCE(SUM(price_variance), 0) AS var FROM purchase_invoices WHERE purchase_order_id = ${order.id}`)).rows[0];
+    const variances = invLines.map((x) => x.dpp.minus(x.poDpp));
+    // Ada selisih harga (pada faktur ini atau sebelumnya): PPN mengikuti DPP faktur, bukan pro-rata PO
+    const actualVat = variances.some((v) => !v.isZero()) || !D(prior.var).isZero();
+    let tax: Dec;
+    if (actualVat) {
+      tax = D(order.taxAmount).gt(0) ? await this.vatOn(tx, user.tenantId, subtotal) : ZERO;
+    } else {
+      const cumulative = D(prior.sub).plus(subtotal);
+      const complete = cumulative.plus(0.005).gte(order.subtotal);
+      tax = complete ? money(D(order.taxAmount).minus(prior.tax)) : money(D(order.taxAmount).times(cumulative).div(order.subtotal).minus(prior.tax));
+    }
     const total = subtotal.plus(tax);
-    const rounding = money(subtotal.plus(capitalized ? tax : 0).minus(grni));
 
     const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_INVOICE', date);
     const [invoice] = await tx
@@ -275,25 +443,45 @@ export class PurchaseInvoicesService {
         subtotal: subtotal.toFixed(2),
         taxAmount: tax.toFixed(2),
         total: total.toFixed(2),
+        priceVariance: subtotal.minus(poSubtotal).toFixed(2),
         vatCapitalized: capitalized,
       })
       .returning();
-    for (const x of invLines) {
+
+    // Biaya perolehan mengikuti harga faktur: selisih harga dibagi ke stok yang masih ada (persediaan) dan ke barang yang sudah terjual (HPP)
+    const capFactor = capitalized && D(order.subtotal).gt(0) ? D(order.total).div(order.subtotal) : D(1);
+    let toInventory: Dec = ZERO;
+    let toCogs: Dec = ZERO;
+    for (const [i, x] of invLines.entries()) {
+      if (variances[i].isZero()) continue;
+      const v = money(variances[i].times(capFactor));
+      const [bal] = (await tx.execute<{ qty: string }>(sql`SELECT qty FROM stock_balances WHERE tenant_id = ${user.tenantId} AND product_id = ${x.line.productId} AND warehouse_id = ${order.warehouseId}`)).rows;
+      const onHand = D(bal?.qty ?? 0);
+      const share = onHand.lte(0) ? ZERO : onHand.gte(x.baseQty) ? D(1) : onHand.div(x.baseQty);
+      const inv = money(v.times(share));
+      const applied = inv.isZero() ? ZERO : await this.stock.adjustCost(tx, { tenantId: user.tenantId, productId: x.line.productId, warehouseId: order.warehouseId, amount: inv, refType: 'PURCHASE_INVOICE', refId: invoice.id, refNumber: number, date });
+      toInventory = toInventory.plus(applied);
+      toCogs = toCogs.plus(v.minus(inv));
+    }
+    // sisa (pembulatan / stok tak cukup menampung) masuk Selisih Persediaan agar jurnal seimbang
+    const rounding = money(subtotal.plus(capitalized ? tax : 0).minus(grni).minus(toInventory).minus(toCogs));
+    for (const [i, x] of invLines.entries()) {
       await tx.insert(purchaseInvoiceLines).values({
         invoiceId: invoice.id,
         productId: x.line.productId,
         uom: x.line.uom,
         uomFactor: x.line.uomFactor,
         qty: x.q.toFixed(4),
-        price: x.line.price,
+        price: (over.get(x.line.id) ?? D(x.line.price)).toFixed(2),
         discountPct: x.line.discountPct,
         lineTotal: x.dpp.toFixed(2),
-        unitCost: qty4(x.value.div(x.baseQty)).toFixed(4),
+        unitCost: qty4(x.value.plus(variances[i].times(capFactor)).div(x.baseQty)).toFixed(4),
+        priceVariance: variances[i].toFixed(2),
         orderLineId: x.line.id,
       });
       await tx
         .update(purchaseOrderLines)
-        .set({ billedQty: sql`${purchaseOrderLines.billedQty} + ${x.q.toFixed(4)}`, billedAmount: sql`${purchaseOrderLines.billedAmount} + ${x.dpp.toFixed(2)}` })
+        .set({ billedQty: sql`${purchaseOrderLines.billedQty} + ${x.q.toFixed(4)}`, billedAmount: sql`${purchaseOrderLines.billedAmount} + ${x.poDpp.toFixed(2)}` })
         .where(eq(purchaseOrderLines.id, x.line.id));
     }
     const journal = await this.posting.post(tx, {
@@ -305,6 +493,8 @@ export class PurchaseInvoicesService {
       createdById: user.sub,
       lines: [
         { key: SYS.GRNI, debit: grni },
+        { key: SYS.INVENTORY, debit: toInventory.gt(0) ? toInventory : 0, credit: toInventory.lt(0) ? toInventory.abs() : 0 },
+        { key: SYS.COGS, debit: toCogs.gt(0) ? toCogs : 0, credit: toCogs.lt(0) ? toCogs.abs() : 0 },
         { key: SYS.INVENTORY_ADJ, debit: rounding.gt(0) ? rounding : 0, credit: rounding.lt(0) ? rounding.abs() : 0 },
         { key: SYS.VAT_IN, debit: capitalized ? 0 : tax },
         { key: SYS.AP, credit: total },
