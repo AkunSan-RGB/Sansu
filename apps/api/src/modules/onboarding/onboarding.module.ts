@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Injectable, Module, Post, Put } from '
 import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsIn, IsOptional } from 'class-validator';
 import { sql } from 'drizzle-orm';
-import { BUSINESS_MODEL_BY_KEY, BUSINESS_MODEL_KEYS, type AppKey, type BusinessModel } from '@sansu/shared';
+import { BUSINESS_MODEL_BY_KEY, BUSINESS_MODEL_KEYS, isProductionModel, type AppKey, type BusinessModel } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -117,6 +117,7 @@ export class OnboardingService {
         'Masukkan jenis pekerjaan beserta tarifnya agar penawaran dan faktur cepat dibuat.',
       ],
       PRODUKSI: ['Masukkan bahan baku & produk jadi', 'Daftarkan bahan yang dibeli dan produk yang dijual.'],
+      MANUFAKTUR: ['Masukkan bahan, barang setengah jadi & barang jadi', 'Daftarkan bahan baku, bahan penolong, barang setengah jadi, dan barang jadi — atau impor dari Excel.'],
     };
     const saleStep: Record<BusinessModel, [string, string, string]> = {
       DAGANG: ['Catat penjualan pertama', 'Buat sales order, lalu jadikan faktur.', '/sales-orders/new'],
@@ -127,6 +128,7 @@ export class OnboardingService {
         '/invoices/services/new',
       ],
       PRODUKSI: ['Catat penjualan pertama', 'Buat sales order produk jadi, lalu jadikan faktur.', '/sales-orders/new'],
+      MANUFAKTUR: ['Catat penjualan pertama', 'Buat sales order barang jadi, lalu jadikan faktur.', '/sales-orders/new'],
     };
     const steps: OnboardingStep[] = [
       {
@@ -182,12 +184,15 @@ export class OnboardingService {
         done: Number(s.users) > 1,
         link: '/settings/users',
       },
-      ...(model === 'PRODUKSI'
+      ...(isProductionModel(model)
         ? [
             {
               key: 'production',
               title: 'Buat resep & produksi pertama',
-              description: 'Susun resep (bahan per batch), lalu jalankan perintah produksi — harga pokok produk jadi dihitung otomatis.',
+              description:
+                model === 'MANUFAKTUR'
+                  ? 'Susun resep bertingkat (bahan → barang setengah jadi → barang jadi), cek kebutuhan bahan, lalu jalankan perintah produksi — harga pokok dihitung otomatis.'
+                  : 'Susun resep (bahan per batch), lalu jalankan perintah produksi — harga pokok produk jadi dihitung otomatis.',
               done: !!s.production,
               link: '/production/orders',
               app: 'inventory' as const,

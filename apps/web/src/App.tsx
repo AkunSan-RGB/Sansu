@@ -65,6 +65,8 @@ import CountsPage, { CountDetailPage } from './features/inventory/CountsPage';
 import WarehouseStockPage from './features/inventory/WarehouseStockPage';
 import WritedownsPage from './features/inventory/WritedownsPage';
 import BomsPage from './features/production/BomsPage';
+import MaterialRequirementsPage from './features/production/MaterialRequirementsPage';
+import ProductionVariancePage from './features/production/ProductionVariancePage';
 import ProductionOrdersPage from './features/production/ProductionOrdersPage';
 import ProductionReportPage from './features/production/ProductionReportPage';
 import ServiceInvoiceFormPage from './features/services/ServiceInvoiceFormPage';
@@ -162,6 +164,8 @@ export default function App() {
           <Route path="production/boms" element={<BomsPage />} />
           <Route path="production/orders" element={<ProductionOrdersPage />} />
           <Route path="production/report" element={<ProductionReportPage />} />
+          <Route path="production/requirements" element={<MaterialRequirementsPage />} />
+          <Route path="production/variance" element={<ProductionVariancePage />} />
           <Route path="products" element={<ProductsPage />} />
           <Route path="warehouses" element={<WarehousesPage />} />
         </Route>

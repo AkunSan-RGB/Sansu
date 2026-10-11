@@ -4,7 +4,7 @@
 
 <h1 align="center">SANSU</h1>
 <p align="center"><b>ERP distribusi yang akurat sampai rupiah terakhir</b><br/>
-Sistem bisnis terpadu untuk UKM dagang, ritel, jasa, dan produksi: penjualan, kasir, stok multi-gudang, faktur, piutang, akuntansi, pajak, dan penggajian.</p>
+Sistem bisnis terpadu untuk UKM dagang, ritel, jasa, produksi, dan manufaktur: penjualan, kasir, stok multi-gudang, faktur, piutang, akuntansi, pajak, dan penggajian.</p>
 
 ---
 

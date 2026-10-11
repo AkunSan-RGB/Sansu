@@ -31,7 +31,7 @@ export interface TaxFeatures {
 }
 
 export function taxFeatures(i: TaxFeatureInput): TaxFeatures {
-  const withheldTypical = i.model === 'JASA' || i.model === 'PRODUKSI';
+  const withheldTypical = i.model === 'JASA' || i.model === 'PRODUKSI' || i.model === 'MANUFAKTUR';
   const reasons: string[] = [];
   if (!i.pkp) reasons.push('Belum PKP: PPN keluaran tidak dipungut, jadi rekap PPN dan e-Faktur disembunyikan.');
   if (i.taxScheme === 'FINAL_UMKM') reasons.push('PPh final UMKM 0,5%: rekonsiliasi fiskal dan angsuran PPh 25 tidak diperlukan.');

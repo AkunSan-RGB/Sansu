@@ -1,5 +1,5 @@
 import { PlusOutlined } from '@ant-design/icons';
-import { PTKP_STATUSES } from '@sansu/shared';
+import { isProductionModel, PTKP_STATUSES } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Card, Checkbox, Col, Drawer, Form, Input, InputNumber, Row, Select, Space, Switch, Tag, Typography } from 'antd';
 import { useState } from 'react';
@@ -179,7 +179,7 @@ export default function EmployeesPage() {
                 <Input type="date" />
               </Form.Item>
             </Col>
-            {me?.businessModel === 'PRODUKSI' && (
+            {isProductionModel(me?.businessModel) && (
               <Col xs={24}>
                 <Form.Item
                   name="isProduction"

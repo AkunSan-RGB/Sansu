@@ -42,7 +42,7 @@ export interface Me {
   apps: AppKey[];
   /** Fitur pajak yang relevan menurut jenis usaha, status PKP, dan skema PPh (menu pajak mengikuti ini) */
   taxFeatures: TaxFeatures;
-  /** Model bisnis perusahaan (Dagang, Ritel, Jasa, Produksi) */
+  /** Model bisnis perusahaan (Dagang, Ritel, Jasa, Produksi, Manufaktur) */
   businessModel: BusinessModel;
   /** Standar pelaporan: SAK EMKM tidak mengenal penurunan nilai persediaan dan pengakuan pendapatan berdasarkan persentase penyelesaian */
   framework: 'SAK_EP' | 'SAK_EMKM';

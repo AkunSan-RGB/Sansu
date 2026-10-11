@@ -89,6 +89,19 @@ export const REPORT_TERMS: Record<BusinessModel, ReportTerms> = {
     payableNote: PAYABLE('pemasok bahan baku dan barang'),
     recognitionPolicy: TRADING_RECOGNITION,
   },
+  MANUFAKTUR: {
+    revenueLabel: 'Pendapatan usaha',
+    cogsLabel: 'Beban pokok produksi dan penjualan',
+    activity: 'industri manufaktur (pengolahan bahan baku bertahap menjadi barang jadi) dan penjualan barang jadi',
+    revenueSource: 'penjualan barang hasil manufaktur',
+    revenueNote: 'Seluruh pendapatan berasal dari penjualan barang jadi hasil manufaktur Perusahaan di dalam negeri.',
+    receivableNote: 'Piutang usaha seluruhnya dalam Rupiah dan berasal dari penjualan barang jadi hasil manufaktur kepada pihak ketiga.',
+    inventoryNote: 'Persediaan terdiri dari bahan baku, bahan penolong dan kemasan, barang dalam proses, barang setengah jadi, dan barang jadi.',
+    cogsNote:
+      'Beban pokok produksi dan penjualan terdiri dari bahan baku, upah langsung, dan overhead pabrik yang dibebankan pada barang jadi yang terjual, dihitung dengan biaya rata-rata tertimbang. Biaya konversi dibebankan ke persediaan berdasarkan tarif standar; selisih antara biaya konversi sesungguhnya dan yang dibebankan, serta selisih pemakaian bahan dan hasil produksi, diakui sebagai beban pokok pada periode terjadinya.',
+    payableNote: PAYABLE('pemasok bahan baku, bahan penolong, dan barang'),
+    recognitionPolicy: TRADING_RECOGNITION,
+  },
 };
 
 /** Teks kegiatan usaha bawaan semua model — dipakai mengenali bahwa pengguna belum mengubahnya */
