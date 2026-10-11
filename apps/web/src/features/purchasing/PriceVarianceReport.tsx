@@ -14,6 +14,8 @@ export const VARIANCE_REASONS: Record<string, string> = {
 
 const FLAGS: Record<string, { label: string; color: string; hint: string }> = {
   ABOVE_MARKET: { label: 'Di atas harga pasar', color: 'red', hint: 'Harga faktur melebihi rata-rata harga beli 90 hari terakhir melampaui batas pembanding' },
+  RATE_ABOVE_MARKET: { label: 'Kurs di atas pasar', color: 'red', hint: 'Kurs faktur yang diketik melebihi kurs pasar tersimpan melampaui toleransi' },
+  FX_RATE: { label: 'Selisih kurs', color: 'blue', hint: 'Harga dalam mata uang PO sama; selisih Rupiah hanya karena kurs faktur berbeda dari kurs PO' },
   SAME_USER: { label: 'Pembuat PO = pembuat faktur', color: 'orange', hint: 'Orang yang sama membuat PO dan mencatat fakturnya yang lebih mahal — tidak ada pemisahan tugas' },
   NO_APPROVAL: { label: 'Tanpa persetujuan', color: 'default', hint: 'Kenaikan harga dicatat tanpa persetujuan (di bawah toleransi, atau dicatat oleh pemilik/admin)' },
 };

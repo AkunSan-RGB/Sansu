@@ -199,9 +199,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Akhir bulan atau tahun, buka Mata uang asing › Posisi valas & penilaian ulang dan klik Catat penilaian ulang. Piutang dan utang valas dinilai pada kurs penutup; selisihnya dicatat sebagai laba/rugi belum terealisasi dan dibalik otomatis keesokan harinya.',
     ],
     tips: [
-      'Faktur beli valas memakai kurs PO. Bila kurs berubah sebelum barang tiba, ubah kurs pada PO (saat masih draft).',
+      'Faktur beli valas: kurs faktur terisi dari kurs tersimpan pada tanggal faktur dan boleh diubah, begitu juga harga valas bila berbeda dari PO. Selisih kurs antara PO/penerimaan dan faktur menambah atau mengurangi biaya perolehan (persediaan dan HPP). Kurs yang diketik jauh di atas kurs pasar perlu persetujuan pemilik/admin.',
       'Retur atas faktur valas mengurangi piutang/utang pada kurs faktur (tidak menimbulkan selisih kurs); sisa valasnya ikut turun.',
-      'Belum didukung: uang muka pada faktur valas; rekening bank dalam valas; harga faktur beli yang berbeda dari PO valas; pembelian cepat, tagihan biaya/aset, dan faktur jasa dalam valas. Kas dan bank tetap dalam Rupiah.',
+      'Belum didukung: uang muka pada faktur valas; rekening bank dalam valas; pembelian cepat, tagihan biaya/aset, dan faktur jasa dalam valas. Kas dan bank tetap dalam Rupiah.',
       'CALK memuat kebijakan mata uang asing, catatan selisih kurs (terealisasi dan belum), dan, untuk IFRS, risiko mata uang beserta sensitivitas 10%.',
     ],
     keywords: 'valas kurs dolar usd eur ekspor impor selisih kurs penilaian ulang mata uang asing psak 10 ias 21 jisdor',

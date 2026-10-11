@@ -902,6 +902,8 @@ export const purchaseInvoiceLines = pgTable('purchase_invoice_lines', {
   unitCost: qty('unit_cost').notNull(),
   /** Selisih DPP baris terhadap harga PO (+ faktur lebih mahal) */
   priceVariance: money('price_variance').notNull().default('0'),
+  /** Faktur valas: harga per `uom` dalam mata uang faktur */
+  priceForeign: numeric('price_foreign', { precision: 18, scale: 4 }),
   returnedQty: qty('returned_qty').notNull().default('0'),
   /** Baris pesanan pembelian yang ditagih (faktur dari pesanan) */
   orderLineId: uuid('order_line_id'),

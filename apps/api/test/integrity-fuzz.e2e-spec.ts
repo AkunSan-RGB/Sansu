@@ -377,7 +377,11 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
         const po = await tryPost('po-usd', '/purchase-orders', { supplierId: pick(suppliers), warehouseId: pick([wh1, wh1, wh2]), currency: 'USD', fxRate: String(int(150, 170) * 100), lines: [{ productId: pick(products), qty: String(int(1, 20)), price: String(int(1, 6) + 0.5) }] });
         if (po.status !== 201) return;
         await tryPost('po-confirm', `/purchase-orders/${po.body.id}/confirm`, {});
-        const pi = await tryPost('pi-usd', '/purchase-invoices', { purchaseOrderId: po.body.id, supplierInvoiceNo: `U-${seed}-${++seq}` });
+        // separuh faktur memakai kurs sendiri, sebagian lagi dengan harga valas berbeda; sebagian PO diterima dulu
+        const ownRate = rand() < 0.5 ? { fxRate: String(int(150, 170) * 100) } : {};
+        const repricedUsd = rand() < 0.3 ? { varianceReason: 'MARKET_VOLATILITY', prices: [{ orderLineId: po.body.lines[0].id, price: String(int(1, 8) + 0.25) }] } : {};
+        if (rand() < 0.4) await tryPost('gr-usd', `/purchase-orders/${po.body.id}/receipts`, {});
+        const pi = await tryPost('pi-usd', '/purchase-invoices', { purchaseOrderId: po.body.id, supplierInvoiceNo: `U-${seed}-${++seq}`, ...ownRate, ...repricedUsd });
         if (pi.status === 201) fxPurchases.push(pi.body.id);
       },
       async payUsdAP() {

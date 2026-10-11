@@ -87,7 +87,7 @@ export type VarianceReason = (typeof VARIANCE_REASONS)[number];
 /** Harga satuan sesuai faktur supplier untuk satu baris pesanan (menimpa harga PO) */
 export class OrderLinePriceDto {
   @ApiProperty() @IsUUID() orderLineId: string;
-  @ApiProperty({ example: '2150', description: 'Harga per satuan baris, belum PPN, sesuai faktur supplier' }) @Matches(/^\d{1,15}(\.\d{1,2})?$/) price: string;
+  @ApiProperty({ example: '2150', description: 'Harga per satuan baris, belum PPN, sesuai faktur supplier' }) @Matches(/^\d{1,15}(\.\d{1,4})?$/) price: string;
 }
 
 export class CreatePurchaseInvoiceDto {
@@ -118,6 +118,10 @@ export class CreatePurchaseInvoiceDto {
   @Type(() => OrderLinePriceDto)
   @ArrayMaxSize(500)
   prices?: OrderLinePriceDto[];
+  @ApiPropertyOptional({ example: '16350', description: 'PO valas: kurs faktur (Rp per 1 valas); kosong = kurs PO. `prices` untuk PO valas dalam mata uang PO' })
+  @IsOptional()
+  @IsNumberString()
+  fxRate?: string;
   @ApiPropertyOptional({ enum: VARIANCE_REASONS, description: 'Wajib bila harga faktur berbeda dari PO' }) @IsOptional() @IsIn(VARIANCE_REASONS) varianceReason?: VarianceReason;
   @ApiPropertyOptional({ description: 'Wajib (min. 5 huruf) bila alasan = OTHER' }) @IsOptional() @IsString() @MaxLength(300) varianceNote?: string;
 }
