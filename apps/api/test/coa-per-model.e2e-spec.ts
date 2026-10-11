@@ -9,7 +9,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 
 type Acc = { id: string; code: string; name: string; systemKey: string | null; isActive: boolean; description: string | null };
-const MODELS = ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI'] as const;
+const MODELS = ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR'] as const;
 
 describe('Bagan akun per jenis usaha (e2e)', () => {
   let app: INestApplication;

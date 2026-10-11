@@ -17,7 +17,7 @@ import { APP_ICONS, useApps } from '@/lib/apps';
 import { t } from '@/lib/terms';
 
 /** `app`: item hanya tampil bila aplikasi itu aktif (mis. menu pajak yang butuh aplikasi Penjualan) */
-type Item = { key: string; label: string; /** Hanya untuk SAK EP (tidak diakui SAK EMKM) */ epOnly?: boolean; app?: AppKey; /** Disembunyikan untuk jenis usaha ini (mis. surat jalan untuk usaha jasa murni) */ hideFor?: BusinessModel[]; /** Hanya tampil bila fitur pajak ini relevan (lihat taxFeatures di @sansu/shared) */ tax?: 'vat' | 'coretax' | 'withheldByCustomers' | 'fiscalReconciliation' };
+type Item = { key: string; label: string; /** Hanya untuk SAK EP (tidak diakui SAK EMKM) */ epOnly?: boolean; app?: AppKey; /** Disembunyikan untuk jenis usaha ini (mis. surat jalan untuk usaha jasa murni) */ hideFor?: BusinessModel[]; /** Hanya tampil untuk jenis usaha ini */ models?: BusinessModel[]; /** Hanya tampil bila fitur pajak ini relevan (lihat taxFeatures di @sansu/shared) */ tax?: 'vat' | 'coretax' | 'withheldByCustomers' | 'fiscalReconciliation' };
 /** Submenu boleh dikelompokkan dengan judul kecil (mis. "Akhir periode") */
 type Sub = Item | { section: string; items: Item[] };
 type Group = {
@@ -135,12 +135,14 @@ const MENU: Group[] = [
     part: 'Pembelian & stok',
     key: 'production',
     app: 'inventory',
-    models: ['PRODUKSI'],
+    models: ['PRODUKSI', 'MANUFAKTUR'],
     label: 'Produksi',
     icon: APP_ICONS.production,
     children: [
+      { key: '/production/requirements', label: 'Kebutuhan bahan (MRP)', models: ['MANUFAKTUR'] },
       { key: '/production/orders', label: 'Perintah produksi' },
       { key: '/production/report', label: 'Harga pokok produksi' },
+      { key: '/production/variance', label: 'Analisis selisih', models: ['MANUFAKTUR'] },
       { section: 'Data', items: [{ key: '/production/boms', label: 'Resep (BOM)' }] },
     ],
   },
@@ -289,7 +291,7 @@ export default function AppLayout() {
   );
   const L = (text: string) => localize(text, me.businessModel);
   // Fitur pajak yang tidak relevan (non-PKP, PPh final, usaha penjualan barang) tidak ditampilkan
-  const taxOk = (i: Item) => (!i.tax || me.taxFeatures?.[i.tax] !== false) && !i.hideFor?.includes(me.businessModel) && !(i.epOnly && me.framework === 'SAK_EMKM');
+  const taxOk = (i: Item) => (!i.models || i.models.includes(me.businessModel)) && (!i.tax || me.taxFeatures?.[i.tax] !== false) && !i.hideFor?.includes(me.businessModel) && !(i.epOnly && me.framework === 'SAK_EMKM');
   const toMenu = (g: Group): NonNullable<MenuProps['items']>[number] =>
     g.children
       ? {

@@ -138,8 +138,10 @@ export function withDependencies(key: AppKey): AppKey[] {
 export const canUseApp = (role: Role, app: AppKey) => role === 'OWNER' || role === 'ADMIN' || APP_BY_KEY[app].roles.includes(role);
 
 // ---------- Model bisnis ----------
-export const BUSINESS_MODEL_KEYS = ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI'] as const;
+export const BUSINESS_MODEL_KEYS = ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR'] as const;
 export type BusinessModel = (typeof BUSINESS_MODEL_KEYS)[number];
+/** Model yang mengolah bahan menjadi barang jadi (resep, perintah produksi, biaya pabrik) */
+export const isProductionModel = (m: BusinessModel | string | null | undefined): boolean => m === 'PRODUKSI' || m === 'MANUFAKTUR';
 export interface BusinessModelInfo {
   key: BusinessModel;
   name: string;
@@ -155,7 +157,7 @@ export interface BusinessModelInfo {
   note?: string;
 }
 /**
- * Empat model bisnis UKM. Satu sistem untuk semuanya — model hanya menentukan aplikasi bawaan,
+ * Lima model bisnis. Satu sistem untuk semuanya — model hanya menentukan aplikasi bawaan,
  * langkah panduan mulai, dan istilah; aplikasi lain tetap bisa dinyalakan kapan saja.
  */
 export const BUSINESS_MODELS: BusinessModelInfo[] = [
@@ -192,6 +194,15 @@ export const BUSINESS_MODELS: BusinessModelInfo[] = [
     summary: 'Mengolah bahan baku menjadi produk lalu menjualnya',
     examples: 'Konveksi, makanan & minuman kemasan, percetakan, mebel, kerajinan',
     flow: ['Pembelian bahan', 'Produksi', 'Stok produk jadi', 'Penjualan', 'Laporan & pajak'],
+    apps: ['sales', 'purchase', 'inventory', 'accounting', 'cash'],
+    ready: true,
+  },
+  {
+    key: 'MANUFAKTUR',
+    name: 'Manufaktur',
+    summary: 'Pabrik yang mengolah bahan baku bertahap (bahan → barang setengah jadi → barang jadi) dengan perencanaan kebutuhan bahan dan pengendalian biaya produksi',
+    examples: 'Pabrik makanan & minuman, garmen, plastik & kemasan, furnitur, kimia, komponen logam',
+    flow: ['Perencanaan kebutuhan bahan', 'Pembelian bahan', 'Produksi bertingkat', 'Stok barang jadi', 'Penjualan', 'Analisis selisih & laporan'],
     apps: ['sales', 'purchase', 'inventory', 'accounting', 'cash'],
     ready: true,
   },

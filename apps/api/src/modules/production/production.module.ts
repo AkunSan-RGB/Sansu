@@ -55,6 +55,7 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { InventoryModule } from '../inventory/inventory.module';
 import { StockService } from '../inventory/stock.service';
+import { ManufacturingService, RequirementsDto, VarianceQueryDto } from './manufacturing.service';
 
 // ---------- DTO ----------
 export class BomLineDto {
@@ -747,7 +748,23 @@ export class ProductionService {
 @RequireApp('inventory')
 @Controller('production')
 export class ProductionController {
-  constructor(private readonly svc: ProductionService) {}
+  constructor(
+    private readonly svc: ProductionService,
+    private readonly mfg: ManufacturingService,
+  ) {}
+
+  /** Perencanaan kebutuhan bahan (resep bertingkat) untuk rencana produksi — jenis usaha Manufaktur */
+  @Post('requirements')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  requirements(@CurrentUser() u: AuthUser, @Body() dto: RequirementsDto) {
+    return this.mfg.requirements(u.tenantId, dto);
+  }
+  /** Analisis selisih produksi: pemakaian bahan, hasil, dan biaya konversi terhadap standar */
+  @Get('variance')
+  @Roles('ADMIN', 'FINANCE')
+  variance(@CurrentUser() u: AuthUser, @Query() q: VarianceQueryDto) {
+    return this.mfg.variance(u.tenantId, q);
+  }
 
   @Get('boms')
   @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
@@ -805,6 +822,6 @@ export class ProductionController {
 @Module({
   imports: [AccountingModule, InventoryModule],
   controllers: [ProductionController],
-  providers: [ProductionService],
+  providers: [ProductionService, ManufacturingService],
 })
 export class ProductionModule {}

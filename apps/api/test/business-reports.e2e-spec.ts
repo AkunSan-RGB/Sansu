@@ -8,7 +8,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 
-type Model = 'DAGANG' | 'RITEL' | 'JASA' | 'PRODUKSI';
+type Model = 'DAGANG' | 'RITEL' | 'JASA' | 'PRODUKSI' | 'MANUFAKTUR';
 type Line = { key: string; label: string };
 type Section = { key: string; paragraphs: string[]; subsections?: { title: string; paragraphs: string[] }[] };
 
@@ -42,7 +42,7 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
     app = configureApp(mod.createNestApplication());
     await app.init();
     http = request(app.getHttpServer());
-    for (const m of ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI'] as Model[]) {
+    for (const m of ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR'] as Model[]) {
       tokens[m] = (
         await http.post('/api/auth/register').send({ companyName: `Usaha ${m}`, name: 'Pemilik', email: `rep-${m}-${stamp}@uji.id`, password: 'rahasia123', businessModel: m }).expect(201)
       ).body.accessToken;
@@ -51,14 +51,15 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
   afterAll(() => app.close());
 
   describe('bagan akun', () => {
-    const specific = { DAGANG: ['6-2350'], RITEL: ['6-2450', '6-2500'], JASA: ['5-1500', '5-1600', '5-1700', '6-3600'], PRODUKSI: ['5-4300', '5-4400'] } as Record<Model, string[]>;
+    const specific = { DAGANG: ['6-2350'], RITEL: ['6-2450', '6-2500'], JASA: ['5-1500', '5-1600', '5-1700', '6-3600'], PRODUKSI: ['5-4300', '5-4400'], MANUFAKTUR: ['5-4300', '5-4400', '5-4950'] } as Record<Model, string[]>;
     const universal = ['1-1100', '1-1300', '2-1100', '4-1000', '5-1000', '6-7000', '9-1000'];
 
-    it.each(['DAGANG', 'RITEL', 'JASA', 'PRODUKSI'] as Model[])('%s: akun umum lengkap, akun khusus hanya milik modelnya', async (m) => {
+    it.each(['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR'] as Model[])('%s: akun umum lengkap, akun khusus hanya milik modelnya', async (m) => {
       const c = await codes(m);
       for (const code of universal) expect(c).toContain(code);
       for (const code of specific[m]) expect(c).toContain(code);
-      for (const [other, list] of Object.entries(specific)) if (other !== m) for (const code of list) expect(c).not.toContain(code);
+      // Manufaktur memuat semua akun khusus Produksi; selain itu akun khusus model lain tidak boleh ada
+      for (const [other, list] of Object.entries(specific)) if (other !== m) for (const code of list) if (!(m === 'MANUFAKTUR' && other === 'PRODUKSI') && !specific[m].includes(code)) expect(c).not.toContain(code);
       expect(new Set(c).size).toBe(c.length); // tanpa kode ganda
     });
 
@@ -94,6 +95,7 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
       ['RITEL', 'Pendapatan usaha', 'Beban pokok penjualan'],
       ['JASA', 'Pendapatan jasa', 'Beban pokok pendapatan'],
       ['PRODUKSI', 'Pendapatan usaha', 'Beban pokok produksi dan penjualan'],
+      ['MANUFAKTUR', 'Pendapatan usaha', 'Beban pokok produksi dan penjualan'],
     ] as [Model, string, string][])('%s memakai istilah sendiri di SAK EP', async (m, revenue, cogs) => {
       const lines = await income(m, 'SAK_EP');
       expect(label(lines, 'SALES_REVENUE')).toBe(revenue);
@@ -103,6 +105,7 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
     it.each([
       ['JASA', 'Pendapatan jasa', 'Beban pokok pendapatan'],
       ['PRODUKSI', 'Pendapatan usaha', 'Beban pokok produksi dan penjualan'],
+      ['MANUFAKTUR', 'Pendapatan usaha', 'Beban pokok produksi dan penjualan'],
     ] as [Model, string, string][])('%s memakai istilah sendiri di SAK EMKM', async (m, revenue, cogs) => {
       const lines = await income(m, 'SAK_EMKM');
       expect(label(lines, 'REVENUE')).toBe(revenue);

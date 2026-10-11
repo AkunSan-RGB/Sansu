@@ -38,6 +38,7 @@ export function inventoryMethodGuide(model: BusinessModel, framework: 'SAK_EP' |
     case 'RITEL':
       return { recommended: 'AVERAGE', notes: ['Toko dengan banyak SKU dan transaksi harian lebih praktis memakai rata-rata bergerak. Pilih FIFO untuk barang cepat kedaluwarsa atau harga beli sering berubah.', ...base] };
     case 'PRODUKSI':
+    case 'MANUFAKTUR':
       return { recommended: 'AVERAGE', notes: ['Bahan baku yang dicampur dalam satu gudang lazim memakai rata-rata bergerak. FIFO cocok untuk bahan bermasa simpan terbatas.', ...base] };
     default:
       return { recommended: 'AVERAGE', notes: ['Usaha dagang lazim memakai rata-rata bergerak. FIFO memberi HPP yang mengikuti urutan pembelian, cocok bila barang dijual sesuai urutan masuk.', ...base] };
