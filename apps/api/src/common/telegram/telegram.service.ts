@@ -5,7 +5,9 @@
  */
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { and, eq, gt, inArray, isNotNull } from 'drizzle-orm';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
+import { AuditService } from '../audit/audit.service';
+import { MailService } from '../mail/mail.service';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { users } from '../../db/schema';
@@ -16,6 +18,11 @@ export interface TelegramUpdate {
 }
 
 const LINK_TTL_MS = 15 * 60_000;
+/** Kode disimpan sebagai hash: kebocoran basis data tidak membuka kode yang masih berlaku */
+const hashCode = (code: string) => createHash('sha256').update(code).digest('hex');
+/** Percobaan kode salah per chat dibatasi agar tidak bisa menebak kode atau membanjiri balasan bot */
+const MAX_BAD_TRIES = 8;
+const BAD_WINDOW_MS = 15 * 60_000;
 
 @Injectable()
 export class TelegramService implements OnModuleInit, OnModuleDestroy {
@@ -25,7 +32,13 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   /** Pesan yang dikirim selama pengujian (tidak ada panggilan jaringan saat NODE_ENV=test) */
   readonly outbox: { chatId: string; text: string }[] = [];
 
-  constructor(@InjectDb() private readonly db: Db) {}
+  private readonly badTries = new Map<string, { n: number; until: number }>();
+
+  constructor(
+    @InjectDb() private readonly db: Db,
+    private readonly audit: AuditService,
+    private readonly mail: MailService,
+  ) {}
 
   private get token() {
     return process.env.TELEGRAM_BOT_TOKEN;
@@ -78,13 +91,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const code = randomBytes(18).toString('base64url');
     await this.db
       .update(users)
-      .set({ telegramLinkCode: code, telegramLinkExpires: new Date(Date.now() + LINK_TTL_MS) })
+      .set({ telegramLinkCode: hashCode(code), telegramLinkExpires: new Date(Date.now() + LINK_TTL_MS) })
       .where(eq(users.id, userId));
     return { code, url: this.botUsername ? `https://t.me/${this.botUsername}?start=${code}` : null, expiresInMinutes: LINK_TTL_MS / 60_000 };
   }
 
-  async unlink(userId: string) {
+  async unlink(userId: string, tenantId?: string) {
     await this.db.update(users).set({ telegramChatId: null, telegramLinkCode: null, telegramLinkExpires: null }).where(eq(users.id, userId));
+    if (tenantId) await this.audit.log(this.db, { tenantId, userId, action: 'TELEGRAM_UNLINK', entity: 'User', entityId: userId });
     return { ok: true };
   }
 
@@ -104,18 +118,31 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       await this.send(chatId, 'Halo! Untuk menerima notifikasi SANSU, buka SANSU › Keamanan akun › Hubungkan Telegram, lalu klik tautan yang muncul.');
       return;
     }
+    const tries = this.badTries.get(chatId);
+    if (tries && tries.until > Date.now() && tries.n >= MAX_BAD_TRIES) return; // terlalu banyak kode salah: diam
     const [user] = await this.db
-      .select({ id: users.id, name: users.name })
+      .select({ id: users.id, name: users.name, email: users.email, tenantId: users.tenantId })
       .from(users)
-      .where(and(eq(users.telegramLinkCode, arg), gt(users.telegramLinkExpires, new Date()), eq(users.isActive, true)));
+      .where(and(eq(users.telegramLinkCode, hashCode(arg)), gt(users.telegramLinkExpires, new Date()), eq(users.isActive, true)));
     if (!user) {
+      const t = tries && tries.until > Date.now() ? tries : { n: 0, until: Date.now() + BAD_WINDOW_MS };
+      this.badTries.set(chatId, { n: t.n + 1, until: t.until });
+      // pesan sama untuk kode salah, kedaluwarsa, atau terpakai: tidak membocorkan kode mana yang pernah ada
       await this.send(chatId, 'Kode tidak valid atau sudah kedaluwarsa. Buat tautan baru di SANSU › Keamanan akun.');
       return;
     }
+    this.badTries.delete(chatId);
     // satu chat hanya untuk satu pengguna
     await this.db.update(users).set({ telegramChatId: null }).where(eq(users.telegramChatId, chatId));
     await this.db.update(users).set({ telegramChatId: chatId, telegramLinkCode: null, telegramLinkExpires: null }).where(eq(users.id, user.id));
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.id, action: 'TELEGRAM_LINK', entity: 'User', entityId: user.id });
     await this.send(chatId, `Terhubung ✅ Halo ${user.name}, notifikasi persetujuan SANSU akan dikirim ke sini. Kirim /stop untuk berhenti.`);
+    // pemberitahuan ke email: bila bukan Anda yang menghubungkan, putuskan segera di Keamanan akun
+    if (this.mail.configured) {
+      await this.mail
+        .send({ to: user.email, subject: 'Telegram dihubungkan ke akun SANSU Anda', heading: 'Telegram terhubung', paragraphs: ['Sebuah akun Telegram baru saja dihubungkan ke akun SANSU Anda untuk menerima notifikasi persetujuan.', 'Jika bukan Anda, putuskan di SANSU › Keamanan akun dan ganti kata sandi Anda.'] })
+        .catch(() => undefined);
+    }
   }
 
   // ----- Menarik pesan masuk (long polling): tidak perlu alamat publik/webhook -----

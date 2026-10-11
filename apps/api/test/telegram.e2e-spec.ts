@@ -7,7 +7,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 import { TelegramService } from '../src/common/telegram/telegram.service';
 import { DB, Db } from '../src/db/db';
-import { users } from '../src/db/schema';
+import { auditLogs, users } from '../src/db/schema';
 
 describe('Notifikasi Telegram (e2e)', () => {
   let app: INestApplication;
@@ -34,6 +34,7 @@ describe('Notifikasi Telegram (e2e)', () => {
   };
 
   beforeAll(async () => {
+    process.env.TEST_THROTTLE = '1'; // batas laju aktif untuk menguji pembatasan pembuatan tautan
     process.env.TELEGRAM_BOT_TOKEN = 'uji-token';
     process.env.TELEGRAM_BOT_USERNAME = '@sansu_uji_bot';
     const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -52,6 +53,7 @@ describe('Notifikasi Telegram (e2e)', () => {
     await http.put('/api/approvals/policy').set(as(owner)).send({ purchaseOrder: 1_000_000 }).expect(200);
   });
   afterAll(async () => {
+    delete process.env.TEST_THROTTLE;
     delete process.env.TELEGRAM_BOT_TOKEN;
     delete process.env.TELEGRAM_BOT_USERNAME;
     await app.close();
@@ -70,9 +72,13 @@ describe('Notifikasi Telegram (e2e)', () => {
     expect((await get(owner, '/api/auth/telegram')).body.linked).toBe(false);
     await start('kode-salah');
     expect(tg.outbox.at(-1)?.text).toMatch(/tidak valid/);
+    // kode disimpan sebagai hash, bukan teks asli
+    const [row] = await db.select({ c: users.telegramLinkCode }).from(users).where(eq(users.id, ownerId));
+    expect(row.c).not.toBe(l.code);
+    expect(row.c).toMatch(/^[0-9a-f]{64}$/);
     await db.update(users).set({ telegramLinkExpires: new Date(Date.now() - 1000) }).where(eq(users.id, ownerId));
     await start(l.code);
-    expect(tg.outbox.at(-1)?.text).toMatch(/kedaluwarsa/);
+    expect(tg.outbox.at(-1)?.text).toMatch(/tidak valid atau sudah kedaluwarsa/);
     const l2 = (await post(owner, '/api/auth/telegram/link').expect(201)).body;
     await start(l2.code, 555);
     expect(tg.outbox.at(-1)).toMatchObject({ chatId: '555' });
@@ -102,5 +108,27 @@ describe('Notifikasi Telegram (e2e)', () => {
     await tg.handleUpdate({ update_id: 1, message: { text: '/stop', chat: { id: 555, type: 'private' } } });
     expect((await get(owner, '/api/auth/telegram')).body.linked).toBe(false);
     expect(await approvalPing(5_000_000)).toHaveLength(0);
+  });
+
+  it('keamanan: percobaan kode salah dibatasi per chat, nonaktif/ganti peran/reset sandi memutus Telegram, tautan dibatasi laju, jejak audit', async () => {
+    const before = tg.outbox.length;
+    for (let i = 0; i < 12; i++) await start(`salah-${i}`, 999);
+    expect(tg.outbox.length - before).toBe(8); // setelah 8 percobaan salah bot diam
+    // pengguna keuangan menghubungkan lalu dinonaktifkan: chat diputus
+    const fin = (await get(owner, '/api/users').expect(200)).body.find((u: { role: string }) => u.role === 'FINANCE');
+    await db.update(users).set({ telegramChatId: '321' }).where(eq(users.id, fin.id));
+    await http.patch(`/api/users/${fin.id}`).set(as(owner)).send({ role: 'WAREHOUSE' }).expect(200);
+    const [after] = await db.select({ c: users.telegramChatId }).from(users).where(eq(users.id, fin.id));
+    expect(after.c).toBeNull();
+    // penghubungan dan pemutusan tercatat di jejak audit
+    const l = (await post(owner, '/api/auth/telegram/link').expect(201)).body;
+    await start(l.code, 654);
+    await http.delete('/api/auth/telegram').set(as(owner)).expect(200);
+    const actions = (await db.select({ a: auditLogs.action }).from(auditLogs).where(eq(auditLogs.userId, ownerId))).map((x) => x.a);
+    expect(actions).toEqual(expect.arrayContaining(['TELEGRAM_LINK', 'TELEGRAM_UNLINK']));
+    // pembuatan tautan dibatasi laju
+    let limited = 0;
+    for (let i = 0; i < 8; i++) if ((await post(owner, '/api/auth/telegram/link')).status === 429) limited++;
+    expect(limited).toBeGreaterThan(0);
   });
 });

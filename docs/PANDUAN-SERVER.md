@@ -86,6 +86,8 @@ Lalu `./sansu.sh restart` dan `./sansu.sh backup`. File offsite **dienkripsi** d
 
 **Notifikasi persetujuan untuk pengguna:** isi juga `TELEGRAM_BOT_USERNAME` (nama bot tanpa @). Setiap pengguna menghubungkan akunnya sekali di SANSU › Keamanan akun › Hubungkan Telegram (klik tautan, tekan Start). Permintaan persetujuan lalu dikirim ke chat pribadinya beserta tautan keputusan; email tetap menjadi cadangan. SANSU menarik pesan bot lewat long polling, jadi tidak perlu alamat publik; jangan pasang webhook pada bot yang sama.
 
+**Keamanan Telegram:** kode penautan disimpan sebagai hash, berlaku 15 menit, sekali pakai, dan percobaan salah dibatasi per chat; hanya chat pribadi yang diterima; penghubungan dan pemutusan tercatat di jejak audit dan penghubungan dikabarkan lewat email; Telegram otomatis diputus saat pengguna dinonaktifkan, diganti perannya, atau sandinya direset. Tautan persetujuan di chat bersifat pribadi seperti di email: siapa pun yang memegangnya bisa memutuskan sampai kedaluwarsa (72 jam) atau terpakai, jadi pengguna jangan meneruskannya. Isi pesan (judul dan nilai transaksi) melewati server Telegram; jangan hubungkan bila kebijakan perusahaan melarang data transaksi keluar ke layanan pihak ketiga. Simpan `TELEGRAM_BOT_TOKEN` hanya di `.env` server; bila bocor, minta token baru lewat @BotFather (`/revoke`).
+
 ### 4c. Memulihkan data
 
 ```bash

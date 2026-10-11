@@ -189,6 +189,8 @@ export class PlatformService {
         isActive: dto.isActive,
         warehouseIds: await normalizeWarehouseIds(this.db, actor.tenantId, dto.warehouseIds),
         ...(dto.resetTwoFactor ? { totpEnabledAt: null, totpSecret: null, totpBackupCodes: null } : {}),
+        // akses/kredensial berubah: putuskan Telegram (tautan persetujuan pribadi tidak boleh tertinggal di chat lama)
+        ...(dto.password || dto.isActive === false || (dto.role && dto.role !== target.role) ? { telegramChatId: null, telegramLinkCode: null, telegramLinkExpires: null } : {}),
         passwordHash: dto.password ? await bcrypt.hash(dto.password, 10) : undefined,
         // cabut semua sesi pengguna ini bila akses/kredensialnya berubah
         tokenVersion:
