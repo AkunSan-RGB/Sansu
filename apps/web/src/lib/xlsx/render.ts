@@ -101,7 +101,7 @@ function styleFor(row: Row, col: Column, ci: number): Partial<Style> {
       st.font = font({ italic: true, size: 9, color: { argb: MUTED } });
       break;
     case 'note':
-      st.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+      st.alignment = { vertical: 'top', horizontal: 'justify', wrapText: true };
       break;
   }
   return st;

@@ -8,25 +8,37 @@ import type { FinancialNotes, NoteSection, NoteTable } from '@/api/types';
 import { acc } from './format';
 
 export function NoteTableView({ t }: { t: NoteTable }) {
-  const cell = (v: string | number | null, i: number) => (t.align[i] === 'right' && v !== null && v !== '' && !Number.isNaN(Number(v)) ? acc(v) : v);
+  const cell = (v: string | number | null, i: number) =>
+    t.align[i] === 'right' && v !== null && v !== '' && !Number.isNaN(Number(v)) ? (
+      <span className="calk-num">{acc(v)}</span>
+    ) : i === 0 && typeof v === 'string' && /^[0-9]-[0-9]{4}\s/.test(v) ? (
+      <>
+        <span className="calk-code">{v.slice(0, 6)}</span>
+        {v.slice(6)}
+      </>
+    ) : (
+      v
+    );
   const data = t.rows.map((r, i) => ({ key: i, r }));
   return (
-    <div style={{ margin: '8px 0 16px' }}>
+    <div style={{ margin: '8px 0 18px' }}>
       {t.title && <Typography.Text strong>{t.title}</Typography.Text>}
       <Table
+        className="calk-table"
         size="small"
         bordered
         pagination={false}
         dataSource={data}
+        tableLayout="fixed"
         scroll={{ x: 'max-content' }}
-        columns={t.columns.map((c, i) => ({ title: c, align: t.align[i], render: (_: unknown, x: { r: (string | number | null)[] }) => cell(x.r[i], i) }))}
+        columns={t.columns.map((c, i) => ({ title: c, align: t.align[i], width: t.align[i] === 'right' ? 150 : i === 0 ? undefined : 120, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }), render: (_: unknown, x: { r: (string | number | null)[] }) => cell(x.r[i], i) }))}
         summary={
           t.total
             ? () => (
                 <Table.Summary.Row>
                   {t.total?.map((v, i) => (
-                    <Table.Summary.Cell key={i} index={i} align={t.align[i]}>
-                      <strong>{cell(v, i)}</strong>
+                    <Table.Summary.Cell key={i} index={i} align={t.align[i]} className="calk-total">
+                      {typeof v === 'number' || (t.align[i] === 'right' && v !== '' && v !== null && !Number.isNaN(Number(v))) ? <strong className="calk-num">{acc(v)}</strong> : <strong>{v}</strong>}
                     </Table.Summary.Cell>
                   ))}
                 </Table.Summary.Row>
@@ -41,7 +53,7 @@ export function NoteTableView({ t }: { t: NoteTable }) {
 const Paras = ({ ps }: { ps: string[] }) => (
   <>
     {ps.map((p, i) => (
-      <Typography.Paragraph key={i} style={{ textAlign: 'justify', whiteSpace: 'pre-line' }}>
+      <Typography.Paragraph key={i} className="calk-para" style={{ whiteSpace: 'pre-line' }}>
         {p}
       </Typography.Paragraph>
     ))}

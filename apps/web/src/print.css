@@ -126,3 +126,13 @@ body { background: #F6F6F3; -webkit-font-smoothing: antialiased; }
 .save-bar { position: sticky; bottom: 0; z-index: 5; margin: 24px -24px -24px; padding: 14px 24px; background: rgba(255,255,255,.92);
   backdrop-filter: blur(8px); border-top: 1px solid #ECEAE3; border-radius: 0 0 16px 16px; }
 @media (max-width: 991px) { .settings-tabs .ant-tabs-nav { margin-bottom: 12px; } }
+
+/* CALK: paragraf rata kiri-kanan, angka rata kanan sejajar */
+.calk-para { text-align: justify; text-justify: inter-word; hyphens: auto; line-height: 1.75; margin-bottom: 10px !important; }
+.calk .calk-num { display: block; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.calk .calk-table .ant-table-thead > tr > th { background: #f4f6fa; font-weight: 600; }
+.calk .calk-table .ant-table-cell { padding: 6px 10px !important; }
+.calk .calk-table .ant-table-summary .calk-total { border-top: 1.5px solid #1f2937 !important; background: #f8fafc !important; }
+.calk .calk-table .ant-table-summary .calk-total:first-child { text-align: left !important; }
+.calk .calk-table .ant-table-thead > tr > th[class*="ant-table-cell"]:not(:first-child) { text-align: right; }
+.calk .calk-code { display: inline-block; min-width: 56px; margin-right: 8px; color: #6b7280; font-variant-numeric: tabular-nums; }
