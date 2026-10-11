@@ -20,6 +20,7 @@ import { authTokens, tenants, users } from '../../db/schema';
 import { SubscriptionService } from '../../common/billing/subscription.service';
 import { verificationRequired } from '../../common/billing/subscription.guard';
 import { isPlatformAdmin } from '../../common/auth/platform-admin';
+import { AuditService } from '../../common/audit/audit.service';
 import { appUrl, MailService } from '../../common/mail/mail.service';
 import { decrypt, randomToken, sha256 } from '../../common/utils/secret';
 import { normalizeBackupCode, verifyTotp } from '../../common/auth/totp';
@@ -55,6 +56,7 @@ export class AuthService {
     private readonly subs: SubscriptionService,
     private readonly twoFactor: TwoFactorPolicy,
     private readonly settings: SettingsService,
+    private readonly audit: AuditService,
   ) {}
 
   /** Daftar perusahaan baru (self-service trial) + user OWNER. */
@@ -193,6 +195,19 @@ export class AuthService {
     return token;
   }
 
+  /**
+   * Alat bantu pemilik layanan: buat tautan atur ulang sandi untuk pengguna tanpa lewat email (mis. email tersaring atau SMTP
+   * bermasalah). Tautan berlaku 1 jam, sekali pakai, mencabut tautan lama, dan pembuatannya dicatat di jejak audit.
+   */
+  async issueResetLink(actor: { sub: string }, userId: string) {
+    const [user] = await this.db.select().from(users).where(eq(users.id, userId));
+    if (!user) throw new BadRequestException('Pengguna tidak ditemukan');
+    if (!user.isActive) throw new BadRequestException('Akun pengguna ini nonaktif');
+    const token = await this.createToken(user.id, 'RESET', 60 * 60_000);
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: actor.sub, action: 'RESET_LINK_ISSUED', entity: 'User', entityId: user.id });
+    return { email: user.email, url: `${appUrl()}/reset-password?token=${token}`, expiresInMinutes: 60 };
+  }
+
   /** Ambil & tandai token terpakai (atomik — token tidak bisa dipakai dua kali) */
   private async consumeToken(token: string, purpose: 'RESET' | 'VERIFY') {
     const [row] = await this.db
@@ -271,6 +286,8 @@ export class AuthService {
         footnote:
           'Tautan berlaku 1 jam dan hanya bisa dipakai sekali. Jika Anda tidak memintanya, abaikan email ini — kata sandi Anda tidak berubah.',
       });
+      // lingkungan pengembangan: tautan juga dicatat di log agar bisa dibuka walau email tersaring (tidak pernah di production)
+      if (process.env.NODE_ENV !== 'production') this.logger.log(`Lupa sandi [dev] tautan untuk ${email}: ${appUrl()}/reset-password?token=${token}`);
       this.logger.log(sent ? `Lupa sandi: email atur ulang dikirim ke ${email}` : `Lupa sandi: email ke ${email} TIDAK terkirim (lihat galat SMTP di atas atau SMTP belum diatur)`);
     }
     return {

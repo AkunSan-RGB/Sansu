@@ -86,4 +86,19 @@ describe('Panel SANSU: langganan dimatikan & pantauan uji (e2e)', () => {
       else process.env.APP_URL = old.url;
     }
   });
+
+  it('tautan atur ulang sandi dari panel: hanya pemilik layanan, sekali pakai, mencabut tautan lama, dicatat audit', async () => {
+    const ownerRow = (await http.get('/api/auth/me').set(as(owner)).expect(200)).body;
+    await http.post(`/api/platform-admin/users/${ownerRow.id}/reset-link`).set(as(owner)).expect(403);
+    const a = (await http.post(`/api/platform-admin/users/${ownerRow.id}/reset-link`).set(as(admin)).expect(201)).body;
+    expect(a.email).toBe(ownerRow.email);
+    const tok1 = new URL(a.url).searchParams.get('token')!;
+    const b = (await http.post(`/api/platform-admin/users/${ownerRow.id}/reset-link`).set(as(admin)).expect(201)).body;
+    await http.post('/api/auth/reset-password').send({ token: tok1, password: 'Baru12345!x' }).expect(400); // tautan lama dicabut
+    const tok2 = new URL(b.url).searchParams.get('token')!;
+    await http.post('/api/auth/reset-password').send({ token: tok2, password: 'Baru12345!x' }).expect(200);
+    await http.post('/api/auth/reset-password').send({ token: tok2, password: 'Lain12345!x' }).expect(400); // sekali pakai
+    await http.post('/api/auth/login').send({ email: ownerRow.email, password: 'Baru12345!x' }).expect(200);
+    await http.post('/api/platform-admin/users/00000000-0000-0000-0000-000000000000/reset-link').set(as(admin)).expect(400);
+  });
 });

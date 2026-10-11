@@ -1,16 +1,25 @@
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Public, Roles } from '../../common/auth/decorators';
 import { AuthService } from './auth.service';
 import { ChangePasswordDto, CreateUserDto, ForgotPasswordDto, LoginDto, RegisterDto, ResetPasswordDto, VerifyEmailDto } from './dto/auth.dto';
-import { AllowWhenLocked } from '../../common/auth/platform-admin';
+import { AllowWhenLocked, PlatformAdminGuard } from '../../common/auth/platform-admin';
 import { Throttle } from '@nestjs/throttler';
 
 @ApiTags('Auth & Pengguna')
 @Controller()
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
+
+  /** Pemilik layanan membuat tautan atur ulang sandi untuk pengguna (tanpa email) */
+  @AllowWhenLocked()
+  @UseGuards(PlatformAdminGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post('platform-admin/users/:id/reset-link')
+  resetLink(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.auth.issueResetLink(u, id);
+  }
 
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60 * 60_000 } })
