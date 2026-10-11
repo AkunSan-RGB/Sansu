@@ -253,6 +253,13 @@
       "when": 1792252286484,
       "tag": "0035_foreign_returns",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1792338686484,
+      "tag": "0036_purchase_invoice_fx",
+      "breakpoints": true
     }
   ]
 }

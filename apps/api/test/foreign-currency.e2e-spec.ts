@@ -100,8 +100,6 @@ describe('Mata uang asing (e2e)', () => {
     const po = (await post('/api/purchase-orders', { supplierId: supp, warehouseId: wh, currency: 'USD', fxRate: '16000', lines: [{ productId: prod, qty: '100', price: '5' }] }).expect(201)).body;
     expect(po).toMatchObject({ currency: 'USD', subtotal: '8000000.00', taxAmount: '880000.00', total: '8880000.00', totalForeign: '555.00' });
     await post(`/api/purchase-orders/${po.id}/confirm`).expect(201);
-    // harga faktur valas mengikuti PO
-    await post('/api/purchase-invoices', { purchaseOrderId: po.id, supplierInvoiceNo: 'SZ-1', varianceReason: 'OTHER', varianceNote: 'harga berubah', prices: [{ orderLineId: po.lines[0].id, price: '90000' }] }).expect(400);
     const inv = (await post('/api/purchase-invoices', { purchaseOrderId: po.id, supplierInvoiceNo: 'SZ-1' }).expect(201)).body;
     apId = inv.id;
     expect(inv).toMatchObject({ currency: 'USD', total: '8880000.00', totalForeign: '555.00' });
@@ -208,5 +206,61 @@ describe('Mata uang asing (e2e)', () => {
     const dep = (await post('/api/services/deposits', { customerId: cust, date: new Date().toISOString().slice(0, 10), amount: '1110000', description: 'DP' }).expect(201)).body;
     const r = await post(`/api/services/deposits/${dep.id}/apply`, { invoiceId: inv.id }).expect(400);
     expect(r.body.message).toMatch(/USD/);
+  });
+
+  it('faktur beli valas dengan kurs sendiri: Rupiah memakai kurs faktur, selisih kurs masuk biaya perolehan, bukan selisih harga', async () => {
+    await put('/api/fx/rates', { currency: 'USD', rate: '16000' }).expect(200);
+    const apBefore = await bal('2-1100');
+    const po = (await post('/api/purchase-orders', { supplierId: supp, warehouseId: wh, currency: 'USD', fxRate: '16000', lines: [{ productId: prod, qty: '100', price: '5' }] }).expect(201)).body;
+    await post(`/api/purchase-orders/${po.id}/confirm`).expect(201);
+    // kurs faktur 16.200 → DPP 8.100.000, PPN 891.000; valas tetap 500 + 55
+    const inv = (await post('/api/purchase-invoices', { purchaseOrderId: po.id, supplierInvoiceNo: 'KURS-1', fxRate: '16200' }).expect(201)).body;
+    expect(inv).toMatchObject({ currency: 'USD', subtotal: '8100000.00', taxAmount: '891000.00', total: '8991000.00', totalForeign: '555.00', priceVariance: '100000.00' });
+    expect(Number(inv.fxRate)).toBe(16200);
+    expect(Number(inv.lines[0].priceForeign)).toBe(5);
+    expect(await bal('2-1100')).toBe(apBefore + 8991000);
+    const pay = (await post('/api/purchase-invoices/payments', { purchaseInvoiceId: inv.id, amount: '555', fxRate: '16300' }).expect(201)).body;
+    expect(pay).toMatchObject({ amount: '8991000.00', cashAmount: '9046500.00', fxGainLoss: '-55500.00' });
+    expect(await bal('2-1100')).toBe(apBefore);
+    const rep = (await get('/api/purchase-invoices/reports/price-variances').expect(200)).body;
+    const row = rep.rows.find((r: { invoiceId: string }) => r.invoiceId === inv.id);
+    expect(row.flags).toContain('FX_RATE'); // selisih karena kurs, bukan kenaikan harga supplier
+    expect(row.flags).not.toContain('NO_APPROVAL');
+    expect((await health('ap'))?.status).toBe('OK');
+  });
+
+  it('terima dulu lalu faktur valas dengan kurs dan harga valas berbeda: selisih dibagi ke persediaan dan HPP, total valas dari harga valas', async () => {
+    const po = (await post('/api/purchase-orders', { supplierId: supp, warehouseId: wh, currency: 'USD', fxRate: '16000', lines: [{ productId: prod, qty: '100', price: '5' }] }).expect(201)).body;
+    await post(`/api/purchase-orders/${po.id}/confirm`).expect(201);
+    await post(`/api/purchase-orders/${po.id}/receipts`).expect(201);
+    await post('/api/purchase-invoices', { purchaseOrderId: po.id, supplierInvoiceNo: 'KURS-2', fxRate: '16200', prices: [{ orderLineId: po.lines[0].id, price: '5.5' }] }).expect(400); // harga berbeda butuh alasan
+    const inv = (await post('/api/purchase-invoices', { purchaseOrderId: po.id, supplierInvoiceNo: 'KURS-2', fxRate: '16200', varianceReason: 'MARKET_VOLATILITY', prices: [{ orderLineId: po.lines[0].id, price: '5.5' }] }).expect(201)).body;
+    // DPP = 100 × 5,5 × 16.200 = 8.910.000 (PO 8.000.000); PPN 980.100 = 60,50 USD
+    expect(inv).toMatchObject({ subtotal: '8910000.00', taxAmount: '980100.00', total: '9890100.00', totalForeign: '610.50', priceVariance: '910000.00' });
+    expect((await health('ap'))?.status).toBe('OK');
+    expect((await health('inventory'))?.status).toBe('OK');
+  });
+
+  it('kurs faktur jauh di atas kurs pasar: perlu persetujuan; dalam toleransi lolos; PO rupiah tidak boleh memakai kurs', async () => {
+    await post('/api/users', { name: 'Keuangan', email: `fx-f-${stamp}@uji.id`, password: 'keuangan123', role: 'FINANCE' }).expect(201);
+    const fin = (await http.post('/api/auth/login').send({ email: `fx-f-${stamp}@uji.id`, password: 'keuangan123' }).expect(200)).body.accessToken;
+    await put('/api/fx/rates', { currency: 'USD', rate: '16000' }).expect(200);
+    const mk = async (price = '1') => {
+      const po = (await post('/api/purchase-orders', { supplierId: supp, warehouseId: wh, currency: 'USD', fxRate: '16000', lines: [{ productId: prod, qty: '10', price }] }).expect(201)).body;
+      await post(`/api/purchase-orders/${po.id}/confirm`).expect(201);
+      return po;
+    };
+    const a = await mk();
+    const blocked = await post('/api/purchase-invoices', { purchaseOrderId: a.id, supplierInvoiceNo: 'KURS-3', fxRate: '17500' }, fin);
+    expect(blocked.status).toBe(409);
+    expect((await get(`/api/purchase-invoices?status=UNPAID`).expect(200)).body.some((i: { supplierInvoiceNo: string }) => i.supplierInvoiceNo === 'KURS-3')).toBe(false);
+    const b = await mk();
+    await post('/api/purchase-invoices', { purchaseOrderId: b.id, supplierInvoiceNo: 'KURS-4', fxRate: '16400' }, fin).expect(201); // +2,5% di bawah toleransi 5%
+    const c = await mk();
+    const owner = (await post('/api/purchase-invoices', { purchaseOrderId: c.id, supplierInvoiceNo: 'KURS-5', fxRate: '17500' }).expect(201)).body; // pemilik tidak diblokir tetapi ditandai
+    expect(owner.priceFlags).toContain('RATE_ABOVE_MARKET');
+    const idrPo = (await post('/api/purchase-orders', { supplierId: supp, warehouseId: wh, lines: [{ productId: prod, qty: '1', price: '1000' }] }).expect(201)).body;
+    await post(`/api/purchase-orders/${idrPo.id}/confirm`).expect(201);
+    await post('/api/purchase-invoices', { purchaseOrderId: idrPo.id, supplierInvoiceNo: 'IDR-K', fxRate: '16000' }).expect(400);
   });
 });

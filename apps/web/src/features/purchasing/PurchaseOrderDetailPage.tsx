@@ -1,7 +1,7 @@
 import { PrinterOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Descriptions, Form, Input, InputNumber, Modal, Popconfirm, Space, Table, Tag, Select } from 'antd';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAction } from '@/api/queries';
@@ -32,8 +32,8 @@ export default function PurchaseOrderDetailPage() {
   const cancel = useAction(() => post(`/purchase-orders/${id}/cancel`), { success: 'PO dibatalkan', invalidate: refresh });
   const refreshAll = [...refresh, 'goods-receipts', 'approvals'];
   const both = useAction(
-    (v: { supplierInvoiceNo: string; date: string; prices: { orderLineId: string; price: string }[]; varianceReason?: string; varianceNote?: string }) =>
-      post<PurchaseInvoice & { journalNumber: string }>('/purchase-invoices', { supplierInvoiceNo: v.supplierInvoiceNo, date: v.date, prices: v.prices.length ? v.prices : undefined, varianceReason: v.prices.length ? v.varianceReason : undefined, varianceNote: v.prices.length ? v.varianceNote : undefined, purchaseOrderId: id }),
+    (v: { supplierInvoiceNo: string; date: string; fxRate?: string; prices: { orderLineId: string; price: string }[]; varianceReason?: string; varianceNote?: string }) =>
+      post<PurchaseInvoice & { journalNumber: string }>('/purchase-invoices', { supplierInvoiceNo: v.supplierInvoiceNo, date: v.date, fxRate: v.fxRate, prices: v.prices.length ? v.prices : undefined, varianceReason: v.prices.length ? v.varianceReason : undefined, varianceNote: v.prices.length ? v.varianceNote : undefined, purchaseOrderId: id }),
     { success: (r) => `Barang diterima · faktur ${r.number} · jurnal ${r.journalNumber}`, invalidate: refreshAll, onSuccess: () => setMode(null) },
   );
   const receive = useAction(
@@ -41,7 +41,7 @@ export default function PurchaseOrderDetailPage() {
     { success: (r) => `Barang diterima · penerimaan ${r.number}`, invalidate: refreshAll, onSuccess: () => setMode(null) },
   );
   const bill = useAction(
-    (v: { supplierInvoiceNo: string; date: string; lines: { orderLineId: string; qty: string }[]; prices: { orderLineId: string; price: string }[]; varianceReason?: string; varianceNote?: string }) =>
+    (v: { supplierInvoiceNo: string; date: string; fxRate?: string; lines: { orderLineId: string; qty: string }[]; prices: { orderLineId: string; price: string }[]; varianceReason?: string; varianceNote?: string }) =>
       post<PurchaseInvoice & { journalNumber: string }>('/purchase-invoices', { ...v, prices: v.prices.length ? v.prices : undefined, varianceReason: v.prices.length ? v.varianceReason : undefined, varianceNote: v.prices.length ? v.varianceNote : undefined, purchaseOrderId: id }),
     { success: (r) => `Faktur ${r.number} dicatat · jurnal ${r.journalNumber}`, invalidate: refreshAll, onSuccess: () => setMode(null) },
   );
@@ -50,11 +50,28 @@ export default function PurchaseOrderDetailPage() {
   const qtyFields = (pick: (l: NonNullable<PurchaseOrder['lines']>[number]) => number) => Object.fromEntries((o?.lines ?? []).map((l) => [`q_${l.id}`, pick(l)]));
   const linesPayload = (v: Record<string, string | number>) =>
     (o?.lines ?? []).map((l) => ({ orderLineId: l.id, qty: String(v[`q_${l.id}`] ?? 0) })).filter((l) => Number(l.qty) > 0);
-  const priceFields = () => Object.fromEntries((o?.lines ?? []).map((l) => [`p_${l.id}`, Number(l.price)]));
+  const foreign = isForeignCurrency(o?.currency);
+  const cur = o?.currency ?? 'IDR';
+  /** Harga PO per baris dalam mata uang PO (valas) atau Rupiah */
+  const poPrice = (l: NonNullable<PurchaseOrder['lines']>[number]) => Number(foreign ? l.priceForeign : l.price);
+  const money = (v: number | string | null | undefined) => (foreign ? fmtCurrency(v, cur) : fmtMoney(v));
+  const priceFields = () => ({ ...Object.fromEntries((o?.lines ?? []).map((l) => [`p_${l.id}`, poPrice(l)])), ...(foreign ? { fxRate: Number(o?.fxRate) } : {}) });
+  // Kurs faktur terisi dari kurs tersimpan pada tanggal faktur (kosong: kurs PO); boleh diketik sendiri
+  const invDate = Form.useWatch('date', form);
+  useEffect(() => {
+    if (!mode || mode === 'receive' || !foreign) return;
+    let cancelled = false;
+    get<{ rate: string | null }>(`/fx/rate?currency=${cur}${invDate ? `&date=${invDate}` : ''}`)
+      .then((r) => !cancelled && form.setFieldValue('fxRate', Number(r.rate ?? o?.fxRate)))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, foreign, cur, invDate, form, o?.fxRate]);
   /** Hanya harga yang berbeda dari PO yang dikirim */
   const pricesPayload = (v: Record<string, string | number>, only?: { orderLineId: string }[]) =>
     (o?.lines ?? [])
-      .filter((l) => v[`p_${l.id}`] != null && Number(v[`p_${l.id}`]) !== Number(l.price) && (!only || only.some((x) => x.orderLineId === l.id)))
+      .filter((l) => v[`p_${l.id}`] != null && Number(v[`p_${l.id}`]) !== poPrice(l) && (!only || only.some((x) => x.orderLineId === l.id)))
       .map((l) => ({ orderLineId: l.id, price: String(v[`p_${l.id}`]) }));
   const canReceive = !!o && o.status === 'CONFIRMED' && (o.lines ?? []).some((l) => left(l) > 0.00005);
   const canBill = !!o && o.status === 'CONFIRMED' && (o.lines ?? []).some((l) => open(l) > 0.00005);
@@ -313,9 +330,10 @@ export default function PurchaseOrderDetailPage() {
           form={form}
           layout="vertical"
           onFinish={(v) => {
-            if (mode === 'both') both.mutate({ supplierInvoiceNo: String(v.supplierInvoiceNo), date: String(v.date), prices: pricesPayload(v), varianceReason: v.varianceReason ? String(v.varianceReason) : undefined, varianceNote: v.varianceNote ? String(v.varianceNote) : undefined });
+            const fxRate = foreign && v.fxRate ? String(v.fxRate) : undefined;
+            if (mode === 'both') both.mutate({ supplierInvoiceNo: String(v.supplierInvoiceNo), date: String(v.date), fxRate, prices: pricesPayload(v), varianceReason: v.varianceReason ? String(v.varianceReason) : undefined, varianceNote: v.varianceNote ? String(v.varianceNote) : undefined });
             else if (mode === 'receive') receive.mutate({ date: String(v.date), supplierDeliveryNo: v.supplierDeliveryNo ? String(v.supplierDeliveryNo) : undefined, lines: linesPayload(v) });
-            else if (mode === 'bill') bill.mutate({ supplierInvoiceNo: String(v.supplierInvoiceNo), date: String(v.date), lines: linesPayload(v), prices: pricesPayload(v, linesPayload(v)), varianceReason: v.varianceReason ? String(v.varianceReason) : undefined, varianceNote: v.varianceNote ? String(v.varianceNote) : undefined });
+            else if (mode === 'bill') bill.mutate({ supplierInvoiceNo: String(v.supplierInvoiceNo), date: String(v.date), fxRate, lines: linesPayload(v), prices: pricesPayload(v, linesPayload(v)), varianceReason: v.varianceReason ? String(v.varianceReason) : undefined, varianceNote: v.varianceNote ? String(v.varianceNote) : undefined });
           }}
         >
           {mode !== 'receive' && (
@@ -331,6 +349,16 @@ export default function PurchaseOrderDetailPage() {
           <Form.Item name="date" label={mode === 'bill' ? 'Tanggal faktur' : 'Tanggal terima'} rules={[{ required: true }]}>
             <Input type="date" />
           </Form.Item>
+          {foreign && mode !== 'receive' && (
+            <Form.Item
+              name="fxRate"
+              label={`Kurs faktur (Rp per 1 ${cur})`}
+              extra={`Kurs PO ${fmtRate(o?.fxRate)}. Terisi dari kurs tersimpan pada tanggal faktur; ubah bila faktur supplier memakai kurs lain. Selisih kurs terhadap PO menambah/mengurangi biaya perolehan.`}
+              rules={[{ required: true, message: 'Isi kurs' }]}
+            >
+              <InputNumber min={0.000001} style={{ width: '100%' }} prefix="Rp" />
+            </Form.Item>
+          )}
           {mode && (
             <Table
               size="small"
@@ -356,14 +384,14 @@ export default function PurchaseOrderDetailPage() {
                     ]),
                 ...(mode !== 'receive'
                   ? [
-                      { title: 'Harga PO', align: 'right' as const, render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => fmtMoney(l.price) },
+                      { title: foreign ? `Harga PO (${cur})` : 'Harga PO', align: 'right' as const, render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => money(foreign ? l.priceForeign : l.price) },
                       {
-                        title: 'Harga faktur',
+                        title: foreign ? `Harga faktur (${cur})` : 'Harga faktur',
                         align: 'right' as const,
                         width: 150,
                         render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => (
                           <Form.Item name={`p_${l.id}`} noStyle>
-                            <InputNumber min={1} style={{ width: 130 }} />
+                            <InputNumber min={foreign ? 0.0001 : 1} precision={foreign ? 4 : undefined} style={{ width: 130 }} />
                           </Form.Item>
                         ),
                       },
@@ -378,17 +406,27 @@ export default function PurchaseOrderDetailPage() {
                 const v = form.getFieldsValue() as Record<string, number | string>;
                 const diff = (o?.lines ?? []).reduce((a, l) => {
                   const q = mode === 'both' ? Number(l.qty) : Number(v[`q_${l.id}`] ?? 0);
-                  return a + q * (Number(v[`p_${l.id}`] ?? l.price) - Number(l.price)) * (1 - Number(l.discountPct ?? 0) / 100);
+                  return a + q * (Number(v[`p_${l.id}`] ?? poPrice(l)) - poPrice(l)) * (1 - Number(l.discountPct ?? 0) / 100);
                 }, 0);
-                return Math.abs(diff) < 0.005 ? (
-                  <div style={{ marginTop: 8, fontSize: 12, opacity: 0.65 }}>Ubah "Harga faktur" bila harga di faktur supplier berbeda dari PO — biaya perolehan persediaan mengikuti harga faktur.</div>
+                // selisih kurs antara PO dan faktur atas nilai valas yang ditagih (Rupiah)
+                const poRate = Number(o?.fxRate ?? 1);
+                const rateDiff = foreign
+                  ? (o?.lines ?? []).reduce((a, l) => a + (mode === 'both' ? Number(l.qty) : Number(v[`q_${l.id}`] ?? 0)) * Number(v[`p_${l.id}`] ?? poPrice(l)) * (1 - Number(l.discountPct ?? 0) / 100) * (Number(v.fxRate ?? poRate) - poRate), 0)
+                  : 0;
+                return Math.abs(diff) < 0.005 && Math.abs(rateDiff) < 0.5 ? (
+                  <div style={{ marginTop: 8, fontSize: 12, opacity: 0.65 }}>Ubah "Harga faktur"{foreign ? ' dan kurs' : ''} bila faktur supplier berbeda dari PO — biaya perolehan persediaan mengikuti faktur.</div>
                 ) : (
                   <>
-                    <Alert style={{ marginTop: 12 }} type={diff > 0 ? 'warning' : 'success'} showIcon message={`Faktur ${diff > 0 ? 'lebih mahal' : 'lebih murah'} ${fmtMoney(Math.abs(diff))} (sebelum PPN) dari PO. Nilai persediaan dan HPP disesuaikan otomatis.${diff > 0 ? ' Kenaikan di atas toleransi atau jauh di atas harga pasar perlu persetujuan pemilik/admin.' : ''}`} />
+                    {Math.abs(rateDiff) >= 0.5 && (
+                      <Alert style={{ marginTop: 12 }} type="info" showIcon message={`Selisih kurs terhadap PO: ${rateDiff > 0 ? '+' : '−'}${fmtMoney(Math.abs(rateDiff))} (sebelum PPN) — ${rateDiff > 0 ? 'menambah' : 'mengurangi'} biaya perolehan. Kurs faktur jauh di atas kurs pasar perlu persetujuan pemilik/admin.`} />
+                    )}
+                    {Math.abs(diff) >= 0.005 && <Alert style={{ marginTop: 12 }} type={diff > 0 ? 'warning' : 'success'} showIcon message={`Faktur ${diff > 0 ? 'lebih mahal' : 'lebih murah'} ${money(Math.abs(diff))} (sebelum PPN) dari PO. Nilai persediaan dan HPP disesuaikan otomatis.${diff > 0 ? ' Kenaikan di atas toleransi atau jauh di atas harga pasar perlu persetujuan pemilik/admin.' : ''}`} />}
+                    {Math.abs(diff) >= 0.005 && (
                     <Form.Item name="varianceReason" label="Alasan selisih harga (tercatat untuk audit)" rules={[{ required: true, message: 'Pilih alasan' }]} style={{ marginTop: 12 }}>
                       <Select options={Object.entries(VARIANCE_REASONS).map(([value, label]) => ({ value, label }))} placeholder="Pilih alasan" />
                     </Form.Item>
-                    {v.varianceReason === 'OTHER' && (
+                    )}
+                    {Math.abs(diff) >= 0.005 && v.varianceReason === 'OTHER' && (
                       <Form.Item name="varianceNote" label="Jelaskan" rules={[{ required: true, min: 5, message: 'Jelaskan alasannya (min. 5 huruf)' }]}>
                         <Input.TextArea rows={2} maxLength={300} />
                       </Form.Item>

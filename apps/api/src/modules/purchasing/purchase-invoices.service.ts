@@ -125,31 +125,46 @@ export class PurchaseInvoicesService {
    */
   private async priceControl(user: AuthUser, dto: CreatePurchaseInvoiceDto, opts: { approvalId?: string }) {
     const none = { hasVariance: false, flags: [] as string[] };
-    if (!dto.prices?.length) return none;
     const order = await this.db.query.purchaseOrders.findFirst({ where: and(eq(purchaseOrders.id, dto.purchaseOrderId), eq(purchaseOrders.tenantId, user.tenantId)), with: { lines: true } });
     if (!order) return none; // ditolak pada langkah berikutnya (PO tidak ditemukan)
-    const diffs = dto.prices
+    const foreign = order.currency !== 'IDR';
+    // Kurs faktur yang diketik berbeda dari kurs PO: dibandingkan dengan kurs pasar tersimpan (kenaikan kurs = mark-up terselubung)
+    const rate = foreign && dto.fxRate ? D(dto.fxRate) : D(order.fxRate);
+    const rateTyped = foreign && !!dto.fxRate && !rate.eq(order.fxRate);
+    if (!dto.prices?.length && !rateTyped) return none;
+    const diffs = (dto.prices ?? [])
       .map((p) => {
         const line = order.lines.find((l) => l.id === p.orderLineId);
         if (!line) return null;
-        const oldP = Number(line.price);
+        // PO valas: harga dibandingkan dalam mata uang PO, sehingga perbedaan kurs saja tidak dianggap selisih harga
+        const oldP = Number(foreign ? line.priceForeign : line.price);
         const newP = Number(p.price);
         return newP === oldP ? null : { line, oldP, newP, pct: oldP > 0 ? ((newP - oldP) / oldP) * 100 : 100 };
       })
       .filter((d): d is NonNullable<typeof d> => !!d);
-    if (!diffs.length) return none;
-    if (!dto.varianceReason) throw new BadRequestException('Harga faktur berbeda dari PO: pilih alasan selisih harga');
-    if (dto.varianceReason === 'OTHER' && (dto.varianceNote?.trim().length ?? 0) < 5) throw new BadRequestException('Jelaskan alasan selisih harga pada catatan (minimal 5 huruf)');
+    if (!diffs.length && !rateTyped) return none;
+    if (diffs.length) {
+      if (!dto.varianceReason) throw new BadRequestException('Harga faktur berbeda dari PO: pilih alasan selisih harga');
+      if (dto.varianceReason === 'OTHER' && (dto.varianceNote?.trim().length ?? 0) < 5) throw new BadRequestException('Jelaskan alasan selisih harga pada catatan (minimal 5 huruf)');
+    }
 
     const policy = await this.approvals.policy(this.db, user.tenantId);
     const flags: string[] = [];
     let exceeded = false;
-    const hist = policy.priceControl ? await this.orders.priceHistory(user.tenantId, [...new Set(diffs.map((d) => d.line.productId))]) : {};
+    const idrRate = foreign ? rate.toNumber() : 1;
+    const hist = policy.priceControl && diffs.length ? await this.orders.priceHistory(user.tenantId, [...new Set(diffs.map((d) => d.line.productId))]) : {};
     for (const d of diffs) {
       if (d.pct > policy.priceTolerancePct + 1e-9) exceeded = true;
       const h = hist[d.line.productId];
-      if (h?.avg90 != null && d.newP / Number(d.line.uomFactor) > h.avg90 * (1 + policy.priceBenchmarkPct / 100)) {
+      if (h?.avg90 != null && (d.newP * idrRate) / Number(d.line.uomFactor) > h.avg90 * (1 + policy.priceBenchmarkPct / 100)) {
         flags.push('ABOVE_MARKET');
+        exceeded = true;
+      }
+    }
+    if (rateTyped) {
+      const market = await this.fx.rateOn(this.db, user.tenantId, order.currency, toDocDate(dto.date));
+      if (market && rate.gt(D(market).times(1 + policy.priceTolerancePct / 100))) {
+        flags.push('RATE_ABOVE_MARKET');
         exceeded = true;
       }
     }
@@ -161,17 +176,17 @@ export class PurchaseInvoicesService {
       ).rows;
       if (dup) throw this.approvals.required(dup.id, 'Faktur ini sudah dimintakan persetujuan dan masih menunggu keputusan pemilik atau admin.');
       const worst = diffs.reduce((a, d) => (d.pct > a ? d.pct : a), 0);
-      const amount = diffs.reduce((a, d) => a + Math.max(0, (d.newP - d.oldP) * Number(d.line.qty)), 0);
+      const amount = diffs.reduce((a, d) => a + Math.max(0, (d.newP - d.oldP) * Number(d.line.qty) * idrRate), 0);
       const req = await this.approvals.create(this.db, user, {
         kind: 'PURCHASE_INVOICE_PRICE',
         refId: order.id,
-        title: `Faktur ${dto.supplierInvoiceNo.trim()} (PO ${order.number}): harga ${worst > 0 ? `+${worst.toFixed(1)}%` : 'berbeda'} dari PO`,
+        title: `Faktur ${dto.supplierInvoiceNo.trim()} (PO ${order.number}): ${diffs.length ? `harga ${worst > 0 ? `+${worst.toFixed(1)}%` : 'berbeda'} dari PO` : `kurs ${order.currency} ${rate.toString()} di atas kurs pasar`}`,
         amount,
         payload: JSON.parse(JSON.stringify({ ...dto, supplierInvoiceNo: dto.supplierInvoiceNo.trim() })),
       });
-      throw this.approvals.required(req.id, 'Harga faktur melebihi toleransi atau jauh di atas harga pasar; permintaan persetujuan dikirim ke pemilik atau admin. Faktur dicatat setelah disetujui.');
+      throw this.approvals.required(req.id, 'Harga atau kurs faktur melebihi toleransi atau jauh di atas harga pasar; permintaan persetujuan dikirim ke pemilik atau admin. Faktur dicatat setelah disetujui.');
     }
-    return { hasVariance: true, flags: [...new Set(flags)] };
+    return { hasVariance: diffs.length > 0, flags: [...new Set(flags)] };
   }
 
   /** Laporan selisih harga faktur terhadap PO, dengan penanda untuk ditinjau (anti-fraud) */
@@ -180,12 +195,13 @@ export class PurchaseInvoicesService {
       await this.db.execute<{
         id: string; number: string; date: string; supplier_invoice_no: string; supplier: string; sku: string; product: string; po_number: string | null;
         po_price: string | null; inv_price: string; qty: string; variance: string; reason: string | null; note: string | null; flags: string | null;
-        created_by: string | null; approved_by: string | null; same_user: boolean | null;
+        created_by: string | null; approved_by: string | null; same_user: boolean | null; fx_only: boolean | null;
       }>(sql`
         SELECT i.id, i.number, i.date::text AS date, i.supplier_invoice_no, s.name AS supplier, p.sku, p.name AS product, po.number AS po_number,
                ol.price AS po_price, l.price AS inv_price, l.qty, l.price_variance AS variance, i.variance_reason AS reason, i.variance_note AS note,
                i.price_flags AS flags, uc.name AS created_by, ua.name AS approved_by,
-               (po.created_by_id IS NOT NULL AND po.created_by_id = i.created_by_id) AS same_user
+               (po.created_by_id IS NOT NULL AND po.created_by_id = i.created_by_id) AS same_user,
+               (i.currency <> 'IDR' AND l.price_foreign IS NOT DISTINCT FROM ol.price_foreign) AS fx_only
         FROM purchase_invoice_lines l
         JOIN purchase_invoices i ON i.id = l.invoice_id
         JOIN suppliers s ON s.id = i.supplier_id
@@ -201,7 +217,8 @@ export class PurchaseInvoicesService {
     ).rows;
     const out = rows.map((r) => {
       const variance = Number(r.variance);
-      const flags = [...(r.flags ? r.flags.split(',') : []), ...(r.same_user && variance > 0 ? ['SAME_USER'] : []), ...(variance > 0 && !r.approved_by ? ['NO_APPROVAL'] : [])];
+      // selisih yang hanya karena kurs (harga valas sama dengan PO) bukan kenaikan harga dari supplier
+      const flags = [...(r.flags ? r.flags.split(',') : []), ...(r.fx_only ? ['FX_RATE'] : []), ...(!r.fx_only && r.same_user && variance > 0 ? ['SAME_USER'] : []), ...(!r.fx_only && variance > 0 && !r.approved_by ? ['NO_APPROVAL'] : [])];
       const po = r.po_price != null ? Number(r.po_price) : null;
       return {
         invoiceId: r.id, invoiceNumber: r.number, date: r.date, supplierInvoiceNo: r.supplier_invoice_no, supplier: r.supplier, sku: r.sku, product: r.product,
@@ -230,27 +247,44 @@ export class PurchaseInvoicesService {
     };
   }
 
-  /** Harga faktur per baris pesanan yang menimpa harga PO (kosong = semua memakai harga PO) */
-  private priceOverrides(order: Awaited<ReturnType<PurchaseOrdersService['lock']>>, dto: CreatePurchaseInvoiceDto) {
-    const m = new Map<string, Dec>();
-    if (dto.prices?.length && order.currency !== 'IDR') {
-      throw new BadRequestException(`PO dalam ${order.currency}: harga faktur mengikuti PO. Ubah harga atau kurs pada PO (sebelum dikonfirmasi) bila berbeda.`);
-    }
+  /**
+   * Harga dan kurs faktur. PO Rupiah: `prices` (Rp) menimpa harga PO. PO valas: `prices` dalam mata uang PO dan `fxRate` kurs faktur
+   * (kosong = kurs PO); harga Rupiah baris = harga valas × kurs faktur, sehingga selisih kurs antara PO/penerimaan dan faktur masuk ke
+   * biaya perolehan lewat mekanisme selisih harga (persediaan dan HPP).
+   */
+  private pricing(order: Awaited<ReturnType<PurchaseOrdersService['lock']>>, dto: CreatePurchaseInvoiceDto) {
+    const foreign = order.currency !== 'IDR';
+    if (dto.fxRate && !foreign) throw new BadRequestException('Kurs faktur hanya untuk PO dalam mata uang asing');
+    const rate = foreign && dto.fxRate ? D(dto.fxRate) : D(order.fxRate);
+    if (!rate.isFinite() || rate.lte(0)) throw new BadRequestException('Kurs harus lebih dari 0');
+    const given = new Map<string, Dec>();
     for (const p of dto.prices ?? []) {
       if (!order.lines.some((l) => l.id === p.orderLineId)) throw new BadRequestException('Baris pesanan tidak ditemukan');
-      if (m.has(p.orderLineId)) throw new BadRequestException('Harga untuk baris pesanan yang sama tercantum lebih dari sekali');
-      const price = money(p.price);
+      if (given.has(p.orderLineId)) throw new BadRequestException('Harga untuk baris pesanan yang sama tercantum lebih dari sekali');
+      const price = foreign ? D(p.price).toDecimalPlaces(4) : money(p.price);
       if (price.lte(0)) throw new BadRequestException('Harga faktur harus lebih dari 0');
-      m.set(p.orderLineId, price);
+      given.set(p.orderLineId, price);
     }
-    return m;
+    const over = new Map<string, Dec>();
+    const foreignPrice = new Map<string, Dec>();
+    if (!foreign) {
+      given.forEach((v, k) => over.set(k, v));
+      return { rate, over, foreignPrice, given };
+    }
+    const rateChanged = !rate.eq(order.fxRate);
+    for (const l of order.lines) {
+      const po = D(l.priceForeign ?? 0);
+      const pf = given.get(l.id) ?? po;
+      foreignPrice.set(l.id, pf);
+      if (rateChanged || !pf.eq(po)) over.set(l.id, money(pf.times(rate)));
+    }
+    return { rate, over, foreignPrice, given };
   }
 
-  /** Mata uang faktur mengikuti PO (kurs PO). Total valas = total PO bila faktur menagih seluruhnya, selain itu hasil bagi kurs. */
-  private fxFields(order: Awaited<ReturnType<PurchaseOrdersService['lock']>>, total: Dec) {
+  /** Mata uang faktur = mata uang PO; kurs = kurs faktur; total valas = DPP valas + PPN Rupiah ÷ kurs faktur */
+  private fxFields(order: Awaited<ReturnType<PurchaseOrdersService['lock']>>, p: { rate: Dec; tax: Dec; lineForeign: Dec }) {
     if (order.currency === 'IDR') return {};
-    const same = total.minus(order.total).abs().lt(0.005);
-    return { currency: order.currency, fxRate: order.fxRate, totalForeign: same && order.totalForeign ? order.totalForeign : money(total.div(order.fxRate)).toFixed(2) };
+    return { currency: order.currency, fxRate: p.rate.toFixed(6), totalForeign: p.lineForeign.plus(money(p.tax.div(p.rate))).toFixed(2) };
   }
 
   /** PPN faktur dari DPP-nya (tarif dan pembulatan sesuai pengaturan perusahaan) */
@@ -265,7 +299,8 @@ export class PurchaseInvoicesService {
     // Non-PKP: PPN masukan tidak bisa dikreditkan → menjadi bagian harga perolehan persediaan
     const capitalize = D(order.taxAmount).gt(0) && !(await this.isPkp(tx, user.tenantId));
     // Harga faktur (bila berbeda dari PO) menjadi biaya perolehan sejak awal; tanpa isian memakai harga PO
-    const over = this.priceOverrides(order, dto);
+    const pr = this.pricing(order, dto);
+    const over = pr.over;
     const dppOf = (l: (typeof order.lines)[number]) => (over.has(l.id) ? lineTotal({ qty: l.qty, price: over.get(l.id)!, discountPct: l.discountPct }) : D(l.lineTotal));
     const subtotal = order.lines.reduce<Dec>((a, l) => a.plus(dppOf(l)), ZERO);
     const taxAmount = over.size && D(order.taxAmount).gt(0) ? await this.vatOn(tx, user.tenantId, subtotal) : D(order.taxAmount);
@@ -289,7 +324,7 @@ export class PurchaseInvoicesService {
         total: total.toFixed(2),
         priceVariance: subtotal.minus(order.subtotal).toFixed(2),
         vatCapitalized: capitalize,
-        ...this.fxFields(order, total),
+        ...this.fxFields(order, { rate: pr.rate, tax: taxAmount, lineForeign: order.lines.reduce<Dec>((a, l) => a.plus(lineTotal({ qty: l.qty, price: pr.foreignPrice.get(l.id) ?? 0, discountPct: l.discountPct })), ZERO) }),
       })
       .returning();
 
@@ -320,6 +355,7 @@ export class PurchaseInvoicesService {
         uomFactor: line.uomFactor,
         qty: line.qty,
         price: (over.get(line.id) ?? D(line.price)).toFixed(2),
+        priceForeign: pr.foreignPrice.get(line.id)?.toFixed(4) ?? null,
         discountPct: line.discountPct,
         lineTotal: dpp.toFixed(2),
         unitCost: unitCost.toFixed(4),
@@ -389,8 +425,9 @@ export class PurchaseInvoicesService {
       .orderBy(asc(goodsReceipts.date), asc(goodsReceipts.number), asc(goodsReceiptLines.id))
       .for('update', { of: goodsReceiptLines });
 
-    const over = this.priceOverrides(order, dto);
-    for (const id of over.keys()) if (!items.some((x) => x.line.id === id)) throw new BadRequestException('Harga faktur diisi untuk baris yang tidak ditagih pada faktur ini');
+    const pr = this.pricing(order, dto);
+    const over = pr.over;
+    for (const id of pr.given.keys()) if (!items.some((x) => x.line.id === id)) throw new BadRequestException('Harga faktur diisi untuk baris yang tidak ditagih pada faktur ini');
     let subtotal: Dec = ZERO;
     let poSubtotal: Dec = ZERO;
     let grni: Dec = ZERO;
@@ -459,7 +496,7 @@ export class PurchaseInvoicesService {
         total: total.toFixed(2),
         priceVariance: subtotal.minus(poSubtotal).toFixed(2),
         vatCapitalized: capitalized,
-        ...this.fxFields(order, total),
+        ...this.fxFields(order, { rate: pr.rate, tax, lineForeign: invLines.reduce<Dec>((a, x) => a.plus(lineTotal({ qty: x.q, price: pr.foreignPrice.get(x.line.id) ?? 0, discountPct: x.line.discountPct })), ZERO) }),
       })
       .returning();
 
@@ -488,6 +525,7 @@ export class PurchaseInvoicesService {
         uomFactor: x.line.uomFactor,
         qty: x.q.toFixed(4),
         price: (over.get(x.line.id) ?? D(x.line.price)).toFixed(2),
+        priceForeign: pr.foreignPrice.get(x.line.id)?.toFixed(4) ?? null,
         discountPct: x.line.discountPct,
         lineTotal: x.dpp.toFixed(2),
         unitCost: qty4(x.value.plus(variances[i].times(capFactor)).div(x.baseQty)).toFixed(4),
