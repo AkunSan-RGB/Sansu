@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
 import { colLetter, d, SheetBuilder } from './book';
+import { CSV_ID, CSV_STANDARD, sheetsToCsv } from './csv';
 import { buildXlsx } from './render';
 import { appendixSheet, cashCountSheet, incomeSheet, ledgerSheet, positionSheet, subscriptionVatSheet, trialBalanceSheet } from './reports';
 
@@ -257,5 +258,40 @@ describe('penyusun Excel', () => {
       expect(t).toContain('Direktur');
     }
     expect(text(positionSheet(pos, { framework: 'SAK_EP' }))).not.toContain('Budi');
+  });
+
+  it('CSV: judul kolom, angka, rumus (nilai hasil), tanggal, tanda kutip, dan penetral rumus', () => {
+    const b = new SheetBuilder('Uji', {
+      title: 'Daftar uji',
+      columns: [
+        { key: 'name', header: 'Nama' },
+        { key: 'amount', header: 'Jumlah', fmt: 'money' },
+        { key: 'qty', header: 'Qty', fmt: 'int' },
+        { key: 'date', header: 'Tanggal', fmt: 'date' },
+      ],
+    });
+    b.row({ name: 'Kopi; "Arabika"', amount: 1234.5, qty: 3.4, date: d('2026-10-07') }, 'body');
+    b.row({ name: '=HYPERLINK("x")', amount: { f: 'B2*2', v: 2469 }, qty: null, date: null }, 'body');
+    b.row({ name: 'Café Ñandú', amount: -10, qty: 0, date: null }, 'body');
+    const id = sheetsToCsv([b.spec], CSV_ID);
+    expect(id.startsWith('﻿')).toBe(true);
+    const lines = id.slice(1).trimEnd().split('\r\n');
+    expect(lines[0]).toBe('Nama;Jumlah;Qty;Tanggal');
+    expect(lines[1]).toBe('"Kopi; ""Arabika""";1234,50;3;2026-10-07');
+    expect(lines[2]).toBe('"\'=HYPERLINK(""x"")";2469,00;;'); // rumus dinetralkan, nilai hasil rumus dipakai
+    expect(lines[3]).toBe('Café Ñandú;-10,00;0;');
+    const std = sheetsToCsv([b.spec], CSV_STANDARD).slice(1).trimEnd().split('\r\n');
+    expect(std[0]).toBe('Nama,Jumlah,Qty,Tanggal');
+    expect(std[1]).toBe('"Kopi; ""Arabika""",1234.50,3,2026-10-07');
+  });
+
+  it('CSV: beberapa lembar dipisah baris kosong dengan judul bagian', () => {
+    const mk = (title: string) => {
+      const b = new SheetBuilder(title, { title, columns: [{ key: 'a', header: 'A' }] });
+      b.row({ a: 'x' }, 'body');
+      return b.spec;
+    };
+    const out = sheetsToCsv([mk('Satu'), mk('Dua')], CSV_STANDARD).slice(1).trimEnd().split('\r\n');
+    expect(out).toEqual(['Satu', 'A', 'x', '', 'Dua', 'A', 'x']);
   });
 });
