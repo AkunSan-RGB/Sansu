@@ -37,7 +37,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import type { Bom, ProductionOrder, ProductionReport } from '@sansu/shared';
 import { RequireApp } from '../../common/apps/app.guard';
 import { AuditService } from '../../common/audit/audit.service';
@@ -54,8 +54,9 @@ import { AccountingModule } from '../accounting/accounting.module';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { InventoryModule } from '../inventory/inventory.module';
+import { inventoryLines, semiSet } from '../inventory/inventory-accounts';
 import { StockService } from '../inventory/stock.service';
-import { ManufacturingService, RequirementsDto, VarianceQueryDto } from './manufacturing.service';
+import { ManufacturingService, PlanDto, RequirementsDto, VarianceQueryDto } from './manufacturing.service';
 
 // ---------- DTO ----------
 export class BomLineDto {
@@ -335,6 +336,9 @@ export class ProductionService {
       .orderBy(desc(productionOrders.date), desc(productionOrders.number))
       .limit(500);
     if (!rows.length) return [];
+    const relIds = [...new Set(rows.flatMap((r) => [r.o.id, r.o.parentOrderId]).filter((x): x is string => !!x))];
+    const rel = (await this.db.select({ id: productionOrders.id, number: productionOrders.number, parentOrderId: productionOrders.parentOrderId }).from(productionOrders).where(and(eq(productionOrders.tenantId, tenantId), or(inArray(productionOrders.id, relIds), inArray(productionOrders.parentOrderId, relIds)))));
+    const numberOf = new Map(rel.map((x) => [x.id, x.number]));
     const lines = await this.db
       .select({ l: productionOrderLines, sku: products.sku, name: products.name, unit: products.baseUom })
       .from(productionOrderLines)
@@ -350,6 +354,10 @@ export class ProductionService {
       number: o.number,
       date: o.date,
       status: o.status,
+      parentOrderId: o.parentOrderId,
+      parentNumber: o.parentOrderId ? (numberOf.get(o.parentOrderId) ?? null) : null,
+      childCount: rel.filter((x) => x.parentOrderId === o.id).length,
+      planNo: o.planNo,
       bom: { id: o.bomId, code: r.bomCode, name: r.bomName },
       product: { id: o.productId, sku: r.sku, name: r.name, unit: r.unit },
       warehouse: { id: o.warehouseId, name: r.warehouseName },
@@ -387,11 +395,17 @@ export class ProductionService {
   }
 
   async createOrder(user: AuthUser, dto: CreateProductionDto) {
+    const id = await this.db.transaction((tx) => this.createOrderIn(tx, user, dto));
+    return this.getOrder(user.tenantId, id);
+  }
+
+  /** Buat perintah draft di dalam transaksi pemanggil (dipakai juga oleh rencana produksi berjenjang) */
+  async createOrderIn(tx: Tx, user: AuthUser, dto: CreateProductionDto, extra: { parentOrderId?: string; planNo?: string } = {}): Promise<string> {
     const date = toDocDate(dto.date);
     const batches = qty4(dto.batches);
     if (batches.lte(0)) throw new BadRequestException('Jumlah batch harus > 0');
     assertWarehouseAccess(user, dto.warehouseId);
-    const id = await this.db.transaction(async (tx) => {
+    {
       const [b] = await tx
         .select()
         .from(boms)
@@ -417,6 +431,8 @@ export class ProductionService {
           plannedQty: qty4(D(b.outputQty).times(batches)).toFixed(4),
           notes: dto.notes,
           createdById: user.sub,
+          parentOrderId: extra.parentOrderId ?? null,
+          planNo: extra.planNo ?? null,
         })
         .returning({ id: productionOrders.id });
       await tx
@@ -437,8 +453,7 @@ export class ProductionService {
         data: { number },
       });
       return o.id;
-    });
-    return this.getOrder(user.tenantId, id);
+    }
   }
 
   private async lock(tx: Tx, tenantId: string, id: string) {
@@ -457,12 +472,16 @@ export class ProductionService {
       const o = await this.lock(tx, user.tenantId, id);
       if (o.status !== 'DRAFT') throw new BadRequestException('Produksi sudah dimulai / selesai / batal');
       if (date < o.date) throw new BadRequestException('Tanggal mulai tidak boleh sebelum tanggal perintah');
+      // perintah berjenjang: barang setengah jadi harus selesai dulu
+      const open = await tx.select({ number: productionOrders.number }).from(productionOrders).where(and(eq(productionOrders.parentOrderId, id), inArray(productionOrders.status, ['DRAFT', 'IN_PROGRESS'])));
+      if (open.length) throw new BadRequestException(`Selesaikan dulu perintah barang setengah jadi: ${open.map((x) => x.number).join(', ')}`);
       const ls = await tx.select().from(productionOrderLines).where(eq(productionOrderLines.orderId, id));
       const override = new Map((dto.lines ?? []).map((l) => [l.productId, qty4(l.qty)]));
       for (const k of override.keys())
         if (!ls.some((l) => l.productId === k))
           throw new BadRequestException('Bahan di luar resep — ubah resepnya dulu');
       let material: Dec = ZERO;
+      const issued: { productId: string; value: Dec }[] = [];
       for (const l of ls) {
         const q = override.get(l.productId) ?? D(l.plannedQty);
         if (q.isNegative()) throw new BadRequestException('Jumlah bahan tidak boleh negatif');
@@ -479,6 +498,7 @@ export class ProductionService {
           date,
         });
         material = material.plus(moved.value);
+        issued.push({ productId: l.productId, value: moved.value });
         await tx
           .update(productionOrderLines)
           .set({ issuedQty: q.toFixed(4), unitCost: moved.unitCost.toFixed(4), value: moved.value.toFixed(2) })
@@ -493,10 +513,7 @@ export class ProductionService {
           sourceType: 'PRODUCTION',
           sourceId: o.id,
           createdById: user.sub,
-          lines: [
-            { key: SYS.WIP, debit: material },
-            { key: SYS.INVENTORY, credit: material },
-          ],
+          lines: [{ key: SYS.WIP, debit: material }, ...inventoryLines(issued, await semiSet(tx, user.tenantId, issued.map((x) => x.productId)), 'credit')],
         });
         journalId = j.id;
       }
@@ -558,7 +575,7 @@ export class ProductionService {
         sourceId: o.id,
         createdById: user.sub,
         lines: [
-          { key: SYS.INVENTORY, debit: moved.value },
+          ...inventoryLines([{ productId: o.productId, value: moved.value }], await semiSet(tx, user.tenantId, [o.productId]), 'debit'),
           { key: SYS.INVENTORY_ADJ, debit: rounding.gt(0) ? rounding : 0, credit: rounding.lt(0) ? rounding.abs() : 0 },
           { key: SYS.WIP, credit: material },
           {
@@ -605,6 +622,7 @@ export class ProductionService {
           throw new BadRequestException('Tanggal batal tidak boleh sebelum tanggal mulai');
         const ls = await tx.select().from(productionOrderLines).where(eq(productionOrderLines.orderId, id));
         let back: Dec = ZERO;
+        const returned: { productId: string; value: Dec }[] = [];
         for (const l of ls.filter((x) => D(x.issuedQty).gt(0))) {
           const moved = await this.stock.move(tx, {
             tenantId: user.tenantId,
@@ -619,6 +637,7 @@ export class ProductionService {
             date,
           });
           back = back.plus(moved.value);
+          returned.push({ productId: l.productId, value: moved.value });
         }
         const material = D(o.materialCost);
         const diff = money(material.minus(back));
@@ -631,7 +650,7 @@ export class ProductionService {
             sourceId: o.id,
             createdById: user.sub,
             lines: [
-              { key: SYS.INVENTORY, debit: back },
+              ...inventoryLines(returned, await semiSet(tx, user.tenantId, returned.map((x) => x.productId)), 'debit'),
               { key: SYS.INVENTORY_ADJ, debit: diff.gt(0) ? diff : 0, credit: diff.lt(0) ? diff.abs() : 0 },
               { key: SYS.WIP, credit: material },
             ],
@@ -764,6 +783,13 @@ export class ProductionController {
   @Roles('ADMIN', 'FINANCE')
   variance(@CurrentUser() u: AuthUser, @Query() q: VarianceQueryDto) {
     return this.mfg.variance(u.tenantId, q);
+  }
+
+  /** Buat perintah produksi berjenjang (induk dan anak untuk barang setengah jadi) dari rencana — jenis usaha Manufaktur */
+  @Post('plan')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  plan(@CurrentUser() u: AuthUser, @Body() dto: PlanDto) {
+    return this.mfg.plan(u, dto);
   }
 
   @Get('boms')

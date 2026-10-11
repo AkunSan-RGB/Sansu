@@ -192,6 +192,8 @@ export interface Product {
   baseUom: string;
   sellPrice: string;
   barcode: string | null;
+  /** SEMI = barang setengah jadi (akun persediaan tersendiri) */
+  inventoryKind?: 'GOODS' | 'SEMI';
   isActive: boolean;
   uoms: ProductUom[];
 }
@@ -1678,6 +1680,11 @@ export interface ProductionOrder {
   number: string;
   date: string;
   status: ProductionStatus;
+  /** Perintah berjenjang: induk yang memakai hasilnya, jumlah perintah anak (barang setengah jadi), dan nomor rencana */
+  parentOrderId?: string | null;
+  parentNumber?: string | null;
+  childCount?: number;
+  planNo?: string | null;
   bom: { id: string; code: string; name: string };
   product: { id: string; sku: string; name: string; unit: string };
   warehouse: { id: string; name: string };

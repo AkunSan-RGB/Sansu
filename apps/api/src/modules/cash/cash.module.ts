@@ -131,7 +131,7 @@ export class CashService {
         if (accs.some((a) => a.isCashAccount)) {
           throw new BadRequestException('Akun lawan tidak boleh akun kas/bank; gunakan Transfer');
         }
-        if (accs.some((a) => a.systemKey === 'AR' || a.systemKey === 'AP' || a.systemKey === 'INVENTORY')) {
+        if (accs.some((a) => a.systemKey === 'AR' || a.systemKey === 'AP' || a.systemKey === 'INVENTORY' || a.systemKey === 'INVENTORY_SEMI')) {
           throw new BadRequestException(
             'Piutang, hutang, dan persediaan dicatat lewat dokumennya (pembayaran faktur / pembelian), bukan kas umum',
           );
@@ -209,7 +209,7 @@ export class CashService {
           eq(accounts.tenantId, tenantId),
           eq(accounts.isPostable, true),
           eq(accounts.isCashAccount, false),
-          sql`COALESCE(${accounts.systemKey}, '') NOT IN ('AR', 'AP', 'INVENTORY')`,
+          sql`COALESCE(${accounts.systemKey}, '') NOT IN ('AR', 'AP', 'INVENTORY', 'INVENTORY_SEMI')`,
         ),
       )
       .orderBy(asc(accounts.code));

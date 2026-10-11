@@ -5,15 +5,19 @@
  *  - Analisis selisih produksi: pemakaian bahan, hasil produksi, dan biaya konversi sesungguhnya terhadap standar resep, dengan penanda
  *    untuk pemakaian berlebih / hasil rendah (indikasi pemborosan atau kebocoran bahan).
  */
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable } from '@nestjs/common';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsDateString, IsNumberString, IsOptional, IsUUID, Matches, ValidateNested } from 'class-validator';
 import { and, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { AuthUser } from '../../common/auth/auth-user';
+import { SequenceService } from '../../common/sequence/sequence.service';
 import { SettingsService } from '../../common/settings.service';
+import { toDocDate } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
+import { ProductionService } from './production.module';
 import { bomLines, boms, productionOrderLines, productionOrders, products, users, warehouses } from '../../db/schema';
 
 export class RequirementItemDto {
@@ -29,6 +33,9 @@ export class RequirementsDto {
   @ArrayMaxSize(50)
   items: RequirementItemDto[];
 }
+export class PlanDto extends RequirementsDto {
+  @ApiPropertyOptional({ example: '2026-10-05', description: 'Tanggal perintah; default hari ini' }) @IsOptional() @IsDateString() date?: string;
+}
 export class VarianceQueryDto {
   @ApiPropertyOptional({ example: '2026-10-01' }) @IsOptional() @IsDateString() from?: string;
   @ApiPropertyOptional({ example: '2026-10-31' }) @IsOptional() @IsDateString() to?: string;
@@ -42,6 +49,8 @@ export class ManufacturingService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly settings: SettingsService,
+    private readonly seq: SequenceService,
+    @Inject(forwardRef(() => ProductionService)) private readonly production: ProductionService,
   ) {}
 
   private async assertManufacturing(tenantId: string) {
@@ -50,8 +59,8 @@ export class ManufacturingService {
     }
   }
 
-  async requirements(tenantId: string, dto: RequirementsDto) {
-    await this.assertManufacturing(tenantId);
+  /** Ledakkan rencana produksi melalui resep bertingkat: pohon perintah, bahan baku, dan barang setengah jadi yang perlu diproduksi */
+  private async analyze(tenantId: string, dto: RequirementsDto) {
     const [wh] = await this.db.select({ id: warehouses.id, name: warehouses.name }).from(warehouses).where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, tenantId)));
     if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
 
@@ -71,7 +80,10 @@ export class ManufacturingService {
     let labor: Dec = ZERO;
     let overhead: Dec = ZERO;
 
-    const explode = (bom: (typeof allBoms)[number], batches: Dec, depth: number, path: Set<string>) => {
+    type Bom = (typeof allBoms)[number];
+    type Node = { bom: Bom; batches: Dec; children: Node[] };
+    const explode = (bom: Bom, batches: Dec, depth: number, path: Set<string>): Node => {
+      const node: Node = { bom, batches, children: [] };
       if (depth > MAX_DEPTH) throw new BadRequestException('Resep bertingkat terlalu dalam (maksimal 8 tingkat)');
       labor = labor.plus(D(bom.laborCost).times(batches));
       overhead = overhead.plus(D(bom.overheadCost).times(batches));
@@ -96,20 +108,28 @@ export class ManufacturingService {
           row.batches = row.batches.plus(subBatches);
           row.toProduce = row.toProduce.plus(subBatches.times(sub.outputQty));
           semis.set(l.productId, row);
-          explode(sub, subBatches, depth + 1, new Set(path).add(sub.id));
+          node.children.push(explode(sub, subBatches, depth + 1, new Set(path).add(sub.id)));
         } else semis.set(l.productId, row);
       }
+      return node;
     };
 
     const planned: { bomCode: string; product: string; batches: string }[] = [];
+    const trees: Node[] = [];
     for (const it of dto.items) {
       const bom = allBoms.find((b) => b.id === it.bomId);
       if (!bom) throw new BadRequestException('Resep tidak ditemukan atau nonaktif');
       const batches = D(it.batches);
       if (batches.lte(0)) throw new BadRequestException('Jumlah batch harus lebih dari 0');
-      explode(bom, batches, 1, new Set([bom.id]));
+      trees.push(explode(bom, batches, 1, new Set([bom.id])));
       planned.push({ bomCode: bom.code, product: bom.name, batches: batches.toString() });
     }
+    return { wh, trees, leaves, semis, labor, overhead, planned };
+  }
+
+  async requirements(tenantId: string, dto: RequirementsDto) {
+    await this.assertManufacturing(tenantId);
+    const { wh, leaves, semis, labor, overhead, planned } = await this.analyze(tenantId, dto);
 
     const ids = [...new Set([...leaves.keys(), ...semis.keys()])];
     const info = ids.length ? await this.db.select({ id: products.id, sku: products.sku, name: products.name, unit: products.baseUom }).from(products).where(inArray(products.id, ids)) : [];
@@ -181,6 +201,29 @@ export class ManufacturingService {
       shortageCount: materials.filter((m) => m.shortage > 0).length,
       canProduce: materials.every((m) => m.shortage <= 0),
     };
+  }
+
+  /**
+   * Buat perintah produksi berjenjang dari rencana: satu perintah untuk tiap barang jadi dan satu perintah anak untuk setiap barang
+   * setengah jadi yang kekurangan stok (sampai kedalaman resep). Semua dalam satu transaksi dan bernomor rencana yang sama; perintah induk
+   * baru bisa dimulai setelah perintah anaknya selesai.
+   */
+  async plan(user: AuthUser, dto: PlanDto) {
+    await this.assertManufacturing(user.tenantId);
+    const date = toDocDate(dto.date);
+    const { trees } = await this.analyze(user.tenantId, dto);
+    return this.db.transaction(async (tx) => {
+      const planNo = await this.seq.next(tx, user.tenantId, 'PRODUCTION_PLAN', date);
+      const made: { id: string; number: string; bom: string; product: string; batches: string; level: number; parent: string | null }[] = [];
+      const create = async (node: (typeof trees)[number], parentId: string | null, parentNumber: string | null, level: number): Promise<void> => {
+        const id = await this.production.createOrderIn(tx, user, { bomId: node.bom.id, warehouseId: dto.warehouseId, date: dto.date, batches: node.batches.toString(), notes: `Rencana ${planNo}` }, { parentOrderId: parentId ?? undefined, planNo });
+        const [o] = await tx.select({ number: productionOrders.number }).from(productionOrders).where(eq(productionOrders.id, id));
+        made.push({ id, number: o.number, bom: node.bom.code, product: node.bom.name, batches: node.batches.toString(), level, parent: parentNumber });
+        for (const c of node.children) await create(c, id, o.number, level + 1);
+      };
+      for (const t of trees) await create(t, null, null, 0);
+      return { planNo, orders: made };
+    });
   }
 
   /** Analisis selisih produksi (perintah produksi selesai pada rentang tanggal) */

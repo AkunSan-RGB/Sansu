@@ -186,6 +186,8 @@ export const products = pgTable(
     sellPrice: money('sell_price').notNull().default('0'),
     /** Barcode / EAN untuk scan di kasir */
     barcode: text('barcode'),
+    /** GOODS = bahan / barang dagang / barang jadi; SEMI = barang setengah jadi (akun persediaan tersendiri, hanya lewat produksi) */
+    inventoryKind: text('inventory_kind').$type<'GOODS' | 'SEMI'>().notNull().default('GOODS'),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: createdAt(),
   },
@@ -2287,6 +2289,10 @@ export const productionOrders = pgTable(
     batches: qty('batches').notNull(),
     plannedQty: qty('planned_qty').notNull(),
     status: text('status').$type<'DRAFT' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'>().notNull().default('DRAFT'),
+    /** Perintah induk yang memakai hasil perintah ini (barang setengah jadi); kosong = perintah tingkat atas */
+    parentOrderId: uuid('parent_order_id'),
+    /** Nomor rencana (MRP) yang membuat perintah berjenjang ini */
+    planNo: text('plan_no'),
     startedDate: date('started_date'),
     completedDate: date('completed_date'),
     cancelledDate: date('cancelled_date'),
@@ -2302,7 +2308,7 @@ export const productionOrders = pgTable(
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex('production_orders_number_uq').on(t.tenantId, t.number), index('production_orders_status_idx').on(t.tenantId, t.status)],
+  (t) => [uniqueIndex('production_orders_number_uq').on(t.tenantId, t.number), index('production_orders_status_idx').on(t.tenantId, t.status), index('production_orders_parent_idx').on(t.parentOrderId)],
 );
 
 export const productionOrderLines = pgTable('production_order_lines', {

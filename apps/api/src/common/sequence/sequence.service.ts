@@ -37,6 +37,7 @@ export const DOC_PREFIX = {
   PROJECT: 'PRJ',
   PROJECT_PROGRESS: 'KPK',
   PRODUCTION_ORDER: 'PRD',
+  PRODUCTION_PLAN: 'MRP',
 } as const;
 
 export type DocType = keyof typeof DOC_PREFIX;

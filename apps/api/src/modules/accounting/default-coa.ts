@@ -7,6 +7,7 @@ export const SYS = {
   BANK: 'BANK',
   AR: 'AR',
   INVENTORY: 'INVENTORY',
+  INVENTORY_SEMI: 'INVENTORY_SEMI',
   VAT_IN: 'VAT_IN',
   AP: 'AP',
   VAT_OUT: 'VAT_OUT',
@@ -104,6 +105,7 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '1-1380', name: 'Piutang Retensi Proyek', type: 'ASSET', parent: '1-1000', group: 'OTHER_RECEIVABLE', models: ['JASA'] },
   { code: '1-1400', name: 'Persediaan Barang Dagang', type: 'ASSET', parent: '1-1000', key: SYS.INVENTORY, group: 'INVENTORY', names: { PRODUKSI: 'Persediaan Bahan Baku & Barang Jadi', MANUFAKTUR: 'Persediaan Bahan Baku & Barang Jadi', JASA: 'Persediaan Bahan & Perlengkapan' } },
   { code: '1-1410', name: 'Persediaan dalam Perjalanan', type: 'ASSET', parent: '1-1000', key: SYS.INVENTORY_TRANSIT, group: 'INVENTORY' },
+  { code: '1-1430', name: 'Persediaan Barang Setengah Jadi', type: 'ASSET', parent: '1-1000', key: SYS.INVENTORY_SEMI, group: 'INVENTORY' },
   { code: '1-1420', name: 'Barang dalam Proses Produksi', type: 'ASSET', parent: '1-1000', key: SYS.WIP, group: 'INVENTORY' },
   { code: '1-1500', name: 'PPN Masukan', type: 'ASSET', parent: '1-1000', key: SYS.VAT_IN, group: 'PREPAID_TAX' },
   { code: '1-1510', name: 'Pajak Dibayar Dimuka (PPh 22, 23, 25)', type: 'ASSET', parent: '1-1000', key: SYS.PREPAID_TAX, group: 'PREPAID_TAX' },
@@ -278,7 +280,7 @@ export const COA_FAMILIES: { name: string; codes: string[]; relevant: (model: Bu
   { name: 'Penurunan nilai persediaan', codes: ['5-3000'], relevant: (m, a, fw) => fw !== 'SAK_EMKM' && (m !== 'JASA' || a.has('inventory')) },
   // ED SAK EMKM Bab 8: piutang dicatat sebesar jumlah tagihan; tidak ada cadangan kerugian penurunan nilai (kerugian diakui saat dihapus)
   { name: 'Penurunan nilai piutang', codes: ['1-1310', '6-7300'], relevant: (_m, _a, fw) => fw !== 'SAK_EMKM' },
-  { name: 'Produksi', codes: ['1-1420', '5-4100', '5-4200', '5-4900'], relevant: (m) => m === 'PRODUKSI' || m === 'MANUFAKTUR' },
+  { name: 'Produksi', codes: ['1-1420', '1-1430', '5-4100', '5-4200', '5-4900'], relevant: (m) => m === 'PRODUKSI' || m === 'MANUFAKTUR' },
   { name: 'Manufaktur', codes: ['5-4950'], relevant: (m) => m === 'MANUFAKTUR' },
   { name: 'Kontrak jasa & proyek', codes: ['4-2100'], relevant: (m, a) => m === 'JASA' || a.has('crm') },
   // Aset/liabilitas kontrak hanya timbul dari pengakuan pendapatan berdasarkan persentase penyelesaian (SAK EP); EMKM mengakui sebesar tagihan (ED 14.5)

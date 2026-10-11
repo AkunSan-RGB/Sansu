@@ -172,20 +172,38 @@ export class HealthService {
 
     // 5. Persediaan: buku besar vs kartu stok (hanya bila per hari ini)
     if (asOf >= todayJakarta()) {
-      const [inv] = await q<{ v: string }>(
-        sql`SELECT COALESCE(SUM(qty * avg_cost), 0) AS v FROM stock_balances WHERE tenant_id = ${tenantId}`,
-      );
+      const stockValue = async (kind: 'GOODS' | 'SEMI') =>
+        (
+          await q<{ v: string }>(
+            sql`SELECT COALESCE(SUM(b.qty * b.avg_cost), 0) AS v FROM stock_balances b JOIN products p ON p.id = b.product_id WHERE b.tenant_id = ${tenantId} AND p.inventory_kind = ${kind}`,
+          )
+        )[0].v;
       checks.push(
         this.reconCheck(
           'inventory',
           'Persediaan: buku besar = nilai kartu stok',
           bySys('INVENTORY'),
-          D(inv.v),
+          D(await stockValue('GOODS')),
           '/inventory',
           'Selisih kecil wajar karena pembulatan HPP; selisih besar berarti ada jurnal manual ke akun persediaan.',
           D(1000),
         ),
       );
+      const semiStock = D(await stockValue('SEMI'));
+      const semiGl = bySys('INVENTORY_SEMI');
+      if (!semiStock.isZero() || !semiGl.isZero()) {
+        checks.push(
+          this.reconCheck(
+            'inventory-semi',
+            'Persediaan barang setengah jadi: buku besar = nilai kartu stok',
+            semiGl,
+            semiStock,
+            '/inventory',
+            'Barang setengah jadi hanya dibuat dan dipakai lewat perintah produksi; selisih besar berarti ada jurnal manual ke akun ini.',
+            D(1000),
+          ),
+        );
+      }
     }
 
     // 5a. Indikasi penurunan nilai persediaan (SAK EP 13): harga jual di bawah biaya rata-rata

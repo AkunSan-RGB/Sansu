@@ -508,6 +508,7 @@ export class ImportsService {
       [SYS.AR]: 'Piutang usaha diisi lewat impor "Piutang awal per faktur" agar umur piutang tercatat',
       [SYS.AP]: 'Utang usaha diisi lewat impor "Utang awal per faktur" agar jatuh tempo tercatat',
       [SYS.INVENTORY]: 'Persediaan diisi lewat impor "Stok awal" agar kartu stok tercatat',
+      [SYS.INVENTORY_SEMI]: 'Persediaan barang setengah jadi diisi lewat impor "Stok awal" agar kartu stok tercatat',
       [SYS.OPENING_EQUITY]: 'Akun ini diisi otomatis sebagai penyeimbang',
     };
     const seen = new Set<string>();

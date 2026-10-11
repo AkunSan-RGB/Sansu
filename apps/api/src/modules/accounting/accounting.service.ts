@@ -205,7 +205,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       for (const id of ids) {
         const a = byId.get(id);
         if (!a) throw new BadRequestException('Akun tidak ditemukan');
-        if (a.systemKey === SYS.INVENTORY) {
+        if (a.systemKey === SYS.INVENTORY || a.systemKey === SYS.INVENTORY_SEMI) {
           throw new BadRequestException('Saldo awal persediaan diisi lewat Inventori → Penyesuaian stok (alasan: Saldo awal)');
         }
         // akun kontrol harus punya rincian per faktur, kalau tidak buku besar dan daftar umur tidak sama
@@ -243,7 +243,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
           WHEN a.is_cash_account THEN 'cash'
           WHEN a.system_key = 'AR' THEN 'receivables'
           WHEN a.system_key = 'AP' THEN 'payables'
-          WHEN a.system_key = 'INVENTORY' THEN 'inventory'
+          WHEN a.system_key IN ('INVENTORY', 'INVENTORY_SEMI') THEN 'inventory'
           WHEN a.type = 'ASSET' THEN 'otherAssets'
           WHEN a.type = 'LIABILITY' THEN 'liabilities'
           WHEN a.type = 'EQUITY' THEN 'equity'

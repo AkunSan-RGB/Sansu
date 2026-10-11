@@ -1,6 +1,7 @@
 /**
  * Operasi gudang: transfer antar gudang, stock opname, stok minimum, rekap stok semua gudang.
  */
+import { inventoryLines, semiSet } from './inventory-accounts';
 import {
   BadRequestException,
   Body,
@@ -39,7 +40,7 @@ import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { allowedWarehouses, assertWarehouseAccess } from '../../common/auth/warehouse-access';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { toDocDate } from '../../common/utils/dates';
-import { D, money, ZERO } from '../../common/utils/money';
+import { D, type Dec, money, ZERO } from '../../common/utils/money';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { Db, Tx } from '../../db/db';
@@ -288,6 +289,7 @@ export class WarehouseOpsService {
         ...(transit ? {} : { receivedDate: date, receivedAt: new Date(), receivedById: u.sub }),
       });
       let total = ZERO;
+      const sentItems: { productId: string; value: Dec }[] = [];
       for (const [productId, qty] of merged) {
         const out = await this.stock.move(tx, {
           tenantId: u.tenantId,
@@ -301,6 +303,7 @@ export class WarehouseOpsService {
           date,
         });
         total = total.plus(out.value);
+        sentItems.push({ productId, value: out.value });
         if (transit) {
           await tx
             .insert(stockTransferLines)
@@ -345,10 +348,7 @@ export class WarehouseOpsService {
           sourceId: id,
           reference: number,
           createdById: u.sub,
-          lines: [
-            { key: SYS.INVENTORY_TRANSIT, debit: total },
-            { key: SYS.INVENTORY, credit: total },
-          ],
+          lines: [{ key: SYS.INVENTORY_TRANSIT, debit: total }, ...inventoryLines(sentItems, await semiSet(tx, u.tenantId, sentItems.map((x) => x.productId)), 'credit')],
         });
       }
       await this.audit.log(tx, {
@@ -397,6 +397,7 @@ export class WarehouseOpsService {
       }
       let received = ZERO;
       let shortage = ZERO;
+      const recItems: { productId: string; value: Dec }[] = [];
       const short: string[] = [];
       for (const l of lines) {
         const sent = D(l.qty);
@@ -423,6 +424,7 @@ export class WarehouseOpsService {
         }
         if (rq.lt(sent)) short.push(l.productId);
         received = received.plus(recValue);
+        recItems.push({ productId: l.productId, value: recValue });
         shortage = shortage.plus(lineValue.minus(recValue));
         await tx
           .update(stockTransferLines)
@@ -442,7 +444,7 @@ export class WarehouseOpsService {
           reference: t.number,
           createdById: u.sub,
           lines: [
-            { key: SYS.INVENTORY, debit: received },
+            ...inventoryLines(recItems, await semiSet(tx, u.tenantId, recItems.map((x) => x.productId)), 'debit'),
             {
               key: SYS.INVENTORY_ADJ,
               debit: shortage,
@@ -503,6 +505,9 @@ export class WarehouseOpsService {
         await tx.update(stockTransferLines).set({ receivedQty: '0' }).where(eq(stockTransferLines.id, l.id));
       }
       const total = D(t.totalValue);
+      // nilai per barang dari biaya kirim; selisih pembulatan terhadap total ditambahkan ke barang pertama
+      const backItems = lines.map((l) => ({ productId: l.productId, value: money(D(l.qty).times(l.unitCost)) }));
+      if (backItems.length) backItems[0].value = backItems[0].value.plus(total.minus(backItems.reduce((a, x) => a.plus(x.value), ZERO)));
       if (total.gt(0)) {
         await this.posting.post(tx, {
           tenantId: u.tenantId,
@@ -512,10 +517,7 @@ export class WarehouseOpsService {
           sourceId: id,
           reference: t.number,
           createdById: u.sub,
-          lines: [
-            { key: SYS.INVENTORY, debit: total },
-            { key: SYS.INVENTORY_TRANSIT, credit: total },
-          ],
+          lines: [...inventoryLines(backItems, await semiSet(tx, u.tenantId, backItems.map((x) => x.productId)), 'debit'), { key: SYS.INVENTORY_TRANSIT, credit: total }],
         });
       }
       await tx
