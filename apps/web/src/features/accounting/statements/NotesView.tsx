@@ -9,7 +9,16 @@ import { acc } from './format';
 
 export function NoteTableView({ t }: { t: NoteTable }) {
   const cell = (v: string | number | null, i: number) =>
-    t.align[i] === 'right' && v !== null && v !== '' && !Number.isNaN(Number(v)) ? <span className="calk-num">{acc(v)}</span> : v;
+    t.align[i] === 'right' && v !== null && v !== '' && !Number.isNaN(Number(v)) ? (
+      <span className="calk-num">{acc(v)}</span>
+    ) : i === 0 && typeof v === 'string' && /^[0-9]-[0-9]{4}\s/.test(v) ? (
+      <>
+        <span className="calk-code">{v.slice(0, 6)}</span>
+        {v.slice(6)}
+      </>
+    ) : (
+      v
+    );
   const data = t.rows.map((r, i) => ({ key: i, r }));
   return (
     <div style={{ margin: '8px 0 18px' }}>
@@ -20,15 +29,16 @@ export function NoteTableView({ t }: { t: NoteTable }) {
         bordered
         pagination={false}
         dataSource={data}
+        tableLayout="fixed"
         scroll={{ x: 'max-content' }}
-        columns={t.columns.map((c, i) => ({ title: c, align: t.align[i], width: t.align[i] === 'right' ? 150 : undefined, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }), render: (_: unknown, x: { r: (string | number | null)[] }) => cell(x.r[i], i) }))}
+        columns={t.columns.map((c, i) => ({ title: c, align: t.align[i], width: t.align[i] === 'right' ? 150 : i === 0 ? undefined : 120, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }), render: (_: unknown, x: { r: (string | number | null)[] }) => cell(x.r[i], i) }))}
         summary={
           t.total
             ? () => (
                 <Table.Summary.Row>
                   {t.total?.map((v, i) => (
-                    <Table.Summary.Cell key={i} index={i} align={t.align[i]}>
-                      <strong className="calk-num">{typeof v === 'number' || (t.align[i] === 'right' && v !== '' && v !== null && !Number.isNaN(Number(v))) ? acc(v) : v}</strong>
+                    <Table.Summary.Cell key={i} index={i} align={t.align[i]} className="calk-total">
+                      {typeof v === 'number' || (t.align[i] === 'right' && v !== '' && v !== null && !Number.isNaN(Number(v))) ? <strong className="calk-num">{acc(v)}</strong> : <strong>{v}</strong>}
                     </Table.Summary.Cell>
                   ))}
                 </Table.Summary.Row>

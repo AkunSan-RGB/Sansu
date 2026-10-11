@@ -132,3 +132,7 @@ body { background: #F6F6F3; -webkit-font-smoothing: antialiased; }
 .calk .calk-num { display: block; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .calk .calk-table .ant-table-thead > tr > th { background: #f4f6fa; font-weight: 600; }
 .calk .calk-table .ant-table-cell { padding: 6px 10px !important; }
+.calk .calk-table .ant-table-summary .calk-total { border-top: 1.5px solid #1f2937 !important; background: #f8fafc !important; }
+.calk .calk-table .ant-table-summary .calk-total:first-child { text-align: left !important; }
+.calk .calk-table .ant-table-thead > tr > th[class*="ant-table-cell"]:not(:first-child) { text-align: right; }
+.calk .calk-code { display: inline-block; min-width: 56px; margin-right: 8px; color: #6b7280; font-variant-numeric: tabular-nums; }
