@@ -201,11 +201,46 @@ export interface Customer {
   code: string;
   name: string;
   phone: string | null;
+  /** Alamat email untuk pengingat tagihan otomatis */
+  email?: string | null;
   address: string | null;
   creditLimit: string;
   paymentTermDays: number;
   isActive: boolean;
   outstanding?: string;
+}
+
+export type ReminderLevel = 'error' | 'warning' | 'info';
+export interface ReminderItem {
+  key: string;
+  category: 'PIUTANG' | 'UTANG' | 'STOK' | 'PEMBELIAN' | 'PENJUALAN' | 'PAJAK' | 'PERSETUJUAN' | 'SDM' | 'LANGGANAN';
+  level: ReminderLevel;
+  title: string;
+  detail: string;
+  link: string;
+  count?: number;
+  snoozedUntil?: string;
+}
+export interface RemindersResponse {
+  items: ReminderItem[];
+  snoozed?: ReminderItem[];
+  snoozedCount: number;
+  counts: Record<ReminderLevel, number>;
+}
+export interface ReminderSettings {
+  enabled: boolean;
+  arLeadDays: number;
+  apLeadDays: number;
+  grniDays: number;
+  poDays: number;
+  deliveryDays: number;
+  taxLeadDays: number;
+  payrollDay: number;
+  emailDigest: boolean;
+  customerReminders: boolean;
+  customerLeadDays: number;
+  customerRepeatDays: number;
+  customerMaxOverdue: number;
 }
 
 export interface StockBalance {

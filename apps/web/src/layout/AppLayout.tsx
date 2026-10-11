@@ -11,6 +11,7 @@ import Logo from '@/brand/Logo';
 import ServerStatus from '@/components/ServerStatus';
 import AccountStatusBanner from '@/components/AccountStatusBanner';
 import AccountMenu from '@/components/AccountMenu';
+import ReminderBell from '@/components/ReminderBell';
 import { HelpButton } from '@/features/help/HelpCenter';
 import { APP_ICONS, useApps } from '@/lib/apps';
 import { t } from '@/lib/terms';
@@ -419,6 +420,7 @@ export default function AppLayout() {
             </Typography.Text>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ReminderBell />
             <HelpButton />
             <AccountMenu />
           </div>

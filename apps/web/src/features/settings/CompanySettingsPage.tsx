@@ -5,6 +5,7 @@ import {
   BankOutlined,
   BgColorsOutlined,
   ClusterOutlined,
+  BellOutlined,
   FileProtectOutlined,
   PercentageOutlined,
   SolutionOutlined,
@@ -24,6 +25,7 @@ import { rupiahInput } from '@/lib/format';
 import BrandingCard from './BrandingCard';
 import BusinessModelCard from './BusinessModelCard';
 import InventoryMethodCard from './InventoryMethodCard';
+import ReminderSettingsCard from './ReminderSettingsCard';
 import EntityProfileWizard from './EntityProfileWizard';
 import { t } from '@/lib/terms';
 
@@ -403,6 +405,16 @@ export default function CompanySettingsPage() {
       children: (
         <div style={wide}>
           <BrandingCard />
+        </div>
+      ),
+    },
+    {
+      key: 'pengingat',
+      label: 'Pengingat',
+      icon: <BellOutlined />,
+      children: (
+        <div style={wide}>
+          <ReminderSettingsCard />
         </div>
       ),
     },

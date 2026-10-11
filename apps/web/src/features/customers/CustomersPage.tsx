@@ -15,6 +15,7 @@ interface FormValues {
   code: string;
   name: string;
   phone?: string;
+  email?: string;
   address?: string;
   creditLimit: number;
   paymentTermDays: number;
@@ -42,6 +43,7 @@ export default function CustomersPage() {
       form.setFieldsValue({
         ...c,
         phone: c.phone ?? undefined,
+        email: c.email ?? undefined,
         address: c.address ?? undefined,
         creditLimit: Number(c.creditLimit),
       });
@@ -109,6 +111,9 @@ export default function CustomersPage() {
           </Form.Item>
           <Form.Item name="phone" label="Telepon">
             <Input />
+          </Form.Item>
+          <Form.Item name="email" label="Email" extra="Untuk pengingat tagihan otomatis" rules={[{ type: 'email', message: 'Format email belum benar' }]}>
+            <Input placeholder="keuangan@pelanggan.co.id" />
           </Form.Item>
           <Form.Item name="address" label="Alamat">
             <Input.TextArea rows={2} />
