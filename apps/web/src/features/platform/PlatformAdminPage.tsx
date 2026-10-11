@@ -537,6 +537,11 @@ function TenantDrawer({ id, onClose }: { id: string | null; onClose: () => void 
   });
   const plans = useQuery({ queryKey: [...KEYS, 'plans'], queryFn: () => get<Plan[]>('/platform-admin/plans') });
   const [form] = Form.useForm();
+  const { message } = App.useApp();
+  const [resetUrl, setResetUrl] = useState<{ email: string; url: string } | null>(null);
+  const resetLink = useAction((userId: string) => post<{ email: string; url: string; expiresInMinutes: number }>(`/platform-admin/users/${userId}/reset-link`), {
+    onSuccess: (r) => setResetUrl({ email: r.email, url: r.url }),
+  });
   const save = useAction((v: Record<string, unknown>) => patch(`/platform-admin/tenants/${id}/subscription`, v), {
     success: 'Langganan diperbarui',
     invalidate: KEYS,
@@ -544,7 +549,7 @@ function TenantDrawer({ id, onClose }: { id: string | null; onClose: () => void 
   const billing = useBillingEnabled();
   const d = q.data;
   return (
-    <Drawer open={!!id} onClose={onClose} width={720} title={d?.tenant.name ?? 'Perusahaan'} destroyOnHidden>
+    <><Drawer open={!!id} onClose={onClose} width={720} title={d?.tenant.name ?? 'Perusahaan'} destroyOnHidden>
       <QueryState q={q}>
         {(d) => (
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -685,6 +690,14 @@ function TenantDrawer({ id, onClose }: { id: string | null; onClose: () => void 
                     dataIndex: 'lastLoginAt',
                     render: (v) => (v ? dayjs(v).format('DD MMM YY HH:mm') : '-'),
                   },
+                  {
+                    title: '',
+                    render: (_, u) => (
+                      <Button size="small" disabled={!u.isActive} loading={resetLink.isPending && resetLink.variables === u.id} onClick={() => resetLink.mutate(u.id)}>
+                        Tautan atur ulang sandi
+                      </Button>
+                    ),
+                  },
                 ]}
               />
             </Card>
@@ -714,6 +727,15 @@ function TenantDrawer({ id, onClose }: { id: string | null; onClose: () => void 
         )}
       </QueryState>
     </Drawer>
+      <Modal open={!!resetUrl} onCancel={() => setResetUrl(null)} footer={<Button onClick={() => setResetUrl(null)}>Tutup</Button>} title="Tautan atur ulang sandi" destroyOnHidden>
+        <Typography.Paragraph>
+          Berikan tautan ini hanya kepada <strong>{resetUrl?.email}</strong> (lewat WhatsApp atau chat pribadi). Berlaku 1 jam, sekali pakai; tautan lama pengguna ini dibatalkan.
+        </Typography.Paragraph>
+        <Input.TextArea readOnly rows={3} value={resetUrl?.url} onFocus={(e) => e.target.select()} />
+        <Button style={{ marginTop: 8 }} onClick={() => navigator.clipboard.writeText(resetUrl?.url ?? '').then(() => message.success('Tautan disalin'))}>
+          Salin tautan
+        </Button>
+      </Modal></>
   );
 }
 
