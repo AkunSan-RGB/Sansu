@@ -20,3 +20,18 @@ describe('pengenalan judul kolom impor', () => {
     });
   });
 });
+
+describe('templat impor', () => {
+  it('judul kolom templat dikenali kembali oleh pembaca dan lembar Petunjuk ada', async () => {
+    const { buildTemplate, IMPORT_SPECS } = await import('./importSpec');
+    const ExcelJS = await import('exceljs');
+    for (const spec of IMPORT_SPECS) {
+      const bytes = await buildTemplate(spec, ((ExcelJS as unknown as { default?: typeof ExcelJS }).default ?? ExcelJS) as typeof ExcelJS);
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(bytes as unknown as ArrayBuffer);
+      expect(wb.worksheets.map((w) => w.name)).toEqual(['Data', 'Petunjuk']);
+      const header = (wb.getWorksheet('Data')!.getRow(1).values as unknown[]).slice(1);
+      expect(Object.keys(matchHeaders(spec, header)).length).toBe(spec.columns.length);
+    }
+  });
+});

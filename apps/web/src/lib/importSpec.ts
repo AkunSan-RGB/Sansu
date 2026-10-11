@@ -180,24 +180,107 @@ export function findHeaderRow(spec: KindSpec, grid: unknown[][]): number {
   return best;
 }
 
-/** Buat & unduh templat Excel: lembar data (judul + contoh) dan lembar petunjuk */
-export async function downloadTemplate(spec: KindSpec) {
-  const XLSX = await import('xlsx');
+const MONEY_KEYS = new Set(['harga_jual', 'limit_kredit', 'harga_pokok', 'sisa_piutang', 'sisa_utang', 'debit', 'kredit']);
+const NUM_KEYS = new Set(['isi2', 'isi3', 'qty', 'termin_hari']);
+
+/** Susun berkas templat (lembar Data berformat + lembar Petunjuk) */
+export async function buildTemplate(spec: KindSpec, ExcelJS: typeof import('exceljs')): Promise<Uint8Array> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'SANSU';
+  const font = { name: 'Calibri', size: 11 };
+  const thin = { style: 'thin' as const, color: { argb: 'FFD9D9D9' } };
+  const box = { top: thin, left: thin, bottom: thin, right: thin };
+
+  // ── Lembar Data: baris 1 = judul kolom, lalu contoh; kolom kode/nomor berformat teks agar nol di depan tidak hilang
+  const ws = wb.addWorksheet('Data', { views: [{ state: 'frozen', ySplit: 1 }] });
+  ws.columns = spec.columns.map((c) => ({
+    key: c.key,
+    width: Math.min(40, Math.max(14, c.label.length + 6, ...c.example.map((e) => String(e).length + 4))),
+  }));
+  const head = ws.addRow(spec.columns.map((c) => c.label));
+  head.height = 24;
+  head.eachCell((cell, n) => {
+    const c = spec.columns[n - 1];
+    cell.font = { ...font, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: c.required ? 'FF1F3A5F' : 'FF6B7B93' } };
+    cell.alignment = { vertical: 'middle', horizontal: MONEY_KEYS.has(c.key) || NUM_KEYS.has(c.key) ? 'right' : 'left', wrapText: true };
+    cell.border = box;
+    cell.note = { texts: [{ text: `${c.required ? 'WAJIB' : 'Opsional'}${c.hint ? ' — ' + c.hint : ''}`, font: { size: 10 } }] };
+  });
+  spec.columns.forEach((c, i) => {
+    const col = ws.getColumn(i + 1);
+    col.numFmt = MONEY_KEYS.has(c.key) ? '#,##0' : NUM_KEYS.has(c.key) ? '#,##0' : '@';
+    col.alignment = { horizontal: MONEY_KEYS.has(c.key) || NUM_KEYS.has(c.key) ? 'right' : 'left', vertical: 'middle' };
+  });
   const rows = Math.max(...spec.columns.map((c) => c.example.length));
-  const data = [spec.columns.map((c) => c.key), ...Array.from({ length: rows }, (_, i) => spec.columns.map((c) => c.example[i] ?? ''))];
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  ws['!cols'] = spec.columns.map((c) => ({ wch: Math.max(14, c.key.length + 4) }));
-  const help = XLSX.utils.aoa_to_sheet([
-    [`Templat impor ${spec.title} — SANSU`],
-    [spec.description],
-    ['Ganti baris contoh dengan data Anda. Jangan ubah baris judul (baris 1). Angka boleh ditulis 1250000 atau 1.250.000.'],
-    [],
-    ['Kolom', 'Wajib?', 'Keterangan'],
-    ...spec.columns.map((c) => [c.key, c.required ? 'Wajib' : 'Opsional', `${c.label}${c.hint ? ' — ' + c.hint : ''}`]),
-  ]);
-  help['!cols'] = [{ wch: 18 }, { wch: 10 }, { wch: 80 }];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Data');
-  XLSX.utils.book_append_sheet(wb, help, 'Petunjuk');
-  XLSX.writeFile(wb, `templat-impor-${spec.kind}.xlsx`);
+  for (let r = 0; r < rows; r++) {
+    const row = ws.addRow(spec.columns.map((c) => c.example[r] ?? ''));
+    row.eachCell({ includeEmpty: true }, (cell) => {
+      cell.font = { ...font, italic: true, color: { argb: 'FF7F7F7F' } };
+      cell.border = box;
+    });
+  }
+  // baris kosong berbingkai di bawah contoh sebagai ruang isian
+  for (let r = 0; r < 20; r++) {
+    const row = ws.addRow(spec.columns.map(() => ''));
+    row.eachCell({ includeEmpty: true }, (cell) => {
+      cell.font = font;
+      cell.border = box;
+    });
+  }
+  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: spec.columns.length } };
+
+  // ── Lembar Petunjuk
+  const hs = wb.addWorksheet('Petunjuk', { views: [{ showGridLines: false }] });
+  hs.columns = [{ width: 24 }, { width: 12 }, { width: 90 }];
+  const title = hs.addRow([`Templat impor ${spec.title}`]);
+  title.font = { ...font, size: 16, bold: true, color: { argb: 'FF1F3A5F' } };
+  hs.addRow([spec.description]).font = font;
+  hs.addRow([]);
+  const steps = [
+    '1. Isi lembar "Data" mulai dari baris pertama di bawah judul; baris abu-abu miring hanyalah CONTOH — hapus atau timpa sebelum diunggah.',
+    '2. Jangan mengubah, menambah, atau menghapus baris judul kolom (baris 1). Urutan kolom boleh berbeda.',
+    '3. Judul biru tua = kolom WAJIB; abu-abu = opsional. Arahkan kursor ke judul untuk melihat catatan.',
+    '4. Angka boleh ditulis 1250000 atau 1.250.000, tanpa simbol Rp. Tanggal ditulis 31/12/2025.',
+    '5. Satu baris = satu data. Kode (SKU, pelanggan, supplier) tidak boleh kembar dalam satu berkas.',
+  ];
+  for (const t of steps) {
+    const r = hs.addRow([t]);
+    r.font = font;
+    hs.mergeCells(r.number, 1, r.number, 3);
+    r.alignment = { wrapText: true, vertical: 'top' };
+    r.height = 32;
+  }
+  hs.addRow([]);
+  const th = hs.addRow(['Kolom', 'Wajib?', 'Keterangan']);
+  th.eachCell((cell) => {
+    cell.font = { ...font, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3A5F' } };
+    cell.border = box;
+  });
+  for (const c of spec.columns) {
+    const r = hs.addRow([c.label, c.required ? 'Wajib' : 'Opsional', c.hint || '—']);
+    r.eachCell((cell, n) => {
+      cell.font = n === 2 && c.required ? { ...font, bold: true, color: { argb: 'FFC0392B' } } : font;
+      cell.border = box;
+      cell.alignment = { vertical: 'top', wrapText: true };
+    });
+  }
+  const buf = await wb.xlsx.writeBuffer();
+  return new Uint8Array(buf as ArrayBuffer);
+}
+
+/** Buat & unduh templat Excel */
+export async function downloadTemplate(spec: KindSpec) {
+  const ExcelJS = await import('exceljs');
+  const bytes = await buildTemplate(spec, (ExcelJS as unknown as { default?: typeof ExcelJS }).default ?? ExcelJS);
+  const blob = new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `templat-impor-${spec.kind}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }

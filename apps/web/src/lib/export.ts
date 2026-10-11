@@ -1,6 +1,7 @@
 /** Ekspor laporan ke Excel (.xlsx) dan cetak / simpan PDF lewat dialog cetak browser. */
 
 import type { SheetSpec } from './xlsx/book';
+import { sheetsToCsv, type CsvOptions } from './xlsx/csv';
 
 export type { SheetSpec } from './xlsx/book';
 export { SheetBuilder } from './xlsx/book';
@@ -18,6 +19,19 @@ export async function exportExcel(filename: string, sheets: SheetSpec[]) {
   const a = document.createElement('a');
   a.href = url;
   a.download = (filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`).replace(/[\\/:*?"<>|]+/g, '-');
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+/** Unduh laporan sebagai CSV (teks polos) */
+export function exportCsv(filename: string, sheets: SheetSpec[], options: CsvOptions) {
+  const blob = new Blob([sheetsToCsv(sheets, options)], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (filename.endsWith('.csv') ? filename : `${filename}.csv`).replace(/[\\/:*?"<>|]+/g, '-');
   document.body.appendChild(a);
   a.click();
   a.remove();
