@@ -101,6 +101,7 @@ const MENU: Group[] = [
     label: t('Pembelian'),
     icon: APP_ICONS.purchase,
     children: [
+      { key: '/purchase-requests', label: 'Permintaan beli' },
       { key: '/purchase-orders', label: t('Purchase Order') },
       { key: '/goods-receipts', label: 'Penerimaan barang' },
       { key: '/purchase-invoices', label: t('Faktur & hutang') },

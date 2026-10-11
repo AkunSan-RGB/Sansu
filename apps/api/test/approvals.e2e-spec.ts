@@ -49,7 +49,7 @@ describe('Persetujuan (e2e)', () => {
     await http.put('/api/approvals/policy').set(as(finance)).send({ purchaseOrder: 1 }).expect(403);
     await http.put('/api/approvals/policy').set(as(owner)).send({ purchaseOrder: -5 }).expect(400);
     const p = (await http.put('/api/approvals/policy').set(as(owner)).send({ purchaseOrder: 1000000, manualJournal: 5000000 }).expect(200)).body;
-    expect(p).toEqual({ purchaseOrder: 1000000, manualJournal: 5000000 });
+    expect(p).toMatchObject({ purchaseOrder: 1000000, manualJournal: 5000000 });
   });
 
   it('pesanan di bawah batas langsung dikonfirmasi; di atas batas menunggu persetujuan', async () => {

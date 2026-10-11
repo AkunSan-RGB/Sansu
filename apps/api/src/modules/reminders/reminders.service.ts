@@ -86,6 +86,8 @@ const AUDIENCE: Record<string, readonly string[]> = {
   'delivery-not-invoiced': ['OWNER', 'ADMIN', 'FINANCE', 'SALES'],
   tax: ['OWNER', 'ADMIN', 'FINANCE'],
   approvals: ['OWNER', 'ADMIN'],
+  'pr-pending': ['OWNER', 'ADMIN'],
+  'pr-approved': ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE'],
   payroll: ['OWNER', 'ADMIN', 'FINANCE', 'HR'],
   subscription: ['OWNER', 'ADMIN'],
 };
@@ -294,6 +296,21 @@ export class RemindersService {
     const ap = (await this.rows<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM approval_requests WHERE tenant_id = ${tenantId} AND status = 'PENDING'`))[0];
     if (ap?.n) {
       items.push({ key: 'approvals', category: 'PERSETUJUAN', level: 'warning', title: `${ap.n} permintaan persetujuan menunggu keputusan`, detail: 'Pesanan pembelian atau jurnal manual bernilai besar', link: '/approvals', count: ap.n });
+    }
+
+    // ---- permintaan pembelian: menunggu keputusan & sudah disetujui tapi belum dipesan ----
+    if (on.has('purchase')) {
+      const pr = (await this.rows<{ pending: number; oldest: number; approved: number }>(sql`
+        SELECT COUNT(*) FILTER (WHERE status = 'SUBMITTED')::int AS pending,
+               COALESCE(MAX(CURRENT_DATE - COALESCE(submitted_at, created_at)::date) FILTER (WHERE status = 'SUBMITTED'), 0)::int AS oldest,
+               COUNT(*) FILTER (WHERE status = 'APPROVED')::int AS approved
+        FROM purchase_requests WHERE tenant_id = ${tenantId}`))[0];
+      if (pr?.pending) {
+        items.push({ key: 'pr-pending', category: 'PERSETUJUAN', level: pr.oldest >= 2 ? 'error' : 'warning', title: `${pr.pending} permintaan pembelian menunggu persetujuan`, detail: pr.oldest >= 1 ? `Yang terlama menunggu ${pr.oldest} hari` : 'Segera putuskan agar pembelian tidak tertunda', link: '/purchase-requests?status=SUBMITTED', count: pr.pending });
+      }
+      if (pr?.approved) {
+        items.push({ key: 'pr-approved', category: 'PEMBELIAN', level: 'info', title: `${pr.approved} permintaan pembelian disetujui, belum dijadikan PO`, detail: 'Buka permintaan lalu pilih "Buat PO"', link: '/purchase-requests?status=APPROVED', count: pr.approved });
+      }
     }
 
     // ---- gaji bulan berjalan ----

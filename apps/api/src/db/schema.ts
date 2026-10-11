@@ -659,6 +659,55 @@ export const purchaseOrderLines = pgTable('purchase_order_lines', {
   billedAmount: money('billed_amount').notNull().default('0'),
 });
 
+/** Permintaan pembelian internal (gudang / divisi) — disetujui lalu diubah menjadi pesanan pembelian per supplier */
+export const PURCHASE_REQUEST_STATUSES = ['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'CONVERTED', 'CANCELLED'] as const;
+export type PurchaseRequestStatus = (typeof PURCHASE_REQUEST_STATUSES)[number];
+
+export const purchaseRequests = pgTable(
+  'purchase_requests',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    date: date('date').notNull(),
+    warehouseId: uuid('warehouse_id')
+      .notNull()
+      .references(() => warehouses.id),
+    /** Barang dibutuhkan paling lambat tanggal ini */
+    neededBy: date('needed_by'),
+    status: text('status').$type<PurchaseRequestStatus>().notNull().default('DRAFT'),
+    notes: text('notes'),
+    requestedById: uuid('requested_by_id'),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    decidedById: uuid('decided_by_id'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
+    /** Disetujui otomatis karena nilainya di bawah batas persetujuan otomatis */
+    autoApproved: boolean('auto_approved').notNull().default(false),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('purchase_requests_number_uq').on(t.tenantId, t.number), index('purchase_requests_status_idx').on(t.tenantId, t.status)],
+);
+
+export const purchaseRequestLines = pgTable('purchase_request_lines', {
+  id: id(),
+  requestId: uuid('request_id')
+    .notNull()
+    .references(() => purchaseRequests.id, { onDelete: 'cascade' }),
+  productId: uuid('product_id')
+    .notNull()
+    .references(() => products.id),
+  uom: text('uom').notNull(),
+  uomFactor: qty('uom_factor').notNull(),
+  qty: qty('qty').notNull(),
+  /** Supplier usulan (opsional; bisa ditentukan saat menjadi PO) */
+  supplierId: uuid('supplier_id').references(() => suppliers.id),
+  /** Perkiraan harga beli per `uom`, belum PPN (opsional) */
+  estPrice: money('est_price'),
+  /** Pesanan pembelian hasil konversi; kosong = belum dipesan */
+  purchaseOrderId: uuid('purchase_order_id').references(() => purchaseOrders.id),
+});
+
 /**
  * Penerimaan barang (GRN) atas pesanan pembelian — mata rantai antara pesanan dan faktur:
  *   pesanan → penerimaan (bisa bertahap) → faktur supplier (bisa bertahap) → pembayaran
@@ -1492,6 +1541,17 @@ export const goodsReceiptLinesRelations = relations(goodsReceiptLines, ({ one })
   receipt: one(goodsReceipts, { fields: [goodsReceiptLines.receiptId], references: [goodsReceipts.id] }),
   product: one(products, { fields: [goodsReceiptLines.productId], references: [products.id] }),
 }));
+export const purchaseRequestsRelations = relations(purchaseRequests, ({ one, many }) => ({
+  warehouse: one(warehouses, { fields: [purchaseRequests.warehouseId], references: [warehouses.id] }),
+  lines: many(purchaseRequestLines),
+}));
+export const purchaseRequestLinesRelations = relations(purchaseRequestLines, ({ one }) => ({
+  request: one(purchaseRequests, { fields: [purchaseRequestLines.requestId], references: [purchaseRequests.id] }),
+  product: one(products, { fields: [purchaseRequestLines.productId], references: [products.id] }),
+  supplier: one(suppliers, { fields: [purchaseRequestLines.supplierId], references: [suppliers.id] }),
+  order: one(purchaseOrders, { fields: [purchaseRequestLines.purchaseOrderId], references: [purchaseOrders.id] }),
+}));
+
 export const purchaseOrderLinesRelations = relations(purchaseOrderLines, ({ one }) => ({
   order: one(purchaseOrders, { fields: [purchaseOrderLines.orderId], references: [purchaseOrders.id] }),
   product: one(products, { fields: [purchaseOrderLines.productId], references: [products.id] }),

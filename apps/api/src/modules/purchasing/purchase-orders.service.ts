@@ -68,8 +68,14 @@ export class PurchaseOrdersService {
   }
 
   async create(user: AuthUser, dto: CreatePurchaseOrderDto) {
+    const id = await this.db.transaction((tx) => this.createIn(tx, user, dto));
+    return this.get(user.tenantId, id);
+  }
+
+  /** Buat PO draft di dalam transaksi pemanggil (dipakai juga oleh konversi permintaan pembelian) */
+  async createIn(tx: Tx, user: AuthUser, dto: CreatePurchaseOrderDto): Promise<string> {
     const date = toDocDate(dto.date);
-    const id = await this.db.transaction(async (tx) => {
+    {
       const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
       const [supplier] = await tx
         .select()
@@ -114,8 +120,7 @@ export class PurchaseOrdersService {
       );
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PurchaseOrder', entityId: order.id });
       return order.id;
-    });
-    return this.get(user.tenantId, id);
+    }
   }
 
   async confirm(user: AuthUser, id: string) {
