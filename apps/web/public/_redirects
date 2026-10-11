@@ -1,2 +1,7 @@
 # Netlify (termasuk Netlify Drop): aplikasi satu halaman — semua alamat dikembalikan ke index.html agar /login dkk tidak 404.
 /*  /index.html  200
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+  force = true
