@@ -305,6 +305,7 @@ export interface SalesOrder {
 }
 
 export interface Invoice {
+  returnedForeign?: string;
   /** Mata uang dokumen (ISO); kosong/IDR = Rupiah. Nilai rupiah lain memakai kurs `fxRate` */
   currency?: string;
   fxRate?: string;
@@ -502,6 +503,7 @@ export interface GoodsReceipt {
 }
 
 export interface PurchaseInvoice {
+  returnedForeign?: string;
   /** Mata uang dokumen (ISO); kosong/IDR = Rupiah. Nilai rupiah lain memakai kurs `fxRate` */
   currency?: string;
   fxRate?: string;

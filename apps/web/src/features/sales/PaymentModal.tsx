@@ -11,9 +11,9 @@ export const outstanding = (i: Pick<Invoice, 'total' | 'paidAmount' | 'returnedA
 
 /** Terima pembayaran piutang — dipakai di daftar faktur & detail faktur */
 /** Sisa tagihan dalam mata uang faktur (Rupiah untuk faktur rupiah) */
-export const outstandingForeign = (i: Pick<Invoice, 'totalForeign' | 'paidForeign'>) => Number(i.totalForeign ?? 0) - Number(i.paidForeign ?? 0);
+export const outstandingForeign = (i: Pick<Invoice, 'totalForeign' | 'paidForeign' | 'returnedForeign'>) => Number(i.totalForeign ?? 0) - Number(i.paidForeign ?? 0) - Number(i.returnedForeign ?? 0);
 
-export default function PaymentModal({ invoice, onClose }: { invoice: Pick<Invoice, 'id' | 'number' | 'total' | 'paidAmount' | 'returnedAmount' | 'customer' | 'currency' | 'fxRate' | 'totalForeign' | 'paidForeign'> | null; onClose: () => void }) {
+export default function PaymentModal({ invoice, onClose }: { invoice: Pick<Invoice, 'id' | 'number' | 'total' | 'paidAmount' | 'returnedAmount' | 'customer' | 'currency' | 'fxRate' | 'totalForeign' | 'paidForeign' | 'returnedForeign'> | null; onClose: () => void }) {
   const [form] = Form.useForm();
   const pay = useAction(
     (v: { amount: number; method: string; cashAccountId?: string; date: string; notes?: string; fxRate?: number }) =>

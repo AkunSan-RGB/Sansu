@@ -5,6 +5,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { toDocDate } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
+import { returnForeign } from '../../common/utils/fx';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import {
@@ -112,7 +113,6 @@ export class ReturnsService {
       await this.lockRow(tx, 'invoices', dto.invoiceId, user.tenantId);
       const inv = await tx.query.invoices.findFirst({ where: eq(invoices.id, dto.invoiceId), with: { lines: true } });
       if (!inv) throw new NotFoundException('Faktur tidak ditemukan');
-      if (inv.currency !== 'IDR') throw new BadRequestException(`Faktur dalam ${inv.currency}: retur belum didukung. Catat pengurangan tagihan lewat jurnal penyesuaian.`);
       if (date < inv.date) throw new BadRequestException('Tanggal retur tidak boleh sebelum tanggal faktur');
       if (inv.kind === 'SERVICE') {
         throw new BadRequestException('Faktur jasa tidak bisa diretur. Untuk pengurangan tagihan jasa, catat nota kredit lewat jurnal penyesuaian.');
@@ -204,10 +204,12 @@ export class ReturnsService {
       });
 
       const returned = D(inv.returnedAmount).plus(total);
+      const retForeign = inv.currency === 'IDR' ? ZERO : returnForeign({ returnIdr: total, totalIdr: inv.total, paidIdr: inv.paidAmount, returnedIdr: inv.returnedAmount, totalForeign: inv.totalForeign ?? 0, paidForeign: inv.paidForeign, returnedForeign: inv.returnedForeign, rate: inv.fxRate });
       await tx
         .update(invoices)
         .set({
           returnedAmount: returned.toFixed(2),
+          returnedForeign: D(inv.returnedForeign).plus(retForeign).toFixed(2),
           status: returned.plus(inv.paidAmount).gte(inv.total) ? 'PAID' : 'PARTIAL',
         })
         .where(eq(invoices.id, inv.id));
@@ -250,7 +252,6 @@ export class ReturnsService {
         with: { lines: true },
       });
       if (!inv) throw new NotFoundException('Faktur pembelian tidak ditemukan');
-      if (inv.currency !== 'IDR') throw new BadRequestException(`Faktur dalam ${inv.currency}: retur belum didukung. Minta nota kredit supplier dan catat lewat jurnal penyesuaian.`);
       if (date < inv.date) throw new BadRequestException('Tanggal retur tidak boleh sebelum tanggal faktur');
       if (inv.kind !== 'GOODS' || !inv.warehouseId) {
         throw new BadRequestException('Retur hanya untuk faktur barang dagang. Untuk tagihan biaya/aset, minta nota kredit supplier dan catat lewat jurnal.');
@@ -337,10 +338,12 @@ export class ReturnsService {
       });
 
       const returned = D(inv.returnedAmount).plus(total);
+      const retForeign = inv.currency === 'IDR' ? ZERO : returnForeign({ returnIdr: total, totalIdr: inv.total, paidIdr: inv.paidAmount, returnedIdr: inv.returnedAmount, totalForeign: inv.totalForeign ?? 0, paidForeign: inv.paidForeign, returnedForeign: inv.returnedForeign, rate: inv.fxRate });
       await tx
         .update(purchaseInvoices)
         .set({
           returnedAmount: returned.toFixed(2),
+          returnedForeign: D(inv.returnedForeign).plus(retForeign).toFixed(2),
           status: returned.plus(inv.paidAmount).gte(inv.total) ? 'PAID' : 'PARTIAL',
         })
         .where(eq(purchaseInvoices.id, inv.id));

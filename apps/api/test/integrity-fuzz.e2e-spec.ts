@@ -140,9 +140,9 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
       const badStatus = await q(`SELECT number, status, total, paid_amount, returned_amount FROM invoices WHERE tenant_id=$1 AND ((status='PAID') <> (paid_amount + returned_amount >= total - 0.005))`, [tenantId]);
       expect({ ctx, inconsistentInvoiceStatus: badStatus }).toEqual({ ctx, inconsistentInvoiceStatus: [] });
 
-      const badFx = await q(`SELECT number FROM invoices WHERE tenant_id=$1 AND currency<>'IDR' AND (paid_foreign<0 OR paid_foreign > total_foreign + 0.005 OR ((status='PAID') <> (paid_foreign >= total_foreign - 0.005)))`, [tenantId]);
+      const badFx = await q(`SELECT number FROM invoices WHERE tenant_id=$1 AND currency<>'IDR' AND (paid_foreign<0 OR returned_foreign<0 OR paid_foreign + returned_foreign > total_foreign + 0.005 OR ((status='PAID') <> (paid_foreign + returned_foreign >= total_foreign - 0.005)))`, [tenantId]);
       expect({ ctx, inconsistentForeignInvoices: badFx }).toEqual({ ctx, inconsistentForeignInvoices: [] });
-      const badFxAp = await q(`SELECT number FROM purchase_invoices WHERE tenant_id=$1 AND currency<>'IDR' AND (paid_foreign<0 OR paid_foreign > total_foreign + 0.005 OR ((status='PAID') <> (paid_foreign >= total_foreign - 0.005)))`, [tenantId]);
+      const badFxAp = await q(`SELECT number FROM purchase_invoices WHERE tenant_id=$1 AND currency<>'IDR' AND (paid_foreign<0 OR returned_foreign<0 OR paid_foreign + returned_foreign > total_foreign + 0.005 OR ((status='PAID') <> (paid_foreign + returned_foreign >= total_foreign - 0.005)))`, [tenantId]);
       expect({ ctx, inconsistentForeignBills: badFxAp }).toEqual({ ctx, inconsistentForeignBills: [] });
       // laba/rugi kurs terealisasi tercatat di pembayaran = saldo akun selisih kurs dari jurnal pembayaran
       const fxJournal = Number((await q(`SELECT COALESCE(SUM(l.credit - l.debit),0) AS v FROM journal_lines l JOIN journal_entries j ON j.id=l.journal_id JOIN accounts a ON a.id=l.account_id WHERE j.tenant_id=$1 AND a.system_key IN ('FX_GAIN','FX_LOSS') AND j.source_type IN ('PAYMENT','SUPPLIER_PAYMENT')`, [tenantId]))[0].v);
@@ -251,14 +251,16 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
         await tryPost('pay-ap', '/purchase-invoices/payments', { purchaseInvoiceId: id, amount: String(amount) });
       },
       async salesReturn() {
-        if (!salesInvoices.length) return;
-        const inv = (await call('get', `/invoices/${pick(salesInvoices)}`)).body;
+        const pool = [...salesInvoices, ...fxSales];
+        if (!pool.length) return;
+        const inv = (await call('get', `/invoices/${pick(pool)}`)).body;
         const line = pick(inv.lines as { id: string; qty: string }[]);
         await tryPost('ret-s', '/sales-returns', { invoiceId: inv.id, lines: [{ invoiceLineId: line.id, qty: String(int(1, Math.max(1, Math.floor(Number(line.qty))))) }] });
       },
       async purchaseReturn() {
-        if (!purchaseInvoices.length) return;
-        const pi = (await call('get', `/purchase-invoices/${pick(purchaseInvoices)}`)).body;
+        const pool = [...purchaseInvoices, ...fxPurchases];
+        if (!pool.length) return;
+        const pi = (await call('get', `/purchase-invoices/${pick(pool)}`)).body;
         if (!pi.lines?.length) return;
         const line = pick(pi.lines as { id: string; qty: string }[]);
         await tryPost('ret-p', '/purchase-returns', { invoiceId: pi.id, reason: 'Uji', lines: [{ invoiceLineId: line.id, qty: String(int(1, Math.max(1, Math.floor(Number(line.qty))))) }] });
@@ -367,7 +369,7 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
         if (!fxSales.length) return;
         const id = pick(fxSales);
         const inv = (await call('get', `/invoices/${id}`)).body;
-        const open = Number(inv.totalForeign) - Number(inv.paidForeign);
+        const open = Number(inv.totalForeign) - Number(inv.paidForeign) - Number(inv.returnedForeign);
         const amount = rand() < 0.5 ? open : Math.max(0.01, Math.floor(open * rand() * 100) / 100);
         await tryPost('pay-usd', '/payments', { invoiceId: id, amount: amount.toFixed(2), fxRate: String(int(150, 170) * 100), cashAccountId: pick([kas, bank]), method: 'TRANSFER' });
       },
@@ -382,7 +384,7 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
         if (!fxPurchases.length) return;
         const id = pick(fxPurchases);
         const pi = (await call('get', `/purchase-invoices/${id}`)).body;
-        const open = Number(pi.totalForeign) - Number(pi.paidForeign);
+        const open = Number(pi.totalForeign) - Number(pi.paidForeign) - Number(pi.returnedForeign);
         const amount = rand() < 0.5 ? open : Math.max(0.01, Math.floor(open * rand() * 100) / 100);
         await tryPost('pay-usd-ap', '/purchase-invoices/payments', { purchaseInvoiceId: id, amount: amount.toFixed(2), fxRate: String(int(150, 170) * 100), cashAccountId: bank });
       },

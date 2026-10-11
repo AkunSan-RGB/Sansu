@@ -200,7 +200,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     tips: [
       'Faktur beli valas memakai kurs PO. Bila kurs berubah sebelum barang tiba, ubah kurs pada PO (saat masih draft).',
-      'Belum didukung: retur, uang muka, dan potongan PPh pada faktur valas; rekening bank dalam valas; PO dalam valas lewat pembelian cepat dengan harga faktur berbeda. Kas dan bank tetap dalam Rupiah.',
+      'Retur atas faktur valas mengurangi piutang/utang pada kurs faktur (tidak menimbulkan selisih kurs); sisa valasnya ikut turun.',
+      'Belum didukung: uang muka pada faktur valas; rekening bank dalam valas; harga faktur beli yang berbeda dari PO valas; pembelian cepat, tagihan biaya/aset, dan faktur jasa dalam valas. Kas dan bank tetap dalam Rupiah.',
       'CALK memuat kebijakan mata uang asing, catatan selisih kurs (terealisasi dan belum), dan, untuk IFRS, risiko mata uang beserta sensitivitas 10%.',
     ],
     keywords: 'valas kurs dolar usd eur ekspor impor selisih kurs penilaian ulang mata uang asing psak 10 ias 21 jisdor',

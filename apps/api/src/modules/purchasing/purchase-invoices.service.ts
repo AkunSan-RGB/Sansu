@@ -714,7 +714,7 @@ export class PurchaseInvoicesService {
       const outstanding = D(inv.total).minus(inv.paidAmount).minus(inv.returnedAmount);
       const foreign = inv.currency !== 'IDR';
       // Faktur valas: `amount` dalam mata uang faktur; hutang berkurang pada kurs faktur, kas keluar pada kurs hari bayar
-      const outstandingForeign = foreign ? D(inv.totalForeign ?? 0).minus(inv.paidForeign) : outstanding;
+      const outstandingForeign = foreign ? D(inv.totalForeign ?? 0).minus(inv.paidForeign).minus(inv.returnedForeign) : outstanding;
       const cur = foreign ? ` ${inv.currency}` : '';
       if (amount.gt(outstandingForeign)) {
         throw new BadRequestException(`Pembayaran ${amount.toFixed(2)}${cur} melebihi sisa hutang ${outstandingForeign.toFixed(2)}${cur}`);
