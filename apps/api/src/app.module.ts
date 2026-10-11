@@ -20,6 +20,7 @@ import { RemindersModule } from './modules/reminders/reminders.module';
 import { HealthModule } from './modules/health/health';
 import { CashModule } from './modules/cash/cash.module';
 import { PurchasingModule } from './modules/purchasing/purchasing.module';
+import { FxModule } from './modules/fx/fx.module';
 import { ReturnsModule } from './modules/returns/returns.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { MasterDataModule } from './modules/master-data/master-data.module';
@@ -67,6 +68,7 @@ import { ProductionModule } from './modules/production/production.module';
     ProductionModule,
     SalesModule,
     PurchasingModule,
+    FxModule,
     ApprovalsModule,
     ReturnsModule,
     CashModule,

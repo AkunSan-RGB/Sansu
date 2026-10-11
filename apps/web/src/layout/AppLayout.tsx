@@ -188,6 +188,7 @@ const MENU: Group[] = [
         section: 'Akhir periode',
         items: [
           { key: '/adjustments', label: 'Jurnal penyesuaian' },
+          { key: '/fx', label: 'Mata uang asing' },
           { key: '/health', label: 'Cek kesehatan' },
           { key: '/ledger', label: 'Buku besar' },
           { key: '/trial-balance', label: 'Neraca saldo' },

@@ -8,6 +8,8 @@ import { SettingsService, taxProfileOf } from '../../common/settings.service';
 import { lineTotal, roundVat } from '../sales/pricing';
 import { addDays, diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, qty4, ZERO } from '../../common/utils/money';
+import { settleForeign } from '../../common/utils/fx';
+import { FxService } from '../fx/fx.service';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import {
@@ -47,6 +49,7 @@ export class PurchaseInvoicesService {
     private readonly assets: AssetsService,
     private readonly settings: SettingsService,
     private readonly approvals: ApprovalsService,
+    private readonly fx: FxService,
   ) {}
 
   list(tenantId: string, q: PurchaseInvoiceQueryDto) {
@@ -230,6 +233,9 @@ export class PurchaseInvoicesService {
   /** Harga faktur per baris pesanan yang menimpa harga PO (kosong = semua memakai harga PO) */
   private priceOverrides(order: Awaited<ReturnType<PurchaseOrdersService['lock']>>, dto: CreatePurchaseInvoiceDto) {
     const m = new Map<string, Dec>();
+    if (dto.prices?.length && order.currency !== 'IDR') {
+      throw new BadRequestException(`PO dalam ${order.currency}: harga faktur mengikuti PO. Ubah harga atau kurs pada PO (sebelum dikonfirmasi) bila berbeda.`);
+    }
     for (const p of dto.prices ?? []) {
       if (!order.lines.some((l) => l.id === p.orderLineId)) throw new BadRequestException('Baris pesanan tidak ditemukan');
       if (m.has(p.orderLineId)) throw new BadRequestException('Harga untuk baris pesanan yang sama tercantum lebih dari sekali');
@@ -238,6 +244,13 @@ export class PurchaseInvoicesService {
       m.set(p.orderLineId, price);
     }
     return m;
+  }
+
+  /** Mata uang faktur mengikuti PO (kurs PO). Total valas = total PO bila faktur menagih seluruhnya, selain itu hasil bagi kurs. */
+  private fxFields(order: Awaited<ReturnType<PurchaseOrdersService['lock']>>, total: Dec) {
+    if (order.currency === 'IDR') return {};
+    const same = total.minus(order.total).abs().lt(0.005);
+    return { currency: order.currency, fxRate: order.fxRate, totalForeign: same && order.totalForeign ? order.totalForeign : money(total.div(order.fxRate)).toFixed(2) };
   }
 
   /** PPN faktur dari DPP-nya (tarif dan pembulatan sesuai pengaturan perusahaan) */
@@ -276,6 +289,7 @@ export class PurchaseInvoicesService {
         total: total.toFixed(2),
         priceVariance: subtotal.minus(order.subtotal).toFixed(2),
         vatCapitalized: capitalize,
+        ...this.fxFields(order, total),
       })
       .returning();
 
@@ -445,6 +459,7 @@ export class PurchaseInvoicesService {
         total: total.toFixed(2),
         priceVariance: subtotal.minus(poSubtotal).toFixed(2),
         vatCapitalized: capitalized,
+        ...this.fxFields(order, total),
       })
       .returning();
 
@@ -697,9 +712,18 @@ export class PurchaseInvoicesService {
       const [supplier] = await tx.select().from(suppliers).where(eq(suppliers.id, inv.supplierId));
 
       const outstanding = D(inv.total).minus(inv.paidAmount).minus(inv.returnedAmount);
-      if (amount.gt(outstanding)) {
-        throw new BadRequestException(`Pembayaran ${amount.toFixed(2)} melebihi sisa hutang ${outstanding.toFixed(2)}`);
+      const foreign = inv.currency !== 'IDR';
+      // Faktur valas: `amount` dalam mata uang faktur; hutang berkurang pada kurs faktur, kas keluar pada kurs hari bayar
+      const outstandingForeign = foreign ? D(inv.totalForeign ?? 0).minus(inv.paidForeign) : outstanding;
+      const cur = foreign ? ` ${inv.currency}` : '';
+      if (amount.gt(outstandingForeign)) {
+        throw new BadRequestException(`Pembayaran ${amount.toFixed(2)}${cur} melebihi sisa hutang ${outstandingForeign.toFixed(2)}${cur}`);
       }
+      const payRate = foreign ? (await this.fx.resolve(tx, user.tenantId, inv.currency, date, dto.fxRate)).rate : D(1);
+      const settle = foreign ? settleForeign({ amountForeign: amount, outstandingForeign, outstandingIdr: outstanding, invoiceRate: inv.fxRate, payRate }) : null;
+      const carrying = settle ? settle.carrying : amount;
+      const cashOut = settle ? settle.cash : amount;
+      const diff = settle ? settle.diff : D(0);
       const cash = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'BANK');
       const number = await this.seq.next(tx, user.tenantId, 'SUPPLIER_PAYMENT', date);
       const [payment] = await tx
@@ -710,7 +734,12 @@ export class PurchaseInvoicesService {
           date,
           supplierId: inv.supplierId,
           purchaseInvoiceId: inv.id,
-          amount: amount.toFixed(2),
+          amount: carrying.toFixed(2),
+          currency: inv.currency,
+          amountForeign: foreign ? amount.toFixed(2) : null,
+          fxRate: foreign ? payRate.toFixed(6) : null,
+          cashAmount: foreign ? cashOut.toFixed(2) : null,
+          fxGainLoss: diff.negated().toFixed(2),
           cashAccountId: cash.id,
           notes: dto.notes,
         })
@@ -724,15 +753,18 @@ export class PurchaseInvoicesService {
         sourceId: payment.id,
         createdById: user.sub,
         lines: [
-          { key: SYS.AP, debit: amount },
-          { accountId: cash.id, credit: amount },
+          { key: SYS.AP, debit: carrying, memo: foreign ? `Faktur ${inv.currency} @ ${D(inv.fxRate).toFixed(2)}` : undefined },
+          { accountId: cash.id, credit: cashOut, memo: foreign ? `${amount.toFixed(2)} ${inv.currency} @ ${payRate.toFixed(2)}` : undefined },
+          // bayar lebih banyak Rupiah dari nilai hutang tercatat = rugi kurs terealisasi; lebih sedikit = laba
+          { key: SYS.FX_LOSS, debit: diff.gt(0) ? diff : 0 },
+          { key: SYS.FX_GAIN, credit: diff.lt(0) ? diff.abs() : 0 },
         ],
       });
 
-      const paid = D(inv.paidAmount).plus(amount);
+      const paid = D(inv.paidAmount).plus(carrying);
       await tx
         .update(purchaseInvoices)
-        .set({ paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' })
+        .set({ paidForeign: foreign ? D(inv.paidForeign).plus(amount).toFixed(2) : inv.paidForeign, paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' })
         .where(eq(purchaseInvoices.id, inv.id));
       await tx.update(supplierPayments).set({ journalId: journal.id }).where(eq(supplierPayments.id, payment.id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'SupplierPayment', entityId: payment.id });

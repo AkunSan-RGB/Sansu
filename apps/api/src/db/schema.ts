@@ -330,6 +330,10 @@ export const salesOrders = pgTable(
     total: money('total').notNull().default('0'),
     /** Harga diinput sudah termasuk PPN; baris disimpan sebagai DPP */
     pricesIncludeVat: boolean('prices_include_vat').notNull().default(false),
+    /** Mata uang dokumen (ISO); IDR = Rupiah. Kolom rupiah lain selalu dalam Rupiah (kurs saat transaksi) */
+    currency: text('currency').notNull().default('IDR'),
+    fxRate: numeric('fx_rate', { precision: 18, scale: 6 }).notNull().default('1'),
+    totalForeign: money('total_foreign'),
     notes: text('notes'),
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
@@ -355,6 +359,8 @@ export const salesOrderLines = pgTable('sales_order_lines', {
   lineTotal: money('line_total').notNull(),
   /** Harga per `uom` termasuk PPN seperti diinput (dokumen harga termasuk PPN) */
   priceInclVat: money('price_incl_vat'),
+  /** Harga per `uom` dalam mata uang dokumen (dokumen valas); `price` tetap Rupiah */
+  priceForeign: numeric('price_foreign', { precision: 18, scale: 4 }),
 });
 
 /** Permintaan persetujuan atas transaksi bernilai besar (pesanan pembelian, jurnal manual) dari peran yang tidak berwenang */
@@ -473,6 +479,11 @@ export const invoices = pgTable(
     withholdingSlipDate: date('withholding_slip_date'),
     /** Uang muka pelanggan yang dipakai melunasi faktur ini (ikut dihitung di paidAmount) */
     depositApplied: money('deposit_applied').notNull().default('0'),
+    currency: text('currency').notNull().default('IDR'),
+    fxRate: numeric('fx_rate', { precision: 18, scale: 6 }).notNull().default('1'),
+    totalForeign: money('total_foreign'),
+    /** Pelunasan dalam mata uang dokumen */
+    paidForeign: money('paid_foreign').notNull().default('0'),
     journalId: uuid('journal_id'),
     createdAt: createdAt(),
   },
@@ -501,6 +512,8 @@ export const invoiceLines = pgTable('invoice_lines', {
   unitCost: qty('unit_cost').notNull(),
   /** Kuantitas yang sudah diretur (satuan `uom`) */
   returnedQty: qty('returned_qty').notNull().default('0'),
+  /** Faktur valas: harga per `uom` dalam mata uang faktur */
+  priceForeign: numeric('price_foreign', { precision: 18, scale: 4 }),
 });
 
 export const payments = pgTable(
@@ -523,9 +536,32 @@ export const payments = pgTable(
     cashAccountId: uuid('cash_account_id'),
     notes: text('notes'),
     journalId: uuid('journal_id'),
+    /** Pelunasan faktur valas: `amount` = nilai piutang yang dilunasi (Rupiah, kurs faktur); `cashAmount` = kas diterima (kurs bayar) */
+    currency: text('currency').notNull().default('IDR'),
+    amountForeign: money('amount_foreign'),
+    fxRate: numeric('fx_rate', { precision: 18, scale: 6 }),
+    cashAmount: money('cash_amount'),
+    /** Laba (+) / rugi (−) selisih kurs terealisasi */
+    fxGainLoss: money('fx_gain_loss').notNull().default('0'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('payments_number_uq').on(t.tenantId, t.number)],
+);
+
+// ---------- Mata uang asing ----------
+export const exchangeRates = pgTable(
+  'exchange_rates',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    currency: text('currency').notNull(),
+    date: date('date').notNull(),
+    /** Rupiah per 1 satuan mata uang asing */
+    rate: numeric('rate', { precision: 18, scale: 6 }).notNull(),
+    note: text('note'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('exchange_rates_uq').on(t.tenantId, t.currency, t.date)],
 );
 
 // ---------- Akuntansi ----------
@@ -637,6 +673,10 @@ export const purchaseOrders = pgTable(
     total: money('total').notNull().default('0'),
     /** Harga berasal dari penawaran supplier (pembelian cepat) — final menunggu faktur; biaya perolehan mengikuti faktur */
     priceEstimate: boolean('price_estimate').notNull().default(false),
+    /** Mata uang dokumen (ISO); IDR = Rupiah. Kolom rupiah lain selalu dalam Rupiah (kurs saat transaksi) */
+    currency: text('currency').notNull().default('IDR'),
+    fxRate: numeric('fx_rate', { precision: 18, scale: 6 }).notNull().default('1'),
+    totalForeign: money('total_foreign'),
     notes: text('notes'),
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
@@ -659,6 +699,7 @@ export const purchaseOrderLines = pgTable('purchase_order_lines', {
   price: money('price').notNull(),
   discountPct: numeric('discount_pct', { precision: 5, scale: 2 }).notNull().default('0'),
   lineTotal: money('line_total').notNull(),
+  priceForeign: numeric('price_foreign', { precision: 18, scale: 4 }),
   /** Jumlah yang sudah diterima gudang (satuan `uom` baris) — penerimaan barang bisa bertahap */
   receivedQty: qty('received_qty').notNull().default('0'),
   /** Jumlah yang sudah difakturkan dan nilai DPP-nya */
@@ -820,6 +861,10 @@ export const purchaseInvoices = pgTable(
     priceFlags: text('price_flags'),
     createdById: uuid('created_by_id'),
     approvalId: uuid('approval_id'),
+    currency: text('currency').notNull().default('IDR'),
+    fxRate: numeric('fx_rate', { precision: 18, scale: 6 }).notNull().default('1'),
+    totalForeign: money('total_foreign'),
+    paidForeign: money('paid_foreign').notNull().default('0'),
     status: invoiceStatusEnum('status').notNull().default('UNPAID'),
     journalId: uuid('journal_id'),
     createdAt: createdAt(),
@@ -877,6 +922,11 @@ export const supplierPayments = pgTable(
       .references(() => accounts.id),
     notes: text('notes'),
     journalId: uuid('journal_id'),
+    currency: text('currency').notNull().default('IDR'),
+    amountForeign: money('amount_foreign'),
+    fxRate: numeric('fx_rate', { precision: 18, scale: 6 }),
+    cashAmount: money('cash_amount'),
+    fxGainLoss: money('fx_gain_loss').notNull().default('0'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('supplier_payments_number_uq').on(t.tenantId, t.number)],

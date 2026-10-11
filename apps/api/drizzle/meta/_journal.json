@@ -239,6 +239,13 @@
       "when": 1792079486484,
       "tag": "0033_semi_finished_and_chain",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1792165886484,
+      "tag": "0034_foreign_currency",
+      "breakpoints": true
     }
   ]
 }

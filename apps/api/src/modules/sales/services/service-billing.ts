@@ -877,6 +877,7 @@ export class ServiceBillingService {
       if (inv.customerId !== d.customerId)
         throw new BadRequestException('Uang muka dan faktur harus dari pelanggan yang sama');
       if (inv.isOpening) throw new BadRequestException('Uang muka tidak bisa dipakai untuk faktur saldo awal');
+      if (inv.currency !== 'IDR') throw new BadRequestException(`Faktur dalam ${inv.currency}: uang muka rupiah belum bisa dipakai melunasinya`);
       if (D(d.taxAmount).gt(0) && D(inv.taxAmount).lte(0))
         throw new BadRequestException('Uang muka ber-PPN hanya bisa dipakai untuk faktur ber-PPN');
       if (date < d.date || date < inv.date)

@@ -5,6 +5,7 @@ import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { YearPipe } from '../../common/pipes/year.pipe';
 import { isDocDate } from '../../common/utils/dates';
+import { FxModule } from '../fx/fx.module';
 import { AccountingModule } from '../accounting/accounting.module';
 import { AssetsModule } from '../assets/assets.module';
 import { FiscalService } from './fiscal.service';
@@ -116,7 +117,7 @@ export class InsightsController {
 }
 
 @Module({
-  imports: [AccountingModule, AssetsModule],
+  imports: [AccountingModule, AssetsModule, FxModule],
   controllers: [InsightsController],
   providers: [HealthService, FiscalService, NotesService, AppendixService, EntityProfileService, ThresholdsService],
   exports: [FiscalService, HealthService, EntityProfileService, ThresholdsService],

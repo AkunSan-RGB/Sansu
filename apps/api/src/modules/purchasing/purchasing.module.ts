@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AssetsModule } from '../assets/assets.module';
+import { FxModule } from '../fx/fx.module';
 import { AccountingModule } from '../accounting/accounting.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { GoodsReceiptsService } from './goods-receipts.service';
@@ -10,7 +11,7 @@ import { GoodsReceiptsController, PurchaseInvoicesController, PurchaseOrdersCont
 import { SuppliersService } from './suppliers.service';
 
 @Module({
-  imports: [AccountingModule, InventoryModule, AssetsModule],
+  imports: [AccountingModule, InventoryModule, AssetsModule, FxModule],
   controllers: [SuppliersController, PurchaseOrdersController, GoodsReceiptsController, PurchaseInvoicesController, PurchaseRequestsController],
   providers: [SuppliersService, PurchaseOrdersService, GoodsReceiptsService, PurchaseInvoicesService, PurchaseRequestsService],
   exports: [PurchaseOrdersService, PurchaseInvoicesService, PurchaseRequestsService],

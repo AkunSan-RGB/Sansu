@@ -170,6 +170,35 @@ export class HealthService {
       ),
     );
 
+    // 4b. Mata uang asing: kurs terbaru dan penilaian ulang akhir bulan bagi piutang/utang valas yang masih terbuka
+    if (asOf >= todayJakarta()) {
+      const open = await q<{ currency: string; n: number }>(sql`
+        SELECT currency, COUNT(*)::int AS n FROM (
+          SELECT currency FROM invoices WHERE tenant_id = ${tenantId} AND currency <> 'IDR' AND status <> 'PAID'
+          UNION ALL SELECT currency FROM purchase_invoices WHERE tenant_id = ${tenantId} AND currency <> 'IDR' AND status <> 'PAID') x GROUP BY currency`);
+      if (open.length) {
+        const [lastRate] = await q<{ d: string | null }>(sql`SELECT MAX(date)::text AS d FROM exchange_rates WHERE tenant_id = ${tenantId} AND currency IN (${sql.join(open.map((o) => sql`${o.currency}`), sql`, `)})`);
+        const prevMonthStart = (() => {
+          const [y, m] = asOf.split('-').map(Number);
+          return m === 1 ? `${y - 1}-12-01` : `${y}-${String(m - 1).padStart(2, '0')}-01`;
+        })();
+        const [reval] = await q<{ d: string | null }>(sql`SELECT MAX(date)::text AS d FROM journal_entries WHERE tenant_id = ${tenantId} AND source_type = 'FX_REVAL'`);
+        const staleRate = !lastRate?.d || diffDays(lastRate.d, asOf) > 35;
+        const noReval = !reval?.d || reval.d < prevMonthStart;
+        checks.push({
+          key: 'fx',
+          category: 'Kepatuhan',
+          title: 'Mata uang asing: kurs dan penilaian ulang',
+          status: staleRate || noReval ? 'WARN' : 'OK',
+          message:
+            staleRate || noReval
+              ? `Ada piutang/utang valas terbuka (${open.map((o) => `${o.currency} ${o.n} faktur`).join(', ')}). ${staleRate ? 'Kurs belum diperbarui dalam 35 hari terakhir. ' : ''}${noReval ? 'Penilaian ulang akhir bulan belum dicatat.' : ''}`.trim()
+              : `Kurs ${lastRate.d} dan penilaian ulang terakhir ${reval.d} sudah mutakhir.`,
+          link: '/fx',
+        });
+      }
+    }
+
     // 5. Persediaan: buku besar vs kartu stok (hanya bila per hari ini)
     if (asOf >= todayJakarta()) {
       const stockValue = async (kind: 'GOODS' | 'SEMI') =>

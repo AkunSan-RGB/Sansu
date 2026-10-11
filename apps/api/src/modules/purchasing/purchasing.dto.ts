@@ -49,6 +49,14 @@ export class CreatePurchaseOrderDto {
   @ApiPropertyOptional({ example: '2026-10-03' }) @IsOptional() @IsDateString() date?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) notes?: string;
   @ApiPropertyOptional({ description: 'true = harga dari penawaran supplier (estimasi); harga final mengikuti faktur' }) @IsOptional() @IsBoolean() priceEstimate?: boolean;
+  @ApiPropertyOptional({ example: 'USD', description: 'Mata uang PO; kosong = IDR. Harga baris diketik dalam mata uang ini' })
+  @IsOptional()
+  @Matches(/^[A-Z]{3}$/)
+  currency?: string;
+  @ApiPropertyOptional({ example: '16250', description: 'Rupiah per 1 satuan valas; kosong = kurs tersimpan terbaru. Dipakai juga oleh penerimaan barang dan faktur PO ini' })
+  @IsOptional()
+  @IsNumberString()
+  fxRate?: string;
   @ApiProperty({ type: [PurchaseLineDto] })
   @ValidateNested({ each: true })
   @Type(() => PurchaseLineDto)
@@ -148,7 +156,8 @@ export class PurchaseInvoiceQueryDto {
 
 export class CreateSupplierPaymentDto {
   @ApiProperty() @IsUUID() purchaseInvoiceId: string;
-  @ApiProperty({ example: '500000' }) @IsNumberString() amount: string;
+  @ApiProperty({ example: '500000', description: 'Jumlah dibayar; faktur valas: dalam mata uang faktur' }) @IsNumberString() amount: string;
+  @ApiPropertyOptional({ example: '16300', description: 'Faktur valas: kurs hari pembayaran (Rp per 1 valas); kosong = kurs tersimpan terbaru' }) @IsOptional() @IsNumberString() fxRate?: string;
   @ApiPropertyOptional({ description: 'Akun kas/bank pembayar; kosong = Bank' }) @IsOptional() @IsUUID() cashAccountId?: string;
   @ApiPropertyOptional({ example: '2026-10-03' }) @IsOptional() @IsDateString() date?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) notes?: string;

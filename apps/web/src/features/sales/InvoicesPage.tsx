@@ -1,4 +1,5 @@
 import { PlusOutlined } from '@ant-design/icons';
+import { isForeignCurrency } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Card, Select, Space, Tabs, Tag, Tooltip } from 'antd';
 import { useNavigate } from 'react-router-dom';
@@ -7,7 +8,7 @@ import { get, qs } from '@/api/client';
 import type { AgingRow, Invoice } from '@/api/types';
 import AgingTable from '@/components/AgingTable';
 import PageHeader from '@/layout/PageHeader';
-import { fmtDate, fmtMoney, today } from '@/lib/format';
+import { fmtCurrency, fmtDate, fmtMoney, today } from '@/lib/format';
 import { INV_STATUS_OPTIONS, InvoiceStatusTag } from './status';
 import PaymentModal, { outstanding } from './PaymentModal';
 import ResponsiveTable from '@/components/ResponsiveTable';
@@ -71,7 +72,20 @@ export default function InvoicesPage() {
                         render: (d, i) => (isOverdue(i) ? <Tag color="red">{fmtDate(d)}</Tag> : fmtDate(d)),
                       },
                       { title: t('Pelanggan'), render: (_, i) => i.customer.name },
-                      { title: 'Total', dataIndex: 'total', align: 'right', render: fmtMoney },
+                      {
+                        title: 'Total',
+                        dataIndex: 'total',
+                        align: 'right',
+                        render: (v, i) =>
+                          isForeignCurrency(i.currency) ? (
+                            <>
+                              {fmtMoney(v)}
+                              <div style={{ fontSize: 11, color: '#64748b' }}>{fmtCurrency(i.totalForeign, i.currency)}</div>
+                            </>
+                          ) : (
+                            fmtMoney(v)
+                          ),
+                      },
                       { title: 'Sisa', align: 'right', render: (_, i) => fmtMoney(outstanding(i)) },
                       { title: 'Status', dataIndex: 'status', render: (s) => <InvoiceStatusTag status={s} /> },
                       {

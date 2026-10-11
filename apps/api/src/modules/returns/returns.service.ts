@@ -112,6 +112,7 @@ export class ReturnsService {
       await this.lockRow(tx, 'invoices', dto.invoiceId, user.tenantId);
       const inv = await tx.query.invoices.findFirst({ where: eq(invoices.id, dto.invoiceId), with: { lines: true } });
       if (!inv) throw new NotFoundException('Faktur tidak ditemukan');
+      if (inv.currency !== 'IDR') throw new BadRequestException(`Faktur dalam ${inv.currency}: retur belum didukung. Catat pengurangan tagihan lewat jurnal penyesuaian.`);
       if (date < inv.date) throw new BadRequestException('Tanggal retur tidak boleh sebelum tanggal faktur');
       if (inv.kind === 'SERVICE') {
         throw new BadRequestException('Faktur jasa tidak bisa diretur. Untuk pengurangan tagihan jasa, catat nota kredit lewat jurnal penyesuaian.');
@@ -249,6 +250,7 @@ export class ReturnsService {
         with: { lines: true },
       });
       if (!inv) throw new NotFoundException('Faktur pembelian tidak ditemukan');
+      if (inv.currency !== 'IDR') throw new BadRequestException(`Faktur dalam ${inv.currency}: retur belum didukung. Minta nota kredit supplier dan catat lewat jurnal penyesuaian.`);
       if (date < inv.date) throw new BadRequestException('Tanggal retur tidak boleh sebelum tanggal faktur');
       if (inv.kind !== 'GOODS' || !inv.warehouseId) {
         throw new BadRequestException('Retur hanya untuk faktur barang dagang. Untuk tagihan biaya/aset, minta nota kredit supplier dan catat lewat jurnal.');

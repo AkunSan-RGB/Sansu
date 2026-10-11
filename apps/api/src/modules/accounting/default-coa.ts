@@ -36,6 +36,10 @@ export const SYS = {
   DEPRECIATION_EXPENSE: 'DEPRECIATION_EXPENSE',
   ASSET_DISPOSAL_GAIN: 'ASSET_DISPOSAL_GAIN',
   ASSET_DISPOSAL_LOSS: 'ASSET_DISPOSAL_LOSS',
+  FX_GAIN: 'FX_GAIN',
+  FX_LOSS: 'FX_LOSS',
+  FX_REVAL_AR: 'FX_REVAL_AR',
+  FX_REVAL_AP: 'FX_REVAL_AP',
   CURRENT_TAX_EXPENSE: 'CURRENT_TAX_EXPENSE',
   DEFERRED_TAX_EXPENSE: 'DEFERRED_TAX_EXPENSE',
   DIVIDEND: 'DIVIDEND',
@@ -98,6 +102,7 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '1-1110', name: 'Kas Kecil', type: 'ASSET', parent: '1-1000', cash: true, group: 'CASH_EQUIVALENT' },
   { code: '1-1200', name: 'Bank', type: 'ASSET', parent: '1-1000', key: SYS.BANK, cash: true, group: 'CASH_EQUIVALENT' },
   { code: '1-1300', name: 'Piutang Usaha', type: 'ASSET', parent: '1-1000', key: SYS.AR, group: 'TRADE_RECEIVABLE' },
+  { code: '1-1305', name: 'Penyesuaian Kurs Piutang Valas', type: 'ASSET', parent: '1-1000', key: SYS.FX_REVAL_AR, group: 'TRADE_RECEIVABLE' },
   { code: '1-1310', name: 'Cadangan Kerugian Penurunan Nilai Piutang', type: 'ASSET', parent: '1-1000', group: 'ALLOWANCE_RECEIVABLE' },
   { code: '1-1350', name: 'Piutang Lain-lain', type: 'ASSET', parent: '1-1000', group: 'OTHER_RECEIVABLE' },
   { code: '1-1360', name: 'Pendapatan Belum Ditagih (Aset Kontrak)', type: 'ASSET', parent: '1-1000', key: SYS.UNBILLED_REVENUE, group: 'OTHER_CURRENT_ASSET' },
@@ -133,6 +138,7 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '2-0000', name: 'Liabilitas', type: 'LIABILITY', header: true },
   { code: '2-1000', name: 'Liabilitas Jangka Pendek', type: 'LIABILITY', parent: '2-0000', header: true },
   { code: '2-1100', name: 'Utang Usaha', type: 'LIABILITY', parent: '2-1000', key: SYS.AP, group: 'TRADE_PAYABLE' },
+  { code: '2-1105', name: 'Penyesuaian Kurs Utang Valas', type: 'LIABILITY', parent: '2-1000', key: SYS.FX_REVAL_AP, group: 'TRADE_PAYABLE' },
   { code: '2-1150', name: 'Utang Lain-lain', type: 'LIABILITY', parent: '2-1000', key: SYS.OTHER_PAYABLE, group: 'OTHER_PAYABLE' },
   { code: '2-1160', name: 'Barang Diterima Belum Ditagih', type: 'LIABILITY', parent: '2-1000', key: SYS.GRNI, group: 'ACCRUED_EXPENSE' },
   { code: '2-1200', name: 'PPN Keluaran', type: 'LIABILITY', parent: '2-1000', key: SYS.VAT_OUT, group: 'TAX_PAYABLE' },
@@ -171,6 +177,7 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '4-2200', name: 'Pendapatan Sewa (PPh Final)', type: 'REVENUE', parent: '4-0000', key: SYS.RENTAL_REVENUE, group: 'SALES_REVENUE', fiscal: 'FINAL_INCOME' },
   { code: '4-9000', name: 'Pendapatan Lain-lain', type: 'REVENUE', parent: '4-0000', group: 'OTHER_INCOME' },
   { code: '4-9100', name: 'Pendapatan Bunga / Jasa Giro', type: 'REVENUE', parent: '4-0000', key: SYS.INTEREST_INCOME, group: 'FINANCE_INCOME', fiscal: 'FINAL_INCOME' },
+  { code: '4-9300', name: 'Laba Selisih Kurs', type: 'REVENUE', parent: '4-0000', key: SYS.FX_GAIN, group: 'OTHER_INCOME' },
   { code: '4-9200', name: 'Laba Pelepasan Aset Tetap', type: 'REVENUE', parent: '4-0000', key: SYS.ASSET_DISPOSAL_GAIN, group: 'OTHER_INCOME' },
 
   // ===== 5 BEBAN POKOK =====
@@ -236,7 +243,7 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '8-1000', name: 'Beban Bunga Pinjaman', type: 'EXPENSE', parent: '8-0000', group: 'FINANCE_COST' },
   { code: '8-1100', name: 'Beban Administrasi Bank', type: 'EXPENSE', parent: '8-0000', key: SYS.BANK_CHARGES, group: 'FINANCE_COST' },
   { code: '8-2000', name: 'Rugi Pelepasan Aset Tetap', type: 'EXPENSE', parent: '8-0000', key: SYS.ASSET_DISPOSAL_LOSS, group: 'OTHER_EXPENSE' },
-  { code: '8-3000', name: 'Rugi Selisih Kurs', type: 'EXPENSE', parent: '8-0000', group: 'OTHER_EXPENSE' },
+  { code: '8-3000', name: 'Rugi Selisih Kurs', type: 'EXPENSE', parent: '8-0000', key: SYS.FX_LOSS, group: 'OTHER_EXPENSE' },
 
   // ===== 9 PAJAK PENGHASILAN =====
   { code: '9-0000', name: 'Pajak Penghasilan', type: 'EXPENSE', header: true },

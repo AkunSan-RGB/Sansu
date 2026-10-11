@@ -5,6 +5,8 @@ import { AuditService } from '../../../common/audit/audit.service';
 import { SequenceService } from '../../../common/sequence/sequence.service';
 import { toDocDate } from '../../../common/utils/dates';
 import { D, money } from '../../../common/utils/money';
+import { settleForeign } from '../../../common/utils/fx';
+import { FxService } from '../../fx/fx.service';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
 import { customers, invoices, payments } from '../../../db/schema';
@@ -19,6 +21,7 @@ export class PaymentsService {
     private readonly seq: SequenceService,
     private readonly posting: PostingService,
     private readonly audit: AuditService,
+    private readonly fx: FxService,
   ) {}
 
   list(tenantId: string) {
@@ -45,9 +48,17 @@ export class PaymentsService {
       const [customer] = await tx.select().from(customers).where(eq(customers.id, inv.customerId));
 
       const outstanding = D(inv.total).minus(inv.paidAmount).minus(inv.returnedAmount);
-      if (amount.gt(outstanding)) {
-        throw new BadRequestException(`Pembayaran ${amount.toFixed(2)} melebihi sisa tagihan ${outstanding.toFixed(2)}`);
+      const foreign = inv.currency !== 'IDR';
+      // Faktur valas: `amount` dalam mata uang faktur; nilai piutang yang dilunasi memakai kurs faktur, kas memakai kurs hari bayar
+      const outstandingForeign = foreign ? D(inv.totalForeign ?? 0).minus(inv.paidForeign) : outstanding;
+      if (amount.gt(outstandingForeign)) {
+        throw new BadRequestException(`Pembayaran ${amount.toFixed(2)}${foreign ? ` ${inv.currency}` : ''} melebihi sisa tagihan ${outstandingForeign.toFixed(2)}${foreign ? ` ${inv.currency}` : ''}`);
       }
+      const payRate = foreign ? (await this.fx.resolve(tx, user.tenantId, inv.currency, date, dto.fxRate)).rate : D(1);
+      const settle = foreign ? settleForeign({ amountForeign: amount, outstandingForeign, outstandingIdr: outstanding, invoiceRate: inv.fxRate, payRate }) : null;
+      const carrying = settle ? settle.carrying : amount;
+      const cash = settle ? settle.cash : amount;
+      const diff = settle ? settle.diff : D(0);
 
       const method = dto.method ?? 'CASH';
       const cashAccount = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, method === 'CASH' ? 'CASH' : 'BANK');
@@ -60,7 +71,12 @@ export class PaymentsService {
           date,
           customerId: inv.customerId,
           invoiceId: inv.id,
-          amount: amount.toFixed(2),
+          amount: carrying.toFixed(2),
+          currency: inv.currency,
+          amountForeign: foreign ? amount.toFixed(2) : null,
+          fxRate: foreign ? payRate.toFixed(6) : null,
+          cashAmount: foreign ? cash.toFixed(2) : null,
+          fxGainLoss: diff.toFixed(2),
           method,
           cashAccountId: cashAccount.id,
           notes: dto.notes,
@@ -75,15 +91,18 @@ export class PaymentsService {
         sourceId: payment.id,
         createdById: user.sub,
         lines: [
-          { accountId: cashAccount.id, debit: amount },
-          { key: SYS.AR, credit: amount },
+          { accountId: cashAccount.id, debit: cash, memo: foreign ? `${amount.toFixed(2)} ${inv.currency} @ ${payRate.toFixed(2)}` : undefined },
+          { key: SYS.AR, credit: carrying, memo: foreign ? `Faktur ${inv.currency} @ ${D(inv.fxRate).toFixed(2)}` : undefined },
+          // kas diterima lebih besar dari nilai piutang tercatat = laba kurs terealisasi; lebih kecil = rugi
+          { key: SYS.FX_GAIN, credit: diff.gt(0) ? diff : 0 },
+          { key: SYS.FX_LOSS, debit: diff.lt(0) ? diff.abs() : 0 },
         ],
       });
 
-      const paid = D(inv.paidAmount).plus(amount);
+      const paid = D(inv.paidAmount).plus(carrying);
       await tx
         .update(invoices)
-        .set({ paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' })
+        .set({ paidForeign: foreign ? D(inv.paidForeign).plus(amount).toFixed(2) : inv.paidForeign, paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' })
         .where(eq(invoices.id, inv.id));
       await tx.update(payments).set({ journalId: journal.id }).where(eq(payments.id, payment.id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'Payment', entityId: payment.id });

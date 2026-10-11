@@ -5,7 +5,8 @@ import { get, post } from '@/api/client';
 import { useAction } from '@/api/queries';
 import type { Invoice, SalesOrder } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
-import { fmtDate, fmtMoney, fmtQty } from '@/lib/format';
+import { isForeignCurrency } from '@sansu/shared';
+import { fmtCurrency, fmtDate, fmtMoney, fmtQty, fmtRate } from '@/lib/format';
 import DocumentChain from '@/components/DocumentChain';
 import { SalesOrderStatusTag } from './status';
 import { t } from '@/lib/terms';
@@ -82,6 +83,11 @@ export default function SalesOrderDetailPage() {
               </Descriptions.Item>
               <Descriptions.Item label="Tanggal">{fmtDate(o.date)}</Descriptions.Item>
               <Descriptions.Item label={t('Gudang')}>{o.warehouse?.name}</Descriptions.Item>
+              {isForeignCurrency(o.currency) && (
+                <Descriptions.Item label="Mata uang">
+                  {o.currency} · kurs Rp {fmtRate(o.fxRate)} · total {fmtCurrency(o.totalForeign, o.currency)}
+                </Descriptions.Item>
+              )}
               {o.notes && <Descriptions.Item label="Catatan">{o.notes}</Descriptions.Item>}
             </Descriptions>
             <Table
@@ -93,7 +99,7 @@ export default function SalesOrderDetailPage() {
               columns={[
                 { title: t('Produk'), render: (_, l) => `${l.product.sku} · ${l.product.name}` },
                 { title: 'Qty', align: 'right', render: (_, l) => `${fmtQty(l.qty)} ${l.uom}` },
-                { title: 'Harga', dataIndex: 'price', align: 'right', render: fmtMoney },
+                { title: isForeignCurrency(o.currency) ? `Harga (${o.currency})` : 'Harga', dataIndex: 'price', align: 'right', render: (v, l) => (isForeignCurrency(o.currency) ? fmtCurrency(l.priceForeign, o.currency) : fmtMoney(v)) },
                 { title: 'Diskon', dataIndex: 'discountPct', align: 'right', render: (v) => `${Number(v)}%` },
                 { title: 'Jumlah', dataIndex: 'lineTotal', align: 'right', render: fmtMoney },
               ]}
@@ -101,9 +107,14 @@ export default function SalesOrderDetailPage() {
             <Descriptions column={1} size="small" style={{ maxWidth: 360, marginLeft: 'auto', marginTop: 16 }} bordered>
               <Descriptions.Item label="Subtotal (DPP)">{fmtMoney(o.subtotal)}</Descriptions.Item>
               <Descriptions.Item label="PPN">{fmtMoney(o.taxAmount)}</Descriptions.Item>
-              <Descriptions.Item label="Total">
+              <Descriptions.Item label={isForeignCurrency(o.currency) ? 'Total (Rupiah)' : 'Total'}>
                 <strong>{fmtMoney(o.total)}</strong>
               </Descriptions.Item>
+              {isForeignCurrency(o.currency) && (
+                <Descriptions.Item label={`Total (${o.currency})`}>
+                  <strong>{fmtCurrency(o.totalForeign, o.currency)}</strong>
+                </Descriptions.Item>
+              )}
             </Descriptions>
           </>
         )}

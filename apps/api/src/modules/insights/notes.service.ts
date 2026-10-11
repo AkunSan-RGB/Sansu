@@ -16,6 +16,7 @@ import { StatementLine, StatementsService } from '../accounting/statements.servi
 import { AssetsService } from '../assets/assets.module';
 import { AGING_BUCKETS, openBalanceAging } from './aging';
 import { FiscalService } from './fiscal.service';
+import { FxService } from '../fx/fx.service';
 
 type Cell = string | number | null;
 export interface NoteTable {
@@ -49,6 +50,7 @@ export class NotesService {
     private readonly assets: AssetsService,
     private readonly fiscal: FiscalService,
     private readonly settings: SettingsService,
+    private readonly fx: FxService,
   ) {}
 
   async build(tenantId: string, year: number) {
@@ -66,6 +68,20 @@ export class NotesService {
       this.db.select().from(reportNotes).where(and(eq(reportNotes.tenantId, tenantId), eq(reportNotes.year, year))),
       this.fiscal.reconcile(tenantId, year).catch(() => null),
     ]);
+    // Mata uang asing: ada tidaknya transaksi valas, posisi terbuka per tanggal laporan, dan selisih kurs tahun berjalan
+    const [{ has: hasForeign }] = (await this.db.execute<{ has: boolean }>(sql`
+      SELECT (EXISTS (SELECT 1 FROM invoices WHERE tenant_id = ${tenantId} AND currency <> 'IDR')
+           OR EXISTS (SELECT 1 FROM purchase_invoices WHERE tenant_id = ${tenantId} AND currency <> 'IDR')) AS has`)).rows;
+    const fxExposure = hasForeign ? await this.fx.exposure(tenantId, to) : null;
+    const fxMoves = hasForeign
+      ? (
+          await this.db.execute<{ source_type: string; net: string }>(sql`
+            SELECT e.source_type, SUM(l.credit - l.debit) AS net FROM journal_lines l
+            JOIN journal_entries e ON e.id = l.journal_id JOIN accounts a ON a.id = l.account_id
+            WHERE e.tenant_id = ${tenantId} AND a.system_key IN ('FX_GAIN', 'FX_LOSS') AND e.date >= ${`${year}-01-01`} AND e.date <= ${to}
+            GROUP BY e.source_type`)
+        ).rows
+      : [];
     const model = await this.statements.businessModel(tenantId);
     const terms = REPORT_TERMS[model];
     const invSetting = (await this.settings.section(this.db, tenantId, 'inventory', { method: 'AVERAGE' as string })).method;
@@ -143,6 +159,11 @@ export class NotesService {
             ep
               ? 'Laporan arus kas disusun dengan metode tidak langsung dan mengelompokkan arus kas ke dalam aktivitas operasi, investasi, dan pendanaan. Angka pembanding tahun sebelumnya disajikan untuk seluruh jumlah dalam laporan keuangan.'
               : 'Laporan keuangan terdiri dari laporan posisi keuangan, laporan laba rugi, dan catatan atas laporan keuangan.',
+            ...(hasForeign
+              ? [
+                  `Transaksi dalam mata uang asing dicatat dalam Rupiah menggunakan kurs pada tanggal transaksi${ifrs ? ' (IAS 21)' : ' (PSAK 10)'}. Pos moneter dalam mata uang asing (piutang dan utang usaha) dinilai ulang pada kurs penutup tanggal pelaporan; selisih kurs yang timbul dari pelunasan maupun penjabaran pos moneter diakui dalam laba rugi pada periode terjadinya.`,
+                ]
+              : []),
           ],
         },
         { title: 'c. Kas dan setara kas', paragraphs: ['Kas dan setara kas terdiri dari kas, kas kecil, dan saldo rekening bank yang tidak dibatasi penggunaannya.'] },
@@ -403,6 +424,30 @@ export class NotesService {
     itemNote('admin', 'Beban umum dan administrasi', ['ADMIN_EXPENSE'], ['Rincian beban umum dan administrasi:'], [], 'inc', true);
     itemNote('other', 'Pendapatan dan beban lain-lain', ['OTHER_INCOME', 'OTHER_EXPENSE', 'FINANCE_INCOME', 'FINANCE_COST'], ['Rincian pendapatan (beban) lain-lain dan keuangan — neto:'], [], 'inc');
 
+    // Selisih kurs mata uang asing
+    if (hasForeign) {
+      const sum = (types: string[]) => fxMoves.filter((m) => types.includes(m.source_type)).reduce((a, m) => a + n(m.net), 0);
+      const realized = sum(['PAYMENT', 'SUPPLIER_PAYMENT']);
+      const unrealized = sum(['FX_REVAL', 'REVERSAL']);
+      push({
+        key: 'foreign-currency',
+        title: 'Transaksi dalam mata uang asing',
+        paragraphs: [
+          `Perusahaan melakukan penjualan dan pembelian dalam mata uang asing. Laba (rugi) selisih kurs tahun ${year} neto sebesar ${fmtRp(realized + unrealized)}, terdiri dari selisih kurs terealisasi dari pelunasan sebesar ${fmtRp(realized)} dan selisih kurs belum terealisasi dari penilaian ulang saldo piutang dan utang pada kurs penutup sebesar ${fmtRp(unrealized)}. Nilai positif menunjukkan laba.`,
+          ...(fxExposure?.byCurrency.length ? ['Saldo piutang dan utang dalam mata uang asing pada tanggal laporan:'] : ['Tidak terdapat saldo piutang atau utang dalam mata uang asing pada tanggal laporan.']),
+        ],
+        tables: fxExposure?.byCurrency.length
+          ? [
+              {
+                columns: ['Mata uang', 'Kurs penutup (Rp)', 'Piutang', 'Utang', 'Selisih belum terealisasi (Rp)'],
+                align: ['left', 'right', 'right', 'right', 'right'] as ('left' | 'right')[],
+                rows: fxExposure.byCurrency.map((c) => [c.currency, n(c.rate ?? 0), n(c.receivable), n(c.payable), n(c.unrealized)]),
+              },
+            ]
+          : [],
+      });
+    }
+
     // Pajak penghasilan
     if (fiscal) {
       const rows: Cell[][] = [
@@ -483,7 +528,9 @@ export class NotesService {
           'Perusahaan terpapar risiko kredit, risiko likuiditas, dan risiko pasar. Manajemen memantau risiko tersebut secara berkala; SANSU menyediakan data umur piutang dan utang, batas kredit pelanggan, serta pengingat jatuh tempo.',
           `Risiko kredit: timbul terutama dari piutang usaha sebesar ${fmtRp(arTotal)}, yang diukur pada kerugian kredit ekspektasian dengan matriks provisi berdasarkan umur. Sebesar ${fmtRp(overdue)} telah melewati jatuh tempo. Perusahaan menetapkan batas kredit dan termin per pelanggan serta kas ditempatkan pada bank di dalam negeri.`,
           `Risiko likuiditas: Perusahaan mengelola kecukupan kas untuk memenuhi liabilitas keuangan yang jatuh tempo; utang usaha sebesar ${fmtRp(apTotal)}${loans ? ` dan pinjaman bank sebesar ${fmtRp(loans)}` : ''} pada tanggal laporan. Seluruh utang usaha pada umumnya jatuh tempo dalam waktu satu tahun.`,
-          'Risiko pasar: seluruh transaksi dalam Rupiah sehingga tidak terdapat paparan risiko mata uang asing yang signifikan. Risiko suku bunga hanya timbul dari pinjaman bank berbunga, bila ada.',
+          fxExposure && fxExposure.byCurrency.length
+            ? `Risiko mata uang asing: Perusahaan memiliki transaksi penjualan dan pembelian dalam mata uang asing. Posisi moneter neto pada tanggal laporan: ${fxExposure.byCurrency.map((c) => `${c.currency} ${n(c.net).toLocaleString('id-ID', { maximumFractionDigits: 2 })} (kurs Rp ${n(c.rate ?? 0).toLocaleString('id-ID')})`).join('; ')}. Bila Rupiah melemah 10% terhadap seluruh mata uang tersebut, laba sebelum pajak berubah sebesar ${fmtRp(Math.abs(fxExposure.byCurrency.reduce((a, c) => a + n(c.net) * n(c.rate ?? 0) * 0.1, 0)))} ${fxExposure.byCurrency.reduce((a, c) => a + n(c.net) * n(c.rate ?? 0), 0) >= 0 ? '(kenaikan)' : '(penurunan)'}; sebaliknya bila Rupiah menguat 10%. Perusahaan tidak menggunakan instrumen lindung nilai. Risiko suku bunga hanya timbul dari pinjaman bank berbunga, bila ada.`
+            : 'Risiko pasar: tidak terdapat posisi piutang atau utang dalam mata uang asing yang terbuka pada tanggal laporan, sehingga tidak terdapat paparan risiko mata uang asing yang signifikan. Risiko suku bunga hanya timbul dari pinjaman bank berbunga, bila ada.',
         ],
         tables: [
           ...(aging.length ? [{ title: 'Umur piutang usaha (sejak jatuh tempo)', columns: ['Umur', `${year}`], align: ['left', 'right'] as ('left' | 'right')[], rows: aging.map((r) => [r.bucket.slice(3), n(r.v)]) }] : []),
