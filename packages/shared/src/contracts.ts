@@ -441,6 +441,8 @@ export interface PurchaseOrder {
   subtotal: string;
   taxAmount: string;
   total: string;
+  /** Harga dari penawaran supplier (pembelian cepat); final mengikuti faktur */
+  priceEstimate?: boolean;
   notes: string | null;
   supplier: {
     id?: string;

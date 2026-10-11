@@ -46,11 +46,23 @@ export class CreatePurchaseOrderDto {
   @ApiProperty() @IsUUID() warehouseId: string;
   @ApiPropertyOptional({ example: '2026-10-03' }) @IsOptional() @IsDateString() date?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) notes?: string;
+  @ApiPropertyOptional({ description: 'true = harga dari penawaran supplier (estimasi); harga final mengikuti faktur' }) @IsOptional() @IsBoolean() priceEstimate?: boolean;
   @ApiProperty({ type: [PurchaseLineDto] })
   @ValidateNested({ each: true })
   @Type(() => PurchaseLineDto)
   @ArrayMinSize(1)
   lines: PurchaseLineDto[];
+}
+
+/** Pembelian cepat atas penawaran supplier: PO langsung dikonfirmasi, harga dianggap estimasi sampai faktur tiba */
+export class QuickPurchaseDto extends CreatePurchaseOrderDto {
+  @ApiPropertyOptional({ description: 'true = barang sudah tiba, langsung diterima ke gudang' }) @IsOptional() @IsBoolean() receiveNow?: boolean;
+}
+
+export class PriceHistoryQueryDto {
+  @ApiProperty({ description: 'ID produk dipisah koma (maks. 50)' })
+  @Matches(/^[0-9a-fA-F-]{36}(,[0-9a-fA-F-]{36}){0,49}$/)
+  productIds: string;
 }
 
 export class PurchaseOrderQueryDto {

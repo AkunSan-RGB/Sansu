@@ -122,6 +122,14 @@ export default function PurchaseOrderDetailPage() {
       <Card loading={isLoading}>
         {o && (
           <>
+            {o.priceEstimate && o.status !== 'BILLED' && o.status !== 'CANCELLED' && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="Harga di PO ini estimasi (dari penawaran supplier). Saat faktur tiba, isi “Harga faktur” — biaya perolehan persediaan mengikuti faktur."
+              />
+            )}
             <Descriptions bordered size="small" column={{ xs: 1, md: 2 }} style={{ marginBottom: 16 }}>
               <Descriptions.Item label={t('Supplier')}>
                 {o.supplier.code} · {o.supplier.name}

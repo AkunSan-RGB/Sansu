@@ -630,6 +630,8 @@ export const purchaseOrders = pgTable(
     subtotal: money('subtotal').notNull().default('0'),
     taxAmount: money('tax_amount').notNull().default('0'),
     total: money('total').notNull().default('0'),
+    /** Harga berasal dari penawaran supplier (pembelian cepat) — final menunggu faktur; biaya perolehan mengikuti faktur */
+    priceEstimate: boolean('price_estimate').notNull().default(false),
     notes: text('notes'),
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),

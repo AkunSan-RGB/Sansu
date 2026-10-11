@@ -1,6 +1,6 @@
-import { PlusOutlined } from '@ant-design/icons';
+import { PlusOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Card, Select, Tag } from 'antd';
+import { Button, Card, Select, Space, Tag } from 'antd';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, qs } from '@/api/client';
@@ -24,9 +24,14 @@ export default function PurchaseOrdersPage() {
       <PageHeader
         title={t('Purchase Order')}
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/purchase-orders/new')}>
-            PO baru
-          </Button>
+          <Space wrap>
+            <Button icon={<ThunderboltOutlined />} onClick={() => navigate('/purchase-orders/quick')}>
+              Pembelian cepat
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/purchase-orders/new')}>
+              PO baru
+            </Button>
+          </Space>
         }
       />
       <Card>
@@ -38,7 +43,7 @@ export default function PurchaseOrdersPage() {
           scroll={{ x: 800 }}
           onRow={(r) => ({ onClick: () => navigate(`/purchase-orders/${r.id}`), style: { cursor: 'pointer' } })}
           columns={[
-            { title: 'Nomor', dataIndex: 'number' },
+            { title: 'Nomor', dataIndex: 'number', render: (n, o) => (o.priceEstimate ? <Space size={4}>{n}<Tag color="orange">Harga estimasi</Tag></Space> : n) },
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
             { title: t('Supplier'), render: (_, o) => o.supplier.name },
             { title: 'Total', dataIndex: 'total', align: 'right', render: fmtMoney },
