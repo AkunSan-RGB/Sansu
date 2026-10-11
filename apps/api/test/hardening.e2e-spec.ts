@@ -152,11 +152,15 @@ describe('Penguatan layanan (e2e)', () => {
   });
 
   describe('PPN tagihan langganan', () => {
+    // langganan dimatikan secara bawaan (tahap uji); bagian ini menguji penagihan saat dinyalakan
+    afterAll(async () => {
+      await http.put('/api/platform-admin/settings').set(as(await adminToken())).send({ enabled: false });
+    });
     it('tagihan baru dikenai PPN bila diaktifkan; invoice & rekap PPN', async () => {
       await http
         .put('/api/platform-admin/settings')
         .set(as(await adminToken()))
-        .send({ vatEnabled: true, vatRate: 11, sellerNpwp: '0123456789012345' })
+        .send({ enabled: true, vatEnabled: true, vatRate: 11, sellerNpwp: '0123456789012345' })
         .expect(200);
       const plans = (await http.get('/api/billing').set(as()).expect(200)).body.plans as {
         id: string;

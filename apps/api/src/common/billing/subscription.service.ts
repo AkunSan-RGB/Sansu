@@ -6,6 +6,8 @@ import { plans, platformSettings, subscriptions, users, warehouses } from '../..
 
 export type SubStatus = 'TRIAL' | 'ACTIVE' | 'OVERDUE' | 'EXPIRED' | 'SUSPENDED' | 'CANCELLED';
 export interface SubState {
+  /** false = langganan dimatikan di panel (tahap uji): semua perusahaan tanpa batas dan tanpa mode baca saja */
+  enabled: boolean;
   status: SubStatus;
   /** Boleh melihat data, tetapi tidak boleh menambah/mengubah */
   readOnly: boolean;
@@ -19,6 +21,8 @@ export interface SubState {
 }
 
 export interface BillingSettings {
+  /** Saklar utama langganan. Mati (bawaan selama tahap uji): tanpa trial, batas paket, tagihan, dan penguncian */
+  enabled: boolean;
   bankName: string;
   bankAccount: string;
   bankHolder: string;
@@ -38,6 +42,7 @@ export interface BillingSettings {
   vatRate: number;
 }
 export const DEFAULT_BILLING_SETTINGS: BillingSettings = {
+  enabled: false,
   bankName: '',
   bankAccount: '',
   bankHolder: '',
@@ -86,6 +91,7 @@ export class SubscriptionService {
   /** Mulai masa uji coba untuk perusahaan baru */
   async startTrial(tx: DbOrTx, tenantId: string) {
     const s = await this.settings(tx);
+    if (!s.enabled) return; // tahap uji: perusahaan baru tanpa batas, tanpa trial
     const [plan] = (await tx.select().from(plans).where(eq(plans.code, s.trialPlanCode))).concat(
       await tx.select().from(plans).where(eq(plans.isActive, true)).orderBy(asc(plans.sortOrder)),
     );
@@ -103,35 +109,40 @@ export class SubscriptionService {
     graceDays: number,
     now = new Date(),
   ): SubState {
-    if (!row) return { status: 'ACTIVE', readOnly: false, plan, cycle: 'MONTHLY', endsAt: null, daysLeft: null, graceUntil: null };
+    if (!row) return { enabled: true, status: 'ACTIVE', readOnly: false, plan, cycle: 'MONTHLY', endsAt: null, daysLeft: null, graceUntil: null };
     const cycle = row.cycle === 'YEARLY' ? 'YEARLY' : 'MONTHLY';
     const days = (d: Date) => Math.ceil((d.getTime() - now.getTime()) / DAY);
     if (row.status === 'SUSPENDED' || row.status === 'CANCELLED') {
-      return { status: row.status, readOnly: true, plan, cycle, endsAt: row.currentPeriodEnd?.toISOString() ?? null, daysLeft: null, graceUntil: null };
+      return { enabled: true, status: row.status, readOnly: true, plan, cycle, endsAt: row.currentPeriodEnd?.toISOString() ?? null, daysLeft: null, graceUntil: null };
     }
     if (row.status === 'TRIAL') {
       const end = row.trialEndsAt ?? now;
       const expired = end.getTime() <= now.getTime();
-      return { status: expired ? 'EXPIRED' : 'TRIAL', readOnly: expired, plan, cycle, endsAt: end.toISOString(), daysLeft: Math.max(0, days(end)), graceUntil: null };
+      return { enabled: true, status: expired ? 'EXPIRED' : 'TRIAL', readOnly: expired, plan, cycle, endsAt: end.toISOString(), daysLeft: Math.max(0, days(end)), graceUntil: null };
     }
     // ACTIVE
-    if (!row.currentPeriodEnd) return { status: 'ACTIVE', readOnly: false, plan, cycle, endsAt: null, daysLeft: null, graceUntil: null };
+    if (!row.currentPeriodEnd) return { enabled: true, status: 'ACTIVE', readOnly: false, plan, cycle, endsAt: null, daysLeft: null, graceUntil: null };
     const end = row.currentPeriodEnd;
     const grace = new Date(end.getTime() + graceDays * DAY);
-    if (end.getTime() > now.getTime()) return { status: 'ACTIVE', readOnly: false, plan, cycle, endsAt: end.toISOString(), daysLeft: days(end), graceUntil: grace.toISOString() };
-    if (grace.getTime() > now.getTime()) return { status: 'OVERDUE', readOnly: false, plan, cycle, endsAt: end.toISOString(), daysLeft: 0, graceUntil: grace.toISOString() };
-    return { status: 'EXPIRED', readOnly: true, plan, cycle, endsAt: end.toISOString(), daysLeft: 0, graceUntil: grace.toISOString() };
+    if (end.getTime() > now.getTime()) return { enabled: true, status: 'ACTIVE', readOnly: false, plan, cycle, endsAt: end.toISOString(), daysLeft: days(end), graceUntil: grace.toISOString() };
+    if (grace.getTime() > now.getTime()) return { enabled: true, status: 'OVERDUE', readOnly: false, plan, cycle, endsAt: end.toISOString(), daysLeft: 0, graceUntil: grace.toISOString() };
+    return { enabled: true, status: 'EXPIRED', readOnly: true, plan, cycle, endsAt: end.toISOString(), daysLeft: 0, graceUntil: grace.toISOString() };
   }
 
   async state(tenantId: string, fresh = false): Promise<SubState> {
     const hit = this.cache.get(tenantId);
     if (!fresh && hit && Date.now() - hit.at < 30_000) return hit.state;
+    const s = await this.settings();
+    if (!s.enabled) {
+      const off: SubState = { enabled: false, status: 'ACTIVE', readOnly: false, plan: null, cycle: 'MONTHLY', endsAt: null, daysLeft: null, graceUntil: null };
+      this.cache.set(tenantId, { at: Date.now(), state: off });
+      return off;
+    }
     const [row] = await this.db
       .select({ sub: subscriptions, plan: plans })
       .from(subscriptions)
       .innerJoin(plans, eq(plans.id, subscriptions.planId))
       .where(eq(subscriptions.tenantId, tenantId));
-    const s = await this.settings();
     const plan = row
       ? { id: row.plan.id, code: row.plan.code, name: row.plan.name, maxUsers: row.plan.maxUsers, maxWarehouses: row.plan.maxWarehouses, priceMonthly: row.plan.priceMonthly, priceYearly: row.plan.priceYearly }
       : null;

@@ -422,6 +422,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     title: 'Langganan, tagihan, dan invoice',
     summary: 'Pilih paket, bayar, dan unduh invoice.',
     paths: ['/billing'],
+    // catatan: selama tahap uji saklar langganan dimatikan di Panel SANSU (menu dan banner Langganan tersembunyi)
     steps: [
       'Buka Langganan dari menu Pengaturan.',
       'Pilih paket dan siklus (bulanan/tahunan). Tagihan dibuat otomatis.',

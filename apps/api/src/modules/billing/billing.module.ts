@@ -132,6 +132,7 @@ export class UpdateSubscriptionDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(1000) notes?: string;
 }
 export class BillingSettingsDto {
+  @ApiPropertyOptional({ description: 'Saklar utama langganan (mati selama tahap uji)' }) @IsOptional() @IsBoolean() enabled?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(60) bankName?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(40) bankAccount?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(80) bankHolder?: string;
@@ -266,6 +267,7 @@ export class BillingService {
 
   /** Buat tagihan untuk paket & siklus pilihan (tagihan lama yang belum dibayar dibatalkan) */
   async createInvoice(u: AuthUser, dto: CreateBillingInvoiceDto, opts: { auto?: boolean } = {}) {
+    if (!(await this.subs.settings()).enabled) throw new BadRequestException('Langganan belum diaktifkan (masih tahap uji). Tidak ada tagihan yang perlu dibayar.');
     const [plan] = await this.db
       .select()
       .from(plans)
@@ -549,12 +551,55 @@ export class BillingService {
       FROM billing_invoices WHERE status = 'PAID' AND paid_at > now() - interval '12 months' GROUP BY 1 ORDER BY 1`);
     return {
       ...r.rows[0],
+      billingEnabled: (await this.subs.settings()).enabled,
       signups: signups.rows,
       revenue: revenue.rows,
       gateway: activeGateway(),
       smtp: this.mail.configured,
       admins: platformAdminEmails(),
     };
+  }
+
+  /**
+   * Pantauan penggunaan (tahap uji): siapa yang aktif, dokumen apa yang dibuat, perusahaan yang paling sering memakai, dan
+   * jejak aktivitas terbaru lintas perusahaan. Dihitung dari login pengguna dan jejak audit.
+   */
+  async platformPulse() {
+    const one = async <T extends Record<string, unknown>>(q: ReturnType<typeof sql>) => (await this.db.execute<T>(q)).rows;
+    const [k] = await one<{ users: number; d1: number; d7: number; d30: number; tenants: number; tenants7: number; selling: number; events24: number; events7: number }>(sql`
+      SELECT
+        (SELECT COUNT(*) FROM users WHERE is_active)::int AS users,
+        (SELECT COUNT(*) FROM users u WHERE u.last_login_at > now() - interval '1 day' OR EXISTS (SELECT 1 FROM audit_logs a WHERE a.user_id = u.id AND a.created_at > now() - interval '1 day'))::int AS d1,
+        (SELECT COUNT(*) FROM users u WHERE u.last_login_at > now() - interval '7 days' OR EXISTS (SELECT 1 FROM audit_logs a WHERE a.user_id = u.id AND a.created_at > now() - interval '7 days'))::int AS d7,
+        (SELECT COUNT(*) FROM users u WHERE u.last_login_at > now() - interval '30 days' OR EXISTS (SELECT 1 FROM audit_logs a WHERE a.user_id = u.id AND a.created_at > now() - interval '30 days'))::int AS d30,
+        (SELECT COUNT(*) FROM tenants)::int AS tenants,
+        (SELECT COUNT(DISTINCT x.tenant_id) FROM (SELECT tenant_id FROM users WHERE last_login_at > now() - interval '7 days' UNION SELECT tenant_id FROM audit_logs WHERE created_at > now() - interval '7 days') x)::int AS tenants7,
+        (SELECT COUNT(*) FROM tenants t WHERE EXISTS (SELECT 1 FROM invoices i WHERE i.tenant_id = t.id)
+            OR EXISTS (SELECT 1 FROM purchase_invoices p WHERE p.tenant_id = t.id) OR EXISTS (SELECT 1 FROM pos_orders o WHERE o.tenant_id = t.id))::int AS selling,
+        (SELECT COUNT(*) FROM audit_logs WHERE created_at > now() - interval '1 day')::int AS events24,
+        (SELECT COUNT(*) FROM audit_logs WHERE created_at > now() - interval '7 days')::int AS events7`);
+    const docs = await one<{ label: string; n7: number; total: number }>(sql`
+      SELECT label, n7::int, total::int FROM (
+        SELECT 'Sales order' AS label, COUNT(*) FILTER (WHERE created_at > now() - interval '7 days') AS n7, COUNT(*) AS total FROM sales_orders
+        UNION ALL SELECT 'Faktur penjualan', COUNT(*) FILTER (WHERE created_at > now() - interval '7 days'), COUNT(*) FROM invoices
+        UNION ALL SELECT 'Purchase order', COUNT(*) FILTER (WHERE created_at > now() - interval '7 days'), COUNT(*) FROM purchase_orders
+        UNION ALL SELECT 'Faktur pembelian', COUNT(*) FILTER (WHERE created_at > now() - interval '7 days'), COUNT(*) FROM purchase_invoices
+        UNION ALL SELECT 'Pembayaran diterima', COUNT(*) FILTER (WHERE created_at > now() - interval '7 days'), COUNT(*) FROM payments
+        UNION ALL SELECT 'Jurnal', COUNT(*) FILTER (WHERE created_at > now() - interval '7 days'), COUNT(*) FROM journal_entries
+        UNION ALL SELECT 'Perintah produksi', COUNT(*) FILTER (WHERE created_at > now() - interval '7 days'), COUNT(*) FROM production_orders
+      ) x`);
+    const daily = await one<{ day: string; n: number; users: number }>(sql`
+      SELECT to_char(date_trunc('day', created_at AT TIME ZONE 'Asia/Jakarta'), 'YYYY-MM-DD') AS day, COUNT(*)::int AS n, COUNT(DISTINCT user_id)::int AS users
+      FROM audit_logs WHERE created_at > now() - interval '14 days' GROUP BY 1 ORDER BY 1`);
+    const top = await one<{ id: string; name: string; events: number; users: number; last: string | null }>(sql`
+      SELECT t.id, t.name, COUNT(a.id)::int AS events, COUNT(DISTINCT a.user_id)::int AS users, MAX(a.created_at)::text AS last
+      FROM audit_logs a JOIN tenants t ON t.id = a.tenant_id WHERE a.created_at > now() - interval '7 days'
+      GROUP BY t.id, t.name ORDER BY events DESC LIMIT 10`);
+    const recent = await one<{ id: number; at: string; tenant: string; user: string | null; action: string; entity: string }>(sql`
+      SELECT a.id, a.created_at::text AS at, t.name AS tenant, u.name AS user, a.action, a.entity
+      FROM audit_logs a JOIN tenants t ON t.id = a.tenant_id LEFT JOIN users u ON u.id = a.user_id
+      ORDER BY a.id DESC LIMIT 60`);
+    return { ...k, docs, daily, top, recent };
   }
 
   async platformTenants(q?: string) {
@@ -777,6 +822,7 @@ export class BillingService {
   // ===== Tugas terjadwal: pengingat & tagihan perpanjangan otomatis =====
   async runReminders(now = new Date()) {
     const s = await this.subs.settings();
+    if (!s.enabled) return { checked: 0, sent: 0 }; // tahap uji: tanpa pengingat/tagihan perpanjangan
     const rows = await this.db
       .select({ sub: subscriptions, plan: plans })
       .from(subscriptions)
@@ -953,6 +999,10 @@ export class PlatformAdminController {
   @Get('overview')
   overview() {
     return this.svc.platformOverview();
+  }
+  @Get('pulse')
+  pulse() {
+    return this.svc.platformPulse();
   }
   @Get('tenants')
   tenants(@Query('q') q?: string) {

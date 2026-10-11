@@ -93,6 +93,8 @@ export interface Plan {
   sortOrder: number;
 }
 export interface SubscriptionState {
+  /** false = fitur langganan dimatikan (tahap uji): tanpa trial, batas paket, atau mode baca saja */
+  enabled?: boolean;
   status: SubscriptionStatus;
   readOnly: boolean;
   plan: Pick<Plan, 'id' | 'code' | 'name' | 'maxUsers' | 'maxWarehouses' | 'priceMonthly' | 'priceYearly'> | null;
