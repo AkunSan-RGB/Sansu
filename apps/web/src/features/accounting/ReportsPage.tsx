@@ -1,4 +1,4 @@
-import { REPORTING_FRAMEWORK_LABELS } from '@sansu/shared';
+import { REPORTING_FRAMEWORK_LABELS, type ReportingFramework, type StatementKind, statementTitle } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Card, Checkbox, Input, Radio, Select, Space, Tabs, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
@@ -59,8 +59,10 @@ export default function ReportsPage() {
   const range = { from, to };
   const fy = Number(to.slice(0, 4));
 
-  const fw = useQuery({ queryKey: ['framework'], queryFn: () => get<{ framework: 'SAK_EP' | 'SAK_EMKM' }>('/accounting/statements/framework') });
+  const fw = useQuery({ queryKey: ['framework'], queryFn: () => get<{ framework: ReportingFramework }>('/accounting/statements/framework') });
   const framework = fw.data?.framework ?? 'SAK_EP';
+  const KIND: Partial<Record<TabKey, StatementKind>> = { position: 'position', income: 'income', equity: 'equity', cashflow: 'cashflow', notes: 'notes' };
+  const tabTitle = (k: TabKey) => (KIND[k] ? statementTitle(KIND[k]!, framework) : TABS[k]);
   const on = (k: TabKey) => tab === k;
   const position = useQuery({
     queryKey: ['statements', 'position', to],
@@ -147,7 +149,7 @@ export default function ReportsPage() {
             ) : (
               <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
             )}
-            <ExportButtons filename={`${SHORT[tab].toLowerCase().replace(/ /g, '-')}-${to}`} title={`${TABS[tab]} ${period}`} sheets={sheets} />
+            <ExportButtons filename={`${SHORT[tab].toLowerCase().replace(/ /g, '-')}-${to}`} title={`${tabTitle(tab)} ${period}`} sheets={sheets} />
           </Space>
         }
       />
@@ -188,7 +190,7 @@ export default function ReportsPage() {
           <Typography.Title level={4} style={{ margin: 0 }}>
             {me?.tenantName}
           </Typography.Title>
-          <Typography.Text strong>{TABS[tab]}</Typography.Text>
+          <Typography.Text strong>{tabTitle(tab)}</Typography.Text>
           <br />
           <Typography.Text type="secondary">{period} · dalam Rupiah</Typography.Text>
         </div>

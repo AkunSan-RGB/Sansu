@@ -98,24 +98,28 @@ export function recommendProfile(input: EntityProfileInput): EntityRecommendatio
   const outOfScope = input.publicAccountability;
   if (outOfScope) {
     warnings.push(
-      'Entitas dengan akuntabilitas publik wajib memakai SAK yang berbasis IFRS, bukan SAK EMKM atau SAK EP. Hubungi akuntan Anda; SANSU tidak dapat menerapkan pilihan standar untuk kondisi ini.',
+      'Entitas dengan akuntabilitas publik wajib memakai SAK yang berbasis IFRS (PSAK), bukan SAK EMKM atau SAK EP: pilihan standar dibatasi ke IFRS. SANSU menyediakan penyajian dan pengungkapan inti IFRS; pengungkapan yang belum tercakup (mis. laba per saham, segmen operasi, sewa bernilai material) harus dilengkapi bersama akuntan Anda.',
     );
   }
 
   let framework: ReportingFramework;
   let frameworkAlternatives: ReportingFramework[];
-  if (size === 'MICRO' || size === 'SMALL') {
+  if (outOfScope) {
+    framework = 'IFRS';
+    frameworkAlternatives = [];
+    reasons.push('Akuntabilitas publik: memakai standar akuntansi umum berbasis IFRS.');
+  } else if (size === 'MICRO' || size === 'SMALL') {
     framework = 'SAK_EMKM';
     frameworkAlternatives = ['SAK_EP'];
     reasons.push('Usaha mikro dan kecil cukup memakai SAK EMKM: hanya Laporan Posisi Keuangan, Laba Rugi, dan CALK. SAK EP tetap boleh bila ingin laporan lengkap.');
   } else if (size === 'MEDIUM') {
     framework = 'SAK_EP';
-    frameworkAlternatives = ['SAK_EMKM'];
-    reasons.push('Usaha menengah disarankan memakai SAK EP (lima laporan dengan pembanding dan pajak tangguhan). SAK EMKM masih memenuhi kriteria bila pemakai laporan tidak memerlukannya.');
+    frameworkAlternatives = ['SAK_EMKM', 'IFRS'];
+    reasons.push('Usaha menengah disarankan memakai SAK EP (lima laporan dengan pembanding dan pajak tangguhan). SAK EMKM masih memenuhi kriteria bila pemakai laporan tidak memerlukannya; IFRS dipilih bila grup atau pemberi dana meminta standar akuntansi umum.');
   } else {
     framework = 'SAK_EP';
-    frameworkAlternatives = [];
-    reasons.push('Usaha di atas kriteria UMKM memakai SAK EP; SAK EMKM tidak lagi memenuhi syarat.');
+    frameworkAlternatives = ['IFRS'];
+    reasons.push('Usaha di atas kriteria UMKM memakai SAK EP; SAK EMKM tidak lagi memenuhi syarat. IFRS boleh dipilih secara sukarela, mis. untuk perusahaan afiliasi grup asing atau bila bank/investor mensyaratkannya.');
   }
 
   const eligible = finalTaxEligible(input.legalForm, input.revenue);
@@ -160,6 +164,11 @@ export function simplificationsFor(framework: ReportingFramework, taxScheme: Tax
     out.push('Laba rugi disajikan ringkas per kelompok (pendapatan, beban pokok, beban usaha, beban lain-lain).');
     out.push('Pajak tangguhan tidak dihitung dan tidak dijurnal.');
     out.push('CALK memakai ikhtisar kebijakan akuntansi SAK EMKM.');
+  } else if (framework === 'IFRS') {
+    out.push('Lima laporan lengkap dengan angka pembanding (IAS 1): Posisi Keuangan, Laba Rugi dan Penghasilan Komprehensif Lain, Perubahan Ekuitas, Arus Kas, dan CALK; judul laporan dwibahasa (Indonesia / Inggris).');
+    out.push('Pengukuran sama dengan SAK EP (biaya perolehan atau biaya rata-rata/MPKP untuk persediaan dengan penurunan ke nilai realisasi neto, cadangan kerugian kredit ekspektasian piutang, aset tetap dengan nilai residu, pengakuan pendapatan sepanjang waktu untuk proyek).');
+    out.push('CALK memuat pengungkapan tambahan IFRS: pernyataan kepatuhan, risiko keuangan (IFRS 7), manajemen modal (IAS 1), sewa (IFRS 16), dan standar baru yang belum berlaku (IAS 8).');
+    if (taxScheme === 'GENERAL') out.push('Pajak tangguhan (IAS 12) atas beda temporer aset tetap dan penurunan nilai persediaan dihitung otomatis.');
   } else {
     out.push('Lima laporan lengkap dengan angka pembanding: Posisi Keuangan, Laba Rugi dan Penghasilan Komprehensif, Perubahan Ekuitas, Arus Kas, dan CALK.');
     if (taxScheme === 'GENERAL') out.push('Pajak tangguhan atas beda temporer aset tetap dan penurunan nilai persediaan dihitung otomatis.');

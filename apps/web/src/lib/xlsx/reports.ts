@@ -7,6 +7,8 @@ import {
   FISCAL_ASSET_GROUP_INFO,
   JOURNAL_SOURCE_LABELS,
   REPORTING_FRAMEWORK_LABELS,
+  type ReportingFramework,
+  statementTitle,
   TAX_PAYMENT_LABELS,
   type AnnualTaxRecap,
   type BpjsRecap,
@@ -230,7 +232,7 @@ export function worksheetSheet(w: Worksheet, company?: string): SheetSpec[] {
 // ============ Laporan keuangan ============
 export interface StatementMeta {
   company?: string;
-  framework: 'SAK_EP' | 'SAK_EMKM';
+  framework: ReportingFramework;
   refs?: Record<string, string>;
   detail?: boolean;
   /** Penandatangan laporan (hanya Posisi Keuangan dan Laba Rugi; CALK tidak ditandatangani) */
@@ -304,7 +306,7 @@ const stmtCols = (cur: string, cmp: string): Column[] => [
 export function positionSheet(p: FinancialPosition, m: StatementMeta): SheetSpec[] {
   const s = new SheetBuilder('Posisi Keuangan', {
     company: m.company,
-    title: 'Laporan Posisi Keuangan',
+    title: statementTitle('position', m.framework),
     subtitle: [`Per ${tgl(p.asOf)}`, basis(m.framework), RP],
     columns: stmtCols(tgl(p.asOf), tgl(p.compareAsOf)),
     landscape: false,
@@ -372,7 +374,7 @@ export function positionSheet(p: FinancialPosition, m: StatementMeta): SheetSpec
 export function incomeSheet(p: IncomeStatement, m: StatementMeta): SheetSpec[] {
   const s = new SheetBuilder('Laba Rugi', {
     company: m.company,
-    title: p.framework === 'SAK_EP' ? 'Laporan Laba Rugi dan Penghasilan Komprehensif Lain' : 'Laporan Laba Rugi',
+    title: statementTitle('income', p.framework),
     subtitle: [periodeText(p.period.from, p.period.to), basis(p.framework), `${RP} · beban ditampilkan dalam kurung`],
     columns: stmtCols(
       `${tgl(p.period.from)} – ${tgl(p.period.to)}`,
@@ -394,7 +396,7 @@ export function equitySheet(e: EquityStatement, m: StatementMeta): SheetSpec[] {
   ];
   const s = new SheetBuilder('Perubahan Ekuitas', {
     company: m.company,
-    title: 'Laporan Perubahan Ekuitas',
+    title: statementTitle('equity', m.framework),
     subtitle: [periodeText(e.period.from, e.period.to), basis(m.framework), RP],
     columns: cols,
     landscape: true,
@@ -427,7 +429,7 @@ export function equitySheet(e: EquityStatement, m: StatementMeta): SheetSpec[] {
 export function cashFlowSheet(c: CashFlowStatement, m: StatementMeta): SheetSpec[] {
   const s = new SheetBuilder('Arus Kas', {
     company: m.company,
-    title: 'Laporan Arus Kas',
+    title: statementTitle('cashflow', m.framework),
     subtitle: [
       periodeText(c.period.from, c.period.to),
       `Metode ${c.method === 'direct' ? 'langsung' : 'tidak langsung'} · ${basis(m.framework)}`,
@@ -523,7 +525,7 @@ type DocLike = Pick<FinancialNotes, 'framework' | 'period'> & {
 };
 
 export function notesSheet(nt: FinancialNotes, company?: string): SheetSpec[] {
-  return documentSheet('CALK', 'Catatan atas Laporan Keuangan', nt, company);
+  return documentSheet('CALK', statementTitle('notes', nt.framework), nt, company);
 }
 
 export function appendixSheet(ap: FinancialAppendix, company?: string): SheetSpec[] {

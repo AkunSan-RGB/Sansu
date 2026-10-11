@@ -1,4 +1,4 @@
-import type { FiscalTreatment, ReportGroup, TaxPaymentType } from './accounting.js';
+import type { FiscalTreatment, ReportGroup, ReportingFramework, TaxPaymentType } from './accounting.js';
 import type { AppKey, BusinessModel } from './apps.js';
 import type { TaxFeatures } from './tax-features.js';
 /**
@@ -45,7 +45,7 @@ export interface Me {
   /** Model bisnis perusahaan (Dagang, Ritel, Jasa, Produksi, Manufaktur) */
   businessModel: BusinessModel;
   /** Standar pelaporan: SAK EMKM tidak mengenal penurunan nilai persediaan dan pengakuan pendapatan berdasarkan persentase penyelesaian */
-  framework: 'SAK_EP' | 'SAK_EMKM';
+  framework: ReportingFramework;
   emailVerified: boolean;
   /** Server mewajibkan verifikasi email sebelum mengubah data */
   verificationRequired: boolean;
@@ -637,7 +637,7 @@ export interface PayrollSettings {
 }
 
 export interface ReportingSettings {
-  framework: 'SAK_EP' | 'SAK_EMKM';
+  framework: ReportingFramework;
   legalForm: string;
   businessActivity: string;
   establishedYear: number | null;
@@ -994,7 +994,7 @@ export interface FinancialPosition {
   balanced: boolean;
 }
 export interface IncomeStatement {
-  framework: 'SAK_EP' | 'SAK_EMKM';
+  framework: ReportingFramework;
   period: { from: string; to: string };
   comparePeriod: { from: string; to: string };
   lines: StatementLine[];
@@ -1083,7 +1083,7 @@ export interface NoteSection {
 }
 export interface FinancialNotes {
   year: number;
-  framework: 'SAK_EP' | 'SAK_EMKM';
+  framework: ReportingFramework;
   company: {
     name: string;
     address: string | null;
@@ -1101,7 +1101,7 @@ export interface FinancialNotes {
 /** Lampiran laporan keuangan: daftar rincian pendukung (umur piutang/utang, aset tetap, persediaan, neraca saldo) */
 export interface FinancialAppendix {
   year: number;
-  framework: 'SAK_EP' | 'SAK_EMKM';
+  framework: ReportingFramework;
   company: { name: string; address: string | null; npwp: string | null; city: string; directorName: string; directorTitle: string };
   period: { from: string; to: string };
   sections: { key: string; number: string; title: string; paragraphs: string[]; tables: NoteTable[] }[];
@@ -1196,7 +1196,7 @@ export interface FiscalItem {
 export interface FiscalReconciliation {
   year: number;
   scheme: 'GENERAL' | 'FINAL_UMKM';
-  framework: 'SAK_EP' | 'SAK_EMKM';
+  framework: ReportingFramework;
   legalForm: string;
   profitBeforeTax: string;
   positive: FiscalItem[];

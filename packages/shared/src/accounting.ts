@@ -6,11 +6,43 @@
  */
 import type { AccountType } from './domain.js';
 
-export const REPORTING_FRAMEWORKS = ['SAK_EP', 'SAK_EMKM'] as const;
+export const REPORTING_FRAMEWORKS = ['SAK_EP', 'SAK_EMKM', 'IFRS'] as const;
 export type ReportingFramework = (typeof REPORTING_FRAMEWORKS)[number];
 export const REPORTING_FRAMEWORK_LABELS: Record<ReportingFramework, string> = {
   SAK_EP: 'SAK Entitas Privat (SAK EP)',
   SAK_EMKM: 'SAK EMKM',
+  IFRS: 'Standar akuntansi umum — IFRS (PSAK berbasis IFRS)',
+};
+/** Nama pendek untuk label dan judul */
+export const REPORTING_FRAMEWORK_SHORT: Record<ReportingFramework, string> = { SAK_EP: 'SAK EP', SAK_EMKM: 'SAK EMKM', IFRS: 'IFRS' };
+/**
+ * Kerangka lengkap = semua kerangka selain SAK EMKM (SAK EP dan IFRS): lima laporan dengan angka pembanding, pajak tangguhan, cadangan
+ * penurunan nilai, penurunan nilai persediaan, dan aset/liabilitas kontrak. IFRS memakai pengukuran yang sama dengan SAK EP (yang berbasis
+ * IFRS for SMEs) dan menambah pengungkapan khas IFRS; SAK EMKM disederhanakan.
+ */
+export const isFullFramework = (fw: ReportingFramework | string | null | undefined): boolean => fw !== 'SAK_EMKM';
+/** Normalisasi nilai pengaturan yang tidak dikenal menjadi SAK EP (bawaan sistem) */
+export const asFramework = (v: unknown): ReportingFramework => ((REPORTING_FRAMEWORKS as readonly string[]).includes(v as string) ? (v as ReportingFramework) : 'SAK_EP');
+/** Judul laporan menurut standar; IFRS dwibahasa (Indonesia / Inggris) agar bisa dipakai grup atau pemberi dana asing */
+export type StatementKind = 'position' | 'income' | 'equity' | 'cashflow' | 'notes';
+const STATEMENT_TITLES: Record<StatementKind, { id: string; idFull?: string; en: string }> = {
+  position: { id: 'Laporan Posisi Keuangan', en: 'Statement of Financial Position' },
+  income: { id: 'Laporan Laba Rugi', idFull: 'Laporan Laba Rugi dan Penghasilan Komprehensif Lain', en: 'Statement of Profit or Loss and Other Comprehensive Income' },
+  equity: { id: 'Laporan Perubahan Ekuitas', en: 'Statement of Changes in Equity' },
+  cashflow: { id: 'Laporan Arus Kas', en: 'Statement of Cash Flows' },
+  notes: { id: 'Catatan atas Laporan Keuangan', en: 'Notes to the Financial Statements' },
+};
+export function statementTitle(kind: StatementKind, framework: ReportingFramework): string {
+  const t = STATEMENT_TITLES[kind];
+  const id = framework !== 'SAK_EMKM' && t.idFull ? t.idFull : t.id;
+  return framework === 'IFRS' ? `${id} (${t.en})` : id;
+}
+
+/** Rujukan standar per topik untuk catatan dan petunjuk */
+export const FRAMEWORK_REFS: Record<ReportingFramework, { inventory: string; receivables: string; revenue: string; ppe: string; tax: string; presentation: string; name: string }> = {
+  SAK_EP: { inventory: 'SAK EP Bab 13', receivables: 'SAK EP Bab 11', revenue: 'SAK EP Bab 23', ppe: 'SAK EP Bab 17', tax: 'SAK EP Bab 29', presentation: 'SAK EP Bab 3', name: 'Standar Akuntansi Keuangan Entitas Privat (SAK EP)' },
+  SAK_EMKM: { inventory: 'ED SAK EMKM Bab 9', receivables: 'ED SAK EMKM Bab 8', revenue: 'ED SAK EMKM Bab 14', ppe: 'ED SAK EMKM Bab 10', tax: 'ED SAK EMKM Bab 15', presentation: 'ED SAK EMKM Bab 3', name: 'Standar Akuntansi Keuangan Entitas Mikro, Kecil, dan Menengah (SAK EMKM)' },
+  IFRS: { inventory: 'IAS 2 / PSAK 14', receivables: 'IFRS 9 / PSAK 71', revenue: 'IFRS 15 / PSAK 72', ppe: 'IAS 16 / PSAK 16', tax: 'IAS 12 / PSAK 46', presentation: 'IAS 1 / PSAK 1', name: 'International Financial Reporting Standards (IFRS) yang diadopsi sebagai Pernyataan Standar Akuntansi Keuangan (PSAK)' },
 };
 
 /** Bagian laporan */

@@ -4,7 +4,7 @@
  * dan rincian setiap pos laporan dengan angka pembanding. Teks dapat diubah pengguna per tahun.
  */
 import { Injectable } from '@nestjs/common';
-import { INVENTORY_METHOD_INFO, isInventoryMethod, activityFor, DEPRECIATION_METHOD_LABELS, FISCAL_ASSET_GROUP_INFO, type FiscalAssetGroup, LEGAL_FORM_LABELS, type LegalForm, type ReportGroup, REPORT_TERMS } from '@sansu/shared';
+import { INVENTORY_METHOD_INFO, isInventoryMethod, activityFor, DEPRECIATION_METHOD_LABELS, FISCAL_ASSET_GROUP_INFO, type FiscalAssetGroup, LEGAL_FORM_LABELS, type LegalForm, type ReportGroup, REPORT_TERMS, FRAMEWORK_REFS, isFullFramework, REPORTING_FRAMEWORK_SHORT } from '@sansu/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import { SettingsService } from '../../common/settings.service';
 import { todayJakarta } from '../../common/utils/dates';
@@ -70,8 +70,9 @@ export class NotesService {
     const terms = REPORT_TERMS[model];
     const invSetting = (await this.settings.section(this.db, tenantId, 'inventory', { method: 'AVERAGE' as string })).method;
     const invMethod = isInventoryMethod(invSetting) ? invSetting : 'AVERAGE';
-    const ep = reporting.framework === 'SAK_EP';
-    const std = ep ? 'Standar Akuntansi Keuangan Entitas Privat (SAK EP)' : 'Standar Akuntansi Keuangan Entitas Mikro, Kecil, dan Menengah (SAK EMKM)';
+    const ep = isFullFramework(reporting.framework); // SAK EP atau IFRS: kerangka lengkap
+    const ifrs = reporting.framework === 'IFRS';
+    const std = FRAMEWORK_REFS[reporting.framework].name;
     const yPrev = year - 1;
     const legal = LEGAL_FORM_LABELS[reporting.legalForm as LegalForm] ?? reporting.legalForm;
     const sections: NoteSection[] = [];
@@ -116,6 +117,7 @@ export class NotesService {
         ? ['Perusahaan dikenai Pajak Penghasilan final sebesar 0,5% dari peredaran bruto. Beban pajak final diakui dalam laba rugi pada periode pendapatan terkait diakui.']
         : ep
           ? [
+              ...(ifrs ? ['Pajak penghasilan dicatat sesuai IAS 12.'] : []),
               'Beban pajak penghasilan terdiri dari pajak kini dan pajak tangguhan. Pajak kini dihitung dari laba kena pajak dengan tarif yang berlaku, termasuk fasilitas pengurangan tarif Pasal 31E Undang-Undang Pajak Penghasilan bila memenuhi syarat.',
               'Aset dan liabilitas pajak tangguhan diakui atas perbedaan temporer antara jumlah tercatat aset dan liabilitas menurut laporan keuangan dengan dasar pengenaan pajaknya, terutama perbedaan penyusutan aset tetap.',
             ]
@@ -127,7 +129,12 @@ export class NotesService {
       subsections: [
         {
           title: 'a. Pernyataan kepatuhan',
-          paragraphs: [`Laporan keuangan Perusahaan disusun sesuai dengan ${std} yang diterbitkan oleh Dewan Standar Akuntansi Keuangan Ikatan Akuntan Indonesia.`],
+          paragraphs: ifrs
+            ? [
+                `Laporan keuangan Perusahaan disusun sesuai dengan ${std}, yaitu standar yang diterbitkan oleh International Accounting Standards Board (IASB) dan diadopsi di Indonesia oleh Dewan Standar Akuntansi Keuangan Ikatan Akuntan Indonesia.`,
+                'Pengungkapan yang disajikan mencakup penyajian laporan keuangan (IAS 1), arus kas (IAS 7), kebijakan akuntansi dan estimasi (IAS 8), pajak penghasilan (IAS 12), instrumen keuangan dan risikonya (IFRS 9 dan IFRS 7), dan sewa (IFRS 16). Pengungkapan lain yang disyaratkan IFRS dan relevan bagi Perusahaan (mis. laba per saham, segmen operasi, atau transaksi yang belum dicatat sistem) perlu dilengkapi manajemen sebelum laporan diterbitkan.',
+              ]
+            : [`Laporan keuangan Perusahaan disusun sesuai dengan ${std} yang diterbitkan oleh Dewan Standar Akuntansi Keuangan Ikatan Akuntan Indonesia.`],
         },
         {
           title: 'b. Dasar penyusunan',
@@ -178,6 +185,7 @@ export class NotesService {
         {
           title: 'g. Pengakuan pendapatan dan beban',
           paragraphs: [
+            ...(ifrs ? ['Pendapatan diakui sesuai IFRS 15 pada saat (atau selama) pengendalian atas barang atau jasa dialihkan kepada pelanggan, sebesar imbalan yang diharapkan Perusahaan berhak terima, melalui lima langkah: identifikasi kontrak, identifikasi kewajiban pelaksanaan, penentuan harga transaksi, alokasi harga transaksi, dan pengakuan pendapatan.'] : []),
             !ep && model === 'JASA'
               ? 'Pendapatan jasa dan pekerjaan konstruksi diakui sebesar jumlah yang ditagihkan kepada pelanggan (per termin atau per penyerahan jasa). Uang muka pelanggan disajikan sebagai liabilitas sampai dipakai melunasi tagihan. Beban diakui pada saat terjadinya (dasar akrual).'
               : terms.recognitionPolicy,
@@ -201,6 +209,27 @@ export class NotesService {
               : 'Sumber utama ketidakpastian estimasi adalah taksiran masa manfaat aset tetap dan kolektibilitas piutang usaha.',
           ],
         },
+        ...(ifrs
+          ? [
+              {
+                title: 'l. Instrumen keuangan (IFRS 9)',
+                paragraphs: [
+                  'Kas, piutang usaha, dan piutang lain-lain diklasifikasikan sebagai aset keuangan yang diukur pada biaya perolehan diamortisasi karena dimiliki untuk menagih arus kas kontraktual berupa pokok. Utang usaha, utang lain-lain, dan pinjaman diklasifikasikan sebagai liabilitas keuangan pada biaya perolehan diamortisasi.',
+                  'Cadangan kerugian piutang usaha diukur sebesar kerugian kredit ekspektasian sepanjang umur piutang (pendekatan yang disederhanakan) dengan matriks provisi berdasarkan umur piutang sejak jatuh tempo, disesuaikan dengan informasi masa depan bila relevan.',
+                ],
+              },
+              {
+                title: 'm. Sewa (IFRS 16)',
+                paragraphs: [
+                  'Perusahaan mengakui pembayaran sewa sebagai beban dengan dasar garis lurus selama masa sewa (pengecualian IFRS 16 untuk sewa jangka pendek dan sewa aset bernilai rendah). Bila Perusahaan memiliki sewa di luar pengecualian tersebut yang bernilai material, aset hak-guna dan liabilitas sewa harus diakui dan disajikan terpisah; SANSU belum mencatatnya secara otomatis sehingga manajemen perlu menyesuaikannya lewat jurnal.',
+                ],
+              },
+              {
+                title: 'n. Standar baru yang belum berlaku (IAS 8)',
+                paragraphs: ['Manajemen menelaah standar dan amendemen yang telah diterbitkan namun belum berlaku efektif dan menilai belum terdapat dampak signifikan terhadap laporan keuangan Perusahaan. Penilaian ini perlu dimutakhirkan setiap tahun.'],
+              },
+            ]
+          : []),
       ],
       tables: [],
     });
@@ -439,6 +468,38 @@ export class NotesService {
       tables: [],
     });
 
+    if (ifrs) {
+      const fin = (g: string) => posLines.filter((l) => l.key === g).reduce((a, l) => a + n(l.amount), 0);
+      const arTotal = fin('TRADE_RECEIVABLE');
+      const overdue = aging.filter((r) => !/^0|belum/i.test(r.bucket.slice(3))).reduce((a, r) => a + n(r.v), 0);
+      const apTotal = apRows.reduce((a, r) => a + r.total, 0);
+      const loans = fin('SHORT_TERM_LOAN') + fin('LONG_TERM_LOAN');
+      const liabilities = n(pkg.position.totals.liabilities.amount);
+      const equity = n(pkg.position.totals.equity.amount);
+      push({
+        key: 'financial-risk',
+        title: 'Manajemen risiko keuangan (IFRS 7)',
+        paragraphs: [
+          'Perusahaan terpapar risiko kredit, risiko likuiditas, dan risiko pasar. Manajemen memantau risiko tersebut secara berkala; SANSU menyediakan data umur piutang dan utang, batas kredit pelanggan, serta pengingat jatuh tempo.',
+          `Risiko kredit: timbul terutama dari piutang usaha sebesar ${fmtRp(arTotal)}, yang diukur pada kerugian kredit ekspektasian dengan matriks provisi berdasarkan umur. Sebesar ${fmtRp(overdue)} telah melewati jatuh tempo. Perusahaan menetapkan batas kredit dan termin per pelanggan serta kas ditempatkan pada bank di dalam negeri.`,
+          `Risiko likuiditas: Perusahaan mengelola kecukupan kas untuk memenuhi liabilitas keuangan yang jatuh tempo; utang usaha sebesar ${fmtRp(apTotal)}${loans ? ` dan pinjaman bank sebesar ${fmtRp(loans)}` : ''} pada tanggal laporan. Seluruh utang usaha pada umumnya jatuh tempo dalam waktu satu tahun.`,
+          'Risiko pasar: seluruh transaksi dalam Rupiah sehingga tidak terdapat paparan risiko mata uang asing yang signifikan. Risiko suku bunga hanya timbul dari pinjaman bank berbunga, bila ada.',
+        ],
+        tables: [
+          ...(aging.length ? [{ title: 'Umur piutang usaha (sejak jatuh tempo)', columns: ['Umur', `${year}`], align: ['left', 'right'] as ('left' | 'right')[], rows: aging.map((r) => [r.bucket.slice(3), n(r.v)]) }] : []),
+          ...(apAging.length ? [{ title: 'Umur utang usaha (sejak jatuh tempo) — jatuh tempo kontraktual', columns: ['Umur', `${year}`], align: ['left', 'right'] as ('left' | 'right')[], rows: apAging }] : []),
+        ],
+      });
+      push({
+        key: 'capital',
+        title: 'Manajemen modal (IAS 1)',
+        paragraphs: [
+          `Tujuan Perusahaan mengelola modal adalah menjaga kelangsungan usaha dan struktur modal yang sehat. Pada tanggal laporan, ekuitas sebesar ${fmtRp(equity)} dan total liabilitas sebesar ${fmtRp(liabilities)}${equity > 0 ? `, sehingga rasio liabilitas terhadap ekuitas ${(liabilities / equity).toLocaleString('id-ID', { maximumFractionDigits: 2 })} kali` : ''}.`,
+          'Perusahaan tidak tunduk pada persyaratan modal minimum dari pihak eksternal, kecuali ditentukan lain oleh perjanjian pinjaman atau peraturan yang berlaku.',
+        ],
+        tables: [],
+      });
+    }
     push({
       key: 'subsequent',
       title: 'Peristiwa setelah periode pelaporan',
@@ -449,7 +510,7 @@ export class NotesService {
       key: 'approval',
       title: 'Tanggung jawab manajemen dan persetujuan laporan keuangan',
       paragraphs: [
-        `Manajemen bertanggung jawab atas penyusunan dan penyajian wajar laporan keuangan ini sesuai ${ep ? 'SAK EP' : 'SAK EMKM'}. Laporan keuangan disetujui untuk diterbitkan${reporting.city ? ` di ${reporting.city}` : ''}${reporting.directorName ? ` oleh ${reporting.directorName}` : ''}.`,
+        `Manajemen bertanggung jawab atas penyusunan dan penyajian wajar laporan keuangan ini sesuai ${REPORTING_FRAMEWORK_SHORT[reporting.framework]}. Laporan keuangan disetujui untuk diterbitkan${reporting.city ? ` di ${reporting.city}` : ''}${reporting.directorName ? ` oleh ${reporting.directorName}` : ''}.`,
       ],
       tables: [],
     });

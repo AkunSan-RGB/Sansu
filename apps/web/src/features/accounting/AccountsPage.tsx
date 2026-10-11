@@ -1,4 +1,4 @@
-import { BUSINESS_MODEL_BY_KEY, BUSINESS_MODELS, type BusinessModel, ACCOUNT_TYPE_LABELS, type AccountType, FISCAL_TREATMENT_LABELS, type FiscalTreatment, REPORT_GROUPS, type ReportGroup, reportGroupsFor, toOptions } from '@sansu/shared';
+import { REPORTING_FRAMEWORK_SHORT, BUSINESS_MODEL_BY_KEY, BUSINESS_MODELS, type BusinessModel, ACCOUNT_TYPE_LABELS, type AccountType, FISCAL_TREATMENT_LABELS, type FiscalTreatment, REPORT_GROUPS, type ReportGroup, reportGroupsFor, toOptions } from '@sansu/shared';
 import { PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Card, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, Typography } from 'antd';
@@ -67,7 +67,7 @@ function ChartProfileBar({ hiddenCount }: { hiddenCount: number }) {
         </span>
         <span>
           <Typography.Text type="secondary">Standar pelaporan: </Typography.Text>
-          <Tag color={framework === 'SAK_EMKM' ? 'gold' : 'blue'}>{framework === 'SAK_EMKM' ? 'SAK EMKM' : 'SAK EP'}</Tag>
+          <Tag color={framework === 'SAK_EMKM' ? 'gold' : framework === 'IFRS' ? 'purple' : 'blue'}>{REPORTING_FRAMEWORK_SHORT[framework]}</Tag>
           {isAdmin && (
             <Button size="small" type="link" onClick={() => navigate('/settings/company?tab=kebijakan')}>
               Ubah lewat wizard

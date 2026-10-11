@@ -8,7 +8,7 @@
  */
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
-import { BUSINESS_MODEL_BY_KEY, BUSINESS_MODEL_KEYS, type AppKey, type BusinessModel, withDependencies } from '@sansu/shared';
+import { asFramework, BUSINESS_MODEL_BY_KEY, BUSINESS_MODEL_KEYS, type AppKey, type BusinessModel, type ReportingFramework, withDependencies } from '@sansu/shared';
 import { accounts, assetCategories, journalLines, tenantApps, tenants } from '../../db/schema';
 import { COA_FAMILIES, COA_UNUSED_MARK, coaName, coaNameVariants, DEFAULT_COA, guessReportGroup } from './default-coa';
 
@@ -38,7 +38,7 @@ async function businessModelOf(db: DbOrTx, tenantId: string): Promise<BusinessMo
  * Sesuaikan relevansi akun dengan jenis usaha dan aplikasi aktif: akun tidak relevan yang belum pernah dipakai dinonaktifkan,
  * akun yang sebelumnya dinonaktifkan otomatis diaktifkan kembali bila kini relevan. Nonaktif buatan pengguna tidak disentuh.
  */
-export async function applyChartRelevance(db: DbOrTx, tenantId: string, model: BusinessModel, apps: ReadonlySet<string>, framework: 'SAK_EP' | 'SAK_EMKM' = 'SAK_EP') {
+export async function applyChartRelevance(db: DbOrTx, tenantId: string, model: BusinessModel, apps: ReadonlySet<string>, framework: ReportingFramework = 'SAK_EP') {
   const all = await db.select().from(accounts).where(eq(accounts.tenantId, tenantId));
   const byCode = new Map(all.map((a) => [a.code, a]));
   let deactivated = 0;
@@ -67,10 +67,10 @@ export async function applyChartRelevance(db: DbOrTx, tenantId: string, model: B
 }
 
 /** Standar pelaporan perusahaan (SAK EP bila belum dipilih) */
-export async function frameworkOf(db: DbOrTx, tenantId: string): Promise<'SAK_EP' | 'SAK_EMKM'> {
+export async function frameworkOf(db: DbOrTx, tenantId: string): Promise<ReportingFramework> {
   const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
   const fw = (t?.settings as { reporting?: { framework?: string } } | null)?.reporting?.framework;
-  return fw === 'SAK_EMKM' ? 'SAK_EMKM' : 'SAK_EP';
+  return asFramework(fw);
 }
 
 /**
