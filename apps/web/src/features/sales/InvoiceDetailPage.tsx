@@ -51,7 +51,7 @@ export default function InvoiceDetailPage() {
   const lineForeign = (l: { qty: string; priceForeign?: string | null; discountPct: string }) => Math.round(Number(l.qty) * Number(l.priceForeign ?? 0) * (100 - Number(l.discountPct))) / 100;
   const subForeign = foreign && inv ? inv.lines.reduce((a, l) => a + lineForeign(l), 0) : 0;
   const totalForeign = Number(inv?.totalForeign ?? 0);
-  const restForeign = foreign && inv ? totalForeign - Number(inv.paidForeign ?? 0) : 0;
+  const restForeign = foreign && inv ? totalForeign - Number(inv.paidForeign ?? 0) - Number(inv.returnedForeign ?? 0) : 0;
 
   const wa =
     inv &&
@@ -254,7 +254,7 @@ export default function InvoiceDetailPage() {
                           {Number(inv.paidAmount) - wh - dep + Number(inv.returnedAmount) > 0 && (
                             <tr>
                               <td style={{ padding: 4 }}>Sudah dibayar / retur</td>
-                              <td style={{ padding: 4, textAlign: 'right' }}>({foreign ? fc(Number(inv.paidForeign ?? 0)) : fmtMoney(Number(inv.paidAmount) - wh - dep + Number(inv.returnedAmount))})</td>
+                              <td style={{ padding: 4, textAlign: 'right' }}>({foreign ? fc(Number(inv.paidForeign ?? 0) + Number(inv.returnedForeign ?? 0)) : fmtMoney(Number(inv.paidAmount) - wh - dep + Number(inv.returnedAmount))})</td>
                             </tr>
                           )}
                           {Number(inv.paidAmount) + Number(inv.returnedAmount) > 0 && (

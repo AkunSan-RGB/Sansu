@@ -31,7 +31,7 @@ interface SupplierPayment {
 
 export const apOutstanding = (i: PurchaseInvoice) => Number(i.total) - Number(i.paidAmount) - Number(i.returnedAmount);
 /** Sisa hutang dalam mata uang faktur */
-const apOutstandingForeign = (i: PurchaseInvoice) => Number(i.totalForeign ?? 0) - Number(i.paidForeign ?? 0);
+const apOutstandingForeign = (i: PurchaseInvoice) => Number(i.totalForeign ?? 0) - Number(i.paidForeign ?? 0) - Number(i.returnedForeign ?? 0);
 
 export default function PurchaseInvoicesPage() {
   const navigate = useNavigate();

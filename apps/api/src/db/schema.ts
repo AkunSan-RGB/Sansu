@@ -484,6 +484,8 @@ export const invoices = pgTable(
     totalForeign: money('total_foreign'),
     /** Pelunasan dalam mata uang dokumen */
     paidForeign: money('paid_foreign').notNull().default('0'),
+    /** Nilai retur dalam mata uang dokumen */
+    returnedForeign: money('returned_foreign').notNull().default('0'),
     journalId: uuid('journal_id'),
     createdAt: createdAt(),
   },
@@ -865,6 +867,8 @@ export const purchaseInvoices = pgTable(
     fxRate: numeric('fx_rate', { precision: 18, scale: 6 }).notNull().default('1'),
     totalForeign: money('total_foreign'),
     paidForeign: money('paid_foreign').notNull().default('0'),
+    /** Nilai retur dalam mata uang dokumen */
+    returnedForeign: money('returned_foreign').notNull().default('0'),
     status: invoiceStatusEnum('status').notNull().default('UNPAID'),
     journalId: uuid('journal_id'),
     createdAt: createdAt(),

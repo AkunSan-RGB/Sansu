@@ -161,9 +161,52 @@ describe('Mata uang asing (e2e)', () => {
     expect((await get(`/api/purchase-invoices/${apId}`).expect(200)).body).toMatchObject({ status: 'PAID', paidForeign: '555.00' });
   });
 
-  it('retur dan uang muka untuk faktur valas ditolak dengan pesan jelas', async () => {
-    const inv = (await get(`/api/invoices/${invId}`).expect(200)).body;
-    const r = await post('/api/sales-returns', { invoiceId: invId, lines: [{ invoiceLineId: inv.lines[0].id, qty: '1' }] }).expect(400);
+  it('retur penjualan valas: piutang Rupiah turun pada kurs faktur, sisa valas ikut turun, pelunasan akhir menutup', async () => {
+    const so = (await post('/api/sales-orders', { customerId: cust, warehouseId: wh, currency: 'USD', fxRate: '16000', lines: [{ productId: prod, qty: '10', price: '20' }] }).expect(201)).body;
+    await post(`/api/sales-orders/${so.id}/confirm`).expect(201);
+    const inv = (await post('/api/invoices', { salesOrderId: so.id }).expect(201)).body;
+    expect(inv).toMatchObject({ total: '3552000.00', totalForeign: '222.00' }); // 200 USD + PPN 22
+    const arBefore = await bal('1-1300');
+    const full = (await get(`/api/invoices/${inv.id}`).expect(200)).body;
+    const ret = (await post('/api/sales-returns', { invoiceId: inv.id, lines: [{ invoiceLineId: full.lines[0].id, qty: '4' }] }).expect(201)).body;
+    expect(ret.total).toBe('1420800.00'); // 4/10 dari 3.552.000
+    expect(await bal('1-1300')).toBe(arBefore - 1420800);
+    const after = (await get(`/api/invoices/${inv.id}`).expect(200)).body;
+    expect(after).toMatchObject({ returnedAmount: '1420800.00', returnedForeign: '88.80', status: 'PARTIAL' });
+    // sisa 133,20 USD dibayar dengan kurs lebih tinggi → laba kurs dari sisa nilai tercatat 2.131.200
+    const p = (await post('/api/payments', { invoiceId: inv.id, amount: '133.20', fxRate: '16100' }).expect(201)).body;
+    expect(p).toMatchObject({ amount: '2131200.00', cashAmount: '2144520.00', fxGainLoss: '13320.00' });
+    expect((await get(`/api/invoices/${inv.id}`).expect(200)).body).toMatchObject({ status: 'PAID', returnedForeign: '88.80', paidForeign: '133.20' });
+    expect(await bal('1-1300')).toBe(arBefore - 1420800 - 2131200);
+    expect((await health('ar'))?.status).toBe('OK');
+  });
+
+  it('retur penuh menuntaskan faktur valas; retur pembelian valas menurunkan hutang pada kurs faktur', async () => {
+    const so = (await post('/api/sales-orders', { customerId: cust, warehouseId: wh, currency: 'USD', fxRate: '16000', lines: [{ productId: prod, qty: '3', price: '7.33' }] }).expect(201)).body;
+    await post(`/api/sales-orders/${so.id}/confirm`).expect(201);
+    const inv = (await post('/api/invoices', { salesOrderId: so.id }).expect(201)).body;
+    const full = (await get(`/api/invoices/${inv.id}`).expect(200)).body;
+    await post('/api/sales-returns', { invoiceId: inv.id, lines: [{ invoiceLineId: full.lines[0].id, qty: '3' }] }).expect(201);
+    expect((await get(`/api/invoices/${inv.id}`).expect(200)).body).toMatchObject({ status: 'PAID', returnedForeign: inv.totalForeign });
+
+    const apBefore = await bal('2-1100');
+    const po = (await post('/api/purchase-orders', { supplierId: supp, warehouseId: wh, currency: 'USD', fxRate: '16000', lines: [{ productId: prod, qty: '10', price: '4' }] }).expect(201)).body;
+    await post(`/api/purchase-orders/${po.id}/confirm`).expect(201);
+    const pi = (await post('/api/purchase-invoices', { purchaseOrderId: po.id, supplierInvoiceNo: 'SZ-RET' }).expect(201)).body;
+    expect(await bal('2-1100')).toBe(apBefore + Number(pi.total));
+    const pfull = (await get(`/api/purchase-invoices/${pi.id}`).expect(200)).body;
+    await post('/api/purchase-returns', { invoiceId: pi.id, reason: 'Cacat', lines: [{ invoiceLineId: pfull.lines[0].id, qty: '10' }] }).expect(201);
+    expect(await bal('2-1100')).toBe(apBefore);
+    expect((await get(`/api/purchase-invoices/${pi.id}`).expect(200)).body).toMatchObject({ status: 'PAID', returnedForeign: pi.totalForeign });
+    expect((await health('ap'))?.status).toBe('OK');
+  });
+
+  it('uang muka rupiah untuk faktur valas tetap ditolak dengan pesan jelas', async () => {
+    const so = (await post('/api/sales-orders', { customerId: cust, warehouseId: wh, currency: 'USD', fxRate: '16000', lines: [{ productId: prod, qty: '1', price: '5' }] }).expect(201)).body;
+    await post(`/api/sales-orders/${so.id}/confirm`).expect(201);
+    const inv = (await post('/api/invoices', { salesOrderId: so.id }).expect(201)).body;
+    const dep = (await post('/api/services/deposits', { customerId: cust, date: new Date().toISOString().slice(0, 10), amount: '1110000', description: 'DP' }).expect(201)).body;
+    const r = await post(`/api/services/deposits/${dep.id}/apply`, { invoiceId: inv.id }).expect(400);
     expect(r.body.message).toMatch(/USD/);
   });
 });

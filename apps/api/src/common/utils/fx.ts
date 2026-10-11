@@ -24,6 +24,18 @@ export function foreignTotals(lineForeign: Dec[], rate: DecValue, ppnRate: DecVa
 }
 
 /**
+ * Nilai retur dalam mata uang faktur. Retur mengurangi piutang/utang Rupiah pada nilai faktur (kurs faktur); sisi valasnya
+ * = nilai Rupiah ÷ kurs faktur, dan retur yang menuntaskan faktur mengambil seluruh sisa valas agar saldo valas tepat nol.
+ */
+export function returnForeign(p: { returnIdr: Dec; totalIdr: DecValue; paidIdr: DecValue; returnedIdr: DecValue; totalForeign: DecValue; paidForeign: DecValue; returnedForeign: DecValue; rate: DecValue }) {
+  const remaining = D(p.totalForeign).minus(p.paidForeign).minus(p.returnedForeign);
+  const done = D(p.paidIdr).plus(p.returnedIdr).plus(p.returnIdr).gte(D(p.totalIdr).minus(0.005));
+  if (done) return remaining;
+  const part = money(p.returnIdr.div(p.rate));
+  return part.gt(remaining) ? remaining : part;
+}
+
+/**
  * Pelunasan sebagian/penuh faktur valas. `carrying` = nilai Rupiah piutang/utang yang dilunasi (kurs faktur; pelunasan terakhir
  * mengambil seluruh sisa agar saldo Rupiah tepat nol); `cash` = uang yang benar-benar diterima/dibayar (kurs hari bayar).
  */

@@ -99,13 +99,13 @@ export class FxService {
     type R = { id: string; number: string; party: string; currency: string; date: string; out_f: string; carrying: string };
     const ar = await this.db.execute<R>(sql`
       SELECT i.id, i.number, c.name AS party, i.currency, i.date::text AS date,
-             i.total_foreign - COALESCE(p.f, 0) AS out_f, i.total - i.returned_amount - COALESCE(p.idr, 0) AS carrying
+             i.total_foreign - i.returned_foreign - COALESCE(p.f, 0) AS out_f, i.total - i.returned_amount - COALESCE(p.idr, 0) AS carrying
       FROM invoices i JOIN customers c ON c.id = i.customer_id
       LEFT JOIN LATERAL (SELECT SUM(amount_foreign) AS f, SUM(amount) AS idr FROM payments y WHERE y.invoice_id = i.id AND y.date <= ${asOf}) p ON true
       WHERE i.tenant_id = ${tenantId} AND i.currency <> 'IDR' AND i.date <= ${asOf}`);
     const ap = await this.db.execute<R>(sql`
       SELECT i.id, i.number, s.name AS party, i.currency, i.date::text AS date,
-             i.total_foreign - COALESCE(p.f, 0) AS out_f, i.total - i.returned_amount - COALESCE(p.idr, 0) AS carrying
+             i.total_foreign - i.returned_foreign - COALESCE(p.f, 0) AS out_f, i.total - i.returned_amount - COALESCE(p.idr, 0) AS carrying
       FROM purchase_invoices i JOIN suppliers s ON s.id = i.supplier_id
       LEFT JOIN LATERAL (SELECT SUM(amount_foreign) AS f, SUM(amount) AS idr FROM supplier_payments y WHERE y.purchase_invoice_id = i.id AND y.date <= ${asOf}) p ON true
       WHERE i.tenant_id = ${tenantId} AND i.currency <> 'IDR' AND i.date <= ${asOf}`);

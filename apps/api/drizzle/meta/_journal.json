@@ -246,6 +246,13 @@
       "when": 1792165886484,
       "tag": "0034_foreign_currency",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1792252286484,
+      "tag": "0035_foreign_returns",
+      "breakpoints": true
     }
   ]
 }
