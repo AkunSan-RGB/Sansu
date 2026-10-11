@@ -33,8 +33,10 @@ export interface ApprovalPolicy {
   priceTolerancePct: number;
   /** Harga faktur di atas rata-rata harga beli 90 hari terakhir lebih dari persen ini juga butuh persetujuan */
   priceBenchmarkPct: number;
+  /** Masa berlaku tautan persetujuan yang dikirim lewat Telegram (jam, 1–72); email tetap 72 jam */
+  telegramLinkHours: number;
 }
-export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10 };
+export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, telegramLinkHours: 72 };
 
 export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PURCHASE_ORDER: 'Pesanan pembelian',
@@ -63,11 +65,13 @@ export class ApprovalsService {
         .select({ id: users.id, email: users.email })
         .from(users)
         .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, [...APPROVER_ROLES]), p.requesterId ? ne(users.id, p.requesterId) : undefined));
+      const hours = Math.min(72, Math.max(1, (await this.policy(this.db, tenantId)).telegramLinkHours || 72));
       for (const t of to) {
         const token = signApprovalLink({ k: p.kind, r: p.id, u: t.id });
         const url = `${appUrl()}/approve/${token}`;
+        const tgUrl = `${appUrl()}/approve/${signApprovalLink({ k: p.kind, r: p.id, u: t.id }, Date.now(), hours * 3600_000)}`;
         // Telegram (bila pengguna menghubungkannya): pesan ringkas dengan tautan pribadi yang sama
-        await this.telegram.notifyUsers([t.id], `🔔 Perlu persetujuan\n${p.title}\n${p.lines.join('\n')}\n\nTinjau dan putuskan (tautan pribadi, berlaku 72 jam):\n${url}`);
+        await this.telegram.notifyUsers([t.id], `🔔 Perlu persetujuan\n${p.title}\n${p.lines.join('\n')}\n\nTinjau dan putuskan (tautan pribadi, berlaku ${hours} jam):\n${tgUrl}`);
         if (!this.mail.configured) continue;
         await this.mail.send({
           to: t.email,

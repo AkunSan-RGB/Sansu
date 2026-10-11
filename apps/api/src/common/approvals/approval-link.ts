@@ -18,8 +18,9 @@ export const APPROVAL_LINK_TTL_MS = 72 * 3600_000;
 const key = () => createHmac('sha256', process.env.JWT_SECRET || 'sansu-dev-key').update('approval-link-v1').digest();
 const b64 = (b: Buffer) => b.toString('base64url');
 
-export function signApprovalLink(p: Omit<ApprovalLink, 'exp'>, now = Date.now()): string {
-  const body = b64(Buffer.from(JSON.stringify({ ...p, exp: now + APPROVAL_LINK_TTL_MS })));
+/** `ttlMs` lebih pendek dari bawaan (72 jam) dipakai untuk tautan di chat Telegram sesuai pengaturan perusahaan */
+export function signApprovalLink(p: Omit<ApprovalLink, 'exp'>, now = Date.now(), ttlMs = APPROVAL_LINK_TTL_MS): string {
+  const body = b64(Buffer.from(JSON.stringify({ ...p, exp: now + Math.min(ttlMs, APPROVAL_LINK_TTL_MS) })));
   return `${body}.${b64(createHmac('sha256', key()).update(body).digest())}`;
 }
 
