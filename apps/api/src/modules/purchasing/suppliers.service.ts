@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { AuthUser } from '../../common/auth/auth-user';
 import { and, asc, eq, ilike, ne, or, sql } from 'drizzle-orm';
 import { D } from '../../common/utils/money';
 import { Db } from '../../db/db';
@@ -9,6 +10,13 @@ import { CreateSupplierDto, UpdateSupplierDto } from './purchasing.dto';
 @Injectable()
 export class SuppliersService {
   constructor(@InjectDb() private readonly db: Db) {}
+
+  /** Supplier favorit + batas persetujuan otomatis menembus kontrol persetujuan: hanya pemilik/admin yang boleh menetapkannya */
+  assertCanSetPreferred(u: AuthUser, dto: { isPreferred?: boolean; autoApproveLimit?: string }) {
+    if ((dto.isPreferred !== undefined || dto.autoApproveLimit !== undefined) && !['OWNER', 'ADMIN'].includes(u.role)) {
+      throw new ForbiddenException('Hanya pemilik atau admin yang dapat menetapkan supplier favorit dan batas persetujuan otomatis');
+    }
+  }
 
   list(tenantId: string, q?: string) {
     return this.db

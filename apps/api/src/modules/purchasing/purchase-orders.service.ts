@@ -186,8 +186,11 @@ export class PurchaseOrdersService {
 
   async confirm(user: AuthUser, id: string) {
     // Pesanan bernilai besar dari peran yang tidak berwenang: butuh persetujuan (permintaan dibuat di luar transaksi)
-    const [po] = await this.db.select({ number: purchaseOrders.number, total: purchaseOrders.total, status: purchaseOrders.status }).from(purchaseOrders).where(and(eq(purchaseOrders.id, id), eq(purchaseOrders.tenantId, user.tenantId)));
-    if (po?.status === 'DRAFT') await this.approvals.gateDocument(this.db, user, { kind: 'PURCHASE_ORDER', refId: id, title: `PO ${po.number}`, amount: Number(po.total) });
+    const [po] = await this.db.select({ number: purchaseOrders.number, total: purchaseOrders.total, status: purchaseOrders.status, supplierId: purchaseOrders.supplierId }).from(purchaseOrders).where(and(eq(purchaseOrders.id, id), eq(purchaseOrders.tenantId, user.tenantId)));
+    // Supplier favorit: pesanan sampai batas yang ditetapkan untuknya disetujui otomatis
+    const [sup] = po ? await this.db.select({ preferred: suppliers.isPreferred, limit: suppliers.autoApproveLimit }).from(suppliers).where(eq(suppliers.id, po.supplierId)) : [];
+    const autoApproved = !!sup?.preferred && Number(sup.limit) > 0 && Number(po!.total) <= Number(sup.limit);
+    if (po?.status === 'DRAFT' && !autoApproved) await this.approvals.gateDocument(this.db, user, { kind: 'PURCHASE_ORDER', refId: id, title: `Pesanan ${po.number}`, amount: Number(po.total) });
     await this.db.transaction(async (tx) => {
       const order = await this.lock(tx, user.tenantId, id);
       if (order.status !== 'DRAFT') throw new BadRequestException(`PO berstatus ${order.status}, tidak bisa dikonfirmasi`);

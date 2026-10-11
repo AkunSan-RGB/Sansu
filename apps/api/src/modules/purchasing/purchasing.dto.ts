@@ -27,6 +27,8 @@ export class CreateSupplierDto {
   @ApiPropertyOptional() @IsOptional() @IsString() address?: string;
   @ApiPropertyOptional({ example: '0123456789012345' }) @IsOptional() @IsString() @IsNpwp() npwp?: string;
   @ApiPropertyOptional({ example: 30 }) @IsOptional() @IsInt() @Min(0) @Max(365) paymentTermDays?: number;
+  @ApiPropertyOptional({ description: 'Supplier favorit: PO / permintaan sampai batas di bawah ini disetujui otomatis' }) @IsOptional() @IsBoolean() isPreferred?: boolean;
+  @ApiPropertyOptional({ example: '50000000', description: 'Batas nilai persetujuan otomatis untuk supplier favorit (0 = tidak ada)' }) @IsOptional() @Matches(/^\d{1,15}$/) autoApproveLimit?: string;
 }
 
 export class UpdateSupplierDto extends PartialType(CreateSupplierDto) {

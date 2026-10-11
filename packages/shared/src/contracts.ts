@@ -419,6 +419,9 @@ export interface Supplier {
   npwp: string | null;
   paymentTermDays: number;
   isActive: boolean;
+  /** Supplier favorit: persetujuan otomatis sampai `autoApproveLimit` */
+  isPreferred?: boolean;
+  autoApproveLimit?: string;
   outstanding?: string;
 }
 

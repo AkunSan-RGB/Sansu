@@ -46,12 +46,14 @@ export class SuppliersController {
   @Post()
   @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreateSupplierDto) {
+    this.svc.assertCanSetPreferred(u, dto);
     return this.svc.create(u.tenantId, dto);
   }
 
   @Patch(':id')
   @Roles('ADMIN', 'FINANCE')
   update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateSupplierDto) {
+    this.svc.assertCanSetPreferred(u, dto);
     return this.svc.update(u.tenantId, id, dto);
   }
 }

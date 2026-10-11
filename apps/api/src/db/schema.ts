@@ -608,6 +608,9 @@ export const suppliers = pgTable(
     npwp: text('npwp'),
     paymentTermDays: integer('payment_term_days').notNull().default(30),
     isActive: boolean('is_active').notNull().default(true),
+    /** Supplier favorit: PO / permintaan pembelian sampai batas ini disetujui otomatis (0 = tidak ada) */
+    isPreferred: boolean('is_preferred').notNull().default(false),
+    autoApproveLimit: money('auto_approve_limit').notNull().default('0'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('suppliers_code_uq').on(t.tenantId, t.code)],

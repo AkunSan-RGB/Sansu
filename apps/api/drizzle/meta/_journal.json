@@ -225,6 +225,13 @@
       "when": 1791906686484,
       "tag": "0031_price_variance_control",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791993086484,
+      "tag": "0032_preferred_suppliers",
+      "breakpoints": true
     }
   ]
 }

@@ -18,6 +18,8 @@ interface FormValues {
   npwp?: string;
   paymentTermDays: number;
   isActive?: boolean;
+  isPreferred?: boolean;
+  autoApproveLimit?: number;
 }
 
 export default function SuppliersPage() {
@@ -29,7 +31,11 @@ export default function SuppliersPage() {
   const [form] = Form.useForm<FormValues>();
 
   const save = useAction(
-    (v: FormValues) => (editing && editing !== 'new' ? patch(`/suppliers/${editing.id}`, v) : post('/suppliers', v)),
+    (v: FormValues) => {
+      // batas persetujuan otomatis hanya dikirim oleh pemilik/admin (server menolak peran lain)
+      const body = isAdmin ? { ...v, autoApproveLimit: v.isPreferred ? String(v.autoApproveLimit ?? 0) : '0' } : { ...v, isPreferred: undefined, autoApproveLimit: undefined };
+      return editing && editing !== 'new' ? patch(`/suppliers/${editing.id}`, body) : post('/suppliers', body);
+    },
     { success: 'Supplier disimpan', invalidate: ['suppliers'], onSuccess: () => setEditing(null) },
   );
 
@@ -41,6 +47,7 @@ export default function SuppliersPage() {
         phone: s.phone ?? undefined,
         address: s.address ?? undefined,
         npwp: s.npwp ?? undefined,
+        autoApproveLimit: Number(s.autoApproveLimit ?? 0),
       });
     }
     setEditing(s);
@@ -75,7 +82,7 @@ export default function SuppliersPage() {
           onRow={(r) => ({ onClick: () => open(r), style: { cursor: 'pointer' } })}
           columns={[
             { title: 'Kode', dataIndex: 'code', width: 150 },
-            { title: 'Nama', dataIndex: 'name', render: (n, s) => (s.isActive ? n : <>{n} <Tag>Nonaktif</Tag></>) },
+            { title: 'Nama', dataIndex: 'name', render: (n, s) => (<>{n}{s.isPreferred && <Tag color="gold" style={{ marginLeft: 6 }}>Favorit</Tag>}{!s.isActive && <Tag style={{ marginLeft: 6 }}>Nonaktif</Tag>}</>) },
             { title: 'Telepon', dataIndex: 'phone' },
             { title: 'NPWP', dataIndex: 'npwp' },
             { title: 'Termin', dataIndex: 'paymentTermDays', align: 'right', render: (d) => `${d} hari` },
@@ -118,6 +125,22 @@ export default function SuppliersPage() {
               </Form.Item>
             )}
           </Space>
+          {isAdmin && (
+            <>
+              <Form.Item name="isPreferred" label="Supplier favorit" valuePropName="checked" extra="PO dan permintaan pembelian dari supplier ini sampai batas di bawah disetujui otomatis, tanpa menunggu pemilik/admin.">
+                <Switch />
+              </Form.Item>
+              <Form.Item noStyle shouldUpdate={(a, b) => a.isPreferred !== b.isPreferred}>
+                {({ getFieldValue }) =>
+                  getFieldValue('isPreferred') && (
+                    <Form.Item name="autoApproveLimit" label="Batas persetujuan otomatis" rules={[{ required: true, type: 'number', min: 1, message: 'Isi batas nilai' }]}>
+                      <InputNumber min={0} max={1_000_000_000_000} step={1_000_000} style={{ width: '100%' }} prefix="Rp" />
+                    </Form.Item>
+                  )
+                }
+              </Form.Item>
+            </>
+          )}
         </Form>
       </Modal>
     </>

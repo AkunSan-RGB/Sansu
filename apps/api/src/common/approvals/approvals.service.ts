@@ -5,10 +5,13 @@
  * (OWNER dan ADMIN) tidak terkena batas: tindakan mereka adalah persetujuannya. Peran lain yang melewati batas membuat
  * permintaan yang menunggu keputusan; setelah disetujui, tindakannya dijalankan atas nama pemberi persetujuan.
  */
-import { ConflictException, Injectable } from '@nestjs/common';
-import { and, eq, inArray } from 'drizzle-orm';
-import { DbOrTx } from '../../db/db';
-import { approvalRequests, type Role } from '../../db/schema';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { and, eq, inArray, ne } from 'drizzle-orm';
+import { Db, DbOrTx } from '../../db/db';
+import { InjectDb } from '../../db/db.module';
+import { approvalRequests, users, type Role } from '../../db/schema';
+import { appUrl, MailService } from '../mail/mail.service';
+import { signApprovalLink } from './approval-link';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../auth/auth-user';
 import { SettingsService } from '../settings.service';
@@ -40,10 +43,39 @@ export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
 
 @Injectable()
 export class ApprovalsService {
+  private readonly logger = new Logger('Persetujuan');
   constructor(
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
+    private readonly mail: MailService,
+    @InjectDb() private readonly db: Db,
   ) {}
+
+  /**
+   * Beri tahu pemilik/admin lewat email dengan tautan pribadi untuk menyetujui atau menolak tanpa login
+   * (halaman ringkasan; keputusan baru diambil saat tombol ditekan). Gagal kirim tidak menggagalkan transaksi.
+   */
+  async notifyApprovers(tenantId: string, p: { kind: 'AR' | 'PR'; id: string; requesterId?: string | null; title: string; lines: string[] }) {
+    try {
+      if (!this.mail.configured) return;
+      const to = await this.db
+        .select({ id: users.id, email: users.email })
+        .from(users)
+        .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, [...APPROVER_ROLES]), p.requesterId ? ne(users.id, p.requesterId) : undefined));
+      for (const t of to) {
+        const token = signApprovalLink({ k: p.kind, r: p.id, u: t.id });
+        await this.mail.send({
+          to: t.email,
+          subject: `Perlu persetujuan: ${p.title}`,
+          heading: 'Menunggu persetujuan Anda',
+          paragraphs: [p.title, ...p.lines, 'Tautan ini pribadi untuk Anda dan berlaku 72 jam. Anda bisa menyetujui atau menolak langsung dari halaman yang terbuka, tanpa login.'],
+          action: { label: 'Tinjau dan putuskan', url: `${appUrl()}/approve/${token}` },
+        });
+      }
+    } catch (e) {
+      this.logger.warn(`Email persetujuan gagal: ${(e as Error).message}`);
+    }
+  }
 
   async policy(db: DbOrTx, tenantId: string): Promise<ApprovalPolicy> {
     return this.settings.section(db, tenantId, 'approvals', DEFAULT_APPROVALS);
@@ -89,6 +121,7 @@ export class ApprovalsService {
       .values({ tenantId: user.tenantId, kind: p.kind, refId: p.refId, title: p.title, amount: p.amount.toFixed(2), payload: p.payload, requestedById: user.sub })
       .returning();
     await this.audit.log(db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'ApprovalRequest', entityId: row.id, data: { kind: p.kind, title: p.title, amount: p.amount } });
+    void this.notifyApprovers(user.tenantId, { kind: 'AR', id: row.id, requesterId: user.sub, title: `${APPROVAL_KIND_LABELS[p.kind]}: ${p.title}`, lines: [`Nilai: Rp${Math.round(p.amount).toLocaleString('id-ID')}`] });
     return row;
   }
 

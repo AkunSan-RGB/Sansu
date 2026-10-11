@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import LoginPage from './auth/LoginPage';
+import ApproveLinkPage from './auth/ApproveLinkPage';
 import { ForgotPasswordPage, ResetPasswordPage, VerifyEmailPage } from './auth/AccountPages';
 import BillingPage from './features/billing/BillingPage';
 import WarehousesPage from './features/settings/WarehousesPage';
@@ -91,6 +92,7 @@ export default function App() {
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
+      <Route path="/approve/:token" element={<ApproveLinkPage />} />
       <Route
         path="/pos"
         element={
