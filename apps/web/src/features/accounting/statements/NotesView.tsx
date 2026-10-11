@@ -8,25 +8,27 @@ import type { FinancialNotes, NoteSection, NoteTable } from '@/api/types';
 import { acc } from './format';
 
 export function NoteTableView({ t }: { t: NoteTable }) {
-  const cell = (v: string | number | null, i: number) => (t.align[i] === 'right' && v !== null && v !== '' && !Number.isNaN(Number(v)) ? acc(v) : v);
+  const cell = (v: string | number | null, i: number) =>
+    t.align[i] === 'right' && v !== null && v !== '' && !Number.isNaN(Number(v)) ? <span className="calk-num">{acc(v)}</span> : v;
   const data = t.rows.map((r, i) => ({ key: i, r }));
   return (
-    <div style={{ margin: '8px 0 16px' }}>
+    <div style={{ margin: '8px 0 18px' }}>
       {t.title && <Typography.Text strong>{t.title}</Typography.Text>}
       <Table
+        className="calk-table"
         size="small"
         bordered
         pagination={false}
         dataSource={data}
         scroll={{ x: 'max-content' }}
-        columns={t.columns.map((c, i) => ({ title: c, align: t.align[i], render: (_: unknown, x: { r: (string | number | null)[] }) => cell(x.r[i], i) }))}
+        columns={t.columns.map((c, i) => ({ title: c, align: t.align[i], width: t.align[i] === 'right' ? 150 : undefined, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }), render: (_: unknown, x: { r: (string | number | null)[] }) => cell(x.r[i], i) }))}
         summary={
           t.total
             ? () => (
                 <Table.Summary.Row>
                   {t.total?.map((v, i) => (
                     <Table.Summary.Cell key={i} index={i} align={t.align[i]}>
-                      <strong>{cell(v, i)}</strong>
+                      <strong className="calk-num">{typeof v === 'number' || (t.align[i] === 'right' && v !== '' && v !== null && !Number.isNaN(Number(v))) ? acc(v) : v}</strong>
                     </Table.Summary.Cell>
                   ))}
                 </Table.Summary.Row>
@@ -41,7 +43,7 @@ export function NoteTableView({ t }: { t: NoteTable }) {
 const Paras = ({ ps }: { ps: string[] }) => (
   <>
     {ps.map((p, i) => (
-      <Typography.Paragraph key={i} style={{ textAlign: 'justify', whiteSpace: 'pre-line' }}>
+      <Typography.Paragraph key={i} className="calk-para" style={{ whiteSpace: 'pre-line' }}>
         {p}
       </Typography.Paragraph>
     ))}

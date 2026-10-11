@@ -126,3 +126,9 @@ body { background: #F6F6F3; -webkit-font-smoothing: antialiased; }
 .save-bar { position: sticky; bottom: 0; z-index: 5; margin: 24px -24px -24px; padding: 14px 24px; background: rgba(255,255,255,.92);
   backdrop-filter: blur(8px); border-top: 1px solid #ECEAE3; border-radius: 0 0 16px 16px; }
 @media (max-width: 991px) { .settings-tabs .ant-tabs-nav { margin-bottom: 12px; } }
+
+/* CALK: paragraf rata kiri-kanan, angka rata kanan sejajar */
+.calk-para { text-align: justify; text-justify: inter-word; hyphens: auto; line-height: 1.75; margin-bottom: 10px !important; }
+.calk .calk-num { display: block; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.calk .calk-table .ant-table-thead > tr > th { background: #f4f6fa; font-weight: 600; }
+.calk .calk-table .ant-table-cell { padding: 6px 10px !important; }
