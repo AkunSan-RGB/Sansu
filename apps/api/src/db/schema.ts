@@ -805,6 +805,8 @@ export const purchaseInvoices = pgTable(
     total: money('total').notNull(),
     paidAmount: money('paid_amount').notNull().default('0'),
     returnedAmount: money('returned_amount').notNull().default('0'),
+    /** Selisih DPP faktur terhadap harga PO (+ faktur lebih mahal); biaya perolehan stok mengikuti harga faktur */
+    priceVariance: money('price_variance').notNull().default('0'),
     status: invoiceStatusEnum('status').notNull().default('UNPAID'),
     journalId: uuid('journal_id'),
     createdAt: createdAt(),
@@ -836,6 +838,8 @@ export const purchaseInvoiceLines = pgTable('purchase_invoice_lines', {
   lineTotal: money('line_total').notNull(),
   /** Biaya per satuan dasar (DPP / qty dasar) yang masuk ke persediaan */
   unitCost: qty('unit_cost').notNull(),
+  /** Selisih DPP baris terhadap harga PO (+ faktur lebih mahal) */
+  priceVariance: money('price_variance').notNull().default('0'),
   returnedQty: qty('returned_qty').notNull().default('0'),
   /** Baris pesanan pembelian yang ditagih (faktur dari pesanan) */
   orderLineId: uuid('order_line_id'),

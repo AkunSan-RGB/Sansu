@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   IsBoolean,
   IsDateString,
@@ -10,6 +11,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -56,6 +58,12 @@ export class PurchaseOrderQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsUUID() supplierId?: string;
 }
 
+/** Harga satuan sesuai faktur supplier untuk satu baris pesanan (menimpa harga PO) */
+export class OrderLinePriceDto {
+  @ApiProperty() @IsUUID() orderLineId: string;
+  @ApiProperty({ example: '2150', description: 'Harga per satuan baris, belum PPN, sesuai faktur supplier' }) @Matches(/^\d{1,15}(\.\d{1,2})?$/) price: string;
+}
+
 export class CreatePurchaseInvoiceDto {
   @ApiProperty() @IsUUID() purchaseOrderId: string;
   @ApiProperty({ example: 'INV/SPP/2026/0912', description: 'Nomor faktur dari supplier' })
@@ -75,6 +83,15 @@ export class CreatePurchaseInvoiceDto {
   @Type(() => OrderLineQtyDto)
   @ArrayMinSize(1)
   lines?: OrderLineQtyDto[];
+  @ApiPropertyOptional({
+    type: () => [OrderLinePriceDto],
+    description: 'Harga faktur supplier yang berbeda dari PO. Biaya perolehan persediaan mengikuti harga faktur (bukan PO); selisih dicatat. Baris tanpa isian memakai harga PO.',
+  })
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => OrderLinePriceDto)
+  @ArrayMaxSize(500)
+  prices?: OrderLinePriceDto[];
 }
 
 /** Jumlah per baris pesanan pembelian (penerimaan barang atau penagihan sebagian) */

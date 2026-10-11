@@ -494,6 +494,8 @@ export interface PurchaseInvoice {
   description?: string | null;
   withholdingType?: 'PPH23' | 'PPH4_2' | null;
   withholdingAmount?: string;
+  /** Selisih DPP faktur terhadap harga PO (+ faktur lebih mahal) */
+  priceVariance?: string;
   /** PPN tidak dapat dikreditkan (perusahaan non-PKP) → masuk harga perolehan */
   vatCapitalized?: boolean;
   supplier: { code: string; name: string };

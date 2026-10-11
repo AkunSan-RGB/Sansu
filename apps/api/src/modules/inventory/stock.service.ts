@@ -289,4 +289,50 @@ export class StockService {
     });
     return { qty, oldCost, newCost, amount: delta.abs() };
   }
+
+  /**
+   * Koreksi biaya perolehan stok yang masih ada (mis. harga faktur supplier berbeda dari PO): nilai persediaan naik/turun
+   * sebesar `amount` tanpa mutasi kuantitas — biaya rata-rata (dan semua lapisan FIFO) digeser sama rata per satuan.
+   * Mengembalikan nilai yang benar-benar terpasang di stok (dibulatkan); 0 bila stok kosong.
+   */
+  async adjustCost(
+    tx: Tx,
+    m: { tenantId: string; productId: string; warehouseId: string; amount: DecValue; refType: string; refId: string; refNumber?: string; date: DocDate },
+  ): Promise<Dec> {
+    await this.period.assertOpen(tx, m.tenantId, m.date);
+    assertWarehouseAccess(auditContext.getStore()?.user, m.warehouseId);
+    const locked = await tx.execute<{ qty: string; avg_cost: string }>(sql`
+      SELECT qty, avg_cost FROM stock_balances
+      WHERE tenant_id = ${m.tenantId} AND product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}
+      FOR UPDATE`);
+    const row = locked.rows[0];
+    const qty = D(row?.qty ?? 0);
+    if (qty.lte(0)) return D(0);
+    const oldCost = D(row.avg_cost);
+    let newCost = qty4(oldCost.plus(D(m.amount).div(qty)));
+    if (newCost.isNegative()) newCost = D(0);
+    const applied = money(qty.times(newCost)).minus(money(qty.times(oldCost)));
+    if (newCost.equals(oldCost)) return applied;
+    await tx.execute(sql`
+      UPDATE stock_balances SET avg_cost = ${newCost.toFixed(4)}
+      WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
+    await tx.execute(sql`
+      UPDATE stock_layers SET unit_cost = GREATEST(0, unit_cost + ${newCost.minus(oldCost).toFixed(4)}::numeric)
+      WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
+    await tx.insert(stockMoves).values({
+      tenantId: m.tenantId,
+      productId: m.productId,
+      warehouseId: m.warehouseId,
+      type: 'REVALUATION',
+      qty: '0',
+      unitCost: newCost.toFixed(4),
+      balanceAfter: qty.toFixed(4),
+      writedownValue: '0',
+      refType: m.refType,
+      refId: m.refId,
+      refNumber: m.refNumber,
+      date: m.date,
+    });
+    return applied;
+  }
 }

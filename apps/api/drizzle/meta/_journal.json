@@ -204,6 +204,13 @@
       "when": 1791647486484,
       "tag": "0028_purchase_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791733886484,
+      "tag": "0029_invoice_price_variance",
+      "breakpoints": true
     }
   ]
 }
