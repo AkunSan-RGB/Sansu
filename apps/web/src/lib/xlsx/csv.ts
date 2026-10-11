@@ -1,7 +1,7 @@
 /**
  * Ekspor lembar laporan ke CSV (teks polos, bisa dibuka di Excel, Google Sheets, atau diolah program lain).
  * Dua varian: titik koma + koma desimal (dibaca benar oleh Excel berbahasa Indonesia saat diklik dua kali) dan koma + titik desimal (standar).
- * Hanya judul kolom dan baris isi; kop (perusahaan, periode) ada di nama berkas dan judul bagian bila lembar lebih dari satu.
+ * Rapi: kop (perusahaan, judul, periode), judul kolom, baris pemisah/kolom kosong dibuang, hierarki lewat indentasi.
  */
 import { isFormula, type Column, type SheetSpec, type Val } from './book';
 
@@ -37,12 +37,26 @@ function cell(v: Val, col: Column | undefined, o: CsvOptions): string {
 
 export function sheetsToCsv(sheets: SheetSpec[], o: CsvOptions = CSV_ID): string {
   const lines: string[] = [];
+  const join = (a: string[]) => a.join(o.delimiter);
   sheets.forEach((s, si) => {
-    if (si > 0) lines.push('');
-    if (sheets.length > 1) lines.push(text(s.title, o));
-    if (s.header) lines.push(s.columns.map((c) => text(c.header, o)).join(o.delimiter));
-    for (const r of s.rows) lines.push(s.columns.map((c, i) => cell(r.values[i], c, o)).join(o.delimiter));
+    if (si > 0) lines.push('', '');
+    // Kop: perusahaan, judul, periode — supaya berkas berdiri sendiri
+    for (const t of [s.company, s.title, ...s.subtitle]) if (t) lines.push(text(t, o));
+    if (lines.length && lines[lines.length - 1] !== '' ) lines.push('');
+    // Baris pemisah kosong dibuang; kolom yang kosong di seluruh baris (mis. Catatan) disembunyikan
+    const rows = s.rows.filter((r) => r.values.some((v) => (isFormula(v) ? v.v : v) != null && (isFormula(v) ? v.v : v) !== ''));
+    const keep = s.columns.map((_, i) => i === 0 || rows.some((r) => { const v = r.values[i]; const x = isFormula(v) ? v.v : v; return x != null && x !== ''; }));
+    const cols = s.columns.map((c, i) => ({ c, i })).filter((x) => keep[x.i]);
+    if (s.header) lines.push(join(cols.map(({ c, i }) => text(i === 0 && c.header === 'Pos' ? 'Uraian' : c.header, o))));
+    for (const r of rows) {
+      lines.push(join(cols.map(({ c, i }) => {
+        const out = cell(r.values[i], c, o);
+        // Hierarki laporan dipertahankan lewat spasi di depan uraian
+        if (i === 0 && r.indent && out) return `"${' '.repeat(r.indent * 2)}${out.replace(/^"|"$/g, '').replace(/""/g, '"').replace(/"/g, '""')}"`;
+        return out;
+      })));
+    }
   });
   // BOM agar Excel membaca UTF-8 (huruf berakson tidak rusak)
-  return `﻿${lines.join('\r\n')}\r\n`;
+  return `\uFEFF${lines.join('\r\n')}\r\n`;
 }

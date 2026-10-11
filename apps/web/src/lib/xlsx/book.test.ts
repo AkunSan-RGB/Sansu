@@ -275,12 +275,12 @@ describe('penyusun Excel', () => {
     b.row({ name: 'Café Ñandú', amount: -10, qty: 0, date: null }, 'body');
     const id = sheetsToCsv([b.spec], CSV_ID);
     expect(id.startsWith('﻿')).toBe(true);
-    const lines = id.slice(1).trimEnd().split('\r\n');
+    const lines = id.slice(1).trimEnd().split('\r\n').slice(2);
     expect(lines[0]).toBe('Nama;Jumlah;Qty;Tanggal');
     expect(lines[1]).toBe('"Kopi; ""Arabika""";1234,50;3;2026-10-07');
     expect(lines[2]).toBe('"\'=HYPERLINK(""x"")";2469,00;;'); // rumus dinetralkan, nilai hasil rumus dipakai
     expect(lines[3]).toBe('Café Ñandú;-10,00;0;');
-    const std = sheetsToCsv([b.spec], CSV_STANDARD).slice(1).trimEnd().split('\r\n');
+    const std = sheetsToCsv([b.spec], CSV_STANDARD).slice(1).trimEnd().split('\r\n').slice(2);
     expect(std[0]).toBe('Nama,Jumlah,Qty,Tanggal');
     expect(std[1]).toBe('"Kopi; ""Arabika""",1234.50,3,2026-10-07');
   });
@@ -292,6 +292,23 @@ describe('penyusun Excel', () => {
       return b.spec;
     };
     const out = sheetsToCsv([mk('Satu'), mk('Dua')], CSV_STANDARD).slice(1).trimEnd().split('\r\n');
-    expect(out).toEqual(['Satu', 'A', 'x', '', 'Dua', 'A', 'x']);
+    expect(out).toEqual(['Satu', '', 'A', 'x', '', '', 'Dua', '', 'A', 'x']);
+  });
+});
+
+describe('CSV rapi', () => {
+  it('membuang baris pemisah & kolom kosong, indentasi hierarki, kop dan judul kolom "Uraian"', () => {
+    const b = new SheetBuilder('Uji', {
+      company: 'CV Contoh',
+      title: 'Laporan',
+      subtitle: ['Per 31 Desember 2026'],
+      columns: [{ key: 'pos', header: 'Pos' }, { key: 'note', header: 'Catatan' }, { key: 'v', header: '2026', fmt: 'money' }],
+    });
+    b.row({ pos: 'ASET', note: null, v: null }, 'heading');
+    b.row({ pos: 'Kas', note: null, v: 10 }, 'body', 1);
+    b.row({ pos: null, note: null, v: null }, 'body');
+    b.row({ pos: 'Jumlah', note: null, v: 10 }, 'total');
+    const l = sheetsToCsv([b.spec], CSV_ID).slice(1).trimEnd().split('\r\n');
+    expect(l).toEqual(['CV Contoh', 'Laporan', 'Per 31 Desember 2026', '', 'Uraian;2026', 'ASET;', '"  Kas";10,00', 'Jumlah;10,00']);
   });
 });
