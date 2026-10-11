@@ -10,14 +10,13 @@
 
 # 1) Panggilan /api/* diteruskan ke server API. GANTI alamatnya dengan alamat API Anda (tanpa garis miring di akhir).
 #    Selama alamat ini belum diganti, halaman terbuka tetapi login belum bisa.
-[[redirects]]
-  from = "/api/*"
-  to = "https://GANTI-DENGAN-ALAMAT-API-ANDA/api/:splat"
-  status = 200
-  force = true
+[build]
+  base = "apps/web"
+  command = "npm run build"
+  publish = "dist"
 
-# 2) Aplikasi satu halaman: semua alamat (/login, /invoices, ...) dikembalikan ke index.html agar tidak muncul "Page not found".
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+  force = true
