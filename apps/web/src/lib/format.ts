@@ -5,6 +5,17 @@ const number = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 4 });
 
 /** Rp 1.234.567 */
 export const fmtMoney = (v: string | number | null | undefined) => rupiah.format(Number(v ?? 0));
+/** Nominal dalam mata uang dokumen, mis. US$1.234,50 (IDR memakai format Rupiah) */
+export const fmtCurrency = (v: string | number | null | undefined, code?: string | null) => {
+  if (!code || code === 'IDR') return fmtMoney(v);
+  try {
+    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: code, minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(Number(v ?? 0));
+  } catch {
+    return `${code} ${number.format(Number(v ?? 0))}`;
+  }
+};
+/** Kurs: 16.250,5 */
+export const fmtRate = (v: string | number | null | undefined) => new Intl.NumberFormat('id-ID', { maximumFractionDigits: 6 }).format(Number(v ?? 0));
 /** Properti InputNumber untuk nominal rupiah: pemisah ribuan titik (4.000.000.000), tanpa desimal */
 export const rupiahInput = {
   precision: 0,

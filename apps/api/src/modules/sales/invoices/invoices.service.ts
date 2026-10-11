@@ -91,6 +91,9 @@ export class InvoicesService {
           subtotal: order.subtotal,
           taxAmount: order.taxAmount,
           total: order.total,
+          currency: order.currency,
+          fxRate: order.fxRate,
+          totalForeign: order.totalForeign,
         })
         .returning();
 
@@ -126,6 +129,7 @@ export class InvoicesService {
           uomFactor: line.uomFactor,
           qty: line.qty,
           price: line.price,
+          priceForeign: line.priceForeign,
           discountPct: line.discountPct,
           lineTotal: line.lineTotal,
           unitCost: unitCost.toFixed(4),

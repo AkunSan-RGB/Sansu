@@ -33,6 +33,8 @@ export async function buildLines(
   tenantId: string,
   input: LineInput[],
   defaultPrice: 'sell' | 'required',
+  /** Dokumen valas: harga diketik dalam mata uang dokumen dengan 4 desimal */
+  priceDecimals: 2 | 4 = 2,
 ): Promise<BuiltLine[]> {
   const prods = await db.query.products.findMany({
     where: and(eq(products.tenantId, tenantId), inArray(products.id, input.map((l) => l.productId))),
@@ -51,7 +53,7 @@ export async function buildLines(
     const discountPct = D(l.discountPct);
     if (discountPct.lt(0) || discountPct.gt(100)) throw new BadRequestException('Diskon harus 0–100%');
     if (l.price === undefined && defaultPrice === 'required') throw new BadRequestException(`Harga ${p.sku} wajib diisi`);
-    const price = l.price !== undefined ? money(l.price) : money(D(p.sellPrice).times(factor));
+    const price = l.price !== undefined ? (priceDecimals === 4 ? D(l.price).toDecimalPlaces(4) : money(l.price)) : money(D(p.sellPrice).times(factor));
     if (price.isNegative()) throw new BadRequestException(`Harga ${p.sku} tidak boleh negatif`);
     return {
       productId: p.id,

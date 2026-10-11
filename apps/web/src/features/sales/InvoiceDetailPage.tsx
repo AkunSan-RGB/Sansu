@@ -1,5 +1,5 @@
 import { ArrowLeftOutlined, DollarOutlined, MailOutlined, PrinterOutlined, WhatsAppOutlined } from '@ant-design/icons';
-import { PAYMENT_METHOD_LABELS, type InvoiceDetail } from '@sansu/shared';
+import { isForeignCurrency, PAYMENT_METHOD_LABELS, type InvoiceDetail } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Segmented, Space, Table, Tag, Tooltip } from 'antd';
 import { useState } from 'react';
@@ -9,7 +9,7 @@ import { useAction } from '@/api/queries';
 import { cell, DocHeader, head, PartyBlock, PrintSheet, Signatures, useLetterhead } from '@/components/print/Letterhead';
 import QueryState from '@/components/QueryState';
 import PageHeader from '@/layout/PageHeader';
-import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
+import { fmtCurrency, fmtDate, fmtMoney, fmtQty, fmtRate, today } from '@/lib/format';
 import DocumentChain from '@/components/DocumentChain';
 import { printDoc } from '@/lib/print';
 import { terbilang } from '@/lib/terbilang';
@@ -23,7 +23,7 @@ type Detail = InvoiceDetail & {
   customerId: string;
   customer: { code: string; name: string; address: string | null; phone: string | null; npwp: string | null };
   salesOrder: { number: string } | null;
-  payments: { id: string; number: string; date: string; amount: string; method: string; notes: string | null }[];
+  payments: { id: string; number: string; date: string; amount: string; method: string; notes: string | null; currency?: string; amountForeign?: string | null; cashAmount?: string | null; fxRate?: string | null; fxGainLoss?: string }[];
 };
 
 const right = { ...cell, textAlign: 'right' as const };
@@ -44,6 +44,14 @@ export default function InvoiceDetailPage() {
   const rest = inv ? outstanding(inv) : 0;
   const overdue = !!inv && inv.status !== 'PAID' && inv.dueDate < today();
   const disc = inv?.lines.some((l) => Number(l.discountPct)) ?? false;
+  // Faktur valas: tampilan/cetak memakai mata uang faktur; nilai Rupiah ditampilkan sebagai setara pada kurs faktur
+  const cur = inv?.currency ?? 'IDR';
+  const foreign = isForeignCurrency(cur);
+  const fc = (v: string | number | null | undefined) => fmtCurrency(v, cur);
+  const lineForeign = (l: { qty: string; priceForeign?: string | null; discountPct: string }) => Math.round(Number(l.qty) * Number(l.priceForeign ?? 0) * (100 - Number(l.discountPct))) / 100;
+  const subForeign = foreign && inv ? inv.lines.reduce((a, l) => a + lineForeign(l), 0) : 0;
+  const totalForeign = Number(inv?.totalForeign ?? 0);
+  const restForeign = foreign && inv ? totalForeign - Number(inv.paidForeign ?? 0) : 0;
 
   const wa =
     inv &&
@@ -185,9 +193,9 @@ export default function InvoiceDetailPage() {
                               <td style={right}>
                                 {fmtQty(l.qty)} {l.uom}
                               </td>
-                              <td style={right}>{fmtMoney(l.price)}</td>
+                              <td style={right}>{foreign ? fc(l.priceForeign) : fmtMoney(l.price)}</td>
                               {disc && <td style={right}>{Number(l.discountPct) ? `${Number(l.discountPct)}%` : '-'}</td>}
-                              <td style={right}>{fmtMoney(l.lineTotal)}</td>
+                              <td style={right}>{foreign ? fc(lineForeign(l)) : fmtMoney(l.lineTotal)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -195,7 +203,14 @@ export default function InvoiceDetailPage() {
                     )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24, marginTop: 12, flexWrap: 'wrap', fontSize: 13 }}>
                       <div style={{ flex: '1 1 280px' }}>
-                        <div style={{ fontStyle: 'italic', marginBottom: 8 }}>Terbilang: {terbilang(inv.total)}</div>
+                        {foreign ? (
+                          <div style={{ marginBottom: 8 }}>
+                            Mata uang: <strong>{cur}</strong> · kurs Rp {fmtRate(inv.fxRate)} per 1 {cur}
+                            <div style={{ fontSize: 12, color: '#475569' }}>Setara {fmtMoney(inv.total)} (DPP {fmtMoney(inv.subtotal)}, PPN {fmtMoney(inv.taxAmount)} dalam Rupiah)</div>
+                          </div>
+                        ) : (
+                          <div style={{ fontStyle: 'italic', marginBottom: 8 }}>Terbilang: {terbilang(inv.total)}</div>
+                        )}
                         {lh.data?.bankInfo && (
                           <div style={{ border: '1px dashed #cbd5e1', borderRadius: 6, padding: 8, whiteSpace: 'pre-line' }}>
                             <strong>Pembayaran ke:</strong>
@@ -210,17 +225,17 @@ export default function InvoiceDetailPage() {
                             <>
                               <tr>
                                 <td style={{ padding: 4 }}>Subtotal (DPP)</td>
-                                <td style={{ padding: 4, textAlign: 'right' }}>{fmtMoney(inv.subtotal)}</td>
+                                <td style={{ padding: 4, textAlign: 'right' }}>{foreign ? fc(subForeign) : fmtMoney(inv.subtotal)}</td>
                               </tr>
                               <tr>
                                 <td style={{ padding: 4 }}>PPN</td>
-                                <td style={{ padding: 4, textAlign: 'right' }}>{fmtMoney(inv.taxAmount)}</td>
+                                <td style={{ padding: 4, textAlign: 'right' }}>{foreign ? fc(totalForeign - subForeign) : fmtMoney(inv.taxAmount)}</td>
                               </tr>
                             </>
                           )}
                           <tr style={{ fontWeight: 700, fontSize: 15 }}>
                             <td style={{ padding: 4, borderTop: '2px solid #333' }}>Total</td>
-                            <td style={{ padding: 4, borderTop: '2px solid #333', textAlign: 'right' }}>{fmtMoney(inv.total)}</td>
+                            <td style={{ padding: 4, borderTop: '2px solid #333', textAlign: 'right' }}>{foreign ? fc(totalForeign) : fmtMoney(inv.total)}</td>
                           </tr>
                           {wh > 0 && (
                             <tr>
@@ -239,14 +254,14 @@ export default function InvoiceDetailPage() {
                           {Number(inv.paidAmount) - wh - dep + Number(inv.returnedAmount) > 0 && (
                             <tr>
                               <td style={{ padding: 4 }}>Sudah dibayar / retur</td>
-                              <td style={{ padding: 4, textAlign: 'right' }}>({fmtMoney(Number(inv.paidAmount) - wh - dep + Number(inv.returnedAmount))})</td>
+                              <td style={{ padding: 4, textAlign: 'right' }}>({foreign ? fc(Number(inv.paidForeign ?? 0)) : fmtMoney(Number(inv.paidAmount) - wh - dep + Number(inv.returnedAmount))})</td>
                             </tr>
                           )}
                           {Number(inv.paidAmount) + Number(inv.returnedAmount) > 0 && (
                             <>
                               <tr style={{ fontWeight: 700 }}>
                                 <td style={{ padding: 4 }}>Sisa tagihan</td>
-                                <td style={{ padding: 4, textAlign: 'right' }}>{fmtMoney(rest)}</td>
+                                <td style={{ padding: 4, textAlign: 'right' }}>{foreign ? fc(restForeign) : fmtMoney(rest)}</td>
                               </tr>
                             </>
                           )}
@@ -315,7 +330,23 @@ export default function InvoiceDetailPage() {
                     { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
                     { title: 'Metode', dataIndex: 'method', render: (m: keyof typeof PAYMENT_METHOD_LABELS) => PAYMENT_METHOD_LABELS[m] ?? m },
                     { title: 'Catatan', dataIndex: 'notes' },
-                    { title: 'Jumlah', dataIndex: 'amount', align: 'right', render: fmtMoney },
+                    {
+                      title: 'Jumlah',
+                      dataIndex: 'amount',
+                      align: 'right',
+                      render: (v, p) =>
+                        p.amountForeign ? (
+                          <>
+                            {fmtCurrency(p.amountForeign, p.currency)}
+                            <div style={{ fontSize: 11, color: '#64748b' }}>
+                              kas {fmtMoney(p.cashAmount)} @ {fmtRate(p.fxRate)}
+                              {Number(p.fxGainLoss) !== 0 && ` · ${Number(p.fxGainLoss) > 0 ? 'laba' : 'rugi'} kurs ${fmtMoney(Math.abs(Number(p.fxGainLoss)))}`}
+                            </div>
+                          </>
+                        ) : (
+                          fmtMoney(v)
+                        ),
+                    },
                   ]}
                 />
               </Card>

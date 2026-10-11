@@ -1,3 +1,4 @@
+import { isForeignCurrency } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { PlusOutlined } from '@ant-design/icons';
 import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
@@ -8,8 +9,9 @@ import { LEDGER_KEYS, useAction } from '@/api/queries';
 import type { AgingRow, PurchaseInvoice } from '@/api/types';
 import AgingTable from '@/components/AgingTable';
 import CashAccountSelect from '@/components/CashAccountSelect';
+import FxPaymentFields from '@/components/FxPaymentFields';
 import PageHeader from '@/layout/PageHeader';
-import { fmtDate, fmtMoney, today } from '@/lib/format';
+import { fmtCurrency, fmtDate, fmtMoney, today } from '@/lib/format';
 import { INV_STATUS_OPTIONS, InvoiceStatusTag } from '../sales/status';
 import BillModal from './BillModal';
 import PriceVarianceReport from './PriceVarianceReport';
@@ -28,6 +30,8 @@ interface SupplierPayment {
 }
 
 export const apOutstanding = (i: PurchaseInvoice) => Number(i.total) - Number(i.paidAmount) - Number(i.returnedAmount);
+/** Sisa hutang dalam mata uang faktur */
+const apOutstandingForeign = (i: PurchaseInvoice) => Number(i.totalForeign ?? 0) - Number(i.paidForeign ?? 0);
 
 export default function PurchaseInvoicesPage() {
   const navigate = useNavigate();
@@ -44,10 +48,11 @@ export default function PurchaseInvoicesPage() {
   const payments = useQuery({ queryKey: ['purchase-invoices', 'payments'], queryFn: () => get<SupplierPayment[]>('/purchase-invoices/payments') });
 
   const pay = useAction(
-    (v: { amount: number; cashAccountId?: string; date: string; notes?: string }) =>
+    (v: { amount: number; cashAccountId?: string; date: string; notes?: string; fxRate?: number }) =>
       post<{ number: string; journalNumber: string }>('/purchase-invoices/payments', {
         ...v,
         amount: String(v.amount),
+        fxRate: v.fxRate ? String(v.fxRate) : undefined,
         purchaseInvoiceId: paying!.id,
       }),
     {
@@ -119,7 +124,12 @@ export default function PurchaseInvoicesPage() {
                         dataIndex: 'total',
                         align: 'right',
                         render: (v, i) =>
-                          Number(i.withholdingAmount ?? 0) > 0 ? (
+                          isForeignCurrency(i.currency) ? (
+                            <>
+                              {fmtMoney(v)}
+                              <div style={{ fontSize: 11, color: '#64748b' }}>{fmtCurrency(i.totalForeign, i.currency)}</div>
+                            </>
+                          ) : Number(i.withholdingAmount ?? 0) > 0 ? (
                             <Tooltip title={`Setelah dipotong ${i.withholdingType === 'PPH4_2' ? 'PPh 4(2)' : 'PPh 23'} ${fmtMoney(i.withholdingAmount)}`}>
                               {fmtMoney(v)}*
                             </Tooltip>
@@ -137,7 +147,7 @@ export default function PurchaseInvoicesPage() {
                                 size="small"
                                 type="primary"
                                 onClick={() => {
-                                  form.setFieldsValue({ amount: apOutstanding(i), cashAccountId: undefined, date: today(), notes: undefined });
+                                  form.setFieldsValue({ amount: isForeignCurrency(i.currency) ? apOutstandingForeign(i) : apOutstanding(i), cashAccountId: undefined, date: today(), notes: undefined });
                                   setPaying(i);
                                 }}
                               >
@@ -200,13 +210,21 @@ export default function PurchaseInvoicesPage() {
       >
         {paying && (
           <Typography.Paragraph>
-            {paying.supplier.name} · faktur {paying.supplierInvoiceNo} · sisa hutang <strong>{fmtMoney(apOutstanding(paying))}</strong>
+            {paying.supplier.name} · faktur {paying.supplierInvoiceNo} · sisa hutang{' '}
+            <strong>{isForeignCurrency(paying.currency) ? `${fmtCurrency(apOutstandingForeign(paying), paying.currency)} (nilai tercatat ${fmtMoney(apOutstanding(paying))})` : fmtMoney(apOutstanding(paying))}</strong>
           </Typography.Paragraph>
         )}
         <Form form={form} layout="vertical" onFinish={(v) => pay.mutate(v)}>
           <Form.Item name="amount" label="Jumlah" rules={[{ required: true }]}>
-            <InputNumber min={1} max={paying ? apOutstanding(paying) : undefined} style={{ width: '100%' }} prefix="Rp" />
+            {paying && isForeignCurrency(paying.currency) ? (
+              <InputNumber min={0.01} precision={2} max={apOutstandingForeign(paying)} style={{ width: '100%' }} prefix={paying.currency} />
+            ) : (
+              <InputNumber min={1} max={paying ? apOutstanding(paying) : undefined} style={{ width: '100%' }} prefix="Rp" />
+            )}
           </Form.Item>
+          {paying && isForeignCurrency(paying.currency) && (
+            <FxPaymentFields form={form} currency={paying.currency!} invoiceRate={Number(paying.fxRate)} outstandingForeign={apOutstandingForeign(paying)} outstandingIdr={apOutstanding(paying)} receivable={false} />
+          )}
           <Form.Item name="cashAccountId" label="Dibayar dari" extra="Kosongkan untuk memakai rekening bank utama">
             <CashAccountSelect allowClear />
           </Form.Item>

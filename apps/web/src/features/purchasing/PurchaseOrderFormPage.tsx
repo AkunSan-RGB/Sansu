@@ -7,7 +7,9 @@ import { useAction, useProducts, useSuppliers, useWarehouses } from '@/api/queri
 import type { PurchaseOrder } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
-import { fmtMoney, today } from '@/lib/format';
+import { isForeignCurrency } from '@sansu/shared';
+import CurrencyFields from '@/components/CurrencyFields';
+import { fmtCurrency, fmtMoney, fmtRate, today } from '@/lib/format';
 import { t } from '@/lib/terms';
 
 interface Line {
@@ -22,6 +24,8 @@ interface FormValues {
   warehouseId: string;
   date: string;
   notes?: string;
+  currency?: string;
+  fxRate?: number;
   lines: Line[];
 }
 
@@ -36,6 +40,10 @@ export default function PurchaseOrderFormPage() {
   const [form] = Form.useForm<FormValues>();
   const lines: Line[] = Form.useWatch('lines', form) ?? [];
   const productById = new Map(products?.map((p) => [p.id, p]));
+  const currency = Form.useWatch('currency', form) ?? 'IDR';
+  const foreign = isForeignCurrency(currency);
+  const fxRate = Form.useWatch('fxRate', form) ?? 0;
+  const money = (v: number) => (foreign ? fmtCurrency(v, currency) : fmtMoney(v));
 
   useEffect(() => {
     if (warehouses?.length && !form.getFieldValue('warehouseId')) form.setFieldValue('warehouseId', warehouses[0].id);
@@ -45,6 +53,8 @@ export default function PurchaseOrderFormPage() {
     (v: FormValues) =>
       post<PurchaseOrder>('/purchase-orders', {
         ...v,
+        currency: isForeignCurrency(v.currency) ? v.currency : undefined,
+        fxRate: isForeignCurrency(v.currency) && v.fxRate ? String(v.fxRate) : undefined,
         lines: v.lines.map((l) => ({
           productId: l.productId,
           uom: l.uom,
@@ -73,7 +83,7 @@ export default function PurchaseOrderFormPage() {
   return (
     <>
       <PageHeader title="Purchase order baru" />
-      <Form form={form} layout="vertical" initialValues={{ date: today(), lines: [{ qty: 1, discountPct: 0 }] }} onFinish={(v) => create.mutate(v)}>
+      <Form form={form} layout="vertical" initialValues={{ date: today(), currency: 'IDR', lines: [{ qty: 1, discountPct: 0 }] }} onFinish={(v) => create.mutate(v)}>
         <Card>
           <Row gutter={16}>
             <Col xs={24} md={10}>
@@ -96,6 +106,8 @@ export default function PurchaseOrderFormPage() {
               </Form.Item>
             </Col>
           </Row>
+
+          <CurrencyFields form={form} />
 
           <Form.List name="lines">
             {(fields, { add, remove }) => (
@@ -146,11 +158,11 @@ export default function PurchaseOrderFormPage() {
                       ),
                     },
                     {
-                      title: 'Harga beli / satuan',
+                      title: foreign ? `Harga beli / satuan (${currency})` : 'Harga beli / satuan',
                       width: 170,
                       render: (_, f) => (
                         <Form.Item name={[f.name, 'price']} rules={[{ required: true, message: 'Isi harga' }]} noStyle>
-                          <InputNumber min={0} style={{ width: '100%' }} placeholder="belum PPN" />
+                          <InputNumber min={0} precision={foreign ? 4 : undefined} style={{ width: '100%' }} placeholder="belum PPN" />
                         </Form.Item>
                       ),
                     },
@@ -163,7 +175,7 @@ export default function PurchaseOrderFormPage() {
                         </Form.Item>
                       ),
                     },
-                    { title: 'Jumlah', align: 'right', render: (_, f) => fmtMoney(previewLine(lines[f.name] ?? {})) },
+                    { title: 'Jumlah', align: 'right', render: (_, f) => money(previewLine(lines[f.name] ?? {})) },
                     {
                       width: 40,
                       render: (_, f) => fields.length > 1 && <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(f.name)} />,
@@ -185,11 +197,14 @@ export default function PurchaseOrderFormPage() {
             </Col>
             <Col xs={24} md={10}>
               <Descriptions column={1} size="small" bordered>
-                <Descriptions.Item label="Subtotal (DPP)">{fmtMoney(subtotal)}</Descriptions.Item>
-                <Descriptions.Item label={me?.taxProfile?.pkp === false ? `PPN ${ppnRate}% (masuk harga pokok)` : `PPN masukan ${ppnRate}%`}>{fmtMoney(tax)}</Descriptions.Item>
+                <Descriptions.Item label="Subtotal (DPP)">{money(subtotal)}</Descriptions.Item>
+                <Descriptions.Item label={me?.taxProfile?.pkp === false ? `PPN ${ppnRate}% (masuk harga pokok)` : `PPN masukan ${ppnRate}%`}>{money(tax)}</Descriptions.Item>
                 <Descriptions.Item label="Total">
-                  <strong>{fmtMoney(subtotal + tax)}</strong>
+                  <strong>{money(subtotal + tax)}</strong>
                 </Descriptions.Item>
+                {foreign && !!fxRate && (
+                  <Descriptions.Item label={`Setara Rupiah @ ${fmtRate(fxRate)}`}>{fmtMoney(Math.round(subtotal * fxRate) + Math.round(Math.round(subtotal * fxRate) * ppnRate) / 100)}</Descriptions.Item>
+                )}
               </Descriptions>
             </Col>
           </Row>

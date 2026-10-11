@@ -10,7 +10,8 @@ import PageHeader from '@/layout/PageHeader';
 import { cell, DocHeader, head, PartyBlock, PrintSheet, Signatures, useLetterhead } from '@/components/print/Letterhead';
 import { VARIANCE_REASONS } from './PriceVarianceReport';
 import { printDoc } from '@/lib/print';
-import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
+import { isForeignCurrency } from '@sansu/shared';
+import { fmtCurrency, fmtDate, fmtMoney, fmtQty, fmtRate, today } from '@/lib/format';
 import { ReceiptStatusTag } from './GoodsReceiptsPage';
 import { PurchaseOrderStatusTag } from '../sales/status';
 import { t } from '@/lib/terms';
@@ -152,6 +153,11 @@ export default function PurchaseOrderDetailPage() {
                   </Space>
                 </Descriptions.Item>
               )}
+              {isForeignCurrency(o.currency) && (
+                <Descriptions.Item label="Mata uang">
+                  {o.currency} · kurs Rp {fmtRate(o.fxRate)} · total {fmtCurrency(o.totalForeign, o.currency)}
+                </Descriptions.Item>
+              )}
               {o.notes && <Descriptions.Item label="Catatan">{o.notes}</Descriptions.Item>}
             </Descriptions>
             <Table
@@ -165,7 +171,7 @@ export default function PurchaseOrderDetailPage() {
                 { title: 'Dipesan', align: 'right', render: (_, l) => `${fmtQty(l.qty)} ${l.uom}` },
                 { title: 'Diterima', align: 'right', className: 'no-print', render: (_, l) => fmtQty(l.receivedQty ?? '0') },
                 { title: 'Ditagih', align: 'right', className: 'no-print', render: (_, l) => fmtQty(l.billedQty ?? '0') },
-                { title: 'Harga beli', dataIndex: 'price', align: 'right', render: fmtMoney },
+                { title: isForeignCurrency(o.currency) ? `Harga beli (${o.currency})` : 'Harga beli', dataIndex: 'price', align: 'right', render: (v, l) => (isForeignCurrency(o.currency) ? fmtCurrency(l.priceForeign, o.currency) : fmtMoney(v)) },
                 { title: 'Diskon', dataIndex: 'discountPct', align: 'right', render: (v) => `${Number(v)}%` },
                 { title: 'Jumlah', dataIndex: 'lineTotal', align: 'right', render: fmtMoney },
               ]}
@@ -173,9 +179,14 @@ export default function PurchaseOrderDetailPage() {
             <Descriptions column={1} size="small" style={{ maxWidth: 360, marginLeft: 'auto', marginTop: 16 }} bordered>
               <Descriptions.Item label="Subtotal (DPP)">{fmtMoney(o.subtotal)}</Descriptions.Item>
               <Descriptions.Item label="PPN masukan">{fmtMoney(o.taxAmount)}</Descriptions.Item>
-              <Descriptions.Item label="Total">
+              <Descriptions.Item label={isForeignCurrency(o.currency) ? 'Total (Rupiah)' : 'Total'}>
                 <strong>{fmtMoney(o.total)}</strong>
               </Descriptions.Item>
+              {isForeignCurrency(o.currency) && (
+                <Descriptions.Item label={`Total (${o.currency})`}>
+                  <strong>{fmtCurrency(o.totalForeign, o.currency)}</strong>
+                </Descriptions.Item>
+              )}
             </Descriptions>
             {(!!o.receipts?.length || !!o.invoices?.length) && (
               <Card size="small" title="Dokumen terkait" className="no-print" style={{ marginTop: 16 }}>

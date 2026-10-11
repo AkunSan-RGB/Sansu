@@ -57,6 +57,7 @@ import PageHeader from './layout/PageHeader';
 import IntegrationsPage from './features/accounting/IntegrationsPage';
 import FixedAssetsPage from './features/accounting/FixedAssetsPage';
 import HealthPage from './features/accounting/HealthPage';
+import FxPage from './features/accounting/FxPage';
 import CustomersPage from './features/customers/CustomersPage';
 import DashboardPage from './features/dashboard/DashboardPage';
 import InventoryPage from './features/inventory/InventoryPage';
@@ -181,6 +182,7 @@ export default function App() {
           <Route path="closing" element={<ClosingPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="adjustments" element={<AdjustmentsPage />} />
+          <Route path="fx" element={<FxPage />} />
           <Route path="trial-balance" element={<TrialBalancePage />} />
           <Route path="worksheet" element={<WorksheetPage />} />
           <Route path="vat" element={<VatPage />} />

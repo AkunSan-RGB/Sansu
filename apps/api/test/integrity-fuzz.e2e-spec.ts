@@ -112,6 +112,8 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
     let boms: string | null = null;
     const payrollPeriods = new Set<string>();
     const purchaseInvoices: string[] = [];
+    const fxSales: string[] = [];
+    const fxPurchases: string[] = [];
     const journals: string[] = [];
     let posSession: string | null = null;
     let seq = 0;
@@ -138,6 +140,14 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
       const badStatus = await q(`SELECT number, status, total, paid_amount, returned_amount FROM invoices WHERE tenant_id=$1 AND ((status='PAID') <> (paid_amount + returned_amount >= total - 0.005))`, [tenantId]);
       expect({ ctx, inconsistentInvoiceStatus: badStatus }).toEqual({ ctx, inconsistentInvoiceStatus: [] });
 
+      const badFx = await q(`SELECT number FROM invoices WHERE tenant_id=$1 AND currency<>'IDR' AND (paid_foreign<0 OR paid_foreign > total_foreign + 0.005 OR ((status='PAID') <> (paid_foreign >= total_foreign - 0.005)))`, [tenantId]);
+      expect({ ctx, inconsistentForeignInvoices: badFx }).toEqual({ ctx, inconsistentForeignInvoices: [] });
+      const badFxAp = await q(`SELECT number FROM purchase_invoices WHERE tenant_id=$1 AND currency<>'IDR' AND (paid_foreign<0 OR paid_foreign > total_foreign + 0.005 OR ((status='PAID') <> (paid_foreign >= total_foreign - 0.005)))`, [tenantId]);
+      expect({ ctx, inconsistentForeignBills: badFxAp }).toEqual({ ctx, inconsistentForeignBills: [] });
+      // laba/rugi kurs terealisasi tercatat di pembayaran = saldo akun selisih kurs dari jurnal pembayaran
+      const fxJournal = Number((await q(`SELECT COALESCE(SUM(l.credit - l.debit),0) AS v FROM journal_lines l JOIN journal_entries j ON j.id=l.journal_id JOIN accounts a ON a.id=l.account_id WHERE j.tenant_id=$1 AND a.system_key IN ('FX_GAIN','FX_LOSS') AND j.source_type IN ('PAYMENT','SUPPLIER_PAYMENT')`, [tenantId]))[0].v);
+      const fxPaid = Number((await q(`SELECT (SELECT COALESCE(SUM(fx_gain_loss),0) FROM payments WHERE tenant_id=$1) + (SELECT COALESCE(SUM(fx_gain_loss),0) FROM supplier_payments WHERE tenant_id=$1) AS v`, [tenantId]))[0].v);
+      expect({ ctx, fxJournal }).toEqual({ ctx, fxJournal: expect.closeTo(fxPaid, 1) });
       const ar = Number((await q(`SELECT COALESCE(SUM(total - paid_amount - returned_amount),0) AS v FROM invoices WHERE tenant_id=$1`, [tenantId]))[0].v);
       expect({ ctx, ar: await glBalance('1-1300') }).toEqual({ ctx, ar: expect.closeTo(ar, 1) });
       const ap = Number((await q(`SELECT COALESCE(SUM(total - paid_amount - returned_amount),0) AS v FROM purchase_invoices WHERE tenant_id=$1`, [tenantId]))[0].v);
@@ -342,6 +352,47 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
         if (rand() < 0.85) await tryPost('prod-done', `/production/orders/${o.body.id}/complete`, { date: todayStr, outputQty: String(Math.max(1, Math.floor(Number(o.body.plannedQty) * (0.8 + rand() * 0.2)))) });
         else await tryPost('prod-cancel', `/production/orders/${o.body.id}/cancel`, {});
       },
+      /** Valas: penjualan USD dengan kurs acak, dibayar bertahap dengan kurs hari bayar yang berbeda */
+      async sellUsd() {
+        const w = pick([wh1, wh1, wh2]);
+        const p = pick(products);
+        const have = await stockOf(p, w);
+        const so = await tryPost('so-usd', '/sales-orders', { customerId: pick(customers), warehouseId: w, currency: 'USD', fxRate: String(int(150, 170) * 100), lines: [{ productId: p, qty: String(have > 0 ? int(1, Math.max(1, Math.min(have, 6))) : 2), price: String(int(2, 9) + 0.25) }] });
+        if (so.status !== 201) return;
+        await tryPost('so-confirm', `/sales-orders/${so.body.id}/confirm`, {});
+        const inv = await tryPost('inv-usd', '/invoices', { salesOrderId: so.body.id });
+        if (inv.status === 201) fxSales.push(inv.body.id);
+      },
+      async payUsd() {
+        if (!fxSales.length) return;
+        const id = pick(fxSales);
+        const inv = (await call('get', `/invoices/${id}`)).body;
+        const open = Number(inv.totalForeign) - Number(inv.paidForeign);
+        const amount = rand() < 0.5 ? open : Math.max(0.01, Math.floor(open * rand() * 100) / 100);
+        await tryPost('pay-usd', '/payments', { invoiceId: id, amount: amount.toFixed(2), fxRate: String(int(150, 170) * 100), cashAccountId: pick([kas, bank]), method: 'TRANSFER' });
+      },
+      async buyUsd() {
+        const po = await tryPost('po-usd', '/purchase-orders', { supplierId: pick(suppliers), warehouseId: pick([wh1, wh1, wh2]), currency: 'USD', fxRate: String(int(150, 170) * 100), lines: [{ productId: pick(products), qty: String(int(1, 20)), price: String(int(1, 6) + 0.5) }] });
+        if (po.status !== 201) return;
+        await tryPost('po-confirm', `/purchase-orders/${po.body.id}/confirm`, {});
+        const pi = await tryPost('pi-usd', '/purchase-invoices', { purchaseOrderId: po.body.id, supplierInvoiceNo: `U-${seed}-${++seq}` });
+        if (pi.status === 201) fxPurchases.push(pi.body.id);
+      },
+      async payUsdAP() {
+        if (!fxPurchases.length) return;
+        const id = pick(fxPurchases);
+        const pi = (await call('get', `/purchase-invoices/${id}`)).body;
+        const open = Number(pi.totalForeign) - Number(pi.paidForeign);
+        const amount = rand() < 0.5 ? open : Math.max(0.01, Math.floor(open * rand() * 100) / 100);
+        await tryPost('pay-usd-ap', '/purchase-invoices/payments', { purchaseInvoiceId: id, amount: amount.toFixed(2), fxRate: String(int(150, 170) * 100), cashAccountId: bank });
+      },
+      /** Penilaian ulang pada tanggal acak (kurs dicatat dulu); tanggal yang sama kedua kalinya ditolak */
+      async revalUsd() {
+        const date = `${thisYear - 1}-${String(int(1, 12)).padStart(2, '0')}-${String(int(1, 28)).padStart(2, '0')}`;
+        const r = await call('put', '/fx/rates', { currency: 'USD', rate: String(int(150, 170) * 100), date });
+        if (r.status >= 300) return;
+        await tryPost('reval-usd', '/fx/revaluation', { date });
+      },
       async payroll() {
         if (employee.status >= 300) return;
         const period = `${thisYear - 1}-${String(int(1, 12)).padStart(2, '0')}`;
@@ -358,7 +409,7 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
         await tryPost('tax-pay', '/tax/payments', { type, period, date: todayStr });
       },
     });
-    const weighted: [string, number][] = [['buy', 6], ['receiveThenBill', 5], ['sell', 10], ['deliverThenInvoice', 6], ['payAR', 7], ['payAP', 5], ['salesReturn', 4], ['purchaseReturn', 3], ['adjust', 4], ['transfer', 3], ['pos', 6], ['journal', 3], ['reverse', 1], ['bill', 2], ['asset', 1], ['cash', 3], ['opname', 1], ['depreciate', 2], ['disposeAsset', 1], ['production', 4], ['payroll', 2], ['taxPayment', 2]];
+    const weighted: [string, number][] = [['buy', 6], ['receiveThenBill', 5], ['sell', 10], ['deliverThenInvoice', 6], ['payAR', 7], ['payAP', 5], ['salesReturn', 4], ['purchaseReturn', 3], ['adjust', 4], ['transfer', 3], ['pos', 6], ['journal', 3], ['reverse', 1], ['bill', 2], ['asset', 1], ['cash', 3], ['opname', 1], ['depreciate', 2], ['disposeAsset', 1], ['production', 4], ['payroll', 2], ['taxPayment', 2], ['sellUsd', 4], ['payUsd', 4], ['buyUsd', 3], ['payUsdAP', 3], ['revalUsd', 1]];
     const bag = weighted.flatMap(([k, w]) => Array(w).fill(k) as string[]);
 
     // bekal awal agar ada dokumen untuk dibayar/diretur

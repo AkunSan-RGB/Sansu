@@ -11,6 +11,9 @@ import { purchaseOrderLines, purchaseOrders, suppliers, tenants, warehouses } fr
 import { buildLines } from '../master-data/products/line-builder';
 import { taxProfileOf } from '../../common/settings.service';
 import { documentTotals } from '../sales/pricing';
+import { foreignTotals } from '../../common/utils/fx';
+import { D, money } from '../../common/utils/money';
+import { FxService } from '../fx/fx.service';
 import { CreatePurchaseOrderDto, PurchaseOrderQueryDto } from './purchasing.dto';
 
 /** Purchase order: DRAFT → CONFIRMED (dikirim ke supplier) → BILLED (barang & faktur diterima) */
@@ -21,6 +24,7 @@ export class PurchaseOrdersService {
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
+    private readonly fx: FxService,
   ) {}
 
   /** Status penerimaan dan penagihan turunan dari baris pesanan: NONE / PARTIAL / FULL */
@@ -88,8 +92,14 @@ export class PurchaseOrdersService {
         .where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
 
-      const lines = await buildLines(tx, user.tenantId, dto.lines, 'required');
-      const totals = documentTotals(lines, tenant.ppnRate, taxProfileOf(tenant.settings).vatRounding);
+      const { currency, rate } = await this.fx.resolve(tx, user.tenantId, dto.currency, date, dto.fxRate);
+      const foreign = currency !== 'IDR';
+      const lines = await buildLines(tx, user.tenantId, dto.lines, 'required', foreign ? 4 : 2);
+      // Valas: harga baris dalam mata uang PO; Rupiah dihitung pada kurs PO (kurs ini juga dipakai faktur dan penerimaan barang)
+      const fxDoc = foreign ? foreignTotals(lines.map((l) => l.lineTotal), rate, tenant.ppnRate, taxProfileOf(tenant.settings).vatRounding) : null;
+      const priceForeign = lines.map((l) => (foreign ? l.price : null));
+      if (fxDoc) lines.forEach((l, i) => ((l.price = money(l.price.times(rate))), (l.lineTotal = fxDoc.lineIdr[i])));
+      const totals = fxDoc ? { subtotal: fxDoc.subtotalIdr, taxAmount: fxDoc.taxIdr, total: fxDoc.totalIdr } : documentTotals(lines, tenant.ppnRate, taxProfileOf(tenant.settings).vatRounding);
       const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_ORDER', date);
       const [order] = await tx
         .insert(purchaseOrders)
@@ -101,6 +111,9 @@ export class PurchaseOrdersService {
           warehouseId: wh.id,
           notes: dto.notes,
           priceEstimate: dto.priceEstimate ?? false,
+          currency,
+          fxRate: rate.toFixed(6),
+          totalForeign: fxDoc ? fxDoc.totalForeign.toFixed(2) : null,
           createdById: user.sub,
           subtotal: totals.subtotal.toFixed(2),
           taxAmount: totals.taxAmount.toFixed(2),
@@ -108,8 +121,9 @@ export class PurchaseOrdersService {
         })
         .returning({ id: purchaseOrders.id });
       await tx.insert(purchaseOrderLines).values(
-        lines.map((l) => ({
+        lines.map((l, i) => ({
           orderId: order.id,
+          priceForeign: priceForeign[i]?.toFixed(4) ?? null,
           productId: l.productId,
           uom: l.uom,
           uomFactor: l.uomFactor,

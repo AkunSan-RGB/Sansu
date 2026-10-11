@@ -273,6 +273,7 @@ export interface SalesOrderLine {
   id: string;
   productId: string;
   uom: string;
+  priceForeign?: string | null;
   qty: string;
   price: string;
   discountPct: string;
@@ -283,6 +284,10 @@ export interface SalesOrderLine {
 }
 
 export interface SalesOrder {
+  /** Mata uang dokumen (ISO); kosong/IDR = Rupiah. Nilai rupiah lain memakai kurs `fxRate` */
+  currency?: string;
+  fxRate?: string;
+  totalForeign?: string | null;
   id: string;
   number: string;
   date: string;
@@ -300,6 +305,11 @@ export interface SalesOrder {
 }
 
 export interface Invoice {
+  /** Mata uang dokumen (ISO); kosong/IDR = Rupiah. Nilai rupiah lain memakai kurs `fxRate` */
+  currency?: string;
+  fxRate?: string;
+  totalForeign?: string | null;
+  paidForeign?: string;
   id: string;
   number: string;
   date: string;
@@ -353,6 +363,7 @@ export interface InvoiceDetail extends Invoice {
     discountPct: string;
     lineTotal: string;
     returnedQty: string;
+    priceForeign?: string | null;
     product: { sku: string; name: string };
   }[];
 }
@@ -435,10 +446,16 @@ export interface DocLine {
   price: string;
   discountPct: string;
   lineTotal: string;
+  /** Dokumen valas: harga per satuan dalam mata uang dokumen */
+  priceForeign?: string | null;
   product: { sku: string; name: string; baseUom?: string };
 }
 
 export interface PurchaseOrder {
+  /** Mata uang dokumen (ISO); kosong/IDR = Rupiah. Nilai rupiah lain memakai kurs `fxRate` */
+  currency?: string;
+  fxRate?: string;
+  totalForeign?: string | null;
   id: string;
   number: string;
   date: string;
@@ -485,6 +502,11 @@ export interface GoodsReceipt {
 }
 
 export interface PurchaseInvoice {
+  /** Mata uang dokumen (ISO); kosong/IDR = Rupiah. Nilai rupiah lain memakai kurs `fxRate` */
+  currency?: string;
+  fxRate?: string;
+  totalForeign?: string | null;
+  paidForeign?: string;
   id: string;
   number: string;
   supplierInvoiceNo: string;
@@ -1720,4 +1742,13 @@ export interface ProductionReport {
   /** + kurang dibebankan / − lebih dibebankan (tetap di beban pokok penjualan) */
   variance: string;
   byProduct: { productId: string; sku: string; name: string; unit: string; orders: number; qty: string; material: string; conversion: string; total: string; unitCost: string }[];
+}
+
+/** Kurs harian mata uang asing terhadap Rupiah (Rp per 1 satuan valas) */
+export interface ExchangeRate {
+  id: string;
+  currency: string;
+  date: string;
+  rate: string;
+  note: string | null;
 }

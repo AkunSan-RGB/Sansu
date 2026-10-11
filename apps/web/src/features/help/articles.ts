@@ -187,6 +187,26 @@ export const HELP_ARTICLES: HelpArticle[] = [
   },
   // ---------- Akuntansi & Pajak ----------
   {
+    id: 'mata-uang-asing',
+    category: 'Akuntansi & Pajak',
+    title: 'Mata uang asing: ekspor, impor, kurs, dan selisih kurs',
+    summary: 'Buat pesanan penjualan dan PO dalam USD, EUR, dan mata uang lain. Pembukuan dan laporan tetap dalam Rupiah.',
+    paths: ['/fx', '/sales-orders/new', '/purchase-orders/new', '/invoices', '/purchase-invoices'],
+    steps: [
+      'Isi kurs di Akuntansi › Mata uang asing › Kurs (mis. kurs JISDOR BI atau kurs pajak/KMK). Dokumen memakai kurs terbaru pada atau sebelum tanggalnya; kurs bisa ditimpa di dokumen.',
+      'Di sales order atau PO, pilih Mata uang lalu ketik harga dalam mata uang itu. Nilai Rupiah dihitung otomatis; PPN dihitung dari DPP Rupiah sesuai ketentuan PPN. Faktur dan cetakannya tampil dalam mata uang dokumen.',
+      'Saat pelunasan, ketik kurs hari pembayaran. SANSU menunjukkan kas yang diterima/dibayar dan laba atau rugi selisih kurs terealisasi, lalu mencatatnya otomatis.',
+      'Akhir bulan atau tahun, buka Mata uang asing › Posisi valas & penilaian ulang dan klik Catat penilaian ulang. Piutang dan utang valas dinilai pada kurs penutup; selisihnya dicatat sebagai laba/rugi belum terealisasi dan dibalik otomatis keesokan harinya.',
+    ],
+    tips: [
+      'Faktur beli valas memakai kurs PO. Bila kurs berubah sebelum barang tiba, ubah kurs pada PO (saat masih draft).',
+      'Belum didukung: retur, uang muka, dan potongan PPh pada faktur valas; rekening bank dalam valas; PO dalam valas lewat pembelian cepat dengan harga faktur berbeda. Kas dan bank tetap dalam Rupiah.',
+      'CALK memuat kebijakan mata uang asing, catatan selisih kurs (terealisasi dan belum), dan, untuk IFRS, risiko mata uang beserta sensitivitas 10%.',
+    ],
+    keywords: 'valas kurs dolar usd eur ekspor impor selisih kurs penilaian ulang mata uang asing psak 10 ias 21 jisdor',
+    link: { label: 'Buka Mata uang asing', to: '/fx' },
+  },
+  {
     id: 'laporan',
     category: 'Akuntansi & Pajak',
     title: 'Laporan keuangan & ekspor Excel',

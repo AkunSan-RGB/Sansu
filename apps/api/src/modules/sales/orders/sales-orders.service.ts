@@ -9,6 +9,8 @@ import { D, money } from '../../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
 import { customers, products, salesOrderLines, salesOrders, tenants, warehouses } from '../../../db/schema';
+import { foreignTotals } from '../../../common/utils/fx';
+import { FxService } from '../../fx/fx.service';
 import { documentTotals, inclusiveDocument, lineTotal } from '../pricing';
 import { CreateSalesOrderDto, SalesOrderQueryDto } from '../sales.dto';
 import { CreditService } from './credit.service';
@@ -20,6 +22,7 @@ export class SalesOrdersService {
     private readonly seq: SequenceService,
     private readonly credit: CreditService,
     private readonly audit: AuditService,
+    private readonly fx: FxService,
   ) {}
 
   list(tenantId: string, q: SalesOrderQueryDto) {
@@ -70,6 +73,10 @@ export class SalesOrdersService {
       });
       const byId = new Map(prods.map((p) => [p.id, p]));
 
+      const { currency, rate: fxRate } = await this.fx.resolve(tx, user.tenantId, dto.currency, date, dto.fxRate);
+      const foreign = currency !== 'IDR';
+      if (foreign && dto.pricesIncludeVat) throw new BadRequestException('Pesanan valas memakai harga belum termasuk PPN');
+
       const lines = dto.lines.map((l) => {
         const p = byId.get(l.productId);
         if (!p || !p.isActive) throw new BadRequestException(`Produk ${l.productId} tidak ditemukan / nonaktif`);
@@ -80,21 +87,31 @@ export class SalesOrdersService {
         if (D(l.qty).lte(0)) throw new BadRequestException(`Kuantitas ${p.sku} harus > 0`);
         const discountPct = D(l.discountPct);
         if (discountPct.lt(0) || discountPct.gt(100)) throw new BadRequestException('Diskon harus 0–100%');
-        const price = l.price !== undefined ? money(l.price) : money(D(p.sellPrice).times(factor));
+        if (foreign && l.price === undefined) throw new BadRequestException(`Harga ${p.sku} dalam ${currency} wajib diisi`);
+        // valas: harga diketik dalam mata uang dokumen (4 desimal); nilai Rupiah dihitung dari kurs di bawah
+        const priceForeign = foreign ? D(l.price).toDecimalPlaces(4) : null;
+        if (priceForeign?.isNegative()) throw new BadRequestException(`Harga ${p.sku} tidak boleh negatif`);
+        const price = priceForeign ? money(priceForeign.times(fxRate)) : l.price !== undefined ? money(l.price) : money(D(p.sellPrice).times(factor));
         return {
+          priceForeign,
           productId: p.id,
           uom,
           uomFactor: factor,
           qty: l.qty,
           price,
           discountPct,
-          lineTotal: lineTotal({ qty: l.qty, price, discountPct }),
+          lineTotal: lineTotal({ qty: l.qty, price: priceForeign ?? price, discountPct }),
         };
       });
+      // Valas: nilai baris (mata uang dokumen) dikonversi per baris; DPP rupiah = jumlah baris rupiah, PPN dari DPP rupiah
+      const fxDoc = foreign ? foreignTotals(lines.map((l) => l.lineTotal), fxRate, outputVatRate(tenant), taxProfileOf(tenant.settings).vatRounding) : null;
+      if (fxDoc) lines.forEach((l, i) => (l.lineTotal = fxDoc.lineIdr[i]));
 
       const rate = outputVatRate(tenant);
       const inclusive = !!dto.pricesIncludeVat && D(rate).gt(0);
-      const doc = inclusive
+      const doc = fxDoc
+        ? { lines: lines.map((l) => ({ ...l, priceInclVat: null })), subtotal: fxDoc.subtotalIdr, taxAmount: fxDoc.taxIdr, total: fxDoc.totalIdr }
+        : inclusive
         ? inclusiveDocument(lines, rate)
         : { lines: lines.map((l) => ({ ...l, priceInclVat: null })), ...documentTotals(lines, rate, taxProfileOf(tenant.settings).vatRounding) };
       const totals = doc;
@@ -113,6 +130,9 @@ export class SalesOrdersService {
           taxAmount: totals.taxAmount.toFixed(2),
           total: totals.total.toFixed(2),
           pricesIncludeVat: inclusive,
+          currency,
+          fxRate: fxRate.toFixed(6),
+          totalForeign: fxDoc ? fxDoc.totalForeign.toFixed(2) : null,
         })
         .returning({ id: salesOrders.id });
       await tx.insert(salesOrderLines).values(
@@ -126,6 +146,7 @@ export class SalesOrdersService {
           discountPct: l.discountPct.toFixed(2),
           lineTotal: l.lineTotal.toFixed(2),
           priceInclVat: l.priceInclVat ? l.priceInclVat.toFixed(2) : null,
+          priceForeign: l.priceForeign ? l.priceForeign.toFixed(4) : null,
         })),
       );
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'SalesOrder', entityId: order.id });

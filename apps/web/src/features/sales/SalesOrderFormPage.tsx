@@ -7,7 +7,9 @@ import { useAction, useCustomers, useProducts, useWarehouses } from '@/api/queri
 import type { Product, SalesOrder } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
-import { fmtMoney, today } from '@/lib/format';
+import { isForeignCurrency } from '@sansu/shared';
+import CurrencyFields from '@/components/CurrencyFields';
+import { fmtCurrency, fmtMoney, fmtRate, today } from '@/lib/format';
 import { outputVatRate, vatTotals } from '@/lib/vat';
 import { t } from '@/lib/terms';
 
@@ -25,6 +27,8 @@ interface FormValues {
   notes?: string;
   /** Harga yang diketik sudah termasuk PPN */
   pricesIncludeVat?: boolean;
+  currency?: string;
+  fxRate?: number;
   lines: Line[];
 }
 
@@ -43,6 +47,10 @@ export default function SalesOrderFormPage() {
   const [form] = Form.useForm<FormValues>();
   const lines: Line[] = Form.useWatch('lines', form) ?? [];
   const productById = new Map(products?.map((p) => [p.id, p]));
+  const currency = Form.useWatch('currency', form) ?? 'IDR';
+  const foreign = isForeignCurrency(currency);
+  const fxRate = Form.useWatch('fxRate', form) ?? 0;
+  const money = (v: number) => (foreign ? fmtCurrency(v, currency) : fmtMoney(v));
 
   // Gudang dimuat setelah form dibuat: isi gudang pertama sebagai default
   useEffect(() => {
@@ -51,6 +59,9 @@ export default function SalesOrderFormPage() {
 
   const create = useAction((v: FormValues) => post<SalesOrder>('/sales-orders', {
     ...v,
+    currency: isForeignCurrency(v.currency) ? v.currency : undefined,
+    fxRate: isForeignCurrency(v.currency) && v.fxRate ? String(v.fxRate) : undefined,
+    pricesIncludeVat: isForeignCurrency(v.currency) ? false : v.pricesIncludeVat,
     lines: v.lines.map((l) => ({
       productId: l.productId,
       uom: l.uom,
@@ -72,15 +83,17 @@ export default function SalesOrderFormPage() {
 
   const onProduct = (index: number, productId: string) => {
     const p = productById.get(productId);
-    setLine(index, { productId, uom: p?.baseUom, price: Number(p?.sellPrice ?? 0) });
+    // dokumen valas: harga jual master berupa Rupiah, jadi harga diketik sendiri dalam mata uang dokumen
+    setLine(index, { productId, uom: p?.baseUom, price: foreign ? undefined : Number(p?.sellPrice ?? 0) });
   };
   const onUom = (index: number, uom: string) => {
     const p = productById.get(lines[index]?.productId ?? '');
-    setLine(index, { uom, price: Number(p?.sellPrice ?? 0) * uomFactor(p, uom) });
+    if (!foreign) setLine(index, { uom, price: Number(p?.sellPrice ?? 0) * uomFactor(p, uom) });
+    else setLine(index, { uom });
   };
 
   const ppnRate = outputVatRate(me);
-  const inclusive = (Form.useWatch('pricesIncludeVat', form) ?? false) && ppnRate > 0;
+  const inclusive = (Form.useWatch('pricesIncludeVat', form) ?? false) && ppnRate > 0 && !foreign;
   const { subtotal, tax, total } = vatTotals(lines.reduce((a, l) => a + previewLine(l), 0), ppnRate, inclusive);
 
   return (
@@ -89,7 +102,7 @@ export default function SalesOrderFormPage() {
       <Form
         form={form}
         layout="vertical"
-        initialValues={{ date: today(), pricesIncludeVat: !!me?.taxProfile?.salesPricesIncludeVat, lines: [{ qty: 1, discountPct: 0 }] }}
+        initialValues={{ date: today(), currency: 'IDR', pricesIncludeVat: !!me?.taxProfile?.salesPricesIncludeVat, lines: [{ qty: 1, discountPct: 0 }] }}
         onFinish={(v) => create.mutate(v)}
       >
         <Card>
@@ -114,6 +127,8 @@ export default function SalesOrderFormPage() {
               </Form.Item>
             </Col>
           </Row>
+
+          <CurrencyFields form={form} />
 
           <Form.List name="lines">
             {(fields, { add, remove }) => (
@@ -164,11 +179,11 @@ export default function SalesOrderFormPage() {
                       ),
                     },
                     {
-                      title: 'Harga / satuan',
+                      title: foreign ? `Harga / satuan (${currency})` : 'Harga / satuan',
                       width: 160,
                       render: (_, f) => (
                         <Form.Item name={[f.name, 'price']} noStyle>
-                          <InputNumber min={0} style={{ width: '100%' }} />
+                          <InputNumber min={0} precision={foreign ? 4 : undefined} style={{ width: '100%' }} />
                         </Form.Item>
                       ),
                     },
@@ -181,7 +196,7 @@ export default function SalesOrderFormPage() {
                         </Form.Item>
                       ),
                     },
-                    { title: 'Jumlah', align: 'right', render: (_, f) => fmtMoney(previewLine(lines[f.name] ?? {})) },
+                    { title: 'Jumlah', align: 'right', render: (_, f) => money(previewLine(lines[f.name] ?? {})) },
                     {
                       width: 40,
                       render: (_, f) => fields.length > 1 && <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(f.name)} />,
@@ -202,17 +217,20 @@ export default function SalesOrderFormPage() {
               </Form.Item>
             </Col>
             <Col xs={24} md={10}>
-              {ppnRate > 0 && (
+              {ppnRate > 0 && !foreign && (
                 <Form.Item name="pricesIncludeVat" valuePropName="checked" style={{ marginBottom: 8 }}>
                   <Checkbox>Harga yang diketik sudah termasuk PPN {ppnRate}%</Checkbox>
                 </Form.Item>
               )}
               <Descriptions column={1} size="small" bordered>
-                <Descriptions.Item label="Subtotal (DPP)">{fmtMoney(subtotal)}</Descriptions.Item>
-                <Descriptions.Item label={ppnRate ? `PPN ${ppnRate}%` : "PPN (belum PKP)"}>{fmtMoney(tax)}</Descriptions.Item>
+                <Descriptions.Item label="Subtotal (DPP)">{money(subtotal)}</Descriptions.Item>
+                <Descriptions.Item label={ppnRate ? `PPN ${ppnRate}%` : "PPN (belum PKP)"}>{money(tax)}</Descriptions.Item>
                 <Descriptions.Item label="Total">
-                  <strong>{fmtMoney(total)}</strong>
+                  <strong>{money(total)}</strong>
                 </Descriptions.Item>
+                {foreign && !!fxRate && (
+                  <Descriptions.Item label={`Setara Rupiah @ ${fmtRate(fxRate)}`}>{fmtMoney(Math.round(subtotal * fxRate) + Math.round(Math.round(subtotal * fxRate) * ppnRate) / 100)}</Descriptions.Item>
+                )}
               </Descriptions>
             </Col>
           </Row>
