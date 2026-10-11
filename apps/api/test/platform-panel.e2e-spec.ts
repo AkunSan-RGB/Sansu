@@ -67,4 +67,23 @@ describe('Panel SANSU: langganan dimatikan & pantauan uji (e2e)', () => {
     expect(Array.isArray(p.top)).toBe(true);
     if (p.top.length) expect(p.top[0]).toEqual(expect.objectContaining({ id: expect.any(String), name: expect.any(String), events: expect.any(Number) }));
   });
+
+  it('pemeriksaan email: hanya pemilik layanan; domain contoh/lokal ditandai tanpa perlu DNS', async () => {
+    const old = { from: process.env.MAIL_FROM, url: process.env.APP_URL };
+    process.env.MAIL_FROM = 'SANSU <no-reply@contoh.co.id>';
+    process.env.APP_URL = 'http://localhost:5173';
+    try {
+      await http.get('/api/platform-admin/mail-check').set(as(owner)).expect(403);
+      const r = (await http.get('/api/platform-admin/mail-check').set(as(admin)).expect(200)).body;
+      const by = Object.fromEntries(r.checks.map((c: { key: string; status: string }) => [c.key, c.status]));
+      expect(r.domain).toBe('contoh.co.id');
+      expect(by).toMatchObject({ from: 'ERROR', appurl: 'WARN' });
+      expect(by.spf).toBeUndefined();
+    } finally {
+      if (old.from === undefined) delete process.env.MAIL_FROM;
+      else process.env.MAIL_FROM = old.from;
+      if (old.url === undefined) delete process.env.APP_URL;
+      else process.env.APP_URL = old.url;
+    }
+  });
 });

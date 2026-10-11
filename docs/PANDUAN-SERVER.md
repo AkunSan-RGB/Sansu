@@ -78,6 +78,10 @@ S3_SECRET_KEY=...
 
 Lalu `./sansu.sh restart` dan `./sansu.sh backup`. File offsite **dienkripsi** dengan `BACKUP_PASSPHRASE`; salinan harian disimpan 90 hari, bulanan tidak dihapus otomatis.
 
+### 4a. Email masuk spam
+
+Buka **Panel SANSU › Pengaturan › Email (SMTP) › Periksa kesiapan email**. SANSU memeriksa domain pengirim (`MAIL_FROM`), SPF, DKIM (selector umum), DMARC, dan alamat `APP_URL`, lalu menyarankan perbaikan. Pokoknya: pakai alamat di domain milik Anda yang sudah diautentikasi di penyedia SMTP (record SPF/DKIM/DMARC di DNS), jangan gmail.com atau domain contoh, dan `APP_URL` berupa domain publik ber-HTTPS. `MAIL_REPLY_TO` (opsional) menetapkan alamat balasan tetap. Uji skor akhir di mail-tester.com.
+
 ### 4b. Notifikasi bila backup gagal (Telegram)
 
 1. Chat **@BotFather** → `/newbot` → salin token ke `TELEGRAM_BOT_TOKEN`.

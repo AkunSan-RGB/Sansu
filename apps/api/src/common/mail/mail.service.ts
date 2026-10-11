@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createTransport, type Transporter } from 'nodemailer';
+import { randomUUID } from 'crypto';
+import { senderDomain } from './mail-check';
 
 export interface Mail {
   to: string;
@@ -84,7 +86,9 @@ export class MailService {
     }
     try {
       const { html, text } = renderMail(m);
-      await this.transport().sendMail({ from: this.from, to: m.to, subject: m.subject, html, text });
+      // Message-ID memakai domain pengirim dan Reply-To tetap (MAIL_REPLY_TO) agar konsisten di mata filter spam
+      const domain = senderDomain(this.from) ?? 'localhost';
+      await this.transport().sendMail({ from: this.from, replyTo: process.env.MAIL_REPLY_TO || undefined, to: m.to, subject: m.subject, html, text, messageId: `<${randomUUID()}@${domain}>` });
       return true;
     } catch (e) {
       this.logger.error(`Gagal kirim email ke ${m.to}: ${(e as Error).message}`);

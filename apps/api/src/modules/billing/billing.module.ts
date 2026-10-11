@@ -45,6 +45,7 @@ import { AllowWhenLocked, PlatformAdminGuard, platformAdminEmails } from '../../
 import { AuditService } from '../../common/audit/audit.service';
 import { BillingSettings, SubscriptionService } from '../../common/billing/subscription.service';
 import { appUrl, MailService } from '../../common/mail/mail.service';
+import { collectMailFacts, evaluateMailSetup } from '../../common/mail/mail-check';
 import { systemStatus, telegram } from '../../common/monitor/error-monitor';
 import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
@@ -1083,6 +1084,13 @@ export class PlatformAdminController {
       true,
     );
     return { ok: true };
+  }
+  /** Periksa kesiapan email agar tidak masuk spam: domain pengirim, SPF, DKIM, DMARC, alamat aplikasi */
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Get('mail-check')
+  async mailCheck() {
+    const facts = await collectMailFacts(this.mail.from, appUrl(), this.mail.configured);
+    return { from: this.mail.from, domain: facts.domain, checks: evaluateMailSetup(facts) };
   }
   @Get('system')
   system() {
