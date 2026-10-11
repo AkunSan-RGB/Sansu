@@ -16,6 +16,7 @@ import { AccountingModule } from './modules/accounting/accounting.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { DashboardModule } from './modules/dashboard/dashboard';
+import { RemindersModule } from './modules/reminders/reminders.module';
 import { HealthModule } from './modules/health/health';
 import { CashModule } from './modules/cash/cash.module';
 import { PurchasingModule } from './modules/purchasing/purchasing.module';
@@ -85,6 +86,7 @@ import { ProductionModule } from './modules/production/production.module';
     BillingModule,
     MarketplaceSyncModule,
     DashboardModule,
+    RemindersModule,
     HealthModule,
   ],
   providers: [

@@ -219,6 +219,8 @@ export const customers = pgTable(
     code: text('code').notNull(),
     name: text('name').notNull(),
     phone: text('phone'),
+    /** Alamat email untuk pengingat tagihan otomatis */
+    email: text('email'),
     address: text('address'),
     npwp: text('npwp'),
     /** 0 = tanpa batas */
@@ -2242,3 +2244,39 @@ export const productionOrderLines = pgTable('production_order_lines', {
   unitCost: qty('unit_cost').notNull().default('0'),
   value: money('value').notNull().default('0'),
 });
+
+
+// ---------- Pengingat otomatis ----------
+/** Pengingat yang ditunda pengguna sampai tanggal tertentu */
+export const reminderSnoozes = pgTable(
+  'reminder_snoozes',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    key: text('key').notNull(),
+    until: date('until').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('reminder_snoozes_user_key_uq').on(t.userId, t.key)],
+);
+
+/** Catatan pengiriman pengingat agar tidak terkirim dua kali (ringkasan harian, pengingat tagihan pelanggan) */
+export const reminderLog = pgTable(
+  'reminder_log',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    /** DIGEST = ringkasan harian ke pengguna; CUSTOMER = pengingat tagihan ke pelanggan */
+    kind: text('kind').$type<'DIGEST' | 'CUSTOMER'>().notNull(),
+    /** Pengguna (DIGEST) atau faktur (CUSTOMER) */
+    ref: text('ref').notNull(),
+    /** Tanggal (DIGEST) atau tahap pengingat (CUSTOMER: BEFORE, DUE, OVERDUE-1, ...) */
+    stage: text('stage').notNull(),
+    sentTo: text('sent_to'),
+    sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('reminder_log_uq').on(t.tenantId, t.kind, t.ref, t.stage)],
+);

@@ -1,10 +1,11 @@
-import { ArrowLeftOutlined, DollarOutlined, PrinterOutlined, WhatsAppOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, DollarOutlined, MailOutlined, PrinterOutlined, WhatsAppOutlined } from '@ant-design/icons';
 import { PAYMENT_METHOD_LABELS, type InvoiceDetail } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Segmented, Space, Table, Tag, Tooltip } from 'antd';
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { get } from '@/api/client';
+import { get, post } from '@/api/client';
+import { useAction } from '@/api/queries';
 import { cell, DocHeader, head, PartyBlock, PrintSheet, Signatures, useLetterhead } from '@/components/print/Letterhead';
 import QueryState from '@/components/QueryState';
 import PageHeader from '@/layout/PageHeader';
@@ -36,6 +37,7 @@ export default function InvoiceDetailPage() {
   const [paying, setPaying] = useState(false);
   const [applying, setApplying] = useState(false);
   const inv = q.data;
+  const emailReminder = useAction(() => post<{ to: string }>(`/reminders/invoices/${id}/customer`), { success: (r) => `Pengingat dikirim ke ${r.to}` });
   const service = inv?.kind === 'SERVICE';
   const wh = Number(inv?.withholdingAmount ?? 0);
   const dep = Number(inv?.depositApplied ?? 0);
@@ -92,6 +94,13 @@ export default function InvoiceDetailPage() {
                   {overdue ? 'Ingatkan via WA' : 'Kirim via WA'}
                 </Button>
               </Tooltip>
+              {inv.status !== 'PAID' && !inv.isOpening && (
+                <Tooltip title="Kirim email pengingat pembayaran ke pelanggan (alamat email diisi di Data › Pelanggan)">
+                  <Button icon={<MailOutlined />} loading={emailReminder.isPending} onClick={() => emailReminder.mutate(undefined)}>
+                    {overdue ? 'Ingatkan via email' : 'Kirim via email'}
+                  </Button>
+                </Tooltip>
+              )}
               {inv.status !== 'PAID' && !inv.isOpening && <Button onClick={() => setApplying(true)}>Pakai uang muka</Button>}
               {inv.status !== 'PAID' && (
                 <Button type="primary" icon={<DollarOutlined />} onClick={() => setPaying(true)}>

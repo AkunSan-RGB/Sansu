@@ -1,11 +1,12 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsNumberString, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsEmail, IsInt, IsNumberString, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { IsNpwp } from '../../../common/validators/npwp';
 
 export class CreateCustomerDto {
   @ApiProperty({ example: 'TK-SUMBER' }) @IsString() @MaxLength(30) code: string;
   @ApiProperty({ example: 'Toko Sumber Rejeki' }) @IsString() @MaxLength(160) name: string;
   @ApiPropertyOptional() @IsOptional() @IsString() phone?: string;
+  @ApiPropertyOptional({ example: 'keuangan@pelanggan.co.id', description: 'Untuk pengingat tagihan otomatis' }) @IsOptional() @IsEmail() @MaxLength(160) email?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() address?: string;
   @ApiPropertyOptional({ example: '0123456789012345' }) @IsOptional() @IsString() @IsNpwp() npwp?: string;
   @ApiPropertyOptional({ example: '10000000', description: '0 = tanpa batas' })
