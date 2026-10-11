@@ -127,6 +127,10 @@ export const users = pgTable(
     totpSecret: text('totp_secret'),
     totpEnabledAt: timestamp('totp_enabled_at', { withTimezone: true }),
     totpBackupCodes: jsonb('totp_backup_codes').$type<string[]>(),
+    /** Notifikasi Telegram: chat pribadi yang sudah dihubungkan; kode tautan sekali pakai (kedaluwarsa singkat) */
+    telegramChatId: text('telegram_chat_id'),
+    telegramLinkCode: text('telegram_link_code'),
+    telegramLinkExpires: timestamp('telegram_link_expires', { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('users_email_uq').on(t.email), index('users_tenant_idx').on(t.tenantId)],

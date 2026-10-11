@@ -1,0 +1,149 @@
+/**
+ * Notifikasi Telegram per pengguna (gratis, tanpa penyedia berbayar). Pengguna menghubungkan akunnya sekali: klik tautan
+ * `t.me/<bot>?start=<kode>`, bot menerima `/start <kode>` dan mencatat chat pribadi pengguna itu. Hanya chat pribadi yang diterima
+ * (bukan grup) agar tautan persetujuan tidak terbaca orang lain. Tanpa TELEGRAM_BOT_TOKEN semua fungsi diam dan email tetap jalan.
+ */
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { and, eq, gt, inArray, isNotNull } from 'drizzle-orm';
+import { randomBytes } from 'crypto';
+import { Db } from '../../db/db';
+import { InjectDb } from '../../db/db.module';
+import { users } from '../../db/schema';
+
+export interface TelegramUpdate {
+  update_id: number;
+  message?: { text?: string; chat: { id: number; type: string } };
+}
+
+const LINK_TTL_MS = 15 * 60_000;
+
+@Injectable()
+export class TelegramService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger('Telegram');
+  private polling = false;
+  private offset = 0;
+  /** Pesan yang dikirim selama pengujian (tidak ada panggilan jaringan saat NODE_ENV=test) */
+  readonly outbox: { chatId: string; text: string }[] = [];
+
+  constructor(@InjectDb() private readonly db: Db) {}
+
+  private get token() {
+    return process.env.TELEGRAM_BOT_TOKEN;
+  }
+  get enabled() {
+    return !!this.token;
+  }
+  get botUsername() {
+    return (process.env.TELEGRAM_BOT_USERNAME ?? '').replace(/^@/, '');
+  }
+
+  async send(chatId: string, text: string): Promise<boolean> {
+    if (!this.enabled) return false;
+    if (process.env.NODE_ENV === 'test') {
+      this.outbox.push({ chatId, text });
+      return true;
+    }
+    try {
+      const r = await fetch(`https://api.telegram.org/bot${this.token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+        signal: AbortSignal.timeout(8000),
+      });
+      return r.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Kirim ke pengguna yang sudah menghubungkan Telegram; pengguna lain dilewati. Mengembalikan jumlah terkirim. */
+  async notifyUsers(userIds: string[], text: string): Promise<number> {
+    if (!this.enabled || !userIds.length) return 0;
+    const rows = await this.db
+      .select({ chat: users.telegramChatId })
+      .from(users)
+      .where(and(inArray(users.id, userIds), eq(users.isActive, true), isNotNull(users.telegramChatId)));
+    let sent = 0;
+    for (const r of rows) if (r.chat && (await this.send(r.chat, text))) sent++;
+    return sent;
+  }
+
+  async status(userId: string) {
+    const [u] = await this.db.select({ chat: users.telegramChatId }).from(users).where(eq(users.id, userId));
+    return { enabled: this.enabled, botUsername: this.botUsername || null, linked: !!u?.chat };
+  }
+
+  /** Buat kode tautan sekali pakai (berlaku 15 menit) dan tautan pembuka bot */
+  async createLink(userId: string) {
+    const code = randomBytes(18).toString('base64url');
+    await this.db
+      .update(users)
+      .set({ telegramLinkCode: code, telegramLinkExpires: new Date(Date.now() + LINK_TTL_MS) })
+      .where(eq(users.id, userId));
+    return { code, url: this.botUsername ? `https://t.me/${this.botUsername}?start=${code}` : null, expiresInMinutes: LINK_TTL_MS / 60_000 };
+  }
+
+  async unlink(userId: string) {
+    await this.db.update(users).set({ telegramChatId: null, telegramLinkCode: null, telegramLinkExpires: null }).where(eq(users.id, userId));
+    return { ok: true };
+  }
+
+  /** Proses pesan masuk ke bot: `/start <kode>` menghubungkan akun, `/stop` memutuskan */
+  async handleUpdate(u: TelegramUpdate) {
+    const m = u.message;
+    if (!m?.text || m.chat.type !== 'private') return;
+    const chatId = String(m.chat.id);
+    const [cmd, arg] = m.text.trim().split(/\s+/);
+    if (cmd === '/stop') {
+      await this.db.update(users).set({ telegramChatId: null }).where(eq(users.telegramChatId, chatId));
+      await this.send(chatId, 'Notifikasi SANSU dimatikan untuk chat ini.');
+      return;
+    }
+    if (cmd !== '/start') return;
+    if (!arg) {
+      await this.send(chatId, 'Halo! Untuk menerima notifikasi SANSU, buka SANSU › Keamanan akun › Hubungkan Telegram, lalu klik tautan yang muncul.');
+      return;
+    }
+    const [user] = await this.db
+      .select({ id: users.id, name: users.name })
+      .from(users)
+      .where(and(eq(users.telegramLinkCode, arg), gt(users.telegramLinkExpires, new Date()), eq(users.isActive, true)));
+    if (!user) {
+      await this.send(chatId, 'Kode tidak valid atau sudah kedaluwarsa. Buat tautan baru di SANSU › Keamanan akun.');
+      return;
+    }
+    // satu chat hanya untuk satu pengguna
+    await this.db.update(users).set({ telegramChatId: null }).where(eq(users.telegramChatId, chatId));
+    await this.db.update(users).set({ telegramChatId: chatId, telegramLinkCode: null, telegramLinkExpires: null }).where(eq(users.id, user.id));
+    await this.send(chatId, `Terhubung ✅ Halo ${user.name}, notifikasi persetujuan SANSU akan dikirim ke sini. Kirim /stop untuk berhenti.`);
+  }
+
+  // ----- Menarik pesan masuk (long polling): tidak perlu alamat publik/webhook -----
+  onModuleInit() {
+    if (!this.enabled || process.env.NODE_ENV === 'test') return;
+    this.polling = true;
+    void this.loop();
+  }
+  onModuleDestroy() {
+    this.polling = false;
+  }
+  private async loop() {
+    while (this.polling) {
+      try {
+        const r = await fetch(`https://api.telegram.org/bot${this.token}/getUpdates?timeout=25&offset=${this.offset}&allowed_updates=%5B%22message%22%5D`, { signal: AbortSignal.timeout(35_000) });
+        if (r.status === 409) {
+          // webhook aktif di bot ini: pemantauan pesan masuk dimatikan
+          this.logger.warn('Bot memakai webhook; penautan akun lewat polling dimatikan');
+          return;
+        }
+        const j = (await r.json()) as { ok: boolean; result?: TelegramUpdate[] };
+        for (const u of j.result ?? []) {
+          this.offset = u.update_id + 1;
+          await this.handleUpdate(u).catch((e) => this.logger.warn(`Gagal memproses pesan: ${(e as Error).message}`));
+        }
+      } catch {
+        await new Promise((res) => setTimeout(res, 5000));
+      }
+    }
+  }
+}

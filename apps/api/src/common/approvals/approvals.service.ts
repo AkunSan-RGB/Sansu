@@ -15,6 +15,7 @@ import { signApprovalLink } from './approval-link';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../auth/auth-user';
 import { SettingsService } from '../settings.service';
+import { TelegramService } from '../telegram/telegram.service';
 
 export const APPROVER_ROLES: readonly Role[] = ['OWNER', 'ADMIN'];
 export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE';
@@ -48,6 +49,7 @@ export class ApprovalsService {
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
     private readonly mail: MailService,
+    private readonly telegram: TelegramService,
     @InjectDb() private readonly db: Db,
   ) {}
 
@@ -57,19 +59,22 @@ export class ApprovalsService {
    */
   async notifyApprovers(tenantId: string, p: { kind: 'AR' | 'PR'; id: string; requesterId?: string | null; title: string; lines: string[] }) {
     try {
-      if (!this.mail.configured) return;
       const to = await this.db
         .select({ id: users.id, email: users.email })
         .from(users)
         .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, [...APPROVER_ROLES]), p.requesterId ? ne(users.id, p.requesterId) : undefined));
       for (const t of to) {
         const token = signApprovalLink({ k: p.kind, r: p.id, u: t.id });
+        const url = `${appUrl()}/approve/${token}`;
+        // Telegram (bila pengguna menghubungkannya): pesan ringkas dengan tautan pribadi yang sama
+        await this.telegram.notifyUsers([t.id], `🔔 Perlu persetujuan\n${p.title}\n${p.lines.join('\n')}\n\nTinjau dan putuskan (tautan pribadi, berlaku 72 jam):\n${url}`);
+        if (!this.mail.configured) continue;
         await this.mail.send({
           to: t.email,
           subject: `Perlu persetujuan: ${p.title}`,
           heading: 'Menunggu persetujuan Anda',
           paragraphs: [p.title, ...p.lines, 'Tautan ini pribadi untuk Anda dan berlaku 72 jam. Anda bisa menyetujui atau menolak langsung dari halaman yang terbuka, tanpa login.'],
-          action: { label: 'Tinjau dan putuskan', url: `${appUrl()}/approve/${token}` },
+          action: { label: 'Tinjau dan putuskan', url },
         });
       }
     } catch (e) {

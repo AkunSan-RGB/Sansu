@@ -25,7 +25,7 @@ import {
 } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
-import { get, post, put } from '@/api/client';
+import { del, get, post, put } from '@/api/client';
 import { useAction } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
@@ -402,6 +402,45 @@ function CompanyPolicy() {
   );
 }
 
+/** Notifikasi Telegram: hubungkan akun sekali agar permintaan persetujuan juga masuk ke Telegram (gratis) */
+function MyTelegram() {
+  const q = useQuery({ queryKey: ['telegram'], queryFn: () => get<{ enabled: boolean; botUsername: string | null; linked: boolean }>('/auth/telegram'), refetchInterval: (query) => (query.state.data?.linked ? false : 4000) });
+  const link = useAction(() => post<{ url: string | null; code: string; expiresInMinutes: number }>('/auth/telegram/link'), {
+    onSuccess: (r) => {
+      if (r.url) window.open(r.url, '_blank', 'noopener');
+    },
+  });
+  const unlink = useAction(() => del('/auth/telegram'), { success: 'Telegram diputuskan', invalidate: ['telegram'] });
+  const st = q.data;
+  return (
+    <Card title="Notifikasi Telegram" style={{ marginBottom: 16 }}>
+      {!st?.enabled ? (
+        <Alert type="info" showIcon message="Telegram belum diaktifkan di server" description="Pemilik layanan perlu mengisi TELEGRAM_BOT_TOKEN dan TELEGRAM_BOT_USERNAME di file .env server (bot dibuat gratis lewat @BotFather). Sampai itu, notifikasi tetap lewat email." />
+      ) : st.linked ? (
+        <Space direction="vertical">
+          <Typography.Text>
+            <Tag color="green">Terhubung</Tag> Permintaan persetujuan yang menunggu keputusan Anda dikirim ke Telegram beserta tautan pribadi untuk memutuskan.
+          </Typography.Text>
+          <Button danger loading={unlink.isPending} onClick={() => unlink.mutate(undefined)}>
+            Putuskan Telegram
+          </Button>
+        </Space>
+      ) : (
+        <Space direction="vertical">
+          <Typography.Paragraph style={{ marginBottom: 0 }}>
+            Terima permintaan persetujuan (PO, permintaan beli, faktur selisih harga, jurnal manual) langsung di Telegram, gratis. Klik tombol, buka bot, lalu tekan <strong>Start</strong>. Hanya chat pribadi yang diterima.
+          </Typography.Paragraph>
+          <Button type="primary" loading={link.isPending} disabled={!st.botUsername} onClick={() => link.mutate(undefined)}>
+            Hubungkan Telegram
+          </Button>
+          {link.data && <Typography.Text type="secondary">Tautan berlaku {link.data.expiresInMinutes} menit. Halaman ini otomatis berubah setelah terhubung.</Typography.Text>}
+          {!st.botUsername && <Typography.Text type="warning">Nama bot belum diisi (TELEGRAM_BOT_USERNAME).</Typography.Text>}
+        </Space>
+      )}
+    </Card>
+  );
+}
+
 /** Halaman Keamanan akun: 2FA pribadi + kebijakan perusahaan (Pemilik) */
 export default function SecurityPage() {
   const { me } = useAuth();
@@ -409,6 +448,7 @@ export default function SecurityPage() {
     <div style={{ maxWidth: 760 }}>
       <PageHeader title="Keamanan akun" />
       <MyTwoFactor />
+      <MyTelegram />
       {me?.role === 'OWNER' && <CompanyPolicy />}
     </div>
   );
