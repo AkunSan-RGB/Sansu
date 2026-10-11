@@ -5,6 +5,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -43,6 +44,7 @@ const DUMMY_HASH = '$2b$10$R6x6GPKmcHcT1F7DPULB.OSRl7Iwl/V4otbHClwea2xxA5IuBRnHO
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger('Auth');
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly jwt: JwtService,
@@ -251,9 +253,13 @@ export class AuthService {
   async forgotPassword(dto: ForgotPasswordDto) {
     const email = dto.email.toLowerCase();
     const [user] = await this.db.select().from(users).where(eq(users.email, email));
+    // Alasan tidak mengirim hanya dicatat di log server (jawaban ke klien selalu sama agar email terdaftar tidak bisa ditebak)
+    if (!user) this.logger.warn(`Lupa sandi: email ${email} tidak terdaftar — tidak ada email dikirim`);
+    else if (!user.isActive) this.logger.warn(`Lupa sandi: akun ${email} nonaktif — tidak ada email dikirim`);
+    else if (await this.recentlySent(user.id, 'RESET')) this.logger.warn(`Lupa sandi: ${email} sudah meminta dalam 1 menit terakhir — tidak ada email baru`);
     if (user?.isActive && !(await this.recentlySent(user.id, 'RESET'))) {
       const token = await this.createToken(user.id, 'RESET', 60 * 60_000);
-      await this.mail.send({
+      const sent = await this.mail.send({
         to: user.email,
         subject: 'Atur ulang kata sandi SANSU',
         heading: 'Atur ulang kata sandi',
@@ -265,6 +271,7 @@ export class AuthService {
         footnote:
           'Tautan berlaku 1 jam dan hanya bisa dipakai sekali. Jika Anda tidak memintanya, abaikan email ini — kata sandi Anda tidak berubah.',
       });
+      this.logger.log(sent ? `Lupa sandi: email atur ulang dikirim ke ${email}` : `Lupa sandi: email ke ${email} TIDAK terkirim (lihat galat SMTP di atas atau SMTP belum diatur)`);
     }
     return {
       ok: true,
