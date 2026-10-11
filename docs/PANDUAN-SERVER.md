@@ -80,6 +80,8 @@ Lalu `./sansu.sh restart` dan `./sansu.sh backup`. File offsite **dienkripsi** d
 
 ### 4a-0. Tampilan web di Netlify
 
+**Netlify Drop (unggah manual folder `apps/web/dist`):** `netlify.toml` tidak terpakai; aturan pengalihan ikut di dalam hasil build lewat `apps/web/public/_redirects`. Jalankan `npm run build -w @sansu/shared && npm run build -w @sansu/web`, lalu seret folder `apps/web/dist` ke Netlify Drop (pastikan berkas `_redirects` ada di dalamnya).
+
 `netlify.toml` di akar repo sudah mengatur build (`apps/web/dist`) dan pengalihan semua alamat ke `index.html` (tanpa itu `/login` menampilkan "Page not found"). Netlify hanya menampung tampilan: **API harus berjalan di server lain** (Render, Railway, VPS). Ganti `GANTI-DENGAN-ALAMAT-API-ANDA` di `netlify.toml` dengan alamat API itu, lalu di server API isi `.env`: `APP_URL=https://nama-anda.netlify.app` dan `CORS_ORIGIN=https://nama-anda.netlify.app` (juga `DATABASE_URL`, `JWT_SECRET`, `SMTP_*`, `MAIL_FROM`).
 
 ### 4a. Email masuk spam

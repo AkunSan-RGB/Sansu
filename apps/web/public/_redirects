@@ -1,0 +1,2 @@
+# Netlify (termasuk Netlify Drop): aplikasi satu halaman — semua alamat dikembalikan ke index.html agar /login dkk tidak 404.
+/*  /index.html  200
