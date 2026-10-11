@@ -1,7 +1,9 @@
+import { isProductionModel } from '@sansu/shared';
+import { useAuth } from '@/auth/AuthContext';
 import { useApps } from '@/lib/apps';
 import { useNavigate } from 'react-router-dom';
 import { MinusCircleOutlined, FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Card, Form, Input, InputNumber, Modal, Space, Switch, Tag } from 'antd';
+import { Button, Card, Checkbox, Form, Input, InputNumber, Modal, Space, Switch, Tag } from 'antd';
 import { useState } from 'react';
 import { patch, post } from '@/api/client';
 import { useAction, useProducts } from '@/api/queries';
@@ -20,10 +22,12 @@ interface FormValues {
   barcode?: string;
   uoms?: { uom: string; factor: number }[];
   isActive?: boolean;
+  semi?: boolean;
 }
 
 export default function ProductsPage() {
   const { isAdmin } = useApps();
+  const { me } = useAuth();
   const navigate = useNavigate();
   const { data, isLoading } = useProducts();
   const [search, setSearch] = useState('');
@@ -38,6 +42,7 @@ export default function ProductsPage() {
         baseUom: v.baseUom.toUpperCase(),
         sellPrice: String(v.sellPrice),
         barcode: v.barcode ?? '',
+        inventoryKind: v.semi ? 'SEMI' : 'GOODS',
         uoms: (v.uoms ?? []).map((u) => ({ uom: u.uom.toUpperCase(), factor: String(u.factor) })),
       };
       return editing && editing !== 'new' ? patch(`/products/${editing.id}`, body) : post('/products', body);
@@ -53,6 +58,7 @@ export default function ProductsPage() {
         category: p.category ?? undefined,
         barcode: p.barcode ?? undefined,
         sellPrice: Number(p.sellPrice),
+        semi: p.inventoryKind === 'SEMI',
         uoms: p.uoms.map((u) => ({ uom: u.uom, factor: Number(u.factor) })),
       });
     }
@@ -104,7 +110,7 @@ export default function ProductsPage() {
               ),
             },
             { title: 'Harga jual / satuan dasar', dataIndex: 'sellPrice', align: 'right', render: fmtMoney },
-            { title: 'Status', dataIndex: 'isActive', render: (a) => (a ? <Tag color="green">Aktif</Tag> : <Tag>Nonaktif</Tag>) },
+            { title: 'Status', render: (_, p) => <Space size={4}>{p.isActive ? <Tag color="green">Aktif</Tag> : <Tag>Nonaktif</Tag>}{p.inventoryKind === 'SEMI' && <Tag color="purple">Setengah jadi</Tag>}</Space> },
           ]}
         />
       </Card>
@@ -131,6 +137,15 @@ export default function ProductsPage() {
           <Form.Item name="category" label="Kategori">
             <Input />
           </Form.Item>
+          {isProductionModel(me?.businessModel) && (
+            <Form.Item
+              name="semi"
+              valuePropName="checked"
+              extra="Hasil satu perintah produksi yang dipakai perintah produksi lain. Dicatat di akun Persediaan Barang Setengah Jadi; tidak dijual atau dibeli lewat faktur. Tidak bisa diubah setelah ada mutasi stok."
+            >
+              <Checkbox>Barang setengah jadi</Checkbox>
+            </Form.Item>
+          )}
           <Space wrap>
             <Form.Item name="baseUom" label="Satuan dasar" rules={[{ required: true }]}>
               <Input style={{ width: 120 }} />

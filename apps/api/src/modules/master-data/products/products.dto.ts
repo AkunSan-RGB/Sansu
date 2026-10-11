@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsIn,
   IsNumberString,
   IsOptional,
   IsString,
@@ -37,6 +38,10 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => ProductUomDto)
   uoms?: ProductUomDto[];
+  @ApiPropertyOptional({ enum: ['GOODS', 'SEMI'], description: 'SEMI = barang setengah jadi (akun persediaan tersendiri; hanya jenis usaha Produksi/Manufaktur)' })
+  @IsOptional()
+  @IsIn(['GOODS', 'SEMI'])
+  inventoryKind?: 'GOODS' | 'SEMI';
 }
 
 export class UpdateProductDto extends PartialType(CreateProductDto) {

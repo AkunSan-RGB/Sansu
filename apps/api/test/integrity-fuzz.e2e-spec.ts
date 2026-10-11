@@ -55,7 +55,7 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
     const reasons: Record<string, number> = {};
 
     const token = (
-      await http.post('/api/auth/register').send({ companyName: `Fuzz ${seed}`, name: 'Pemilik', email: `fuzz-${seed}-${Date.now()}@uji.id`, password: 'rahasia123' }).expect(201)
+      await http.post('/api/auth/register').send({ companyName: `Fuzz ${seed}`, name: 'Pemilik', email: `fuzz-${seed}-${Date.now()}@uji.id`, password: 'rahasia123', ...(seed % 3 !== 1 ? { businessModel: 'MANUFAKTUR' } : {}) }).expect(201)
     ).body.accessToken;
     const tenantId = (await http.get('/api/auth/me').set({ Authorization: `Bearer ${token}` })).body.tenantId as string;
     const H = { Authorization: `Bearer ${token}` };
@@ -85,6 +85,8 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
     const wh2 = (await call('post', '/warehouses', { code: 'GDG-02', name: 'Gudang Dua' })).body.id as string;
     const products: string[] = [];
     for (let i = 0; i < 3; i++) products.push((await call('post', '/products', { sku: `FZ-${seed}-${i}`, name: `Barang ${i}`, sellPrice: String(8000 + i * 3000) })).body.id);
+    // Perusahaan manufaktur: hasil resep (barang ke-3) adalah barang setengah jadi dengan akun persediaan tersendiri
+    if (seed % 3 !== 1) await call('patch', `/products/${products[2]}`, { inventoryKind: 'SEMI' });
     const customers: string[] = [];
     for (let i = 0; i < 2; i++) customers.push((await call('post', '/customers', { code: `C-${i}`, name: `Pelanggan ${i}`, creditLimit: '1000000000', paymentTermDays: 30 })).body.id);
     const suppliers: string[] = [];
@@ -140,9 +142,10 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
       expect({ ctx, ar: await glBalance('1-1300') }).toEqual({ ctx, ar: expect.closeTo(ar, 1) });
       const ap = Number((await q(`SELECT COALESCE(SUM(total - paid_amount - returned_amount),0) AS v FROM purchase_invoices WHERE tenant_id=$1`, [tenantId]))[0].v);
       expect({ ctx, ap: -(await glBalance('2-1100')) }).toEqual({ ctx, ap: expect.closeTo(ap, 1) });
-      const stock = Number((await q(`SELECT COALESCE(SUM(qty*avg_cost),0) AS v FROM stock_balances WHERE tenant_id=$1`, [tenantId]))[0].v);
-      // Persediaan di gudang (1-1400) = nilai stok; barang dalam perjalanan ada di 1-1410 dan nol bila tak ada transfer berjalan
-      expect({ ctx, inventoryGL: await glBalance('1-1400') }).toEqual({ ctx, inventoryGL: expect.closeTo(stock, -1) }); // toleransi pembulatan biaya rata-rata
+      const stockOf = async (kind: string) => Number((await q(`SELECT COALESCE(SUM(b.qty*b.avg_cost),0) AS v FROM stock_balances b JOIN products p ON p.id=b.product_id WHERE b.tenant_id=$1 AND p.inventory_kind=$2`, [tenantId, kind]))[0].v);
+      // Persediaan di gudang (1-1400) = nilai stok barang biasa; barang setengah jadi di 1-1430; barang dalam perjalanan di 1-1410 (nol bila tak ada transfer berjalan)
+      expect({ ctx, inventoryGL: await glBalance('1-1400') }).toEqual({ ctx, inventoryGL: expect.closeTo(await stockOf('GOODS'), -1) }); // toleransi pembulatan biaya rata-rata
+      expect({ ctx, semiGL: await glBalance('1-1430') }).toEqual({ ctx, semiGL: expect.closeTo(await stockOf('SEMI'), -1) });
       // Barang diterima belum ditagih (2-1160) = nilai penerimaan aktif yang belum difakturkan (jalur terima dulu)
       const grni = Number((await q(`SELECT COALESCE(SUM(l.value - l.billed_value),0) AS v FROM goods_receipt_lines l JOIN goods_receipts g ON g.id = l.receipt_id WHERE g.tenant_id=$1 AND g.status='RECEIVED' AND g.auto_invoice_id IS NULL`, [tenantId]))[0].v);
       expect({ ctx, grni: -(await glBalance('2-1160')) }).toEqual({ ctx, grni: expect.closeTo(grni, 1) });

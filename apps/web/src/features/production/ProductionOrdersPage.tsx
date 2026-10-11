@@ -60,7 +60,17 @@ export default function ProductionOrdersPage() {
           onRow={(r) => ({ onClick: () => setOpenId(r.id), style: { cursor: 'pointer' } })}
           locale={{ emptyText: 'Belum ada perintah produksi. Buat resep (BOM) dulu, lalu klik Produksi baru.' }}
           columns={[
-            { title: 'Nomor', dataIndex: 'number' },
+            {
+              title: 'Nomor',
+              dataIndex: 'number',
+              render: (n, o) => (
+                <Space size={4} wrap>
+                  {n}
+                  {o.parentNumber && <Tag color="purple">Untuk {o.parentNumber}</Tag>}
+                  {!!o.childCount && <Tag color="blue">{o.childCount} perintah setengah jadi</Tag>}
+                </Space>
+              ),
+            },
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
             { title: t('Produk'), render: (_, o) => `${o.product.sku} · ${o.product.name}` },
             { title: 'Rencana', align: 'right', render: (_, o) => `${fmtQty(o.plannedQty)} ${o.product.unit}` },

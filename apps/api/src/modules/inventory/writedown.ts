@@ -5,6 +5,7 @@
  *   Dr Kerugian Penurunan Nilai Persediaan | Cr Persediaan Barang Dagang
  * Fiskal: kerugian ini belum diakui (koreksi positif) sampai barangnya terjual/dimusnahkan.
  */
+import { inventoryLines, semiSet } from './inventory-accounts';
 import {
   BadRequestException,
   Body,
@@ -276,6 +277,7 @@ export class WritedownService {
 
       let total: Dec = ZERO;
       const lines = [];
+      const moved: { productId: string; value: Dec }[] = [];
       for (const l of dto.lines) {
         const p = byId.get(l.productId)!;
         const r = await this.stock.revalue(tx, {
@@ -290,6 +292,7 @@ export class WritedownService {
           date,
         });
         total = total.plus(r.amount);
+        moved.push({ productId: p.id, value: r.amount });
         lines.push({
           productId: p.id,
           sku: p.sku,
@@ -312,7 +315,7 @@ export class WritedownService {
         lines: [
           // Pemulihan diakui sebagai pengurang beban penurunan nilai (SAK EP 13.20)
           { key: SYS.INVENTORY_WRITEDOWN, debit: reversal ? 0 : total, credit: reversal ? total : 0 },
-          { key: SYS.INVENTORY, debit: reversal ? total : 0, credit: reversal ? 0 : total },
+          ...inventoryLines(moved, await semiSet(tx, user.tenantId, moved.map((x) => x.productId)), reversal ? 'debit' : 'credit'),
         ],
       });
       await tx

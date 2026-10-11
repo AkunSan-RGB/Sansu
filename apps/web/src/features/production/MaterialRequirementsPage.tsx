@@ -1,6 +1,6 @@
 import { DeleteOutlined, PlusOutlined, ShoppingCartOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, InputNumber, Select, Space, Statistic, Table, Tag } from 'antd';
+import { Alert, Button, Card, InputNumber, Popconfirm, Select, Space, Statistic, Table, Tag } from 'antd';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Bom } from '@sansu/shared';
@@ -48,6 +48,14 @@ export default function MaterialRequirementsPage() {
 
   const calc = useAction(() => post<Result>('/production/requirements', { warehouseId, items: items.map((i) => ({ bomId: i.bomId, batches: String(i.batches) })) }), {});
   const r = calc.data;
+  const plan = useAction(
+    () => post<{ planNo: string; orders: { id: string; number: string; level: number }[] }>('/production/plan', { warehouseId, items: items.map((i) => ({ bomId: i.bomId, batches: String(i.batches) })) }),
+    {
+      success: (x) => `Rencana ${x.planNo}: ${x.orders.length} perintah produksi dibuat${x.orders.length > 1 ? ' (berjenjang)' : ''}`,
+      invalidate: ['production'],
+      onSuccess: () => navigate('/production/orders'),
+    },
+  );
   const request = useAction(
     () =>
       post<{ id: string; number: string }>('/purchase-requests', {
@@ -93,6 +101,11 @@ export default function MaterialRequirementsPage() {
               <Button type="primary" disabled={!valid} loading={calc.isPending} onClick={() => calc.mutate(undefined)}>
                 Hitung kebutuhan
               </Button>
+              {r && (
+                <Popconfirm title="Buat perintah produksi dari rencana ini?" description="Satu perintah untuk tiap barang jadi dan satu perintah anak untuk setiap barang setengah jadi yang kurang. Perintah induk baru bisa dimulai setelah anaknya selesai." onConfirm={() => plan.mutate(undefined)}>
+                  <Button loading={plan.isPending}>Buat perintah produksi</Button>
+                </Popconfirm>
+              )}
             </Space>
           </Space>
         </Card>

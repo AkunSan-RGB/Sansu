@@ -1,3 +1,4 @@
+import { inventoryLines, semiSet } from './inventory-accounts';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
@@ -93,6 +94,8 @@ export class InventoryService {
       const number = await this.seq.next(tx, user.tenantId, 'STOCK_ADJUSTMENT', date);
       let valueIn: Dec = ZERO;
       let valueOut: Dec = ZERO;
+      const ins: { productId: string; value: Dec }[] = [];
+      const outs: { productId: string; value: Dec }[] = [];
 
       for (const line of dto.lines) {
         const qty = D(line.qty);
@@ -108,10 +111,16 @@ export class InventoryService {
           refNumber: number,
           date,
         });
-        if (qty.isPositive()) valueIn = valueIn.plus(r.value);
-        else valueOut = valueOut.plus(r.value);
+        if (qty.isPositive()) {
+          valueIn = valueIn.plus(r.value);
+          ins.push({ productId: line.productId, value: r.value });
+        } else {
+          valueOut = valueOut.plus(r.value);
+          outs.push({ productId: line.productId, value: r.value });
+        }
       }
 
+      const semi = await semiSet(tx, user.tenantId, dto.lines.map((l) => l.productId));
       // Saldo awal → Ekuitas Saldo Awal; selain itu → Selisih Persediaan
       const counterKey = dto.reason === 'OPENING' ? SYS.OPENING_EQUITY : SYS.INVENTORY_ADJ;
       let journalNumber: string | null = null;
@@ -124,10 +133,10 @@ export class InventoryService {
           sourceId: id,
           createdById: user.sub,
           lines: [
-            { key: SYS.INVENTORY, debit: valueIn },
+            ...inventoryLines(ins, semi, 'debit'),
             { key: counterKey, credit: valueIn },
             { key: SYS.INVENTORY_ADJ, debit: valueOut },
-            { key: SYS.INVENTORY, credit: valueOut },
+            ...inventoryLines(outs, semi, 'credit'),
           ],
         });
         journalNumber = journal.number;

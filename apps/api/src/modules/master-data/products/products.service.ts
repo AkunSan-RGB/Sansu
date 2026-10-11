@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, eq, ilike, or } from 'drizzle-orm';
+import { isProductionModel } from '@sansu/shared';
+import { SettingsService } from '../../../common/settings.service';
+import { and, asc, eq, ilike, or, sql } from 'drizzle-orm';
 import { D } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
@@ -8,7 +10,16 @@ import { CreateProductDto, ProductUomDto, UpdateProductDto } from './products.dt
 
 @Injectable()
 export class ProductsService {
-  constructor(@InjectDb() private readonly db: Db) {}
+  constructor(
+    @InjectDb() private readonly db: Db,
+    private readonly settings: SettingsService,
+  ) {}
+
+  private async assertSemiAllowed(tenantId: string) {
+    if (!isProductionModel(await this.settings.businessModel(this.db, tenantId))) {
+      throw new BadRequestException('Barang setengah jadi hanya untuk jenis usaha Produksi atau Manufaktur');
+    }
+  }
 
   list(tenantId: string, q?: string) {
     return this.db.query.products.findMany({
@@ -34,6 +45,7 @@ export class ProductsService {
   async create(tenantId: string, dto: CreateProductDto) {
     const baseUom = dto.baseUom ?? 'PCS';
     this.validateUoms(baseUom, dto.uoms);
+    if (dto.inventoryKind === 'SEMI') await this.assertSemiAllowed(tenantId);
     const id = await this.db.transaction(async (tx) => {
       const [p] = await tx
         .insert(products)
@@ -45,6 +57,7 @@ export class ProductsService {
           baseUom,
           sellPrice: dto.sellPrice,
           barcode: dto.barcode?.trim() || null,
+          inventoryKind: dto.inventoryKind ?? 'GOODS',
         })
         .returning({ id: products.id });
       if (dto.uoms?.length) {
@@ -59,6 +72,12 @@ export class ProductsService {
     const current = await this.get(tenantId, id);
     const baseUom = dto.baseUom ?? current.baseUom;
     if (dto.uoms) this.validateUoms(baseUom, dto.uoms);
+    if (dto.inventoryKind !== undefined && dto.inventoryKind !== current.inventoryKind) {
+      if (dto.inventoryKind === 'SEMI') await this.assertSemiAllowed(tenantId);
+      // riwayat jurnal persediaan mengikuti jenis barang saat bergerak; jenisnya tidak boleh berubah setelah ada mutasi stok
+      const moves = await this.db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM stock_moves WHERE tenant_id = ${tenantId} AND product_id = ${id}`);
+      if (moves.rows[0].n > 0) throw new BadRequestException('Jenis barang tidak bisa diubah karena sudah memiliki mutasi stok');
+    }
 
     await this.db.transaction(async (tx) => {
       if (dto.uoms) {
@@ -76,6 +95,7 @@ export class ProductsService {
           baseUom: dto.baseUom,
           sellPrice: dto.sellPrice,
           barcode: dto.barcode === undefined ? undefined : dto.barcode.trim() || null,
+          inventoryKind: dto.inventoryKind,
           isActive: dto.isActive,
         })
         .where(eq(products.id, id));

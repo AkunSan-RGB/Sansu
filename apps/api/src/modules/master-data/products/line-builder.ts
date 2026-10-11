@@ -43,6 +43,7 @@ export async function buildLines(
   return input.map((l) => {
     const p = byId.get(l.productId);
     if (!p || !p.isActive) throw new BadRequestException(`Produk ${l.productId} tidak ditemukan / nonaktif`);
+    if (p.inventoryKind === 'SEMI') throw new BadRequestException(`${p.sku} adalah barang setengah jadi: dibuat dan dipakai lewat perintah produksi, tidak dijual atau dibeli lewat dokumen ini`);
     const uom = l.uom ?? p.baseUom;
     const factor = uom === p.baseUom ? '1' : p.uoms.find((u) => u.uom === uom)?.factor;
     if (!factor) throw new BadRequestException(`Satuan ${uom} tidak terdaftar untuk ${p.sku}`);
