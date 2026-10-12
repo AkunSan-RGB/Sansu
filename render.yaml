@@ -1,0 +1,30 @@
+# Blueprint Render untuk API SANSU (NestJS, memakai apps/api/Dockerfile).
+# Database memakai Neon yang sudah ada: isi DATABASE_URL, SMTP_PASS, dan lainnya lewat dashboard Render (sync: false = tidak disimpan di repo).
+services:
+  - type: web
+    name: sansu-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false

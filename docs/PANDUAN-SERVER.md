@@ -171,3 +171,10 @@ URL redirect yang diminta saat mendaftar ditampilkan di halaman Sinkron otomatis
 - [ ] Syarat & Ketentuan dan Kebijakan Privasi (UU No. 27/2022 tentang Pelindungan Data Pribadi).
 - [ ] Pendaftaran **PSE Lingkup Privat** di Komdigi (wajib bagi layanan online yang mengolah data pengguna di Indonesia).
 - [ ] Bila pendaftaran mandiri belum ingin dibuka untuk umum: `ALLOW_SIGNUP=false` di `.env`.
+
+## 4a-1. API di Render (gratis) untuk tampilan di Vercel
+
+1. render.com › **New › Blueprint** › pilih repo `Sansu` (berkas `render.yaml` dibaca otomatis).
+2. Isi variabel yang diminta: `DATABASE_URL` (Neon), `APP_URL` dan `CORS_ORIGIN` (alamat Vercel, mis. `https://sansu-xxx.vercel.app`), `MAIL_FROM`, `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`. `JWT_SECRET` dibuat otomatis.
+3. Setelah **Live**, salin alamatnya (mis. `https://sansu-api.onrender.com`), lalu ganti `GANTI-DENGAN-ALAMAT-API-ANDA.onrender.com` di `apps/web/vercel.json`, `vercel.json`, dan `apps/web/public/vercel.json`. Commit; Vercel deploy ulang.
+4. Paket gratis Render tidur setelah 15 menit tanpa lalu lintas; permintaan pertama bisa lambat ±1 menit.
