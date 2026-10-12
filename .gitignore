@@ -12,3 +12,6 @@ coverage/
 
 # backup database di server
 /backups/
+
+# salinan lama proyek (tidak dipakai; riwayatnya sudah ada di repo ini) — aman dihapus manual
+/Sansu/

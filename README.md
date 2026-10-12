@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/web/public/favicon.svg" width="72" alt="SANSU" />
+  <img src="frontend/public/favicon.svg" width="72" alt="SANSU" />
 </p>
 
 <h1 align="center">SANSU</h1>
@@ -45,29 +45,31 @@ SANSU adalah platform modular seperti Odoo: perusahaan mengaktifkan aplikasi yan
 
 ```
 sansu/
-├─ packages/
-│  └─ shared/                 @sansu/shared — enum domain, label Indonesia, tipe respons API, brand
-├─ apps/
-│  ├─ api/                    @sansu/api — NestJS
-│  │  ├─ drizzle/             migrasi SQL (ikut di-commit)
-│  │  ├─ src/db/              schema.ts, koneksi, migrate, seed
-│  │  ├─ src/common/          auth & peran, penomoran dokumen, audit log, util uang/tanggal, filter error
-│  │  ├─ src/modules/         auth · master-data · inventory · sales · accounting · dashboard · health
-│  │  ├─ test/                test e2e
-│  │  └─ Dockerfile
-│  └─ web/                    @sansu/web — React
-│     ├─ src/brand/           logo & tema SANSU
-│     ├─ src/api/             klien HTTP & hook data
-│     ├─ src/features/        satu folder per modul bisnis
-│     ├─ nginx.conf
-│     └─ Dockerfile
-├─ docs/ARCHITECTURE.md       diagram & keputusan arsitektur
-├─ docs/PENGUJIAN.md          lapisan tes, uji acak invarian, cara menjalankan
+├─ backend/                   @sansu/api — NestJS + PostgreSQL (Drizzle)
+│  ├─ drizzle/                migrasi SQL (ikut di-commit)
+│  ├─ src/db/                 schema.ts, koneksi, migrate, seed
+│  ├─ src/common/             auth & peran, penomoran dokumen, audit log, util uang/tanggal, filter error
+│  ├─ src/modules/            auth · master-data · inventory · sales · accounting · dashboard · health
+│  ├─ test/                   test e2e
+│  ├─ .env.example            contoh konfigurasi (salin ke .env)
+│  └─ Dockerfile
+├─ frontend/                  @sansu/web — React + Vite + Ant Design
+│  ├─ src/brand/              logo & tema SANSU
+│  ├─ src/api/                klien HTTP & hook data
+│  ├─ src/features/           satu folder per modul bisnis
+│  ├─ public/                 aset statis (_redirects untuk Netlify)
+│  ├─ nginx.conf              template nginx (API_UPSTREAM)
+│  └─ Dockerfile
+├─ shared/                    @sansu/shared — enum domain, label Indonesia, tipe respons API, brand
+├─ deploy/                    install.sh, Caddyfile, layanan backup, railway/
+├─ docs/                      ARCHITECTURE · PENGUJIAN · PANDUAN-SERVER · DEPLOY (peta deploy)
+├─ scripts/                   set-api-url.mjs (ganti alamat API), open-when-ready.cjs
+├─ docker/                    init database test
 ├─ docker-compose.yml         PostgreSQL untuk development
 ├─ docker-compose.prod.yml    layanan online: caddy (HTTPS) + web + api + db + backup
-├─ deploy/                    install.sh, Caddyfile, layanan backup
-├─ sansu.sh                 alat kelola server (status, backup, restore, update)
-└─ turbo.json
+├─ vercel.json · netlify.toml · render.yaml · railway.json   konfigurasi platform (harus di akar repo)
+├─ sansu.sh                   alat kelola server (status, backup, restore, update)
+└─ turbo.json · package.json  monorepo (npm workspaces: shared, backend, frontend)
 ```
 
 ## Menjalankan (development)
@@ -78,8 +80,8 @@ Prasyarat: **Node.js 20+** dan **Docker Desktop** (atau PostgreSQL 18.6 lokal). 
 npm install                 # juga membangun @sansu/shared
 npm run db:up               # PostgreSQL: database lokal `akurata` & `akurata_test` (nama teknis lama dipertahankan agar data tidak hilang)
 
-# Windows: copy apps\api\.env.example apps\api\.env
-# Mac/Linux: cp apps/api/.env.example apps/api/.env
+# Windows: copy backend\.env.example backend\.env
+# Mac/Linux: cp backend/.env.example backend/.env
 npm run db:migrate
 npm run db:seed
 
@@ -98,6 +100,7 @@ sudo bash deploy/install.sh
 ```
 
 Panduan lengkap (backup offsite, pemulihan, keamanan, checklist sebelum jualan): **[docs/PANDUAN-SERVER.md](docs/PANDUAN-SERVER.md)**.
+Pilihan lain (Vercel/Netlify untuk web + Render/Railway untuk API): **[docs/DEPLOY.md](docs/DEPLOY.md)**.
 
 ## Perintah
 

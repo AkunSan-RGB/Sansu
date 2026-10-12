@@ -4,11 +4,12 @@
   "private": true,
   "description": "SANSU — ERP untuk distributor & grosir",
   "workspaces": [
-    "packages/*",
-    "apps/*"
+    "shared",
+    "backend",
+    "frontend"
   ],
   "scripts": {
-    "postinstall": "npm run build -w packages/shared",
+    "postinstall": "npm run build -w shared",
     "dev": "turbo run dev",
     "dev:api": "turbo run dev --filter=@sansu/api",
     "dev:web": "turbo run dev --filter=@sansu/web",
@@ -18,11 +19,14 @@
     "test:e2e": "turbo run test:e2e --filter=@sansu/api",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
-    "db:generate": "npm run db:generate -w apps/api",
-    "db:migrate": "npm run db:migrate -w apps/api",
-    "db:seed": "npm run db:seed -w apps/api",
+    "db:generate": "npm run db:generate -w backend",
+    "db:migrate": "npm run db:migrate -w backend",
+    "db:seed": "npm run db:seed -w backend",
     "stack:up": "docker compose -f docker-compose.prod.yml up -d --build",
-    "stack:down": "docker compose -f docker-compose.prod.yml down"
+    "stack:down": "docker compose -f docker-compose.prod.yml down",
+    "deploy:set-api": "node scripts/set-api-url.mjs",
+    "web:preview": "npm run build -w @sansu/shared && npm run build -w @sansu/web && npm run preview -w @sansu/web",
+    "setup": "npm install && npm run build"
   },
   "engines": {
     "node": ">=20"

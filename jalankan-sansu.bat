@@ -18,13 +18,13 @@ echo [1/5] Memasang / memperbarui dependensi, beberapa menit pada percobaan pert
 call npm install --no-audit --no-fund
 if errorlevel 1 goto :err
 rem Selalu bangun ulang paket bersama agar tipe terbaru dipakai API dan web
-call npm run build -w packages/shared
+call npm run build -w shared
 if errorlevel 1 goto :err
 
 :env
-if not exist apps\api\.env copy apps\api\.env.example apps\api\.env >nul
+if not exist backend\.env copy backend\.env.example backend\.env >nul
 rem Database SANSU memakai port 5434 agar tidak bentrok dengan PostgreSQL lain
-powershell -NoProfile -Command "(Get-Content apps\api\.env) -replace 'localhost:5432/akurata','localhost:5434/akurata' | Set-Content apps\api\.env"
+powershell -NoProfile -Command "(Get-Content backend\.env) -replace 'localhost:5432/akurata','localhost:5434/akurata' | Set-Content backend\.env"
 
 echo [2/5] Menyalakan database PostgreSQL 18.6...
 call npm run db:up

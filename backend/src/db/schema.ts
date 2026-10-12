@@ -5,7 +5,7 @@
 //   * Uang NUMERIC(18,2), kuantitas & biaya satuan NUMERIC(18,4) — tidak pernah float
 //   * Tanggal dokumen bertipe DATE (string 'YYYY-MM-DD')
 //   * Jurnal yang sudah diposting tidak diubah; koreksi lewat jurnal balik
-//  Ubah file ini lalu jalankan `npm run db:generate -w apps/api` untuk membuat migrasi.
+//  Ubah file ini lalu jalankan `npm run db:generate -w backend` untuk membuat migrasi.
 // =============================================================
 import { relations, sql } from 'drizzle-orm';
 import {

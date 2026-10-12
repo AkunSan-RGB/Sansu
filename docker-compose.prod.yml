@@ -31,7 +31,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
+      dockerfile: backend/Dockerfile
     image: sansu-api:latest
     restart: unless-stopped
     logging: *logging
@@ -87,7 +87,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: apps/web/Dockerfile
+      dockerfile: frontend/Dockerfile
     image: sansu-web:latest
     restart: unless-stopped
     logging: *logging

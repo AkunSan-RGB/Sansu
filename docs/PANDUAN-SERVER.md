@@ -80,9 +80,9 @@ Lalu `./sansu.sh restart` dan `./sansu.sh backup`. File offsite **dienkripsi** d
 
 ### 4a-0. Tampilan web di Netlify
 
-**Netlify Drop (unggah manual folder `apps/web/dist`):** `netlify.toml` tidak terpakai; aturan pengalihan ikut di dalam hasil build lewat `apps/web/public/_redirects`. Jalankan `npm run build -w @sansu/shared && npm run build -w @sansu/web`, lalu seret folder `apps/web/dist` ke Netlify Drop (pastikan berkas `_redirects` ada di dalamnya).
+**Netlify Drop (unggah manual folder `frontend/dist`):** `netlify.toml` tidak terpakai; aturan pengalihan ikut di dalam hasil build lewat `frontend/public/_redirects`. Jalankan `npm run build -w @sansu/shared && npm run build -w @sansu/web`, lalu seret folder `frontend/dist` ke Netlify Drop (pastikan berkas `_redirects` ada di dalamnya).
 
-`netlify.toml` di akar repo sudah mengatur build (`apps/web/dist`) dan pengalihan semua alamat ke `index.html` (tanpa itu `/login` menampilkan "Page not found"). Netlify hanya menampung tampilan: **API harus berjalan di server lain** (Render, Railway, VPS). Ganti `GANTI-DENGAN-ALAMAT-API-ANDA` di `netlify.toml` dengan alamat API itu, lalu di server API isi `.env`: `APP_URL=https://nama-anda.netlify.app` dan `CORS_ORIGIN=https://nama-anda.netlify.app` (juga `DATABASE_URL`, `JWT_SECRET`, `SMTP_*`, `MAIL_FROM`).
+`netlify.toml` di akar repo sudah mengatur build (`frontend/dist`) dan pengalihan semua alamat ke `index.html` (tanpa itu `/login` menampilkan "Page not found"). Netlify hanya menampung tampilan: **API harus berjalan di server lain** (Render, Railway, VPS). Jalankan `npm run deploy:set-api -- https://alamat-api-anda` untuk mengisi alamat API di `netlify.toml`, lalu di server API isi `.env`: `APP_URL=https://nama-anda.netlify.app` dan `CORS_ORIGIN=https://nama-anda.netlify.app` (juga `DATABASE_URL`, `JWT_SECRET`, `SMTP_*`, `MAIL_FROM`).
 
 ### 4a. Email masuk spam
 
@@ -176,5 +176,5 @@ URL redirect yang diminta saat mendaftar ditampilkan di halaman Sinkron otomatis
 
 1. render.com › **New › Blueprint** › pilih repo `Sansu` (berkas `render.yaml` dibaca otomatis).
 2. Isi variabel yang diminta: `DATABASE_URL` (Neon), `APP_URL` dan `CORS_ORIGIN` (alamat Vercel, mis. `https://sansu-xxx.vercel.app`), `MAIL_FROM`, `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`. `JWT_SECRET` dibuat otomatis.
-3. Setelah **Live**, salin alamatnya (mis. `https://sansu-api.onrender.com`), lalu ganti `GANTI-DENGAN-ALAMAT-API-ANDA.onrender.com` di `apps/web/vercel.json`, `vercel.json`, dan `apps/web/public/vercel.json`. Commit; Vercel deploy ulang.
+3. Setelah **Live**, salin alamatnya (mis. `https://sansu-api.onrender.com`), lalu jalankan `npm run deploy:set-api -- https://sansu-api.onrender.com` (mengganti `vercel.json`, `frontend/vercel.json`, dan `netlify.toml` sekaligus). Commit; Vercel deploy ulang.
 4. Paket gratis Render tidur setelah 15 menit tanpa lalu lintas; permintaan pertama bisa lambat ±1 menit.

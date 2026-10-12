@@ -79,13 +79,13 @@ Akun sistem dicari lewat `system_key` (`AR`, `SALES`, `VAT_OUT`, ...), sehingga 
 
 ## Menambah modul (contoh: Pembelian)
 
-1. Tabel baru di `apps/api/src/db/schema.ts` → `npm run db:generate` → `npm run db:migrate`.
-2. Enum/status baru di `packages/shared/src/domain.ts` (dengan label Indonesia), tipe respons di `contracts.ts`.
-3. `apps/api/src/modules/purchasing/` — DTO, service, controller, module. Penerimaan barang:
+1. Tabel baru di `backend/src/db/schema.ts` → `npm run db:generate` → `npm run db:migrate`.
+2. Enum/status baru di `shared/src/domain.ts` (dengan label Indonesia), tipe respons di `contracts.ts`.
+3. `backend/src/modules/purchasing/` — DTO, service, controller, module. Penerimaan barang:
    `StockService.move(tx, { type: 'PURCHASE', qty: +n, unitCost })` dan
    `PostingService.post(tx, …)` (Dr Persediaan, Dr PPN Masukan / Cr Hutang Usaha) dalam satu `db.transaction`.
 4. Daftarkan di `app.module.ts`, tambahkan test e2e.
-5. `apps/web/src/features/purchasing/` + rute di `App.tsx` + menu di `AppLayout.tsx`.
+5. `frontend/src/features/purchasing/` + rute di `App.tsx` + menu di `AppLayout.tsx`.
 
 ## Roadmap teknis
 
@@ -93,7 +93,7 @@ Akun sistem dicari lewat `system_key` (`AR`, `SALES`, `VAT_OUT`, ...), sehingga 
 - [ ] Retur penjualan, surat jalan terpisah
 - [ ] Batch & kedaluwarsa (FEFO), transfer antar-gudang
 - [ ] Ekspor e-Faktur / Coretax, cetak PDF & dot-matrix
-- [ ] Aplikasi salesman offline-first (React Native, `apps/mobile`)
+- [ ] Aplikasi salesman offline-first (React Native, `mobile`)
 - [ ] Row-Level Security PostgreSQL
 - [ ] Antrian job (Redis + BullMQ) untuk impor Excel & laporan berat
 - [ ] AG Grid untuk laporan ratusan ribu baris

@@ -8,3 +8,6 @@
 **/*.tsbuildinfo
 backups
 deploy/backup/*.dump
+Sansu
+.turbo
+docs

@@ -73,7 +73,7 @@ Tes ini menggunakan database `akurata_test`; jangan diarahkan ke database berisi
 - **Rute baru otomatis ikut teruji** oleh `security` (isolasi perusahaan) dan `garbage-input` (masukan sembarang).
   Bila sebuah rute memang harus dikecualikan, jelaskan alasannya di daftar `SKIP` pada tes tersebut.
 - Bila fitur membuat jurnal, tambahkan operasinya ke `integrity-fuzz` agar invariannya ikut dijaga.
-- Aturan perpajakan taruh sebagai **fungsi murni** di `packages/shared` (contoh: `taxDueDate`, `recommendProfile`,
+- Aturan perpajakan taruh sebagai **fungsi murni** di `shared` (contoh: `taxDueDate`, `recommendProfile`,
   `evaluateThresholds`) lalu uji pada nilai batas: tepat di batas, satu rupiah di atas, dan pergantian tahun.
 - Data sensitif per peran: tambahkan `@Roles(...)` pada rute dan masukkan ke `role-access`.
 
