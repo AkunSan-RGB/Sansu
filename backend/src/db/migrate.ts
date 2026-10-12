@@ -6,6 +6,7 @@
 import 'dotenv/config';
 import { runMigrations } from './run-migrations';
 import { createPool } from './db';
+import { describeDbError } from './db-error';
 
 async function main() {
   const pool = createPool();
@@ -19,6 +20,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error(e);
+  console.error('\n[X] Migrasi database gagal.\n' + describeDbError(e));
   process.exit(1);
 });

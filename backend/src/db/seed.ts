@@ -7,6 +7,7 @@
  * Paksa buat ulang: npm run db:seed -- --reset
  */
 import 'dotenv/config';
+import { describeDbError } from './db-error';
 import { NestFactory } from '@nestjs/core';
 import * as bcrypt from 'bcryptjs';
 import { eq, sql } from 'drizzle-orm';
@@ -135,6 +136,6 @@ async function ensureCrm(db: Db, tenantId: string, ownerId: string) {
 }
 
 main().catch((e) => {
-  console.error(e);
+  console.error('\n[X] Pengisian data demo gagal.\n' + describeDbError(e));
   process.exit(1);
 });
