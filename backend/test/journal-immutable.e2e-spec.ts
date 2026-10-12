@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
+import { todayJakarta } from '../src/common/utils/dates';
 
 describe('Jurnal tidak dapat diubah (e2e)', () => {
   let app: INestApplication;
@@ -26,7 +27,7 @@ describe('Jurnal tidak dapat diubah (e2e)', () => {
     const acc = (await http.get('/api/accounting/accounts').set(as())).body as { id: string; code: string }[];
     const id = (c: string) => acc.find((a) => a.code === c)!.id;
     journalId = (
-      await http.post('/api/accounting/journals').set(as()).send({ date: new Date().toISOString().slice(0, 10), description: 'Uji jejak', lines: [{ accountId: id('1-1100'), debit: '1000' }, { accountId: id('3-1000'), credit: '1000' }] }).expect(201)
+      await http.post('/api/accounting/journals').set(as()).send({ date: todayJakarta(), description: 'Uji jejak', lines: [{ accountId: id('1-1100'), debit: '1000' }, { accountId: id('3-1000'), credit: '1000' }] }).expect(201)
     ).body.id;
   });
   afterAll(async () => {

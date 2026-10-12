@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
+import { addDays, todayJakarta } from '../src/common/utils/dates';
 
 describe('Mata uang asing (e2e)', () => {
   let app: INestApplication;
@@ -19,7 +20,7 @@ describe('Mata uang asing (e2e)', () => {
   const get = (u: string, tok = t) => http.get(u).set(as(tok));
   const post = (u: string, b: object = {}, tok = t) => http.post(u).set(as(tok)).send(b);
   const put = (u: string, b: object = {}, tok = t) => http.put(u).set(as(tok)).send(b);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayJakarta();
   // saldo sisi normal akun (aset/beban positif bila debit; liabilitas/pendapatan positif bila kredit); `to` membatasi tanggal laporan
   const bal = async (code: string, to?: string) => {
     const tb = (await get(`/api/accounting/reports/trial-balance${to ? `?to=${to}` : ''}`).expect(200)).body;
@@ -122,7 +123,7 @@ describe('Mata uang asing (e2e)', () => {
     expect((await health('ar'))?.status).toBe('OK');
     expect((await health('ap'))?.status).toBe('OK');
     // besok dibalik otomatis
-    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const tomorrow = addDays(todayJakarta(), 1);
     expect(await bal('1-1305', tomorrow)).toBe(0);
     expect(await bal('2-1105', tomorrow)).toBe(0);
     await post('/api/fx/revaluation').expect(400); // tanggal yang sama tidak dua kali
@@ -203,7 +204,7 @@ describe('Mata uang asing (e2e)', () => {
     const so = (await post('/api/sales-orders', { customerId: cust, warehouseId: wh, currency: 'USD', fxRate: '16000', lines: [{ productId: prod, qty: '1', price: '5' }] }).expect(201)).body;
     await post(`/api/sales-orders/${so.id}/confirm`).expect(201);
     const inv = (await post('/api/invoices', { salesOrderId: so.id }).expect(201)).body;
-    const dep = (await post('/api/services/deposits', { customerId: cust, date: new Date().toISOString().slice(0, 10), amount: '1110000', description: 'DP' }).expect(201)).body;
+    const dep = (await post('/api/services/deposits', { customerId: cust, date: todayJakarta(), amount: '1110000', description: 'DP' }).expect(201)).body;
     const r = await post(`/api/services/deposits/${dep.id}/apply`, { invoiceId: inv.id }).expect(400);
     expect(r.body.message).toMatch(/USD/);
   });

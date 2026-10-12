@@ -7,13 +7,14 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
+import { todayJakarta } from '../src/common/utils/dates';
 
 describe('Pindah standar SAK EP ↔ SAK EMKM mengubah seluruh akuntansi (e2e)', () => {
   let app: INestApplication;
   let http: ReturnType<typeof request>;
   let token: string;
   const year = new Date().getFullYear();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayJakarta();
   const as = () => ({ Authorization: `Bearer ${token}` });
   const get = (u: string) => http.get(u).set(as());
   const post = (u: string, b: object = {}) => http.post(u).set(as()).send(b);

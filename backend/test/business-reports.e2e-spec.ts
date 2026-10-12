@@ -7,6 +7,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
+import { todayJakarta } from '../src/common/utils/dates';
 
 type Model = 'DAGANG' | 'RITEL' | 'JASA' | 'PRODUKSI' | 'MANUFAKTUR';
 type Line = { key: string; label: string };
@@ -17,7 +18,7 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
   let http: ReturnType<typeof request>;
   const stamp = Date.now();
   const year = new Date().getFullYear();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayJakarta();
   const tokens = {} as Record<Model, string>;
   const as = (m: Model) => ({ Authorization: `Bearer ${tokens[m]}` });
   const get = (m: Model, url: string) => http.get(url).set(as(m));

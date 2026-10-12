@@ -8,6 +8,7 @@ import { Pool } from 'pg';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
+import { todayJakarta } from '../src/common/utils/dates';
 
 describe('Konkurensi (e2e)', () => {
   let app: INestApplication;
@@ -99,7 +100,7 @@ describe('Konkurensi (e2e)', () => {
   it('jurnal serentak: nomor jurnal tidak ganda dan semua jurnal seimbang', async () => {
     const acc = (await get('/api/accounting/accounts')).body as { id: string; code: string }[];
     const id = (c: string) => acc.find((a) => a.code === c)!.id;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayJakarta();
     const results = await Promise.all(
       Array.from({ length: 25 }, (_, i) => post('/api/accounting/journals', { date: today, description: `Serentak ${i}`, lines: [{ accountId: id('6-6000'), debit: '1000' }, { accountId: id('1-1100'), credit: '1000' }] })),
     );
@@ -117,7 +118,7 @@ describe('Konkurensi (e2e)', () => {
     const period = `${new Date().getFullYear() - 1}-03`;
     // utang PPh 23 Rp100.000 pada masa itu (jurnal manual ke akun utang PPh 23)
     await post('/api/accounting/journals', { date: `${period}-10`, description: 'PPh 23 dipotong', lines: [{ accountId: id('6-7200'), debit: '100000' }, { accountId: id('2-1320'), credit: '100000' }] }).expect(201);
-    const results = await Promise.all(Array.from({ length: 6 }, () => post('/api/tax/payments', { type: 'PPH23', period, date: new Date().toISOString().slice(0, 10) })));
+    const results = await Promise.all(Array.from({ length: 6 }, () => post('/api/tax/payments', { type: 'PPH23', period, date: todayJakarta() })));
     noServerErrors(results);
     expect(results.filter((r) => r.status === 201)).toHaveLength(1);
     const paid = (await q(`SELECT COALESCE(SUM(amount),0) AS v FROM tax_payments WHERE tenant_id=$1 AND type='PPH23' AND period=$2`, [tenantId, period]))[0].v;
