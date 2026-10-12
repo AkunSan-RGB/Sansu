@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { TenantScopeInterceptor } from './common/db/tenant-scope.interceptor';
 import { AuditInterceptor } from './common/audit/audit.interceptor';
 import { ReadCacheInterceptor } from './common/read-cache.interceptor';
 import { JwtModule } from '@nestjs/jwt';
@@ -100,6 +101,8 @@ import { MailModule } from './mail/mail.module';
     { provide: APP_GUARD, useExisting: AppGuard },
     { provide: APP_GUARD, useClass: SubscriptionGuard },
     { provide: APP_FILTER, useClass: DbExceptionFilter },
+    // seluruh query permintaan terautentikasi dibatasi ke perusahaan pengguna (row-level security) — harus paling luar
+    { provide: APP_INTERCEPTOR, useClass: TenantScopeInterceptor },
     // jejak audit otomatis untuk setiap perubahan data
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
     // laporan: penjumlahan buku besar yang sama dihitung sekali per permintaan

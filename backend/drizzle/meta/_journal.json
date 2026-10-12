@@ -267,6 +267,13 @@
       "when": 1792425086484,
       "tag": "0037_telegram_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1792511486484,
+      "tag": "0038_row_level_security",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { Pool, types } from 'pg';
 import * as schema from './schema';
+import { TenantPool } from './tenant-pool';
 
 // Kembalikan kolom DATE sebagai string 'YYYY-MM-DD' apa adanya (tanpa konversi zona waktu)
 types.setTypeParser(1082, (v) => v);
@@ -17,6 +18,16 @@ export const POOL = Symbol('POOL');
 export function createPool(url = process.env.DATABASE_URL) {
   if (!url) throw new Error('DATABASE_URL belum diatur');
   return new Pool({ connectionString: url, max: 10 });
+}
+
+/**
+ * Pool untuk aplikasi (API): memakai peran `sansu_app` + row-level security per perusahaan.
+ * Matikan darurat lewat RLS_DISABLED=true (kembali ke pool biasa). Migrasi/seed memakai createPool biasa.
+ */
+export function createAppPool(url = process.env.DATABASE_URL) {
+  if (!url) throw new Error('DATABASE_URL belum diatur');
+  if (process.env.RLS_DISABLED === 'true') return new Pool({ connectionString: url, max: 10 });
+  return new TenantPool({ connectionString: url, max: 10 });
 }
 
 export function createDb(pool: Pool): Db {
