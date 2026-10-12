@@ -7,7 +7,9 @@ export default defineConfig({
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   server: {
     port: 5173,
-    // Semua request /api diteruskan ke backend NestJS
     proxy: { '/api': 'http://localhost:3000' },
+  },
+  preview: {
+    allowedHosts: true, // Mengizinkan semua host domain di Railway Preview
   },
 });
