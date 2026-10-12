@@ -41,6 +41,7 @@ import { AuditLogModule } from './modules/audit/audit.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { MarketplaceSyncModule } from './modules/integrations/marketplace/sync';
 import { ProductionModule } from './modules/production/production.module';
+import { MailModule } from './mail/mail.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { ProductionModule } from './modules/production/production.module';
     }),
     DbModule,
     CommonModule,
+    MailModule, // pengirim email via Brevo API (BREVO_API_KEY)
     // Modul domain — batas modul tegas (modular monolith)
     AuthModule,
     MasterDataModule,
