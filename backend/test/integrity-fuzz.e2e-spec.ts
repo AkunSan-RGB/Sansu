@@ -14,6 +14,7 @@ import { Pool } from 'pg';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
+import { todayJakarta } from '../src/common/utils/dates';
 
 function rng(seed: number) {
   let a = seed >>> 0;
@@ -99,12 +100,12 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
     const categories = (await call('get', '/assets/categories')).body as { id: string; name: string }[];
     await call('post', '/inventory/adjustments', { warehouseId: wh1, reason: 'OPENING', lines: products.map((p) => ({ productId: p, qty: '50', unitCost: '5000' })) });
     await call('post', '/accounting/journals', {
-      date: new Date().toISOString().slice(0, 10),
+      date: todayJakarta(),
       description: 'Modal',
       lines: [{ accountId: acc('1-1100'), debit: '2000000000' }, { accountId: acc('1-1200'), debit: '2000000000' }, { accountId: acc('3-1000'), credit: '4000000000' }],
     });
     const thisYear = new Date().getFullYear();
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = todayJakarta();
     /** 35% dokumen bertanggal mundur (tahun ini atau tahun lalu) agar ada laba rugi tahun lalu untuk ditutup */
     const maybePast = () => (rand() < 0.35 ? { date: `${rand() < 0.5 ? thisYear - 1 : thisYear}-${String(int(1, 9)).padStart(2, '0')}-${String(int(1, 28)).padStart(2, '0')}` } : {});
     const salesInvoices: string[] = [];

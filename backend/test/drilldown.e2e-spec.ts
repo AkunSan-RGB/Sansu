@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
+import { todayJakarta } from '../src/common/utils/dates';
 
 describe('Penelusuran laporan → buku besar → jurnal → dokumen asal (e2e)', () => {
   let app: INestApplication;
@@ -55,7 +56,7 @@ describe('Penelusuran laporan → buku besar → jurnal → dokumen asal (e2e)',
     expect(list.find((j) => j.sourceType === 'INVOICE')!.docRoute).toBe(`/invoices/${invoiceId}`);
     const cash = await accountId('1-1100');
     const cap = await accountId('3-1000');
-    const manual = (await post('/api/accounting/journals', { date: new Date().toISOString().slice(0, 10), description: 'Modal', lines: [{ accountId: cash, debit: '1000' }, { accountId: cap, credit: '1000' }] }).expect(201)).body;
+    const manual = (await post('/api/accounting/journals', { date: todayJakarta(), description: 'Modal', lines: [{ accountId: cash, debit: '1000' }, { accountId: cap, credit: '1000' }] }).expect(201)).body;
     const detail = (await get(`/api/accounting/journals/${manual.id}`).expect(200)).body;
     expect(detail.docRoute).toBeNull();
     const inv = list.find((j) => j.sourceType === 'INVOICE')!;
@@ -100,8 +101,8 @@ describe('Penelusuran laporan → buku besar → jurnal → dokumen asal (e2e)',
       const bank = accs.find((a) => a.code === '1-1200')!.id;
       const modal = accs.find((a) => a.code === '3-1000')!.id;
       const biaya = accs.find((a) => a.code === '6-9000')!.id;
-      await post('/api/cash/transactions', { type: 'IN', cashAccountId: bank, date: new Date().toISOString().slice(0, 10), lines: [{ accountId: modal, amount: '500000' }], description: 'Setoran' }).expect(201);
-      await post('/api/cash/transactions', { type: 'OUT', cashAccountId: bank, date: new Date().toISOString().slice(0, 10), lines: [{ accountId: biaya, amount: '30000' }], description: 'Biaya lain' }).expect(201);
+      await post('/api/cash/transactions', { type: 'IN', cashAccountId: bank, date: todayJakarta(), lines: [{ accountId: modal, amount: '500000' }], description: 'Setoran' }).expect(201);
+      await post('/api/cash/transactions', { type: 'OUT', cashAccountId: bank, date: todayJakarta(), lines: [{ accountId: biaya, amount: '30000' }], description: 'Biaya lain' }).expect(201);
     });
 
     it('faktur pembelian: pemasok, total, dan baris barang', async () => {
@@ -140,7 +141,7 @@ describe('Penelusuran laporan → buku besar → jurnal → dokumen asal (e2e)',
       expect(dep.document.title).toBe('Penyusutan bulanan');
       expect(dep.document.table!.rows.length).toBeGreaterThan(0);
 
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayJakarta();
       await post('/api/accounting/journals', { date: today, description: 'Isi kas kecil', lines: [{ accountId: acc('1-1110'), debit: '100000' }, { accountId: acc('3-1000'), credit: '100000' }] }).expect(201);
       const cc = (await post('/api/cash/counts', { accountId: acc('1-1110'), date: today, custodianName: 'Rina' }).expect(201)).body;
       await http.put(`/api/cash/counts/${cc.id}`).set(as()).send({ denominations: { K50000: 1 }, reason: 'Uji selisih' }).expect(200);

@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
+import { todayJakarta } from '../src/common/utils/dates';
 
 describe('Persetujuan (e2e)', () => {
   let app: INestApplication;
@@ -96,7 +97,7 @@ describe('Persetujuan (e2e)', () => {
   });
 
   it('jurnal manual bernilai besar: tidak diposting sampai disetujui, lalu terposting dan seimbang', async () => {
-    const body = { date: new Date().toISOString().slice(0, 10), description: 'Setoran modal besar', lines: [{ accountId: cashId, debit: '8000000' }, { accountId: capitalId, credit: '8000000' }] };
+    const body = { date: todayJakarta(), description: 'Setoran modal besar', lines: [{ accountId: cashId, debit: '8000000' }, { accountId: capitalId, credit: '8000000' }] };
     const before = ((await get(owner, '/api/accounting/journals').expect(200)).body as unknown[]).length;
     const r = await post(finance, '/api/accounting/journals', body);
     expect(r.status).toBe(409);
@@ -111,7 +112,7 @@ describe('Persetujuan (e2e)', () => {
   });
 
   it('pemohon bisa membatalkan permintaannya sendiri; orang lain tidak', async () => {
-    const body = { date: new Date().toISOString().slice(0, 10), description: 'Jurnal batal', lines: [{ accountId: cashId, debit: '9000000' }, { accountId: capitalId, credit: '9000000' }] };
+    const body = { date: todayJakarta(), description: 'Jurnal batal', lines: [{ accountId: cashId, debit: '9000000' }, { accountId: capitalId, credit: '9000000' }] };
     const r = await post(finance, '/api/accounting/journals', body);
     await post(owner, `/api/approvals/${r.body.requestId}/cancel`).expect(403);
     await post(finance, `/api/approvals/${r.body.requestId}/cancel`).expect(201);

@@ -7,6 +7,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
+import { todayJakarta } from '../src/common/utils/dates';
 
 describe('Wizard standar akuntansi & pajak (e2e)', () => {
   let app: INestApplication;
@@ -51,7 +52,7 @@ describe('Wizard standar akuntansi & pajak (e2e)', () => {
   it('pembukuan mengubah ukuran terukur: peredaran 12 bulan & aset di luar tanah/bangunan', async () => {
     const acc = (await get('/api/accounting/accounts')).body as { id: string; code: string }[];
     const id = (code: string) => acc.find((a) => a.code === code)!.id;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayJakarta();
     // modal 600 jt, beli tanah 400 jt (tidak dihitung), beli kas lewat penjualan 900 jt
     await post('/api/accounting/journals', { date: today, description: 'Modal awal', lines: [{ accountId: id('1-1100'), debit: '1000000000' }, { accountId: id('3-1000'), credit: '1000000000' }] }).expect(201);
     await post('/api/accounting/journals', { date: today, description: 'Beli tanah', lines: [{ accountId: id('1-2050'), debit: '400000000' }, { accountId: id('1-1100'), credit: '400000000' }] }).expect(201);
@@ -112,7 +113,7 @@ describe('Wizard standar akuntansi & pajak (e2e)', () => {
   it('saldo pajak tangguhan yang sudah ada diperingatkan saat pindah ke EMKM', async () => {
     const acc = (await get('/api/accounting/accounts')).body as { id: string; code: string }[];
     const id = (code: string) => acc.find((a) => a.code === code)!.id;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayJakarta();
     await post('/api/accounting/journals', { date: today, description: 'Aset pajak tangguhan', lines: [{ accountId: id('1-2600'), debit: '2500000' }, { accountId: id('9-1100'), credit: '2500000' }] }).expect(201);
     const res = (await apply({ pkp: false }).expect(201)).body;
     expect(res.warnings.join(' ')).toMatch(/saldo pajak tangguhan Rp2\.500\.000/);
@@ -134,7 +135,7 @@ describe('Wizard standar akuntansi & pajak (e2e)', () => {
 
   it('dampak otomatis ke laporan: laba rugi ringkas EMKM, CALK, dan tanpa pajak tangguhan', async () => {
     expect((await get('/api/accounting/statements/framework')).body.framework).toBe('SAK_EMKM');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayJakarta();
     const income = (await get(`/api/accounting/statements/income?from=${today.slice(0, 4)}-01-01&to=${today}&framework=SAK_EMKM`).expect(200)).body;
     const keys = income.lines.map((l: { key: string }) => l.key);
     expect(keys).toEqual(expect.arrayContaining(['TOTAL_REVENUE', 'TOTAL_EXPENSE', 'PROFIT_BEFORE_TAX', 'NET_PROFIT']));
@@ -150,7 +151,7 @@ describe('Wizard standar akuntansi & pajak (e2e)', () => {
     const res = (await apply({ legalForm: 'UD', framework: 'SAK_EP', taxScheme: 'GENERAL' }).expect(201)).body;
     expect(res.current).toMatchObject({ framework: 'SAK_EP', taxScheme: 'GENERAL' });
     expect(res.simplifications.join(' ')).toMatch(/Lima laporan lengkap/);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayJakarta();
     const fiscal = (await get(`/api/accounting/fiscal/${today.slice(0, 4)}`).expect(200)).body;
     expect(fiscal).toMatchObject({ scheme: 'GENERAL', framework: 'SAK_EP' });
     expect(fiscal.deferred).not.toBeNull();
@@ -160,7 +161,7 @@ describe('Wizard standar akuntansi & pajak (e2e)', () => {
     await apply({ framework: 'SAK_EMKM', taxScheme: 'FINAL_UMKM' }).expect(201);
     const acc = (await get('/api/accounting/accounts')).body as { id: string; code: string }[];
     const id = (code: string) => acc.find((a) => a.code === code)!.id;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayJakarta();
     // penjualan besar tambahan 5 M → melewati batas PPh final (4,8 M) dan wajib PKP
     await post('/api/accounting/journals', { date: today, description: 'Penjualan besar', lines: [{ accountId: id('1-1100'), debit: '5000000000' }, { accountId: id('4-1000'), credit: '5000000000' }] }).expect(201);
     const s = (await get('/api/accounting/entity-profile').expect(200)).body;
