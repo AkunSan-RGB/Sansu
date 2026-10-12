@@ -28,7 +28,7 @@ async function bootstrap() {
     .build();
   if (swagger) SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, config));
 
-  const port = Number(process.env.API_PORT ?? 3000);
+  const port = Number(process.env.API_PORT ?? process.env.PORT ?? 3000);
   await app.listen(port);
   Logger.log(`API berjalan di http://localhost:${port}/api${swagger ? `  ·  Dokumentasi: http://localhost:${port}/api/docs` : ''}`);
 }
