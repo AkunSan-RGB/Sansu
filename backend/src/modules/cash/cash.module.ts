@@ -28,13 +28,14 @@ import { SettingsService } from '../../common/settings.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { addDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
-import { Db } from '../../db/db';
+import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { accounts, cashTransactionLines, cashTransactions, projects } from '../../db/schema';
 import { AccountingModule } from '../accounting/accounting.module';
 import { PostingService } from '../accounting/posting.service';
 import { AssetsModule, AssetsService } from '../assets/assets.module';
 import { CashCountController, CashCountService } from './cash-count';
+import { PettyCashController, PettyCashService } from './petty-cash';
 
 // ---------- DTO ----------
 export class CashLineDto {
@@ -133,7 +134,7 @@ export class CashService {
    * Kas keluar : Dr akun lawan (beban, aset, prive, ...) | Cr Kas/Bank
    * Transfer   : Dr Kas/Bank tujuan | Cr Kas/Bank asal
    */
-  async create(user: AuthUser, dto: CreateCashTxDto, opts: { approved?: boolean } = {}) {
+  async create(user: AuthUser, dto: CreateCashTxDto, opts: { approved?: boolean; petty?: boolean; tx?: Tx } = {}) {
     const date = toDocDate(dto.date);
     // ---- SOP: bukti wajib & persetujuan untuk uang keluar (kas keluar, transfer) di atas batas ----
     if (dto.type !== 'IN') {
@@ -158,7 +159,7 @@ export class CashService {
         }
       }
     }
-    return this.db.transaction(async (tx) => {
+    const run = async (tx: Tx) => {
       const cash = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'CASH');
 
       let amount: Dec;
@@ -200,6 +201,7 @@ export class CashService {
         }
       }
       if (amount.lte(0)) throw new BadRequestException('Jumlah harus > 0');
+      if (!opts.petty) await this.assertNotPettyCash(tx, user.tenantId, dto, cash.id, to?.id, amount);
       if (dto.type !== 'IN' && (await this.cashSettings(user.tenantId)).blockNegative) {
         const [b] = (await tx.execute<{ bal: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0) AS bal FROM journal_lines l WHERE l.account_id = ${cash.id}`)).rows;
         if (D(b.bal).minus(amount).lt(0)) {
@@ -279,7 +281,29 @@ export class CashService {
       }
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'CashTransaction', entityId: trx.id });
       return { ...trx, journalNumber: journal.number };
-    });
+    };
+    return opts.tx ? run(opts.tx) : this.db.transaction(run);
+  }
+
+  /**
+   * Kas kecil memakai sistem dana tetap: pengeluarannya hanya lewat bukti kas kecil, dan dana hanya diisi lewat pengisian kembali,
+   * jadi transaksi kas umum tidak boleh keluar/masuk langsung dari akun kas kecil atau mengisinya melebihi plafon.
+   */
+  private async assertNotPettyCash(tx: Tx, tenantId: string, dto: CreateCashTxDto, cashId: string, toId: string | undefined, amount: Dec) {
+    const res = await tx.execute<{ account_id: string; imprest_amount: string }>(
+      sql`SELECT account_id, imprest_amount FROM petty_cash_funds WHERE tenant_id = ${tenantId} AND status = 'ACTIVE'`,
+    );
+    if (!res.rows.length) return;
+    const fund = new Map(res.rows.map((r) => [r.account_id, D(r.imprest_amount)]));
+    if (dto.type === 'OUT' && fund.has(cashId)) throw new BadRequestException('Akun ini adalah kas kecil (dana tetap). Pengeluarannya dicatat lewat menu Kas Kecil › Bukti kas kecil');
+    if (dto.type === 'IN' && fund.has(cashId)) throw new BadRequestException('Kas kecil tidak menerima kas masuk langsung. Isi dananya lewat Kas Kecil › Pengisian kembali');
+    if (dto.type === 'TRANSFER') {
+      if (fund.has(cashId)) throw new BadRequestException('Kas kecil tidak boleh dipakai sebagai sumber transfer. Pengeluarannya lewat bukti kas kecil');
+      if (toId && fund.has(toId)) {
+        const [b] = (await tx.execute<{ bal: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0) AS bal FROM journal_lines l WHERE l.account_id = ${toId}`)).rows;
+        if (D(b.bal).plus(amount).gt(fund.get(toId)!)) throw new BadRequestException(`Pengisian melebihi dana tetap kas kecil (plafon Rp${fund.get(toId)!.toNumber().toLocaleString('id-ID')})`);
+      }
+    }
   }
 
   // ---------------------------------------------------------------- SOP & kontrol kas
@@ -294,10 +318,10 @@ export class CashService {
    * Pembatalan terkontrol: transaksi kas tidak dihapus, dibalik dengan jurnal pembalik (hanya pemilik/admin, alasan wajib).
    * Ditolak bila sudah dicocokkan dengan mutasi bank, atau sudah menjadi kartu aset tetap.
    */
-  async void(user: AuthUser, id: string, dto: VoidCashDto) {
+  async void(user: AuthUser, id: string, dto: VoidCashDto, outer?: Tx) {
     const reason = dto.reason?.trim() ?? '';
     if (reason.length < 5) throw new BadRequestException('Alasan pembatalan wajib diisi (minimal 5 karakter)');
-    return this.db.transaction(async (tx) => {
+    const work = async (tx: Tx) => {
       const locked = await tx.execute<{ id: string }>(sql`SELECT id FROM cash_transactions WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
       if (!locked.rows.length) throw new NotFoundException('Transaksi kas tidak ditemukan');
       const [t] = await tx.select().from(cashTransactions).where(eq(cashTransactions.id, id));
@@ -314,7 +338,8 @@ export class CashService {
       await tx.update(cashTransactions).set({ status: 'VOID', voidedAt: new Date(), voidedById: user.sub, voidReason: reason, voidJournalId: rev.id }).where(eq(cashTransactions.id, id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'VOID', entity: 'CashTransaction', entityId: id, data: { number: t.number, amount: t.amount, reason } });
       return { id, number: t.number, status: 'VOID', reversalJournal: rev.number };
-    });
+    };
+    return outer ? work(outer) : this.db.transaction(work);
   }
 
   /**
@@ -452,8 +477,8 @@ export class CashController {
 
 @Module({
   imports: [AccountingModule, AssetsModule],
-  controllers: [CashController, CashCountController],
-  providers: [CashService, CashCountService],
-  exports: [CashService],
+  controllers: [CashController, CashCountController, PettyCashController],
+  providers: [CashService, CashCountService, PettyCashService],
+  exports: [CashService, PettyCashService],
 })
 export class CashModule {}

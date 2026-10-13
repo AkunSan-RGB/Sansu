@@ -295,6 +295,13 @@
       "when": 1792770686484,
       "tag": "0041_cash_controls",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1792857086484,
+      "tag": "0042_petty_cash",
+      "breakpoints": true
     }
   ]
 }

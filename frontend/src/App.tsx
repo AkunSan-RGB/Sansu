@@ -32,6 +32,7 @@ import ClosingPage from './features/accounting/ClosingPage';
 import LedgerPage from './features/accounting/LedgerPage';
 import OpeningBalancePage from './features/accounting/OpeningBalancePage';
 import CashPage from './features/cash/CashPage';
+import PettyCashPage from './features/cash/PettyCashPage';
 import CashCountsPage from './features/cash/CashCountsPage';
 import PurchaseInvoicesPage from './features/purchasing/PurchaseInvoicesPage';
 import PurchaseOrderDetailPage from './features/purchasing/PurchaseOrderDetailPage';
@@ -172,6 +173,7 @@ export default function App() {
         </Route>
         <Route element={<AppGate app="cash" />}>
           <Route path="cash" element={<CashPage />} />
+          <Route path="petty-cash" element={<PettyCashPage />} />
           <Route path="cash/counts" element={<CashCountsPage />} />
         </Route>
         <Route element={<AppGate app="accounting" />}>
