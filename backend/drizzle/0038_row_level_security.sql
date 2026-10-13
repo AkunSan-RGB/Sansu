@@ -9,7 +9,15 @@ BEGIN
   END IF;
 END $$;
 --> statement-breakpoint
-GRANT sansu_app TO CURRENT_USER;
+DO $$
+BEGIN
+  -- GRANT ulang oleh non-admin ditolak walau sudah anggota: lewati bila sudah anggota
+  IF NOT pg_has_role(current_user, 'sansu_app', 'member') THEN
+    EXECUTE format('GRANT sansu_app TO %I', current_user);
+  END IF;
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE EXCEPTION 'Peran sansu_app sudah ada (dibuat pengguna database lain) dan % bukan adminnya. Minta admin database menjalankan: GRANT sansu_app TO %; (atau DROP ROLE sansu_app bila tidak dipakai database lain), lalu jalankan ulang.', current_user, current_user;
+END $$;
 --> statement-breakpoint
 GRANT USAGE ON SCHEMA public TO sansu_app;
 --> statement-breakpoint
