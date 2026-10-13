@@ -1,10 +1,10 @@
 import { PrinterOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, Modal, Row, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { get, post, put } from '@/api/client';
-import { LEDGER_KEYS, useAction, useCashAccounts } from '@/api/queries';
+import { get, post } from '@/api/client';
+import { LEDGER_KEYS, useAction } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
 import { PettyReplenishSheet, PettyVoucherSheet } from '@/components/print/PettyCashDocs';
 import PageHeader from '@/layout/PageHeader';
@@ -51,7 +51,6 @@ export default function PettyCashPage() {
   const navigate = useNavigate();
   const { me } = useAuth();
   const admin = me?.role === 'OWNER' || me?.role === 'ADMIN';
-  const cashAccounts = useCashAccounts();
   const funds = useQuery({ queryKey: ['petty', 'funds'], queryFn: () => get<Fund[]>('/petty-cash/funds') });
   const fund = funds.data?.[0];
   const vouchers = useQuery({ queryKey: ['petty', 'vouchers', fund?.id], queryFn: () => get<Voucher[]>(`/petty-cash/vouchers?fundId=${fund!.id}`), enabled: !!fund });
@@ -59,32 +58,18 @@ export default function PettyCashPage() {
   const counter = useQuery({ queryKey: ['cash-counter-accounts'], queryFn: () => get<{ id: string; code: string; name: string; type: string }[]>('/cash/counter-accounts') });
   const expenseAccounts = (counter.data ?? []).filter((a) => a.type === 'EXPENSE');
 
-  const [setup, setSetup] = useState(false);
   const [voucherOpen, setVoucherOpen] = useState(false);
   const [voiding, setVoiding] = useState<Voucher | null>(null);
   const [preview, setPreview] = useState<{ kind: 'voucher'; v: Voucher } | { kind: 'list' } | null>(null);
-  const [setupForm] = Form.useForm();
   const [voucherForm] = Form.useForm();
   const [voidForm] = Form.useForm<{ reason: string }>();
   const done = { invalidate: [...LEDGER_KEYS, 'petty'] };
 
-  const saveFund = useAction((v: Record<string, unknown>) => put('/petty-cash/funds', v), { success: 'Dana kas kecil disimpan', ...done, onSuccess: () => setSetup(false) });
   const topUp = useAction((id: string) => post<{ amount: string }>(`/petty-cash/funds/${id}/top-up`, {}), { success: (r) => `Dana diisi ${fmtMoney(r.amount)}`, ...done });
   const addVoucher = useAction((v: Record<string, unknown>) => post('/petty-cash/vouchers', v), { success: 'Bukti kas kecil dicatat', ...done, onSuccess: () => setVoucherOpen(false) });
   const replenish = useAction((id: string) => post<{ number?: string; total?: string }>(`/petty-cash/funds/${id}/replenish`, {}), { success: (r) => `Pengisian kembali ${r.number ?? ''} diposting`, ...done });
   const doVoid = useAction((v: { id: string; reason: string }) => post(`/petty-cash/vouchers/${v.id}/void`, { reason: v.reason }), { success: 'Bukti dibatalkan', ...done, onSuccess: () => setVoiding(null) });
 
-  useEffect(() => {
-    if (setup) {
-      const petty = cashAccounts.data?.find((a) => a.code === '1-1110') ?? cashAccounts.data?.[0];
-      const main = cashAccounts.data?.find((a) => a.code === '1-1100');
-      setupForm.setFieldsValue(
-        fund
-          ? { accountId: fund.accountId, fundingAccountId: fund.fundingAccountId, name: fund.name, custodianName: fund.custodianName, imprestAmount: Number(fund.imprestAmount), maxVoucher: Number(fund.maxVoucher) }
-          : { accountId: petty?.id, fundingAccountId: main?.id, name: 'Kas Kecil', imprestAmount: 2_000_000, maxVoucher: 200_000 },
-      );
-    }
-  }, [setup, fund, cashAccounts.data, setupForm]);
 
   const variance = Number(fund?.variance ?? 0);
   return (
@@ -93,8 +78,8 @@ export default function PettyCashPage() {
         title="Kas Kecil"
         extra={
           admin && (
-            <Button type={fund ? 'default' : 'primary'} onClick={() => setSetup(true)}>
-              {fund ? 'Ubah dana tetap' : 'Atur dana kas kecil'}
+            <Button type={fund ? 'default' : 'primary'} onClick={() => navigate('/settings/company?tab=kebijakan')}>
+              {fund ? 'Ubah kebijakan kas kecil' : 'Atur kebijakan kas kecil'}
             </Button>
           )
         }
@@ -216,29 +201,6 @@ export default function PettyCashPage() {
           </Card>
         </>
       )}
-
-      <Modal title="Dana kas kecil (sistem dana tetap)" open={setup} onCancel={() => setSetup(false)} onOk={() => setupForm.submit()} confirmLoading={saveFund.isPending} okText="Simpan">
-        <Form form={setupForm} layout="vertical" onFinish={(v) => saveFund.mutate({ ...v, imprestAmount: String(v.imprestAmount), maxVoucher: String(v.maxVoucher) })}>
-          <Form.Item name="name" label="Nama dana" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="accountId" label="Akun kas kecil" rules={[{ required: true }]}>
-            <Select disabled={!!fund} options={cashAccounts.data?.map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` }))} />
-          </Form.Item>
-          <Form.Item name="fundingAccountId" label="Sumber pengisian (kas besar / bank)" rules={[{ required: true }]}>
-            <Select options={cashAccounts.data?.map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` }))} />
-          </Form.Item>
-          <Form.Item name="custodianName" label="Juru kas (pemegang dana)" rules={[{ required: true }]} extra="Satu orang yang bertanggung jawab; sebaiknya bukan pemberi persetujuan.">
-            <Input />
-          </Form.Item>
-          <Form.Item name="imprestAmount" label="Dana tetap (plafon)" rules={[{ required: true }]} extra="Sebesar kebutuhan 2–4 minggu. Dana diisi ulang sampai nilai ini.">
-            <InputNumber {...rupiahInput} min={1} style={{ width: '100%' }} prefix="Rp" />
-          </Form.Item>
-          <Form.Item name="maxVoucher" label="Batas nilai per bukti" rules={[{ required: true }]} extra="Pengeluaran lebih besar dicatat lewat Kas keluar dengan persetujuan.">
-            <InputNumber {...rupiahInput} min={1} style={{ width: '100%' }} prefix="Rp" />
-          </Form.Item>
-        </Form>
-      </Modal>
 
       <Modal title="Bukti kas kecil" open={voucherOpen} onCancel={() => setVoucherOpen(false)} onOk={() => voucherForm.submit()} confirmLoading={addVoucher.isPending} okText="Catat">
         <Form form={voucherForm} layout="vertical" onFinish={(v) => addVoucher.mutate({ ...v, fundId: fund!.id, amount: String(v.amount) })}>
