@@ -37,6 +37,10 @@ export class CreateUserDto {
   @IsOptional()
   @IsUUID('all', { each: true })
   warehouseIds?: string[];
+  @ApiPropertyOptional({ description: 'Batasi ke cabang tertentu (laporan & data cabang itu saja); kosong = semua cabang', type: [String] })
+  @IsOptional()
+  @IsUUID('all', { each: true })
+  branchIds?: string[];
 }
 
 export class ChangePasswordDto {

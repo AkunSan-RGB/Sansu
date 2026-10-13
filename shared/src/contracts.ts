@@ -44,6 +44,8 @@ export interface Me {
   taxFeatures: TaxFeatures;
   /** Model bisnis perusahaan (Dagang, Ritel, Jasa, Produksi, Manufaktur) */
   businessModel: BusinessModel;
+  /** Perusahaan punya cabang usaha (fitur cabang tampil); mati = menu & isian cabang disembunyikan */
+  multiBranch?: boolean;
   /** Standar pelaporan: SAK EMKM tidak mengenal penurunan nilai persediaan dan pengakuan pendapatan berdasarkan persentase penyelesaian */
   framework: ReportingFramework;
   emailVerified: boolean;
@@ -54,6 +56,7 @@ export interface Me {
   subscription: SubscriptionState;
   /** Gudang yang boleh diakses; null = semua */
   warehouseIds: string[] | null;
+  branchIds?: string[] | null;
   /** Verifikasi 2 langkah: aktif di akun ini / diwajibkan perusahaan */
   twoFactor: { enabled: boolean; required: boolean };
 }
@@ -746,6 +749,7 @@ export interface UserRow {
   isActive: boolean;
   /** Gudang yang boleh diakses; null = semua */
   warehouseIds: string[] | null;
+  branchIds?: string[] | null;
   /** Verifikasi 2 langkah aktif */
   twoFactor: boolean;
   createdAt: string;
@@ -889,6 +893,8 @@ export interface Quotation {
 // ---------- SDM ----------
 export interface Employee {
   id: string;
+  /** Cabang tempat karyawan bekerja (gaji dibebankan ke cabang ini); kosong = Pusat */
+  branchId?: string | null;
   code: string;
   name: string;
   /** Tenaga kerja langsung produksi */
@@ -1182,6 +1188,8 @@ export interface AssetCategory {
 }
 export interface FixedAsset {
   id: string;
+  /** Cabang pemilik aset (penyusutan dibebankan ke cabang ini); kosong = Pusat */
+  branchId?: string | null;
   code: string;
   name: string;
   categoryId: string;

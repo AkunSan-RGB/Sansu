@@ -50,7 +50,13 @@ export class CategoryDto {
 }
 export class UpdateCategoryDto extends PartialType(CategoryDto) {}
 
+export class TransferAssetBranchDto {
+  @ApiPropertyOptional({ description: 'Cabang tujuan; kosong = pusat' }) @IsOptional() @IsUUID() branchId?: string | null;
+  @ApiPropertyOptional({ example: '2026-10-15' }) @IsOptional() @IsDateString() date?: string;
+}
+
 export class CreateAssetDto {
+  @ApiPropertyOptional({ description: 'Cabang pemilik aset (penyusutan masuk laporan cabang itu); kosong = pusat' }) @IsOptional() @IsUUID() branchId?: string;
   @ApiPropertyOptional({ description: 'Kosong = otomatis AT-0001' }) @IsOptional() @IsString() @MaxLength(30) code?: string;
   @ApiProperty({ example: 'Truk Colt Diesel B 9123 XY' }) @IsString() @MaxLength(160) name: string;
   @ApiProperty() @IsUUID() categoryId: string;
@@ -238,6 +244,7 @@ export class AssetsService {
       if (!cat) throw new BadRequestException(dto.categoryId ? 'Kategori tidak sesuai dengan akun aset jurnal ini' : 'Akun ini dipakai beberapa kategori; pilih kategori asetnya');
       const amount = money(dto.amount ?? row.remaining);
       if (amount.lte(0) || amount.gt(row.remaining)) throw new BadRequestException(`Nilai harus lebih dari 0 dan paling banyak sisa yang belum terdaftar (${D(row.remaining).toFixed(2)})`);
+      const [jl] = (await tx.execute<{ b: string | null }>(sql`SELECT branch_id::text AS b FROM journal_lines WHERE journal_id = ${dto.journalId} AND account_id = ${dto.accountId} LIMIT 1`)).rows;
       const asset = await this.insertAsset(tx, user.tenantId, cat, {
         name: dto.name.trim(),
         acquisitionDate: row.date,
@@ -248,6 +255,7 @@ export class AssetsService {
         location: dto.location,
         notes: `Didaftarkan dari jurnal ${row.journalNumber}`,
         acquisitionJournalId: dto.journalId,
+        branchId: jl?.b ?? null,
       });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'FixedAsset', entityId: asset.id, data: { via: 'JOURNAL', journal: row.journalNumber, amount: amount.toFixed(2) } });
       return asset;
@@ -348,6 +356,10 @@ export class AssetsService {
     const id = await this.db.transaction(async (tx) => {
       const [cat] = await tx.select().from(assetCategories).where(and(eq(assetCategories.id, dto.categoryId), eq(assetCategories.tenantId, user.tenantId)));
       if (!cat) throw new BadRequestException('Kategori tidak ditemukan');
+      if (dto.branchId) {
+        const [b] = (await tx.execute<{ id: string }>(sql`SELECT id FROM branches WHERE id = ${dto.branchId} AND tenant_id = ${user.tenantId} AND is_active`)).rows;
+        if (!b) throw new BadRequestException('Cabang tidak ditemukan atau nonaktif');
+      }
       const cost = money(dto.cost);
       const residual = money(dto.residualValue ?? '0');
       if (cost.lte(0)) throw new BadRequestException('Harga perolehan harus > 0');
@@ -380,12 +392,13 @@ export class AssetsService {
         opening,
         location: dto.location,
         notes: dto.notes,
+        branchId: dto.branchId ?? null,
       });
       if (dto.funding !== 'EXISTING') {
-        const credit =
-          dto.funding === 'CASH'
-            ? { accountId: (await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'BANK')).id, credit: cost }
-            : { key: SYS.OTHER_PAYABLE, credit: cost };
+        const cashAcc = dto.funding === 'CASH' ? await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'BANK') : undefined;
+        const credit = cashAcc
+          ? { accountId: cashAcc.id, credit: cost, branchId: cashAcc.branchId ?? dto.branchId ?? null }
+          : { key: SYS.OTHER_PAYABLE, credit: cost, branchId: dto.branchId ?? null };
         const j = await this.posting.post(tx, {
           tenantId: user.tenantId,
           date: acquisitionDate,
@@ -393,7 +406,7 @@ export class AssetsService {
           sourceType: 'ASSET_ACQUISITION',
           sourceId: asset.id,
           createdById: user.sub,
-          lines: [{ accountId: cat.assetAccountId, debit: cost }, credit],
+          lines: [{ accountId: cat.assetAccountId, debit: cost, branchId: dto.branchId ?? null }, credit],
         });
         await tx.update(fixedAssets).set({ acquisitionJournalId: j.id }).where(eq(fixedAssets.id, asset.id));
       }
@@ -427,6 +440,7 @@ export class AssetsService {
       notes?: string;
       acquisitionJournalId?: string;
       purchaseInvoiceId?: string;
+      branchId?: string | null;
     },
   ) {
     const code = a.code?.trim().toUpperCase() || (await this.nextCode(tx, tenantId));
@@ -448,6 +462,7 @@ export class AssetsService {
         notes: a.notes,
         acquisitionJournalId: a.acquisitionJournalId,
         purchaseInvoiceId: a.purchaseInvoiceId,
+        branchId: a.branchId ?? null,
       })
       .returning();
     return asset;
@@ -460,7 +475,7 @@ export class AssetsService {
   async registerFromPurchase(
     tx: Tx,
     tenantId: string,
-    a: { categoryId: string; name: string; date: string; cost: Dec; usefulLifeMonths?: number; location?: string; journalId: string; purchaseInvoiceId: string; notes?: string },
+    a: { categoryId: string; name: string; date: string; cost: Dec; usefulLifeMonths?: number; location?: string; journalId: string; purchaseInvoiceId: string; notes?: string; branchId?: string | null },
   ) {
     const [cat] = await tx.select().from(assetCategories).where(and(eq(assetCategories.id, a.categoryId), eq(assetCategories.tenantId, tenantId)));
     if (!cat) throw new BadRequestException('Kategori aset tidak ditemukan');
@@ -475,6 +490,7 @@ export class AssetsService {
       notes: a.notes,
       acquisitionJournalId: a.journalId,
       purchaseInvoiceId: a.purchaseInvoiceId,
+      branchId: a.branchId ?? null,
     });
   }
 
@@ -495,7 +511,7 @@ export class AssetsService {
   async registerFromCash(
     tx: Tx,
     user: AuthUser,
-    a: { categoryId: string; name: string; date: string; cost: Dec; usefulLifeMonths?: number; location?: string; journalId: string; notes?: string },
+    a: { categoryId: string; name: string; date: string; cost: Dec; usefulLifeMonths?: number; location?: string; journalId: string; notes?: string; branchId?: string | null },
   ) {
     const [cat] = await tx.select().from(assetCategories).where(and(eq(assetCategories.id, a.categoryId), eq(assetCategories.tenantId, user.tenantId)));
     if (!cat) throw new BadRequestException('Kategori aset tidak ditemukan');
@@ -517,6 +533,7 @@ export class AssetsService {
       location: a.location,
       notes: a.notes,
       acquisitionJournalId: a.journalId,
+      branchId: a.branchId ?? null,
     });
     await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'FixedAsset', entityId: asset.id, data: { via: 'CASH' } });
     return asset;
@@ -577,16 +594,18 @@ export class AssetsService {
       const journals: { period: string; number: string; amount: string; assets: number }[] = [];
       for (const p of [...plan.keys()].sort()) {
         const items = plan.get(p)!;
-        const byCat = new Map<string, { cat: Category; amount: Dec }>();
+        // per kategori per cabang aset: biaya penyusutan masuk laporan cabang pemilik aset
+        const byCat = new Map<string, { cat: Category; amount: Dec; branchId: string | null }>();
         for (const it of items) {
-          const cur = byCat.get(it.cat.id) ?? { cat: it.cat, amount: ZERO };
-          byCat.set(it.cat.id, { cat: it.cat, amount: cur.amount.plus(it.amount) });
+          const key = `${it.cat.id}|${it.asset.branchId ?? ''}`;
+          const cur = byCat.get(key) ?? { cat: it.cat, amount: ZERO, branchId: it.asset.branchId ?? null };
+          byCat.set(key, { ...cur, amount: cur.amount.plus(it.amount) });
         }
-        const lines = [...byCat.values()].flatMap(({ cat, amount }) => {
+        const lines = [...byCat.values()].flatMap(({ cat, amount, branchId }) => {
           if (!cat.accumulatedAccountId || !cat.expenseAccountId) throw new BadRequestException(`Kategori ${cat.name} belum punya akun penyusutan`);
           return [
-            { accountId: cat.expenseAccountId, debit: amount, memo: cat.name },
-            { accountId: cat.accumulatedAccountId, credit: amount, memo: cat.name },
+            { accountId: cat.expenseAccountId, debit: amount, memo: cat.name, branchId },
+            { accountId: cat.accumulatedAccountId, credit: amount, memo: cat.name, branchId },
           ];
         });
         const total = items.reduce<Dec>((s, it) => s.plus(it.amount), ZERO);
@@ -722,6 +741,52 @@ export class AssetsService {
     }
   }
 
+  /**
+   * Pindahkan aset ke cabang lain: harga perolehan dan akumulasi penyusutan berpindah cabang; selisihnya (nilai buku) ditutup
+   * Rekening Antar Cabang otomatis, nol saat digabung. Penyusutan berikutnya masuk cabang baru.
+   */
+  async transferBranch(user: AuthUser, id: string, dto: TransferAssetBranchDto) {
+    const target = dto.branchId ?? null;
+    const date = toDocDate(dto.date);
+    await this.db.transaction(async (tx) => {
+      const a = await tx.query.fixedAssets.findFirst({ where: and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId)), with: { category: true } });
+      if (!a) throw new NotFoundException('Aset tidak ditemukan');
+      if (a.status !== 'ACTIVE') throw new BadRequestException('Aset sudah dilepas');
+      if ((a.branchId ?? null) === target) throw new BadRequestException('Aset sudah berada di cabang itu');
+      if (target) {
+        const [b] = (await tx.execute<{ id: string }>(sql`SELECT id FROM branches WHERE id = ${target} AND tenant_id = ${user.tenantId} AND is_active`)).rows;
+        if (!b) throw new BadRequestException('Cabang tidak ditemukan atau nonaktif');
+      }
+      if (date < a.acquisitionDate) throw new BadRequestException('Tanggal pindah sebelum tanggal perolehan');
+      // penyusutan sampai bulan sebelumnya dibukukan di cabang lama dulu
+      await this.run(user, periodOf(monthIndex(date.slice(0, 7)) - 1), a.id, tx);
+      const [p] = (await tx.execute<{ total: string }>(sql`SELECT COALESCE(SUM(amount), 0) AS total FROM asset_depreciations WHERE asset_id = ${a.id}`)).rows;
+      const accumulated = D(a.openingAccumulated).plus(p.total);
+      const cost = D(a.cost);
+      const from = a.branchId ?? null;
+      const lines: Parameters<PostingService['post']>[1]['lines'] = [
+        { accountId: a.category.assetAccountId, credit: cost, branchId: from },
+        { accountId: a.category.assetAccountId, debit: cost, branchId: target },
+      ];
+      if (accumulated.gt(0)) {
+        if (!a.category.accumulatedAccountId) throw new BadRequestException('Kategori tanpa akun akumulasi');
+        lines.push({ accountId: a.category.accumulatedAccountId, debit: accumulated, branchId: from }, { accountId: a.category.accumulatedAccountId, credit: accumulated, branchId: target });
+      }
+      const j = await this.posting.post(tx, {
+        tenantId: user.tenantId,
+        date,
+        description: `Pindah cabang aset ${a.code} ${a.name}`,
+        sourceType: 'ASSET_TRANSFER',
+        sourceId: `${a.id}:${date}`,
+        createdById: user.sub,
+        lines,
+      });
+      await tx.update(fixedAssets).set({ branchId: target }).where(eq(fixedAssets.id, a.id));
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'TRANSFER_BRANCH', entity: 'FixedAsset', entityId: a.id, data: { from, to: target, journal: j.number } });
+    });
+    return this.get(user.tenantId, id);
+  }
+
   async dispose(user: AuthUser, id: string, dto: DisposeDto, opts: { approved?: boolean } = {}) {
     const date = toDocDate(dto.date);
     if (!opts.approved) {
@@ -757,14 +822,18 @@ export class AssetsService {
       const price = money(dto.price);
       const bookValue = cost.minus(accumulated);
       const gain = price.minus(bookValue);
-      const lines: Parameters<PostingService['post']>[1]['lines'] = [{ accountId: a.category.assetAccountId, credit: cost }];
+      const ab = a.branchId ?? null;
+      const lines: Parameters<PostingService['post']>[1]['lines'] = [{ accountId: a.category.assetAccountId, credit: cost, branchId: ab }];
       if (accumulated.gt(0)) {
         if (!a.category.accumulatedAccountId) throw new BadRequestException('Kategori tanpa akun akumulasi');
-        lines.push({ accountId: a.category.accumulatedAccountId, debit: accumulated });
+        lines.push({ accountId: a.category.accumulatedAccountId, debit: accumulated, branchId: ab });
       }
-      if (price.gt(0)) lines.push({ accountId: (await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'BANK')).id, debit: price });
-      if (gain.gt(0)) lines.push({ key: SYS.ASSET_DISPOSAL_GAIN, credit: gain });
-      if (gain.lt(0)) lines.push({ key: SYS.ASSET_DISPOSAL_LOSS, debit: gain.abs() });
+      if (price.gt(0)) {
+        const cashAcc = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'BANK');
+        lines.push({ accountId: cashAcc.id, debit: price, branchId: cashAcc.branchId ?? ab });
+      }
+      if (gain.gt(0)) lines.push({ key: SYS.ASSET_DISPOSAL_GAIN, credit: gain, branchId: ab });
+      if (gain.lt(0)) lines.push({ key: SYS.ASSET_DISPOSAL_LOSS, debit: gain.abs(), branchId: ab });
       const j = await this.posting.post(tx, {
         tenantId: user.tenantId,
         date,
@@ -974,6 +1043,11 @@ export class AssetsController {
   @Post(':id/verify')
   verify(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VerifyDto) {
     return this.svc.verify(u, id, dto);
+  }
+  @Roles('ADMIN')
+  @Post(':id/transfer-branch')
+  transferBranch(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: TransferAssetBranchDto) {
+    return this.svc.transferBranch(u, id, dto);
   }
   @Post(':id/dispose')
   dispose(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: DisposeDto) {

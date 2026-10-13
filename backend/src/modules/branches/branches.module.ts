@@ -1,3 +1,4 @@
+import { assertAllBranches } from '../../common/auth/branch-access';
 import { BadRequestException, Body, Controller, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { CONTROL_PROFILES, REPORT_GROUPS } from '@sansu/shared';
@@ -11,7 +12,7 @@ import { addDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { branches, warehouses } from '../../db/schema';
+import { accounts, branches, warehouses } from '../../db/schema';
 import { get as gets, loadAccounts, natural, unclosedEarnings, type Sum, ZERO_SUM } from '../accounting/ledger-data';
 import { SYS } from '../accounting/default-coa';
 
@@ -27,6 +28,10 @@ export class UpdateBranchDto {
 }
 export class AssignWarehouseDto {
   @ApiPropertyOptional({ description: 'Cabang pemilik gudang/toko; kosong = lepas dari cabang' }) @IsOptional() @IsUUID() branchId?: string | null;
+}
+
+export class ToggleBranchesDto {
+  @ApiProperty() @IsBoolean() enabled: boolean;
 }
 
 const NONE = 'NONE';
@@ -55,7 +60,8 @@ export class BranchesService {
   async list(tenantId: string) {
     const rows = await this.db.select().from(branches).where(eq(branches.tenantId, tenantId)).orderBy(asc(branches.code));
     const whs = await this.db.select({ id: warehouses.id, code: warehouses.code, name: warehouses.name, branchId: warehouses.branchId, isActive: warehouses.isActive }).from(warehouses).where(eq(warehouses.tenantId, tenantId)).orderBy(asc(warehouses.code));
-    return { branches: rows.map((b) => ({ ...b, warehouses: whs.filter((w) => w.branchId === b.id) })), unassignedWarehouses: whs.filter((w) => !w.branchId && w.isActive) };
+    const cash = await this.db.select({ id: accounts.id, code: accounts.code, name: accounts.name, branchId: accounts.branchId }).from(accounts).where(and(eq(accounts.tenantId, tenantId), eq(accounts.isCashAccount, true), eq(accounts.isPostable, true))).orderBy(asc(accounts.code));
+    return { branches: rows.map((b) => ({ ...b, warehouses: whs.filter((w) => w.branchId === b.id) })), unassignedWarehouses: whs.filter((w) => !w.branchId && w.isActive), cashAccounts: cash };
   }
 
   async create(user: AuthUser, dto: CreateBranchDto) {
@@ -89,6 +95,30 @@ export class BranchesService {
     }
     await this.db.update(warehouses).set({ branchId }).where(eq(warehouses.id, warehouseId));
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'ASSIGN_BRANCH', entity: 'Warehouse', entityId: warehouseId, data: { from: w.branchId, to: branchId } });
+    return { ok: true };
+  }
+
+  /** Nyalakan/matikan fitur cabang. Tidak bisa dimatikan selama masih ada cabang. */
+  async setEnabled(user: AuthUser, enabled: boolean) {
+    if (!enabled) {
+      const [b] = await this.db.select({ id: branches.id }).from(branches).where(eq(branches.tenantId, user.tenantId)).limit(1);
+      if (b) throw new BadRequestException('Fitur cabang tidak bisa dimatikan selama masih ada cabang. Nonaktifkan semua cabang lebih dulu atau biarkan menyala.');
+    }
+    await this.settings.saveSection(this.db, user.tenantId, 'branches', { enabled: false }, { enabled });
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'BranchFeature', entityId: user.tenantId, data: { enabled } });
+    return { enabled };
+  }
+
+  /** Rekening kas/bank milik cabang: transaksi lewat rekening ini otomatis berlabel cabang itu */
+  async assignAccount(user: AuthUser, accountId: string, branchId: string | null) {
+    const [a] = await this.db.select().from(accounts).where(and(eq(accounts.id, accountId), eq(accounts.tenantId, user.tenantId), eq(accounts.isCashAccount, true)));
+    if (!a) throw new NotFoundException('Rekening kas/bank tidak ditemukan');
+    if (branchId) {
+      const [b] = await this.db.select().from(branches).where(and(eq(branches.id, branchId), eq(branches.tenantId, user.tenantId)));
+      if (!b || !b.isActive) throw new BadRequestException('Cabang tidak ditemukan atau nonaktif');
+    }
+    await this.db.update(accounts).set({ branchId }).where(eq(accounts.id, accountId));
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'ASSIGN_BRANCH', entity: 'Account', entityId: accountId, data: { code: a.code, from: a.branchId, to: branchId } });
     return { ok: true };
   }
 
@@ -272,18 +302,21 @@ export class BranchesController {
   @Get('report')
   @Roles('ADMIN', 'FINANCE')
   report(@CurrentUser() u: AuthUser, @Query('from') from?: string, @Query('to') to?: string) {
+    assertAllBranches(u);
     return this.svc.report(u.tenantId, from, to);
   }
 
   @Get('balance-sheet')
   @Roles('ADMIN', 'FINANCE')
   balanceSheet(@CurrentUser() u: AuthUser, @Query('asOf') asOf?: string) {
+    assertAllBranches(u);
     return this.svc.balanceSheet(u.tenantId, asOf);
   }
 
   @Get('controls')
   @Roles('ADMIN', 'FINANCE')
   controls(@CurrentUser() u: AuthUser) {
+    assertAllBranches(u);
     return this.svc.controls(u.tenantId);
   }
 
@@ -297,6 +330,18 @@ export class BranchesController {
   @Roles('ADMIN')
   update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateBranchDto) {
     return this.svc.update(u, id, dto);
+  }
+
+  @Put('feature')
+  @Roles('ADMIN')
+  feature(@CurrentUser() u: AuthUser, @Body() dto: ToggleBranchesDto) {
+    return this.svc.setEnabled(u, dto.enabled);
+  }
+
+  @Put('accounts/:accountId')
+  @Roles('ADMIN')
+  assignAccount(@CurrentUser() u: AuthUser, @Param('accountId', ParseUUIDPipe) accountId: string, @Body() dto: AssignWarehouseDto) {
+    return this.svc.assignAccount(u, accountId, dto.branchId ?? null);
   }
 
   @Put('warehouses/:warehouseId')

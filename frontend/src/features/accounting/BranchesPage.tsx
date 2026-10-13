@@ -226,6 +226,7 @@ function SettingsTab() {
   const create = useAction((v: { code: string; name: string; address?: string }) => post('/branches', v), { success: 'Cabang dibuat', invalidate: ['branches'], onSuccess: () => setOpen(false) });
   const toggle = useAction((v: { id: string; isActive: boolean }) => patch(`/branches/${v.id}`, { isActive: v.isActive }), { success: 'Tersimpan', invalidate: ['branches'] });
   const assign = useAction((v: { warehouseId: string; branchId: string | null }) => put(`/branches/warehouses/${v.warehouseId}`, { branchId: v.branchId }), { success: 'Gudang/toko dipasangkan', invalidate: ['branches'] });
+  const assignAcc = useAction((v: { accountId: string; branchId: string | null }) => put(`/branches/accounts/${v.accountId}`, { branchId: v.branchId }), { success: 'Rekening dipasangkan ke cabang', invalidate: ['branches'] });
   const all = [...(q.data?.branches.flatMap((b) => b.warehouses.map((w) => ({ ...w, branchId: b.id }))) ?? []), ...(q.data?.unassignedWarehouses.map((w) => ({ ...w, isActive: true, branchId: null as string | null })) ?? [])];
   return (
     <>
@@ -275,6 +276,37 @@ function SettingsTab() {
           },
         ]}
       />
+      {(q.data?.cashAccounts?.length ?? 0) > 0 && (
+        <>
+          <Typography.Title level={5} style={{ marginTop: 20 }}>
+            Kas / bank milik cabang
+          </Typography.Title>
+          <Alert type="info" showIcon style={{ marginBottom: 8 }} message="Transaksi, mutasi bank, dan aturan otomatis lewat rekening ini otomatis berlabel cabangnya. Kosong = milik Pusat." />
+          <Table
+            size="small"
+            rowKey="id"
+            pagination={false}
+            dataSource={q.data?.cashAccounts}
+            columns={[
+              { title: 'Rekening', render: (_: unknown, a: { id: string; code: string; name: string; branchId: string | null }) => `${a.code} · ${a.name}` },
+              {
+                title: 'Cabang',
+                render: (_: unknown, a: { id: string; code: string; name: string; branchId: string | null }) => (
+                  <Select
+                    allowClear
+                    disabled={!admin}
+                    placeholder="Pusat"
+                    style={{ width: 240 }}
+                    value={a.branchId ?? undefined}
+                    options={(q.data?.branches ?? []).filter((b) => b.isActive).map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))}
+                    onChange={(v) => assignAcc.mutate({ accountId: a.id, branchId: v ?? null })}
+                  />
+                ),
+              },
+            ]}
+          />
+        </>
+      )}
       <Modal title="Cabang baru" open={open} onCancel={() => setOpen(false)} onOk={() => form.submit()} confirmLoading={create.isPending}>
         <Form form={form} layout="vertical" onFinish={(v) => create.mutate(v)}>
           <Form.Item name="code" label="Kode" rules={[{ required: true, min: 2 }]}><Input maxLength={20} placeholder="CB-BKS" /></Form.Item>

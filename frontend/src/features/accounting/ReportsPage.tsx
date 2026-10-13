@@ -66,9 +66,12 @@ export default function ReportsPage() {
   const [method, setMethod] = useState<'indirect' | 'direct'>('indirect');
   const [showOptional, setShowOptional] = useState(false);
   const branchList = useBranches();
-  const branchOpts = (branchList.data?.branches ?? []).filter((b) => b.isActive);
+  const myBranches = me?.branchIds?.length ? me.branchIds : null;
+  const branchOpts = (branchList.data?.branches ?? []).filter((b) => b.isActive && (!myBranches || myBranches.includes(b.id)));
   /** Cakupan laporan bagi perusahaan bercabang: konsolidasi (pusat + semua cabang), pusat saja, atau satu cabang */
-  const [scope, setScope] = useState<'ALL' | 'HQ' | 'BRANCH'>('ALL');
+  const [scopeRaw, setScope] = useState<'ALL' | 'HQ' | 'BRANCH'>('ALL');
+  /** Pengguna yang dibatasi ke cabang hanya boleh melihat cabangnya (bukan konsolidasi/pusat) */
+  const scope = myBranches ? 'BRANCH' : scopeRaw;
   const [branchPick, setBranchPick] = useState<string>();
   const hasBranches = branchOpts.length > 0;
   const pick = branchPick ?? branchOpts[0]?.id;
@@ -155,11 +158,11 @@ export default function ReportsPage() {
             </Tag>
             {hasBranches && SCOPED.includes(tab) && (
               <>
-                <Segmented
+                {!myBranches && <Segmented
                   value={scope}
                   onChange={(v) => setScope(v as 'ALL' | 'HQ' | 'BRANCH')}
                   options={[{ value: 'ALL', label: 'Konsolidasi' }, { value: 'HQ', label: 'Pusat' }, { value: 'BRANCH', label: 'Cabang' }]}
-                />
+                />}
                 {scope === 'BRANCH' && (
                   <Select value={pick} onChange={setBranchPick} style={{ width: 200 }} options={branchOpts.map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))} />
                 )}

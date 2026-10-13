@@ -12,4 +12,6 @@ export interface AuthUser {
   emailVerified?: boolean;
   /** Gudang yang boleh diakses (diisi guard dari database); kosong = semua */
   warehouseIds?: string[] | null;
+  /** Cabang yang boleh diakses (diisi guard dari database); kosong = semua */
+  branchIds?: string[] | null;
 }

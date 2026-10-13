@@ -5,7 +5,7 @@ import dayjs from 'dayjs';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { get, qs } from '@/api/client';
-import { useAccounts } from '@/api/queries';
+import { useAccounts, useBranches } from '@/api/queries';
 import type { LedgerReport } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import ExportButtons from '@/components/ExportButtons';
@@ -20,10 +20,15 @@ export default function LedgerPage() {
   const [from, setFrom] = useState(params.get('from') ?? dayjs().startOf('month').format('YYYY-MM-DD'));
   const [to, setTo] = useState(params.get('to') ?? today());
   const accounts = useAccounts();
+  const branchList = useBranches();
+  const myBranches = me?.branchIds?.length ? me.branchIds : null;
+  const branchOpts = (branchList.data?.branches ?? []).filter((b) => !myBranches || myBranches.includes(b.id));
+  const [branch, setBranch] = useState<string>();
+  const branchId = myBranches ? (branch ?? myBranches[0]) : branch;
 
   const { data, isFetching } = useQuery({
-    queryKey: ['ledger', accountId, from, to],
-    queryFn: () => get<LedgerReport>(`/accounting/reports/ledger${qs({ accountId, from, to })}`),
+    queryKey: ['ledger', accountId, from, to, branchId],
+    queryFn: () => get<LedgerReport>(`/accounting/reports/ledger${qs({ accountId, from, to, branchId })}`),
     enabled: !!accountId,
   });
 
@@ -44,6 +49,16 @@ export default function LedgerPage() {
               onChange={(v) => setParams({ accountId: v })}
               options={accounts.data?.filter((a) => a.isPostable).map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` }))}
             />
+            {branchOpts.length > 0 && (
+              <Select
+                allowClear={!myBranches}
+                placeholder="Semua cabang"
+                style={{ width: 200 }}
+                value={branchId}
+                onChange={setBranch}
+                options={[...(myBranches ? [] : [{ value: 'NONE', label: 'Pusat' }]), ...branchOpts.map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))]}
+              />
+            )}
             <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
             <span>s/d</span>
             <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />

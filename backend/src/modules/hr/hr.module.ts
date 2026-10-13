@@ -95,6 +95,11 @@ export class CreateEmployeeDto {
   @IsUUID()
   projectId?: string | null;
   @ApiPropertyOptional({ description: 'Tenaga kerja langsung produksi (gaji masuk harga pokok produksi)' }) @IsOptional() @IsBoolean() isProduction?: boolean;
+  @ApiPropertyOptional({ description: 'Cabang tempat bekerja: gaji & BPJS otomatis masuk laporan cabang itu; null = pusat' })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsUUID()
+  branchId?: string | null;
 }
 export class UpdateEmployeeDto extends PartialType(CreateEmployeeDto) {
   @ApiPropertyOptional() @IsOptional() @IsBoolean() isActive?: boolean;
@@ -158,8 +163,15 @@ export class HrService {
     if (!p) throw new BadRequestException('Proyek tidak ditemukan');
   }
 
+  private async assertBranch(tenantId: string, branchId?: string | null) {
+    if (!branchId) return;
+    const r = await this.db.execute<{ id: string }>(sql`SELECT id FROM branches WHERE id = ${branchId} AND tenant_id = ${tenantId} AND is_active`);
+    if (!r.rows.length) throw new BadRequestException('Cabang tidak ditemukan atau nonaktif');
+  }
+
   async createEmployee(user: AuthUser, dto: CreateEmployeeDto) {
     await this.assertProject(user.tenantId, dto.projectId);
+    await this.assertBranch(user.tenantId, dto.branchId);
     const [e] = await this.db
       .insert(employees)
       .values({ ...dto, tenantId: user.tenantId, code: dto.code.trim().toUpperCase(), joinDate: toDocDate(dto.joinDate) })
@@ -171,6 +183,7 @@ export class HrService {
   async updateEmployee(user: AuthUser, id: string, dto: UpdateEmployeeDto) {
     await this.getEmployee(user.tenantId, id);
     await this.assertProject(user.tenantId, dto.projectId);
+    await this.assertBranch(user.tenantId, dto.branchId);
     const [e] = await this.db
       .update(employees)
       .set({ ...dto, code: dto.code?.trim().toUpperCase() })

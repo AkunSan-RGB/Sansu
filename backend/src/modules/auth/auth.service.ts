@@ -10,13 +10,13 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { taxFeatures } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { authTokens, tenants, users } from '../../db/schema';
+import { authTokens, branches, tenants, users } from '../../db/schema';
 import { SubscriptionService } from '../../common/billing/subscription.service';
 import { verificationRequired } from '../../common/billing/subscription.guard';
 import { isPlatformAdmin } from '../../common/auth/platform-admin';
@@ -382,6 +382,7 @@ export class AuthService {
         ppnRate: tenants.ppnRate,
         emailVerifiedAt: users.emailVerifiedAt,
         warehouseIds: users.warehouseIds,
+        branchIds: users.branchIds,
         totpEnabledAt: users.totpEnabledAt,
       })
       .from(users)
@@ -393,6 +394,7 @@ export class AuthService {
       twoFactor: { enabled: !!totpEnabledAt, required: await this.twoFactor.requiredFor(u.tenantId, row.role) },
       apps: [...(await this.apps.enabled(u.tenantId))],
       businessModel: await this.settings.businessModel(this.db, u.tenantId),
+      multiBranch: await this.multiBranch(u.tenantId),
       framework: (await this.settings.reporting(this.db, u.tenantId)).framework,
       taxProfile: await this.settings.taxProfile(this.db, u.tenantId),
       taxFeatures: await this.taxFeatures(u.tenantId),
@@ -425,6 +427,7 @@ export class AuthService {
         role: users.role,
         isActive: users.isActive,
         warehouseIds: users.warehouseIds,
+        branchIds: users.branchIds,
         twoFactor: sql<boolean>`${users.totpEnabledAt} IS NOT NULL`,
         createdAt: users.createdAt,
       })
@@ -451,9 +454,26 @@ export class AuthService {
         passwordHash: await bcrypt.hash(dto.password, 10),
         emailVerifiedAt: new Date(),
         warehouseIds: (await normalizeWarehouseIds(this.db, actor.tenantId, dto.warehouseIds)) ?? null,
+        branchIds: await this.normalizeBranchIds(actor.tenantId, dto.branchIds),
       })
       .returning({ id: users.id, name: users.name, email: users.email, role: users.role });
     return user;
+  }
+
+  /** Fitur cabang hanya untuk perusahaan yang punya cabang usaha: dinyalakan di Pengaturan, atau otomatis bila sudah ada cabang */
+  private async multiBranch(tenantId: string) {
+    const flag = await this.settings.section(this.db, tenantId, 'branches', { enabled: false });
+    if (flag.enabled) return true;
+    const [b] = await this.db.select({ id: branches.id }).from(branches).where(eq(branches.tenantId, tenantId)).limit(1);
+    return !!b;
+  }
+
+  private async normalizeBranchIds(tenantId: string, ids?: string[]) {
+    const uniq = [...new Set(ids ?? [])];
+    if (!uniq.length) return null;
+    const rows = await this.db.select({ id: branches.id }).from(branches).where(and(eq(branches.tenantId, tenantId), inArray(branches.id, uniq)));
+    if (rows.length !== uniq.length) throw new BadRequestException('Ada cabang yang tidak ditemukan');
+    return uniq;
   }
 
   private async assertEmailFree(email: string) {

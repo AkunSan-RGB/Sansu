@@ -201,6 +201,7 @@ export class CreateBillDto {
   @ArrayMinSize(1)
   lines: BillLineDto[];
   @ApiPropertyOptional({ description: 'Hanya Pemilik: alasan menembus blokir anggaran (min. 10 karakter)' }) @IsOptional() @IsString() @MaxLength(300) budgetOverrideReason?: string;
+  @ApiPropertyOptional({ description: 'Cabang tagihan ini (biaya/aset cabang tertentu); kosong = pusat' }) @IsOptional() @IsUUID() branchId?: string;
 }
 
 export class VoidSupplierPaymentDto {

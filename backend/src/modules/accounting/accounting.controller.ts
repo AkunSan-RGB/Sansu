@@ -1,3 +1,4 @@
+import { scopeBranch } from '../../common/auth/branch-access';
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -68,7 +69,7 @@ export class AccountingController {
 
   @Get('journals')
   listJournals(@CurrentUser() u: AuthUser, @Query() q: JournalQueryDto) {
-    return this.svc.listJournals(u.tenantId, q);
+    return this.svc.listJournals(u.tenantId, q, u.branchIds);
   }
 
   // ---------- Jurnal berulang ----------
@@ -96,27 +97,27 @@ export class AccountingController {
   // ---------- Laporan keuangan SAK EP / SAK EMKM ----------
   @Get('statements/financial-position')
   financialPosition(@CurrentUser() u: AuthUser, @Query() q: PositionQueryDto) {
-    return this.statements.financialPosition(u.tenantId, q.asOf, q.compareAsOf, q.branchId);
+    return this.statements.financialPosition(u.tenantId, q.asOf, q.compareAsOf, scopeBranch(u, q.branchId));
   }
   @Get('statements/income')
   income(@CurrentUser() u: AuthUser, @Query() q: StatementQueryDto) {
-    return this.statements.income(u.tenantId, q, q.framework);
+    return this.statements.income(u.tenantId, { ...q, branchId: scopeBranch(u, q.branchId) }, q.framework);
   }
   @Get('statements/equity')
   equity(@CurrentUser() u: AuthUser, @Query() q: StatementQueryDto) {
-    return this.statements.equityChanges(u.tenantId, q);
+    return this.statements.equityChanges(u.tenantId, { ...q, branchId: scopeBranch(u, q.branchId) });
   }
   @Get('statements/cash-flow')
   statementCashFlow(@CurrentUser() u: AuthUser, @Query() q: StatementQueryDto) {
-    return this.statements.cashFlow(u.tenantId, q);
+    return this.statements.cashFlow(u.tenantId, { ...q, branchId: scopeBranch(u, q.branchId) });
   }
   @Get('statements/trial-balance')
   fullTrialBalance(@CurrentUser() u: AuthUser, @Query() q: StatementQueryDto) {
-    return this.statements.trialBalance(u.tenantId, q);
+    return this.statements.trialBalance(u.tenantId, { ...q, branchId: scopeBranch(u, q.branchId) });
   }
   @Get('statements/worksheet')
   worksheet(@CurrentUser() u: AuthUser, @Query() q: StatementQueryDto) {
-    return this.statements.worksheet(u.tenantId, q);
+    return this.statements.worksheet(u.tenantId, { ...q, branchId: scopeBranch(u, q.branchId) });
   }
   @Get('statements/framework')
   async framework(@CurrentUser() u: AuthUser) {
@@ -125,12 +126,12 @@ export class AccountingController {
 
   @Get('journals/:id')
   getJournal(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.getJournal(u.tenantId, id);
+    return this.svc.getJournal(u.tenantId, id, u.branchIds);
   }
 
   @Get('journals/:id/document')
   journalDocument(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.journalDocument(u.tenantId, id);
+    return this.svc.journalDocument(u.tenantId, id, u.branchIds);
   }
 
   @Post('journals')
@@ -175,7 +176,7 @@ export class AccountingController {
 
   @Get('reports/trial-balance')
   trialBalance(@CurrentUser() u: AuthUser, @Query() q: PeriodQueryDto) {
-    return this.svc.trialBalance(u.tenantId, q.from, q.to);
+    return this.svc.trialBalance(u.tenantId, q.from, q.to, scopeBranch(u, q.branchId));
   }
 
   @Get('reports/profit-loss')
@@ -190,7 +191,7 @@ export class AccountingController {
 
   @Get('reports/ledger')
   ledger(@CurrentUser() u: AuthUser, @Query() q: LedgerQueryDto) {
-    return this.svc.ledger(u.tenantId, q.accountId, q.from, q.to, q.limit);
+    return this.svc.ledger(u.tenantId, q.accountId, q.from, q.to, q.limit, scopeBranch(u, q.branchId));
   }
 
   @Get('reports/cash-flow')
