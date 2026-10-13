@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { assertProductionConfig, configureApp } from './bootstrap';
+import { serveWeb } from './serve-web';
 import { createPool } from './db/db';
 import { runMigrations } from './db/run-migrations';
 
@@ -17,6 +18,8 @@ async function bootstrap() {
   const app = configureApp(await NestFactory.create(AppModule, { bodyParser: false }));
   app.enableCors({ origin: (process.env.CORS_ORIGIN ?? 'http://localhost:5173').split(','), credentials: true });
   app.enableShutdownHooks();
+  // Mode satu layanan: sajikan tampilan web dari frontend/dist bila ada (Railway dll.)
+  const webServed = serveWeb(app);
 
   // Dokumentasi API hanya di pengembangan, kecuali diaktifkan eksplisit (SWAGGER=true)
   const swagger = process.env.NODE_ENV !== 'production' || process.env.SWAGGER === 'true';
@@ -30,6 +33,6 @@ async function bootstrap() {
 
   const port = Number(process.env.API_PORT ?? process.env.PORT ?? 3000);
   await app.listen(port);
-  Logger.log(`API berjalan di http://localhost:${port}/api${swagger ? `  ·  Dokumentasi: http://localhost:${port}/api/docs` : ''}`);
+  Logger.log(`${webServed ? 'Web + API' : 'API'} berjalan di http://localhost:${port}${webServed ? '' : '/api'}${swagger ? `  ·  Dokumentasi: http://localhost:${port}/api/docs` : ''}`);
 }
 bootstrap();
