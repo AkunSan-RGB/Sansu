@@ -22,6 +22,7 @@ import {
   Table,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import dayjs from 'dayjs';
@@ -34,7 +35,7 @@ import ExportButtons from '@/components/ExportButtons';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { Amount } from './statements/format';
-import { fixedAssetsSheet } from '@/lib/xlsx/reports';
+import { assetCountSheet, fixedAssetsSheet } from '@/lib/xlsx/reports';
 import { useAuth } from '@/auth/AuthContext';
 import { t } from '@/lib/terms';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -427,6 +428,22 @@ function AssetList() {
             title={`Daftar Aset Tetap per ${fmtDate(asOf)}`}
             sheets={() => fixedAssetsSheet(rows, asOf, me?.tenantName)}
           />
+          <Tooltip title="Lembar kosong untuk dibawa berkeliling: isi kondisi tiap aset, lalu catat hasilnya di SANSU">
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
+              <Typography.Text type="secondary">Lembar pemeriksaan fisik:</Typography.Text>
+              <ExportButtons
+                filename={`pemeriksaan-fisik-aset-${asOf}`}
+                title={`Daftar Pemeriksaan Fisik Aset per ${fmtDate(asOf)}`}
+                sheets={() =>
+                  assetCountSheet(
+                    [...rows].filter((a) => a.status === 'ACTIVE').sort((a, b) => (a.location ?? '').localeCompare(b.location ?? '') || a.code.localeCompare(b.code)),
+                    asOf,
+                    me?.tenantName,
+                  )
+                }
+              />
+            </span>
+          </Tooltip>
         </Space>
         <Table
           rowKey="id"
