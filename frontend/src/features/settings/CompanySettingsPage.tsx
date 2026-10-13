@@ -384,6 +384,7 @@ export default function CompanySettingsPage() {
                   </Form>
                 </Card>
                 <InventoryMethodCard />
+                {can('cash') && <PettyCashPolicyCard />}
               </Space>
             ),
           },
@@ -490,7 +491,6 @@ export default function CompanySettingsPage() {
         <div style={wide}>
           <ApprovalPolicyCard />
           <CashControlCard />
-          {can('cash') && <PettyCashPolicyCard />}
         </div>
       ),
     },

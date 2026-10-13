@@ -78,7 +78,7 @@ export default function PettyCashPage() {
         title="Kas Kecil"
         extra={
           admin && (
-            <Button type={fund ? 'default' : 'primary'} onClick={() => navigate('/settings/company?tab=persetujuan')}>
+            <Button type={fund ? 'default' : 'primary'} onClick={() => navigate('/settings/company?tab=kebijakan')}>
               {fund ? 'Ubah kebijakan kas kecil' : 'Atur kebijakan kas kecil'}
             </Button>
           )

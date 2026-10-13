@@ -49,7 +49,7 @@ export default function PettyCashPolicyCard() {
   const tooBig = !!imprest && !!maxVoucher && maxVoucher > imprest * 0.25;
 
   return (
-    <Card title="Kas kecil (dana tetap)" style={{ marginTop: 16 }}>
+    <Card title="Kas kecil (dana tetap)">
       <Alert
         type="info"
         showIcon
