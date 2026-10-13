@@ -423,9 +423,13 @@ export default function AppLayout() {
                 aria-label="Semua aplikasi"
               />
             )}
-            <Typography.Text strong ellipsis style={{ maxWidth: isDesktop ? 400 : 200 }}>
-              {me.tenantName}
-            </Typography.Text>
+            <span className="sh-chip" style={{ maxWidth: isDesktop ? 400 : 190 }}>
+              <i />
+              <Typography.Text strong ellipsis style={{ color: 'inherit' }}>
+                {me.tenantName}
+              </Typography.Text>
+            </span>
+            {screens.lg && <span className="sh-date">{new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <ReminderBell />

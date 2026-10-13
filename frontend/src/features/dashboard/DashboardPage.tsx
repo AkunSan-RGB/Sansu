@@ -51,6 +51,13 @@ export default function DashboardPage() {
     { title: t('Hutang ke supplier'), icon: <BankOutlined />, tone: ['#FDECEC', '#B42318'], value: fmtMoney(data?.apOutstanding), sub: 'Faktur pembelian belum lunas', to: '/purchase-invoices', hidden: data?.apOutstanding === null },
   ];
 
+  const quick = [
+    { label: 'Faktur penjualan', to: '/invoices', icon: <FileDoneOutlined />, on: finance || me?.role === 'SALES' },
+    { label: t('Pelanggan'), to: '/customers', icon: <ShopOutlined />, on: true },
+    { label: 'Produk & stok', to: '/products', icon: <DatabaseOutlined />, on: true },
+    { label: 'Laporan', to: '/reports', icon: <FundOutlined />, on: finance },
+  ].filter((q) => q.on);
+
   const greet = (() => {
     const h = dayjs().hour();
     return h < 11 ? 'Selamat pagi' : h < 15 ? 'Selamat siang' : h < 18 ? 'Selamat sore' : 'Selamat malam';
@@ -92,7 +99,15 @@ export default function DashboardPage() {
           message={`${data.overdueCount} faktur sudah lewat jatuh tempo senilai ${fmtMoney(data.arOverdue)}. Pelanggan terkait otomatis diblokir dari order baru.`}
         />
       )}
-      <Row gutter={[16, 16]}>
+      <div className="qa">
+        {quick.map((q) => (
+          <button key={q.to} type="button" onClick={() => navigate(q.to)}>
+            <span className="qa-ic">{q.icon}</span>
+            {q.label}
+          </button>
+        ))}
+      </div>
+      <Row gutter={[16, 16]} className="row-kpi">
         {cards.filter((c) => !c.hidden).map((c) => (
           <Col xs={24} sm={12} xl={8} key={c.title}>
             <div className={`kpi${c.to ? ' clickable' : ''}`} onClick={() => c.to && navigate(c.to)} role={c.to ? 'link' : undefined}>

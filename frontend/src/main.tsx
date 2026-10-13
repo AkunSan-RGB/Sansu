@@ -16,6 +16,7 @@ import App from './App';
 import { AuthProvider } from './auth/AuthContext';
 import { sansuTheme } from './brand/theme';
 import './print.css';
+import './shell.css';
 
 dayjs.locale('id');
 
