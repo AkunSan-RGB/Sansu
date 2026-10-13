@@ -527,8 +527,8 @@ export class StatementsService {
     const accs = await loadAccounts(this.db, tenantId);
     const [open, unadj, adj] = await Promise.all([
       sumByAccount(this.db, tenantId, { to: dayBefore(from) }),
-      sumByAccount(this.db, tenantId, { from, to, excludeSources: ['CLOSING', ...ADJUSTING_SOURCES] }),
-      sumByAccount(this.db, tenantId, { from, to, onlySources: ADJUSTING_SOURCES }),
+      sumByAccount(this.db, tenantId, { from, to, excludeSources: ['CLOSING', ...ADJUSTING_SOURCES], reversalInheritsSource: true }),
+      sumByAccount(this.db, tenantId, { from, to, onlySources: ADJUSTING_SOURCES, reversalInheritsSource: true }),
     ]);
     const isPL = (a: AccountMeta) => a.type === 'REVENUE' || a.type === 'EXPENSE';
     const pair = (net: Dec) => ({ debit: net.gt(0) ? net : ZERO, credit: net.lt(0) ? net.abs() : ZERO });
