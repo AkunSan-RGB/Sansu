@@ -373,7 +373,7 @@ export const approvalRequests = pgTable(
   {
     id: id(),
     tenantId: tenantId(),
-    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL'>().notNull(),
+    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX'>().notNull(),
     /** Dokumen yang dimintakan persetujuan (PO); kosong untuk jurnal manual yang baru diposting setelah disetujui */
     refId: text('ref_id'),
     title: text('title').notNull(),
@@ -1049,6 +1049,12 @@ export const cashTransactions = pgTable(
     journalId: uuid('journal_id'),
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
+    /** POSTED | VOID (dibatalkan dengan jurnal pembalik; transaksi tidak pernah dihapus) */
+    status: text('status').$type<'POSTED' | 'VOID'>().notNull().default('POSTED'),
+    voidedAt: timestamp('voided_at', { withTimezone: true }),
+    voidedById: uuid('voided_by_id'),
+    voidReason: text('void_reason'),
+    voidJournalId: uuid('void_journal_id'),
   },
   (t) => [
     uniqueIndex('cash_transactions_number_uq').on(t.tenantId, t.number),

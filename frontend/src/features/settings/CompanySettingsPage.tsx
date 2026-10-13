@@ -29,9 +29,38 @@ import ReminderSettingsCard from './ReminderSettingsCard';
 import EntityProfileWizard from './EntityProfileWizard';
 import { t } from '@/lib/terms';
 
+/** SOP kas & bank: bukti wajib, blokir saldo negatif, batas simpanan kas tunai */
+function CashControlCard() {
+  type Cfg = { evidenceFrom: number; blockNegative: boolean; maxCashBalance: number };
+  const [form] = Form.useForm<Cfg>();
+  const cfg = useQuery({ queryKey: ['cash', 'settings'], queryFn: () => get<Cfg>('/cash/settings') });
+  useEffect(() => {
+    if (cfg.data) form.setFieldsValue(cfg.data);
+  }, [cfg.data, form]);
+  const save = useAction((v: Cfg) => put('/cash/settings', v), { success: 'Pengaturan kontrol kas disimpan', invalidate: ['cash'] });
+  return (
+    <Card title="Kontrol kas & bank (SOP)" style={{ marginTop: 16 }}>
+      <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)} initialValues={{ evidenceFrom: 0, blockNegative: false, maxCashBalance: 0 }}>
+        <Form.Item name="evidenceFrom" label="Nomor bukti wajib untuk uang keluar mulai dari" extra="Kas keluar/transfer di atas nilai ini harus diisi nomor referensi (kuitansi, nota, bukti transfer). 0 = tidak wajib.">
+          <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={100_000} style={{ width: '100%' }} prefix="Rp" />
+        </Form.Item>
+        <Form.Item name="blockNegative" label="Tolak uang keluar yang membuat saldo negatif" valuePropName="checked" extra="Mencegah kas keluar melebihi saldo akun kas/bank.">
+          <Switch />
+        </Form.Item>
+        <Form.Item name="maxCashBalance" label="Peringatan bila saldo kas melebihi" extra="Batas simpanan tunai yang aman di kantor. Di atas batas, muncul peringatan agar disetor ke bank. 0 = nonaktif.">
+          <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={1_000_000} style={{ width: '100%' }} prefix="Rp" />
+        </Form.Item>
+        <Button type="primary" htmlType="submit" loading={save.isPending}>
+          Simpan
+        </Button>
+      </Form>
+    </Card>
+  );
+}
+
 /** Batas nilai yang memerlukan persetujuan pemilik / admin (0 = nonaktif) */
 function ApprovalPolicyCard() {
-  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; telegramLinkHours: number };
+  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; telegramLinkHours: number };
   const [form] = Form.useForm<Policy>();
   const policy = useQuery({ queryKey: ['approvals', 'policy'], queryFn: () => get<Policy>('/approvals/policy') });
   useEffect(() => {
@@ -73,6 +102,9 @@ function ApprovalPolicyCard() {
           <InputNumber min={1} max={72} step={1} precision={0} style={{ width: '100%' }} suffix="jam" />
         </Form.Item>
         <Form.Item name="manualJournal" label="Jurnal manual dengan total debit mulai dari" extra="Jurnal baru diposting setelah disetujui.">
+          <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
+        </Form.Item>
+        <Form.Item name="cashOut" label="Kas keluar / transfer dengan nilai mulai dari" extra="Uang keluar oleh staf (selain pemilik dan admin) di atas batas menunggu persetujuan, lalu diposting setelah disetujui. 0 = tidak perlu persetujuan.">
           <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
         </Form.Item>
         <Form.Item name="assetDisposal" label="Pelepasan aset tetap dengan harga perolehan mulai dari" extra="Penjualan/penghapusan aset oleh staf (selain pemilik dan admin) menunggu persetujuan. 0 = tidak perlu persetujuan.">
@@ -453,6 +485,7 @@ export default function CompanySettingsPage() {
       children: (
         <div style={wide}>
           <ApprovalPolicyCard />
+          <CashControlCard />
         </div>
       ),
     },

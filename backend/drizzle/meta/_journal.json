@@ -288,6 +288,13 @@
       "when": 1792684286484,
       "tag": "0040_asset_controls",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792770686484,
+      "tag": "0041_cash_controls",
+      "breakpoints": true
     }
   ]
 }

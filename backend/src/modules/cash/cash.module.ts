@@ -1,12 +1,14 @@
-import { BadRequestException, Body, Controller, Get, Injectable, Module, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { RequireApp } from '../../common/apps/app.guard';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
+  IsBoolean,
   IsDateString,
   IsIn,
   IsInt,
+  IsNumber,
   IsNumberString,
   IsOptional,
   IsString,
@@ -20,9 +22,11 @@ import { and, asc, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import { CASH_TX_TYPES, CashTxType } from '@sansu/shared';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { SettingsService } from '../../common/settings.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
-import { toDocDate } from '../../common/utils/dates';
+import { addDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
@@ -66,6 +70,17 @@ export class CashQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsDateString() to?: string;
 }
 
+export class VoidCashDto {
+  @ApiProperty({ description: 'Alasan pembatalan (wajib, min. 5 karakter)' }) @IsString() @MaxLength(300) reason: string;
+}
+
+export class CashSettingsDto {
+  @ApiPropertyOptional({ description: 'Kas keluar/transfer mulai nilai ini wajib punya nomor bukti (0 = tidak wajib)' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) evidenceFrom?: number;
+  @ApiPropertyOptional({ description: 'Tolak kas keluar/transfer yang membuat saldo akun kas/bank negatif' }) @IsOptional() @IsBoolean() blockNegative?: boolean;
+  @ApiPropertyOptional({ description: 'Peringatkan bila saldo satu akun kas melebihi nilai ini (0 = nonaktif)' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) maxCashBalance?: number;
+}
+export const DEFAULT_CASH_SETTINGS = { evidenceFrom: 0, blockNegative: false, maxCashBalance: 0 };
+
 const PREFIX = { IN: 'CASH_IN', OUT: 'CASH_OUT', TRANSFER: 'TRANSFER' } as const;
 const SOURCE = { IN: 'CASH_IN', OUT: 'CASH_OUT', TRANSFER: 'TRANSFER' } as const;
 
@@ -78,6 +93,8 @@ export class CashService {
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
     private readonly assets: AssetsService,
+    private readonly approvals: ApprovalsService,
+    private readonly settings: SettingsService,
   ) {}
 
   /** Akun kas & bank beserta saldo per hari ini */
@@ -116,8 +133,31 @@ export class CashService {
    * Kas keluar : Dr akun lawan (beban, aset, prive, ...) | Cr Kas/Bank
    * Transfer   : Dr Kas/Bank tujuan | Cr Kas/Bank asal
    */
-  async create(user: AuthUser, dto: CreateCashTxDto) {
+  async create(user: AuthUser, dto: CreateCashTxDto, opts: { approved?: boolean } = {}) {
     const date = toDocDate(dto.date);
+    // ---- SOP: bukti wajib & persetujuan untuk uang keluar (kas keluar, transfer) di atas batas ----
+    if (dto.type !== 'IN') {
+      const gross = dto.type === 'TRANSFER' ? Number(dto.amount ?? 0) : (dto.lines ?? []).reduce((a, l) => a + Number(l.amount ?? 0), 0);
+      if (Number.isFinite(gross) && gross > 0) {
+        const cfg = await this.cashSettings(user.tenantId);
+        if (cfg.evidenceFrom > 0 && gross >= cfg.evidenceFrom && !dto.reference?.trim()) {
+          throw new BadRequestException(`Isi nomor bukti/referensi (kuitansi, nota, atau bukti transfer): wajib untuk uang keluar mulai Rp${cfg.evidenceFrom.toLocaleString('id-ID')}`);
+        }
+        if (!opts.approved) {
+          const limit = await this.approvals.needs(this.db, user, 'CASH_TX', gross);
+          if (limit !== null) {
+            const req = await this.approvals.create(this.db, user, {
+              kind: 'CASH_TX',
+              refId: null,
+              title: `${dto.type === 'TRANSFER' ? 'Transfer' : 'Kas keluar'}: ${dto.description}`,
+              amount: gross,
+              payload: JSON.parse(JSON.stringify(dto)),
+            });
+            throw this.approvals.required(req.id, 'Nilai transaksi mencapai batas persetujuan; permintaan dikirim ke pemilik atau admin dan transaksi diposting setelah disetujui.');
+          }
+        }
+      }
+    }
     return this.db.transaction(async (tx) => {
       const cash = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'CASH');
 
@@ -160,6 +200,12 @@ export class CashService {
         }
       }
       if (amount.lte(0)) throw new BadRequestException('Jumlah harus > 0');
+      if (dto.type !== 'IN' && (await this.cashSettings(user.tenantId)).blockNegative) {
+        const [b] = (await tx.execute<{ bal: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0) AS bal FROM journal_lines l WHERE l.account_id = ${cash.id}`)).rows;
+        if (D(b.bal).minus(amount).lt(0)) {
+          throw new BadRequestException(`Saldo ${cash.name ?? 'akun kas'} tidak cukup (Rp${D(b.bal).toNumber().toLocaleString('id-ID')}); kas keluar akan membuat saldo negatif`);
+        }
+      }
 
       const number = await this.seq.next(tx, user.tenantId, PREFIX[dto.type], date);
       const [trx] = await tx
@@ -236,6 +282,105 @@ export class CashService {
     });
   }
 
+  // ---------------------------------------------------------------- SOP & kontrol kas
+  cashSettings(tenantId: string) {
+    return this.settings.section(this.db, tenantId, 'cashControl', DEFAULT_CASH_SETTINGS);
+  }
+  saveCashSettings(tenantId: string, patch: Partial<typeof DEFAULT_CASH_SETTINGS>) {
+    return this.settings.saveSection(this.db, tenantId, 'cashControl', DEFAULT_CASH_SETTINGS, patch);
+  }
+
+  /**
+   * Pembatalan terkontrol: transaksi kas tidak dihapus, dibalik dengan jurnal pembalik (hanya pemilik/admin, alasan wajib).
+   * Ditolak bila sudah dicocokkan dengan mutasi bank, atau sudah menjadi kartu aset tetap.
+   */
+  async void(user: AuthUser, id: string, dto: VoidCashDto) {
+    const reason = dto.reason?.trim() ?? '';
+    if (reason.length < 5) throw new BadRequestException('Alasan pembatalan wajib diisi (minimal 5 karakter)');
+    return this.db.transaction(async (tx) => {
+      const locked = await tx.execute<{ id: string }>(sql`SELECT id FROM cash_transactions WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      if (!locked.rows.length) throw new NotFoundException('Transaksi kas tidak ditemukan');
+      const [t] = await tx.select().from(cashTransactions).where(eq(cashTransactions.id, id));
+      if (t.status === 'VOID') throw new BadRequestException('Transaksi ini sudah dibatalkan');
+      if (!t.journalId) throw new BadRequestException('Transaksi belum punya jurnal');
+      const matched = await tx.execute<{ n: number }>(sql`
+        SELECT COUNT(*)::int AS n FROM bank_statement_lines b
+        WHERE b.status IN ('MATCHED', 'CREATED')
+          AND (b.journal_id = ${t.journalId} OR b.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${t.journalId}))`);
+      if (matched.rows[0].n > 0) throw new BadRequestException('Transaksi ini sudah dicocokkan dengan mutasi bank. Batalkan pencocokannya di Rekonsiliasi Bank dulu');
+      const assetRows = await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM fixed_assets WHERE tenant_id = ${user.tenantId} AND acquisition_journal_id = ${t.journalId}`);
+      if (assetRows.rows[0].n > 0) throw new BadRequestException('Transaksi ini sudah menjadi kartu Aset Tetap. Lepaskan atau hapus asetnya dulu di Aset Tetap');
+      const rev = await this.posting.reverse(tx, user.tenantId, t.journalId, todayJakarta(), user.sub, true);
+      await tx.update(cashTransactions).set({ status: 'VOID', voidedAt: new Date(), voidedById: user.sub, voidReason: reason, voidJournalId: rev.id }).where(eq(cashTransactions.id, id));
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'VOID', entity: 'CashTransaction', entityId: id, data: { number: t.number, amount: t.amount, reason } });
+      return { id, number: t.number, status: 'VOID', reversalJournal: rev.number };
+    });
+  }
+
+  /**
+   * Temuan kontrol kas & bank 60 hari terakhir: uang keluar tanpa bukti, di akhir pekan, dipecah di bawah batas persetujuan,
+   * saldo negatif/melebihi batas, rekening bank lama belum direkonsiliasi, selisih hitung kas, dan pembatalan baru-baru ini.
+   */
+  async controls(tenantId: string) {
+    const cfg = await this.cashSettings(tenantId);
+    const pol = await this.approvals.policy(this.db, tenantId);
+    const today = todayJakarta();
+    const since = addDays(today, -60);
+    type Finding = { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string; refs: string[] };
+    const out: Finding[] = [];
+    const add = (key: string, level: Finding['level'], title: string, refs: string[], detail: string) => {
+      if (refs.length) out.push({ key, level, title: `${title} (${refs.length})`, detail, refs });
+    };
+    const txs = await this.db.query.cashTransactions.findMany({
+      where: and(eq(cashTransactions.tenantId, tenantId), gte(cashTransactions.date, since), eq(cashTransactions.status, 'POSTED')),
+      with: { cashAccount: { columns: { code: true, name: true } } },
+      orderBy: [desc(cashTransactions.date)],
+    });
+    const spend = txs.filter((t) => t.type !== 'IN');
+    const list = (rows: { number: string }[]) => rows.slice(0, 6).map((r) => r.number).join(', ') + (rows.length > 6 ? `, dan ${rows.length - 6} lainnya` : '');
+
+    const noRef = spend.filter((t) => !t.reference?.trim() && Number(t.amount) >= Math.max(cfg.evidenceFrom, 1));
+    add('NO_EVIDENCE', 'warning', 'Uang keluar tanpa nomor bukti', noRef.map((t) => t.number), `Lengkapi bukti (kuitansi/nota/bukti transfer): ${list(noRef)}`);
+
+    const weekend = spend.filter((t) => [0, 6].includes(new Date(`${t.date}T00:00:00Z`).getUTCDay()));
+    add('WEEKEND', 'info', 'Uang keluar pada akhir pekan', weekend.map((t) => t.number), `Pastikan memang ada keperluan: ${list(weekend)}`);
+
+    if (pol.cashOut > 0) {
+      const byDay = new Map<string, typeof spend>();
+      for (const t of spend) {
+        if (Number(t.amount) >= pol.cashOut) continue;
+        const k = `${t.date}|${t.cashAccountId}`;
+        byDay.set(k, [...(byDay.get(k) ?? []), t]);
+      }
+      const split = [...byDay.values()].filter((g) => g.length >= 3 && g.reduce((a, t) => a + Number(t.amount), 0) >= pol.cashOut);
+      add('SPLIT', 'warning', 'Pengeluaran terpecah tepat di bawah batas persetujuan', split.map((g) => `${g[0].date} ${g[0].cashAccount.name}`), 'Beberapa uang keluar kecil di hari dan akun yang sama totalnya melewati batas persetujuan. Periksa apakah sengaja dipecah.');
+    }
+
+    const bal = await this.accounts(tenantId);
+    const neg = bal.filter((a) => D(a.balance).lt(0));
+    add('NEGATIVE', 'error', 'Saldo kas/bank negatif', neg.map((a) => `${a.code} ${a.name}`), neg.map((a) => `${a.code} ${a.name}: Rp${D(a.balance).toNumber().toLocaleString('id-ID')}`).join('; '));
+    if (cfg.maxCashBalance > 0) {
+      const over = bal.filter((a) => D(a.balance).gt(cfg.maxCashBalance));
+      add('OVER_MAX', 'warning', 'Saldo kas melebihi batas simpanan', over.map((a) => `${a.code} ${a.name}`), `Batas Rp${cfg.maxCashBalance.toLocaleString('id-ID')}. Setor sebagian ke bank: ${over.map((a) => `${a.name} Rp${D(a.balance).toNumber().toLocaleString('id-ID')}`).join('; ')}`);
+    }
+
+    const stale = await this.db.execute<{ id: string; code: string; name: string; last: string | null }>(sql`
+      SELECT a.id, a.code, a.name, (SELECT MAX(s.period_to) FROM bank_statements s WHERE s.cash_account_id = a.id) AS last
+      FROM accounts a
+      WHERE a.tenant_id = ${tenantId} AND a.is_cash_account = true AND a.is_postable = true
+        AND EXISTS (SELECT 1 FROM bank_statements s WHERE s.cash_account_id = a.id)`);
+    const old = stale.rows.filter((r) => r.last && r.last < addDays(today, -30));
+    add('BANK_STALE', 'warning', 'Rekening bank lama belum direkonsiliasi', old.map((r) => `${r.code} ${r.name}`), old.map((r) => `${r.code} ${r.name}: mutasi terakhir ${r.last}`).join('; '));
+
+    const diff = await this.db.execute<{ number: string }>(sql`
+      SELECT number FROM cash_counts WHERE tenant_id = ${tenantId} AND date >= ${addDays(today, -30)} AND status = 'POSTED' AND difference <> 0`);
+    add('COUNT_DIFF', 'warning', 'Hitung kas fisik dengan selisih (30 hari)', diff.rows.map((r) => r.number), `Telusuri penyebab selisih: ${list(diff.rows)}`);
+
+    const voided = await this.db.query.cashTransactions.findMany({ where: and(eq(cashTransactions.tenantId, tenantId), eq(cashTransactions.status, 'VOID'), gte(cashTransactions.voidedAt, new Date(`${addDays(today, -30)}T00:00:00Z`))) });
+    add('VOIDED', 'info', 'Transaksi kas dibatalkan (30 hari)', voided.map((t) => t.number), `Tinjau alasan pembatalan: ${list(voided)}`);
+    return { generatedAt: new Date().toISOString(), count: out.length, items: out };
+  }
+
   /** Akun yang boleh dipakai sebagai lawan kas (bukan kas, bukan piutang/hutang/persediaan) */
   counterAccounts(tenantId: string) {
     return this.db
@@ -280,6 +425,25 @@ export class CashController {
     return this.svc.list(u.tenantId, q);
   }
 
+  @Get('controls')
+  controls(@CurrentUser() u: AuthUser) {
+    return this.svc.controls(u.tenantId);
+  }
+  @Get('settings')
+  cashSettings(@CurrentUser() u: AuthUser) {
+    return this.svc.cashSettings(u.tenantId);
+  }
+  @Roles('ADMIN')
+  @Put('settings')
+  saveCashSettings(@CurrentUser() u: AuthUser, @Body() dto: CashSettingsDto) {
+    return this.svc.saveCashSettings(u.tenantId, dto);
+  }
+  @Roles('ADMIN')
+  @Post('transactions/:id/void')
+  void(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VoidCashDto) {
+    return this.svc.void(u, id, dto);
+  }
+
   @Post('transactions')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreateCashTxDto) {
     return this.svc.create(u, dto);
@@ -290,5 +454,6 @@ export class CashController {
   imports: [AccountingModule, AssetsModule],
   controllers: [CashController, CashCountController],
   providers: [CashService, CashCountService],
+  exports: [CashService],
 })
 export class CashModule {}
