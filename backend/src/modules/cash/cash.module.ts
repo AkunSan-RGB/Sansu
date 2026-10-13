@@ -6,11 +6,14 @@ import {
   ArrayMinSize,
   IsDateString,
   IsIn,
+  IsInt,
   IsNumberString,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { and, asc, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
@@ -26,6 +29,7 @@ import { InjectDb } from '../../db/db.module';
 import { accounts, cashTransactionLines, cashTransactions, projects } from '../../db/schema';
 import { AccountingModule } from '../accounting/accounting.module';
 import { PostingService } from '../accounting/posting.service';
+import { AssetsModule, AssetsService } from '../assets/assets.module';
 import { CashCountController, CashCountService } from './cash-count';
 
 // ---------- DTO ----------
@@ -34,6 +38,10 @@ export class CashLineDto {
   @ApiProperty({ example: '350000' }) @IsNumberString() amount: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) memo?: string;
   @ApiPropertyOptional({ description: 'Kas keluar: biaya langsung proyek (usaha jasa)' }) @IsOptional() @IsUUID() projectId?: string;
+  @ApiPropertyOptional({ description: 'Kas keluar ke akun aset tetap: kategori aset (wajib bila akun dipakai >1 kategori)' }) @IsOptional() @IsUUID() assetCategoryId?: string;
+  @ApiPropertyOptional({ description: 'Nama aset (kosong = memo/keterangan transaksi)' }) @IsOptional() @IsString() @MaxLength(160) assetName?: string;
+  @ApiPropertyOptional({ description: 'Masa manfaat bulan (kosong = ikut kategori)' }) @IsOptional() @IsInt() @Min(0) @Max(600) assetUsefulLifeMonths?: number;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(120) assetLocation?: string;
 }
 
 export class CreateCashTxDto {
@@ -69,6 +77,7 @@ export class CashService {
     private readonly posting: PostingService,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
+    private readonly assets: AssetsService,
   ) {}
 
   /** Akun kas & bank beserta saldo per hari ini */
@@ -114,6 +123,7 @@ export class CashService {
 
       let amount: Dec;
       let to: { id: string } | undefined;
+      let assetCats = new Map<string, { id: string; name: string }[]>();
       const lines = dto.lines ?? [];
       if (dto.type === 'TRANSFER') {
         if (!dto.toCashAccountId || !dto.amount) throw new BadRequestException('Transfer membutuhkan akun tujuan dan jumlah');
@@ -135,6 +145,11 @@ export class CashService {
           throw new BadRequestException(
             'Piutang, hutang, dan persediaan dicatat lewat dokumennya (pembayaran faktur / pembelian), bukan kas umum',
           );
+        }
+        // Akun aset tetap: pembelian tunai harus menjadi kartu aset (agar daftar aset = buku besar); penjualan lewat menu Aset Tetap
+        assetCats = await this.assets.categoriesByAssetAccount(tx, user.tenantId, ids);
+        if (dto.type === 'IN' && lines.some((l) => assetCats.has(l.accountId))) {
+          throw new BadRequestException('Akun aset tetap tidak dipakai di kas masuk. Penjualan aset dicatat lewat Aset Tetap › Jual / hapus aset');
         }
         amount = lines.reduce<Dec>((a, l) => a.plus(money(l.amount)), ZERO);
         const pids = [...new Set(lines.map((l) => l.projectId).filter((x): x is string => !!x))];
@@ -194,6 +209,28 @@ export class CashService {
         lines: journalLines,
       });
       await tx.update(cashTransactions).set({ journalId: journal.id }).where(eq(cashTransactions.id, trx.id));
+      if (dto.type === 'OUT') {
+        for (const l of lines) {
+          const cats = assetCats.get(l.accountId);
+          if (!cats) continue;
+          const cat = l.assetCategoryId ? cats.find((c) => c.id === l.assetCategoryId) : cats.length === 1 ? cats[0] : undefined;
+          if (!cat) {
+            throw new BadRequestException(
+              l.assetCategoryId ? 'Kategori aset tidak sesuai dengan akun yang dipilih' : `Akun ini dipakai beberapa kategori aset (${cats.map((c) => c.name).join(', ')}); pilih kategori asetnya`,
+            );
+          }
+          await this.assets.registerFromCash(tx, user, {
+            categoryId: cat.id,
+            name: l.assetName?.trim() || l.memo?.trim() || dto.description,
+            date,
+            cost: money(l.amount),
+            usefulLifeMonths: l.assetUsefulLifeMonths,
+            location: l.assetLocation,
+            journalId: journal.id,
+            notes: `Dibeli tunai, ${number}`,
+          });
+        }
+      }
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'CashTransaction', entityId: trx.id });
       return { ...trx, journalNumber: journal.number };
     });
@@ -250,7 +287,7 @@ export class CashController {
 }
 
 @Module({
-  imports: [AccountingModule],
+  imports: [AccountingModule, AssetsModule],
   controllers: [CashController, CashCountController],
   providers: [CashService, CashCountService],
 })

@@ -1,9 +1,9 @@
 import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
 import { BRAND, CASH_TX_TYPE_LABELS, type CashTxType } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Card, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, post, qs } from '@/api/client';
 import { LEDGER_KEYS, useAction, useCashAccounts } from '@/api/queries';
@@ -26,7 +26,7 @@ interface FormValues {
   date: string;
   description: string;
   reference?: string;
-  lines?: { accountId?: string; amount?: number; memo?: string; projectId?: string }[];
+  lines?: { accountId?: string; amount?: number; memo?: string; projectId?: string; assetCategoryId?: string; assetName?: string; assetUsefulLifeMonths?: number; assetLocation?: string }[];
 }
 
 const TYPE_COLOR: Record<CashTxType, string> = { IN: 'green', OUT: 'red', TRANSFER: 'blue' };
@@ -53,6 +53,13 @@ export default function CashPage() {
     queryKey: ['cash-tx', filter, from, to],
     queryFn: () => get<CashTransaction[]>(`/cash/transactions${qs({ cashAccountId: filter, from, to })}`),
   });
+  // Akun aset tetap: pembelian tunai ke akun ini otomatis menjadi kartu aset di Aset Tetap
+  const assetCats = useQuery({ queryKey: ['assets', 'categories'], queryFn: () => get<{ id: string; name: string; assetAccountId: string }[]>('/assets/categories') });
+  const assetCatsByAccount = useMemo(() => {
+    const m = new Map<string, { id: string; name: string }[]>();
+    for (const c of assetCats.data ?? []) m.set(c.assetAccountId, [...(m.get(c.assetAccountId) ?? []), c]);
+    return m;
+  }, [assetCats.data]);
   const counter = useQuery({
     queryKey: ['cash-counter-accounts'],
     queryFn: () => get<CounterAccount[]>('/cash/counter-accounts'),
@@ -75,6 +82,9 @@ export default function CashPage() {
                 amount: String(l.amount),
                 memo: l.memo || undefined,
                 projectId: mode === 'OUT' ? l.projectId || undefined : undefined,
+                ...(mode === 'OUT' && l.accountId && assetCatsByAccount.has(l.accountId)
+                  ? { assetCategoryId: l.assetCategoryId, assetName: l.assetName || undefined, assetUsefulLifeMonths: l.assetUsefulLifeMonths, assetLocation: l.assetLocation || undefined }
+                  : {}),
               })),
             }),
       }),
@@ -288,6 +298,42 @@ export default function CashPage() {
                               options={activeProjects.map((p) => ({ value: p.id, label: `${p.code} · ${p.name}` }))}
                             />
                           </Form.Item>
+                        </Col>
+                      )}
+                      {mode === 'OUT' && lines[f.name]?.accountId && assetCatsByAccount.has(lines[f.name]!.accountId!) && (
+                        <Col span={24}>
+                          <Alert
+                            type="info"
+                            showIcon
+                            style={{ marginTop: 6 }}
+                            message="Akun aset tetap: transaksi ini otomatis masuk ke daftar Aset Tetap"
+                            description={
+                              <Row gutter={8} style={{ marginTop: 6 }}>
+                                {(assetCatsByAccount.get(lines[f.name]!.accountId!)?.length ?? 0) > 1 && (
+                                  <Col xs={24} md={6}>
+                                    <Form.Item name={[f.name, 'assetCategoryId']} rules={[{ required: true, message: 'Pilih kategori aset' }]} noStyle>
+                                      <Select placeholder="Kategori aset" options={assetCatsByAccount.get(lines[f.name]!.accountId!)!.map((c) => ({ value: c.id, label: c.name }))} />
+                                    </Form.Item>
+                                  </Col>
+                                )}
+                                <Col xs={24} md={8}>
+                                  <Form.Item name={[f.name, 'assetName']} noStyle>
+                                    <Input placeholder="Nama aset (kosong = catatan)" maxLength={160} />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} md={5}>
+                                  <Form.Item name={[f.name, 'assetUsefulLifeMonths']} noStyle>
+                                    <InputNumber min={0} max={600} style={{ width: '100%' }} placeholder="Masa manfaat (bln)" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} md={5}>
+                                  <Form.Item name={[f.name, 'assetLocation']} noStyle>
+                                    <Input placeholder="Lokasi" maxLength={120} />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                            }
+                          />
                         </Col>
                       )}
                       <Col xs={2} md={1}>

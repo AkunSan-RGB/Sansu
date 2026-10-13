@@ -19,7 +19,7 @@ import {
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags, PartialType } from '@nestjs/swagger';
 import { IsBoolean, IsDateString, IsIn, IsInt, IsNumberString, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
 import { DEPRECIATION_METHODS, FISCAL_ASSET_GROUPS, type FiscalAssetGroup } from '@sansu/shared';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { TelegramService } from '../../common/telegram/telegram.service';
@@ -409,6 +409,49 @@ export class AssetsService {
     a: { code: string; name: string; acquisitionDate: string; depreciationStart: string; cost: Dec; residual: Dec; opening: Dec; usefulLifeMonths?: number; location?: string; notes?: string },
   ) {
     return this.insertAsset(tx, tenantId, cat, a);
+  }
+
+  /**
+   * Aset yang dibeli tunai lewat Kas Keluar: kartu aset dibuat dari baris kas yang memakai akun aset tetap (jurnalnya sudah
+   * dibuat oleh kas: Dr Aset | Cr Kas). Memeriksa batas kapitalisasi. Dipanggil di dalam transaksi kas.
+   */
+  async registerFromCash(
+    tx: Tx,
+    user: AuthUser,
+    a: { categoryId: string; name: string; date: string; cost: Dec; usefulLifeMonths?: number; location?: string; journalId: string; notes?: string },
+  ) {
+    const [cat] = await tx.select().from(assetCategories).where(and(eq(assetCategories.id, a.categoryId), eq(assetCategories.tenantId, user.tenantId)));
+    if (!cat) throw new BadRequestException('Kategori aset tidak ditemukan');
+    if (!this.isThresholdExempt(cat)) {
+      const { capitalizationThreshold: threshold } = await this.settings.reporting(tx, user.tenantId);
+      if (threshold > 0 && a.cost.lt(threshold)) {
+        throw new BadRequestException(
+          `"${a.name}" Rp${a.cost.toNumber().toLocaleString('id-ID')} di bawah batas kapitalisasi Rp${threshold.toLocaleString('id-ID')}. Catat sebagai beban, bukan aset tetap.`,
+        );
+      }
+    }
+    const asset = await this.insertAsset(tx, user.tenantId, cat, {
+      name: a.name,
+      acquisitionDate: a.date,
+      depreciationStart: `${a.date.slice(0, 7)}-01`,
+      cost: a.cost,
+      residual: ZERO,
+      usefulLifeMonths: a.usefulLifeMonths,
+      location: a.location,
+      notes: a.notes,
+      acquisitionJournalId: a.journalId,
+    });
+    await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'FixedAsset', entityId: asset.id, data: { via: 'CASH' } });
+    return asset;
+  }
+
+  /** Kategori aset per akun aset (untuk mendeteksi baris kas yang membeli aset tetap) */
+  async categoriesByAssetAccount(tx: Tx | Db, tenantId: string, accountIds: string[]) {
+    if (!accountIds.length) return new Map<string, Category[]>();
+    const cats = await tx.select().from(assetCategories).where(and(eq(assetCategories.tenantId, tenantId), inArray(assetCategories.assetAccountId, accountIds)));
+    const m = new Map<string, Category[]>();
+    for (const c of cats) m.set(c.assetAccountId, [...(m.get(c.assetAccountId) ?? []), c]);
+    return m;
   }
 
   /** Kode aset otomatis berikutnya yang belum terpakai, mulai dari urutan `from` */
