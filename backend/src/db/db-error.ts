@@ -19,11 +19,13 @@ export function describeDbError(e: unknown, url = process.env.DATABASE_URL): str
   const code = err?.code;
   const target = safeDbTarget(url);
   const envFile = resolve(process.cwd(), '.env');
-  const lines = [`Database yang dituju : ${target}`, `Berkas .env yang dibaca: ${envFile} (${existsSync(envFile) ? 'ada' : 'TIDAK ADA'})`];
+  // di produksi (Railway dll.) pengaturan datang dari variabel layanan, bukan berkas .env
+  const lines = [`Database yang dituju : ${target}`];
+  if (process.env.NODE_ENV !== 'production') lines.push(`Berkas .env yang dibaca: ${envFile} (${existsSync(envFile) ? 'ada' : 'TIDAK ADA'})`);
 
   let cause: string;
   if (!url) {
-    cause = 'DATABASE_URL belum diisi. Isi di backend\\.env (salin dari backend\\.env.example).';
+    cause = 'DATABASE_URL belum diisi. Isi variabel DATABASE_URL (di backend\\.env saat lokal, atau di Variables layanan hosting).';
   } else if (code === '28P01' || /password authentication failed/i.test(msg)) {
     cause = 'Password atau nama pengguna database salah. Salin ulang connection string terbaru dari Neon (setelah Reset password) ke DATABASE_URL.';
   } else if (code === 'ENOTFOUND' || /getaddrinfo/i.test(msg)) {

@@ -6,14 +6,23 @@ import { AppModule } from './app.module';
 import { assertProductionConfig, configureApp } from './bootstrap';
 import { serveWeb } from './serve-web';
 import { createPool } from './db/db';
+import { describeDbError } from './db/db-error';
 import { runMigrations } from './db/run-migrations';
 
 async function bootstrap() {
   assertProductionConfig();
   // Pastikan skema database selalu sesuai versi kode sebelum menerima permintaan
   const pool = createPool();
-  await runMigrations(pool);
-  await pool.end();
+  try {
+    await runMigrations(pool);
+  } catch (e) {
+    // Galat koneksi/migrasi ditulis jelas satu blok (tanpa password) lalu berhenti; tumpukan teknis menyusul di bawahnya
+    Logger.error(`\n[X] API gagal start: database/migrasi bermasalah.\n${describeDbError(e)}`, 'Database');
+    console.error(e);
+    process.exit(1);
+  } finally {
+    await pool.end().catch(() => undefined);
+  }
 
   const app = configureApp(await NestFactory.create(AppModule, { bodyParser: false }));
   app.enableCors({ origin: (process.env.CORS_ORIGIN ?? 'http://localhost:5173').split(','), credentials: true });
