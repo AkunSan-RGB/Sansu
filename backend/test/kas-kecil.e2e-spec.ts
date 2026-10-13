@@ -111,7 +111,7 @@ describe('Kas kecil — dana tetap (e2e)', () => {
   it('kontrol: saldo kas kecil dikurangi tanpa bukti (kekurangan) memicu temuan selisih; belum ada hitung kas', async () => {
     expect(await keys()).toContain('COUNT');
     // kekurangan tak terjelaskan: jurnal manual mengurangi kas kecil
-    await post(owner, '/api/accounting/journals', { date: day, description: 'Koreksi uji', lines: [{ accountId: expenseId, debit: '30000' }, { accountId: pettyId, credit: '30000' }] }).expect(201);
+    await post(owner, '/api/accounting/journals', { date: day, description: 'Koreksi uji', controlOverrideReason: 'Simulasi kekurangan kas kecil untuk uji kontrol', lines: [{ accountId: expenseId, debit: '30000' }, { accountId: pettyId, credit: '30000' }] }).expect(201);
     const k = await keys();
     expect(k).toContain('MISMATCH');
   });
