@@ -154,7 +154,7 @@ export default function ReportsPage() {
         extra={
           <Space wrap className="no-print">
             {!me?.hasBudget && ['OWNER', 'ADMIN', 'FINANCE'].includes(me?.role ?? '') && (
-              <Button size="small" onClick={() => navigate('/budget')}>Buat anggaran</Button>
+              <Button size="small" type="link" onClick={() => navigate('/budget')}>Buat anggaran</Button>
             )}
             <Tag color="blue" style={{ cursor: 'pointer' }} onClick={() => navigate('/settings/company?tab=kebijakan')}>
               {REPORTING_FRAMEWORK_LABELS[framework]}
@@ -196,7 +196,7 @@ export default function ReportsPage() {
         }
       />
       <Card className="print-area">
-        <Space wrap className="no-print" style={{ marginBottom: 8 }}>
+        <Space wrap size={[20, 6]} className="no-print report-options">
           {showsCompare && (
             <Checkbox checked={compare} onChange={(e) => setCompare(e.target.checked)}>
               Tampilkan pembanding

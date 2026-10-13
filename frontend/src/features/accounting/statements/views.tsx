@@ -126,14 +126,8 @@ const INCOME_HEADERS: Record<string, Record<string, string>> = {
   },
 };
 
-/** Judul kolom: tanggal akhir periode saja, sama seperti posisi keuangan; rentang lengkap ada di keterangan di atas tabel */
+/** Judul kolom: tanggal akhir periode saja, sama seperti posisi keuangan; rentang lengkap ada di judul laporan */
 const periodText = (x: { from: string; to: string }) => longDate(x.to);
-const periodNote = (d: { period: { from: string; to: string }; comparePeriod: { from: string; to: string } }, compare: boolean) => (
-  <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-    Periode {longDate(d.period.from)} – {longDate(d.period.to)}
-    {compare && ` · pembanding ${longDate(d.comparePeriod.from)} – ${longDate(d.comparePeriod.to)}`}
-  </Typography.Paragraph>
-);
 
 export function IncomeView({ d, refs, compare, detail, signer }: { d: IncomeStatement; refs: Record<string, string>; compare: boolean; detail: boolean; signer?: Signer }) {
   const headers = INCOME_HEADERS[d.framework] ?? INCOME_HEADERS.DEFAULT;
@@ -145,7 +139,6 @@ export function IncomeView({ d, refs, compare, detail, signer }: { d: IncomeStat
   });
   return (
     <>
-      {periodNote(d, compare)}
       <StatementTable rows={rows} current={periodText(d.period)} previous={periodText(d.comparePeriod)} compare={compare} ledgerRange={d.period} />
       <SignatureBlock signer={signer} year={Number(d.period.to.slice(0, 4))} />
     </>
@@ -226,7 +219,6 @@ export function CashFlowView({ d, compare }: { d: CashFlowStatement; compare: bo
           message={`Selisih rekonsiliasi kas ${fmtMoney(d.current.difference)} — saldo kas di buku besar ${fmtMoney(d.current.actualClosing)}. Biasanya karena akun belum diklasifikasikan dengan benar di Bagan Akun.`}
         />
       )}
-      {periodNote(d, compare)}
       <StatementTable rows={rows} current={p(d.period)} previous={p(d.comparePeriod)} compare={compare} ledgerRange={d.period} />
     </>
   );
