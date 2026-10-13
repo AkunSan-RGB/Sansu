@@ -22,6 +22,7 @@ import {
   loadAccounts,
   natural,
   Sum,
+  branchScope,
   sumByAccount,
   unclosedEarnings,
 } from './ledger-data';
@@ -234,11 +235,13 @@ export class StatementsService {
 
   // ---------- Laporan perubahan ekuitas ----------
 
-  async equityChanges(tenantId: string, q: { from?: string; to?: string; compareFrom?: string; compareTo?: string }) {
-    const { cur, cmp } = this.ranges(q);
-    const accs = await loadAccounts(this.db, tenantId);
-    const [current, previous] = await Promise.all([this.equityFor(tenantId, accs, cur), this.equityFor(tenantId, accs, cmp)]);
-    return { period: cur, comparePeriod: cmp, columns: EQUITY_COLUMNS, current, previous };
+  async equityChanges(tenantId: string, q: { from?: string; to?: string; compareFrom?: string; compareTo?: string; branchId?: string }) {
+    return branchScope.run(q.branchId, async () => {
+      const { cur, cmp } = this.ranges(q);
+      const accs = await loadAccounts(this.db, tenantId);
+      const [current, previous] = await Promise.all([this.equityFor(tenantId, accs, cur), this.equityFor(tenantId, accs, cmp)]);
+      return { period: cur, comparePeriod: cmp, columns: EQUITY_COLUMNS, current, previous };
+    });
   }
 
   private async equityFor(tenantId: string, accs: AccountMeta[], r: Range) {
@@ -297,13 +300,15 @@ export class StatementsService {
 
   // ---------- Laporan arus kas ----------
 
-  async cashFlow(tenantId: string, q: { from?: string; to?: string; compareFrom?: string; compareTo?: string; method?: string }) {
-    const { cur, cmp } = this.ranges(q);
-    const method = q.method === 'direct' ? 'direct' : 'indirect';
-    const accs = await loadAccounts(this.db, tenantId);
-    const fn = method === 'direct' ? (r: Range) => this.cashDirect(tenantId, accs, r) : (r: Range) => this.cashIndirect(tenantId, accs, r);
-    const [current, previous] = await Promise.all([fn(cur), fn(cmp)]);
-    return { method, period: cur, comparePeriod: cmp, current, previous };
+  async cashFlow(tenantId: string, q: { from?: string; to?: string; compareFrom?: string; compareTo?: string; method?: string; branchId?: string }) {
+    return branchScope.run(q.branchId, async () => {
+      const { cur, cmp } = this.ranges(q);
+      const method = q.method === 'direct' ? 'direct' : 'indirect';
+      const accs = await loadAccounts(this.db, tenantId);
+      const fn = method === 'direct' ? (r: Range) => this.cashDirect(tenantId, accs, r) : (r: Range) => this.cashIndirect(tenantId, accs, r);
+      const [current, previous] = await Promise.all([fn(cur), fn(cmp)]);
+      return { method, period: cur, comparePeriod: cmp, current, previous };
+    });
   }
 
   private async cashBalance(tenantId: string, accs: AccountMeta[], to: DocDate) {
@@ -417,12 +422,15 @@ export class StatementsService {
   private async cashDirect(tenantId: string, accs: AccountMeta[], r: Range) {
     const byId = new Map(accs.map((a) => [a.id, a]));
     const [opening, closing] = await Promise.all([this.openingCash(tenantId, accs, r), this.cashBalance(tenantId, accs, r.to)]);
+    const scope = branchScope.getStore();
+    const brL = scope ? (scope === 'NONE' ? sql`AND l.branch_id IS NULL` : sql`AND l.branch_id = ${scope}`) : sql``;
+    const brL2 = scope ? (scope === 'NONE' ? sql`AND l2.branch_id IS NULL` : sql`AND l2.branch_id = ${scope}`) : sql``;
     const res = await this.db.execute<{ journal_id: string; account_id: string; debit: string; credit: string }>(sql`
       SELECT l.journal_id, l.account_id, l.debit, l.credit
       FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-      WHERE j.tenant_id = ${tenantId} AND j.date BETWEEN ${r.from} AND ${r.to} AND j.source_type NOT IN ('CLOSING', 'OPENING')
+      WHERE j.tenant_id = ${tenantId} AND j.date BETWEEN ${r.from} AND ${r.to} AND j.source_type NOT IN ('CLOSING', 'OPENING') ${brL}
         AND EXISTS (SELECT 1 FROM journal_lines l2 JOIN accounts a2 ON a2.id = l2.account_id
-                    WHERE l2.journal_id = j.id AND (a2.is_cash_account = true OR a2.report_group = 'CASH_EQUIVALENT'))`);
+                    WHERE l2.journal_id = j.id ${brL2} AND (a2.is_cash_account = true OR a2.report_group = 'CASH_EQUIVALENT'))`);
     const journals = new Map<string, typeof res.rows>();
     for (const row of res.rows) journals.set(row.journal_id, [...(journals.get(row.journal_id) ?? []), row]);
 

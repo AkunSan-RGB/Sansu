@@ -1,6 +1,6 @@
 import { REPORTING_FRAMEWORK_LABELS, type ReportingFramework, type StatementKind, statementTitle } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Card, Checkbox, Input, Radio, Select, Space, Tabs, Tag, Typography } from 'antd';
+import { Alert, Card, Checkbox, Input, Radio, Segmented, Select, Space, Tabs, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
@@ -26,6 +26,7 @@ import NotesView from './statements/NotesView';
 import { CashFlowView, EquityView, IncomeView, PositionView } from './statements/views';
 import { longDate } from './statements/format';
 
+const SCOPED = ['position', 'income', 'equity', 'cashflow'];
 const TABS = {
   position: 'Laporan Posisi Keuangan',
   income: 'Laporan Laba Rugi',
@@ -48,6 +49,10 @@ const SHORT: Record<TabKey, string> = {
   branches: 'Perbandingan cabang',
 };
 
+function ScopeNote({ show }: { show: boolean }) {
+  return show ? <Alert className="no-print" type="info" showIcon style={{ marginBottom: 12 }} message="Catatan dan lampiran disusun untuk perusahaan secara keseluruhan (konsolidasi pusat dan seluruh cabang)." /> : null;
+}
+
 export default function ReportsPage() {
   const { me } = useAuth();
   const navigate = useNavigate();
@@ -62,9 +67,19 @@ export default function ReportsPage() {
   const [showOptional, setShowOptional] = useState(false);
   const branchList = useBranches();
   const branchOpts = (branchList.data?.branches ?? []).filter((b) => b.isActive);
-  const [branch, setBranch] = useState<string>();
-  const branchSel = branchOpts.length ? branch : undefined;
-  const branchName = branchSel === 'NONE' ? 'Pusat / tanpa cabang' : branchOpts.find((b) => b.id === branchSel)?.name;
+  /** Cakupan laporan bagi perusahaan bercabang: konsolidasi (pusat + semua cabang), pusat saja, atau satu cabang */
+  const [scope, setScope] = useState<'ALL' | 'HQ' | 'BRANCH'>('ALL');
+  const [branchPick, setBranchPick] = useState<string>();
+  const hasBranches = branchOpts.length > 0;
+  const pick = branchPick ?? branchOpts[0]?.id;
+  const branchSel = !hasBranches || scope === 'ALL' ? undefined : scope === 'HQ' ? 'NONE' : pick;
+  const scopeLabel = !hasBranches ? '' : scope === 'ALL' ? 'Konsolidasi' : scope === 'HQ' ? 'Pusat' : `Cabang ${branchOpts.find((b) => b.id === pick)?.name ?? ''}`;
+  const interbranch = useQuery({
+    queryKey: ['branches', 'interbranch', to],
+    queryFn: () => get<{ interbranch: { net: string; eliminated: boolean } }>(`/branches/balance-sheet?asOf=${to}`),
+    enabled: hasBranches && scope === 'ALL' && tab === 'position',
+    retry: false,
+  });
   const range = { from, to };
   const fy = Number(to.slice(0, 4));
 
@@ -84,13 +99,13 @@ export default function ReportsPage() {
     enabled: on('income') && !fw.isPending,
   });
   const equity = useQuery({
-    queryKey: ['statements', 'equity', from, to],
-    queryFn: () => get<EquityStatement>(`/accounting/statements/equity${qs(range)}`),
+    queryKey: ['statements', 'equity', from, to, branchSel],
+    queryFn: () => get<EquityStatement>(`/accounting/statements/equity${qs({ ...range, branchId: branchSel })}`),
     enabled: on('equity'),
   });
   const cashflow = useQuery({
-    queryKey: ['statements', 'cashflow', from, to, method],
-    queryFn: () => get<CashFlowStatement>(`/accounting/statements/cash-flow${qs({ ...range, method })}`),
+    queryKey: ['statements', 'cashflow', from, to, method, branchSel],
+    queryFn: () => get<CashFlowStatement>(`/accounting/statements/cash-flow${qs({ ...range, method, branchId: branchSel })}`),
     enabled: on('cashflow'),
   });
   const notes = useQuery({
@@ -111,7 +126,7 @@ export default function ReportsPage() {
   const yearly = tab === 'notes' || tab === 'appendix';
   const period = pointInTime ? `Per ${longDate(to)}` : `Periode ${longDate(from)} s/d ${longDate(to)}`;
   const sheets = (): SheetSpec[] | null => {
-    const meta = { company: me?.tenantName, framework, refs, detail, signer: notes.data?.company };
+    const meta = { company: scopeLabel ? `${me?.tenantName} — ${scopeLabel}` : me?.tenantName, framework, refs, detail, signer: notes.data?.company };
     if (tab === 'position' && position.data) return positionSheet(position.data, meta);
     if (tab === 'income' && income.data) return incomeSheet(income.data, meta);
     if (tab === 'equity' && equity.data) return equitySheet(equity.data, meta);
@@ -138,15 +153,17 @@ export default function ReportsPage() {
             <Tag color="blue" style={{ cursor: 'pointer' }} onClick={() => navigate('/settings/company?tab=kebijakan')}>
               {REPORTING_FRAMEWORK_LABELS[framework]}
             </Tag>
-            {!!branchOpts.length && ['position', 'income'].includes(tab) && (
-              <Select
-                allowClear
-                placeholder="Semua cabang (gabungan)"
-                style={{ width: 220 }}
-                value={branchSel}
-                onChange={setBranch}
-                options={[...branchOpts.map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` })), { value: 'NONE', label: 'Pusat / tanpa cabang' }]}
-              />
+            {hasBranches && SCOPED.includes(tab) && (
+              <>
+                <Segmented
+                  value={scope}
+                  onChange={(v) => setScope(v as 'ALL' | 'HQ' | 'BRANCH')}
+                  options={[{ value: 'ALL', label: 'Konsolidasi' }, { value: 'HQ', label: 'Pusat' }, { value: 'BRANCH', label: 'Cabang' }]}
+                />
+                {scope === 'BRANCH' && (
+                  <Select value={pick} onChange={setBranchPick} style={{ width: 200 }} options={branchOpts.map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))} />
+                )}
+              </>
             )}
             {!pointInTime && !yearly && tab !== 'branches' && (
               <>
@@ -209,9 +226,15 @@ export default function ReportsPage() {
           <Typography.Title level={4} style={{ margin: 0 }}>
             {me?.tenantName}
           </Typography.Title>
-          <Typography.Text strong>{tabTitle(tab)}{branchName && ['position', 'income'].includes(tab) ? ` — ${branchName}` : ''}</Typography.Text>
+          <Typography.Text strong>{tabTitle(tab)}{scopeLabel && SCOPED.includes(tab) ? ` — ${scopeLabel}` : ''}</Typography.Text>
           <br />
           <Typography.Text type="secondary">{period} · dalam Rupiah</Typography.Text>
+          {hasBranches && scope === 'ALL' && SCOPED.includes(tab) && (
+            <div>
+              <Typography.Text type="secondary">Gabungan pusat dan seluruh cabang; transaksi antar-cabang dieliminasi.</Typography.Text>{' '}
+              {tab === 'position' && interbranch.data && <Tag color={interbranch.data.interbranch.eliminated ? 'green' : 'red'}>{interbranch.data.interbranch.eliminated ? 'Rekening Antar Cabang nol ✓' : `Rekening Antar Cabang tidak nol (${interbranch.data.interbranch.net})`}</Tag>}
+            </div>
+          )}
         </div>
         <Tabs
           className="statement-tabs"
@@ -220,10 +243,10 @@ export default function ReportsPage() {
           items={[
             { key: 'position', label: SHORT.position, children: <QueryState q={position}>{(d) => <PositionView d={d} refs={refs} compare={compare} detail={detail} signer={notes.data?.company} />}</QueryState> },
             { key: 'income', label: SHORT.income, children: <QueryState q={income}>{(d) => <IncomeView d={d} refs={refs} compare={compare} detail={detail} signer={notes.data?.company} />}</QueryState> },
-            { key: 'equity', label: SHORT.equity, children: branchSel ? <Alert type="info" showIcon message="Laporan Perubahan Ekuitas hanya untuk gabungan semua cabang. Kosongkan pilihan cabang." /> : <QueryState q={equity}>{(d) => <EquityView d={d} compare={compare} />}</QueryState> },
-            { key: 'cashflow', label: SHORT.cashflow, children: branchSel ? <Alert type="info" showIcon message="Laporan Arus Kas hanya untuk gabungan semua cabang. Kosongkan pilihan cabang." /> : <QueryState q={cashflow}>{(d) => <CashFlowView d={d} compare={compare} />}</QueryState> },
-            { key: 'notes', label: SHORT.notes, children: <QueryState q={notes}>{(d) => <NotesView d={d} />}</QueryState> },
-            { key: 'appendix', label: SHORT.appendix, children: <QueryState q={appendix}>{(d) => <AppendixView d={d} />}</QueryState> },
+            { key: 'equity', label: SHORT.equity, children: <QueryState q={equity}>{(d) => <EquityView d={d} compare={compare} />}</QueryState> },
+            { key: 'cashflow', label: SHORT.cashflow, children: <QueryState q={cashflow}>{(d) => <CashFlowView d={d} compare={compare} />}</QueryState> },
+            { key: 'notes', label: SHORT.notes, children: <><ScopeNote show={hasBranches} /><QueryState q={notes}>{(d) => <NotesView d={d} />}</QueryState></> },
+            { key: 'appendix', label: SHORT.appendix, children: <><ScopeNote show={hasBranches} /><QueryState q={appendix}>{(d) => <AppendixView d={d} />}</QueryState></> },
             ...(branchOpts.length
               ? [
                   {
