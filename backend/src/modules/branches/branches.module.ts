@@ -30,6 +30,10 @@ export class AssignWarehouseDto {
   @ApiPropertyOptional({ description: 'Cabang pemilik gudang/toko; kosong = lepas dari cabang' }) @IsOptional() @IsUUID() branchId?: string | null;
 }
 
+export class ToggleBranchesDto {
+  @ApiProperty() @IsBoolean() enabled: boolean;
+}
+
 const NONE = 'NONE';
 
 interface Cell {
@@ -92,6 +96,17 @@ export class BranchesService {
     await this.db.update(warehouses).set({ branchId }).where(eq(warehouses.id, warehouseId));
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'ASSIGN_BRANCH', entity: 'Warehouse', entityId: warehouseId, data: { from: w.branchId, to: branchId } });
     return { ok: true };
+  }
+
+  /** Nyalakan/matikan fitur cabang. Tidak bisa dimatikan selama masih ada cabang. */
+  async setEnabled(user: AuthUser, enabled: boolean) {
+    if (!enabled) {
+      const [b] = await this.db.select({ id: branches.id }).from(branches).where(eq(branches.tenantId, user.tenantId)).limit(1);
+      if (b) throw new BadRequestException('Fitur cabang tidak bisa dimatikan selama masih ada cabang. Nonaktifkan semua cabang lebih dulu atau biarkan menyala.');
+    }
+    await this.settings.saveSection(this.db, user.tenantId, 'branches', { enabled: false }, { enabled });
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'BranchFeature', entityId: user.tenantId, data: { enabled } });
+    return { enabled };
   }
 
   /** Rekening kas/bank milik cabang: transaksi lewat rekening ini otomatis berlabel cabang itu */
@@ -315,6 +330,12 @@ export class BranchesController {
   @Roles('ADMIN')
   update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateBranchDto) {
     return this.svc.update(u, id, dto);
+  }
+
+  @Put('feature')
+  @Roles('ADMIN')
+  feature(@CurrentUser() u: AuthUser, @Body() dto: ToggleBranchesDto) {
+    return this.svc.setEnabled(u, dto.enabled);
   }
 
   @Put('accounts/:accountId')

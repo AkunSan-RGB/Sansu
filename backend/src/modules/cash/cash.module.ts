@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { RequireApp } from '../../common/apps/app.guard';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -117,10 +117,11 @@ export class CashService {
     return res.rows.map((r) => ({ ...r, balance: D(r.balance).toFixed(2) }));
   }
 
-  async list(tenantId: string, q: CashQueryDto) {
+  async list(tenantId: string, q: CashQueryDto, branchIds?: string[] | null) {
     const rows = await this.db.query.cashTransactions.findMany({
       where: and(
         eq(cashTransactions.tenantId, tenantId),
+        branchIds?.length ? inArray(cashTransactions.branchId, branchIds) : undefined,
         q.cashAccountId
           ? or(eq(cashTransactions.cashAccountId, q.cashAccountId), eq(cashTransactions.toCashAccountId, q.cashAccountId))
           : undefined,
@@ -236,6 +237,11 @@ export class CashService {
       if (dto.branchId) {
         const [br] = (await tx.execute<{ id: string }>(sql`SELECT id FROM branches WHERE id = ${dto.branchId} AND tenant_id = ${user.tenantId}`)).rows;
         if (!br) throw new BadRequestException('Cabang tidak ditemukan');
+      }
+      // pengguna terbatas cabang hanya boleh memakai rekening & cabang miliknya
+      if (user.branchIds?.length) {
+        const eff = dto.branchId ?? cash.branchId;
+        if (!eff || !user.branchIds.includes(eff) || (cash.branchId && !user.branchIds.includes(cash.branchId))) throw new ForbiddenException('Anda hanya boleh mencatat kas untuk cabang Anda');
       }
       if (!opts.petty) await this.assertNotPettyCash(tx, user.tenantId, dto, cash.id, to?.id, amount);
       if (dto.type !== 'IN' && (await this.cashSettings(user.tenantId)).blockNegative) {
@@ -503,7 +509,7 @@ export class CashController {
 
   @Get('transactions')
   list(@CurrentUser() u: AuthUser, @Query() q: CashQueryDto) {
-    return this.svc.list(u.tenantId, q);
+    return this.svc.list(u.tenantId, q, u.branchIds);
   }
 
   @Get('controls')

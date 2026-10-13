@@ -138,11 +138,18 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
 
   // ---------- Jurnal ----------
 
-  async listJournals(tenantId: string, q: JournalQueryDto) {
+  /** Pengguna terbatas cabang: hanya jurnal yang punya baris di cabangnya, dan hanya baris cabangnya yang tampak */
+  private branchJournalCond(ids?: string[] | null) {
+    if (!ids?.length) return undefined;
+    return sql`EXISTS (SELECT 1 FROM journal_lines jl WHERE jl.journal_id = ${journalEntries.id} AND jl.branch_id IN (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)}))`;
+  }
+
+  async listJournals(tenantId: string, q: JournalQueryDto, branchIds?: string[] | null) {
     const term = q.q?.trim();
     const rows = await this.db.query.journalEntries.findMany({
       where: and(
         eq(journalEntries.tenantId, tenantId),
+        this.branchJournalCond(branchIds),
         q.from ? gte(journalEntries.date, toDocDate(q.from)) : undefined,
         q.to ? lte(journalEntries.date, toDocDate(q.to)) : undefined,
         q.source ? inArray(journalEntries.sourceType, q.source.split(',').map((x) => x.trim())) : undefined,
@@ -162,21 +169,22 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
           .where(and(eq(scheduledReversals.tenantId, tenantId), eq(scheduledReversals.status, 'PENDING'), inArray(scheduledReversals.journalId, rows.map((r) => r.id))))
       : [];
     const schedBy = new Map(sched.map((x) => [x.journalId, x.reverseOn]));
-    return rows.map((r, i) => ({ ...r, docRoute: routes[i], scheduledReversal: schedBy.get(r.id) ?? null }));
+    return rows.map((r, i) => ({ ...r, lines: branchIds?.length ? r.lines.filter((l) => l.branchId && branchIds.includes(l.branchId)) : r.lines, docRoute: routes[i], scheduledReversal: schedBy.get(r.id) ?? null }));
   }
 
-  async getJournal(tenantId: string, id: string) {
+  async getJournal(tenantId: string, id: string, branchIds?: string[] | null) {
     const j = await this.db.query.journalEntries.findFirst({
-      where: and(eq(journalEntries.id, id), eq(journalEntries.tenantId, tenantId)),
+      where: and(eq(journalEntries.id, id), eq(journalEntries.tenantId, tenantId), this.branchJournalCond(branchIds)),
       with: { lines: { with: { account: { columns: { code: true, name: true } } } } },
     });
     if (!j) throw new NotFoundException('Jurnal tidak ditemukan');
+    if (branchIds?.length) j.lines = j.lines.filter((l) => l.branchId && branchIds.includes(l.branchId));
     return { ...j, docRoute: (await resolveSourceRoutes(this.db, tenantId, [j]))[0] };
   }
 
   /** Rincian dokumen asal sebuah jurnal (faktur pembelian, mutasi stok, kas, kasir, setoran pajak, dst.) beserta jurnalnya */
-  async journalDocument(tenantId: string, id: string) {
-    const journal = await this.getJournal(tenantId, id);
+  async journalDocument(tenantId: string, id: string, branchIds?: string[] | null) {
+    const journal = await this.getJournal(tenantId, id, branchIds);
     const document = await loadSourceDocument(this.db, tenantId, journal.sourceType, journal.sourceId, journal.id);
     return { journal, document };
   }

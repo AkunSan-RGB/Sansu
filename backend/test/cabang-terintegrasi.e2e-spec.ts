@@ -199,4 +199,45 @@ describe('Cabang terintegrasi (e2e)', () => {
     await get(fin, '/api/branches/balance-sheet').expect(403);
     await get(owner, '/api/branches/report').expect(200);
   });
+  it('beranda (dashboard) bisa difilter per cabang; jumlah cabang + pusat = gabungan; pengguna terbatas dipaksa ke cabangnya', async () => {
+    const dash = async (t: string, b?: string) => (await get(t, `/api/dashboard${b ? `?branchId=${b}` : ''}`).expect(200)).body;
+    const all = await dash(owner);
+    const sum = num((await dash(owner, B1)).cashBalance) + num((await dash(owner, B2)).cashBalance) + num((await dash(owner, 'NONE')).cashBalance);
+    expect(sum).toBeCloseTo(num(all.cashBalance), 2);
+    const stk = num((await dash(owner, B1)).stockValue) + num((await dash(owner, B2)).stockValue) + num((await dash(owner, 'NONE')).stockValue);
+    expect(stk).toBeCloseTo(num(all.stockValue), 2);
+    await get(owner, '/api/dashboard?branchId=ngawur').expect(400);
+    const fin = (await http.post('/api/auth/login').send({ email: `ct-f-${stamp}@uji.id`, password: 'keuangan123' }).expect(200)).body.accessToken;
+    expect(num((await dash(fin)).cashBalance)).toBeCloseTo(num((await dash(owner, B1)).cashBalance), 2);
+    await get(fin, `/api/dashboard?branchId=${B2}`).expect(403);
+    expect((await get(fin, '/api/dashboard/attention').expect(200)).body.items).toEqual([]);
+  });
+
+  it('daftar jurnal & kas pengguna terbatas hanya memuat cabangnya', async () => {
+    const fin = (await http.post('/api/auth/login').send({ email: `ct-f-${stamp}@uji.id`, password: 'keuangan123' }).expect(200)).body.accessToken;
+    const mine = (await get(fin, '/api/accounting/journals').expect(200)).body as { id: string; lines: { branchId: string | null }[] }[];
+    expect(mine.length).toBeGreaterThan(0);
+    for (const j of mine) for (const l of j.lines) expect(l.branchId).toBe(B1);
+    const all = (await get(owner, '/api/accounting/journals').expect(200)).body as unknown[];
+    expect(all.length).toBeGreaterThan(mine.length);
+    // jurnal milik cabang lain tidak bisa dibuka lewat id
+    const other = (await get(owner, '/api/accounting/journals?source=PRODUCTION').expect(200)).body[0];
+    await get(fin, `/api/accounting/journals/${other.id}`).expect(404);
+    // kas: hanya transaksi cabangnya; mencatat di rekening cabang lain ditolak
+    const cash = (await get(fin, '/api/cash/transactions').expect(200)).body as { branchId?: string | null }[];
+    for (const c of cash) expect(c.branchId).toBe(B1);
+    await post(fin, '/api/cash/transactions', { type: 'OUT', cashAccountId: bankId, date: day, description: 'Coba', reference: 'X-1', lines: [{ accountId: expenseId, amount: '1000' }] }).expect(403);
+  });
+
+  it('fitur cabang hanya untuk perusahaan yang punya cabang: mati secara bawaan, bisa dinyalakan, tidak bisa dimatikan bila sudah ada cabang', async () => {
+    const t2 = (await http.post('/api/auth/register').send({ companyName: 'CV Satu Toko', name: 'Pemilik', email: `ct-s-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
+    expect((await get(t2, '/api/auth/me').expect(200)).body.multiBranch).toBe(false);
+    await put(t2, '/api/branches/feature', { enabled: true }).expect(200);
+    expect((await get(t2, '/api/auth/me').expect(200)).body.multiBranch).toBe(true);
+    await put(t2, '/api/branches/feature', { enabled: false }).expect(200);
+    await post(t2, '/api/branches', { code: 'X1', name: 'Cabang X' }).expect(201);
+    expect((await get(t2, '/api/auth/me').expect(200)).body.multiBranch).toBe(true);
+    await put(t2, '/api/branches/feature', { enabled: false }).expect(400);
+    expect((await get(owner, '/api/auth/me').expect(200)).body.multiBranch).toBe(true);
+  });
 });
