@@ -92,4 +92,14 @@ describe('Kontrol kas & bank (e2e)', () => {
     const items = ((await get(owner, '/api/cash/controls').expect(200)).body as { items: { key: string }[] }).items.map((i) => i.key);
     expect(items).toContain('VOIDED');
   });
+  it('bukti bisa dilengkapi sesudah posting (sekali saja), temuan "tanpa bukti" hilang', async () => {
+    await put(owner, '/api/cash/settings', { evidenceFrom: 0 }).expect(200);
+    const tx = (await out(finance, '123000', { description: 'Tanpa bukti dulu' }).expect(201)).body;
+    const noEvidence = async () => ((await get(owner, '/api/cash/controls').expect(200)).body as { items: { key: string; refs: string[] }[] }).items.find((i) => i.key === 'NO_EVIDENCE')?.refs ?? [];
+    expect(await noEvidence()).toContain(tx.number);
+    await post(finance, `/api/cash/transactions/${tx.id}/evidence`, { reference: 'x' }).expect(400);
+    await post(finance, `/api/cash/transactions/${tx.id}/evidence`, { reference: 'KW-0099' }).expect(201);
+    expect(await noEvidence()).not.toContain(tx.number);
+    await post(owner, `/api/cash/transactions/${tx.id}/evidence`, { reference: 'GANTI' }).expect(400);
+  });
 });
