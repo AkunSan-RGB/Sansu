@@ -592,6 +592,9 @@ export interface LedgerReport {
   closing: string;
   totalDebit: string;
   totalCredit: string;
+  /** true = baris dipotong batas tampilan; total & saldo akhir tetap lengkap */
+  truncated?: boolean;
+  totalRows?: number;
   rows: {
     journalId: string;
     number: string;

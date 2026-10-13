@@ -185,7 +185,7 @@ export class AccountingController {
 
   @Get('reports/ledger')
   ledger(@CurrentUser() u: AuthUser, @Query() q: LedgerQueryDto) {
-    return this.svc.ledger(u.tenantId, q.accountId, q.from, q.to);
+    return this.svc.ledger(u.tenantId, q.accountId, q.from, q.to, q.limit);
   }
 
   @Get('reports/cash-flow')

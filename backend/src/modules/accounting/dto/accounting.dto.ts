@@ -70,6 +70,13 @@ export class PeriodQueryDto {
 
 export class LedgerQueryDto extends PeriodQueryDto {
   @ApiProperty() @IsUUID() accountId: string;
+  @ApiPropertyOptional({ description: 'Batas baris yang ditampilkan (default 5000, maks 20000); total dan saldo akhir tetap dari seluruh data' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20000)
+  limit?: number;
 }
 
 export class OpeningBalanceDto {

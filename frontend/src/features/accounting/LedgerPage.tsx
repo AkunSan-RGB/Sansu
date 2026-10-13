@@ -1,6 +1,6 @@
 import { JOURNAL_SOURCE_LABELS } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Card, Empty, Input, Select, Space, Table, Tag, Typography } from 'antd';
+import { Card, Empty, Input, Select, Space, Table, Tag, Typography, Alert } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -65,6 +65,16 @@ export default function LedgerPage() {
         {!accountId ? (
           <Empty description="Pilih akun untuk melihat mutasi dan saldo berjalan" />
         ) : (
+          <>
+          {data?.truncated && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={`Menampilkan ${data.rows.length.toLocaleString('id-ID')} dari ${(data.totalRows ?? 0).toLocaleString('id-ID')} baris`}
+              description="Total dan saldo akhir sudah mencakup seluruh baris. Persempit rentang tanggal untuk melihat semua mutasi."
+            />
+          )}
           <Table
             rowKey={(r) => `${r.journalId}-${r.balance}-${r.debit}-${r.credit}`}
             size="small"
@@ -116,6 +126,7 @@ export default function LedgerPage() {
               )
             }
           />
+          </>
         )}
       </Card>
     </>

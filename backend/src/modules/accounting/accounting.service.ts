@@ -36,6 +36,7 @@ interface BalanceRow {
 }
 
 const DEBIT_NORMAL: AccountType[] = ['ASSET', 'EXPENSE'];
+const LEDGER_ROW_LIMIT = 5000;
 const normal = (type: AccountType, debit: DecValue, credit: DecValue) =>
   DEBIT_NORMAL.includes(type) ? D(debit).minus(credit) : D(credit).minus(debit);
 
@@ -188,8 +189,46 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  reverseJournal(user: AuthUser, id: string, date?: string) {
-    return this.db.transaction((tx) => this.posting.reverse(tx, user.tenantId, id, toDocDate(date), user.sub));
+  /**
+   * Jurnal balik dari menu Jurnal Umum.
+   * Tanggal bawaan = tanggal jurnal asal bila periodenya masih terbuka (koreksi salah catat harus membersihkan periode yang salah,
+   * bukan memindahkan koreksinya ke bulan ini); bila periode terkunci atau kas sudah diopname, memakai hari ini.
+   * Jurnal yang sudah dicocokkan dengan mutasi bank tidak boleh dibalik sebelum pencocokannya dibatalkan.
+   */
+  async reverseJournal(user: AuthUser, id: string, date?: string) {
+    return this.db.transaction(async (tx) => {
+      const original = await tx.query.journalEntries.findFirst({
+        where: and(eq(journalEntries.id, id), eq(journalEntries.tenantId, user.tenantId)),
+        with: { lines: { columns: { id: true, accountId: true } } },
+      });
+      if (!original) throw new NotFoundException('Jurnal tidak ditemukan');
+      const lineIds = original.lines.map((l) => l.id);
+      if (lineIds.length) {
+        const matched = await tx.execute<{ n: number }>(sql`
+          SELECT COUNT(*)::int AS n FROM bank_statement_lines
+          WHERE status = 'MATCHED' AND journal_line_id IN (${sql.join(lineIds.map((x) => sql`${x}`), sql`, `)})`);
+        if (matched.rows[0].n > 0) throw new BadRequestException('Jurnal ini sudah dicocokkan dengan mutasi bank. Batalkan pencocokannya di Rekonsiliasi Bank dulu, lalu balik jurnalnya');
+      }
+      let useDate: DocDate;
+      if (date) useDate = toDocDate(date);
+      else {
+        const orig = toDocDate(original.date);
+        const locked = await this.period.lockedUntil(tx, user.tenantId);
+        useDate = orig;
+        if (locked && orig <= locked) useDate = toDocDate(undefined);
+        else {
+          try {
+            await this.posting.assertCashNotCounted(tx, user.tenantId, orig, original.lines.map((l) => l.accountId));
+          } catch {
+            useDate = toDocDate(undefined);
+          }
+        }
+      }
+      const rev = await this.posting.reverse(tx, user.tenantId, id, useDate, user.sub);
+      // mutasi bank yang dibuatkan jurnalnya dari jurnal ini kembali "belum diproses" agar bisa dibuatkan jurnal yang benar
+      await tx.execute(sql`UPDATE bank_statement_lines SET status = 'UNMATCHED', journal_id = NULL, journal_line_id = NULL, matched_by = NULL WHERE status = 'CREATED' AND journal_id = ${id}`);
+      return rev;
+    });
   }
 
   /**
@@ -533,7 +572,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Buku besar satu akun: saldo awal, mutasi, saldo berjalan. */
-  async ledger(tenantId: string, accountId: string, from?: string, to?: string) {
+  async ledger(tenantId: string, accountId: string, from?: string, to?: string, rowLimit = LEDGER_ROW_LIMIT) {
     const [acc] = await this.db
       .select()
       .from(accounts)
@@ -569,16 +608,23 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
         ${fromDate ? sql`AND j.date >= ${fromDate}` : sql``}
         ${toDate ? sql`AND j.date <= ${toDate}` : sql``}
       ORDER BY j.date, j.number, l.id
-      LIMIT 5000`);
+      LIMIT ${Math.min(Math.max(1, Math.floor(rowLimit)), 20000)}`);
+
+    // Total, jumlah baris, dan saldo akhir SELALU dari seluruh data rentang itu (bukan dari baris yang ditampilkan):
+    // akun dengan baris lebih banyak dari batas tidak boleh menghasilkan saldo akhir yang salah.
+    const [agg] = (
+      await this.db.execute<{ debit: string; credit: string; n: number }>(sql`
+        SELECT COALESCE(SUM(l.debit), 0) AS debit, COALESCE(SUM(l.credit), 0) AS credit, COUNT(*)::int AS n
+        FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
+        WHERE l.account_id = ${accountId}
+          ${fromDate ? sql`AND j.date >= ${fromDate}` : sql``}
+          ${toDate ? sql`AND j.date <= ${toDate}` : sql``}`)
+    ).rows;
 
     const routes = await resolveSourceRoutes(this.db, tenantId, res.rows.map((r) => ({ id: r.journal_id, sourceType: r.source_type, sourceId: r.source_id })));
     let running = opening;
-    let totalDebit: Dec = ZERO;
-    let totalCredit: Dec = ZERO;
     const rows = res.rows.map((r, idx) => {
       running = running.plus(normal(acc.type, r.debit, r.credit));
-      totalDebit = totalDebit.plus(r.debit);
-      totalCredit = totalCredit.plus(r.credit);
       return {
         journalId: r.journal_id,
         number: r.number,
@@ -595,9 +641,12 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       account: { id: acc.id, code: acc.code, name: acc.name, type: acc.type },
       opening: opening.toFixed(2),
       rows,
-      totalDebit: totalDebit.toFixed(2),
-      totalCredit: totalCredit.toFixed(2),
-      closing: running.toFixed(2),
+      totalDebit: D(agg.debit).toFixed(2),
+      totalCredit: D(agg.credit).toFixed(2),
+      closing: opening.plus(normal(acc.type, agg.debit, agg.credit)).toFixed(2),
+      /** true = baris yang ditampilkan dipotong batas; total & saldo akhir tetap lengkap — persempit rentang tanggal untuk melihat semua baris */
+      truncated: agg.n > res.rows.length,
+      totalRows: agg.n,
     };
   }
 
