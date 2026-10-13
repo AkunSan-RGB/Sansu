@@ -46,6 +46,8 @@ export interface Me {
   businessModel: BusinessModel;
   /** Perusahaan punya cabang usaha (fitur cabang tampil); mati = menu & isian cabang disembunyikan */
   multiBranch?: boolean;
+  /** Perusahaan sudah membuat anggaran (menu Anggaran vs realisasi tampil) */
+  hasBudget?: boolean;
   /** Standar pelaporan: SAK EMKM tidak mengenal penurunan nilai persediaan dan pengakuan pendapatan berdasarkan persentase penyelesaian */
   framework: ReportingFramework;
   emailVerified: boolean;
