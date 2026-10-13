@@ -27,7 +27,8 @@ import {
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api, get, post } from '@/api/client';
+import { api, get, post, put } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import { LEDGER_KEYS, useAccounts, useAction, useCashAccounts } from '@/api/queries';
 import type { BankCandidate, BankLineStatus, BankReconciliation, BankStatement, BankStatementLine, BankStatementSummary } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
@@ -62,9 +63,9 @@ function ImportModal({ open, onClose, cashAccountId, onDone }: { open: boolean; 
   const totalOut = parsed.lines.filter((l) => Number(l.amount) < 0).reduce((a, l) => a + Number(l.amount), 0);
 
   const save = useAction(
-    () => post<BankStatement>('/bank/statements', { cashAccountId: account, fileName: file?.name, lines: parsed.lines }),
+    () => post<BankStatement & { skippedDuplicates?: number }>('/bank/statements', { cashAccountId: account, fileName: file?.name, lines: parsed.lines }),
     {
-      success: (s) => `${s.lines.length} mutasi diimpor · ${s.summary.counts.MATCHED} langsung cocok dengan buku`,
+      success: (s) => `${s.lines.length} mutasi diimpor · ${s.summary.counts.MATCHED} cocok dengan buku${s.skippedDuplicates ? ` · ${s.skippedDuplicates} mutasi ganda dilewati` : ''}`,
       invalidate: KEYS,
       onSuccess: (s) => {
         onDone(s.id);
@@ -188,6 +189,9 @@ function StatementDrawer({ id, onClose }: { id: string | null; onClose: () => vo
     onSuccess: () => setMatching(null),
   });
   const action = useAction(({ line, act }: { line: string; act: 'unmatch' | 'ignore' }) => post(`/bank/lines/${line}/${act}`), { invalidate: KEYS });
+  const [ignoring, setIgnoring] = useState<BankStatementLine | null>(null);
+  const [ignoreForm] = Form.useForm<{ reason: string }>();
+  const ignore = useAction((v: { reason: string }) => post(`/bank/lines/${ignoring!.id}/ignore`, v), { success: 'Mutasi diabaikan (tercatat di jejak audit)', invalidate: KEYS, onSuccess: () => setIgnoring(null) });
   const d = st.data;
   const byKey = (k: string) => accounts.data?.find((a) => a.systemKey === k)?.id;
   const counterOptions = accounts.data?.filter((a) => a.isPostable && a.id !== d?.cashAccount.id).map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` }));
@@ -257,7 +261,7 @@ function StatementDrawer({ id, onClose }: { id: string | null; onClose: () => vo
                       <Button size="small" onClick={() => setMatching(l)}>
                         Cocokkan
                       </Button>
-                      <Button size="small" type="text" onClick={() => action.mutate({ line: l.id, act: 'ignore' })}>
+                      <Button size="small" type="text" onClick={() => { ignoreForm.resetFields(); setIgnoring(l); }}>
                         Abaikan
                       </Button>
                     </Space>
@@ -271,6 +275,14 @@ function StatementDrawer({ id, onClose }: { id: string | null; onClose: () => vo
           />
         </>
       )}
+      <Modal title="Abaikan mutasi bank" open={!!ignoring} onCancel={() => setIgnoring(null)} onOk={() => ignoreForm.submit()} confirmLoading={ignore.isPending} okText="Abaikan">
+        <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="Mutasi yang diabaikan tidak ikut rekonsiliasi. Uang keluar hanya boleh diabaikan Pemilik/Admin. Alasan tercatat di jejak audit." />
+        <Form form={ignoreForm} layout="vertical" onFinish={(v) => ignore.mutate(v)}>
+          <Form.Item name="reason" label="Alasan" rules={[{ required: true, min: 5, message: 'Isi alasan (min. 5 karakter)' }]}>
+            <Input.TextArea rows={2} maxLength={300} />
+          </Form.Item>
+        </Form>
+      </Modal>
       <Modal title="Buat jurnal dari mutasi bank" open={!!creating} onCancel={() => setCreating(null)} onOk={() => form.submit()} confirmLoading={create.isPending} okText="Posting">
         {creating && (
           <Typography.Paragraph>
@@ -407,6 +419,108 @@ function ReconciliationTab({ cashAccountId }: { cashAccountId?: string }) {
   );
 }
 
+interface BankFinding {
+  key: string;
+  level: 'error' | 'warning' | 'info';
+  title: string;
+  detail: string;
+  refs: string[];
+}
+interface BankRule {
+  id: string;
+  name: string;
+  keyword: string;
+  direction: 'IN' | 'OUT' | 'ANY';
+  accountId: string;
+  maxAmount: string;
+  isActive: boolean;
+}
+
+/** Aturan kategori otomatis: mutasi dengan kata tertentu langsung dijurnal saat impor */
+function RulesTab() {
+  const accounts = useAccounts();
+  const q = useQuery({ queryKey: ['bank', 'rules'], queryFn: () => get<BankRule[]>('/bank/rules') });
+  const [editing, setEditing] = useState<BankRule | 'new' | null>(null);
+  const [form] = Form.useForm<{ name: string; keyword: string; direction: 'IN' | 'OUT' | 'ANY'; accountId: string; maxAmount: number }>();
+  const save = useAction(
+    (v: { name: string; keyword: string; direction: 'IN' | 'OUT' | 'ANY'; accountId: string; maxAmount: number }) => {
+      const body = { ...v, maxAmount: String(v.maxAmount ?? 5000000) };
+      return editing && editing !== 'new' ? put(`/bank/rules/${editing.id}`, body) : post('/bank/rules', body);
+    },
+    { success: 'Aturan disimpan', invalidate: ['bank', 'rules'], onSuccess: () => setEditing(null) },
+  );
+  const del = useAction((id: string) => api(`/bank/rules/${id}`, { method: 'DELETE' }), { success: 'Aturan dihapus', invalidate: ['bank', 'rules'] });
+  const options = (accounts.data ?? []).filter((a) => a.isPostable && (a.type === 'EXPENSE' || a.type === 'REVENUE')).map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` }));
+  const name = (id: string) => accounts.data?.find((a) => a.id === id);
+  return (
+    <>
+      <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Saat mutasi diimpor, mutasi yang belum cocok dengan buku dan memuat kata kunci aturan langsung dijurnal otomatis (mis. 'BIAYA ADM' → Beban Administrasi Bank). Hanya akun pendapatan/beban, dan hanya sampai batas nilai aturan; di atasnya tetap manual." />
+      <Button type="primary" style={{ marginBottom: 12 }} onClick={() => { form.resetFields(); form.setFieldsValue({ direction: 'OUT', maxAmount: 5000000 }); setEditing('new'); }}>
+        Aturan baru
+      </Button>
+      <Table
+        rowKey="id"
+        size="small"
+        loading={q.isLoading}
+        dataSource={q.data}
+        pagination={false}
+        columns={[
+          { title: 'Nama', dataIndex: 'name' },
+          { title: 'Kata kunci', dataIndex: 'keyword' },
+          { title: 'Arah', dataIndex: 'direction', render: (d: string) => ({ IN: 'Uang masuk', OUT: 'Uang keluar', ANY: 'Keduanya' })[d] },
+          { title: 'Akun', render: (_, r: BankRule) => `${name(r.accountId)?.code ?? ''} ${name(r.accountId)?.name ?? ''}` },
+          { title: 'Batas nilai', dataIndex: 'maxAmount', align: 'right', render: fmtMoney },
+          {
+            render: (_, r: BankRule) => (
+              <Space>
+                <Button size="small" type="link" onClick={() => { form.setFieldsValue({ ...r, maxAmount: Number(r.maxAmount) }); setEditing(r); }}>Ubah</Button>
+                <Popconfirm title="Hapus aturan ini?" onConfirm={() => del.mutate(r.id)}>
+                  <Button size="small" type="link" danger>Hapus</Button>
+                </Popconfirm>
+              </Space>
+            ),
+          },
+        ]}
+      />
+      <Modal title={editing === 'new' ? 'Aturan baru' : 'Ubah aturan'} open={!!editing} onCancel={() => setEditing(null)} onOk={() => form.submit()} confirmLoading={save.isPending}>
+        <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
+          <Form.Item name="name" label="Nama" rules={[{ required: true }]}><Input maxLength={80} /></Form.Item>
+          <Form.Item name="keyword" label="Kata kunci di keterangan mutasi" rules={[{ required: true, min: 3, message: 'Min. 3 huruf' }]}><Input maxLength={80} placeholder="BIAYA ADM" /></Form.Item>
+          <Form.Item name="direction" label="Arah"><Radio.Group options={[{ label: 'Uang keluar', value: 'OUT' }, { label: 'Uang masuk', value: 'IN' }, { label: 'Keduanya', value: 'ANY' }]} /></Form.Item>
+          <Form.Item name="accountId" label="Akun lawan (pendapatan / beban)" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={options} /></Form.Item>
+          <Form.Item name="maxAmount" label="Otomatis sampai nilai" extra="Mutasi lebih besar dari ini tetap diproses manual."><InputNumber min={1} style={{ width: '100%' }} prefix="Rp" /></Form.Item>
+        </Form>
+      </Modal>
+    </>
+  );
+}
+
+/** Pengesahan rekonsiliasi akhir bulan oleh orang selain pengimpor */
+function SignoffTab({ cashAccountId }: { cashAccountId?: string }) {
+  const q = useQuery({ queryKey: ['bank', 'signoffs', cashAccountId], queryFn: () => get<{ id: string; period: string; bookBalance: string; signedAt: string }[]>(`/bank/signoffs?cashAccountId=${cashAccountId}`), enabled: !!cashAccountId });
+  const periods = Array.from({ length: 6 }, (_, i) => dayjs().subtract(i + 1, 'month').format('YYYY-MM'));
+  const sign = useAction((period: string) => post('/bank/signoffs', { cashAccountId, period }), { success: 'Rekonsiliasi disahkan', invalidate: ['bank', 'signoffs'] });
+  const done = new Map((q.data ?? []).map((x) => [x.period, x]));
+  return (
+    <>
+      <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Setelah rekonsiliasi akhir bulan selisihnya nol, sahkan di sini. Pengesah harus orang lain dari yang mengimpor rekening koran bulan itu (Pemilik boleh)." />
+      <Table
+        rowKey="period"
+        size="small"
+        pagination={false}
+        dataSource={periods.map((p) => ({ period: p }))}
+        columns={[
+          { title: 'Bulan', dataIndex: 'period' },
+          { title: 'Status', render: (_, r: { period: string }) => (done.has(r.period) ? <Tag color="green">Disahkan</Tag> : <Tag>Belum</Tag>) },
+          { title: 'Saldo buku', render: (_, r: { period: string }) => (done.has(r.period) ? fmtMoney(done.get(r.period)!.bookBalance) : '-'), align: 'right' },
+          { title: 'Disahkan', render: (_, r: { period: string }) => (done.has(r.period) ? fmtDate(done.get(r.period)!.signedAt) : '-') },
+          { render: (_, r: { period: string }) => (done.has(r.period) ? null : <Button size="small" onClick={() => sign.mutate(r.period)} loading={sign.isPending}>Sahkan</Button>) },
+        ]}
+      />
+    </>
+  );
+}
+
 export default function BankPage() {
   const cash = useCashAccounts();
   const [params, setParams] = useSearchParams();
@@ -420,7 +534,12 @@ export default function BankPage() {
     queryFn: () => get<BankStatementSummary[]>(`/bank/statements?cashAccountId=${accountId}`),
     enabled: !!accountId,
   });
-  const remove = useAction((id: string) => api(`/bank/statements/${id}`, { method: 'DELETE' }), { success: 'Rekening koran dihapus', invalidate: KEYS });
+  const { me } = useAuth();
+  const admin = me?.role === 'OWNER' || me?.role === 'ADMIN';
+  const controls = useQuery({ queryKey: ['bank', 'controls'], queryFn: () => get<{ items: BankFinding[] }>('/bank/controls') });
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [removeForm] = Form.useForm<{ reason: string }>();
+  const remove = useAction((v: { id: string; reason: string }) => api(`/bank/statements/${v.id}?reason=${encodeURIComponent(v.reason)}`, { method: 'DELETE' }), { success: 'Rekening koran dihapus', invalidate: KEYS, onSuccess: () => setRemoving(null) });
 
   return (
     <>
@@ -440,6 +559,15 @@ export default function BankPage() {
           </Space>
         }
       />
+      {!!controls.data?.items.length && (
+        <Card size="small" title="Kontrol bank" style={{ marginBottom: 16 }}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {controls.data.items.map((c) => (
+              <Alert key={c.key} type={c.level} showIcon message={c.title} description={<div><div>{c.detail}</div><div style={{ marginTop: 4 }}><strong>Contoh:</strong> {c.refs.slice(0, 4).join(' · ')}{c.refs.length > 4 ? ` · +${c.refs.length - 4}` : ''}</div></div>} />
+            ))}
+          </Space>
+        </Card>
+      )}
       <Card>
         <Tabs
           activeKey={tab}
@@ -471,11 +599,11 @@ export default function BankPage() {
                     {
                       render: (_, r) => (
                         <span onClick={(e) => e.stopPropagation()}>
-                          <Popconfirm title="Hapus rekening koran ini? Jurnal yang sudah dibuat tetap ada." onConfirm={() => remove.mutate(r.id)}>
-                            <Button size="small" type="text" danger>
+                          {admin && (
+                            <Button size="small" type="text" danger onClick={() => { removeForm.resetFields(); setRemoving(r.id); }}>
                               Hapus
                             </Button>
-                          </Popconfirm>
+                          )}
                         </span>
                       ),
                     },
@@ -484,11 +612,19 @@ export default function BankPage() {
               ),
             },
             { key: 'rec', label: 'Laporan rekonsiliasi', children: <ReconciliationTab cashAccountId={accountId} /> },
+            { key: 'sign', label: 'Pengesahan bulanan', children: <SignoffTab cashAccountId={accountId} /> },
+            { key: 'rules', label: 'Aturan otomatis', children: <RulesTab /> },
           ]}
         />
       </Card>
       <ImportModal key={accountId} open={importing} onClose={() => setImporting(false)} cashAccountId={accountId} onDone={setOpen} />
       <StatementDrawer id={open} onClose={() => setOpen(null)} />
+      <Modal title="Hapus rekening koran" open={!!removing} onCancel={() => setRemoving(null)} onOk={() => removeForm.submit()} confirmLoading={remove.isPending} okText="Hapus" okButtonProps={{ danger: true }}>
+        <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="Jurnal yang sudah dibuat dari mutasi tetap ada; hanya pencocokannya yang dilepas. Alasan tercatat di jejak audit." />
+        <Form form={removeForm} layout="vertical" onFinish={(v) => removing && remove.mutate({ id: removing, reason: v.reason })}>
+          <Form.Item name="reason" label="Alasan" rules={[{ required: true, min: 5, message: 'Isi alasan (min. 5 karakter)' }]}><Input.TextArea rows={2} maxLength={300} /></Form.Item>
+        </Form>
+      </Modal>
     </>
   );
 }

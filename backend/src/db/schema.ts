@@ -1924,6 +1924,8 @@ export const bankStatements = pgTable('bank_statements', {
   openingBalance: money('opening_balance'),
   closingBalance: money('closing_balance'),
   status: text('status').notNull().default('OPEN'),
+  /** Pengimpor — pengesahan rekonsiliasi harus orang lain (pemisahan tugas) */
+  importedById: uuid('imported_by_id'),
   createdAt: createdAt(),
 });
 
@@ -1946,6 +1948,8 @@ export const bankStatementLines = pgTable(
     journalLineId: uuid('journal_line_id').references(() => journalLines.id, { onDelete: 'set null' }),
     journalId: uuid('journal_id'),
     matchedBy: text('matched_by'),
+    /** Alasan diabaikan / catatan */
+    note: text('note'),
   },
   (t) => [index('bank_lines_statement_idx').on(t.statementId), uniqueIndex('bank_lines_journal_line_uq').on(t.journalLineId)],
 );
@@ -2629,4 +2633,39 @@ export const budgetAlerts = pgTable(
     sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('budget_alerts_uq').on(t.budgetId, t.accountId, t.month, t.level)],
+);
+
+/** Aturan kategori otomatis mutasi bank (mis. 'BIAYA ADMIN' → Beban Administrasi Bank) */
+export const bankRules = pgTable('bank_rules', {
+  id: id(),
+  tenantId: tenantId(),
+  name: text('name').notNull(),
+  keyword: text('keyword').notNull(),
+  direction: text('direction').$type<'IN' | 'OUT' | 'ANY'>().notNull().default('ANY'),
+  accountId: uuid('account_id')
+    .notNull()
+    .references(() => accounts.id),
+  /** Di atas nilai ini mutasi tetap diproses manual */
+  maxAmount: money('max_amount').notNull().default('5000000'),
+  isActive: boolean('is_active').notNull().default(true),
+  createdById: uuid('created_by_id'),
+  createdAt: createdAt(),
+});
+
+/** Pengesahan rekonsiliasi bank akhir bulan */
+export const bankReconciliations = pgTable(
+  'bank_reconciliations',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    cashAccountId: uuid('cash_account_id')
+      .notNull()
+      .references(() => accounts.id),
+    period: text('period').notNull(),
+    bookBalance: money('book_balance').notNull(),
+    signedById: uuid('signed_by_id').notNull(),
+    signedAt: timestamp('signed_at', { withTimezone: true }).notNull().defaultNow(),
+    notes: text('notes'),
+  },
+  (t) => [uniqueIndex('bank_reconciliations_uq').on(t.cashAccountId, t.period)],
 );
