@@ -69,6 +69,11 @@ export class CreateJournalDto {
   @IsOptional()
   @IsUUID()
   branchId?: string;
+  @ApiPropertyOptional({ description: 'Hanya Pemilik: alasan menembus blokir anggaran (min. 10 karakter)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  budgetOverrideReason?: string;
   @ApiProperty({ type: [JournalLineDto] })
   @ValidateNested({ each: true })
   @Type(() => JournalLineDto)

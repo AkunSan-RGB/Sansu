@@ -30,7 +30,7 @@ import { PettyCashService } from '../cash/petty-cash';
 import { InventoryModule } from '../inventory/inventory.module';
 import { InventoryService } from '../inventory/inventory.service';
 import type { StockAdjustmentDto } from '../inventory/dto/inventory.dto';
-import type { CreateSupplierPaymentDto } from '../purchasing/purchasing.dto';
+import type { CreateBillDto, CreateSupplierPaymentDto } from '../purchasing/purchasing.dto';
 import type { DisposeDto } from '../assets/assets.module';
 
 class PolicyDto implements Partial<ApprovalPolicy> {
@@ -43,6 +43,7 @@ class PolicyDto implements Partial<ApprovalPolicy> {
   @ApiPropertyOptional({ description: 'Aktifkan pengendalian selisih harga faktur terhadap PO' }) @IsOptional() @IsBoolean() priceControl?: boolean;
   @ApiPropertyOptional({ description: 'Toleransi kenaikan harga faktur vs PO (%) per baris' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(1000) priceTolerancePct?: number;
   @ApiPropertyOptional({ description: 'Toleransi harga faktur di atas rata-rata harga beli 90 hari (%)' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(1000) priceBenchmarkPct?: number;
+  @ApiPropertyOptional({ enum: ['OFF', 'APPROVAL', 'BLOCK'], description: 'Pengendalian belanja yang melewati anggaran' }) @IsOptional() @IsIn(['OFF', 'APPROVAL', 'BLOCK']) budgetControl?: 'OFF' | 'APPROVAL' | 'BLOCK';
   @ApiPropertyOptional({ description: 'Pembayaran pertama ke supplier wajib disetujui' }) @IsOptional() @IsBoolean() firstSupplierPayment?: boolean;
   @ApiPropertyOptional({ description: 'Masa berlaku tautan persetujuan lewat Telegram (jam, 1–72)' }) @IsOptional() @IsInt() @Min(1) @Max(72) telegramLinkHours?: number;
 }
@@ -128,6 +129,9 @@ export class ApprovalRequestsService {
       } else if (req.kind === 'STOCK_ADJUSTMENT') {
         const r = await this.inventory.adjust({ ...user, sub: req.requestedById }, req.payload as unknown as StockAdjustmentDto, undefined, { approved: true });
         resultRef = r.number;
+      } else if (req.kind === 'BILL') {
+        const b = await this.invoices.createBill({ ...user, sub: req.requestedById }, req.payload as unknown as CreateBillDto, { approved: true });
+        resultRef = (b as { number?: string }).number;
       } else if (req.kind === 'SUPPLIER_PAYMENT') {
         const r = await this.invoices.pay({ ...user, sub: req.requestedById }, req.payload as unknown as CreateSupplierPaymentDto, { approved: true });
         resultRef = (r as { number?: string }).number;

@@ -27,6 +27,7 @@ import {
 } from '../../db/schema';
 import { AssetsService } from '../assets/assets.module';
 import { SYS } from '../accounting/default-coa';
+import { BudgetService } from '../accounting/budget';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
 import { GoodsReceiptsService, QTY_EPS } from './goods-receipts.service';
@@ -50,6 +51,7 @@ export class PurchaseInvoicesService {
     private readonly settings: SettingsService,
     private readonly approvals: ApprovalsService,
     private readonly fx: FxService,
+    private readonly budget: BudgetService,
   ) {}
 
   list(tenantId: string, q: PurchaseInvoiceQueryDto) {
@@ -573,8 +575,14 @@ export class PurchaseInvoicesService {
     return taxProfileOf(t?.settings).pkp;
   }
 
-  async createBill(user: AuthUser, dto: CreateBillDto) {
+  async createBill(user: AuthUser, dto: CreateBillDto, opts: { approved?: boolean } = {}) {
     const date = toDocDate(dto.date);
+    // Anggaran: baris biaya yang membuat realisasi melewati anggaran (aset dikecualikan)
+    await this.budget.guard(
+      user,
+      dto.lines.filter((l) => l.type !== 'ASSET' && l.accountId).map((l) => ({ accountId: l.accountId!, amount: money(D(l.qty ?? '1').times(l.price)), date })),
+      { kind: 'BILL', title: `Tagihan ${dto.supplierInvoiceNo}`, payload: JSON.parse(JSON.stringify(dto)), approved: opts.approved, overrideReason: dto.budgetOverrideReason },
+    );
     const result = await this.db.transaction(async (tx) => {
       const [supplier] = await tx.select().from(suppliers).where(and(eq(suppliers.id, dto.supplierId), eq(suppliers.tenantId, user.tenantId)));
       if (!supplier) throw new NotFoundException('Supplier tidak ditemukan');

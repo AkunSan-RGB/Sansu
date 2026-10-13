@@ -9,6 +9,6 @@ import { StatementsService } from './statements.service';
 @Module({
   controllers: [AccountingController, BudgetController],
   providers: [AccountingService, PostingService, StatementsService, AdjustmentsService, BudgetService, BudgetScheduler],
-  exports: [PostingService, AccountingService, StatementsService],
+  exports: [PostingService, AccountingService, StatementsService, BudgetService],
 })
 export class AccountingModule {}

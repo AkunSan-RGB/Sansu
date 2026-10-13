@@ -390,7 +390,7 @@ export const approvalRequests = pgTable(
   {
     id: id(),
     tenantId: tenantId(),
-    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT'>().notNull(),
+    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL'>().notNull(),
     /** Dokumen yang dimintakan persetujuan (PO); kosong untuk jurnal manual yang baru diposting setelah disetujui */
     refId: text('ref_id'),
     title: text('title').notNull(),

@@ -339,6 +339,25 @@ export class WarehouseOpsService {
         .update(stockTransfers)
         .set({ totalValue: total.toFixed(2) })
         .where(eq(stockTransfers.id, id));
+      // Kirim langsung antar-cabang: persediaan pindah cabang lewat Rekening Antar Cabang (nol saat digabung), agar neraca tiap cabang tetap seimbang
+      if (!transit && total.gt(0) && (from.branchId ?? null) !== (to.branchId ?? null)) {
+        const semi = await semiSet(tx, u.tenantId, sentItems.map((x) => x.productId));
+        await this.posting.post(tx, {
+          tenantId: u.tenantId,
+          date,
+          description: `Mutasi antar-cabang ${number}: ${from.name} → ${to.name}`,
+          sourceType: 'STOCK_TRANSFER',
+          sourceId: id,
+          reference: number,
+          createdById: u.sub,
+          lines: [
+            ...inventoryLines(sentItems, semi, 'debit').map((l) => ({ ...l, branchId: to.branchId ?? null })),
+            { key: SYS.INTERBRANCH, credit: total, branchId: to.branchId ?? null },
+            { key: SYS.INTERBRANCH, debit: total, branchId: from.branchId ?? null },
+            ...inventoryLines(sentItems, semi, 'credit').map((l) => ({ ...l, branchId: from.branchId ?? null })),
+          ],
+        });
+      }
       if (transit && total.gt(0)) {
         await this.posting.post(tx, {
           tenantId: u.tenantId,
@@ -435,6 +454,11 @@ export class WarehouseOpsService {
       const total = D(t.totalValue);
       shortage = total.minus(received);
       if (total.gt(0)) {
+        const from = await this.warehouse(tx, u.tenantId, t.fromWarehouseId);
+        const fb = from.branchId ?? null;
+        const tb = to.branchId ?? null;
+        const cross = fb !== tb;
+        const dest = (l: object) => (cross ? { ...l, branchId: tb } : l);
         await this.posting.post(tx, {
           tenantId: u.tenantId,
           date,
@@ -444,13 +468,20 @@ export class WarehouseOpsService {
           reference: t.number,
           createdById: u.sub,
           lines: [
-            ...inventoryLines(recItems, await semiSet(tx, u.tenantId, recItems.map((x) => x.productId)), 'debit'),
-            {
+            ...inventoryLines(recItems, await semiSet(tx, u.tenantId, recItems.map((x) => x.productId)), 'debit').map(dest),
+            dest({
               key: SYS.INVENTORY_ADJ,
               debit: shortage,
               memo: shortage.gt(0) ? 'Kekurangan barang transfer' : undefined,
-            },
-            { key: SYS.INVENTORY_TRANSIT, credit: total },
+            }),
+            // antar-cabang: transit ada di cabang pengirim; pasangannya lewat Rekening Antar Cabang (nol saat digabung)
+            ...(cross
+              ? [
+                  { key: SYS.INTERBRANCH, credit: total, branchId: tb },
+                  { key: SYS.INTERBRANCH, debit: total, branchId: fb },
+                  { key: SYS.INVENTORY_TRANSIT, credit: total, branchId: fb },
+                ]
+              : [{ key: SYS.INVENTORY_TRANSIT, credit: total }]),
           ],
         });
       }

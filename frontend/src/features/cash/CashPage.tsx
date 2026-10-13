@@ -1,13 +1,14 @@
 import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
 import { BRAND, CASH_TX_TYPE_LABELS, type CashTxType } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, App, Button, Card, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, post, qs } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { LEDGER_KEYS, useBranches, useAction, useCashAccounts } from '@/api/queries';
+import { withBudgetOverride } from '@/lib/budgetOverride';
 import type { CashTransaction, Project } from '@/api/types';
 import { useApps } from '@/lib/apps';
 import CashAccountSelect from '@/components/CashAccountSelect';
@@ -90,9 +91,11 @@ export default function CashPage() {
     enabled: mode === 'IN' || mode === 'OUT',
   });
 
+  const { modal } = App.useApp();
   const create = useAction(
     (v: FormValues) =>
-      post<{ number: string; journalNumber: string }>('/cash/transactions', {
+      withBudgetOverride(modal, me?.role, (budgetOverrideReason) => post<{ number: string; journalNumber: string }>('/cash/transactions', {
+        budgetOverrideReason,
         type: mode,
         cashAccountId: v.cashAccountId,
         date: v.date,
@@ -112,7 +115,7 @@ export default function CashPage() {
                   : {}),
               })),
             }),
-      }),
+      })),
     {
       success: (r) => `${r.number} diposting · jurnal ${r.journalNumber}`,
       invalidate: LEDGER_KEYS,

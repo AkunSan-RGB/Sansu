@@ -18,7 +18,7 @@ import { SettingsService } from '../settings.service';
 import { TelegramService } from '../telegram/telegram.service';
 
 export const APPROVER_ROLES: readonly Role[] = ['OWNER', 'ADMIN'];
-export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT';
+export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL';
 
 export interface ApprovalPolicy {
   /** Pesanan pembelian dengan total ≥ nilai ini perlu persetujuan (0 = nonaktif) */
@@ -39,12 +39,17 @@ export interface ApprovalPolicy {
   priceTolerancePct: number;
   /** Harga faktur di atas rata-rata harga beli 90 hari terakhir lebih dari persen ini juga butuh persetujuan */
   priceBenchmarkPct: number;
+  /**
+   * Pengendalian anggaran saat belanja (kas keluar, tagihan biaya, jurnal manual) yang membuat realisasi beban melewati anggaran + toleransi:
+   * OFF = hanya peringatan; APPROVAL = staf butuh persetujuan Pemilik/Admin; BLOCK = ditolak (hanya Pemilik yang bisa menembus dengan alasan)
+   */
+  budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK';
   /** Pembayaran PERTAMA ke supplier oleh peran selain pemilik/admin wajib disetujui (anti pemasok fiktif) */
   firstSupplierPayment: boolean;
   /** Masa berlaku tautan persetujuan yang dikirim lewat Telegram (jam, 1–72); email tetap 72 jam */
   telegramLinkHours: number;
 }
-export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, telegramLinkHours: 72 };
+export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, budgetControl: 'OFF', telegramLinkHours: 72 };
 
 export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PURCHASE_ORDER: 'Pesanan pembelian',
@@ -55,6 +60,7 @@ export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PETTY_REPLENISH: 'Pengisian kembali kas kecil',
   STOCK_ADJUSTMENT: 'Penyesuaian stok',
   SUPPLIER_PAYMENT: 'Pembayaran ke supplier',
+  BILL: 'Tagihan biaya / aset',
 };
 
 @Injectable()

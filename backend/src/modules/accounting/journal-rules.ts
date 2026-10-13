@@ -34,7 +34,7 @@ export function normalizeJournalLines(lines: DraftLine[]): { lines: NormalizedLi
     if (debit.isNegative() || credit.isNegative()) throw new JournalValidationError('Nilai debit/kredit tidak boleh negatif');
     if (debit.gt(0) && credit.gt(0)) throw new JournalValidationError('Satu baris jurnal hanya boleh debit atau kredit');
     if (debit.isZero() && credit.isZero()) continue;
-    out.push({ accountId: l.accountId, debit, credit, memo: l.memo, projectId: l.projectId ?? null, branchId: l.branchId ?? null });
+    out.push({ accountId: l.accountId, debit, credit, memo: l.memo, projectId: l.projectId ?? null, branchId: l.branchId });
   }
   if (out.length < 2) throw new JournalValidationError('Jurnal minimal memiliki dua baris bernilai');
 

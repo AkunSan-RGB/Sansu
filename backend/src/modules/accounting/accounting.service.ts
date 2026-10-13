@@ -22,6 +22,7 @@ import {
   UpdateAccountDto,
   UpdateRecurringDto,
 } from './dto/accounting.dto';
+import { BudgetService } from './budget';
 import { PostingService } from './posting.service';
 import { loadSourceDocument } from './source-document';
 import { resolveSourceRoutes } from './source-route';
@@ -70,6 +71,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
     private readonly period: PeriodService,
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
+    private readonly budget: BudgetService,
   ) {}
 
   /** Jurnal berulang dijalankan otomatis setiap jam untuk semua perusahaan */
@@ -183,6 +185,16 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
   async createManualJournal(user: AuthUser, dto: CreateJournalDto, opts: { approved?: boolean } = {}) {
     await this.assertNoControlAccounts(user, dto.lines.map((l) => l.accountId), dto.controlOverrideReason);
     if (dto.autoReverse && !dto.adjustment) throw new BadRequestException('Balik otomatis hanya untuk jurnal penyesuaian');
+    // Anggaran: jurnal manual yang membebankan biaya melebihi anggaran (jurnal penyesuaian akhir periode dikecualikan)
+    if (!dto.adjustment) {
+      const net = new Map<string, Dec>();
+      for (const l of dto.lines) net.set(l.accountId, (net.get(l.accountId) ?? ZERO).plus(money(D(l.debit))).minus(money(D(l.credit))));
+      await this.budget.guard(
+        user,
+        [...net].filter(([, v]) => v.gt(0)).map(([accountId, amount]) => ({ accountId, amount, date: toDocDate(dto.date) })),
+        { kind: 'MANUAL_JOURNAL', title: `Jurnal manual: ${dto.description}`, payload: JSON.parse(JSON.stringify(dto)), approved: opts.approved, overrideReason: dto.budgetOverrideReason },
+      );
+    }
     if (!opts.approved) {
       const total = dto.lines.reduce((a, l) => a + Number(l.debit ?? 0), 0);
       const limit = await this.approvals.needs(this.db, user, 'MANUAL_JOURNAL', total);
@@ -413,6 +425,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       a.systemKey === SYS.AR ? 'piutang usaha (dikoreksi lewat faktur, pembayaran, atau retur)'
       : a.systemKey === SYS.AP ? 'hutang usaha (dikoreksi lewat faktur pembelian, pembayaran, atau retur)'
       : a.systemKey === SYS.INVENTORY || a.systemKey === SYS.INVENTORY_SEMI ? 'persediaan (dikoreksi lewat penyesuaian stok atau opname)'
+      : a.systemKey === SYS.INTERBRANCH ? 'rekening antar cabang (diisi otomatis saat barang berpindah antar-cabang)'
       : pettyAccounts.has(a.id) ? 'kas kecil dana tetap (dicatat lewat bukti kas kecil dan pengisian kembali)'
       : assetAccounts.has(a.id) ? 'aset tetap (dicatat lewat faktur/kas dan menu Aset Tetap)'
       : null;

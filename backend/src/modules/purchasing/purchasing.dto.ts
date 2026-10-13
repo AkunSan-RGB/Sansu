@@ -200,6 +200,7 @@ export class CreateBillDto {
   @Type(() => BillLineDto)
   @ArrayMinSize(1)
   lines: BillLineDto[];
+  @ApiPropertyOptional({ description: 'Hanya Pemilik: alasan menembus blokir anggaran (min. 10 karakter)' }) @IsOptional() @IsString() @MaxLength(300) budgetOverrideReason?: string;
 }
 
 export class VoidSupplierPaymentDto {
