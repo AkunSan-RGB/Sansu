@@ -26,6 +26,7 @@ import { PurchasingModule } from '../purchasing/purchasing.module';
 import { AssetsModule, AssetsService } from '../assets/assets.module';
 import { CashModule } from '../cash/cash.module';
 import { CashService, type CreateCashTxDto } from '../cash/cash.module';
+import { PettyCashService } from '../cash/petty-cash';
 import type { DisposeDto } from '../assets/assets.module';
 
 class PolicyDto implements Partial<ApprovalPolicy> {
@@ -57,6 +58,7 @@ export class ApprovalRequestsService {
     private readonly accounting: AccountingService,
     private readonly assets: AssetsService,
     private readonly cash: CashService,
+    private readonly petty: PettyCashService,
     private readonly audit: AuditService,
   ) {}
 
@@ -116,6 +118,10 @@ export class ApprovalRequestsService {
         // dicatat atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
         const t = await this.cash.create({ ...user, sub: req.requestedById }, req.payload as unknown as CreateCashTxDto, { approved: true });
         resultRef = t.number;
+      } else if (req.kind === 'PETTY_REPLENISH') {
+        // dijalankan atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
+        const r = await this.petty.executeReplenish({ ...user, sub: req.requestedById }, req.payload as unknown as { fundId: string; date?: string; voucherIds: string[] });
+        resultRef = r.number;
       } else if (req.kind === 'ASSET_DISPOSAL') {
         const { id: assetId, ...dto } = req.payload as unknown as DisposeDto & { id: string };
         const a = await this.assets.dispose({ ...user, sub: req.requestedById }, assetId, dto, { approved: true });

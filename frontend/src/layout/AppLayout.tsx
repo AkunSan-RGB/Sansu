@@ -157,6 +157,7 @@ const MENU: Group[] = [
     icon: APP_ICONS.cash,
     children: [
       { key: '/cash', label: 'Transaksi kas & bank' },
+      { key: '/petty-cash', label: 'Kas kecil' },
       { key: '/bank', label: 'Rekonsiliasi bank' },
       { key: '/cash/counts', label: 'Opname kas' },
     ],

@@ -18,7 +18,7 @@ import { SettingsService } from '../settings.service';
 import { TelegramService } from '../telegram/telegram.service';
 
 export const APPROVER_ROLES: readonly Role[] = ['OWNER', 'ADMIN'];
-export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX';
+export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH';
 
 export interface ApprovalPolicy {
   /** Pesanan pembelian dengan total ≥ nilai ini perlu persetujuan (0 = nonaktif) */
@@ -48,6 +48,7 @@ export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PURCHASE_INVOICE_PRICE: 'Faktur supplier — harga di atas toleransi',
   ASSET_DISPOSAL: 'Pelepasan aset tetap',
   CASH_TX: 'Kas keluar / transfer',
+  PETTY_REPLENISH: 'Pengisian kembali kas kecil',
 };
 
 @Injectable()

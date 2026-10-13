@@ -373,7 +373,7 @@ export const approvalRequests = pgTable(
   {
     id: id(),
     tenantId: tenantId(),
-    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX'>().notNull(),
+    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH'>().notNull(),
     /** Dokumen yang dimintakan persetujuan (PO); kosong untuk jurnal manual yang baru diposting setelah disetujui */
     refId: text('ref_id'),
     title: text('title').notNull(),
@@ -1060,6 +1060,71 @@ export const cashTransactions = pgTable(
     uniqueIndex('cash_transactions_number_uq').on(t.tenantId, t.number),
     index('cash_transactions_date_idx').on(t.tenantId, t.date),
   ],
+);
+
+/**
+ * Kas kecil dengan sistem dana tetap (imprest): dana ditetapkan sebesar plafon; pengeluaran dicatat dengan bukti kas kecil
+ * (langsung dibebankan), lalu pengisian kembali mengembalikan dana ke plafon. Kas kecil + bukti belum diganti = plafon.
+ */
+export const pettyCashFunds = pgTable(
+  'petty_cash_funds',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    /** Akun kas kecil di bagan akun (mis. 1-1110) */
+    accountId: uuid('account_id').notNull().references(() => accounts.id),
+    /** Sumber pengisian: kas besar / bank */
+    fundingAccountId: uuid('funding_account_id').notNull().references(() => accounts.id),
+    name: text('name').notNull(),
+    custodianName: text('custodian_name').notNull(),
+    imprestAmount: money('imprest_amount').notNull(),
+    /** Batas nilai per bukti kas kecil */
+    maxVoucher: money('max_voucher').notNull(),
+    status: text('status').$type<'ACTIVE' | 'CLOSED'>().notNull().default('ACTIVE'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('petty_cash_funds_account_uq').on(t.tenantId, t.accountId)],
+);
+
+export const pettyCashVouchers = pgTable(
+  'petty_cash_vouchers',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    fundId: uuid('fund_id').notNull().references(() => pettyCashFunds.id),
+    number: text('number').notNull(),
+    date: date('date').notNull(),
+    payee: text('payee').notNull(),
+    description: text('description').notNull(),
+    expenseAccountId: uuid('expense_account_id').notNull().references(() => accounts.id),
+    amount: money('amount').notNull(),
+    /** Nomor nota/kuitansi (wajib) */
+    receiptRef: text('receipt_ref').notNull(),
+    /** OPEN = belum diganti · REPLENISHED = sudah diganti lewat pengisian kembali · VOID = dibatalkan */
+    status: text('status').$type<'OPEN' | 'REPLENISHED' | 'VOID'>().notNull().default('OPEN'),
+    cashTransactionId: uuid('cash_transaction_id'),
+    replenishmentId: uuid('replenishment_id'),
+    createdById: uuid('created_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('petty_cash_vouchers_number_uq').on(t.tenantId, t.number), index('petty_cash_vouchers_fund_idx').on(t.fundId, t.status)],
+);
+
+export const pettyCashReplenishments = pgTable(
+  'petty_cash_replenishments',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    fundId: uuid('fund_id').notNull().references(() => pettyCashFunds.id),
+    number: text('number').notNull(),
+    date: date('date').notNull(),
+    total: money('total').notNull(),
+    voucherCount: integer('voucher_count').notNull(),
+    cashTransactionId: uuid('cash_transaction_id'),
+    requestedById: uuid('requested_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('petty_cash_replenishments_number_uq').on(t.tenantId, t.number)],
 );
 
 /** Lawan akun kas masuk/keluar (mis. Beban Listrik, Modal) */
