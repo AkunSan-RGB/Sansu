@@ -1127,6 +1127,25 @@ export const pettyCashReplenishments = pgTable(
   (t) => [uniqueIndex('petty_cash_replenishments_number_uq').on(t.tenantId, t.number)],
 );
 
+/** Jurnal balik terjadwal (akrual yang dibalik otomatis di awal periode berikutnya) */
+export const scheduledReversals = pgTable(
+  'scheduled_reversals',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    journalId: uuid('journal_id').notNull().references(() => journalEntries.id),
+    reverseOn: date('reverse_on').notNull(),
+    /** PENDING · DONE · SKIPPED (sudah dibalik manual) · CANCELLED */
+    status: text('status').$type<'PENDING' | 'DONE' | 'SKIPPED' | 'CANCELLED'>().notNull().default('PENDING'),
+    reversalJournalId: uuid('reversal_journal_id'),
+    lastError: text('last_error'),
+    createdById: uuid('created_by_id'),
+    createdAt: createdAt(),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+  },
+  (t) => [uniqueIndex('scheduled_reversals_journal_uq').on(t.journalId), index('scheduled_reversals_due_idx').on(t.tenantId, t.status, t.reverseOn)],
+);
+
 /** Lawan akun kas masuk/keluar (mis. Beban Listrik, Modal) */
 export const cashTransactionLines = pgTable('cash_transaction_lines', {
   id: id(),

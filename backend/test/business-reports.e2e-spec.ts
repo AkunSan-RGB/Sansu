@@ -32,6 +32,7 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
     post(m, '/api/accounting/journals', {
       date: today,
       description: 'Uji',
+      controlOverrideReason: 'Penyiapan data uji (pengecualian Pemilik)',
       lines: [{ accountId: await accountId(m, debit), debit: amount }, { accountId: await accountId(m, credit), credit: amount }],
     }).expect(201);
   const notes = async (m: Model) => (await get(m, `/api/accounting/notes/${year}`).expect(200)).body.sections as Section[];

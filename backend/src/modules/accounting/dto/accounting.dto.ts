@@ -52,6 +52,19 @@ export class CreateJournalDto {
   @ApiProperty({ example: 'Bayar sewa gudang Oktober' }) @IsString() @MaxLength(255) description: string;
   @ApiPropertyOptional({ example: 'KW-0012', description: 'Nomor bukti transaksi' }) @IsOptional() @IsString() @MaxLength(60) reference?: string;
   @ApiPropertyOptional({ description: 'Jurnal penyesuaian akhir periode' }) @IsOptional() @IsBoolean() adjustment?: boolean;
+  @ApiPropertyOptional({ description: 'Hanya Pemilik: alasan mengecualikan larangan akun kontrol (piutang, hutang, persediaan, aset tetap, kas kecil); min. 10 karakter' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  controlOverrideReason?: string;
+  @ApiPropertyOptional({ description: 'Hanya jurnal penyesuaian: dibalik otomatis pada tanggal 1 bulan berikutnya (akrual), tanpa membalik manual' })
+  @IsOptional()
+  @IsBoolean()
+  autoReverse?: boolean;
+  @ApiPropertyOptional({ description: 'true = tetap simpan walau ada jurnal serupa (peringatan pencatatan ganda sudah dikonfirmasi)' })
+  @IsOptional()
+  @IsBoolean()
+  confirmDuplicate?: boolean;
   @ApiProperty({ type: [JournalLineDto] })
   @ValidateNested({ each: true })
   @Type(() => JournalLineDto)
@@ -70,6 +83,13 @@ export class PeriodQueryDto {
 
 export class LedgerQueryDto extends PeriodQueryDto {
   @ApiProperty() @IsUUID() accountId: string;
+  @ApiPropertyOptional({ description: 'Batas baris yang ditampilkan (default 5000, maks 20000); total dan saldo akhir tetap dari seluruh data' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20000)
+  limit?: number;
 }
 
 export class OpeningBalanceDto {

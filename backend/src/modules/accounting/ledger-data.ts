@@ -67,6 +67,11 @@ export interface SumFilter {
    * (mis. stok awal dari penyesuaian persediaan). Bukan arus kas — 'exclude' membuangnya, 'only' mengambil itu saja.
    */
   openingLike?: 'exclude' | 'only';
+  /**
+   * Jurnal balik (REVERSAL) dihitung menurut jenis jurnal yang dibalik untuk filter sumber. Dipakai neraca lajur agar pembalikan
+   * jurnal penyesuaian tetap berada di kolom penyesuaian (bukan mengotori kolom neraca saldo sebelum penyesuaian).
+   */
+  reversalInheritsSource?: boolean;
 }
 
 // satu sub-kueri (di-hash sekali) — jauh lebih cepat daripada EXISTS per baris jurnal pada data besar
@@ -98,8 +103,11 @@ async function sumByAccountRaw(db: DbOrTx, tenantId: string, f: SumFilter): Prom
   const conds = [sql`j.tenant_id = ${tenantId}`];
   if (f.from) conds.push(sql`j.date >= ${f.from}`);
   if (f.to) conds.push(sql`j.date <= ${f.to}`);
-  if (f.excludeSources?.length) conds.push(sql`j.source_type NOT IN (${sql.join(f.excludeSources.map((s) => sql`${s}`), sql`, `)})`);
-  if (f.onlySources?.length) conds.push(sql`j.source_type IN (${sql.join(f.onlySources.map((s) => sql`${s}`), sql`, `)})`);
+  const src = f.reversalInheritsSource
+    ? sql`(CASE WHEN j.source_type = 'REVERSAL' THEN COALESCE((SELECT o.source_type FROM journal_entries o WHERE o.id = j.reversal_of_id), 'REVERSAL') ELSE j.source_type END)`
+    : sql`j.source_type`;
+  if (f.excludeSources?.length) conds.push(sql`${src} NOT IN (${sql.join(f.excludeSources.map((s) => sql`${s}`), sql`, `)})`);
+  if (f.onlySources?.length) conds.push(sql`${src} IN (${sql.join(f.onlySources.map((s) => sql`${s}`), sql`, `)})`);
   if (f.openingLike === 'exclude') conds.push(sql`NOT ${openingLike(tenantId)}`);
   if (f.openingLike === 'only') conds.push(openingLike(tenantId));
   const res = await db.execute<{ account_id: string; debit: string; credit: string }>(sql`

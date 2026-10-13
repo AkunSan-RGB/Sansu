@@ -138,6 +138,11 @@ export class AccountingController {
     return this.svc.createManualJournal(u, dto);
   }
 
+  @Delete('journals/:id/scheduled-reversal')
+  cancelScheduledReversal(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.svc.cancelScheduledReversal(u, id);
+  }
+
   @Post('journals/:id/reverse')
   reverse(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReverseJournalDto) {
     return this.svc.reverseJournal(u, id, dto.date);
@@ -185,7 +190,7 @@ export class AccountingController {
 
   @Get('reports/ledger')
   ledger(@CurrentUser() u: AuthUser, @Query() q: LedgerQueryDto) {
-    return this.svc.ledger(u.tenantId, q.accountId, q.from, q.to);
+    return this.svc.ledger(u.tenantId, q.accountId, q.from, q.to, q.limit);
   }
 
   @Get('reports/cash-flow')
