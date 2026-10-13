@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, post, qs } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import { LEDGER_KEYS, useAction, useCashAccounts } from '@/api/queries';
 import type { CashTransaction, Project } from '@/api/types';
 import { useApps } from '@/lib/apps';
@@ -60,6 +61,19 @@ export default function CashPage() {
     for (const c of assetCats.data ?? []) m.set(c.assetAccountId, [...(m.get(c.assetAccountId) ?? []), c]);
     return m;
   }, [assetCats.data]);
+  const controls = useQuery({
+    queryKey: ['cash', 'controls'],
+    queryFn: () => get<{ items: { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string }[] }>('/cash/controls'),
+  });
+  const { me } = useAuth();
+  const canVoid = me?.role === 'OWNER' || me?.role === 'ADMIN';
+  const [voiding, setVoiding] = useState<CashTransaction | null>(null);
+  const [voidForm] = Form.useForm<{ reason: string }>();
+  const doVoid = useAction((v: { id: string; reason: string }) => post(`/cash/transactions/${v.id}/void`, { reason: v.reason }), {
+    success: 'Transaksi dibatalkan (jurnal pembalik dibuat)',
+    invalidate: [...LEDGER_KEYS, 'cash'],
+    onSuccess: () => setVoiding(null),
+  });
   const counter = useQuery({
     queryKey: ['cash-counter-accounts'],
     queryFn: () => get<CounterAccount[]>('/cash/counter-accounts'),
@@ -152,6 +166,16 @@ export default function CashPage() {
         ))}
       </Row>
 
+      {!!controls.data?.items.length && (
+        <Card size="small" title="Kontrol kas & bank (60 hari terakhir)" style={{ marginBottom: 16 }}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {controls.data.items.map((c) => (
+              <Alert key={c.key} type={c.level} showIcon message={c.title} description={c.detail} />
+            ))}
+          </Space>
+        </Card>
+      )}
+
       <Card title="Transaksi kas & bank">
         <Space wrap style={{ marginBottom: 12 }}>
           <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -193,6 +217,17 @@ export default function CashPage() {
             { title: 'Keterangan', dataIndex: 'description' },
             { title: 'Referensi', dataIndex: 'reference' },
             {
+              title: 'Status',
+              render: (_, t) =>
+                t.status === 'VOID' ? (
+                  <Tag color="default" title={t.voidReason ?? undefined}>
+                    Dibatalkan
+                  </Tag>
+                ) : (
+                  <Tag color="green">Diposting</Tag>
+                ),
+            },
+            {
               title: 'Jumlah',
               dataIndex: 'amount',
               align: 'right',
@@ -203,9 +238,41 @@ export default function CashPage() {
                 </Typography.Text>
               ),
             },
+            ...(canVoid
+              ? [
+                  {
+                    title: '',
+                    render: (_: unknown, t: CashTransaction) =>
+                      t.status === 'VOID' ? null : (
+                        <Button
+                          size="small"
+                          danger
+                          type="text"
+                          onClick={() => {
+                            voidForm.resetFields();
+                            setVoiding(t);
+                          }}
+                        >
+                          Batalkan
+                        </Button>
+                      ),
+                  },
+                ]
+              : []),
           ]}
         />
       </Card>
+
+      <Modal title={`Batalkan ${voiding?.number ?? ''}`} open={!!voiding} onCancel={() => setVoiding(null)} onOk={() => voidForm.submit()} confirmLoading={doVoid.isPending} okText="Batalkan transaksi" okButtonProps={{ danger: true }}>
+        <Typography.Paragraph type="secondary">
+          Transaksi tidak dihapus: SANSU membuat jurnal pembalik dan mencatat alasan serta pelakunya di jejak audit. Tidak bisa dibatalkan bila sudah dicocokkan dengan mutasi bank atau sudah menjadi aset tetap.
+        </Typography.Paragraph>
+        <Form form={voidForm} layout="vertical" onFinish={(v) => voiding && doVoid.mutate({ id: voiding.id, reason: v.reason })}>
+          <Form.Item name="reason" label="Alasan pembatalan" rules={[{ required: true, min: 5, message: 'Isi alasan (min. 5 karakter)' }]}>
+            <Input.TextArea rows={3} maxLength={300} />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         title={mode && TITLE[mode]}

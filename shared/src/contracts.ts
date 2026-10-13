@@ -561,6 +561,10 @@ export interface CashTransaction {
   amount: string;
   description: string;
   reference: string | null;
+  /** POSTED | VOID (dibatalkan dengan jurnal pembalik) */
+  status?: 'POSTED' | 'VOID';
+  voidReason?: string | null;
+  voidedAt?: string | null;
   cashAccount: { code: string; name: string };
   toCashAccount: { code: string; name: string } | null;
   lines: { id: string; amount: string; memo: string | null; account: { code: string; name: string } }[];
