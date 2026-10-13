@@ -1163,6 +1163,47 @@ export function fixedAssetsSheet(rows: FixedAsset[], asOf: string, company?: str
   return [s.spec];
 }
 
+/** Daftar pemeriksaan fisik (stok opname) aset tetap: kolom hasil dikosongkan untuk diisi tangan, lalu dicocokkan ke SANSU */
+export function assetCountSheet(rows: FixedAsset[], asOf: string, company?: string): SheetSpec[] {
+  const label = { FOUND: 'Ada', DAMAGED: 'Rusak', MISSING: 'Hilang' } as const;
+  const s = new SheetBuilder('Pemeriksaan Fisik', {
+    company,
+    title: 'Daftar Pemeriksaan Fisik Aset Tetap',
+    subtitle: [`Per ${tgl(asOf)}`, 'Beri tanda pada kolom Kondisi: Ada / Rusak / Hilang. Catat lokasi sebenarnya bila berpindah.'],
+    columns: [
+      { key: 'no', header: 'No', fmt: 'int', width: 5 },
+      { key: 'code', header: 'Kode', fmt: 'code', width: 11 },
+      { key: 'name', header: 'Nama aset', width: 32 },
+      { key: 'cat', header: 'Kategori', width: 16 },
+      { key: 'loc', header: 'Lokasi tercatat', width: 16 },
+      { key: 'who', header: 'Penanggung jawab', width: 18 },
+      { key: 'last', header: 'Diperiksa terakhir', width: 18 },
+      { key: 'cond', header: 'Kondisi (Ada/Rusak/Hilang)', width: 18 },
+      { key: 'realLoc', header: 'Lokasi sebenarnya', width: 18 },
+      { key: 'note', header: 'Catatan', width: 24 },
+      { key: 'sign', header: 'Paraf', width: 10 },
+    ],
+    filter: true,
+    freezeCols: 3,
+  });
+  rows.forEach((x, i) => {
+    s.row({
+      no: i + 1,
+      code: x.code,
+      name: x.name,
+      cat: x.category.name,
+      loc: x.location ?? '',
+      who: x.custodian ?? '',
+      last: x.lastVerifiedAt && x.verificationStatus ? `${label[x.verificationStatus]} · ${tgl(x.lastVerifiedAt.slice(0, 10))}` : 'Belum pernah',
+      cond: '',
+      realLoc: '',
+      note: '',
+      sign: '',
+    });
+  });
+  return [s.spec];
+}
+
 /** Rekap PPN keluaran langganan SANSU per bulan (Panel SANSU) — bahan faktur pajak Coretax */
 export function subscriptionVatSheet(rows: VatReportRow[], month: string, seller?: string): SheetSpec[] {
   const [y, m] = month.split('-').map(Number);

@@ -1177,6 +1177,12 @@ export interface FixedAsset {
   method: string;
   openingAccumulated: string;
   location: string | null;
+  /** Penanggung jawab aset */
+  custodian?: string | null;
+  /** Pemeriksaan fisik terakhir */
+  lastVerifiedAt?: string | null;
+  verificationStatus?: 'FOUND' | 'DAMAGED' | 'MISSING' | null;
+  verificationNote?: string | null;
   notes: string | null;
   status: 'ACTIVE' | 'DISPOSED';
   disposalDate: string | null;

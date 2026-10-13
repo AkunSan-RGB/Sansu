@@ -17,15 +17,17 @@ import {
   Row,
   Select,
   Space,
+  Switch,
   Statistic,
   Table,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
-import { get, patch, post } from '@/api/client';
+import { get, patch, post, put } from '@/api/client';
 import { LEDGER_KEYS, useAccounts, useAction } from '@/api/queries';
 import type { AssetCategory, CompanySettings, FixedAsset } from '@/api/types';
 import CashAccountSelect from '@/components/CashAccountSelect';
@@ -33,7 +35,7 @@ import ExportButtons from '@/components/ExportButtons';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { Amount } from './statements/format';
-import { fixedAssetsSheet } from '@/lib/xlsx/reports';
+import { assetCountSheet, fixedAssetsSheet } from '@/lib/xlsx/reports';
 import { useAuth } from '@/auth/AuthContext';
 import { t } from '@/lib/terms';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -187,6 +189,18 @@ function AssetForm({ categories, onDone }: { categories: AssetCategory[]; onDone
   );
 }
 
+const VERIFY_LABEL = { FOUND: ['green', 'Ada'], DAMAGED: ['orange', 'Rusak'], MISSING: ['red', 'Hilang'] } as const;
+function VerifyTag({ a }: { a: FixedAsset }) {
+  if (a.status !== 'ACTIVE') return null;
+  if (!a.lastVerifiedAt || !a.verificationStatus) return <Typography.Text type="secondary">Belum pernah</Typography.Text>;
+  const [color, label] = VERIFY_LABEL[a.verificationStatus];
+  return (
+    <Tag color={color}>
+      {label} · {fmtDate(a.lastVerifiedAt)}
+    </Tag>
+  );
+}
+
 function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }) {
   const [dispose, setDispose] = useState(false);
   const [form] = Form.useForm();
@@ -198,6 +212,15 @@ function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }
   });
   const price = Form.useWatch('price', form);
   const d = a.data;
+  const [custodian, setCustodian] = useState<string>();
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [vForm] = Form.useForm<{ status: 'FOUND' | 'DAMAGED' | 'MISSING'; note?: string; location?: string }>();
+  const saveCustodian = useAction((v: string) => patch(`/assets/${id}`, { custodian: v }), { success: 'Penanggung jawab disimpan', invalidate: KEYS });
+  const doVerify = useAction((v: { status: string; note?: string; location?: string }) => post(`/assets/${id}/verify`, v), {
+    success: 'Hasil pemeriksaan fisik dicatat',
+    invalidate: KEYS,
+    onSuccess: () => setVerifyOpen(false),
+  });
   return (
     <Drawer title={d ? `${d.code} · ${d.name}` : 'Aset'} open={!!id} onClose={onClose} width={720}>
       {d && (
@@ -218,6 +241,30 @@ function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }
             {d.location && <Descriptions.Item label="Lokasi">{d.location}</Descriptions.Item>}
             {d.disposalPrice && <Descriptions.Item label="Harga jual">{fmtMoney(d.disposalPrice)}</Descriptions.Item>}
           </Descriptions>
+          {d.status === 'ACTIVE' && (
+            <Space wrap style={{ marginBottom: 16 }}>
+              <Input
+                style={{ width: 240 }}
+                placeholder="Penanggung jawab (nama/divisi)"
+                defaultValue={d.custodian ?? ''}
+                key={`${d.id}-${d.custodian ?? ''}`}
+                onChange={(e) => setCustodian(e.target.value)}
+                onPressEnter={() => custodian !== undefined && saveCustodian.mutate(custodian)}
+              />
+              <Button loading={saveCustodian.isPending} disabled={custodian === undefined} onClick={() => custodian !== undefined && saveCustodian.mutate(custodian)}>
+                Simpan
+              </Button>
+              <Button
+                onClick={() => {
+                  vForm.setFieldsValue({ status: 'FOUND', note: undefined, location: d.location ?? undefined });
+                  setVerifyOpen(true);
+                }}
+              >
+                Periksa fisik
+              </Button>
+              {d.lastVerifiedAt && <VerifyTag a={d} />}
+            </Space>
+          )}
           {d.status === 'ACTIVE' && (
             <Button
               danger
@@ -244,6 +291,25 @@ function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }
               { title: '', dataIndex: 'posted', render: (p) => (p ? <Tag color="green">Diposting</Tag> : <Tag>Rencana</Tag>) },
             ]}
           />
+          <Modal title="Pemeriksaan fisik aset" open={verifyOpen} onCancel={() => setVerifyOpen(false)} onOk={() => vForm.submit()} confirmLoading={doVerify.isPending} okText="Catat">
+            <Form form={vForm} layout="vertical" onFinish={(v) => doVerify.mutate(v)}>
+              <Form.Item name="status" label="Hasil pemeriksaan" rules={[{ required: true }]}>
+                <Radio.Group
+                  options={[
+                    { value: 'FOUND', label: 'Ada & baik' },
+                    { value: 'DAMAGED', label: 'Rusak' },
+                    { value: 'MISSING', label: 'Tidak ditemukan' },
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item name="location" label="Lokasi saat ini">
+                <Input />
+              </Form.Item>
+              <Form.Item name="note" label="Catatan">
+                <Input.TextArea rows={2} maxLength={300} />
+              </Form.Item>
+            </Form>
+          </Modal>
           <Modal title="Jual / hapus aset" open={dispose} onCancel={() => setDispose(false)} onOk={() => form.submit()} confirmLoading={doDispose.isPending} okText="Posting">
             <Typography.Paragraph type="secondary">
               Penyusutan dikejar sampai bulan sebelum pelepasan, lalu aset & akumulasinya dikeluarkan. Selisih dengan harga jual dicatat sebagai laba / rugi pelepasan aset.
@@ -279,11 +345,53 @@ function AssetList() {
   const [status, setStatus] = useState<'ACTIVE' | 'ALL'>('ACTIVE');
   const assets = useQuery({ queryKey: ['assets', 'list', asOf], queryFn: () => get<FixedAsset[]>(`/assets?asOf=${asOf}`) });
   const cats = useQuery({ queryKey: ['assets', 'categories'], queryFn: () => get<AssetCategory[]>('/assets/categories') });
+  const recon = useQuery({
+    queryKey: ['assets', 'reconciliation', asOf],
+    queryFn: () => get<{ mismatched: number; rows: { accountId: string; code: string; name: string; kind: 'COST' | 'ACCUMULATED'; register: string; ledger: string; diff: string }[] }>(`/assets/reconciliation?asOf=${asOf}`),
+  });
+  const controls = useQuery({
+    queryKey: ['assets', 'controls'],
+    queryFn: () => get<{ items: { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string; assetIds: string[] }[] }>('/assets/controls'),
+  });
+  const autoSetting = useQuery({ queryKey: ['assets', 'settings'], queryFn: () => get<{ autoDepreciation: boolean }>('/assets/settings') });
+  const saveAuto = useAction((v: boolean) => put('/assets/settings', { autoDepreciation: v }), { success: 'Pengaturan disimpan', invalidate: ['assets'] });
+  const mismatches = (recon.data?.rows ?? []).filter((r) => Math.abs(Number(r.diff)) >= 1);
   const rows = useMemo(() => (assets.data ?? []).filter((a) => status === 'ALL' || a.status === 'ACTIVE'), [assets.data, status]);
   const total = (k: 'cost' | 'accumulated' | 'bookValue') => rows.reduce((s, a) => s + Number(a[k] ?? 0), 0);
   const monthly = rows.filter((a) => a.status === 'ACTIVE').reduce((s, a) => s + Number(a.monthlyEstimate ?? 0), 0);
   return (
     <>
+      {!!controls.data?.items.length && (
+        <Card size="small" title="Kontrol aset tetap" style={{ marginBottom: 16 }}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {controls.data.items.map((c) => (
+              <Alert key={c.key} type={c.level} showIcon message={c.title} description={c.detail} />
+            ))}
+          </Space>
+        </Card>
+      )}
+      {mismatches.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Daftar aset belum sama dengan buku besar"
+          description={
+            <>
+              {mismatches.map((m) => (
+                <div key={`${m.kind}${m.accountId}`}>
+                  {m.code} {m.name} ({m.kind === 'COST' ? 'harga perolehan' : 'akumulasi penyusutan'}): daftar aset {fmtMoney(Number(m.register))}, buku besar {fmtMoney(Number(m.ledger))}, selisih{' '}
+                  <b>{fmtMoney(Number(m.diff))}</b>
+                </div>
+              ))}
+              <div style={{ marginTop: 6 }}>
+                Selisih positif biasanya berarti ada aset lama yang saldonya sudah masuk lewat saldo awal tetapi belum dirinci di daftar ini.{' '}
+                <a onClick={() => navigate('/settings/import?kind=assets')}>Impor aset lama dari Excel</a>
+              </div>
+            </>
+          }
+        />
+      )}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         {[
           ['Harga perolehan', total('cost')],
@@ -306,6 +414,13 @@ function AssetList() {
           <Button icon={<UploadOutlined />} onClick={() => navigate('/settings/import?kind=assets')} disabled={!cats.data?.length}>
             Impor aset lama dari Excel
           </Button>
+          <Switch
+            checked={autoSetting.data?.autoDepreciation ?? true}
+            loading={saveAuto.isPending}
+            onChange={(v) => saveAuto.mutate(v)}
+            checkedChildren="Penyusutan otomatis"
+            unCheckedChildren="Penyusutan manual"
+          />
           <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value || today())} prefix="Per" style={{ width: 220 }} />
           <Radio.Group size="small" value={status} onChange={(e) => setStatus(e.target.value)} optionType="button" options={[{ value: 'ACTIVE', label: 'Aktif' }, { value: 'ALL', label: 'Semua' }]} />
           <ExportButtons
@@ -313,6 +428,22 @@ function AssetList() {
             title={`Daftar Aset Tetap per ${fmtDate(asOf)}`}
             sheets={() => fixedAssetsSheet(rows, asOf, me?.tenantName)}
           />
+          <Tooltip title="Lembar kosong untuk dibawa berkeliling: isi kondisi tiap aset, lalu catat hasilnya di SANSU">
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
+              <Typography.Text type="secondary">Lembar pemeriksaan fisik:</Typography.Text>
+              <ExportButtons
+                filename={`pemeriksaan-fisik-aset-${asOf}`}
+                title={`Daftar Pemeriksaan Fisik Aset per ${fmtDate(asOf)}`}
+                sheets={() =>
+                  assetCountSheet(
+                    [...rows].filter((a) => a.status === 'ACTIVE').sort((a, b) => (a.location ?? '').localeCompare(b.location ?? '') || a.code.localeCompare(b.code)),
+                    asOf,
+                    me?.tenantName,
+                  )
+                }
+              />
+            </span>
+          </Tooltip>
         </Space>
         <Table
           rowKey="id"
@@ -329,6 +460,8 @@ function AssetList() {
             { title: 'Umur', dataIndex: 'usefulLifeMonths', render: lifeText },
             { title: 'Akumulasi', dataIndex: 'accumulated', align: 'right', render: fmtMoney },
             { title: 'Nilai buku', dataIndex: 'bookValue', align: 'right', render: (v) => <strong>{fmtMoney(v)}</strong> },
+            { title: 'Penanggung jawab', dataIndex: 'custodian', render: (v) => v || <Typography.Text type="secondary">—</Typography.Text> },
+            { title: 'Pemeriksaan fisik', render: (_, a) => <VerifyTag a={a} /> },
             { title: 'Status', dataIndex: 'status', render: (s) => (s === 'ACTIVE' ? <Tag color="green">Aktif</Tag> : <Tag>Dilepas</Tag>) },
           ]}
         />

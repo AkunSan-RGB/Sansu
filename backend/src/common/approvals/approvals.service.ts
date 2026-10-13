@@ -18,13 +18,15 @@ import { SettingsService } from '../settings.service';
 import { TelegramService } from '../telegram/telegram.service';
 
 export const APPROVER_ROLES: readonly Role[] = ['OWNER', 'ADMIN'];
-export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE';
+export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL';
 
 export interface ApprovalPolicy {
   /** Pesanan pembelian dengan total ≥ nilai ini perlu persetujuan (0 = nonaktif) */
   purchaseOrder: number;
   /** Jurnal manual dengan total debit ≥ nilai ini perlu persetujuan (0 = nonaktif) */
   manualJournal: number;
+  /** Pelepasan aset tetap dengan harga perolehan ≥ nilai ini perlu persetujuan (0 = nonaktif) */
+  assetDisposal: number;
   /** Permintaan pembelian dengan perkiraan nilai ≤ batas ini langsung disetujui otomatis (0 = nonaktif, semua menunggu keputusan) */
   purchaseRequestAuto: number;
   /** Pengendalian selisih harga faktur terhadap PO (anti-fraud) */
@@ -36,12 +38,13 @@ export interface ApprovalPolicy {
   /** Masa berlaku tautan persetujuan yang dikirim lewat Telegram (jam, 1–72); email tetap 72 jam */
   telegramLinkHours: number;
 }
-export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, telegramLinkHours: 72 };
+export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, telegramLinkHours: 72 };
 
 export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PURCHASE_ORDER: 'Pesanan pembelian',
   MANUAL_JOURNAL: 'Jurnal manual',
   PURCHASE_INVOICE_PRICE: 'Faktur supplier — harga di atas toleransi',
+  ASSET_DISPOSAL: 'Pelepasan aset tetap',
 };
 
 @Injectable()
@@ -102,7 +105,8 @@ export class ApprovalsService {
   /** Apakah transaksi bernilai `amount` ini perlu persetujuan dari pengguna ini? */
   async needs(db: DbOrTx, user: AuthUser, kind: ApprovalKind, amount: number): Promise<number | null> {
     if (this.isApprover(user.role)) return null;
-    const limit = (await this.policy(db, user.tenantId))[kind === 'PURCHASE_ORDER' ? 'purchaseOrder' : 'manualJournal'];
+    const pol = await this.policy(db, user.tenantId);
+    const limit = kind === 'PURCHASE_ORDER' ? pol.purchaseOrder : kind === 'ASSET_DISPOSAL' ? pol.assetDisposal : pol.manualJournal;
     return limit > 0 && amount >= limit ? limit : null;
   }
 

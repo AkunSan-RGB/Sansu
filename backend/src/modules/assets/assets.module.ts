@@ -4,7 +4,11 @@ import {
   Controller,
   Get,
   Injectable,
+  Logger,
   Module,
+  OnModuleDestroy,
+  OnModuleInit,
+  Put,
   NotFoundException,
   Param,
   ParseUUIDPipe,
@@ -16,7 +20,9 @@ import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags, PartialType }
 import { IsBoolean, IsDateString, IsIn, IsInt, IsNumberString, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
 import { DEPRECIATION_METHODS, FISCAL_ASSET_GROUPS, type FiscalAssetGroup } from '@sansu/shared';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { TelegramService } from '../../common/telegram/telegram.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { SettingsService } from '../../common/settings.service';
@@ -24,7 +30,7 @@ import { toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, assetCategories, assetDepreciations, fixedAssets } from '../../db/schema';
+import { accounts, assetCategories, assetDepreciations, fixedAssets, users } from '../../db/schema';
 import { AccountingModule } from '../accounting/accounting.module';
 import { frameworkOf } from '../accounting/coa-sync';
 import { SYS } from '../accounting/default-coa';
@@ -69,6 +75,7 @@ export class CreateAssetDto {
 
 export class UpdateAssetDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(160) name?: string;
+  @ApiPropertyOptional({ description: 'Penanggung jawab aset' }) @IsOptional() @IsString() @MaxLength(120) custodian?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() location?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() notes?: string;
 }
@@ -83,6 +90,19 @@ export class DisposeDto {
   @ApiPropertyOptional() @IsOptional() @IsUUID() cashAccountId?: string;
 }
 
+export class VerifyDto {
+  @ApiProperty({ enum: ['FOUND', 'DAMAGED', 'MISSING'], description: 'Hasil pemeriksaan fisik' }) @IsIn(['FOUND', 'DAMAGED', 'MISSING']) status: 'FOUND' | 'DAMAGED' | 'MISSING';
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) note?: string;
+  @ApiPropertyOptional({ description: 'Lokasi terbaru bila berpindah' }) @IsOptional() @IsString() @MaxLength(120) location?: string;
+}
+
+export class AssetSettingsDto {
+  @ApiPropertyOptional({ description: 'Jalankan penyusutan bulan lalu otomatis' }) @IsOptional() @IsBoolean() autoDepreciation?: boolean;
+}
+
+/** Pengaturan aset tetap per perusahaan (disimpan di settings.assets) */
+export const DEFAULT_ASSET_SETTINGS = { autoDepreciation: true };
+
 type Asset = typeof fixedAssets.$inferSelect;
 type Category = typeof assetCategories.$inferSelect;
 
@@ -94,6 +114,8 @@ export class AssetsService {
     private readonly posting: PostingService,
     private readonly audit: AuditService,
     private readonly settings: SettingsService,
+    private readonly approvals: ApprovalsService,
+    private readonly telegram: TelegramService,
   ) {}
 
   /** Tanah & kategori tak disusutkan selalu dikapitalisasi, berapa pun nilainya */
@@ -148,6 +170,54 @@ export class AssetsService {
     });
     const posted = await this.postedTotals(this.db, tenantId, date.slice(0, 7));
     return rows.map((a) => this.withValues(a, posted.get(a.id), date));
+  }
+
+  /**
+   * Cocokkan daftar aset dengan buku besar per tanggal: total harga perolehan vs saldo akun aset, dan total akumulasi vs
+   * saldo akun akumulasi penyusutan. Selisih biasanya berarti aset lama belum dirinci (saldo awal sudah diisi tetapi daftar asetnya belum),
+   * atau ada jurnal manual langsung ke akun aset.
+   */
+  async reconciliation(tenantId: string, asOf?: string) {
+    const date = toDocDate(asOf);
+    const assets = (await this.list(tenantId, date)).filter((a) => a.acquisitionDate <= date);
+    const cats = await this.listCategories(tenantId);
+    type Acc = { id: string; code: string; name: string };
+    const accs = new Map<string, { acc: Acc; kind: 'COST' | 'ACCUMULATED'; register: Dec }>();
+    const bump = (acc: Acc | null | undefined, kind: 'COST' | 'ACCUMULATED', v: Dec) => {
+      if (!acc) return;
+      const k = `${kind}:${acc.id}`;
+      const cur = accs.get(k) ?? { acc, kind, register: ZERO };
+      cur.register = cur.register.plus(v);
+      accs.set(k, cur);
+    };
+    for (const c of cats) {
+      bump(c.assetAccount, 'COST', ZERO);
+      bump(c.accumulatedAccount, 'ACCUMULATED', ZERO);
+    }
+    const catById = new Map(cats.map((c) => [c.id, c]));
+    for (const a of assets) {
+      const c = catById.get(a.categoryId);
+      if (!c) continue;
+      bump(c.assetAccount, 'COST', D(a.status === 'DISPOSED' && a.disposalDate && a.disposalDate <= date ? 0 : a.cost));
+      bump(c.accumulatedAccount, 'ACCUMULATED', D(a.accumulated));
+    }
+    const ids = [...new Set([...accs.values()].map((x) => x.acc.id))];
+    const gl = new Map<string, { debit: Dec; credit: Dec }>();
+    if (ids.length) {
+      const res = await this.db.execute<{ account_id: string; debit: string; credit: string }>(sql`
+        SELECT l.account_id, SUM(l.debit) AS debit, SUM(l.credit) AS credit
+        FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
+        WHERE j.tenant_id = ${tenantId} AND j.date <= ${date} AND l.account_id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})
+        GROUP BY l.account_id`);
+      for (const r of res.rows) gl.set(r.account_id, { debit: D(r.debit), credit: D(r.credit) });
+    }
+    const rows = [...accs.values()].map((x) => {
+      const g = gl.get(x.acc.id) ?? { debit: ZERO, credit: ZERO };
+      const ledger = x.kind === 'COST' ? g.debit.minus(g.credit) : g.credit.minus(g.debit);
+      const diff = ledger.minus(x.register);
+      return { accountId: x.acc.id, code: x.acc.code, name: x.acc.name, kind: x.kind, register: x.register.toFixed(2), ledger: ledger.toFixed(2), diff: diff.toFixed(2) };
+    });
+    return { asOf: date, rows, mismatched: rows.filter((r) => D(r.diff).abs().gte(1)).length };
   }
 
   private withValues(a: Asset & { category: { id: string; name: string; fiscalGroup: string } }, p: { total: Dec; last: string | null } | undefined, date: string) {
@@ -432,8 +502,126 @@ export class AssetsService {
    * Pelepasan / penjualan aset: susutkan s/d bulan sebelum pelepasan, lalu
    * Dr Kas (harga jual) + Dr Akumulasi | Cr Aset (harga perolehan) ± Laba/Rugi pelepasan.
    */
-  async dispose(user: AuthUser, id: string, dto: DisposeDto) {
+  // ---------------------------------------------------------------- kontrol & pemeriksaan fisik
+  assetSettings(tenantId: string) {
+    return this.settings.section(this.db, tenantId, 'assets', DEFAULT_ASSET_SETTINGS);
+  }
+  saveAssetSettings(tenantId: string, patch: Partial<typeof DEFAULT_ASSET_SETTINGS>) {
+    return this.settings.saveSection(this.db, tenantId, 'assets', DEFAULT_ASSET_SETTINGS, patch);
+  }
+
+  /** Catat hasil pemeriksaan fisik satu aset (tercatat di jejak audit) */
+  async verify(user: AuthUser, id: string, dto: VerifyDto) {
+    const [a] = await this.db
+      .update(fixedAssets)
+      .set({ lastVerifiedAt: new Date(), verificationStatus: dto.status, verificationNote: dto.note?.trim() || null, ...(dto.location?.trim() ? { location: dto.location.trim() } : {}) })
+      .where(and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId), eq(fixedAssets.status, 'ACTIVE')))
+      .returning();
+    if (!a) throw new NotFoundException('Aset aktif tidak ditemukan');
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'VERIFY', entity: 'FixedAsset', entityId: id, data: { status: dto.status, note: dto.note } });
+    return a;
+  }
+
+  /**
+   * Temuan kontrol aset tetap: penyusutan tertinggal, aset habis disusutkan tetapi masih aktif, aset tanpa penanggung jawab/lokasi,
+   * aset yang belum diperiksa fisik >12 bulan, serta aset yang dilaporkan hilang/rusak.
+   */
+  async controls(tenantId: string) {
+    const today = todayJakarta();
+    const prev = periodOf(monthIndex(today.slice(0, 7)) - 1);
+    const active = (await this.list(tenantId, today)).filter((a) => a.status === 'ACTIVE');
+    const posted = await this.postedTotals(this.db, tenantId, '9999-12');
+    type Finding = { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string; assetIds: string[] };
+    const out: Finding[] = [];
+    const add = (key: string, level: Finding['level'], title: string, ids: string[], detail: string) => {
+      if (ids.length) out.push({ key, level, title: `${title} (${ids.length})`, detail, assetIds: ids });
+    };
+    const names = (list: { code: string; name: string }[]) => list.slice(0, 5).map((a) => `${a.code} ${a.name}`).join(', ') + (list.length > 5 ? `, dan ${list.length - 5} lainnya` : '');
+
+    const behind = active.filter((a) => {
+      if (a.method === 'NONE' || a.usefulLifeMonths <= 0) return false;
+      const acc = D(a.openingAccumulated).plus(posted.get(a.id)?.total ?? ZERO);
+      const last = posted.get(a.id)?.last;
+      const from = Math.max(monthIndex(a.depreciationStart.slice(0, 7)), last ? monthIndex(last) + 1 : 0);
+      return from <= monthIndex(prev) && !monthlyDepreciation(a, acc, periodOf(from)).isZero();
+    });
+    add('DEP_BEHIND', 'warning', 'Penyusutan belum dijalankan sampai bulan lalu', behind.map((a) => a.id), `Jalankan penyusutan sampai ${prev}. ${names(behind)}`);
+
+    const full = active.filter((a) => a.method !== 'NONE' && D(a.accumulated).gte(D(a.cost).minus(D(a.residualValue))) && D(a.cost).gt(0));
+    add('FULLY_DEPRECIATED', 'info', 'Aset sudah habis disusutkan tetapi masih aktif', full.map((a) => a.id), `Jika sudah tidak dipakai, lepaskan agar daftar aset bersih. ${names(full)}`);
+
+    const missing = active.filter((a) => a.verificationStatus === 'MISSING');
+    add('MISSING', 'error', 'Aset dilaporkan tidak ditemukan', missing.map((a) => a.id), `Telusuri, lalu lepaskan sebagai rugi bila memang hilang. ${names(missing)}`);
+    const damaged = active.filter((a) => a.verificationStatus === 'DAMAGED');
+    add('DAMAGED', 'warning', 'Aset dilaporkan rusak', damaged.map((a) => a.id), `Pertimbangkan perbaikan atau pelepasan. ${names(damaged)}`);
+
+    const noCustodian = active.filter((a) => !a.custodian?.trim());
+    add('NO_CUSTODIAN', 'warning', 'Aset belum punya penanggung jawab', noCustodian.map((a) => a.id), names(noCustodian));
+    const noLocation = active.filter((a) => !a.location?.trim());
+    add('NO_LOCATION', 'info', 'Aset belum punya lokasi', noLocation.map((a) => a.id), names(noLocation));
+
+    const cutoff = Date.now() - 365 * 86_400_000;
+    const stale = active.filter((a) => a.category.fiscalGroup !== 'LAND' && (!a.lastVerifiedAt || new Date(a.lastVerifiedAt).getTime() < cutoff));
+    add('NOT_VERIFIED', 'info', 'Aset belum diperiksa fisik dalam 12 bulan', stale.map((a) => a.id), `Lakukan pemeriksaan fisik berkala. ${names(stale)}`);
+    return { generatedAt: new Date().toISOString(), count: out.length, items: out };
+  }
+
+  /** Penyusutan otomatis: dipanggil penjadwal untuk semua perusahaan yang punya aset berpenyusutan */
+  async autoDepreciateAll(logger: Logger) {
+    const res = await this.db.execute<{ tenant_id: string }>(sql`
+      SELECT DISTINCT tenant_id FROM fixed_assets WHERE status = 'ACTIVE' AND method <> 'NONE' AND useful_life_months > 0`);
+    const prev = periodOf(monthIndex(todayJakarta().slice(0, 7)) - 1);
+    for (const { tenant_id: tenantId } of res.rows) {
+      try {
+        if (!(await this.assetSettings(tenantId)).autoDepreciation) continue;
+        const [owner] = await this.db
+          .select({ id: users.id, email: users.email })
+          .from(users)
+          .where(and(eq(users.tenantId, tenantId), eq(users.role, 'OWNER'), eq(users.isActive, true)))
+          .limit(1);
+        if (!owner) continue;
+        const user: AuthUser = { sub: owner.id, tenantId, role: 'OWNER', email: owner.email };
+        const r = await this.run(user, prev);
+        if (r.journals.length) {
+          await this.audit.log(this.db, { tenantId, userId: owner.id, action: 'AUTO_DEPRECIATION', entity: 'FixedAsset', entityId: tenantId, data: { upTo: prev, months: r.journals.length } });
+          logger.log(`Penyusutan otomatis ${tenantId}: ${r.journals.length} bulan sampai ${prev}`);
+        }
+      } catch (e) {
+        logger.warn(`Penyusutan otomatis gagal untuk ${tenantId}: ${(e as Error).message}`);
+        void this.notifyAutoFailure(tenantId, prev, (e as Error).message);
+      }
+    }
+  }
+
+  private async notifyAutoFailure(tenantId: string, period: string, reason: string) {
+    try {
+      const owners = await this.db.select({ id: users.id }).from(users).where(and(eq(users.tenantId, tenantId), eq(users.role, 'OWNER'), eq(users.isActive, true)));
+      await this.telegram.notifyUsers(owners.map((o) => o.id), `⚠️ Penyusutan otomatis ${period} gagal: ${reason}\nBuka Aset Tetap › Penyusutan untuk menjalankannya manual.`);
+    } catch {
+      /* pemberitahuan opsional */
+    }
+  }
+
+  async dispose(user: AuthUser, id: string, dto: DisposeDto, opts: { approved?: boolean } = {}) {
     const date = toDocDate(dto.date);
+    if (!opts.approved) {
+      // Pelepasan aset di atas batas nilai buku/harga perolehan perlu persetujuan (peran selain pemilik/admin)
+      const asset = await this.db.query.fixedAssets.findFirst({ where: and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId)) });
+      if (asset?.status === 'ACTIVE') {
+        const amount = D(asset.cost).toNumber();
+        const limit = await this.approvals.needs(this.db, user, 'ASSET_DISPOSAL', amount);
+        if (limit !== null) {
+          const req = await this.approvals.create(this.db, user, {
+            kind: 'ASSET_DISPOSAL',
+            refId: id,
+            title: `Pelepasan aset ${asset.code} ${asset.name}`,
+            amount,
+            payload: JSON.parse(JSON.stringify({ id, ...dto })),
+          });
+          throw this.approvals.required(req.id, 'Pelepasan aset ini mencapai batas persetujuan; permintaan dikirim ke pemilik atau admin dan dijalankan setelah disetujui.');
+        }
+      }
+    }
     await this.db.transaction(async (tx) => {
       const a = await tx.query.fixedAssets.findFirst({ where: and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId)), with: { category: true } });
       if (!a) throw new NotFoundException('Aset tidak ditemukan');
@@ -619,6 +807,25 @@ export class AssetsController {
     return this.svc.fiscalComparison(u.tenantId, Number(year) || new Date().getFullYear());
   }
 
+  @Get('controls')
+  controls(@CurrentUser() u: AuthUser) {
+    return this.svc.controls(u.tenantId);
+  }
+  @Get('settings')
+  assetSettings(@CurrentUser() u: AuthUser) {
+    return this.svc.assetSettings(u.tenantId);
+  }
+  @Roles('ADMIN', 'FINANCE')
+  @Put('settings')
+  saveAssetSettings(@CurrentUser() u: AuthUser, @Body() dto: AssetSettingsDto) {
+    return this.svc.saveAssetSettings(u.tenantId, dto);
+  }
+
+  @Get('reconciliation')
+  reconciliation(@CurrentUser() u: AuthUser, @Query('asOf') asOf?: string) {
+    return this.svc.reconciliation(u.tenantId, asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : undefined);
+  }
+
   @Get()
   list(@CurrentUser() u: AuthUser, @Query('asOf') asOf?: string) {
     return this.svc.list(u.tenantId, asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : undefined);
@@ -635,16 +842,37 @@ export class AssetsController {
   update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateAssetDto) {
     return this.svc.update(u.tenantId, id, dto);
   }
+  @Post(':id/verify')
+  verify(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VerifyDto) {
+    return this.svc.verify(u, id, dto);
+  }
   @Post(':id/dispose')
   dispose(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: DisposeDto) {
     return this.svc.dispose(u, id, dto);
   }
 }
 
+@Injectable()
+export class AssetScheduler implements OnModuleInit, OnModuleDestroy {
+  private timer?: NodeJS.Timeout;
+  private readonly logger = new Logger('Aset');
+  constructor(private readonly svc: AssetsService) {}
+  onModuleInit() {
+    if (process.env.NODE_ENV === 'test') return;
+    const run = () => void this.svc.autoDepreciateAll(this.logger).catch((e) => this.logger.error(e));
+    setTimeout(run, 90_000).unref();
+    this.timer = setInterval(run, 6 * 60 * 60_000); // tiap 6 jam; idempoten (hanya bulan yang belum diposting)
+    this.timer.unref();
+  }
+  onModuleDestroy() {
+    if (this.timer) clearInterval(this.timer);
+  }
+}
+
 @Module({
   imports: [AccountingModule],
   controllers: [AssetsController],
-  providers: [AssetsService],
+  providers: [AssetsService, AssetScheduler],
   exports: [AssetsService],
 })
 export class AssetsModule {}
