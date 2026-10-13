@@ -30,7 +30,7 @@ describe('Jurnal penyesuaian dan pembaliknya (e2e)', () => {
     token = (await http.post('/api/auth/register').send({ companyName: 'PT Penyesuaian', name: 'Pemilik', email: `adj-${Date.now()}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
     const accs = (await get('/api/accounting/accounts').expect(200)).body as { id: string; code: string; type: string; isPostable: boolean }[];
     expenseId = accs.find((a) => a.type === 'EXPENSE' && a.isPostable)!.id;
-    accruedId = accs.find((a) => a.type === 'LIABILITY' && a.isPostable)!.id;
+    accruedId = accs.find((a) => a.type === 'LIABILITY' && a.isPostable && a.code !== '2-1100')!.id; // bukan Utang Usaha (akun kontrol)
   });
   afterAll(() => app.close());
 

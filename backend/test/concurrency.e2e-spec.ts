@@ -102,7 +102,7 @@ describe('Konkurensi (e2e)', () => {
     const id = (c: string) => acc.find((a) => a.code === c)!.id;
     const today = todayJakarta();
     const results = await Promise.all(
-      Array.from({ length: 25 }, (_, i) => post('/api/accounting/journals', { date: today, description: `Serentak ${i}`, lines: [{ accountId: id('6-6000'), debit: '1000' }, { accountId: id('1-1100'), credit: '1000' }] })),
+      Array.from({ length: 25 }, (_, i) => post('/api/accounting/journals', { date: today, description: `Serentak ${i}`, confirmDuplicate: true, lines: [{ accountId: id('6-6000'), debit: '1000' }, { accountId: id('1-1100'), credit: '1000' }] })),
     );
     noServerErrors(results);
     expect(results.filter((r) => r.status === 201)).toHaveLength(25);
