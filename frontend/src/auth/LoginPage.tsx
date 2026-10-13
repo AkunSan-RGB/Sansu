@@ -3,7 +3,7 @@ import { Alert, Button, Form, Grid, Input, Tabs } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { CSSProperties, useEffect, useRef, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
-import { get } from '@/api/client';
+import { get, post } from '@/api/client';
 import Logo, { LogoMark } from '@/brand/Logo';
 import { PASSWORD_RULES } from '@/components/AccountMenu';
 import BusinessModelPicker from '@/components/BusinessModelPicker';
@@ -37,6 +37,9 @@ export default function LoginPage() {
   const [caps, setCaps] = useState(false);
   /** Langkah kedua: kode dari aplikasi authenticator */
   const [challenge, setChallenge] = useState<string>();
+  /** Email yang belum diverifikasi: tampilkan petunjuk cek email + kirim ulang */
+  const [verifyEmail, setVerifyEmail] = useState<string>();
+  const [resent, setResent] = useState(false);
   const [useBackup, setUseBackup] = useState(false);
   const [codeForm] = Form.useForm<{ code: string }>();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -88,19 +91,61 @@ export default function LoginPage() {
     setBusy(true);
     setError(undefined);
     try {
-      const r = (await fn()) as { challenge?: string } | void;
+      const r = (await fn()) as { challenge?: string; verifyEmail?: string } | void;
       if (r && r.challenge) {
         setChallenge(r.challenge);
         return;
       }
+      if (r && r.verifyEmail) {
+        setResent(false);
+        setVerifyEmail(r.verifyEmail);
+        return;
+      }
       if (email) saveLastEmail(email);
       // pengalihan ke halaman tujuan dilakukan oleh <Navigate> di atas begitu profil pengguna terisi
+    } catch (e) {
+      const data = (e as { data?: { code?: string; email?: string } }).data;
+      if (data?.code === 'EMAIL_UNVERIFIED') {
+        setResent(false);
+        setVerifyEmail(data.email ?? email);
+      } else setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resend = async () => {
+    if (!verifyEmail || busy) return;
+    setBusy(true);
+    try {
+      await post('/auth/resend-verification-public', { email: verifyEmail });
+      setResent(true);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
   };
+
+  const verifyPanel = (
+    <div>
+      <Alert
+        type="info"
+        showIcon
+        style={{ borderRadius: 12, marginBottom: 16 }}
+        message={`Cek email ${verifyEmail}`}
+        description="Kami mengirim tautan verifikasi ke email itu. Klik tautannya, lalu masuk. Selama email belum diverifikasi, akun belum bisa dipakai. Periksa juga folder Spam."
+      />
+      <Button block size="large" loading={busy} disabled={resent} onClick={resend}>
+        {resent ? 'Email verifikasi dikirim ulang' : 'Kirim ulang email verifikasi'}
+      </Button>
+      <div style={{ textAlign: 'center', marginTop: 12 }}>
+        <Button type="link" onClick={() => setVerifyEmail(undefined)}>
+          Kembali ke halaman masuk
+        </Button>
+      </div>
+    </div>
+  );
 
   const statusPill = (
     <div className={`lg-status ${server} lg-in`} style={delay(0.05)} role="status" aria-live="polite">
@@ -244,10 +289,12 @@ export default function LoginPage() {
         )}
         {statusPill}
         <div className="lg-card lg-in" style={delay(0.12)} ref={cardRef}>
-          <h2>{challenge ? 'Satu langkah lagi' : 'Selamat datang'}</h2>
+          <h2>{verifyEmail ? 'Verifikasi email Anda' : challenge ? 'Satu langkah lagi' : 'Selamat datang'}</h2>
           <p className="lg-lead">{challenge ? 'Pastikan ini benar-benar Anda.' : `Masuk untuk mengelola bisnis Anda di ${BRAND.name}.`}</p>
           {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16, borderRadius: 12 }} />}
-          {challenge ? (
+          {verifyEmail ? (
+            verifyPanel
+          ) : challenge ? (
             twoFactorForm
           ) : (
             <Tabs

@@ -11,7 +11,7 @@ interface AuthState {
   /** Mengembalikan `challenge` bila akun memakai verifikasi 2 langkah */
   login: (email: string, password: string) => Promise<{ challenge: string } | void>;
   loginTwoFactor: (challenge: string, code: string) => Promise<void>;
-  register: (data: { companyName: string; name: string; email: string; password: string; businessModel?: BusinessModel }) => Promise<void>;
+  register: (data: { companyName: string; name: string; email: string; password: string; businessModel?: BusinessModel }) => Promise<{ verifyEmail: string } | void>;
   logout: () => void;
 }
 
@@ -54,7 +54,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     loginTwoFactor: async (challenge, code) =>
       afterAuth(await post<{ accessToken: string }>('/auth/2fa/login', { challenge, code })),
-    register: async (data) => afterAuth(await post<{ accessToken: string }>('/auth/register', data)),
+    register: async (data) => {
+      const res = await post<{ accessToken?: string; verificationRequired?: boolean; email?: string }>('/auth/register', data);
+      // email wajib diverifikasi dulu: belum ada sesi, tampilkan petunjuk cek email
+      if (res.verificationRequired) return { verifyEmail: res.email ?? data.email };
+      await afterAuth({ accessToken: res.accessToken! });
+    },
     logout: () => {
       tokenStore.clear();
       qc.clear();

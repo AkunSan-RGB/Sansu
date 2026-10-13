@@ -159,9 +159,9 @@ export function VerifyEmailPage() {
           <div style={{ marginTop: 16 }}>Memverifikasi email…</div>
         </div>
       ) : state === 'ok' ? (
-        <Result icon={<CheckCircleFilled style={{ color: BRAND.colors.accent }} />} title="Email terverifikasi" subTitle="Terima kasih. Akun Anda sudah siap dipakai sepenuhnya." extra={<Link to="/">Buka SANSU</Link>} />
+        <Result icon={<CheckCircleFilled style={{ color: BRAND.colors.accent }} />} title="Email terverifikasi" subTitle="Terima kasih. Email Anda sudah terverifikasi, sekarang Anda bisa masuk." extra={<Link to="/login">Masuk ke SANSU</Link>} />
       ) : (
-        <Result icon={<CloseCircleFilled style={{ color: '#c0392b' }} />} title="Verifikasi gagal" subTitle={error} extra={<Link to="/">Buka SANSU untuk kirim ulang</Link>} />
+        <Result icon={<CloseCircleFilled style={{ color: '#c0392b' }} />} title="Verifikasi gagal" subTitle={error} extra={<Link to="/login">Ke halaman masuk (kirim ulang tautan)</Link>} />
       )}
     </Shell>
   );

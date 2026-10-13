@@ -42,12 +42,14 @@ async function main() {
   console.log('Mohon tunggu, ini bisa memakan waktu beberapa menit (hanya sekali).');
 
   const t0 = Date.now();
-  const { user } = await app.get(AuthService).register({
+  const reg = await app.get(AuthService).register({
     companyName: 'CV Demo Distribusi Nusantara',
     name: 'Admin Demo',
     email: DEMO_EMAIL,
     password: 'demo12345',
   });
+  if ('verificationRequired' in reg) throw new Error('Seed demo butuh email non-aktif (kosongkan BREVO_API_KEY/SMTP_HOST) agar akun demo langsung bisa masuk');
+  const { user } = reg;
   const admin = { sub: user.id, tenantId: user.tenantId, role: user.role, email: user.email };
   await ensureDemoUsers(app, db, user.tenantId);
   await simulateDemoYear(app, db, admin, (m) => console.log(m));

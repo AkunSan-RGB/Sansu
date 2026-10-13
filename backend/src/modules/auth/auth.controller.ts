@@ -60,6 +60,14 @@ export class AuthController {
     return this.auth.verifyEmail(dto);
   }
 
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 15 * 60_000 } })
+  @HttpCode(200)
+  @Post('auth/resend-verification-public')
+  resendVerificationPublic(@Body() dto: ForgotPasswordDto) {
+    return this.auth.resendVerificationByEmail(dto.email);
+  }
+
   @ApiBearerAuth()
   @AllowWhenLocked()
   @Throttle({ default: { limit: 5, ttl: 15 * 60_000 } })
