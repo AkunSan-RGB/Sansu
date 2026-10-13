@@ -78,6 +78,8 @@ export class AuthService {
       return u;
     });
     await this.sendVerification(user, dto.companyName);
+    // Email belum terbukti milik pendaftar → belum boleh masuk; login baru dibuka setelah klik tautan di email
+    if (verificationRequired(this.mail)) return { verificationRequired: true as const, email };
     return this.issue(user);
   }
 
@@ -96,6 +98,19 @@ export class AuthService {
     if (!user || !user.isActive || !ok) {
       this.limiter.fail(email);
       throw new UnauthorizedException('Email atau kata sandi salah');
+    }
+    // Email belum diverifikasi → tidak bisa masuk; kirim ulang tautan otomatis (maks. 1 per menit)
+    if (!user.emailVerifiedAt && verificationRequired(this.mail)) {
+      if (!(await this.recentlySent(user.id, 'VERIFY'))) await this.sendVerification(user);
+      throw new HttpException(
+        {
+          statusCode: 403,
+          code: 'EMAIL_UNVERIFIED',
+          email,
+          message: `Email ${email} belum diverifikasi. Kami sudah mengirim tautan verifikasi ke email itu; klik tautannya lalu masuk lagi.`,
+        },
+        HttpStatus.FORBIDDEN,
+      );
     }
     // Verifikasi 2 langkah: sandi benar → minta kode dari aplikasi authenticator
     if (user.totpEnabledAt) {
@@ -329,6 +344,16 @@ export class AuthService {
       .update(users)
       .set({ emailVerifiedAt: sql`COALESCE(${users.emailVerifiedAt}, now())` })
       .where(eq(users.id, t.userId));
+    return { ok: true };
+  }
+
+  /** Kirim ulang tautan verifikasi dari layar masuk (belum login). Jawaban selalu sama agar email terdaftar tidak bisa ditebak */
+  async resendVerificationByEmail(emailRaw: string) {
+    const email = emailRaw.trim().toLowerCase();
+    const [user] = await this.db.select().from(users).where(eq(users.email, email));
+    if (user && user.isActive && !user.emailVerifiedAt && !(await this.recentlySent(user.id, 'VERIFY'))) {
+      await this.sendVerification(user);
+    }
     return { ok: true };
   }
 
