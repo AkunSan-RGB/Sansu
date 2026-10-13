@@ -306,7 +306,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Akun kontrol punya rincian per dokumen (piutang, hutang, stok, kas/bank, aset tetap). Jurnal manual ke akun ini membuat
+   * Akun kontrol punya rincian per dokumen (piutang, hutang, stok, aset tetap) atau dana tetap (kas kecil). Jurnal manual ke akun ini membuat
    * buku besar tidak sama dengan daftar di bawahnya, jadi dikoreksi lewat dokumennya. Hanya Pemilik yang boleh mengecualikan,
    * dengan alasan (min. 10 karakter) yang tercatat di jejak audit.
    */
@@ -316,11 +316,13 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
     const accs = await this.db.select().from(accounts).where(and(eq(accounts.tenantId, user.tenantId), inArray(accounts.id, ids)));
     const cats = await this.db.select({ a: assetCategories.assetAccountId, b: assetCategories.accumulatedAccountId }).from(assetCategories).where(eq(assetCategories.tenantId, user.tenantId));
     const assetAccounts = new Set(cats.flatMap((c) => [c.a, c.b].filter((x): x is string => !!x)));
+    const petty = await this.db.execute<{ account_id: string }>(sql`SELECT account_id FROM petty_cash_funds WHERE tenant_id = ${user.tenantId} AND status = 'ACTIVE'`);
+    const pettyAccounts = new Set(petty.rows.map((r) => r.account_id));
     const reasonOf = (a: (typeof accs)[number]) =>
       a.systemKey === SYS.AR ? 'piutang usaha (dikoreksi lewat faktur, pembayaran, atau retur)'
       : a.systemKey === SYS.AP ? 'hutang usaha (dikoreksi lewat faktur pembelian, pembayaran, atau retur)'
       : a.systemKey === SYS.INVENTORY || a.systemKey === SYS.INVENTORY_SEMI ? 'persediaan (dikoreksi lewat penyesuaian stok atau opname)'
-      : a.isCashAccount ? 'kas/bank (dicatat lewat Kas & Bank, kas kecil, atau rekonsiliasi bank)'
+      : pettyAccounts.has(a.id) ? 'kas kecil dana tetap (dicatat lewat bukti kas kecil dan pengisian kembali)'
       : assetAccounts.has(a.id) ? 'aset tetap (dicatat lewat faktur/kas dan menu Aset Tetap)'
       : null;
     const hits = accs.map((a) => ({ a, why: reasonOf(a) })).filter((x) => x.why);

@@ -52,7 +52,7 @@ export class CreateJournalDto {
   @ApiProperty({ example: 'Bayar sewa gudang Oktober' }) @IsString() @MaxLength(255) description: string;
   @ApiPropertyOptional({ example: 'KW-0012', description: 'Nomor bukti transaksi' }) @IsOptional() @IsString() @MaxLength(60) reference?: string;
   @ApiPropertyOptional({ description: 'Jurnal penyesuaian akhir periode' }) @IsOptional() @IsBoolean() adjustment?: boolean;
-  @ApiPropertyOptional({ description: 'Hanya Pemilik: alasan mengecualikan larangan akun kontrol (piutang, hutang, persediaan, kas/bank, aset tetap); min. 10 karakter' })
+  @ApiPropertyOptional({ description: 'Hanya Pemilik: alasan mengecualikan larangan akun kontrol (piutang, hutang, persediaan, aset tetap, kas kecil); min. 10 karakter' })
   @IsOptional()
   @IsString()
   @MaxLength(300)

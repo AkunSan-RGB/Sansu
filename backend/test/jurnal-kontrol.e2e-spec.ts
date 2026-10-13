@@ -36,6 +36,7 @@ describe('Jurnal manual — akun kontrol (e2e)', () => {
     id.ap = by('2-1100');
     id.inventory = by('1-1400');
     id.cash = by('1-1100');
+    id.petty = by('1-1110');
     id.equity = by('3-1000');
     id.expense = accs.find((a) => a.type === 'EXPENSE' && a.isPostable)!.id;
     const cats = (await get(owner, '/api/assets/categories').expect(200)).body as { assetAccountId: string; accumulatedAccountId: string | null }[];
@@ -48,8 +49,11 @@ describe('Jurnal manual — akun kontrol (e2e)', () => {
     await journal(finance, id.expense).expect(201);
   });
 
-  it('piutang, hutang, persediaan, kas/bank, aset tetap, dan akumulasi penyusutan ditolak', async () => {
-    for (const key of ['ar', 'ap', 'inventory', 'cash', 'asset', 'accumulated']) {
+  it('piutang, hutang, persediaan, aset tetap, akumulasi penyusutan, dan kas kecil dana tetap ditolak; kas/bank biasa boleh', async () => {
+    await journal(finance, id.cash).expect(201); // kas/bank biasa (mis. bayar sewa dari kas) tetap boleh
+    // dana kas kecil aktif membuat akunnya menjadi akun kontrol
+    await http.put('/api/petty-cash/funds').set(as(owner)).send({ accountId: id.petty, fundingAccountId: id.cash, name: 'Kas Kecil', custodianName: 'Siti', imprestAmount: '1000000', maxVoucher: '100000' }).expect(200);
+    for (const key of ['ar', 'ap', 'inventory', 'asset', 'accumulated', 'petty']) {
       const r = await journal(finance, id[key]);
       expect(`${key} ${r.status}`).toBe(`${key} 400`);
       expect(JSON.stringify(r.body)).toMatch(/akun kontrol/);
@@ -57,15 +61,15 @@ describe('Jurnal manual — akun kontrol (e2e)', () => {
   });
 
   it('pengecualian hanya untuk Pemilik dengan alasan memadai; Keuangan tidak bisa', async () => {
-    await journal(finance, id.cash, { controlOverrideReason: 'Koreksi saldo kas karena salah input' }).expect(400);
-    await journal(owner, id.cash).expect(400);
-    await journal(owner, id.cash, { controlOverrideReason: 'singkat' }).expect(400);
-    await journal(owner, id.cash, { controlOverrideReason: 'Koreksi selisih kas hasil rekonsiliasi Oktober' }).expect(201);
+    await journal(finance, id.ar, { controlOverrideReason: 'Koreksi saldo piutang karena salah input' }).expect(400);
+    await journal(owner, id.ar).expect(400);
+    await journal(owner, id.ar, { controlOverrideReason: 'singkat' }).expect(400);
+    await journal(owner, id.ar, { controlOverrideReason: 'Koreksi selisih piutang hasil rekonsiliasi Oktober' }).expect(201);
   });
 
   it('jurnal berulang juga tidak boleh memakai akun kontrol', async () => {
     const r = await http.post('/api/accounting/recurring').set(as(owner)).send({
-      name: 'Uji', description: 'Uji', frequency: 'MONTHLY', nextDate: day, lines: [{ accountId: id.cash, debit: '1000' }, { accountId: id.equity, credit: '1000' }],
+      name: 'Uji', description: 'Uji', frequency: 'MONTHLY', nextDate: day, lines: [{ accountId: id.ar, debit: '1000' }, { accountId: id.equity, credit: '1000' }],
     });
     expect(r.status).toBe(400);
   });
