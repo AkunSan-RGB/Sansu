@@ -337,6 +337,13 @@
       "when": 1793289086484,
       "tag": "0047_bank_controls",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1793375486484,
+      "tag": "0048_branches",
+      "breakpoints": true
     }
   ]
 }

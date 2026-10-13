@@ -6,6 +6,7 @@ export interface DraftLine {
   credit?: DecValue;
   memo?: string;
   projectId?: string | null;
+  branchId?: string | null;
 }
 
 export interface NormalizedLine {
@@ -14,6 +15,7 @@ export interface NormalizedLine {
   credit: Dec;
   memo?: string;
   projectId?: string | null;
+  branchId?: string | null;
 }
 
 export class JournalValidationError extends Error {}
@@ -32,7 +34,7 @@ export function normalizeJournalLines(lines: DraftLine[]): { lines: NormalizedLi
     if (debit.isNegative() || credit.isNegative()) throw new JournalValidationError('Nilai debit/kredit tidak boleh negatif');
     if (debit.gt(0) && credit.gt(0)) throw new JournalValidationError('Satu baris jurnal hanya boleh debit atau kredit');
     if (debit.isZero() && credit.isZero()) continue;
-    out.push({ accountId: l.accountId, debit, credit, memo: l.memo, projectId: l.projectId ?? null });
+    out.push({ accountId: l.accountId, debit, credit, memo: l.memo, projectId: l.projectId ?? null, branchId: l.branchId ?? null });
   }
   if (out.length < 2) throw new JournalValidationError('Jurnal minimal memiliki dua baris bernilai');
 

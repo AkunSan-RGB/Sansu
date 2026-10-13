@@ -200,6 +200,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
         sourceType: dto.adjustment ? 'ADJUSTMENT' : 'MANUAL',
         reference: dto.reference,
         createdById: user.sub,
+        branchId: dto.branchId,
         lines: dto.lines,
       });
       // Akrual yang harus dibalik di awal periode berikutnya: dijadwalkan sekali di sini, tidak perlu dibalik manual lagi
