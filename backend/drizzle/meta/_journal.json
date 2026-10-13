@@ -281,6 +281,13 @@
       "when": 1792597886484,
       "tag": "0039_rls_cleanup_untenanted",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1792684286484,
+      "tag": "0040_asset_controls",
+      "breakpoints": true
     }
   ]
 }

@@ -23,10 +23,13 @@ import { PurchaseOrdersService } from '../purchasing/purchase-orders.service';
 import { PurchaseInvoicesService } from '../purchasing/purchase-invoices.service';
 import { CreatePurchaseInvoiceDto } from '../purchasing/purchasing.dto';
 import { PurchasingModule } from '../purchasing/purchasing.module';
+import { AssetsModule, AssetsService } from '../assets/assets.module';
+import type { DisposeDto } from '../assets/assets.module';
 
 class PolicyDto implements Partial<ApprovalPolicy> {
   @ApiPropertyOptional({ description: 'Pesanan pembelian dengan total ≥ nilai ini perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) purchaseOrder?: number;
   @ApiPropertyOptional({ description: 'Jurnal manual dengan total debit ≥ nilai ini perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) manualJournal?: number;
+  @ApiPropertyOptional({ description: 'Pelepasan aset tetap dengan harga perolehan ≥ nilai ini perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) assetDisposal?: number;
   @ApiPropertyOptional({ description: 'Permintaan pembelian dengan perkiraan nilai ≤ batas ini langsung disetujui otomatis; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) purchaseRequestAuto?: number;
   @ApiPropertyOptional({ description: 'Aktifkan pengendalian selisih harga faktur terhadap PO' }) @IsOptional() @IsBoolean() priceControl?: boolean;
   @ApiPropertyOptional({ description: 'Toleransi kenaikan harga faktur vs PO (%) per baris' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(1000) priceTolerancePct?: number;
@@ -49,6 +52,7 @@ export class ApprovalRequestsService {
     private readonly orders: PurchaseOrdersService,
     private readonly invoices: PurchaseInvoicesService,
     private readonly accounting: AccountingService,
+    private readonly assets: AssetsService,
     private readonly audit: AuditService,
   ) {}
 
@@ -104,6 +108,10 @@ export class ApprovalRequestsService {
         // faktur dicatat atas nama pemohon; penyetuju tercatat di permintaan dan faktur
         const inv = await this.invoices.createFromOrder({ ...user, sub: req.requestedById }, req.payload as unknown as CreatePurchaseInvoiceDto, { approvalId: id });
         resultRef = inv.number;
+      } else if (req.kind === 'ASSET_DISPOSAL') {
+        const { id: assetId, ...dto } = req.payload as unknown as DisposeDto & { id: string };
+        const a = await this.assets.dispose({ ...user, sub: req.requestedById }, assetId, dto, { approved: true });
+        resultRef = a.code;
       } else {
         // dicatat atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
         const j = await this.accounting.createManualJournal({ ...user, sub: req.requestedById }, req.payload as unknown as CreateJournalDto, { approved: true });
@@ -277,7 +285,7 @@ export class PublicApprovalLinksController {
 }
 
 @Module({
-  imports: [AccountingModule, PurchasingModule],
+  imports: [AccountingModule, PurchasingModule, AssetsModule],
   controllers: [ApprovalsController, PublicApprovalLinksController],
   providers: [ApprovalRequestsService],
 })

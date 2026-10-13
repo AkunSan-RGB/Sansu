@@ -373,7 +373,7 @@ export const approvalRequests = pgTable(
   {
     id: id(),
     tenantId: tenantId(),
-    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE'>().notNull(),
+    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL'>().notNull(),
     /** Dokumen yang dimintakan persetujuan (PO); kosong untuk jurnal manual yang baru diposting setelah disetujui */
     refId: text('ref_id'),
     title: text('title').notNull(),
@@ -1457,6 +1457,12 @@ export const fixedAssets = pgTable(
     /** Akumulasi penyusutan fiskal sebelum memakai SANSU */
     openingFiscalAccumulated: money('opening_fiscal_accumulated').notNull().default('0'),
     location: text('location'),
+    /** Penanggung jawab aset (orang/divisi yang memegang) */
+    custodian: text('custodian'),
+    /** Pemeriksaan fisik terakhir: FOUND (ada) | DAMAGED (rusak) | MISSING (tidak ditemukan) */
+    lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
+    verificationStatus: text('verification_status').$type<'FOUND' | 'DAMAGED' | 'MISSING'>(),
+    verificationNote: text('verification_note'),
     notes: text('notes'),
     status: text('status').notNull().default('ACTIVE'),
     acquisitionJournalId: uuid('acquisition_journal_id'),
