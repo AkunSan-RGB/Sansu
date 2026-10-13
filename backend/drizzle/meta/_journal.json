@@ -309,6 +309,13 @@
       "when": 1792943486484,
       "tag": "0043_journal_safeguards",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1793029886484,
+      "tag": "0044_supplier_payment_void",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { PlusOutlined } from '@ant-design/icons';
 import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
 import { useState } from 'react';
+import { useAuth } from '@/auth/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { get, post, qs } from '@/api/client';
 import { LEDGER_KEYS, useAction } from '@/api/queries';
@@ -27,6 +28,8 @@ interface SupplierPayment {
   supplier: { code: string; name: string };
   invoice: { number: string; supplierInvoiceNo: string };
   cashAccount: { code: string; name: string } | null;
+  status?: 'POSTED' | 'VOID';
+  voidReason?: string | null;
 }
 
 export const apOutstanding = (i: PurchaseInvoice) => Number(i.total) - Number(i.paidAmount) - Number(i.returnedAmount);
@@ -39,6 +42,10 @@ export default function PurchaseInvoicesPage() {
   const [paying, setPaying] = useState<PurchaseInvoice | null>(null);
   const [billOpen, setBillOpen] = useState(false);
   const [form] = Form.useForm();
+  const { me } = useAuth();
+  const canVoid = me?.role === 'OWNER' || me?.role === 'ADMIN';
+  const [voiding, setVoiding] = useState<SupplierPayment | null>(null);
+  const [voidForm] = Form.useForm<{ reason: string }>();
 
   const invoices = useQuery({
     queryKey: ['purchase-invoices', status],
@@ -61,6 +68,12 @@ export default function PurchaseInvoicesPage() {
       onSuccess: () => setPaying(null),
     },
   );
+
+  const doVoid = useAction((v: { id: string; reason: string }) => post(`/purchase-invoices/payments/${v.id}/void`, { reason: v.reason }), {
+    success: 'Pembayaran dibatalkan (jurnal pembalik dibuat, hutang terbuka lagi)',
+    invalidate: ['purchase-invoices', 'suppliers', ...LEDGER_KEYS],
+    onSuccess: () => setVoiding(null),
+  });
 
   const isOverdue = (i: PurchaseInvoice) => i.status !== 'PAID' && i.dueDate < today();
 
@@ -192,6 +205,25 @@ export default function PurchaseInvoicesPage() {
                     { title: t('Faktur'), render: (_, p) => `${p.invoice.number} (${p.invoice.supplierInvoiceNo})` },
                     { title: 'Dari', render: (_, p) => p.cashAccount?.name ?? '-' },
                     { title: 'Jumlah', dataIndex: 'amount', align: 'right', render: fmtMoney },
+                    {
+                      title: '',
+                      render: (_: unknown, p: SupplierPayment) =>
+                        p.status === 'VOID' ? (
+                          <Tag title={p.voidReason ?? undefined}>Dibatalkan</Tag>
+                        ) : canVoid ? (
+                          <Button
+                            size="small"
+                            danger
+                            type="text"
+                            onClick={() => {
+                              voidForm.resetFields();
+                              setVoiding(p);
+                            }}
+                          >
+                            Batalkan
+                          </Button>
+                        ) : null,
+                    },
                   ]}
                 />
               ),
@@ -199,6 +231,17 @@ export default function PurchaseInvoicesPage() {
           ]}
         />
       </Card>
+
+      <Modal title={`Batalkan ${voiding?.number ?? ''}`} open={!!voiding} onCancel={() => setVoiding(null)} onOk={() => voidForm.submit()} confirmLoading={doVoid.isPending} okText="Batalkan pembayaran" okButtonProps={{ danger: true }}>
+        <Typography.Paragraph type="secondary">
+          Pembayaran tidak dihapus: SANSU membuat jurnal pembalik, hutang faktur terbuka lagi, dan alasan serta pelakunya tercatat di jejak audit. Tidak bisa dibatalkan bila sudah dicocokkan dengan mutasi bank.
+        </Typography.Paragraph>
+        <Form form={voidForm} layout="vertical" onFinish={(v) => voiding && doVoid.mutate({ id: voiding.id, reason: v.reason })}>
+          <Form.Item name="reason" label="Alasan pembatalan" rules={[{ required: true, min: 5, message: 'Isi alasan (min. 5 karakter)' }]}>
+            <Input.TextArea rows={3} maxLength={300} />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         title={paying && `Bayar hutang ${paying.number}`}

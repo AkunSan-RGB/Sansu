@@ -938,6 +938,12 @@ export const supplierPayments = pgTable(
     cashAmount: money('cash_amount'),
     fxGainLoss: money('fx_gain_loss').notNull().default('0'),
     createdAt: createdAt(),
+    /** POSTED | VOID (dibatalkan dengan jurnal pembalik; pembayaran tidak pernah dihapus) */
+    status: text('status').$type<'POSTED' | 'VOID'>().notNull().default('POSTED'),
+    voidedAt: timestamp('voided_at', { withTimezone: true }),
+    voidedById: uuid('voided_by_id'),
+    voidReason: text('void_reason'),
+    voidJournalId: uuid('void_journal_id'),
   },
   (t) => [uniqueIndex('supplier_payments_number_uq').on(t.tenantId, t.number)],
 );

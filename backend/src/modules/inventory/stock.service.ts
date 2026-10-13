@@ -3,7 +3,7 @@ import { auditContext } from '../../common/audit/audit-context';
 import { assertWarehouseAccess } from '../../common/auth/warehouse-access';
 import { eq, sql } from 'drizzle-orm';
 import { PeriodService } from '../../common/period/period.service';
-import { DocDate } from '../../common/utils/dates';
+import { assertNotFuture, DocDate } from '../../common/utils/dates';
 import { D, Dec, DecValue, money, qty4 } from '../../common/utils/money';
 import { Tx } from '../../db/db';
 import { products, StockMoveType, stockLayers, stockMoves, warehouses } from '../../db/schema';
@@ -79,6 +79,7 @@ export class StockService {
   async move(tx: Tx, m: MoveInput): Promise<MoveResult> {
     const qty = qty4(m.qty);
     if (qty.isZero()) throw new BadRequestException('Kuantitas mutasi tidak boleh nol');
+    assertNotFuture(m.date);
     await this.period.assertOpen(tx, m.tenantId, m.date);
     // pengguna yang dibatasi ke gudang tertentu tidak bisa mengubah stok gudang lain
     if (!m.skipAccessCheck) assertWarehouseAccess(auditContext.getStore()?.user, m.warehouseId);
@@ -221,6 +222,7 @@ export class StockService {
     },
   ): Promise<{ qty: Dec; oldCost: Dec; newCost: Dec; amount: Dec }> {
     const kind = m.kind ?? 'WRITEDOWN';
+    assertNotFuture(m.date);
     await this.period.assertOpen(tx, m.tenantId, m.date);
     assertWarehouseAccess(auditContext.getStore()?.user, m.warehouseId);
     const locked = await tx.execute<{ qty: string; avg_cost: string; writedown_unit: string }>(sql`
@@ -299,6 +301,7 @@ export class StockService {
     tx: Tx,
     m: { tenantId: string; productId: string; warehouseId: string; amount: DecValue; refType: string; refId: string; refNumber?: string; date: DocDate },
   ): Promise<Dec> {
+    assertNotFuture(m.date);
     await this.period.assertOpen(tx, m.tenantId, m.date);
     assertWarehouseAccess(auditContext.getStore()?.user, m.warehouseId);
     const locked = await tx.execute<{ qty: string; avg_cost: string }>(sql`

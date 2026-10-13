@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 /**
@@ -59,4 +60,9 @@ export function period(date: DocDate): string {
 
 export function monthStart(date: DocDate): DocDate {
   return `${date.slice(0, 7)}-01`;
+}
+
+/** Transaksi yang menggeser stok atau kas tidak boleh bertanggal setelah hari ini (WIB): menggeser saldo & urutan FIFO sebelum waktunya */
+export function assertNotFuture(date: string, label = 'Tanggal transaksi'): void {
+  if (date > todayJakarta()) throw new BadRequestException(`${label} tidak boleh di masa depan`);
 }
