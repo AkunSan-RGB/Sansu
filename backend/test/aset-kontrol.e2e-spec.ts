@@ -99,3 +99,60 @@ describe('Aset tetap — otomatisasi & kontrol (e2e)', () => {
     await post(owner, `/api/assets/${assetId}/dispose`, { date: '2026-10-06', price: '0' }).expect(201);
   });
 });
+
+describe('Aset tetap dari Kas Keluar (e2e)', () => {
+  let app: INestApplication;
+  let http: ReturnType<typeof request>;
+  let token: string;
+  let assetAccountId: string;
+  let expenseAccountId: string;
+  let categoryId: string;
+  let cashAccountId: string;
+  const auth = () => ({ Authorization: `Bearer ${token}` });
+  const get = (u: string) => http.get(u).set(auth());
+  const out = (lines: object[]) => http.post('/api/cash/transactions').set(auth()).send({ type: 'OUT', cashAccountId, date: '2026-10-05', description: 'Beli peralatan', lines });
+  const assets = async () => ((await get('/api/assets').expect(200)).body as { name: string; cost: string; acquisitionJournalId: string | null; category: { id: string } }[]);
+
+  beforeAll(async () => {
+    const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = configureApp(mod.createNestApplication());
+    await app.init();
+    http = request(app.getHttpServer());
+    token = (await http.post('/api/auth/register').send({ companyName: 'PT Kas Aset', name: 'Pemilik', email: `kas-${Date.now()}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
+    const cats = (await get('/api/assets/categories').expect(200)).body as { id: string; assetAccountId: string; method: string }[];
+    const cat = cats.find((c) => c.method !== 'NONE')!;
+    categoryId = cat.id;
+    assetAccountId = cat.assetAccountId;
+    cashAccountId = ((await get('/api/cash/accounts').expect(200)).body as { id: string }[])[0].id;
+    const counters = (await get('/api/cash/counter-accounts').expect(200)).body as { id: string; type: string }[];
+    expenseAccountId = counters.find((a) => a.type === 'EXPENSE')!.id;
+  });
+  afterAll(() => app.close());
+
+  it('kas keluar ke akun aset tetap otomatis membuat kartu aset (satu jurnal, daftar = buku besar)', async () => {
+    const r0 = await out([{ accountId: assetAccountId, amount: '3500000', memo: 'Kompresor', assetLocation: 'Bengkel', assetUsefulLifeMonths: 60 }]);
+    if (r0.status !== 201) throw new Error(JSON.stringify(r0.body));
+    const list = await assets();
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ name: 'Kompresor', cost: '3500000.00' });
+    expect(list[0].acquisitionJournalId).toBeTruthy();
+    const rec = (await get('/api/assets/reconciliation?asOf=2026-10-31').expect(200)).body as { mismatched: number };
+    expect(rec.mismatched).toBe(0);
+  });
+
+  it('kas keluar ke akun biasa tidak membuat aset; kas masuk ke akun aset ditolak', async () => {
+    await out([{ accountId: expenseAccountId, amount: '100000', memo: 'ATK' }]).expect(201);
+    expect(await assets()).toHaveLength(1);
+    const r = await http.post('/api/cash/transactions').set(auth()).send({ type: 'IN', cashAccountId, date: '2026-10-06', description: 'Jual', lines: [{ accountId: assetAccountId, amount: '1000' }] });
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r.body)).toMatch(/Jual \/ hapus aset/);
+  });
+
+  it('kategori yang tak cocok ditolak dan transaksi dibatalkan seluruhnya', async () => {
+    const before = await assets();
+    const bad = await out([{ accountId: assetAccountId, amount: '900000', assetCategoryId: '00000000-0000-4000-8000-000000000000' }]);
+    expect(bad.status).toBe(400);
+    expect(await assets()).toHaveLength(before.length);
+    expect(categoryId).toBeTruthy();
+  });
+});
