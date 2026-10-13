@@ -11,3 +11,4 @@ export * from './tax-features.js';
 export * from './inventory-methods.js';
 export * from './version.js';
 export * from './currency.js';
+export * from './stock-movement.js';
