@@ -205,7 +205,7 @@ export default function PettyCashPage() {
       )}
 
       <Modal title="Dana kas kecil (sistem dana tetap)" open={setup} onCancel={() => setSetup(false)} onOk={() => setupForm.submit()} confirmLoading={saveFund.isPending} okText="Simpan">
-        <Form form={setupForm} layout="vertical" onFinish={(v) => saveFund.mutate(v)}>
+        <Form form={setupForm} layout="vertical" onFinish={(v) => saveFund.mutate({ ...v, imprestAmount: String(v.imprestAmount), maxVoucher: String(v.maxVoucher) })}>
           <Form.Item name="name" label="Nama dana" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
