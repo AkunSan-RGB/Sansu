@@ -87,8 +87,13 @@ const openingLike = (tenantId: string) => sql`(j.source_type = 'OPENING' OR j.id
  */
 export const ledgerCache = new AsyncLocalStorage<Map<string, Promise<Map<string, Sum>>>>();
 
+/** Cakupan cabang untuk seluruh penjumlahan dalam satu laporan (id cabang, 'NONE' = pusat; kosong = konsolidasi semua cabang) */
+export const branchScope = new AsyncLocalStorage<string | undefined>();
+
 /** Total debit & kredit per akun sesuai filter */
-export function sumByAccount(db: DbOrTx, tenantId: string, f: SumFilter): Promise<Map<string, Sum>> {
+export function sumByAccount(db: DbOrTx, tenantId: string, rawFilter: SumFilter): Promise<Map<string, Sum>> {
+  const scoped = branchScope.getStore();
+  const f = rawFilter.branchId === undefined && scoped ? { ...rawFilter, branchId: scoped } : rawFilter;
   const cache = ledgerCache.getStore();
   if (!cache) return sumByAccountRaw(db, tenantId, f);
   const key = JSON.stringify([tenantId, f]);

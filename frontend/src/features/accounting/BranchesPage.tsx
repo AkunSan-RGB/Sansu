@@ -296,7 +296,7 @@ export default function BranchesPage() {
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message="Laporan per cabang tidak terpisah dari keuangan: buka Akuntansi › Laporan keuangan, lalu pilih cabang di pojok kanan atas atau tab Perbandingan cabang."
+          message="Laporan per cabang ada di Akuntansi › Laporan keuangan: pilih cakupan Konsolidasi (pusat + semua cabang), Pusat, atau satu Cabang; tab Perbandingan cabang menampilkan semuanya berdampingan."
         />
         <SettingsTab />
       </Card>

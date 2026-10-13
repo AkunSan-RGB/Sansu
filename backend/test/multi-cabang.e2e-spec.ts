@@ -186,6 +186,17 @@ describe('Multi-cabang (e2e)', () => {
     const pos = async (b?: string) => (await get(owner, `/api/accounting/statements/financial-position?asOf=${day}${b ? `&branchId=${b}` : ''}`).expect(200)).body;
     for (const b of [B1, B2, 'NONE', undefined]) expect((await pos(b)).balanced).toBe(true);
 
+    // Perubahan Ekuitas dan Arus Kas per cabang: jumlah semua cabang + pusat = konsolidasi
+    const eq = async (b?: string) => {
+      const r = (await get(owner, `/api/accounting/statements/equity?${q}${b ? `&branchId=${b}` : ''}`).expect(200)).body;
+      return Number(r.current.rows.find((x: { key: string }) => x.key === 'CLOSING').values.TOTAL);
+    };
+    expect((await eq(B1)) + (await eq(B2)) + (await eq('NONE'))).toBeCloseTo(await eq(), 2);
+    for (const method of ['indirect', 'direct']) {
+      const cf = async (b?: string) => Number((await get(owner, `/api/accounting/statements/cash-flow?${q}&method=${method}${b ? `&branchId=${b}` : ''}`).expect(200)).body.current.actualClosing);
+      expect((await cf(B1)) + (await cf(B2)) + (await cf('NONE'))).toBeCloseTo(await cf(), 2);
+    }
+
     // tutup buku tahun berjalan: laba ditahan terbentuk per cabang; laporan per cabang tetap sama dan neraca tetap seimbang
     await post(owner, '/api/accounting/period/close-year', { year: Number(day.slice(0, 4)), lock: false }).expect(201);
     const after1 = (await get(owner, `/api/accounting/statements/income?${q}&branchId=${B1}`).expect(200)).body;
