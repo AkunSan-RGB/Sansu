@@ -6,7 +6,7 @@
  * transaksi: berhasil semua atau tidak sama sekali).
  *
  * Jenis: produk, pelanggan, supplier (tambah / perbarui berdasarkan kode), stok awal, piutang awal per faktur,
- * utang awal per faktur, saldo awal akun. Semua saldo awal berlawanan dengan akun Ekuitas Saldo Awal.
+ * utang awal per faktur, saldo awal akun, aset tetap lama (tanpa jurnal). Semua saldo awal berlawanan dengan akun Ekuitas Saldo Awal.
  */
 import { BadRequestException, Body, Controller, HttpCode, Injectable, Module, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
@@ -28,10 +28,13 @@ import {
   products,
   purchaseInvoices,
   stockBalances,
+  assetCategories,
   suppliers,
   warehouses,
 } from '../../db/schema';
 import { AccountingModule } from '../accounting/accounting.module';
+import { frameworkOf } from '../accounting/coa-sync';
+import { AssetsModule, AssetsService } from '../assets/assets.module';
 import { AccountingService } from '../accounting/accounting.service';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
@@ -39,7 +42,7 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { InventoryService } from '../inventory/inventory.service';
 import { blank, date, num, text } from './parse';
 
-export const IMPORT_KINDS = ['products', 'customers', 'suppliers', 'stock', 'receivables', 'payables', 'accounts'] as const;
+export const IMPORT_KINDS = ['products', 'customers', 'suppliers', 'stock', 'receivables', 'payables', 'accounts', 'assets'] as const;
 export type ImportKind = (typeof IMPORT_KINDS)[number];
 type Row = Record<string, unknown>;
 
@@ -78,10 +81,11 @@ export class ImportsService {
     private readonly accounting: AccountingService,
     private readonly posting: PostingService,
     private readonly audit: AuditService,
+    private readonly assetsSvc: AssetsService,
   ) {}
 
   async run(user: AuthUser, dto: ImportDto) {
-    const needsDate = ['stock', 'receivables', 'payables', 'accounts'].includes(dto.kind);
+    const needsDate = ['stock', 'receivables', 'payables', 'accounts', 'assets'].includes(dto.kind);
     if (needsDate && !dto.date) throw new BadRequestException('Isi tanggal saldo awal');
     const plan = await this.plan(user, dto);
     const errors = plan.results.filter((r) => r.action === 'ERROR').length;
@@ -125,6 +129,8 @@ export class ImportsService {
         return this.openItems(user, dto, 'payables');
       case 'accounts':
         return this.accountBalances(user, dto);
+      case 'assets':
+        return this.existingAssets(user, dto);
     }
   }
 
@@ -591,6 +597,87 @@ export class ImportsService {
       },
     };
   }
+
+  // ---------------------------------------------------------------- aset tetap lama
+  /**
+   * Aset yang sudah dimiliki sebelum memakai SANSU. Tidak membuat jurnal: nilai perolehan & akumulasi penyusutannya
+   * masuk ke neraca lewat impor "Saldo awal akun". Penyusutan baru dimulai bulan setelah tanggal saldo awal.
+   */
+  private async existingAssets(user: AuthUser, dto: ImportDto): Promise<Plan> {
+    const cutoff = toDocDate(dto.date);
+    const startMonth = `${addDays(cutoff, 1).slice(0, 7)}-01`;
+    const cats = await this.db.select().from(assetCategories).where(eq(assetCategories.tenantId, user.tenantId));
+    const catByName = new Map(cats.map((c) => [c.name.trim().toLowerCase(), c]));
+    const usedCodes = await this.assetsSvc.existingCodes(user.tenantId);
+    const emkm = (await frameworkOf(this.db, user.tenantId)) === 'SAK_EMKM';
+    const seen = new Set<string>();
+    const results: RowResult[] = [];
+    type W = { cat: (typeof cats)[number]; code?: string; name: string; acquisitionDate: string; cost: Dec; residual: Dec; opening: Dec; life?: number; location?: string; notes?: string };
+    const writes: W[] = [];
+
+    rows_: for (const [i, row] of dto.rows.entries()) {
+      const code = upper(text(row.kode));
+      const { r, req, max, amount, day } = this.checker(results, i, code ?? text(row.nama) ?? '');
+      const name = max(req(row.nama, 'Nama aset'), MAX.name, 'Nama aset');
+      max(code, MAX.code, 'Kode');
+      const catName = req(row.kategori, 'Kategori');
+      const cat = catName ? catByName.get(catName.toLowerCase()) : undefined;
+      if (catName && !cat) r.errors.push(`Kategori "${catName}" tidak ada. Buat dulu di Aset Tetap › Kategori, atau pakai: ${cats.map((c) => c.name).join(', ') || '(belum ada kategori)'}`);
+      const acquired = day(row.tanggal_perolehan, 'Tanggal perolehan', true);
+      if (acquired && acquired > cutoff) r.errors.push('Tanggal perolehan tidak boleh setelah tanggal saldo awal; aset yang dibeli sesudahnya dicatat lewat faktur pembelian');
+      const cost = amount(row.harga_perolehan, 'Harga perolehan', { required: true, positive: true });
+      const residual = amount(row.nilai_residu, 'Nilai residu', { min: 0 }) ?? ZERO;
+      const opening = amount(row.akumulasi_penyusutan, 'Akumulasi penyusutan', { min: 0 }) ?? ZERO;
+      const lifeN = amount(row.masa_manfaat_bulan, 'Masa manfaat (bulan)', { min: 0 });
+      if (lifeN && (!lifeN.isInteger() || lifeN.gt(600))) r.errors.push('Masa manfaat harus bilangan bulat 0–600 bulan');
+      if (cost) {
+        if (residual.gte(cost)) r.errors.push('Nilai residu harus lebih kecil dari harga perolehan');
+        else if (emkm && residual.gt(0)) r.errors.push('SAK EMKM tidak mengenal nilai residu: kosongkan kolom ini');
+        else if (opening.gt(cost.minus(residual))) r.errors.push('Akumulasi penyusutan melebihi nilai yang dapat disusutkan (harga perolehan dikurangi residu)');
+      }
+      if (code) {
+        if (usedCodes.has(code)) r.errors.push('Kode aset sudah dipakai aset lain');
+        if (seen.has(code)) r.errors.push('Kode muncul lebih dari sekali di file');
+        seen.add(code);
+      } else {
+        r.warnings.push('Kode kosong: dibuat otomatis (AT-xxxx)');
+      }
+      if (r.errors.length) {
+        r.action = 'ERROR';
+        continue rows_;
+      }
+      if (cat!.method === 'NONE' && opening.gt(0)) r.warnings.push('Kategori ini tidak disusutkan, tetapi akumulasi diisi');
+      writes.push({ cat: cat!, code, name: name!, acquisitionDate: acquired!, cost: cost!, residual, opening, life: lifeN?.toNumber(), location: text(row.lokasi), notes: text(row.catatan) });
+    }
+
+    return {
+      results,
+      write: async (tx) => {
+        let n = usedCodes.size;
+        for (const w of writes) {
+          let code = w.code;
+          while (!code) {
+            n += 1;
+            const c = `AT-${String(n).padStart(4, '0')}`;
+            if (!usedCodes.has(c)) code = c;
+          }
+          usedCodes.add(code);
+          await this.assetsSvc.registerExisting(tx, user.tenantId, w.cat, {
+            code,
+            name: w.name,
+            acquisitionDate: w.acquisitionDate,
+            depreciationStart: startMonth,
+            cost: w.cost,
+            residual: w.residual,
+            opening: w.opening,
+            usefulLifeMonths: w.life,
+            location: w.location,
+            notes: w.notes ?? `Diimpor sebagai aset lama (saldo awal ${cutoff})`,
+          });
+        }
+      },
+    };
+  }
 }
 
 function chunks<T>(arr: T[], n: number): T[][] {
@@ -615,7 +702,7 @@ export class ImportsController {
 }
 
 @Module({
-  imports: [InventoryModule, AccountingModule],
+  imports: [InventoryModule, AccountingModule, AssetsModule],
   controllers: [ImportsController],
   providers: [ImportsService],
 })

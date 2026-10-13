@@ -331,6 +331,22 @@ export class AssetsService {
     });
   }
 
+  /** Aset lama dari impor data awal: tanpa jurnal (saldonya masuk lewat Saldo awal akun). Dipanggil di dalam transaksi impor. */
+  async registerExisting(
+    tx: Tx,
+    tenantId: string,
+    cat: Category,
+    a: { code: string; name: string; acquisitionDate: string; depreciationStart: string; cost: Dec; residual: Dec; opening: Dec; usefulLifeMonths?: number; location?: string; notes?: string },
+  ) {
+    return this.insertAsset(tx, tenantId, cat, a);
+  }
+
+  /** Kode aset otomatis berikutnya yang belum terpakai, mulai dari urutan `from` */
+  async existingCodes(tenantId: string) {
+    const rows = await this.db.select({ code: fixedAssets.code }).from(fixedAssets).where(eq(fixedAssets.tenantId, tenantId));
+    return new Set(rows.map((r) => r.code.toUpperCase()));
+  }
+
   async category(tenantId: string, id: string) {
     const [cat] = await this.db.select().from(assetCategories).where(and(eq(assetCategories.id, id), eq(assetCategories.tenantId, tenantId)));
     return cat;

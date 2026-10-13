@@ -1,4 +1,4 @@
-import { PlayCircleOutlined, PlusOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
 import { DEPRECIATION_METHOD_LABELS, type DepreciationMethod, FISCAL_ASSET_GROUP_INFO, type FiscalAssetGroup, toOptions } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -36,7 +36,7 @@ import { Amount } from './statements/format';
 import { fixedAssetsSheet } from '@/lib/xlsx/reports';
 import { useAuth } from '@/auth/AuthContext';
 import { t } from '@/lib/terms';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 const KEYS = ['assets', 'asset-runs', 'asset-roll', ...LEDGER_KEYS];
 const groupOptions = Object.entries(FISCAL_ASSET_GROUP_INFO).map(([k, v]) => ({ value: k, label: v.label }));
@@ -273,6 +273,7 @@ function AssetList() {
   const [asOf, setAsOf] = useState(today());
   const [adding, setAdding] = useState(false);
   const [params] = useSearchParams();
+  const navigate = useNavigate();
   // tautan dari jurnal / buku besar: ?asset=ID langsung membuka rincian aset
   const [detail, setDetail] = useState<string | null>(params.get('asset'));
   const [status, setStatus] = useState<'ACTIVE' | 'ALL'>('ACTIVE');
@@ -301,6 +302,9 @@ function AssetList() {
         <Space wrap style={{ marginBottom: 12 }}>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setAdding(true)} disabled={!cats.data?.length}>
             Aset baru
+          </Button>
+          <Button icon={<UploadOutlined />} onClick={() => navigate('/settings/import?kind=assets')} disabled={!cats.data?.length}>
+            Impor aset lama dari Excel
           </Button>
           <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value || today())} prefix="Per" style={{ width: 220 }} />
           <Radio.Group size="small" value={status} onChange={(e) => setStatus(e.target.value)} optionType="button" options={[{ value: 'ACTIVE', label: 'Aktif' }, { value: 'ALL', label: 'Semua' }]} />
