@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { App, Button, Card, Form, Input, Modal, Select, Space, Switch, Table, Tag, Tooltip, Typography } from 'antd';
 import { useState } from 'react';
 import { get, patch, post } from '@/api/client';
-import { useAction, useWarehouses } from '@/api/queries';
+import { useAction, useBranches, useWarehouses } from '@/api/queries';
 import type { UserRow } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
@@ -28,6 +28,8 @@ export default function UsersPage() {
   const role: Role | undefined = Form.useWatch('role', form);
   const { data, isLoading } = useQuery({ queryKey: ['users'], queryFn: () => get<UserRow[]>('/users') });
   const { data: warehouses } = useWarehouses({ all: true });
+  const branches = useBranches();
+  const brName = new Map((branches.data?.branches ?? []).map((b) => [b.id, b.code]));
   const whName = new Map((warehouses ?? []).map((w) => [w.id, w.code]));
 
   const save = useAction(
@@ -38,8 +40,9 @@ export default function UsersPage() {
       role: Role;
       isActive?: boolean;
       warehouseIds?: string[];
+      branchIds?: string[];
     }) => {
-      const body = { ...v, warehouseIds: v.warehouseIds ?? [] };
+      const body = { ...v, warehouseIds: v.warehouseIds ?? [], branchIds: v.branchIds ?? [] };
       return editing === 'new'
         ? post('/users', body)
         : patch(`/users/${(editing as UserRow).id}`, { ...body, email: undefined, password: v.password || undefined });
@@ -85,7 +88,7 @@ export default function UsersPage() {
           onRow={(u) => ({
             onClick: () => {
               form.resetFields();
-              form.setFieldsValue({ ...u, password: undefined, warehouseIds: u.warehouseIds ?? [] });
+              form.setFieldsValue({ ...u, password: undefined, warehouseIds: u.warehouseIds ?? [], branchIds: u.branchIds ?? [] });
               setEditing(u);
             },
             style: { cursor: 'pointer' },
@@ -109,6 +112,14 @@ export default function UsersPage() {
               dataIndex: 'role',
               render: (r: Role) => <Tag color={r === 'OWNER' ? 'gold' : 'volcano'}>{ROLE_LABELS[r]}</Tag>,
             },
+            ...((branches.data?.branches.length ?? 0) > 0
+              ? [{
+                  title: 'Akses cabang',
+                  dataIndex: 'branchIds',
+                  render: (ids: string[] | null | undefined) =>
+                    ids?.length ? ids.map((id) => <Tag key={id}>{brName.get(id) ?? '?'}</Tag>) : <Typography.Text type="secondary">Semua</Typography.Text>,
+                }]
+              : []),
             {
               title: t('Akses gudang'),
               dataIndex: 'warehouseIds',
@@ -179,6 +190,20 @@ export default function UsersPage() {
                 .map((a) => a.name)
                 .join(', ')}
             </Typography.Paragraph>
+          )}
+          {(branches.data?.branches.length ?? 0) > 0 && (
+            <Form.Item
+              name="branchIds"
+              label="Akses cabang"
+              extra="Kosongkan = boleh melihat semua cabang dan laporan gabungan. Jika diisi, pengguna hanya melihat laporan cabang itu (tidak bisa melihat cabang lain, Pusat, atau konsolidasi)."
+            >
+              <Select
+                mode="multiple"
+                allowClear
+                placeholder="Semua cabang"
+                options={branches.data?.branches.filter((b) => b.isActive).map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))}
+              />
+            </Form.Item>
           )}
           {(warehouses?.length ?? 0) > 1 && (
             <Form.Item

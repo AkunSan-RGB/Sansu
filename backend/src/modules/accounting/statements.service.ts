@@ -488,7 +488,11 @@ export class StatementsService {
 
   // ---------- Neraca saldo lengkap ----------
 
-  async trialBalance(tenantId: string, q: { from?: string; to?: string; hideZero?: string }) {
+  trialBalance(tenantId: string, q: { from?: string; to?: string; hideZero?: string; branchId?: string }) {
+    return branchScope.run(q.branchId, () => this.trialBalanceInner(tenantId, q));
+  }
+
+  private async trialBalanceInner(tenantId: string, q: { from?: string; to?: string; hideZero?: string }) {
     const to = toDocDate(q.to);
     const from = q.from ? toDocDate(q.from) : `${to.slice(0, 4)}-01-01`;
     const accs = await loadAccounts(this.db, tenantId);
@@ -529,7 +533,11 @@ export class StatementsService {
 
   // ---------- Neraca lajur (worksheet) ----------
 
-  async worksheet(tenantId: string, q: { from?: string; to?: string }) {
+  worksheet(tenantId: string, q: { from?: string; to?: string; branchId?: string }) {
+    return branchScope.run(q.branchId, () => this.worksheetInner(tenantId, q));
+  }
+
+  private async worksheetInner(tenantId: string, q: { from?: string; to?: string }) {
     const to = toDocDate(q.to);
     const from = q.from ? toDocDate(q.from) : `${to.slice(0, 4)}-01-01`;
     const accs = await loadAccounts(this.db, tenantId);

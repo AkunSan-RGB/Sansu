@@ -1,10 +1,10 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { users } from '../../db/schema';
+import { users, warehouses } from '../../db/schema';
 import { AuthUser } from './auth-user';
 import { IS_PUBLIC_KEY } from './decorators';
 import { TwoFactorPolicy } from './two-factor-policy';
@@ -47,6 +47,7 @@ export class JwtAuthGuard implements CanActivate {
         tenantId: users.tenantId,
         emailVerifiedAt: users.emailVerifiedAt,
         warehouseIds: users.warehouseIds,
+        branchIds: users.branchIds,
         totpEnabledAt: users.totpEnabledAt,
       })
       .from(users)
@@ -54,11 +55,19 @@ export class JwtAuthGuard implements CanActivate {
     if (!u || !u.isActive || u.tenantId !== p.tenantId || u.tokenVersion !== (p.tv ?? 0)) {
       throw new UnauthorizedException('Sesi Anda sudah berakhir. Silakan masuk lagi.');
     }
+    // Pengguna terbatas cabang: akses gudangnya otomatis dipersempit ke gudang/toko milik cabang itu
+    let warehouseIds: string[] | null = u.warehouseIds?.length ? u.warehouseIds : null;
+    if (u.branchIds?.length) {
+      const rows = await this.db.select({ id: warehouses.id }).from(warehouses).where(and(eq(warehouses.tenantId, u.tenantId), inArray(warehouses.branchId, u.branchIds)));
+      const own = rows.map((r) => r.id).filter((id) => !warehouseIds || warehouseIds.includes(id));
+      warehouseIds = own.length ? own : ['00000000-0000-0000-0000-000000000000'];
+    }
     req.user = {
       ...p,
       role: u.role,
       emailVerified: !!u.emailVerifiedAt,
-      warehouseIds: u.warehouseIds?.length ? u.warehouseIds : null,
+      warehouseIds,
+      branchIds: u.branchIds?.length ? u.branchIds : null,
     };
     // Perusahaan mewajibkan 2FA: sebelum diaktifkan, hanya rute akun (/auth/...) yang boleh dipakai
     if (

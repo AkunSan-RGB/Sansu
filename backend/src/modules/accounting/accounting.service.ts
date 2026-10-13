@@ -138,11 +138,18 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
 
   // ---------- Jurnal ----------
 
-  async listJournals(tenantId: string, q: JournalQueryDto) {
+  /** Pengguna terbatas cabang: hanya jurnal yang punya baris di cabangnya, dan hanya baris cabangnya yang tampak */
+  private branchJournalCond(ids?: string[] | null) {
+    if (!ids?.length) return undefined;
+    return sql`EXISTS (SELECT 1 FROM journal_lines jl WHERE jl.journal_id = ${journalEntries.id} AND jl.branch_id IN (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)}))`;
+  }
+
+  async listJournals(tenantId: string, q: JournalQueryDto, branchIds?: string[] | null) {
     const term = q.q?.trim();
     const rows = await this.db.query.journalEntries.findMany({
       where: and(
         eq(journalEntries.tenantId, tenantId),
+        this.branchJournalCond(branchIds),
         q.from ? gte(journalEntries.date, toDocDate(q.from)) : undefined,
         q.to ? lte(journalEntries.date, toDocDate(q.to)) : undefined,
         q.source ? inArray(journalEntries.sourceType, q.source.split(',').map((x) => x.trim())) : undefined,
@@ -162,21 +169,22 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
           .where(and(eq(scheduledReversals.tenantId, tenantId), eq(scheduledReversals.status, 'PENDING'), inArray(scheduledReversals.journalId, rows.map((r) => r.id))))
       : [];
     const schedBy = new Map(sched.map((x) => [x.journalId, x.reverseOn]));
-    return rows.map((r, i) => ({ ...r, docRoute: routes[i], scheduledReversal: schedBy.get(r.id) ?? null }));
+    return rows.map((r, i) => ({ ...r, lines: branchIds?.length ? r.lines.filter((l) => l.branchId && branchIds.includes(l.branchId)) : r.lines, docRoute: routes[i], scheduledReversal: schedBy.get(r.id) ?? null }));
   }
 
-  async getJournal(tenantId: string, id: string) {
+  async getJournal(tenantId: string, id: string, branchIds?: string[] | null) {
     const j = await this.db.query.journalEntries.findFirst({
-      where: and(eq(journalEntries.id, id), eq(journalEntries.tenantId, tenantId)),
+      where: and(eq(journalEntries.id, id), eq(journalEntries.tenantId, tenantId), this.branchJournalCond(branchIds)),
       with: { lines: { with: { account: { columns: { code: true, name: true } } } } },
     });
     if (!j) throw new NotFoundException('Jurnal tidak ditemukan');
+    if (branchIds?.length) j.lines = j.lines.filter((l) => l.branchId && branchIds.includes(l.branchId));
     return { ...j, docRoute: (await resolveSourceRoutes(this.db, tenantId, [j]))[0] };
   }
 
   /** Rincian dokumen asal sebuah jurnal (faktur pembelian, mutasi stok, kas, kasir, setoran pajak, dst.) beserta jurnalnya */
-  async journalDocument(tenantId: string, id: string) {
-    const journal = await this.getJournal(tenantId, id);
+  async journalDocument(tenantId: string, id: string, branchIds?: string[] | null) {
+    const journal = await this.getJournal(tenantId, id, branchIds);
     const document = await loadSourceDocument(this.db, tenantId, journal.sourceType, journal.sourceId, journal.id);
     return { journal, document };
   }
@@ -700,8 +708,8 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
 
   // ---------- Laporan ----------
 
-  async trialBalance(tenantId: string, from?: string, to?: string) {
-    const rows = await this.balances(tenantId, from, to);
+  async trialBalance(tenantId: string, from?: string, to?: string, branchId?: string) {
+    const rows = await this.balances(tenantId, from, to, false, this.db, branchId);
     const totalDebit = rows.reduce<Dec>((a, r) => a.plus(r.debit), ZERO);
     const totalCredit = rows.reduce<Dec>((a, r) => a.plus(r.credit), ZERO);
     return { rows, totalDebit, totalCredit, balanced: totalDebit.eq(totalCredit) };
@@ -742,7 +750,8 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Buku besar satu akun: saldo awal, mutasi, saldo berjalan. */
-  async ledger(tenantId: string, accountId: string, from?: string, to?: string, rowLimit = LEDGER_ROW_LIMIT) {
+  async ledger(tenantId: string, accountId: string, from?: string, to?: string, rowLimit = LEDGER_ROW_LIMIT, branchId?: string) {
+    const brCond = branchId ? (branchId === 'NONE' ? sql`AND l.branch_id IS NULL` : sql`AND l.branch_id = ${branchId}`) : sql``;
     const [acc] = await this.db
       .select()
       .from(accounts)
@@ -756,7 +765,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
           await this.db.execute<{ debit: string; credit: string }>(sql`
             SELECT COALESCE(SUM(l.debit), 0) AS debit, COALESCE(SUM(l.credit), 0) AS credit
             FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-            WHERE l.account_id = ${accountId} AND j.date < ${fromDate}`)
+            WHERE l.account_id = ${accountId} AND j.date < ${fromDate} ${brCond}`)
         ).rows
       : [{ debit: '0', credit: '0' }];
     const opening = normal(acc.type, open.debit, open.credit);
@@ -774,7 +783,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
     }>(sql`
       SELECT j.id AS journal_id, j.number, j.date, j.description, j.source_type, j.source_id, l.debit, l.credit, l.memo
       FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-      WHERE l.account_id = ${accountId}
+      WHERE l.account_id = ${accountId} ${brCond}
         ${fromDate ? sql`AND j.date >= ${fromDate}` : sql``}
         ${toDate ? sql`AND j.date <= ${toDate}` : sql``}
       ORDER BY j.date, j.number, l.id
@@ -786,7 +795,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       await this.db.execute<{ debit: string; credit: string; n: number }>(sql`
         SELECT COALESCE(SUM(l.debit), 0) AS debit, COALESCE(SUM(l.credit), 0) AS credit, COUNT(*)::int AS n
         FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-        WHERE l.account_id = ${accountId}
+        WHERE l.account_id = ${accountId} ${brCond}
           ${fromDate ? sql`AND j.date >= ${fromDate}` : sql``}
           ${toDate ? sql`AND j.date <= ${toDate}` : sql``}`)
     ).rows;
@@ -953,7 +962,8 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private async balances(tenantId: string, from?: string, to?: string, excludeClosing = false, db: DbOrTx = this.db): Promise<BalanceRow[]> {
+  private async balances(tenantId: string, from?: string, to?: string, excludeClosing = false, db: DbOrTx = this.db, branchId?: string): Promise<BalanceRow[]> {
+    const brCond = branchId ? (branchId === 'NONE' ? sql`AND l.branch_id IS NULL` : sql`AND l.branch_id = ${branchId}`) : sql``;
     const fromCond = from ? sql`AND j.date >= ${toDocDate(from)}` : sql``;
     const toCond = to ? sql`AND j.date <= ${toDocDate(to)}` : sql``;
     const closingCond = excludeClosing ? sql`AND j.source_type <> 'CLOSING'` : sql``;
@@ -965,7 +975,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
         SELECT l.account_id, SUM(l.debit) AS debit, SUM(l.credit) AS credit
         FROM journal_lines l
         JOIN journal_entries j ON j.id = l.journal_id
-        WHERE j.tenant_id = ${tenantId} ${fromCond} ${toCond} ${closingCond}
+        WHERE j.tenant_id = ${tenantId} ${fromCond} ${toCond} ${closingCond} ${brCond}
         GROUP BY l.account_id
       ) t ON t.account_id = a.id
       WHERE a.tenant_id = ${tenantId} AND a.is_postable = true

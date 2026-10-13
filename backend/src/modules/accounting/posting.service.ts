@@ -3,7 +3,7 @@ import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { PeriodService } from '../../common/period/period.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { DocDate } from '../../common/utils/dates';
-import { DecValue } from '../../common/utils/money';
+import { D, DecValue } from '../../common/utils/money';
 import { DbOrTx, Tx } from '../../db/db';
 import { accounts, journalEntries, journalLines } from '../../db/schema';
 import { DEFAULT_COA, SystemKey } from './default-coa';
@@ -72,6 +72,20 @@ export class PostingService {
       if (ok.rows.length !== explicit.length) throw new BadRequestException('Cabang tidak ditemukan');
     }
     const entryBranch = input.branchId ?? (await this.deriveBranch(tx, input.tenantId, input.sourceType, input.sourceId));
+
+    // Jurnal lintas cabang: tiap cabang harus seimbang sendiri. Selisih per cabang ditutup otomatis lewat Rekening Antar Cabang
+    // (piutang di satu cabang, utang di cabang lain; nol saat digabung), jadi pusat membayar biaya cabang, transfer kas antar-cabang,
+    // dan gaji karyawan cabang tidak merusak neraca per cabang.
+    const labelOf = (l: { branchId?: string | null }) => (l.branchId === undefined ? entryBranch : l.branchId) ?? null;
+    if (new Set(normalized.lines.map(labelOf)).size > 1) {
+      const net = new Map<string | null, ReturnType<typeof D>>();
+      for (const l of normalized.lines) net.set(labelOf(l), (net.get(labelOf(l)) ?? D(0)).plus(l.debit).minus(l.credit));
+      const [rak] = await this.resolveAccounts(tx, input.tenantId, [{ key: 'INTERBRANCH' }]);
+      for (const [b, v] of net) {
+        if (v.isZero()) continue;
+        normalized.lines.push({ accountId: rak, debit: v.isNegative() ? v.abs() : D(0), credit: v.isPositive() ? v : D(0), memo: 'Antar cabang', projectId: null, branchId: b });
+      }
+    }
 
     const number = await this.seq.next(tx, input.tenantId, 'JOURNAL', input.date);
     const [entry] = await tx
@@ -148,6 +162,9 @@ export class PostingService {
         break;
       case 'PURCHASE_RETURN':
         q = wh(sql`SELECT warehouse_id FROM purchase_returns WHERE id::text = ${id}`);
+        break;
+      case 'BANK':
+        q = sql`SELECT a.branch_id::text AS b FROM bank_statement_lines l JOIN bank_statements st ON st.id = l.statement_id JOIN accounts a ON a.id = st.cash_account_id WHERE l.tenant_id = ${tenantId} AND l.id::text = ${id}`;
         break;
       case 'CASH_IN':
       case 'CASH_OUT':

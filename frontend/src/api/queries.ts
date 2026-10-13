@@ -54,6 +54,6 @@ export interface BranchRow {
 export const useBranches = () =>
   useQuery({
     queryKey: ['branches'],
-    queryFn: () => get<{ branches: BranchRow[]; unassignedWarehouses: { id: string; code: string; name: string }[] }>('/branches'),
+    queryFn: () => get<{ branches: BranchRow[]; unassignedWarehouses: { id: string; code: string; name: string }[]; cashAccounts?: { id: string; code: string; name: string; branchId: string | null }[] }>('/branches'),
     staleTime: 60_000,
   });

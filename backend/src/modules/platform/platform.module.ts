@@ -31,7 +31,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { and, eq, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { APP_KEYS, type AppKey, LEGAL_FORMS, REPORTING_FRAMEWORKS, type ReportingFramework, TAX_SCHEMES, VAT_ROUNDINGS, type VatRounding } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -43,7 +43,7 @@ import { SubscriptionService } from '../../common/billing/subscription.service';
 import { normalizeWarehouseIds } from '../../common/auth/warehouse-ids';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { Role, roleEnum, tenants, users } from '../../db/schema';
+import { branches, Role, roleEnum, tenants, users } from '../../db/schema';
 import { IsNpwp } from '../../common/validators/npwp';
 import { isDocDate } from '../../common/utils/dates';
 import { refreshChartRelevance } from '../accounting/coa-sync';
@@ -62,6 +62,10 @@ export class UpdateUserDto {
   @IsOptional()
   @IsUUID('all', { each: true })
   warehouseIds?: string[];
+  @ApiPropertyOptional({ description: 'Batasi ke cabang tertentu; [] = semua cabang', type: [String] })
+  @IsOptional()
+  @IsUUID('all', { each: true })
+  branchIds?: string[];
 }
 
 export class UpdateCompanyDto {
@@ -153,6 +157,14 @@ export class PlatformService {
     private readonly subs: SubscriptionService,
   ) {}
 
+  private async normalizeBranchIds(tenantId: string, ids: string[]) {
+    const uniq = [...new Set(ids)];
+    if (!uniq.length) return null;
+    const rows = await this.db.select({ id: branches.id }).from(branches).where(and(eq(branches.tenantId, tenantId), inArray(branches.id, uniq)));
+    if (rows.length !== uniq.length) throw new BadRequestException('Ada cabang yang tidak ditemukan');
+    return uniq;
+  }
+
   async updateUser(actor: AuthUser, id: string, dto: UpdateUserDto) {
     const [target] = await this.db
       .select()
@@ -188,6 +200,7 @@ export class PlatformService {
         role: dto.role,
         isActive: dto.isActive,
         warehouseIds: await normalizeWarehouseIds(this.db, actor.tenantId, dto.warehouseIds),
+        branchIds: dto.branchIds === undefined ? undefined : await this.normalizeBranchIds(actor.tenantId, dto.branchIds),
         ...(dto.resetTwoFactor ? { totpEnabledAt: null, totpSecret: null, totpBackupCodes: null } : {}),
         // akses/kredensial berubah: putuskan Telegram (tautan persetujuan pribadi tidak boleh tertinggal di chat lama)
         ...(dto.password || dto.isActive === false || (dto.role && dto.role !== target.role) ? { telegramChatId: null, telegramLinkCode: null, telegramLinkExpires: null } : {}),
@@ -206,6 +219,7 @@ export class PlatformService {
         role: users.role,
         isActive: users.isActive,
         warehouseIds: users.warehouseIds,
+        branchIds: users.branchIds,
         totpEnabledAt: users.totpEnabledAt,
       });
     await this.audit.log(this.db, {

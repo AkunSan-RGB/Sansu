@@ -123,6 +123,8 @@ export const users = pgTable(
     emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
     /** Gudang yang boleh diakses; null/kosong = semua gudang */
     warehouseIds: uuid('warehouse_ids').array(),
+    /** Pengguna hanya melihat laporan & transaksi cabang-cabang ini (kosong = semua cabang) */
+    branchIds: uuid('branch_ids').array(),
     /** Verifikasi 2 langkah (TOTP): rahasia terenkripsi, aktif sejak, hash kode cadangan */
     totpSecret: text('totp_secret'),
     totpEnabledAt: timestamp('totp_enabled_at', { withTimezone: true }),
@@ -608,6 +610,8 @@ export const accounts = pgTable(
     fiscalTreatment: text('fiscal_treatment').notNull().default('NORMAL'),
     description: text('description'),
     isActive: boolean('is_active').notNull().default(true),
+    /** Rekening kas/bank milik cabang: transaksi lewat rekening ini otomatis berlabel cabang */
+    branchId: uuid('branch_id').references((): AnyPgColumn => branches.id),
   },
   (t) => [uniqueIndex('accounts_code_uq').on(t.tenantId, t.code), uniqueIndex('accounts_system_key_uq').on(t.tenantId, t.systemKey)],
 );
@@ -1471,6 +1475,8 @@ export const employees = pgTable(
     isActive: boolean('is_active').notNull().default(true),
     resignDate: date('resign_date'),
     createdAt: createdAt(),
+    /** Cabang tempat karyawan bekerja: gaji & BPJS otomatis berlabel cabang ini */
+    branchId: uuid('branch_id').references((): AnyPgColumn => branches.id),
   },
   (t) => [uniqueIndex('employees_code_uq').on(t.tenantId, t.code)],
 );
@@ -1635,6 +1641,8 @@ export const fixedAssets = pgTable(
     disposalPrice: money('disposal_price'),
     disposalJournalId: uuid('disposal_journal_id'),
     createdAt: createdAt(),
+    /** Cabang pemilik aset: penyusutan otomatis berlabel cabang ini */
+    branchId: uuid('branch_id').references((): AnyPgColumn => branches.id),
   },
   (t) => [uniqueIndex('fixed_assets_code_uq').on(t.tenantId, t.code)],
 );
