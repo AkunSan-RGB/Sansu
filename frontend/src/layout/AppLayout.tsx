@@ -18,7 +18,7 @@ import { APP_ICONS, useApps } from '@/lib/apps';
 import { t } from '@/lib/terms';
 
 /** `app`: item hanya tampil bila aplikasi itu aktif (mis. menu pajak yang butuh aplikasi Penjualan) */
-type Item = { key: string; label: string; /** Hanya tampil bila fitur langganan dinyalakan di Panel SANSU */ billing?: boolean; /** Hanya untuk SAK EP (tidak diakui SAK EMKM) */ epOnly?: boolean; app?: AppKey; /** Disembunyikan untuk jenis usaha ini (mis. surat jalan untuk usaha jasa murni) */ hideFor?: BusinessModel[]; /** Hanya tampil untuk jenis usaha ini */ models?: BusinessModel[]; /** Hanya tampil bila fitur pajak ini relevan (lihat taxFeatures di @sansu/shared) */ tax?: 'vat' | 'coretax' | 'withheldByCustomers' | 'fiscalReconciliation' };
+type Item = { key: string; label: string; /** Hanya untuk peran ini (OWNER selalu boleh) */ roles?: string[]; /** Hanya tampil bila fitur langganan dinyalakan di Panel SANSU */ billing?: boolean; /** Hanya untuk SAK EP (tidak diakui SAK EMKM) */ epOnly?: boolean; app?: AppKey; /** Disembunyikan untuk jenis usaha ini (mis. surat jalan untuk usaha jasa murni) */ hideFor?: BusinessModel[]; /** Hanya tampil untuk jenis usaha ini */ models?: BusinessModel[]; /** Hanya tampil bila fitur pajak ini relevan (lihat taxFeatures di @sansu/shared) */ tax?: 'vat' | 'coretax' | 'withheldByCustomers' | 'fiscalReconciliation' };
 /** Submenu boleh dikelompokkan dengan judul kecil (mis. "Akhir periode") */
 type Sub = Item | { section: string; items: Item[] };
 type Group = {
@@ -104,9 +104,10 @@ const MENU: Group[] = [
     children: [
       { key: '/purchase-requests', label: 'Permintaan beli' },
       { key: '/purchase-orders', label: t('Purchase Order') },
-      { key: '/goods-receipts', label: 'Penerimaan barang' },
+      { key: '/goods-receipts', label: 'Penerimaan barang', hideFor: ['JASA'] },
       { key: '/purchase-invoices', label: t('Faktur & hutang') },
       { key: '/returns?tab=purchase', label: t('Retur pembelian') },
+      { key: '/purchase-controls', label: 'Kontrol pembelian', roles: ['OWNER', 'ADMIN', 'FINANCE'] },
       { section: 'Data', items: [{ key: '/suppliers', label: t('Supplier') }] },
     ],
   },
@@ -298,7 +299,7 @@ export default function AppLayout() {
   );
   const L = (text: string) => localize(text, me.businessModel);
   // Fitur pajak yang tidak relevan (non-PKP, PPh final, usaha penjualan barang) tidak ditampilkan
-  const taxOk = (i: Item) => (!i.models || i.models.includes(me.businessModel)) && (!i.tax || me.taxFeatures?.[i.tax] !== false) && !i.hideFor?.includes(me.businessModel) && !(i.epOnly && me.framework === 'SAK_EMKM') && !(i.billing && me.subscription?.enabled === false);
+  const taxOk = (i: Item) => (!i.roles || me.role === 'OWNER' || i.roles.includes(me.role)) && (!i.models || i.models.includes(me.businessModel)) && (!i.tax || me.taxFeatures?.[i.tax] !== false) && !i.hideFor?.includes(me.businessModel) && !(i.epOnly && me.framework === 'SAK_EMKM') && !(i.billing && me.subscription?.enabled === false);
   const toMenu = (g: Group): NonNullable<MenuProps['items']>[number] =>
     g.children
       ? {
