@@ -988,7 +988,7 @@ export class WarehouseOpsController {
     return this.svc.updateCount(u, id, dto);
   }
   @Post('counts/:id/post')
-  @Roles('ADMIN', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE')
   postCount(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.postCount(u, id);
   }
