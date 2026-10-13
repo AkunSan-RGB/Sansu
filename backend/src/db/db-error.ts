@@ -19,13 +19,17 @@ export function describeDbError(e: unknown, url = process.env.DATABASE_URL): str
   const code = err?.code;
   const target = safeDbTarget(url);
   const envFile = resolve(process.cwd(), '.env');
-  const lines = [`Database yang dituju : ${target}`, `Berkas .env yang dibaca: ${envFile} (${existsSync(envFile) ? 'ada' : 'TIDAK ADA'})`];
+  // di produksi (Railway dll.) pengaturan datang dari variabel layanan, bukan berkas .env
+  const lines = [`Database yang dituju : ${target}`];
+  if (process.env.NODE_ENV !== 'production') lines.push(`Berkas .env yang dibaca: ${envFile} (${existsSync(envFile) ? 'ada' : 'TIDAK ADA'})`);
 
   let cause: string;
   if (!url) {
-    cause = 'DATABASE_URL belum diisi. Isi di backend\\.env (salin dari backend\\.env.example).';
+    cause = 'DATABASE_URL belum diisi. Isi variabel DATABASE_URL (di backend\\.env saat lokal, atau di Variables layanan hosting).';
   } else if (code === '28P01' || /password authentication failed/i.test(msg)) {
     cause = 'Password atau nama pengguna database salah. Salin ulang connection string terbaru dari Neon (setelah Reset password) ke DATABASE_URL.';
+  } else if (err?.hostname === 'base' || /hostname.*base/i.test(msg)) {
+    cause = 'DATABASE_URL di Variables bukan alamat PostgreSQL yang valid (pustaka memakai host cadangan "base"). Salin ulang dari Neon › Connect, dimulai dari postgresql:// — tanpa tanda kutip atau spasi.';
   } else if (code === 'ENOTFOUND' || /getaddrinfo/i.test(msg)) {
     cause = 'Alamat (host) database tidak ditemukan. Periksa penulisan DATABASE_URL dan koneksi internet.';
   } else if (code === 'ECONNREFUSED') {
@@ -42,4 +46,22 @@ export function describeDbError(e: unknown, url = process.env.DATABASE_URL): str
     cause = `Galat database${code ? ' ' + code : ''}: ${msg}`;
   }
   return [...lines, `Penyebab              : ${cause}`].join('\n');
+}
+
+/**
+ * Rapikan DATABASE_URL dari salah ketik yang umum (spasi, tanda kutip, awalan "DATABASE_URL=") dan tolak bila
+ * bukan alamat PostgreSQL. Tanpa ini pustaka koneksi diam-diam memakai host cadangan "base" (galat ENOTFOUND yang membingungkan).
+ * Tidak pernah memuat isi alamat ke dalam pesan galat (ada password).
+ */
+export function cleanDbUrl(raw: string): string {
+  let u = raw.trim();
+  u = u.replace(/^DATABASE_URL\s*=\s*/i, '').trim();
+  u = u.replace(/^(["'`])(.*)\1$/s, '$2').trim();
+  if (/\$\{\{.*\}\}/.test(u)) {
+    throw new Error('DATABASE_URL masih berisi referensi variabel yang belum terisi (${{...}}). Pastikan nama layanan pada referensi benar, atau tempel alamat database langsung.');
+  }
+  if (!/^postgres(ql)?:\/\/[^\s/]+/i.test(u)) {
+    throw new Error('DATABASE_URL tidak valid: harus diawali postgresql:// lalu pengguna:password@host/namadb (tanpa tanda kutip, spasi, atau teks lain). Salin ulang dari Neon › Connect.');
+  }
+  return u;
 }
