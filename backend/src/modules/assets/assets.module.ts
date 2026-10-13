@@ -96,6 +96,16 @@ export class VerifyDto {
   @ApiPropertyOptional({ description: 'Lokasi terbaru bila berpindah' }) @IsOptional() @IsString() @MaxLength(120) location?: string;
 }
 
+export class RegisterFromJournalDto {
+  @ApiProperty({ description: 'Jurnal yang mencatat pembelian aset (mis. kas keluar lama)' }) @IsUUID() journalId: string;
+  @ApiProperty({ description: 'Akun aset tetap yang didebit di jurnal itu' }) @IsUUID() accountId: string;
+  @ApiPropertyOptional({ description: 'Kategori aset (wajib bila akun dipakai >1 kategori)' }) @IsOptional() @IsUUID() categoryId?: string;
+  @ApiProperty({ example: 'Mobil operasional' }) @IsString() @MaxLength(160) name: string;
+  @ApiPropertyOptional({ description: 'Nilai yang didaftarkan; kosong = seluruh sisa yang belum jadi kartu aset' }) @IsOptional() @IsNumberString() amount?: string;
+  @ApiPropertyOptional({ description: 'Masa manfaat (bulan); kosong = ikut kategori' }) @IsOptional() @IsInt() @Min(0) @Max(600) usefulLifeMonths?: number;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(120) location?: string;
+}
+
 export class AssetSettingsDto {
   @ApiPropertyOptional({ description: 'Jalankan penyusutan bulan lalu otomatis' }) @IsOptional() @IsBoolean() autoDepreciation?: boolean;
 }
@@ -177,6 +187,73 @@ export class AssetsService {
    * saldo akun akumulasi penyusutan. Selisih biasanya berarti aset lama belum dirinci (saldo awal sudah diisi tetapi daftar asetnya belum),
    * atau ada jurnal manual langsung ke akun aset.
    */
+  /**
+   * Pembelian aset yang sudah ada di buku besar tetapi belum menjadi kartu aset (mis. kas keluar sebelum fitur otomatisasi):
+   * debit ke akun aset tetap pada jurnal yang bukan saldo awal, belum dibalik, dikurangi nilai kartu aset yang sudah terhubung.
+   */
+  async unregistered(tenantId: string) {
+    const res = await this.db.execute<{
+      journal_id: string; number: string; date: string; description: string; source_type: string; account_id: string; code: string; name: string; amount: string; registered: string;
+    }>(sql`
+      SELECT j.id AS journal_id, j.number, j.date::text AS date, j.description, j.source_type, a.id AS account_id, a.code, a.name,
+             SUM(l.debit) AS amount,
+             COALESCE((SELECT SUM(fa.cost) FROM fixed_assets fa JOIN asset_categories c ON c.id = fa.category_id
+                       WHERE fa.acquisition_journal_id = j.id AND c.asset_account_id = a.id), 0) AS registered
+      FROM journal_lines l
+      JOIN journal_entries j ON j.id = l.journal_id
+      JOIN accounts a ON a.id = l.account_id
+      WHERE j.tenant_id = ${tenantId} AND l.debit > 0
+        AND a.id IN (SELECT asset_account_id FROM asset_categories WHERE tenant_id = ${tenantId})
+        AND j.source_type NOT IN ('OPENING', 'REVERSAL', 'ASSET_DISPOSAL', 'CLOSING')
+        AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = j.id)
+      GROUP BY j.id, j.number, j.date, j.description, j.source_type, a.id, a.code, a.name
+      ORDER BY j.date, j.number`);
+    const cats = await this.listCategories(tenantId);
+    return res.rows
+      .map((r) => ({ ...r, remaining: D(r.amount).minus(r.registered) }))
+      .filter((r) => r.remaining.gte(1))
+      .map((r) => ({
+        journalId: r.journal_id,
+        journalNumber: r.number,
+        date: r.date.slice(0, 10),
+        description: r.description,
+        sourceType: r.source_type,
+        accountId: r.account_id,
+        accountCode: r.code,
+        accountName: r.name,
+        amount: D(r.amount).toFixed(2),
+        remaining: r.remaining.toFixed(2),
+        categories: cats.filter((c) => c.assetAccount?.id === r.account_id).map((c) => ({ id: c.id, name: c.name })),
+      }));
+  }
+
+  /** Jadikan pembelian yang sudah dijurnal sebagai kartu aset, tanpa jurnal baru (jurnal asalnya tetap satu-satunya pencatatan) */
+  async registerFromJournal(user: AuthUser, dto: RegisterFromJournalDto) {
+    return this.db.transaction(async (tx) => {
+      const rows = (await this.unregistered(user.tenantId)).filter((r) => r.journalId === dto.journalId && r.accountId === dto.accountId);
+      const row = rows[0];
+      if (!row) throw new BadRequestException('Pembelian ini tidak ditemukan atau sudah seluruhnya menjadi kartu aset');
+      const cats = await tx.select().from(assetCategories).where(and(eq(assetCategories.tenantId, user.tenantId), eq(assetCategories.assetAccountId, dto.accountId)));
+      const cat = dto.categoryId ? cats.find((c) => c.id === dto.categoryId) : cats.length === 1 ? cats[0] : undefined;
+      if (!cat) throw new BadRequestException(dto.categoryId ? 'Kategori tidak sesuai dengan akun aset jurnal ini' : 'Akun ini dipakai beberapa kategori; pilih kategori asetnya');
+      const amount = money(dto.amount ?? row.remaining);
+      if (amount.lte(0) || amount.gt(row.remaining)) throw new BadRequestException(`Nilai harus lebih dari 0 dan paling banyak sisa yang belum terdaftar (${D(row.remaining).toFixed(2)})`);
+      const asset = await this.insertAsset(tx, user.tenantId, cat, {
+        name: dto.name.trim(),
+        acquisitionDate: row.date,
+        depreciationStart: `${row.date.slice(0, 7)}-01`,
+        cost: amount,
+        residual: ZERO,
+        usefulLifeMonths: dto.usefulLifeMonths,
+        location: dto.location,
+        notes: `Didaftarkan dari jurnal ${row.journalNumber}`,
+        acquisitionJournalId: dto.journalId,
+      });
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'FixedAsset', entityId: asset.id, data: { via: 'JOURNAL', journal: row.journalNumber, amount: amount.toFixed(2) } });
+      return asset;
+    });
+  }
+
   async reconciliation(tenantId: string, asOf?: string) {
     const date = toDocDate(asOf);
     const assets = (await this.list(tenantId, date)).filter((a) => a.acquisitionDate <= date);
@@ -862,6 +939,15 @@ export class AssetsController {
   @Put('settings')
   saveAssetSettings(@CurrentUser() u: AuthUser, @Body() dto: AssetSettingsDto) {
     return this.svc.saveAssetSettings(u.tenantId, dto);
+  }
+
+  @Get('unregistered')
+  unregistered(@CurrentUser() u: AuthUser) {
+    return this.svc.unregistered(u.tenantId);
+  }
+  @Post('from-journal')
+  fromJournal(@CurrentUser() u: AuthUser, @Body() dto: RegisterFromJournalDto) {
+    return this.svc.registerFromJournal(u, dto);
   }
 
   @Get('reconciliation')

@@ -349,6 +349,15 @@ function AssetList() {
     queryKey: ['assets', 'reconciliation', asOf],
     queryFn: () => get<{ mismatched: number; rows: { accountId: string; code: string; name: string; kind: 'COST' | 'ACCUMULATED'; register: string; ledger: string; diff: string }[] }>(`/assets/reconciliation?asOf=${asOf}`),
   });
+  type Unregistered = { journalId: string; journalNumber: string; date: string; description: string; accountId: string; accountCode: string; accountName: string; remaining: string; categories: { id: string; name: string }[] };
+  const unreg = useQuery({ queryKey: ['assets', 'unregistered'], queryFn: () => get<Unregistered[]>('/assets/unregistered') });
+  const [regRow, setRegRow] = useState<Unregistered | null>(null);
+  const [regForm] = Form.useForm<{ name: string; categoryId?: string; usefulLifeMonths?: number; location?: string }>();
+  const register = useAction(
+    (v: { name: string; categoryId?: string; usefulLifeMonths?: number; location?: string }) =>
+      post('/assets/from-journal', { journalId: regRow!.journalId, accountId: regRow!.accountId, ...v }),
+    { success: 'Kartu aset dibuat dari jurnal (tanpa jurnal baru)', invalidate: KEYS, onSuccess: () => setRegRow(null) },
+  );
   const controls = useQuery({
     queryKey: ['assets', 'controls'],
     queryFn: () => get<{ items: { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string; assetIds: string[] }[] }>('/assets/controls'),
@@ -370,6 +379,65 @@ function AssetList() {
           </Space>
         </Card>
       )}
+      {!!unreg.data?.length && (
+        <Card size="small" title="Pembelian aset yang belum menjadi kartu aset" style={{ marginBottom: 16 }}>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+            Sudah tercatat di buku besar (mis. lewat Kas Keluar sebelum pendaftaran otomatis), tetapi belum ada kartu asetnya sehingga tidak disusutkan. Daftarkan di sini; tidak ada jurnal baru, jurnal asalnya tetap satu-satunya pencatatan.
+          </Typography.Paragraph>
+          <Table
+            size="small"
+            rowKey={(r) => `${r.journalId}-${r.accountId}`}
+            pagination={false}
+            dataSource={unreg.data}
+            scroll={{ x: 700 }}
+            columns={[
+              { title: 'Jurnal', dataIndex: 'journalNumber' },
+              { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
+              { title: 'Keterangan', dataIndex: 'description' },
+              { title: 'Akun', render: (_, r) => `${r.accountCode} · ${r.accountName}` },
+              { title: 'Belum terdaftar', dataIndex: 'remaining', align: 'right', render: fmtMoney },
+              {
+                title: '',
+                render: (_, r) => (
+                  <Button
+                    size="small"
+                    type="primary"
+                    onClick={() => {
+                      regForm.setFieldsValue({ name: r.description.replace(/^\S+\/\d{4}\/\d{2}\/\d+\s*/, ''), categoryId: r.categories.length === 1 ? r.categories[0].id : undefined, usefulLifeMonths: undefined, location: undefined });
+                      setRegRow(r);
+                    }}
+                  >
+                    Daftarkan sebagai aset
+                  </Button>
+                ),
+              },
+            ]}
+          />
+        </Card>
+      )}
+      <Modal title="Daftarkan sebagai aset tetap" open={!!regRow} onCancel={() => setRegRow(null)} onOk={() => regForm.submit()} confirmLoading={register.isPending} okText="Buat kartu aset">
+        {regRow && (
+          <Typography.Paragraph type="secondary">
+            Dari jurnal {regRow.journalNumber} ({fmtDate(regRow.date)}), nilai {fmtMoney(regRow.remaining)}. Penyusutan dimulai pada bulan perolehan.
+          </Typography.Paragraph>
+        )}
+        <Form form={regForm} layout="vertical" onFinish={(v) => register.mutate(v)}>
+          <Form.Item name="name" label="Nama aset" rules={[{ required: true }]}>
+            <Input maxLength={160} />
+          </Form.Item>
+          {(regRow?.categories.length ?? 0) > 1 && (
+            <Form.Item name="categoryId" label="Kategori" rules={[{ required: true }]}>
+              <Select options={regRow?.categories.map((c) => ({ value: c.id, label: c.name }))} />
+            </Form.Item>
+          )}
+          <Form.Item name="usefulLifeMonths" label="Masa manfaat (bulan)" extra="Kosong = ikut kategori">
+            <InputNumber min={0} max={600} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="location" label="Lokasi (opsional)">
+            <Input maxLength={120} />
+          </Form.Item>
+        </Form>
+      </Modal>
       {mismatches.length > 0 && (
         <Alert
           type="warning"
@@ -385,7 +453,7 @@ function AssetList() {
                 </div>
               ))}
               <div style={{ marginTop: 6 }}>
-                Selisih positif biasanya berarti ada aset lama yang saldonya sudah masuk lewat saldo awal tetapi belum dirinci di daftar ini.{' '}
+                Selisih positif berarti ada nilai di buku besar yang belum menjadi kartu aset: pembelian tanpa kartu (lihat daftar di atas, bisa langsung didaftarkan) atau aset lama dari saldo awal.{' '}
                 <a onClick={() => navigate('/settings/import?kind=assets')}>Impor aset lama dari Excel</a>
               </div>
             </>
