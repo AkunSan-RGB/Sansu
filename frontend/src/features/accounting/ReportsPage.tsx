@@ -14,6 +14,8 @@ import type {
   IncomeStatement,
 } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
+import { useBranches } from '@/api/queries';
+import { BranchBalanceTab, BranchReportTab } from './BranchesPage';
 import ExportButtons from '@/components/ExportButtons';
 import QueryState from '@/components/QueryState';
 import PageHeader from '@/layout/PageHeader';
@@ -31,6 +33,7 @@ const TABS = {
   cashflow: 'Laporan Arus Kas',
   notes: 'Catatan atas Laporan Keuangan',
   appendix: 'Lampiran Laporan Keuangan',
+  branches: 'Perbandingan Cabang',
 } as const;
 /** Laporan pembukuan yang kini punya halaman sendiri (tautan lama tetap berfungsi) */
 const MOVED: Record<string, string> = { tb: '/trial-balance', worksheet: '/worksheet', vat: '/vat' };
@@ -42,6 +45,7 @@ const SHORT: Record<TabKey, string> = {
   cashflow: 'Arus Kas',
   notes: 'CALK',
   appendix: 'Lampiran',
+  branches: 'Perbandingan cabang',
 };
 
 export default function ReportsPage() {
@@ -56,6 +60,11 @@ export default function ReportsPage() {
   const [detail, setDetail] = useState(false);
   const [method, setMethod] = useState<'indirect' | 'direct'>('indirect');
   const [showOptional, setShowOptional] = useState(false);
+  const branchList = useBranches();
+  const branchOpts = (branchList.data?.branches ?? []).filter((b) => b.isActive);
+  const [branch, setBranch] = useState<string>();
+  const branchSel = branchOpts.length ? branch : undefined;
+  const branchName = branchSel === 'NONE' ? 'Pusat / tanpa cabang' : branchOpts.find((b) => b.id === branchSel)?.name;
   const range = { from, to };
   const fy = Number(to.slice(0, 4));
 
@@ -65,13 +74,13 @@ export default function ReportsPage() {
   const tabTitle = (k: TabKey) => (KIND[k] ? statementTitle(KIND[k]!, framework) : TABS[k]);
   const on = (k: TabKey) => tab === k;
   const position = useQuery({
-    queryKey: ['statements', 'position', to],
-    queryFn: () => get<FinancialPosition>(`/accounting/statements/financial-position${qs({ asOf: to })}`),
+    queryKey: ['statements', 'position', to, branchSel],
+    queryFn: () => get<FinancialPosition>(`/accounting/statements/financial-position${qs({ asOf: to, branchId: branchSel })}`),
     enabled: on('position'),
   });
   const income = useQuery({
-    queryKey: ['statements', 'income', from, to, framework],
-    queryFn: () => get<IncomeStatement>(`/accounting/statements/income${qs({ ...range, framework })}`),
+    queryKey: ['statements', 'income', from, to, framework, branchSel],
+    queryFn: () => get<IncomeStatement>(`/accounting/statements/income${qs({ ...range, framework, branchId: branchSel })}`),
     enabled: on('income') && !fw.isPending,
   });
   const equity = useQuery({
@@ -129,7 +138,17 @@ export default function ReportsPage() {
             <Tag color="blue" style={{ cursor: 'pointer' }} onClick={() => navigate('/settings/company?tab=kebijakan')}>
               {REPORTING_FRAMEWORK_LABELS[framework]}
             </Tag>
-            {!pointInTime && !yearly && (
+            {!!branchOpts.length && ['position', 'income'].includes(tab) && (
+              <Select
+                allowClear
+                placeholder="Semua cabang (gabungan)"
+                style={{ width: 220 }}
+                value={branchSel}
+                onChange={setBranch}
+                options={[...branchOpts.map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` })), { value: 'NONE', label: 'Pusat / tanpa cabang' }]}
+              />
+            )}
+            {!pointInTime && !yearly && tab !== 'branches' && (
               <>
                 <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
                 <span>s/d</span>
@@ -190,7 +209,7 @@ export default function ReportsPage() {
           <Typography.Title level={4} style={{ margin: 0 }}>
             {me?.tenantName}
           </Typography.Title>
-          <Typography.Text strong>{tabTitle(tab)}</Typography.Text>
+          <Typography.Text strong>{tabTitle(tab)}{branchName && ['position', 'income'].includes(tab) ? ` — ${branchName}` : ''}</Typography.Text>
           <br />
           <Typography.Text type="secondary">{period} · dalam Rupiah</Typography.Text>
         </div>
@@ -201,10 +220,27 @@ export default function ReportsPage() {
           items={[
             { key: 'position', label: SHORT.position, children: <QueryState q={position}>{(d) => <PositionView d={d} refs={refs} compare={compare} detail={detail} signer={notes.data?.company} />}</QueryState> },
             { key: 'income', label: SHORT.income, children: <QueryState q={income}>{(d) => <IncomeView d={d} refs={refs} compare={compare} detail={detail} signer={notes.data?.company} />}</QueryState> },
-            { key: 'equity', label: SHORT.equity, children: <QueryState q={equity}>{(d) => <EquityView d={d} compare={compare} />}</QueryState> },
-            { key: 'cashflow', label: SHORT.cashflow, children: <QueryState q={cashflow}>{(d) => <CashFlowView d={d} compare={compare} />}</QueryState> },
+            { key: 'equity', label: SHORT.equity, children: branchSel ? <Alert type="info" showIcon message="Laporan Perubahan Ekuitas hanya untuk gabungan semua cabang. Kosongkan pilihan cabang." /> : <QueryState q={equity}>{(d) => <EquityView d={d} compare={compare} />}</QueryState> },
+            { key: 'cashflow', label: SHORT.cashflow, children: branchSel ? <Alert type="info" showIcon message="Laporan Arus Kas hanya untuk gabungan semua cabang. Kosongkan pilihan cabang." /> : <QueryState q={cashflow}>{(d) => <CashFlowView d={d} compare={compare} />}</QueryState> },
             { key: 'notes', label: SHORT.notes, children: <QueryState q={notes}>{(d) => <NotesView d={d} />}</QueryState> },
             { key: 'appendix', label: SHORT.appendix, children: <QueryState q={appendix}>{(d) => <AppendixView d={d} />}</QueryState> },
+            ...(branchOpts.length
+              ? [
+                  {
+                    key: 'branches',
+                    label: SHORT.branches,
+                    children: (
+                      <Tabs
+                        size="small"
+                        items={[
+                          { key: 'pl', label: 'Laba rugi per cabang', children: <BranchReportTab /> },
+                          { key: 'bs', label: 'Neraca per cabang', children: <BranchBalanceTab /> },
+                        ]}
+                      />
+                    ),
+                  },
+                ]
+              : []),
           ].filter((i) => !(hideOptional && (i.key === 'equity' || i.key === 'cashflow')))}
         />
       </Card>

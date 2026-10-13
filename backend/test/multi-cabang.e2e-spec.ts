@@ -91,6 +91,10 @@ describe('Multi-cabang (e2e)', () => {
     // kas keluar dan jurnal manual dengan cabang eksplisit
     await post(owner, '/api/cash/transactions', { type: 'OUT', cashAccountId: cashId, date: day, description: 'Sewa cabang 2', reference: 'S-2', branchId: B2, lines: [{ accountId: expenseId, amount: '500000' }] }).expect(201);
     expect(await branchesOf('CASH_OUT')).toEqual([B2]);
+    const listed = ((await get(owner, '/api/cash/transactions').expect(200)).body as { description: string; branchName: string | null; journalNumber: string | null; assets: unknown[] }[]).find((t) => t.description === 'Sewa cabang 2')!;
+    expect(listed.branchName).toContain('Cabang Dua');
+    expect(listed.journalNumber).toMatch(/^JU|^JRN|\d/);
+    expect(listed.assets).toEqual([]);
     const mj = (await post(owner, '/api/accounting/journals', { date: day, description: 'Biaya cabang 1', branchId: B1, controlOverrideReason: undefined, lines: [{ accountId: expenseId, debit: '200000' }, { accountId: cashId, credit: '200000' }] }).expect(201)).body;
     // jurnal balik mewarisi cabang → biaya bersih cabang 1 nol
     await post(owner, `/api/accounting/journals/${mj.id}/reverse`).expect(201);
@@ -168,5 +172,28 @@ describe('Multi-cabang (e2e)', () => {
     // akun antar-cabang tidak boleh dipakai jurnal manual
     const rak = ((await get(owner, '/api/accounting/accounts').expect(200)).body as { id: string; systemKey: string }[]).find((a) => a.systemKey === 'INTERBRANCH')!;
     await post(owner, '/api/accounting/journals', { date: day, description: 'Coba manual', lines: [{ accountId: rak.id, debit: '1000' }, { accountId: cashId, credit: '1000' }] }).expect(400);
+  });
+  it('Laporan keuangan bisa difilter per cabang; penutupan tahun mempertahankan label cabang', async () => {
+    const q = `from=${day.slice(0, 4)}-01-01&to=${day}`;
+    const all = (await get(owner, `/api/accounting/statements/income?${q}`).expect(200)).body;
+    const a1 = (await get(owner, `/api/accounting/statements/income?${q}&branchId=${B1}`).expect(200)).body;
+    const a2 = (await get(owner, `/api/accounting/statements/income?${q}&branchId=${B2}`).expect(200)).body;
+    const a0 = (await get(owner, `/api/accounting/statements/income?${q}&branchId=NONE`).expect(200)).body;
+    // laba cabang-cabang + pusat = laba gabungan
+    expect(Number(a1.netProfit) + Number(a2.netProfit) + Number(a0.netProfit)).toBeCloseTo(Number(all.netProfit), 2);
+    await get(owner, `/api/accounting/statements/income?${q}&branchId=bukan-id`).expect(400);
+
+    const pos = async (b?: string) => (await get(owner, `/api/accounting/statements/financial-position?asOf=${day}${b ? `&branchId=${b}` : ''}`).expect(200)).body;
+    for (const b of [B1, B2, 'NONE', undefined]) expect((await pos(b)).balanced).toBe(true);
+
+    // tutup buku tahun berjalan: laba ditahan terbentuk per cabang; laporan per cabang tetap sama dan neraca tetap seimbang
+    await post(owner, '/api/accounting/period/close-year', { year: Number(day.slice(0, 4)), lock: false }).expect(201);
+    const after1 = (await get(owner, `/api/accounting/statements/income?${q}&branchId=${B1}`).expect(200)).body;
+    const after2 = (await get(owner, `/api/accounting/statements/income?${q}&branchId=${B2}`).expect(200)).body;
+    expect(Number(after1.netProfit)).toBeCloseTo(Number(a1.netProfit), 2);
+    expect(Number(after2.netProfit)).toBeCloseTo(Number(a2.netProfit), 2);
+    for (const b of [B1, B2, 'NONE', undefined]) expect((await pos(b)).balanced).toBe(true);
+    const bs = (await get(owner, `/api/branches/balance-sheet?asOf=${day}`).expect(200)).body;
+    for (const k of Object.keys(bs.summary)) expect(bs.summary[k].balanced).toBe(true);
   });
 });

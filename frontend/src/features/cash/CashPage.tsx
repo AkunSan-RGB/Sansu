@@ -1,7 +1,7 @@
 import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
 import { BRAND, CASH_TX_TYPE_LABELS, type CashTxType } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, App, Button, Card, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, App, Button, Card, Checkbox, Col, Form, Input, InputNumber, Modal, Row, Segmented, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -13,7 +13,9 @@ import type { CashTransaction, Project } from '@/api/types';
 import { useApps } from '@/lib/apps';
 import CashAccountSelect from '@/components/CashAccountSelect';
 import PageHeader from '@/layout/PageHeader';
+import ExportButtons from '@/components/ExportButtons';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
+import { cashListSheet } from '@/lib/xlsx/reports';
 
 interface CounterAccount {
   id: string;
@@ -52,6 +54,11 @@ export default function CashPage() {
   const projectList = useQuery({ queryKey: ['projects'], queryFn: () => get<Project[]>('/services/projects'), enabled: can('sales') });
   const activeProjects = (projectList.data ?? []).filter((p) => p.status === 'ACTIVE');
 
+  const [typeFilter, setTypeFilter] = useState<'ALL' | CashTxType>('ALL');
+  const [search, setSearch] = useState('');
+  const [branchFilter, setBranchFilter] = useState<string>();
+  const [noProofOnly, setNoProofOnly] = useState(false);
+  const bankStatus = useQuery({ queryKey: ['bank', 'status'], queryFn: () => get<{ id: string; unmatched: number; stale: boolean }[]>('/bank/status'), retry: false });
   const txs = useQuery({
     queryKey: ['cash-tx', filter, from, to],
     queryFn: () => get<CashTransaction[]>(`/cash/transactions${qs({ cashAccountId: filter, from, to })}`),
@@ -68,6 +75,24 @@ export default function CashPage() {
     queryFn: () => get<{ items: { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string }[] }>('/cash/controls'),
   });
   const { me } = useAuth();
+  const branchList = useBranches();
+  const branchOpts = (branchList.data?.branches ?? []).filter((b) => b.isActive);
+  const shown = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (txs.data ?? []).filter(
+      (t) =>
+        (typeFilter === 'ALL' || t.type === typeFilter) &&
+        (!branchFilter || (branchFilter === 'NONE' ? !t.branchId : t.branchId === branchFilter)) &&
+        (!noProofOnly || (t.type !== 'IN' && t.status !== 'VOID' && !t.reference?.trim())) &&
+        (!q || `${t.number} ${t.description} ${t.reference ?? ''} ${t.cashAccount.name}`.toLowerCase().includes(q)),
+    );
+  }, [txs.data, typeFilter, branchFilter, noProofOnly, search]);
+  const flow = useMemo(() => {
+    const live = shown.filter((t) => t.status !== 'VOID');
+    const inn = live.filter((t) => t.type === 'IN').reduce((a, t) => a + Number(t.amount), 0);
+    const out = live.filter((t) => t.type === 'OUT').reduce((a, t) => a + Number(t.amount), 0);
+    return { inn, out, net: inn - out, missing: live.filter((t) => t.type !== 'IN' && !t.reference?.trim()).length };
+  }, [shown]);
   const canVoid = me?.role === 'OWNER' || me?.role === 'ADMIN';
   const [voiding, setVoiding] = useState<CashTransaction | null>(null);
   const [voidForm] = Form.useForm<{ reason: string }>();
@@ -175,6 +200,38 @@ export default function CashPage() {
               >
                 Lihat mutasi lengkap →
               </Button>
+              {/bank/i.test(a.name) && (
+                <div style={{ marginTop: 4 }}>
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ padding: 0 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/bank?account=${a.id}`);
+                    }}
+                  >
+                    Rekonsiliasi bank →
+                  </Button>
+                  {(bankStatus.data?.find((b) => b.id === a.id)?.unmatched ?? 0) > 0 && <Tag color="orange">{bankStatus.data?.find((b) => b.id === a.id)?.unmatched} mutasi belum cocok</Tag>}
+                  {bankStatus.data?.find((b) => b.id === a.id)?.stale && <Tag>mutasi belum diimpor</Tag>}
+                </div>
+              )}
+              {/kecil/i.test(a.name) && (
+                <div style={{ marginTop: 4 }}>
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ padding: 0 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate('/petty-cash');
+                    }}
+                  >
+                    Kelola kas kecil (dana tetap) →
+                  </Button>
+                </div>
+              )}
             </Card>
           </Col>
         ))}
@@ -184,7 +241,20 @@ export default function CashPage() {
         <Card size="small" title="Kontrol kas & bank (60 hari terakhir)" style={{ marginBottom: 16 }}>
           <Space direction="vertical" style={{ width: '100%' }}>
             {controls.data.items.map((c) => (
-              <Alert key={c.key} type={c.level} showIcon message={c.title} description={c.detail} />
+              <Alert
+                key={c.key}
+                type={c.level}
+                showIcon
+                message={c.title}
+                description={c.detail}
+                action={
+                  c.key === 'NO_EVIDENCE' ? (
+                    <Button size="small" onClick={() => setNoProofOnly(true)}>
+                      Tampilkan yang kurang bukti
+                    </Button>
+                  ) : undefined
+                }
+              />
             ))}
           </Space>
         </Card>
@@ -195,18 +265,59 @@ export default function CashPage() {
           <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
           <span>s/d</span>
           <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          <Segmented
+            value={typeFilter}
+            onChange={(v) => setTypeFilter(v as 'ALL' | CashTxType)}
+            options={[{ value: 'ALL', label: 'Semua' }, { value: 'IN', label: 'Masuk' }, { value: 'OUT', label: 'Keluar' }, { value: 'TRANSFER', label: 'Transfer' }]}
+          />
+          <Input.Search allowClear placeholder="Cari nomor / keterangan / bukti" style={{ width: 250 }} onChange={(e) => setSearch(e.target.value)} />
+          {!!branchOpts.length && (
+            <Select
+              allowClear
+              placeholder="Semua cabang"
+              style={{ width: 200 }}
+              value={branchFilter}
+              onChange={setBranchFilter}
+              options={[...branchOpts.map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` })), { value: 'NONE', label: 'Pusat / tanpa cabang' }]}
+            />
+          )}
+          <Checkbox checked={noProofOnly} onChange={(e) => setNoProofOnly(e.target.checked)}>
+            Hanya yang belum ada bukti
+          </Checkbox>
+          <ExportButtons filename={`kas-bank-${from}-${to}`} title={`Transaksi kas & bank ${from} s/d ${to}`} sheets={() => (txs.data ? cashListSheet(shown, { from, to }, me?.tenantName) : null)} print={false} />
         </Space>
+        <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+          <Col xs={24} md={8}>
+            <Statistic title="Uang masuk" value={fmtMoney(flow.inn)} valueStyle={{ color: '#389e0d', fontSize: 20 }} />
+          </Col>
+          <Col xs={24} md={8}>
+            <Statistic title="Uang keluar" value={fmtMoney(flow.out)} valueStyle={{ color: '#cf1322', fontSize: 20 }} />
+          </Col>
+          <Col xs={24} md={8}>
+            <Statistic title="Selisih (masuk − keluar)" value={fmtMoney(flow.net)} valueStyle={{ fontSize: 20 }} suffix={flow.missing ? <Tag color="orange">{flow.missing} belum ada bukti</Tag> : undefined} />
+          </Col>
+        </Row>
         <Typography.Paragraph type="secondary">
-          Penerimaan dari pelanggan & pembayaran ke supplier dicatat di menu Faktur. Di sini untuk biaya operasional, setoran modal, pinjaman, dan transfer.
+          Penerimaan dari pelanggan & pembayaran ke supplier dicatat di menu Faktur. Di sini untuk biaya operasional, setoran modal, pinjaman, dan transfer. Pembelian ke akun aset tetap otomatis menjadi kartu aset.
         </Typography.Paragraph>
         <Table
           rowKey="id"
           loading={txs.isLoading}
-          dataSource={txs.data}
-          scroll={{ x: 900 }}
+          dataSource={shown}
+          scroll={{ x: 1000 }}
           expandable={{
-            rowExpandable: (t) => t.lines.length > 0,
+            rowExpandable: (t) => t.lines.length > 0 || !!t.journalNumber,
             expandedRowRender: (t) => (
+              <>
+                <Space wrap style={{ marginBottom: 8 }}>
+                  {t.journalNumber && <Tag>Jurnal {t.journalNumber}</Tag>}
+                  {t.branchName && <Tag color="purple">Cabang {t.branchName}</Tag>}
+                  {t.assets?.map((a) => (
+                    <Tag key={a.id} color="geekblue" style={{ cursor: 'pointer' }} onClick={() => navigate('/fixed-assets')}>
+                      Aset tetap {a.code} · {a.name}
+                    </Tag>
+                  ))}
+                </Space>
               <Table
                 rowKey="id"
                 size="small"
@@ -218,6 +329,7 @@ export default function CashPage() {
                   { title: 'Jumlah', dataIndex: 'amount', align: 'right', render: fmtMoney },
                 ]}
               />
+              </>
             ),
           }}
           columns={[
@@ -228,7 +340,21 @@ export default function CashPage() {
               title: 'Kas / bank',
               render: (_, t) => (t.toCashAccount ? `${t.cashAccount.name} → ${t.toCashAccount.name}` : t.cashAccount.name),
             },
-            { title: 'Keterangan', dataIndex: 'description' },
+            {
+              title: 'Keterangan',
+              dataIndex: 'description',
+              render: (d: string, t: CashTransaction) => (
+                <span>
+                  {d}
+                  {t.assets?.length ? (
+                    <Tag color="geekblue" style={{ marginLeft: 6, cursor: 'pointer' }} onClick={() => navigate('/fixed-assets')}>
+                      → Aset tetap {t.assets.map((a) => a.code).join(', ')}
+                    </Tag>
+                  ) : null}
+                </span>
+              ),
+            },
+            ...(branchOpts.length ? [{ title: 'Cabang', dataIndex: 'branchName', render: (b: string | null | undefined) => b ?? <Typography.Text type="secondary">Pusat</Typography.Text> }] : []),
             {
               title: 'Referensi',
               dataIndex: 'reference',

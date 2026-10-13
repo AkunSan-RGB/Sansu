@@ -92,11 +92,11 @@ export class StatementsService {
 
   // ---------- Laporan posisi keuangan ----------
 
-  async financialPosition(tenantId: string, asOf?: string, compareAsOf?: string) {
+  async financialPosition(tenantId: string, asOf?: string, compareAsOf?: string, branchId?: string) {
     const date = toDocDate(asOf);
     const cDate = compareAsOf ? toDocDate(compareAsOf) : `${Number(date.slice(0, 4)) - 1}-12-31`;
     const accs = await loadAccounts(this.db, tenantId);
-    const [cur, cmp] = await Promise.all([sumByAccount(this.db, tenantId, { to: date }), sumByAccount(this.db, tenantId, { to: cDate })]);
+    const [cur, cmp] = await Promise.all([sumByAccount(this.db, tenantId, { to: date, branchId }), sumByAccount(this.db, tenantId, { to: cDate, branchId })]);
     const earnings = { cur: unclosedEarnings(accs, cur), cmp: unclosedEarnings(accs, cmp) };
 
     const sections: StatementSection[] = ['CURRENT_ASSET', 'NONCURRENT_ASSET', 'CURRENT_LIABILITY', 'NONCURRENT_LIABILITY', 'EQUITY'];
@@ -150,14 +150,14 @@ export class StatementsService {
 
   // ---------- Laporan laba rugi ----------
 
-  async income(tenantId: string, q: { from?: string; to?: string; compareFrom?: string; compareTo?: string }, fw?: ReportingFramework) {
+  async income(tenantId: string, q: { from?: string; to?: string; compareFrom?: string; compareTo?: string; branchId?: string }, fw?: ReportingFramework) {
     const framework = fw ?? (await this.framework(tenantId));
     const terms = REPORT_TERMS[await this.businessModel(tenantId)];
     const { cur, cmp } = this.ranges(q);
     const accs = await loadAccounts(this.db, tenantId);
     const [a, b] = await Promise.all([
-      sumByAccount(this.db, tenantId, { ...cur, excludeSources: ['CLOSING'] }),
-      sumByAccount(this.db, tenantId, { ...cmp, excludeSources: ['CLOSING'] }),
+      sumByAccount(this.db, tenantId, { ...cur, excludeSources: ['CLOSING'], branchId: q.branchId }),
+      sumByAccount(this.db, tenantId, { ...cmp, excludeSources: ['CLOSING'], branchId: q.branchId }),
     ]);
     // Kontribusi terhadap laba: pendapatan (+), beban (−)
     const contrib = (acc: AccountMeta, m: Map<string, Sum>) => {

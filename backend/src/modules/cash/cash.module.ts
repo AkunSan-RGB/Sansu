@@ -30,7 +30,7 @@ import { addDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, cashTransactionLines, cashTransactions, projects } from '../../db/schema';
+import { accounts, branches, cashTransactionLines, cashTransactions, fixedAssets, journalEntries, projects } from '../../db/schema';
 import { AccountingModule } from '../accounting/accounting.module';
 import { BudgetService } from '../accounting/budget';
 import { PostingService } from '../accounting/posting.service';
@@ -117,8 +117,8 @@ export class CashService {
     return res.rows.map((r) => ({ ...r, balance: D(r.balance).toFixed(2) }));
   }
 
-  list(tenantId: string, q: CashQueryDto) {
-    return this.db.query.cashTransactions.findMany({
+  async list(tenantId: string, q: CashQueryDto) {
+    const rows = await this.db.query.cashTransactions.findMany({
       where: and(
         eq(cashTransactions.tenantId, tenantId),
         q.cashAccountId
@@ -135,6 +135,22 @@ export class CashService {
       orderBy: [desc(cashTransactions.date), desc(cashTransactions.number)],
       limit: 300,
     });
+    if (!rows.length) return [];
+    // pelengkap: nomor jurnal, cabang, dan kartu aset tetap yang lahir dari transaksi ini (satu query per jenis, bukan per baris)
+    const jids = rows.map((r) => r.journalId).filter((x): x is string => !!x);
+    const [journals, assets, brs] = await Promise.all([
+      jids.length ? this.db.select({ id: journalEntries.id, number: journalEntries.number }).from(journalEntries).where(inArray(journalEntries.id, jids)) : [],
+      jids.length ? this.db.select({ journalId: fixedAssets.acquisitionJournalId, id: fixedAssets.id, code: fixedAssets.code, name: fixedAssets.name }).from(fixedAssets).where(and(eq(fixedAssets.tenantId, tenantId), inArray(fixedAssets.acquisitionJournalId, jids))) : [],
+      this.db.select({ id: branches.id, code: branches.code, name: branches.name }).from(branches).where(eq(branches.tenantId, tenantId)),
+    ]);
+    const jn = new Map(journals.map((j) => [j.id, j.number]));
+    const bn = new Map(brs.map((b) => [b.id, `${b.code} · ${b.name}`]));
+    return rows.map((r) => ({
+      ...r,
+      journalNumber: r.journalId ? (jn.get(r.journalId) ?? null) : null,
+      branchName: r.branchId ? (bn.get(r.branchId) ?? null) : null,
+      assets: assets.filter((a) => a.journalId === r.journalId).map((a) => ({ id: a.id, code: a.code, name: a.name })),
+    }));
   }
 
   /**

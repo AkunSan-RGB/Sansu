@@ -12,6 +12,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
@@ -139,11 +140,13 @@ export class StatementQueryDto {
   @ApiPropertyOptional({ enum: REPORTING_FRAMEWORKS }) @IsOptional() @IsIn(REPORTING_FRAMEWORKS) framework?: ReportingFramework;
   @ApiPropertyOptional({ enum: ['indirect', 'direct'] }) @IsOptional() @IsIn(['indirect', 'direct']) method?: string;
   @ApiPropertyOptional() @IsOptional() @IsIn(['true', 'false']) hideZero?: string;
+  @ApiPropertyOptional({ description: 'Hanya satu cabang (id cabang atau NONE = pusat); kosong = gabungan semua cabang' }) @IsOptional() @Matches(/^(NONE|[0-9a-f-]{36})$/i) branchId?: string;
 }
 
 export class PositionQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsDateString() asOf?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() compareAsOf?: string;
+  @ApiPropertyOptional({ description: 'Hanya satu cabang (id cabang atau NONE = pusat); kosong = gabungan semua cabang' }) @IsOptional() @Matches(/^(NONE|[0-9a-f-]{36})$/i) branchId?: string;
 }
 
 export class RecurringLineDto {

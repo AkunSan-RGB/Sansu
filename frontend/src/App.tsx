@@ -169,7 +169,8 @@ export default function App() {
           <Route path="inventory/writedowns" element={<WritedownsPage />} />
           <Route path="purchase-controls" element={<PurchaseControlsPage />} />
           <Route path="budget" element={<BudgetPage />} />
-          <Route path="branches" element={<BranchesPage />} />
+          <Route path="settings/branches" element={<BranchesPage />} />
+          <Route path="branches" element={<Navigate to="/reports?tab=branches" replace />} />
           <Route path="inventory/movement" element={<MovementPage />} />
           <Route path="production/boms" element={<BomsPage />} />
           <Route path="production/orders" element={<ProductionOrdersPage />} />
