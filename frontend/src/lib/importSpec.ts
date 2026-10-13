@@ -2,7 +2,7 @@
  * Definisi kolom impor data awal. Satu sumber untuk: templat Excel, pengenalan judul kolom
  * (termasuk nama kolom dari Accurate / Jurnal / Excel buatan sendiri), dan petunjuk pengisian.
  */
-export type ImportKind = 'products' | 'customers' | 'suppliers' | 'stock' | 'receivables' | 'payables' | 'accounts';
+export type ImportKind = 'products' | 'customers' | 'suppliers' | 'stock' | 'receivables' | 'payables' | 'accounts' | 'assets';
 
 export interface ColumnSpec {
   key: string;
@@ -134,6 +134,27 @@ export const IMPORT_SPECS: KindSpec[] = [
       { key: 'nama_akun', label: 'Nama akun', hint: 'Hanya pengingat — tidak dibaca', example: ['Kas', 'Bank', 'Beban Masih Harus Dibayar', 'Modal Disetor'], aliases: ['nama', 'keterangan'] },
       { key: 'debit', label: 'Debit', hint: 'Saldo normal aset', example: [5000000, 150000000, '', ''], aliases: ['saldo debit', 'debet', 'dr'] },
       { key: 'kredit', label: 'Kredit', hint: 'Saldo normal utang & modal', example: ['', '', 2000000, 100000000], aliases: ['saldo kredit', 'cr', 'credit'] },
+    ],
+  },
+  {
+    kind: 'assets',
+    title: 'Aset tetap lama',
+    description:
+      'Aset yang sudah Anda miliki sebelum memakai SANSU (kendaraan, mesin, peralatan, bangunan). Tidak membuat jurnal: isi juga nilai akun asetnya di impor "Saldo awal akun". Penyusutan dilanjutkan mulai bulan setelah tanggal saldo awal.',
+    needsDate: true,
+    link: '/fixed-assets',
+    linkLabel: 'Lihat aset tetap',
+    columns: [
+      { key: 'kode', label: 'Kode aset', hint: 'Opsional. Kosong = dibuat otomatis (AT-0001)', example: ['KDR-001', 'MSN-001', ''], aliases: ['kode', 'no aset', 'nomor aset', 'asset code', 'kode barang'] },
+      { key: 'nama', label: 'Nama aset', required: true, hint: 'Nama atau deskripsi aset', example: ['Truk Colt Diesel B 9123 XY', 'Mesin Jahit Industri', 'Laptop Kantor'], aliases: ['nama', 'asset name', 'deskripsi', 'keterangan'] },
+      { key: 'kategori', label: 'Kategori', required: true, hint: 'Nama kategori persis seperti di Aset Tetap › Kategori', example: ['Kendaraan', 'Mesin & Peralatan', 'Peralatan Kantor'], aliases: ['kategori aset', 'jenis aset', 'category', 'kelompok'] },
+      { key: 'tanggal_perolehan', label: 'Tanggal perolehan', required: true, hint: 'Tanggal beli, format 31/12/2025', example: ['15/03/2022', '01/07/2023', '10/01/2025'], aliases: ['tanggal beli', 'tgl perolehan', 'tanggal', 'acquisition date', 'tgl beli'] },
+      { key: 'harga_perolehan', label: 'Harga perolehan', required: true, hint: 'Harga beli awal (bukan nilai buku)', example: [240000000, 45000000, 12000000], aliases: ['harga beli', 'harga', 'nilai perolehan', 'cost', 'harga perolehan awal'] },
+      { key: 'akumulasi_penyusutan', label: 'Akumulasi penyusutan', hint: 'Total penyusutan sampai tanggal saldo awal; kosong = 0', example: [90000000, 9375000, 0], aliases: ['akumulasi', 'akm penyusutan', 'penyusutan terakumulasi', 'accumulated depreciation'] },
+      { key: 'masa_manfaat_bulan', label: 'Masa manfaat (bulan)', hint: 'Opsional. Kosong = ikut kategori', example: [96, 96, 48], aliases: ['masa manfaat', 'umur ekonomis', 'umur', 'useful life'] },
+      { key: 'nilai_residu', label: 'Nilai residu', hint: 'Opsional. Kosong = 0 (SAK EMKM tidak memakai residu)', example: ['', '', ''], aliases: ['residu', 'nilai sisa', 'salvage value'] },
+      { key: 'lokasi', label: 'Lokasi', hint: 'Opsional', example: ['Gudang Bandung', 'Pabrik', 'Kantor'], aliases: ['lokasi aset', 'location', 'penempatan'] },
+      { key: 'catatan', label: 'Catatan', hint: 'Opsional', example: ['', '', ''], aliases: ['catatan aset', 'notes'] },
     ],
   },
 ];
