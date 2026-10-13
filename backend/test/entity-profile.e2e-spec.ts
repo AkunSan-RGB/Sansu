@@ -55,7 +55,7 @@ describe('Wizard standar akuntansi & pajak (e2e)', () => {
     const today = todayJakarta();
     // modal 600 jt, beli tanah 400 jt (tidak dihitung), beli kas lewat penjualan 900 jt
     await post('/api/accounting/journals', { date: today, description: 'Modal awal', lines: [{ accountId: id('1-1100'), debit: '1000000000' }, { accountId: id('3-1000'), credit: '1000000000' }] }).expect(201);
-    await post('/api/accounting/journals', { date: today, description: 'Beli tanah', lines: [{ accountId: id('1-2050'), debit: '400000000' }, { accountId: id('1-1100'), credit: '400000000' }] }).expect(201);
+    await post('/api/accounting/journals', { date: today, description: 'Beli tanah', controlOverrideReason: 'Penyiapan data uji (pengecualian Pemilik)', lines: [{ accountId: id('1-2050'), debit: '400000000' }, { accountId: id('1-1100'), credit: '400000000' }] }).expect(201);
     await post('/api/accounting/journals', { date: today, description: 'Penjualan tunai', lines: [{ accountId: id('1-1100'), debit: '900000000' }, { accountId: id('4-1000'), credit: '900000000' }] }).expect(201);
     const s = (await get('/api/accounting/entity-profile').expect(200)).body;
     expect(s.measured.revenue).toBe(900_000_000);
