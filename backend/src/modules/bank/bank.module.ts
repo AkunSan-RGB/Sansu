@@ -8,6 +8,8 @@ import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestj
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsDateString, IsIn, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength, ValidateNested } from 'class-validator';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { CONTROL_PROFILES, DEFAULT_BANK_RULES } from '@sansu/shared';
+import { SettingsService } from '../../common/settings.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
@@ -83,6 +85,7 @@ export class BankService {
     @InjectDb() private readonly db: Db,
     private readonly posting: PostingService,
     private readonly audit: AuditService,
+    private readonly settings: SettingsService,
   ) {}
 
   private async bankAccount(db: DbOrTx, tenantId: string, id: string) {
@@ -380,6 +383,22 @@ export class BankService {
     if (!a || !a.isPostable || !['REVENUE', 'EXPENSE'].includes(a.type) || a.isCashAccount) throw new BadRequestException('Aturan otomatis hanya boleh memakai akun pendapatan atau beban');
   }
 
+  /** Pasang aturan bawaan sesuai jenis usaha (hanya yang akunnya ada; yang sudah ada dilewati) */
+  async installDefaultRules(user: AuthUser) {
+    const model = await this.settings.businessModel(this.db, user.tenantId);
+    const have = new Set((await this.listRules(user.tenantId)).map((r) => r.keyword.toUpperCase()));
+    const accs = await this.db.select({ id: accounts.id, code: accounts.code, type: accounts.type, isPostable: accounts.isPostable }).from(accounts).where(eq(accounts.tenantId, user.tenantId));
+    let added = 0;
+    for (const r of DEFAULT_BANK_RULES[model]) {
+      const acc = accs.find((a) => a.code === r.accountCode && a.isPostable && ['REVENUE', 'EXPENSE'].includes(a.type));
+      if (!acc || have.has(r.keyword.toUpperCase())) continue;
+      await this.db.insert(bankRules).values({ tenantId: user.tenantId, name: r.name, keyword: r.keyword, direction: r.direction, accountId: acc.id, maxAmount: r.maxAmount.toFixed(2), createdById: user.sub });
+      added++;
+    }
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'INSTALL_DEFAULT_RULES', entity: 'BankRule', entityId: user.tenantId, data: { model, added } });
+    return { model, added };
+  }
+
   async saveRule(user: AuthUser, dto: BankRuleDto, id?: string) {
     await this.ruleAccount(user.tenantId, dto.accountId);
     const values = { name: dto.name.trim(), keyword: dto.keyword.trim(), direction: dto.direction, accountId: dto.accountId, maxAmount: money(dto.maxAmount ?? '5000000').toFixed(2), isActive: dto.isActive ?? true };
@@ -450,6 +469,7 @@ export class BankService {
   // ---------- Temuan kontrol ----------
   async controls(tenantId: string) {
     const today = todayJakarta();
+    const cp = CONTROL_PROFILES[await this.settings.businessModel(this.db, tenantId)];
     const items: { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string; refs: string[] }[] = [];
     const add = (key: string, level: 'error' | 'warning' | 'info', title: string, refs: string[], detail: string) => {
       if (refs.length) items.push({ key, level, title: `${title} (${refs.length})`, detail, refs });
@@ -457,19 +477,19 @@ export class BankService {
     const rp = (v: string | number) => `Rp${Math.abs(Math.round(Number(v))).toLocaleString('id-ID')}`;
     const outRows = await this.db.execute<{ date: string; amount: string; description: string; name: string }>(sql`
       SELECT l.date::text, l.amount, l.description, a.name FROM bank_statement_lines l JOIN bank_statements s ON s.id = l.statement_id JOIN accounts a ON a.id = s.cash_account_id
-      WHERE s.tenant_id = ${tenantId} AND l.status = 'UNMATCHED' AND l.amount < 0 AND l.date <= ${addDays(today, -3)} ORDER BY l.date`);
-    add('BANK_OUT_UNRECORDED', 'error', 'Uang keluar di bank belum ada di buku', outRows.rows.map((r) => `${r.date} ${rp(r.amount)} ${r.description.slice(0, 40)}`), 'Bank mencatat uang keluar yang tidak ada transaksinya di SANSU > 3 hari. Cari bukti dan catat, atau selidiki.');
+      WHERE s.tenant_id = ${tenantId} AND l.status = 'UNMATCHED' AND l.amount < 0 AND l.date <= ${addDays(today, -cp.bankOutDays)} ORDER BY l.date`);
+    add('BANK_OUT_UNRECORDED', 'error', 'Uang keluar di bank belum ada di buku', outRows.rows.map((r) => `${r.date} ${rp(r.amount)} ${r.description.slice(0, 40)}`), `Bank mencatat uang keluar yang tidak ada transaksinya di SANSU > ${cp.bankOutDays} hari. Cari bukti dan catat, atau selidiki.`);
     const inRows = await this.db.execute<{ date: string; amount: string; description: string }>(sql`
       SELECT l.date::text, l.amount, l.description FROM bank_statement_lines l JOIN bank_statements s ON s.id = l.statement_id
-      WHERE s.tenant_id = ${tenantId} AND l.status = 'UNMATCHED' AND l.amount > 0 AND l.date <= ${addDays(today, -7)} ORDER BY l.date`);
-    add('BANK_IN_UNRECORDED', 'warning', 'Uang masuk di bank belum dicatat', inRows.rows.map((r) => `${r.date} ${rp(r.amount)} ${r.description.slice(0, 40)}`), 'Uang masuk > 7 hari belum dicocokkan ke faktur/penerimaan; bisa jadi penjualan tidak tercatat.');
+      WHERE s.tenant_id = ${tenantId} AND l.status = 'UNMATCHED' AND l.amount > 0 AND l.date <= ${addDays(today, -cp.bankInDays)} ORDER BY l.date`);
+    add('BANK_IN_UNRECORDED', 'warning', 'Uang masuk di bank belum dicatat', inRows.rows.map((r) => `${r.date} ${rp(r.amount)} ${r.description.slice(0, 40)}`), `Uang masuk > ${cp.bankInDays} hari belum dicocokkan ke faktur/penerimaan; bisa jadi penjualan tidak tercatat.`);
     const book = await this.db.execute<{ number: string; credit: string }>(sql`
       SELECT j.number, l.credit FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
       WHERE j.tenant_id = ${tenantId} AND a.is_cash_account AND a.code IN (SELECT a2.code FROM accounts a2 WHERE a2.tenant_id = ${tenantId} AND EXISTS (SELECT 1 FROM bank_statements s WHERE s.cash_account_id = a2.id))
-        AND l.credit > 0 AND j.date <= ${addDays(today, -21)} AND j.source_type <> 'CLOSING'
+        AND l.credit > 0 AND j.date <= ${addDays(today, -cp.bookNotInBankDays)} AND j.source_type <> 'CLOSING'
         AND EXISTS (SELECT 1 FROM bank_statements s WHERE s.cash_account_id = l.account_id AND s.period_to >= j.date)
         AND NOT EXISTS (SELECT 1 FROM bank_statement_lines b WHERE b.journal_line_id = l.id) ORDER BY j.date LIMIT 50`);
-    add('BOOK_OUT_NOT_IN_BANK', 'warning', 'Pembayaran di buku tidak muncul di bank > 21 hari', book.rows.map((r) => `${r.number} ${rp(r.credit)}`), 'Pembayaran tercatat tetapi tidak pernah keluar dari bank (cek/giro tidak dicairkan, atau pencatatan fiktif).');
+    add('BOOK_OUT_NOT_IN_BANK', 'warning', `Pembayaran di buku tidak muncul di bank > ${cp.bookNotInBankDays} hari`, book.rows.map((r) => `${r.number} ${rp(r.credit)}`), 'Pembayaran tercatat tetapi tidak pernah keluar dari bank (cek/giro tidak dicairkan, atau pencatatan fiktif).');
     const ign = await this.db.execute<{ date: string; amount: string; note: string | null }>(sql`
       SELECT l.date::text, l.amount, l.note FROM bank_statement_lines l JOIN bank_statements s ON s.id = l.statement_id
       WHERE s.tenant_id = ${tenantId} AND l.status = 'IGNORED' AND l.date >= ${addDays(today, -60)} ORDER BY l.date DESC`);
@@ -634,14 +654,22 @@ export class BankController {
   rules(@CurrentUser() u: AuthUser) {
     return this.svc.listRules(u.tenantId);
   }
+  @Roles('ADMIN')
+  @Post('rules/defaults')
+  installDefaults(@CurrentUser() u: AuthUser) {
+    return this.svc.installDefaultRules(u);
+  }
+  @Roles('ADMIN')
   @Post('rules')
   createRule(@CurrentUser() u: AuthUser, @Body() dto: BankRuleDto) {
     return this.svc.saveRule(u, dto);
   }
+  @Roles('ADMIN')
   @Put('rules/:id')
   updateRule(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: BankRuleDto) {
     return this.svc.saveRule(u, dto, id);
   }
+  @Roles('ADMIN')
   @Delete('rules/:id')
   deleteRule(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.removeRule(u, id);

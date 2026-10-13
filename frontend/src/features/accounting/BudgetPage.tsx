@@ -124,6 +124,7 @@ function EditTab({ year }: { year: number }) {
   const seed = useAction(() => post(`/budgets/${year}/seed`, { fromYear: year - 1, growthPct: growth }), { success: 'Anggaran diisi dari realisasi', invalidate: inv });
   const approve = useAction(() => post(`/budgets/${year}/approve`), { success: 'Anggaran disetujui & dikunci', invalidate: inv });
   const doReopen = useAction((v: { reason: string }) => post(`/budgets/${year}/reopen`, v), { success: 'Anggaran dibuka kembali', invalidate: inv, onSuccess: () => setReopen(false) });
+  const suggested = useQuery({ queryKey: ['budget', 'suggested'], queryFn: () => get<{ model: string; accountIds: string[] }>('/budgets/suggested') });
   const accounts = q.data?.accounts ?? [];
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const set = (id: string, i: number, v: number | null) => setRows((r) => ({ ...r, [id]: r[id].map((x, j) => (j === i ? String(v ?? 0) : x)) }));
@@ -141,6 +142,12 @@ function EditTab({ year }: { year: number }) {
           options={accounts.filter((a) => !rows[a.id]).map((a) => ({ value: a.id, label: `${a.code} ${a.name}` }))}
           onChange={(id: string) => setRows((r) => ({ ...r, [id]: Array(12).fill('0') }))}
         />
+        <Button
+          disabled={locked || !suggested.data?.accountIds.length}
+          onClick={() => setRows((r) => ({ ...Object.fromEntries((suggested.data?.accountIds ?? []).map((id) => [id, Array(12).fill('0')])), ...r }))}
+        >
+          Akun yang disarankan untuk usaha Anda
+        </Button>
         <Button onClick={() => seed.mutate(undefined)} disabled={locked} loading={seed.isPending}>
           Isi dari realisasi {year - 1}
         </Button>

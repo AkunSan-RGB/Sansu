@@ -47,8 +47,9 @@ describe('Bank: kontrol & otomatisasi (e2e)', () => {
   });
 
   it('aturan otomatis hanya akun pendapatan/beban; mutasi kecil dijurnal otomatis, besar tetap manual; impor ganda dilewati', async () => {
-    await post(finance, '/api/bank/rules', { name: 'Biaya admin', keyword: 'BIAYA ADM', direction: 'OUT', accountId: bankId }).expect(400); // bukan beban
-    await post(finance, '/api/bank/rules', { name: 'Biaya admin', keyword: 'BIAYA ADM', direction: 'OUT', accountId: expenseId, maxAmount: '50000' }).expect(201);
+    await post(finance, '/api/bank/rules', { name: 'Biaya admin', keyword: 'BIAYA ADM', direction: 'OUT', accountId: expenseId }).expect(403); // staf keuangan tidak boleh membuat aturan
+    await post(owner, '/api/bank/rules', { name: 'Biaya admin', keyword: 'BIAYA ADM', direction: 'OUT', accountId: bankId }).expect(400); // bukan beban
+    await post(owner, '/api/bank/rules', { name: 'Biaya admin', keyword: 'BIAYA ADM', direction: 'OUT', accountId: expenseId, maxAmount: '50000' }).expect(201);
     const lines = [
       { date: day(10), description: 'BIAYA ADM BULANAN', amount: '-15000' },
       { date: day(10), description: 'BIAYA ADM BESAR SEKALI', amount: '-900000' }, // di atas batas aturan

@@ -1,6 +1,8 @@
 import { Controller, Get, Injectable } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { CONTROL_PROFILES } from '@sansu/shared';
 import { sql } from 'drizzle-orm';
+import { SettingsService } from '../../common/settings.service';
 import { RequireApp } from '../../common/apps/app.guard';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -29,6 +31,7 @@ export class PurchaseControlsService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly approvals: ApprovalsService,
+    private readonly settings: SettingsService,
   ) {}
 
   async controls(tenantId: string) {
@@ -39,6 +42,7 @@ export class PurchaseControlsService {
       if (refs.length) out.push({ key, level, title: `${title} (${refs.length})`, detail, refs });
     };
     const pol = await this.approvals.policy(this.db, tenantId);
+    const cp = CONTROL_PROFILES[await this.settings.businessModel(this.db, tenantId)];
 
     // 1. PO dipecah: ≥2 PO ke supplier yang sama dalam 7 hari, masing-masing di bawah batas tetapi jumlahnya melewati batas
     if (pol.purchaseOrder > 0) {
@@ -74,29 +78,36 @@ export class PurchaseControlsService {
       WHERE s.tenant_id = ${tenantId} AND f.d >= ${since} AND f.d::date - s.created_at::date <= 14`);
     add('NEW_SUPPLIER_PAID', 'warning', 'Supplier baru langsung dibayar', fresh.rows.map((r) => `${r.code} ${r.name}`), 'Pemasok fiktif biasanya dibuat lalu cepat dibayar. Pastikan pemasok & barangnya nyata (NPWP, kontak, bukti terima).');
 
-    // 4. Penyesuaian stok keluar (di luar stock opname) berulang di satu gudang dalam 30 hari
+    // 4. Penyesuaian stok keluar (di luar stock opname) berulang di satu gudang dalam 30 hari (tidak relevan untuk jasa)
+    if (cp.adjOutRepeat !== null) {
     const adj = await this.db.execute<{ wh: string; n: number }>(sql`
       SELECT w.name AS wh, COUNT(DISTINCT m.ref_id)::int AS n
       FROM stock_moves m JOIN warehouses w ON w.id = m.warehouse_id
       WHERE m.tenant_id = ${tenantId} AND m.type = 'ADJUSTMENT_OUT' AND m.ref_type = 'STOCK_ADJUSTMENT' AND m.date >= ${addDays(today, -30)}
         AND NOT EXISTS (SELECT 1 FROM stock_counts c WHERE c.tenant_id = ${tenantId} AND c.adjustment_number = m.ref_number)
-      GROUP BY w.name HAVING COUNT(DISTINCT m.ref_id) >= 3`);
+      GROUP BY w.name HAVING COUNT(DISTINCT m.ref_id) >= ${cp.adjOutRepeat}`);
     add('ADJ_OUT_REPEAT', 'warning', 'Penyesuaian stok keluar berulang', adj.rows.map((r) => `${r.wh}: ${r.n} kali`), 'Stok dikurangi lewat penyesuaian (bukan opname) berulang kali dalam 30 hari — salah satu modus pencurian barang. Tinjau alasan & pelakunya.');
+    }
 
-    // 5. Surat jalan lebih dari 7 hari belum difakturkan
+    // 5. Surat jalan belum difakturkan (ambang menurut jenis usaha; tidak relevan untuk jasa)
+    if (cp.deliveryNotBilledDays !== null) {
     const dn = await this.db.execute<{ number: string }>(sql`
       SELECT d.number FROM delivery_orders d
-      WHERE d.tenant_id = ${tenantId} AND d.status = 'DELIVERED' AND d.invoice_id IS NULL AND d.date <= ${addDays(today, -7)}
+      WHERE d.tenant_id = ${tenantId} AND d.status = 'DELIVERED' AND d.invoice_id IS NULL AND d.date <= ${addDays(today, -cp.deliveryNotBilledDays)}
       ORDER BY d.date`);
-    add('DELIVERY_NOT_BILLED', 'warning', 'Surat jalan belum difakturkan > 7 hari', dn.rows.map((r) => r.number), 'Barang sudah keluar tetapi belum ditagih. Tagih sekarang atau pastikan tidak ada barang keluar tanpa tagihan.');
+    add('DELIVERY_NOT_BILLED', 'warning', `Surat jalan belum difakturkan > ${cp.deliveryNotBilledDays} hari`, dn.rows.map((r) => r.number), 'Barang sudah keluar tetapi belum ditagih. Tagih sekarang atau pastikan tidak ada barang keluar tanpa tagihan.');
 
-    // 6. Barang diterima > 30 hari belum ditagih pemasok
+    }
+
+    // 6. Barang diterima belum ditagih pemasok (ambang menurut jenis usaha; tidak relevan untuk jasa)
+    if (cp.grniDays !== null) {
     const gr = await this.db.execute<{ number: string; name: string }>(sql`
       SELECT g.number, s.name FROM goods_receipts g JOIN suppliers s ON s.id = g.supplier_id
-      WHERE g.tenant_id = ${tenantId} AND g.status = 'RECEIVED' AND g.date <= ${addDays(today, -30)}
+      WHERE g.tenant_id = ${tenantId} AND g.status = 'RECEIVED' AND g.date <= ${addDays(today, -cp.grniDays)}
         AND EXISTS (SELECT 1 FROM goods_receipt_lines l WHERE l.receipt_id = g.id AND l.billed_qty < l.qty)
       ORDER BY g.date`);
-    add('GRNI_OLD', 'info', 'Barang diterima > 30 hari belum ditagih', gr.rows.map((r) => `${r.number} (${r.name})`), 'Hutang belum tercatat. Minta faktur pemasok atau periksa apakah penerimaan benar.');
+    add('GRNI_OLD', 'info', `Barang diterima > ${cp.grniDays} hari belum ditagih`, gr.rows.map((r) => `${r.number} (${r.name})`), 'Hutang belum tercatat. Minta faktur pemasok atau periksa apakah penerimaan benar.');
+    }
 
     // 7. Pembayaran supplier dibatalkan
     const vd = await this.db.execute<{ number: string; reason: string | null }>(sql`
