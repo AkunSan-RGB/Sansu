@@ -48,3 +48,21 @@
   .ant-layout-content > *, .row-kpi > div, .dash-hero, .ant-layout-sider .ant-menu-item-selected::before { animation: none !important; }
   .ant-layout-sider .ant-menu-item, .kpi, .kpi .kpi-icon, .qa button { transition: none; }
 }
+
+/* Teks menu panjang membungkus ke baris berikutnya, tidak terpotong "..." (desktop & HP) */
+.ant-layout-sider .ant-menu-item,
+.ant-layout-sider .ant-menu-submenu-title,
+.ant-drawer .ant-menu-item,
+.ant-drawer .ant-menu-submenu-title { height: auto !important; min-height: 40px; line-height: 1.35 !important; padding-top: 9px !important; padding-bottom: 9px !important; }
+.ant-layout-sider .ant-menu-title-content,
+.ant-drawer .ant-menu-title-content { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; word-break: break-word; }
+.ant-layout-sider .ant-menu-item-group-title,
+.ant-drawer .ant-menu-item-group-title { white-space: normal; overflow: visible; text-overflow: clip; }
+
+/* Tulisan panjang di tabel, kartu, dan tombol membungkus (tidak terpotong), terutama di HP */
+.ant-table-cell, .ant-card-head-title, .ant-descriptions-item-label, .ant-descriptions-item-content, .ant-alert-message, .ant-alert-description, .ant-form-item-label > label, .ant-form-item-extra { overflow-wrap: break-word; }
+@media (max-width: 768px) {
+  .ant-btn:not(.ant-btn-icon-only) { white-space: normal; height: auto; min-height: 32px; line-height: 1.35; padding-top: 4px; padding-bottom: 4px; }
+  .ant-card-head-title { white-space: normal; }
+  .ant-form-item-label > label { height: auto; white-space: normal; }
+}

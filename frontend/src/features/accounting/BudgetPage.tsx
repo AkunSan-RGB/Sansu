@@ -119,7 +119,7 @@ function EditTab({ year }: { year: number }) {
   useEffect(() => {
     if (q.data) setRows(Object.fromEntries(q.data.rows.map((r) => [r.accountId, r.months])));
   }, [q.data]);
-  const inv = ['budget'];
+  const inv = ['budget', 'me'];
   const save = useAction(() => put(`/budgets/${year}`, { rows: Object.entries(rows).map(([accountId, months]) => ({ accountId, months: months.map((m) => String(m || 0)) })) }), { success: 'Anggaran disimpan', invalidate: inv });
   const seed = useAction(() => post(`/budgets/${year}/seed`, { fromYear: year - 1, growthPct: growth }), { success: 'Anggaran diisi dari realisasi', invalidate: inv });
   const approve = useAction(() => post(`/budgets/${year}/approve`), { success: 'Anggaran disetujui & dikunci', invalidate: inv });
