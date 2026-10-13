@@ -4,6 +4,7 @@ import { JOURNAL_SOURCE_LABELS, type JournalSource, RECURRING_FREQUENCY_LABELS, 
 import { useQuery } from '@tanstack/react-query';
 import {
   Alert,
+  App,
   Button,
   Card,
   Checkbox,
@@ -23,7 +24,7 @@ import {
 } from 'antd';
 import { useAuth } from '@/auth/AuthContext';
 import { useState } from 'react';
-import { api, get, patch, post, qs } from '@/api/client';
+import { api, ApiError, get, patch, post, qs, del } from '@/api/client';
 import { LEDGER_KEYS, useAccounts, useAction } from '@/api/queries';
 import type { JournalEntry, Project, RecurringJournal } from '@/api/types';
 import { useApps } from '@/lib/apps';
@@ -136,11 +137,50 @@ function JournalList() {
   const journals = useQuery({ queryKey: ['journals', filter], queryFn: () => get<JournalEntry[]>(`/accounting/journals${qs(filter)}`) });
 
   const { me } = useAuth();
+  const { modal } = App.useApp();
   const create = useAction(
-    (v: { date: string; description: string; reference?: string; adjustment?: boolean; controlOverrideReason?: string; lines: LineValue[] }) =>
-      post<JournalEntry>('/accounting/journals', { ...v, reference: v.reference || undefined, controlOverrideReason: v.controlOverrideReason?.trim() || undefined, lines: toLines(v.lines) }),
-    { success: (j) => `Jurnal ${j.number} diposting`, invalidate: LEDGER_KEYS, onSuccess: () => setOpen(false) },
+    async (v: { date: string; description: string; reference?: string; adjustment?: boolean; autoReverse?: boolean; controlOverrideReason?: string; lines: LineValue[] }) => {
+      const body = { ...v, reference: v.reference || undefined, autoReverse: v.adjustment ? v.autoReverse : undefined, controlOverrideReason: v.controlOverrideReason?.trim() || undefined, lines: toLines(v.lines) };
+      try {
+        return await post<JournalEntry>('/accounting/journals', body);
+      } catch (e) {
+        const data = e instanceof ApiError ? (e.data as { code?: string; duplicates?: { number: string; date: string; description: string }[] } | undefined) : undefined;
+        if (data?.code !== 'POSSIBLE_DUPLICATE') throw e;
+        // pencegahan pencatatan ganda: tampilkan jurnal serupa, simpan hanya bila pengguna yakin
+        const ok = await new Promise<boolean>((resolve) =>
+          modal.confirm({
+            title: 'Mungkin sudah tercatat',
+            width: 520,
+            content: (
+              <div>
+                <p>Jurnal dengan akun dan nilai yang sama sudah ada:</p>
+                <ul>
+                  {data.duplicates?.map((d) => (
+                    <li key={d.number}>
+                      <strong>{d.number}</strong> ({fmtDate(d.date)}) {d.description}
+                    </li>
+                  ))}
+                </ul>
+                <p>Simpan lagi hanya bila ini memang transaksi yang berbeda.</p>
+              </div>
+            ),
+            okText: 'Tetap simpan',
+            cancelText: 'Batal',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          }),
+        );
+        if (!ok) throw new Error('Tidak disimpan: jurnal serupa sudah ada');
+        return post<JournalEntry>('/accounting/journals', { ...body, confirmDuplicate: true });
+      }
+    },
+    {
+      success: (j) => `Jurnal ${j.number} diposting${j.scheduledReversal ? ` · dibalik otomatis ${fmtDate(j.scheduledReversal)}` : ''}`,
+      invalidate: LEDGER_KEYS,
+      onSuccess: () => setOpen(false),
+    },
   );
+  const cancelSchedule = useAction((id: string) => del(`/accounting/journals/${id}/scheduled-reversal`), { success: 'Jadwal balik otomatis dibatalkan', invalidate: LEDGER_KEYS });
   const reverse = useAction((id: string) => post<JournalEntry>(`/accounting/journals/${id}/reverse`), {
     success: (j) => `Jurnal balik ${j.number} dibuat`,
     invalidate: LEDGER_KEYS,
@@ -210,9 +250,16 @@ function JournalList() {
                 REVERSIBLE.includes(j.sourceType) &&
                 !j.reversalOfId &&
                 !reversedIds.has(j.id) && (
-                  <Popconfirm title="Buat jurnal balik untuk membatalkan jurnal ini?" onConfirm={() => reverse.mutate(j.id)}>
-                    <Button size="small">Balik</Button>
-                  </Popconfirm>
+                  <Space size={4} wrap>
+                    {j.scheduledReversal && (
+                      <Popconfirm title={`Batalkan jadwal balik otomatis ${fmtDate(j.scheduledReversal)}?`} okText="Batalkan jadwal" onConfirm={() => cancelSchedule.mutate(j.id)}>
+                        <Tag color="purple" style={{ cursor: 'pointer' }}>Balik otomatis {fmtDate(j.scheduledReversal)}</Tag>
+                      </Popconfirm>
+                    )}
+                    <Popconfirm title="Buat jurnal balik untuk membatalkan jurnal ini? Dibalik pada tanggal jurnal asal bila periodenya masih terbuka." onConfirm={() => reverse.mutate(j.id)}>
+                      <Button size="small">Balik</Button>
+                    </Popconfirm>
+                  </Space>
                 ),
             },
           ]}
@@ -242,6 +289,15 @@ function JournalList() {
           </Space>
           <Form.Item name="adjustment" valuePropName="checked" extra="Jurnal penyesuaian akhir periode tampil di kolom penyesuaian neraca lajur.">
             <Checkbox>Jurnal penyesuaian</Checkbox>
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(a, b) => a.adjustment !== b.adjustment}>
+            {({ getFieldValue }) =>
+              getFieldValue('adjustment') ? (
+                <Form.Item name="autoReverse" valuePropName="checked" extra="Untuk akrual (mis. beban masih harus dibayar): sistem membalik jurnal ini otomatis pada tanggal 1 bulan berikutnya, jadi tidak perlu membalik manual.">
+                  <Checkbox>Balik otomatis di awal bulan berikutnya</Checkbox>
+                </Form.Item>
+              ) : null
+            }
           </Form.Item>
           <Alert
             type="info"

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { REPORT_GROUPS } from '@sansu/shared';
 import { and, asc, desc, eq, gte, ilike, inArray, lte, or, sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -9,7 +9,8 @@ import { addDays, DocDate, toDocDate, todayJakarta } from '../../common/utils/da
 import { D, Dec, DecValue, money, ZERO } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { AccountType, accounts, assetCategories, journalEntries, journalLines, recurringJournals, tenants } from '../../db/schema';
+import type { DbOrTx } from '../../db/db';
+import { AccountType, accounts, assetCategories, journalEntries, journalLines, recurringJournals, scheduledReversals, tenants } from '../../db/schema';
 import { guessReportGroup, SYS } from './default-coa';
 import {
   CloseYearDto,
@@ -37,6 +38,11 @@ interface BalanceRow {
 
 const DEBIT_NORMAL: AccountType[] = ['ASSET', 'EXPENSE'];
 const LEDGER_ROW_LIMIT = 5000;
+/** Tanggal 1 pada bulan berikutnya */
+function nextMonthStart(date: string): string {
+  const [y, m] = toDocDate(String(date).slice(0, 10)).split('-').map(Number);
+  return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+}
 const normal = (type: AccountType, debit: DecValue, credit: DecValue) =>
   DEBIT_NORMAL.includes(type) ? D(debit).minus(credit) : D(credit).minus(debit);
 
@@ -147,7 +153,14 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       limit: 300,
     });
     const routes = await resolveSourceRoutes(this.db, tenantId, rows);
-    return rows.map((r, i) => ({ ...r, docRoute: routes[i] }));
+    const sched = rows.length
+      ? await this.db
+          .select({ journalId: scheduledReversals.journalId, reverseOn: scheduledReversals.reverseOn })
+          .from(scheduledReversals)
+          .where(and(eq(scheduledReversals.tenantId, tenantId), eq(scheduledReversals.status, 'PENDING'), inArray(scheduledReversals.journalId, rows.map((r) => r.id))))
+      : [];
+    const schedBy = new Map(sched.map((x) => [x.journalId, x.reverseOn]));
+    return rows.map((r, i) => ({ ...r, docRoute: routes[i], scheduledReversal: schedBy.get(r.id) ?? null }));
   }
 
   async getJournal(tenantId: string, id: string) {
@@ -169,6 +182,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
   /** Jurnal manual. Bernilai besar dari peran yang tidak berwenang: dikirim sebagai permintaan persetujuan dan baru diposting setelah disetujui. */
   async createManualJournal(user: AuthUser, dto: CreateJournalDto, opts: { approved?: boolean } = {}) {
     await this.assertNoControlAccounts(user, dto.lines.map((l) => l.accountId), dto.controlOverrideReason);
+    if (dto.autoReverse && !dto.adjustment) throw new BadRequestException('Balik otomatis hanya untuk jurnal penyesuaian');
     if (!opts.approved) {
       const total = dto.lines.reduce((a, l) => a + Number(l.debit ?? 0), 0);
       const limit = await this.approvals.needs(this.db, user, 'MANUAL_JOURNAL', total);
@@ -176,9 +190,10 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
         const req = await this.approvals.create(this.db, user, { kind: 'MANUAL_JOURNAL', refId: null, title: `Jurnal manual: ${dto.description}`, amount: total, payload: JSON.parse(JSON.stringify(dto)) });
         throw this.approvals.required(req.id, 'Nilai jurnal mencapai batas persetujuan; permintaan dikirim ke pemilik atau admin dan jurnal diposting setelah disetujui.');
       }
+      if (!dto.confirmDuplicate) await this.assertNotDuplicate(user.tenantId, dto);
     }
-    return this.db.transaction((tx) =>
-      this.posting.post(tx, {
+    return this.db.transaction(async (tx) => {
+      const j = await this.posting.post(tx, {
         tenantId: user.tenantId,
         date: toDocDate(dto.date),
         description: dto.description,
@@ -186,8 +201,44 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
         reference: dto.reference,
         createdById: user.sub,
         lines: dto.lines,
-      }),
-    );
+      });
+      // Akrual yang harus dibalik di awal periode berikutnya: dijadwalkan sekali di sini, tidak perlu dibalik manual lagi
+      let scheduledReversal: string | null = null;
+      if (dto.autoReverse) {
+        scheduledReversal = nextMonthStart(j.date);
+        await tx.insert(scheduledReversals).values({ tenantId: user.tenantId, journalId: j.id, reverseOn: scheduledReversal, createdById: user.sub });
+      }
+      return { ...j, scheduledReversal };
+    });
+  }
+
+  /**
+   * Cegah pencatatan ganda: jurnal lain (manual maupun otomatis, yang belum dibalik) dengan akun yang sama persis dan nilai yang sama
+   * dalam ±7 hari. Pengguna dapat tetap menyimpan dengan konfirmasi (confirmDuplicate).
+   */
+  private async assertNotDuplicate(tenantId: string, dto: CreateJournalDto) {
+    const date = toDocDate(dto.date);
+    const total = dto.lines.reduce<Dec>((a, l) => a.plus(money(D(l.debit))), ZERO);
+    const ids = [...new Set(dto.lines.filter((l) => money(D(l.debit)).gt(0) || money(D(l.credit)).gt(0)).map((l) => l.accountId))].sort();
+    if (!ids.length || total.lte(0)) return;
+    const res = await this.db.execute<{ number: string; date: string; description: string }>(sql`
+      SELECT j.number, j.date::text AS date, j.description
+      FROM journal_entries j
+      WHERE j.tenant_id = ${tenantId} AND j.reversal_of_id IS NULL
+        AND j.date BETWEEN ${addDays(date, -7)} AND ${addDays(date, 7)}
+        AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = j.id)
+        AND (SELECT COALESCE(SUM(l.debit), 0) FROM journal_lines l WHERE l.journal_id = j.id) = ${total.toFixed(2)}
+        AND (SELECT array_agg(DISTINCT l.account_id) FROM journal_lines l WHERE l.journal_id = j.id) @> ${`{${ids.join(',')}}`}::uuid[]
+        AND (SELECT array_agg(DISTINCT l.account_id) FROM journal_lines l WHERE l.journal_id = j.id) <@ ${`{${ids.join(',')}}`}::uuid[]
+      ORDER BY j.date DESC LIMIT 3`);
+    if (res.rows.length) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'POSSIBLE_DUPLICATE',
+        message: `Jurnal serupa sudah ada: ${res.rows.map((r) => `${r.number} (${r.date.slice(0, 10)})`).join(', ')}. Pastikan bukan pencatatan ganda.`,
+        duplicates: res.rows,
+      });
+    }
   }
 
   /**
@@ -422,23 +473,31 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
     return { ok: true };
   }
 
-  /** Posting semua jurnal berulang yang jatuh tempo s/d hari ini (termasuk yang tertinggal) */
+  /**
+   * Posting semua jurnal berulang yang jatuh tempo s/d hari ini (termasuk yang tertinggal) + jurnal balik terjadwal.
+   * Setiap kemunculan diposting DAN tanggal berikutnya dimajukan dalam SATU transaksi dengan kunci baris templat, sehingga
+   * penjadwal dan tombol manual yang berjalan bersamaan, atau proses yang terhenti di tengah, tidak pernah memposting dua kali.
+   * (Database juga menolak jurnal ganda untuk templat dan tanggal yang sama.)
+   */
   async runDue(tenantId: string, userId?: string) {
     const today = todayJakarta();
+    const reversed = await this.runScheduledReversals(tenantId);
     const due = await this.db
-      .select()
+      .select({ id: recurringJournals.id })
       .from(recurringJournals)
       .where(and(eq(recurringJournals.tenantId, tenantId), eq(recurringJournals.isActive, true), lte(recurringJournals.nextDate, today)));
     const posted: { name: string; number: string; date: string }[] = [];
     const errors: { name: string; error: string }[] = [];
-    for (const r of due) {
-      let next = r.nextDate;
-      let remaining = r.remaining;
-      let active = true;
+    for (const { id } of due) {
+      let name = id;
       try {
-        while (active && next <= today) {
-          const date = next;
-          await this.db.transaction(async (tx) => {
+        for (let guard = 0; guard < 1000; guard++) {
+          const more = await this.db.transaction(async (tx) => {
+            const [r] = await tx.select().from(recurringJournals).where(and(eq(recurringJournals.id, id), eq(recurringJournals.tenantId, tenantId))).for('update');
+            // proses lain mungkin sudah memajukannya
+            if (!r || !r.isActive || r.nextDate > today) return false;
+            name = r.name;
+            const date = r.nextDate;
             const j = await this.posting.post(tx, {
               tenantId,
               date,
@@ -449,28 +508,78 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
               createdById: userId,
               lines: r.lines,
             });
+            const next = nextOccurrence(date, r.frequency);
+            const remaining = r.remaining != null ? r.remaining - 1 : null;
+            const active = !((remaining != null && remaining <= 0) || (r.endDate && next > r.endDate));
+            await tx.update(recurringJournals).set({ nextDate: next, remaining, isActive: active, lastRunAt: new Date() }).where(eq(recurringJournals.id, r.id));
             posted.push({ name: r.name, number: j.number, date });
+            return active && next <= today;
           });
-          next = nextOccurrence(next, r.frequency);
-          if (remaining != null) remaining -= 1;
-          if ((remaining != null && remaining <= 0) || (r.endDate && next > r.endDate)) active = false;
+          if (!more) break;
         }
       } catch (e) {
-        errors.push({ name: r.name, error: (e as Error).message });
+        errors.push({ name, error: (e as Error).message });
       }
-      await this.db
-        .update(recurringJournals)
-        .set({ nextDate: next, remaining, isActive: active, lastRunAt: new Date() })
-        .where(eq(recurringJournals.id, r.id));
     }
-    return { posted, errors };
+    return { posted, errors, reversed };
+  }
+
+  /**
+   * Jurnal balik terjadwal (akrual "balik otomatis"): dibalik pada tanggal jadwalnya. Bila sudah dibalik manual, ditandai selesai
+   * tanpa membuat pembalik kedua. Bila periode jadwal sudah terkunci, memakai hari ini.
+   */
+  async runScheduledReversals(tenantId: string) {
+    const today = todayJakarta();
+    const due = await this.db
+      .select({ id: scheduledReversals.id })
+      .from(scheduledReversals)
+      .where(and(eq(scheduledReversals.tenantId, tenantId), eq(scheduledReversals.status, 'PENDING'), lte(scheduledReversals.reverseOn, today)));
+    const done: { journalNumber: string; reversalNumber: string | null; date: string; skipped?: boolean }[] = [];
+    for (const { id } of due) {
+      try {
+        await this.db.transaction(async (tx) => {
+          const [row] = await tx.select().from(scheduledReversals).where(eq(scheduledReversals.id, id)).for('update');
+          if (!row || row.status !== 'PENDING') return;
+          const orig = await tx.query.journalEntries.findFirst({ where: eq(journalEntries.id, row.journalId) });
+          const already = await tx.query.journalEntries.findFirst({ where: eq(journalEntries.reversalOfId, row.journalId) });
+          if (!orig || already) {
+            await tx.update(scheduledReversals).set({ status: 'SKIPPED', processedAt: new Date(), reversalJournalId: already?.id ?? null }).where(eq(scheduledReversals.id, id));
+            done.push({ journalNumber: orig?.number ?? '-', reversalNumber: already?.number ?? null, date: row.reverseOn, skipped: true });
+            return;
+          }
+          const locked = await this.period.lockedUntil(tx, tenantId);
+          const date = locked && row.reverseOn <= locked ? today : row.reverseOn;
+          const rev = await this.posting.reverse(tx, tenantId, row.journalId, date, row.createdById ?? undefined, true);
+          await tx.update(scheduledReversals).set({ status: 'DONE', processedAt: new Date(), reversalJournalId: rev.id, lastError: null }).where(eq(scheduledReversals.id, id));
+          done.push({ journalNumber: orig.number, reversalNumber: rev.number, date });
+        });
+      } catch (e) {
+        await this.db.update(scheduledReversals).set({ lastError: (e as Error).message }).where(eq(scheduledReversals.id, id));
+      }
+    }
+    return done;
+  }
+
+  /** Batalkan jadwal balik otomatis sebuah jurnal (jurnalnya sendiri tidak berubah) */
+  async cancelScheduledReversal(user: AuthUser, journalId: string) {
+    const r = await this.db
+      .update(scheduledReversals)
+      .set({ status: 'CANCELLED', processedAt: new Date() })
+      .where(and(eq(scheduledReversals.journalId, journalId), eq(scheduledReversals.tenantId, user.tenantId), eq(scheduledReversals.status, 'PENDING')))
+      .returning({ id: scheduledReversals.id });
+    if (!r.length) throw new NotFoundException('Tidak ada jadwal balik otomatis yang menunggu untuk jurnal ini');
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL_SCHEDULED_REVERSAL', entity: 'Journal', entityId: journalId });
+    return { ok: true };
   }
 
   async runAllDue() {
-    const ids = await this.db.selectDistinct({ id: recurringJournals.tenantId }).from(recurringJournals).where(eq(recurringJournals.isActive, true));
-    for (const t of ids) {
-      const r = await this.runDue(t.id);
-      if (r.posted.length) this.logger.log(`${r.posted.length} jurnal berulang diposting untuk tenant ${t.id}`);
+    const rec = await this.db.selectDistinct({ id: recurringJournals.tenantId }).from(recurringJournals).where(eq(recurringJournals.isActive, true));
+    const rev = await this.db.selectDistinct({ id: scheduledReversals.tenantId }).from(scheduledReversals).where(eq(scheduledReversals.status, 'PENDING'));
+    for (const id of new Set([...rec.map((x) => x.id), ...rev.map((x) => x.id)])) {
+      const r = await this.runDue(id);
+      if (r.posted.length) this.logger.log(`${r.posted.length} jurnal berulang diposting untuk tenant ${id}`);
+      if (r.reversed.length) this.logger.log(`${r.reversed.length} jurnal balik terjadwal diproses untuk tenant ${id}`);
+      for (const e of r.errors) this.logger.warn(`Jurnal berulang "${e.name}" gagal untuk tenant ${id}: ${e.error}`);
     }
   }
 
@@ -518,6 +627,8 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
     const from = `${dto.year}-01-01`;
     const to = `${dto.year}-12-31`;
     const result = await this.db.transaction(async (tx) => {
+      // Satu penutupan pada satu waktu per perusahaan; saldo dibaca di dalam transaksi yang sama dengan jurnal penutupnya
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`close:${user.tenantId}`}))`);
       const [existing] = await tx
         .select({ number: journalEntries.number })
         .from(journalEntries)
@@ -530,7 +641,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
         );
       if (existing) throw new BadRequestException(`Tahun ${dto.year} sudah ditutup (${existing.number})`);
 
-      const rows = (await this.balances(user.tenantId, from, to, true)).filter(
+      const rows = (await this.balances(user.tenantId, from, to, true, tx)).filter(
         (r) => (r.type === 'REVENUE' || r.type === 'EXPENSE') && !r.balance.isZero(),
       );
       if (!rows.length) throw new BadRequestException(`Tidak ada saldo pendapatan/beban di tahun ${dto.year}`);
@@ -820,11 +931,11 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private async balances(tenantId: string, from?: string, to?: string, excludeClosing = false): Promise<BalanceRow[]> {
+  private async balances(tenantId: string, from?: string, to?: string, excludeClosing = false, db: DbOrTx = this.db): Promise<BalanceRow[]> {
     const fromCond = from ? sql`AND j.date >= ${toDocDate(from)}` : sql``;
     const toCond = to ? sql`AND j.date <= ${toDocDate(to)}` : sql``;
     const closingCond = excludeClosing ? sql`AND j.source_type <> 'CLOSING'` : sql``;
-    const res = await this.db.execute<{ id: string; code: string; name: string; type: AccountType; debit: string; credit: string }>(sql`
+    const res = await db.execute<{ id: string; code: string; name: string; type: AccountType; debit: string; credit: string }>(sql`
       SELECT a.id, a.code, a.name, a.type,
              COALESCE(t.debit, 0) AS debit, COALESCE(t.credit, 0) AS credit
       FROM accounts a

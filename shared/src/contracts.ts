@@ -396,6 +396,8 @@ export interface JournalEntry {
   reversalOfId: string | null;
   /** Halaman dokumen asal jurnal (faktur, surat jalan, dst.); null bila tidak ada */
   docRoute?: string | null;
+  /** Tanggal jurnal balik otomatis yang masih menunggu (akrual); null bila tidak dijadwalkan */
+  scheduledReversal?: string | null;
   lines: { id: string; debit: string; credit: string; account: { code: string; name: string } }[];
 }
 

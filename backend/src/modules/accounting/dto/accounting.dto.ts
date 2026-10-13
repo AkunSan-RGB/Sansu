@@ -57,6 +57,14 @@ export class CreateJournalDto {
   @IsString()
   @MaxLength(300)
   controlOverrideReason?: string;
+  @ApiPropertyOptional({ description: 'Hanya jurnal penyesuaian: dibalik otomatis pada tanggal 1 bulan berikutnya (akrual), tanpa membalik manual' })
+  @IsOptional()
+  @IsBoolean()
+  autoReverse?: boolean;
+  @ApiPropertyOptional({ description: 'true = tetap simpan walau ada jurnal serupa (peringatan pencatatan ganda sudah dikonfirmasi)' })
+  @IsOptional()
+  @IsBoolean()
+  confirmDuplicate?: boolean;
   @ApiProperty({ type: [JournalLineDto] })
   @ValidateNested({ each: true })
   @Type(() => JournalLineDto)
