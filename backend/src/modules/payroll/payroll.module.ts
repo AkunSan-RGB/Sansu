@@ -182,29 +182,38 @@ export class PayrollService {
       const run = await this.lockRun(tx, user.tenantId, id, 'DRAFT');
       const slips = await tx.select().from(payslips).where(eq(payslips.runId, id));
       if (!slips.length) throw new BadRequestException('Tidak ada slip gaji untuk diposting');
-      const s = (f: keyof (typeof slips)[number]) => slips.reduce<Dec>((a, p) => a.plus(D(p[f] as string)), ZERO);
-      const gross = s('grossPay');
-      const employer = s('bpjsKesCompany').plus(s('jhtCompany')).plus(s('jpCompany')).plus(s('jkkCompany')).plus(s('jkmCompany'));
-      const employeeBpjs = s('bpjsKesEmployee').plus(s('jhtEmployee')).plus(s('jpEmployee'));
-      const pph = s('pph21');
-      const other = s('otherDeduction');
-      const net = s('netPay');
-      // Tenaga kerja langsung produksi → Upah Langsung Produksi (bagian harga pokok produksi)
-      const prodIds = new Set(
-        (
-          await tx
-            .select({ id: employees.id })
-            .from(employees)
-            .where(and(eq(employees.tenantId, user.tenantId), eq(employees.isProduction, true)))
-        ).map((e) => e.id),
-      );
-      const directLabor = slips
-        .filter((p) => prodIds.has(p.employeeId))
-        .reduce<Dec>(
-          (a, p) => a.plus(p.grossPay).plus(p.bpjsKesCompany).plus(p.jhtCompany).plus(p.jpCompany).plus(p.jkkCompany).plus(p.jkmCompany),
-          ZERO,
-        );
-      const prodGross = slips.filter((p) => prodIds.has(p.employeeId)).reduce<Dec>((a, p) => a.plus(p.grossPay), ZERO);
+      const emps = await tx.select({ id: employees.id, isProduction: employees.isProduction, branchId: employees.branchId }).from(employees).where(eq(employees.tenantId, user.tenantId));
+      const empById = new Map(emps.map((e) => [e.id, e]));
+      const sumOf = (list: typeof slips, f: keyof (typeof slips)[number]) => list.reduce<Dec>((a, p) => a.plus(D(p[f] as string)), ZERO);
+      const gross = sumOf(slips, 'grossPay');
+      const employerOf = (l: typeof slips) => sumOf(l, 'bpjsKesCompany').plus(sumOf(l, 'jhtCompany')).plus(sumOf(l, 'jpCompany')).plus(sumOf(l, 'jkkCompany')).plus(sumOf(l, 'jkmCompany'));
+      const employer = employerOf(slips);
+      const pph = sumOf(slips, 'pph21');
+      const net = sumOf(slips, 'netPay');
+      // Dikelompokkan per cabang karyawan: biaya gaji & utangnya berlabel cabang tempat karyawan bekerja (tiap cabang seimbang sendiri)
+      const groups = new Map<string | null, typeof slips>();
+      for (const p of slips) {
+        const b = empById.get(p.employeeId)?.branchId ?? null;
+        groups.set(b, [...(groups.get(b) ?? []), p]);
+      }
+      const lines = [...groups].flatMap(([branchId, list]) => {
+        const grossB = sumOf(list, 'grossPay');
+        const employerB = employerOf(list);
+        const employeeBpjsB = sumOf(list, 'bpjsKesEmployee').plus(sumOf(list, 'jhtEmployee')).plus(sumOf(list, 'jpEmployee'));
+        const prodList = list.filter((p) => empById.get(p.employeeId)?.isProduction);
+        // Tenaga kerja langsung produksi → Upah Langsung Produksi (bagian harga pokok produksi)
+        const directLabor = prodList.reduce<Dec>((a, p) => a.plus(p.grossPay).plus(p.bpjsKesCompany).plus(p.jhtCompany).plus(p.jpCompany).plus(p.jkkCompany).plus(p.jkmCompany), ZERO);
+        const prodGross = sumOf(prodList, 'grossPay');
+        return [
+          { key: SYS.SALARY_EXPENSE, debit: grossB.minus(prodGross), branchId },
+          { key: SYS.BPJS_EXPENSE, debit: employerB.minus(directLabor.minus(prodGross)), branchId },
+          { key: SYS.DIRECT_LABOR, debit: directLabor, branchId },
+          { key: SYS.SALARY_PAYABLE, credit: sumOf(list, 'netPay'), branchId },
+          { key: SYS.BPJS_PAYABLE, credit: employeeBpjsB.plus(employerB), branchId },
+          { key: SYS.PPH21_PAYABLE, credit: sumOf(list, 'pph21'), branchId },
+          { key: SYS.EMPLOYEE_RECEIVABLE, credit: sumOf(list, 'otherDeduction'), branchId },
+        ];
+      });
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
         date: run.payDate,
@@ -212,15 +221,7 @@ export class PayrollService {
         sourceType: 'PAYROLL',
         sourceId: run.id,
         createdById: user.sub,
-        lines: [
-          { key: SYS.SALARY_EXPENSE, debit: gross.minus(prodGross) },
-          { key: SYS.BPJS_EXPENSE, debit: employer.minus(directLabor.minus(prodGross)) },
-          { key: SYS.DIRECT_LABOR, debit: directLabor },
-          { key: SYS.SALARY_PAYABLE, credit: net },
-          { key: SYS.BPJS_PAYABLE, credit: employeeBpjs.plus(employer) },
-          { key: SYS.PPH21_PAYABLE, credit: pph },
-          { key: SYS.EMPLOYEE_RECEIVABLE, credit: other },
-        ],
+        lines,
       });
       await tx
         .update(payrollRuns)
@@ -238,6 +239,13 @@ export class PayrollService {
     return this.getRun(user.tenantId, id);
   }
 
+  /** Gaji bersih per cabang karyawan (untuk jurnal pembayaran) */
+  private async netByBranch(tx: Tx, runId: string): Promise<[string | null, Dec][]> {
+    const rows = await tx.execute<{ b: string | null; net: string }>(sql`
+      SELECT e.branch_id::text AS b, SUM(p.net_pay) AS net FROM payslips p JOIN employees e ON e.id = p.employee_id WHERE p.run_id = ${runId} GROUP BY e.branch_id`);
+    return rows.rows.map((r) => [r.b, D(r.net)]);
+  }
+
   /** Transfer gaji: Dr Hutang Gaji | Cr Bank */
   async pay(user: AuthUser, id: string, dto: PayRunDto) {
     const result = await this.db.transaction(async (tx) => {
@@ -252,8 +260,9 @@ export class PayrollService {
         sourceId: run.id,
         createdById: user.sub,
         lines: [
-          { key: SYS.SALARY_PAYABLE, debit: run.totalNet },
-          { accountId: bank.id, credit: run.totalNet },
+          // utang gaji dibayar per cabang karyawan; rekening bank milik cabangnya sendiri (selisih ditutup antar cabang otomatis)
+          ...(await this.netByBranch(tx, run.id)).map(([branchId, v]) => ({ key: SYS.SALARY_PAYABLE, debit: v, branchId })),
+          { accountId: bank.id, credit: run.totalNet, ...(bank.branchId ? { branchId: bank.branchId } : {}) },
         ],
       });
       await tx.update(payrollRuns).set({ status: 'PAID', paymentJournalId: journal.id, cashAccountId: bank.id }).where(eq(payrollRuns.id, id));

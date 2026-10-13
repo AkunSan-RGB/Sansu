@@ -195,7 +195,7 @@ export class CashService {
       const cash = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'CASH');
 
       let amount: Dec;
-      let to: { id: string } | undefined;
+      let to: { id: string; branchId: string | null } | undefined;
       let assetCats = new Map<string, { id: string; name: string }[]>();
       const lines = dto.lines ?? [];
       if (dto.type === 'TRANSFER') {
@@ -259,7 +259,7 @@ export class CashService {
           description: dto.description,
           reference: dto.reference,
           createdById: user.sub,
-          branchId: dto.branchId ?? null,
+          branchId: dto.branchId ?? cash.branchId ?? null,
         })
         .returning();
       if (lines.length && dto.type !== 'TRANSFER') {
@@ -274,15 +274,17 @@ export class CashService {
         );
       }
 
+      // Rekening kas/bank milik cabang: barisnya berlabel cabang rekening itu; selisih dengan cabang transaksi ditutup otomatis (antar cabang)
+      const cashBranch = cash.branchId ? { branchId: cash.branchId } : {};
       const journalLines =
         dto.type === 'TRANSFER'
           ? [
-              { accountId: to!.id, debit: amount },
-              { accountId: cash.id, credit: amount },
+              { accountId: to!.id, debit: amount, ...(to!.branchId ? { branchId: to!.branchId } : {}) },
+              { accountId: cash.id, credit: amount, ...cashBranch },
             ]
           : dto.type === 'IN'
-            ? [{ accountId: cash.id, debit: amount }, ...lines.map((l) => ({ accountId: l.accountId, credit: l.amount, memo: l.memo }))]
-            : [...lines.map((l) => ({ accountId: l.accountId, debit: l.amount, memo: l.memo })), { accountId: cash.id, credit: amount }];
+            ? [{ accountId: cash.id, debit: amount, ...cashBranch }, ...lines.map((l) => ({ accountId: l.accountId, credit: l.amount, memo: l.memo }))]
+            : [...lines.map((l) => ({ accountId: l.accountId, debit: l.amount, memo: l.memo })), { accountId: cash.id, credit: amount, ...cashBranch }];
 
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
@@ -313,6 +315,7 @@ export class CashService {
             location: l.assetLocation,
             journalId: journal.id,
             notes: `Dibeli tunai, ${number}`,
+            branchId: dto.branchId ?? cash.branchId ?? null,
           });
         }
       }

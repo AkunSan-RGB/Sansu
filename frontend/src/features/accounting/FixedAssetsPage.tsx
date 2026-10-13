@@ -28,7 +28,7 @@ import {
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { get, patch, post, put } from '@/api/client';
-import { LEDGER_KEYS, useAccounts, useAction } from '@/api/queries';
+import { LEDGER_KEYS, useAccounts, useAction, useBranches } from '@/api/queries';
 import type { AssetCategory, CompanySettings, FixedAsset } from '@/api/types';
 import CashAccountSelect from '@/components/CashAccountSelect';
 import ExportButtons from '@/components/ExportButtons';
@@ -54,6 +54,8 @@ function AssetForm({ categories, onDone }: { categories: AssetCategory[]; onDone
   const threshold = company.data?.reporting?.capitalizationThreshold ?? 0;
   // Sama dengan aturan server: aset baru di bawah batas ditolak, kecuali tanah / aset lama / dipaksa
   const belowThreshold = threshold > 0 && !!cost && cost < threshold && funding !== 'EXISTING' && !!cat && cat.method !== 'NONE' && cat.fiscalGroup !== 'LAND';
+  const branchList = useBranches();
+  const activeBranches = (branchList.data?.branches ?? []).filter((b) => b.isActive);
   const create = useAction(
     (v: Record<string, unknown>) =>
       post<FixedAsset>('/assets', {
@@ -91,6 +93,13 @@ function AssetForm({ categories, onDone }: { categories: AssetCategory[]; onDone
             />
           </Form.Item>
         </Col>
+        {activeBranches.length > 0 && (
+          <Col xs={24} md={12}>
+            <Form.Item name="branchId" label="Cabang pemilik aset" extra="Penyusutan dibebankan ke cabang ini. Kosong = Pusat.">
+              <Select allowClear placeholder="Pusat" options={activeBranches.map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))} />
+            </Form.Item>
+          </Col>
+        )}
         <Col xs={12} md={6}>
           <Form.Item name="acquisitionDate" label="Tanggal perolehan" rules={[{ required: true }]}>
             <Input type="date" />
@@ -203,8 +212,17 @@ function VerifyTag({ a }: { a: FixedAsset }) {
 
 function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }) {
   const [dispose, setDispose] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveForm] = Form.useForm();
+  const branchList = useBranches();
+  const activeBranches = (branchList.data?.branches ?? []).filter((b) => b.isActive);
   const [form] = Form.useForm();
   const a = useQuery({ queryKey: ['assets', id], queryFn: () => get<FixedAsset>(`/assets/${id}`), enabled: !!id });
+  const doMove = useAction((v: { branchId: string | null; date: string }) => post(`/assets/${id}/transfer-branch`, v), {
+    success: 'Aset dipindahkan ke cabang baru',
+    invalidate: [...KEYS, 'branches'],
+    onSuccess: () => setMoveOpen(false),
+  });
   const doDispose = useAction((v: { date: string; price: number; cashAccountId?: string }) => post(`/assets/${id}/dispose`, { ...v, price: String(v.price ?? 0) }), {
     success: 'Pelepasan aset diposting',
     invalidate: KEYS,
@@ -265,6 +283,19 @@ function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }
               {d.lastVerifiedAt && <VerifyTag a={d} />}
             </Space>
           )}
+          {d.status === 'ACTIVE' && activeBranches.length > 0 && (
+            <Space style={{ marginBottom: 16, marginRight: 8 }}>
+              <Typography.Text>Cabang: <b>{activeBranches.find((b) => b.id === d.branchId)?.name ?? 'Pusat'}</b></Typography.Text>
+              <Button
+                onClick={() => {
+                  moveForm.setFieldsValue({ date: today(), branchId: undefined });
+                  setMoveOpen(true);
+                }}
+              >
+                Pindah cabang
+              </Button>
+            </Space>
+          )}
           {d.status === 'ACTIVE' && (
             <Button
               danger
@@ -291,6 +322,17 @@ function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }
               { title: '', dataIndex: 'posted', render: (p) => (p ? <Tag color="green">Diposting</Tag> : <Tag>Rencana</Tag>) },
             ]}
           />
+          <Modal title="Pindah cabang aset" open={moveOpen} onCancel={() => setMoveOpen(false)} onOk={() => moveForm.submit()} confirmLoading={doMove.isPending} okText="Pindahkan">
+            <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Penyusutan dihitung dulu sampai bulan sebelumnya, lalu harga perolehan dan akumulasi penyusutan dipindah antar cabang (otomatis lewat Rekening Antar Cabang). Penyusutan berikutnya dibebankan ke cabang baru." />
+            <Form form={moveForm} layout="vertical" onFinish={(v) => doMove.mutate({ branchId: v.branchId ?? null, date: v.date })}>
+              <Form.Item name="branchId" label="Cabang tujuan" extra="Kosongkan untuk memindahkan ke Pusat">
+                <Select allowClear placeholder="Pusat" options={activeBranches.filter((b) => b.id !== d.branchId).map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))} />
+              </Form.Item>
+              <Form.Item name="date" label="Tanggal pindah" rules={[{ required: true }]}>
+                <Input type="date" />
+              </Form.Item>
+            </Form>
+          </Modal>
           <Modal title="Pemeriksaan fisik aset" open={verifyOpen} onCancel={() => setVerifyOpen(false)} onOk={() => vForm.submit()} confirmLoading={doVerify.isPending} okText="Catat">
             <Form form={vForm} layout="vertical" onFinish={(v) => doVerify.mutate(v)}>
               <Form.Item name="status" label="Hasil pemeriksaan" rules={[{ required: true }]}>

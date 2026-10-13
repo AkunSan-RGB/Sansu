@@ -680,6 +680,7 @@ export class PurchaseInvoicesService {
         sourceId: invoice.id,
         reference: dto.supplierInvoiceNo,
         createdById: user.sub,
+        branchId: dto.branchId,
         lines: [
           ...lines.map((l, i) =>
             expensed[i]
@@ -711,6 +712,7 @@ export class PurchaseInvoicesService {
               journalId: journal.id,
               purchaseInvoiceId: invoice.id,
               notes: `Dibeli dari ${supplier.name}, faktur ${dto.supplierInvoiceNo}`,
+              branchId: dto.branchId ?? null,
             });
             assetId ??= asset.id;
           }

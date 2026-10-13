@@ -47,6 +47,7 @@ export class JwtAuthGuard implements CanActivate {
         tenantId: users.tenantId,
         emailVerifiedAt: users.emailVerifiedAt,
         warehouseIds: users.warehouseIds,
+        branchIds: users.branchIds,
         totpEnabledAt: users.totpEnabledAt,
       })
       .from(users)
@@ -59,6 +60,7 @@ export class JwtAuthGuard implements CanActivate {
       role: u.role,
       emailVerified: !!u.emailVerifiedAt,
       warehouseIds: u.warehouseIds?.length ? u.warehouseIds : null,
+      branchIds: u.branchIds?.length ? u.branchIds : null,
     };
     // Perusahaan mewajibkan 2FA: sebelum diaktifkan, hanya rute akun (/auth/...) yang boleh dipakai
     if (

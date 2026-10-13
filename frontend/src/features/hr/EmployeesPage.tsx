@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button, Card, Checkbox, Col, Drawer, Form, Input, InputNumber, Row, Select, Space, Switch, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { get, patch, post } from '@/api/client';
-import { useAction } from '@/api/queries';
+import { useAction, useBranches } from '@/api/queries';
 import type { Employee, Project } from '@/api/types';
 import { useApps } from '@/lib/apps';
 import { useAuth } from '@/auth/AuthContext';
@@ -37,6 +37,8 @@ export default function EmployeesPage() {
     enabled: !!editing && editing !== 'new',
   });
 
+  const branchList = useBranches();
+  const activeBranches = (branchList.data?.branches ?? []).filter((b) => b.isActive);
   const { can } = useApps();
   const { me } = useAuth();
   const projectList = useQuery({ queryKey: ['projects'], queryFn: () => get<Project[]>('/services/projects'), enabled: can('sales') });
@@ -221,6 +223,11 @@ export default function EmployeesPage() {
               </>
             )}
           </Row>
+          {activeBranches.length > 0 && (
+            <Form.Item name="branchId" label="Cabang" extra="Gaji, BPJS, dan utang gaji karyawan ini dibebankan ke cabang yang dipilih. Kosong = Pusat.">
+              <Select allowClear placeholder="Pusat" options={activeBranches.map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))} />
+            </Form.Item>
+          )}
           <Typography.Title level={5}>Gaji & BPJS</Typography.Title>
           <Row gutter={12}>
             <Col xs={24} sm={8}>

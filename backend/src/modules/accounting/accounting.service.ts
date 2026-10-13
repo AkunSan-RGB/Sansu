@@ -700,8 +700,8 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
 
   // ---------- Laporan ----------
 
-  async trialBalance(tenantId: string, from?: string, to?: string) {
-    const rows = await this.balances(tenantId, from, to);
+  async trialBalance(tenantId: string, from?: string, to?: string, branchId?: string) {
+    const rows = await this.balances(tenantId, from, to, false, this.db, branchId);
     const totalDebit = rows.reduce<Dec>((a, r) => a.plus(r.debit), ZERO);
     const totalCredit = rows.reduce<Dec>((a, r) => a.plus(r.credit), ZERO);
     return { rows, totalDebit, totalCredit, balanced: totalDebit.eq(totalCredit) };
@@ -742,7 +742,8 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Buku besar satu akun: saldo awal, mutasi, saldo berjalan. */
-  async ledger(tenantId: string, accountId: string, from?: string, to?: string, rowLimit = LEDGER_ROW_LIMIT) {
+  async ledger(tenantId: string, accountId: string, from?: string, to?: string, rowLimit = LEDGER_ROW_LIMIT, branchId?: string) {
+    const brCond = branchId ? (branchId === 'NONE' ? sql`AND l.branch_id IS NULL` : sql`AND l.branch_id = ${branchId}`) : sql``;
     const [acc] = await this.db
       .select()
       .from(accounts)
@@ -756,7 +757,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
           await this.db.execute<{ debit: string; credit: string }>(sql`
             SELECT COALESCE(SUM(l.debit), 0) AS debit, COALESCE(SUM(l.credit), 0) AS credit
             FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-            WHERE l.account_id = ${accountId} AND j.date < ${fromDate}`)
+            WHERE l.account_id = ${accountId} AND j.date < ${fromDate} ${brCond}`)
         ).rows
       : [{ debit: '0', credit: '0' }];
     const opening = normal(acc.type, open.debit, open.credit);
@@ -774,7 +775,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
     }>(sql`
       SELECT j.id AS journal_id, j.number, j.date, j.description, j.source_type, j.source_id, l.debit, l.credit, l.memo
       FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-      WHERE l.account_id = ${accountId}
+      WHERE l.account_id = ${accountId} ${brCond}
         ${fromDate ? sql`AND j.date >= ${fromDate}` : sql``}
         ${toDate ? sql`AND j.date <= ${toDate}` : sql``}
       ORDER BY j.date, j.number, l.id
@@ -786,7 +787,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       await this.db.execute<{ debit: string; credit: string; n: number }>(sql`
         SELECT COALESCE(SUM(l.debit), 0) AS debit, COALESCE(SUM(l.credit), 0) AS credit, COUNT(*)::int AS n
         FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-        WHERE l.account_id = ${accountId}
+        WHERE l.account_id = ${accountId} ${brCond}
           ${fromDate ? sql`AND j.date >= ${fromDate}` : sql``}
           ${toDate ? sql`AND j.date <= ${toDate}` : sql``}`)
     ).rows;
@@ -953,7 +954,8 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private async balances(tenantId: string, from?: string, to?: string, excludeClosing = false, db: DbOrTx = this.db): Promise<BalanceRow[]> {
+  private async balances(tenantId: string, from?: string, to?: string, excludeClosing = false, db: DbOrTx = this.db, branchId?: string): Promise<BalanceRow[]> {
+    const brCond = branchId ? (branchId === 'NONE' ? sql`AND l.branch_id IS NULL` : sql`AND l.branch_id = ${branchId}`) : sql``;
     const fromCond = from ? sql`AND j.date >= ${toDocDate(from)}` : sql``;
     const toCond = to ? sql`AND j.date <= ${toDocDate(to)}` : sql``;
     const closingCond = excludeClosing ? sql`AND j.source_type <> 'CLOSING'` : sql``;
@@ -965,7 +967,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
         SELECT l.account_id, SUM(l.debit) AS debit, SUM(l.credit) AS credit
         FROM journal_lines l
         JOIN journal_entries j ON j.id = l.journal_id
-        WHERE j.tenant_id = ${tenantId} ${fromCond} ${toCond} ${closingCond}
+        WHERE j.tenant_id = ${tenantId} ${fromCond} ${toCond} ${closingCond} ${brCond}
         GROUP BY l.account_id
       ) t ON t.account_id = a.id
       WHERE a.tenant_id = ${tenantId} AND a.is_postable = true

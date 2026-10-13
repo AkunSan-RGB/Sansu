@@ -89,6 +89,7 @@ export class ReverseJournalDto {
 export class PeriodQueryDto {
   @ApiPropertyOptional({ example: '2026-10-01' }) @IsOptional() @IsDateString() from?: string;
   @ApiPropertyOptional({ example: '2026-10-31' }) @IsOptional() @IsDateString() to?: string;
+  @ApiPropertyOptional({ description: 'Hanya satu cabang (id cabang atau NONE = pusat); kosong = gabungan' }) @IsOptional() @Matches(/^(NONE|[0-9a-f-]{36})$/i) branchId?: string;
 }
 
 export class LedgerQueryDto extends PeriodQueryDto {

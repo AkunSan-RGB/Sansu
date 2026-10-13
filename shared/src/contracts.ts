@@ -54,6 +54,7 @@ export interface Me {
   subscription: SubscriptionState;
   /** Gudang yang boleh diakses; null = semua */
   warehouseIds: string[] | null;
+  branchIds?: string[] | null;
   /** Verifikasi 2 langkah: aktif di akun ini / diwajibkan perusahaan */
   twoFactor: { enabled: boolean; required: boolean };
 }
@@ -746,6 +747,7 @@ export interface UserRow {
   isActive: boolean;
   /** Gudang yang boleh diakses; null = semua */
   warehouseIds: string[] | null;
+  branchIds?: string[] | null;
   /** Verifikasi 2 langkah aktif */
   twoFactor: boolean;
   createdAt: string;
@@ -889,6 +891,8 @@ export interface Quotation {
 // ---------- SDM ----------
 export interface Employee {
   id: string;
+  /** Cabang tempat karyawan bekerja (gaji dibebankan ke cabang ini); kosong = Pusat */
+  branchId?: string | null;
   code: string;
   name: string;
   /** Tenaga kerja langsung produksi */
@@ -1182,6 +1186,8 @@ export interface AssetCategory {
 }
 export interface FixedAsset {
   id: string;
+  /** Cabang pemilik aset (penyusutan dibebankan ke cabang ini); kosong = Pusat */
+  branchId?: string | null;
   code: string;
   name: string;
   categoryId: string;
