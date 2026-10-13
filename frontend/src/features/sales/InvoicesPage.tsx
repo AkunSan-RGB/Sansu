@@ -13,9 +13,11 @@ import { INV_STATUS_OPTIONS, InvoiceStatusTag } from './status';
 import PaymentModal, { outstanding } from './PaymentModal';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import { t } from '@/lib/terms';
+import { useAuth } from '@/auth/AuthContext';
 
 export default function InvoicesPage() {
   const navigate = useNavigate();
+  const { me } = useAuth();
   const [status, setStatus] = useState<string>();
   const [paying, setPaying] = useState<Invoice | null>(null);
 
@@ -30,9 +32,11 @@ export default function InvoicesPage() {
       <PageHeader
         title={t('Faktur & Piutang')}
         extra={
-          <Button icon={<PlusOutlined />} onClick={() => navigate('/invoices/services/new')}>
-            Faktur jasa
-          </Button>
+          me?.businessModel === 'RITEL' ? undefined : (
+            <Button icon={<PlusOutlined />} onClick={() => navigate('/invoices/services/new')}>
+              {me?.businessModel === 'JASA' ? 'Tagihan jasa' : 'Faktur jasa'}
+            </Button>
+          )
         }
       />
       <Card>

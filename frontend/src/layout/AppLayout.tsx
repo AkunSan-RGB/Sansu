@@ -74,10 +74,10 @@ const MENU: Group[] = [
     children: [
       { key: '/sales-orders', label: t('Sales Order') },
       { key: '/integrations?tab=marketplace', label: 'Marketplace' },
-      { key: '/deliveries', label: 'Surat jalan', hideFor: ['JASA'] },
+      { key: '/deliveries', label: 'Surat jalan', hideFor: ['JASA', 'RITEL'] },
       { key: '/invoices', label: t('Faktur & piutang') },
-      { key: '/projects', label: 'Proyek & termin' },
-      { key: '/customer-deposits', label: t('Uang muka pelanggan') },
+      { key: '/projects', label: 'Proyek & termin', models: ['JASA'] },
+      { key: '/customer-deposits', label: t('Uang muka pelanggan'), hideFor: ['RITEL'] },
       { key: '/returns?tab=sales', label: t('Retur penjualan') },
       { section: 'Data', items: [{ key: '/customers', label: t('Pelanggan') }] },
     ],
@@ -121,6 +121,7 @@ const MENU: Group[] = [
       { key: '/inventory/warehouses', label: t('Stok per gudang') },
       { key: '/inventory/transfers', label: t('Transfer gudang') },
       { key: '/inventory/counts', label: 'Stock opname' },
+      { key: '/inventory/movement', label: 'Perputaran stok' },
       { key: '/inventory/writedowns', label: 'Penurunan nilai', epOnly: true },
       {
         section: 'Data',
