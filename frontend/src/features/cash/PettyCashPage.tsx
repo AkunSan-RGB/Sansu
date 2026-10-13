@@ -1,3 +1,4 @@
+import { PrinterOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, Modal, Row, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
 import { useEffect, useState } from 'react';
@@ -5,8 +6,10 @@ import { useNavigate } from 'react-router-dom';
 import { get, post, put } from '@/api/client';
 import { LEDGER_KEYS, useAction, useCashAccounts } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
+import { PettyReplenishSheet, PettyVoucherSheet } from '@/components/print/PettyCashDocs';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, rupiahInput, today } from '@/lib/format';
+import { printDoc } from '@/lib/print';
 
 type Fund = {
   id: string;
@@ -59,6 +62,7 @@ export default function PettyCashPage() {
   const [setup, setSetup] = useState(false);
   const [voucherOpen, setVoucherOpen] = useState(false);
   const [voiding, setVoiding] = useState<Voucher | null>(null);
+  const [preview, setPreview] = useState<{ kind: 'voucher'; v: Voucher } | { kind: 'list' } | null>(null);
   const [setupForm] = Form.useForm();
   const [voucherForm] = Form.useForm();
   const [voidForm] = Form.useForm<{ reason: string }>();
@@ -170,6 +174,9 @@ export default function PettyCashPage() {
                   Isi dana awal / tambah plafon
                 </Button>
               )}
+              <Button icon={<PrinterOutlined />} disabled={fund.openCount === 0} onClick={() => setPreview({ kind: 'list' })}>
+                Cetak daftar pengisian kembali
+              </Button>
               <Button onClick={() => navigate('/cash/counts')}>Hitung kas fisik</Button>
             </Space>
           </Card>
@@ -191,12 +198,18 @@ export default function PettyCashPage() {
                 { title: 'Status', dataIndex: 'status', render: (s: Voucher['status']) => <Tag color={STATUS[s][0]}>{STATUS[s][1]}</Tag> },
                 {
                   title: '',
-                  render: (_, v) =>
-                    admin && v.status === 'OPEN' ? (
-                      <Button size="small" danger type="text" onClick={() => { voidForm.resetFields(); setVoiding(v); }}>
-                        Batalkan
+                  render: (_, v) => (
+                    <Space size={0}>
+                      <Button size="small" type="text" icon={<PrinterOutlined />} onClick={() => setPreview({ kind: 'voucher', v })}>
+                        Cetak
                       </Button>
-                    ) : null,
+                      {admin && v.status === 'OPEN' && (
+                        <Button size="small" danger type="text" onClick={() => { voidForm.resetFields(); setVoiding(v); }}>
+                          Batalkan
+                        </Button>
+                      )}
+                    </Space>
+                  ),
                 },
               ]}
             />
@@ -248,6 +261,24 @@ export default function PettyCashPage() {
             <Input />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title={preview?.kind === 'voucher' ? `Cetak ${preview.v.number}` : 'Cetak daftar pengisian kembali'}
+        open={!!preview}
+        onCancel={() => setPreview(null)}
+        width={900}
+        footer={[
+          <Button key="close" onClick={() => setPreview(null)}>
+            Tutup
+          </Button>,
+          <Button key="print" type="primary" icon={<PrinterOutlined />} onClick={() => printDoc(preview?.kind === 'voucher' ? `Bukti kas kecil ${preview.v.number}` : `Pengisian kembali kas kecil ${fund?.name ?? ''}`)}>
+            Cetak / simpan PDF
+          </Button>,
+        ]}
+      >
+        {fund && preview?.kind === 'voucher' && <PettyVoucherSheet fund={fund} v={preview.v} />}
+        {fund && preview?.kind === 'list' && <PettyReplenishSheet fund={fund} vouchers={(vouchers.data ?? []).filter((x) => x.status === 'OPEN')} />}
       </Modal>
 
       <Modal title={`Batalkan ${voiding?.number ?? ''}`} open={!!voiding} onCancel={() => setVoiding(null)} onOk={() => voidForm.submit()} confirmLoading={doVoid.isPending} okText="Batalkan bukti" okButtonProps={{ danger: true }}>
