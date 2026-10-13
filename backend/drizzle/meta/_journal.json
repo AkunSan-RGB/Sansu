@@ -330,6 +330,13 @@
       "when": 1793202686484,
       "tag": "0046_budgets",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1793289086484,
+      "tag": "0047_bank_controls",
+      "breakpoints": true
     }
   ]
 }

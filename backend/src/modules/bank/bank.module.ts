@@ -3,11 +3,11 @@
  * dengan transaksi di buku, buat jurnal untuk mutasi yang belum tercatat (biaya admin, bunga, dll.)
  * dan susun laporan rekonsiliasi saldo bank vs saldo buku.
  */
-import { BadRequestException, Body, Controller, Delete, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsDateString, IsNumberString, IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from 'class-validator';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsDateString, IsIn, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
@@ -15,7 +15,7 @@ import { addDays, diffDays, DocDate, toDocDate, todayJakarta } from '../../commo
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, bankStatementLines, bankStatements, journalLines } from '../../db/schema';
+import { accounts, bankReconciliations, bankRules, bankStatementLines, bankStatements, journalLines } from '../../db/schema';
 import { AccountingModule } from '../accounting/accounting.module';
 import { PostingService } from '../accounting/posting.service';
 
@@ -44,6 +44,23 @@ export class MatchDto {
 export class CreateFromLineDto {
   @ApiProperty({ description: 'Akun lawan, mis. Beban Administrasi Bank atau Pendapatan Bunga' }) @IsUUID() accountId: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) description?: string;
+}
+
+export class ReasonDto {
+  @ApiProperty({ description: 'Alasan (wajib, min. 5 karakter)' }) @IsString() @MinLength(5) @MaxLength(300) reason: string;
+}
+export class BankRuleDto {
+  @ApiProperty({ example: 'Biaya admin bank' }) @IsString() @MinLength(2) @MaxLength(80) name: string;
+  @ApiProperty({ example: 'BIAYA ADM', description: 'Kata yang ada di keterangan mutasi (tidak peka huruf besar/kecil)' }) @IsString() @MinLength(3) @MaxLength(80) keyword: string;
+  @ApiProperty({ enum: ['IN', 'OUT', 'ANY'] }) @IsIn(['IN', 'OUT', 'ANY']) direction: 'IN' | 'OUT' | 'ANY';
+  @ApiProperty({ description: 'Akun pendapatan / beban lawan' }) @IsUUID() accountId: string;
+  @ApiPropertyOptional({ example: '5000000', description: 'Di atas nilai ini tetap diproses manual' }) @IsOptional() @IsNumberString() maxAmount?: string;
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() isActive?: boolean;
+}
+export class SignReconciliationDto {
+  @ApiProperty() @IsUUID() cashAccountId: string;
+  @ApiProperty({ example: '2026-09' }) @Matches(/^\d{4}-(0[1-9]|1[0-2])$/) period: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) notes?: string;
 }
 
 const MATCH_BEFORE = 7;
@@ -126,19 +143,42 @@ export class BankService {
   }
 
   async import(user: AuthUser, dto: ImportStatementDto) {
+    let skipped = 0;
     const id = await this.db.transaction(async (tx) => {
       await this.bankAccount(tx, user.tenantId, dto.cashAccountId);
       const rows = dto.lines.map((l, i) => ({ ...l, date: toDocDate(l.date), amount: money(l.amount), seq: i + 1 })).filter((l) => !l.amount.isZero());
       if (!rows.length) throw new BadRequestException('Tidak ada mutasi bernilai di file');
       const dates = rows.map((r) => r.date).sort();
-      // Tolak impor ganda: mutasi yang sama persis sudah pernah diimpor
-      const dup = await tx.execute<{ n: number }>(sql`
-        SELECT COUNT(*)::int AS n FROM bank_statement_lines l JOIN bank_statements s ON s.id = l.statement_id
-        WHERE s.tenant_id = ${user.tenantId} AND s.cash_account_id = ${dto.cashAccountId}
-          AND l.date BETWEEN ${dates[0]} AND ${dates[dates.length - 1]}`);
-      if (dup.rows[0].n >= rows.length) {
-        throw new BadRequestException(`Mutasi ${dates[0]} s/d ${dates[dates.length - 1]} untuk rekening ini sudah pernah diimpor`);
+      // Integritas: saldo awal + jumlah mutasi harus = saldo akhir; saldo berjalan tiap baris harus konsisten (anti file diubah / salah baca)
+      const sumAmt = rows.reduce<Dec>((a, r) => a.plus(r.amount), ZERO);
+      if (dto.openingBalance && dto.closingBalance && !money(dto.openingBalance).plus(sumAmt).equals(money(dto.closingBalance))) {
+        throw new BadRequestException({ statusCode: 400, code: 'BANK_STATEMENT_INCONSISTENT', message: `Saldo awal ${money(dto.openingBalance).toFixed(2)} + mutasi ${sumAmt.toFixed(2)} tidak sama dengan saldo akhir ${money(dto.closingBalance).toFixed(2)}. File tampak tidak lengkap atau diubah.` });
       }
+      if (rows.length > 1 && rows.every((r) => r.balance != null)) {
+        const chain = (list: typeof rows) => list.every((r, i) => i === 0 || money(r.balance!).minus(money(list[i - 1].balance!)).minus(r.amount).abs().lte(0.01));
+        if (!chain(rows) && !chain([...rows].reverse())) {
+          throw new BadRequestException({ statusCode: 400, code: 'BANK_STATEMENT_INCONSISTENT', message: 'Saldo berjalan pada file tidak cocok dengan jumlah mutasinya. File tampak diubah atau salah baca; unduh ulang dari internet banking.' });
+        }
+      }
+      // Anti catat ganda: mutasi yang sama persis (tanggal, nilai, keterangan) yang sudah pernah diimpor dilewati
+      // (banyaknya diperhitungkan, jadi dua mutasi kembar yang sah di hari yang sama tetap masuk)
+      const existing = await tx.execute<{ k: string; n: number }>(sql`
+        SELECT l.date::text || '|' || l.amount::text || '|' || l.description AS k, COUNT(*)::int AS n
+        FROM bank_statement_lines l JOIN bank_statements s ON s.id = l.statement_id
+        WHERE s.tenant_id = ${user.tenantId} AND s.cash_account_id = ${dto.cashAccountId} AND l.date BETWEEN ${dates[0]} AND ${dates[dates.length - 1]}
+        GROUP BY 1`);
+      const seen = new Map(existing.rows.map((r) => [r.k, r.n]));
+      const fresh = rows.filter((r) => {
+        const k = `${r.date}|${r.amount.toFixed(2)}|${r.description.trim()}`;
+        const left = seen.get(k) ?? 0;
+        if (left > 0) {
+          seen.set(k, left - 1);
+          return false;
+        }
+        return true;
+      });
+      skipped = rows.length - fresh.length;
+      if (!fresh.length) throw new BadRequestException(`Mutasi ${dates[0]} s/d ${dates[dates.length - 1]} untuk rekening ini sudah pernah diimpor`);
       const last = rows.filter((r) => r.balance != null).at(-1);
       const [st] = await tx
         .insert(bankStatements)
@@ -150,13 +190,14 @@ export class BankService {
           periodTo: dates[dates.length - 1],
           openingBalance: dto.openingBalance ? money(dto.openingBalance).toFixed(2) : null,
           closingBalance: dto.closingBalance ? money(dto.closingBalance).toFixed(2) : last?.balance ? money(last.balance).toFixed(2) : null,
+          importedById: user.sub,
         })
         .returning();
       await tx.insert(bankStatementLines).values(
-        rows.map((r) => ({
+        fresh.map((r, i) => ({
           tenantId: user.tenantId,
           statementId: st.id,
-          seq: r.seq,
+          seq: i + 1,
           date: r.date,
           description: r.description.trim(),
           amount: r.amount.toFixed(2),
@@ -164,10 +205,11 @@ export class BankService {
         })),
       );
       await this.autoMatchTx(tx, user.tenantId, st.id);
-      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'IMPORT', entity: 'BankStatement', entityId: st.id, data: { lines: rows.length } });
+      const byRule = await this.applyRules(tx, user, st.id);
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'IMPORT', entity: 'BankStatement', entityId: st.id, data: { lines: fresh.length, skippedDuplicates: skipped, byRule } });
       return st.id;
     });
-    return this.get(user.tenantId, id);
+    return { ...(await this.get(user.tenantId, id)), skippedDuplicates: skipped };
   }
 
   async autoMatch(user: AuthUser, id: string) {
@@ -257,6 +299,7 @@ export class BankService {
       const [taken] = await tx.select({ id: bankStatementLines.id }).from(bankStatementLines).where(eq(bankStatementLines.journalLineId, b.id));
       if (taken) throw new BadRequestException('Transaksi buku itu sudah dicocokkan dengan mutasi lain');
       await tx.update(bankStatementLines).set({ status: 'MATCHED', journalLineId: b.id, matchedBy: 'MANUAL' }).where(eq(bankStatementLines.id, l.id));
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'MATCH', entity: 'BankStatementLine', entityId: l.id, data: { amount: l.amount } });
     });
     return { ok: true };
   }
@@ -266,59 +309,194 @@ export class BankService {
       const { l } = await this.lockLine(tx, user.tenantId, lineId);
       if (l.status === 'CREATED') throw new BadRequestException('Mutasi ini sudah dibuatkan jurnal; balik jurnalnya di Jurnal Umum bila salah');
       await tx.update(bankStatementLines).set({ status: 'UNMATCHED', journalLineId: null, matchedBy: null }).where(eq(bankStatementLines.id, l.id));
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'UNMATCH', entity: 'BankStatementLine', entityId: l.id, data: { amount: l.amount } });
     });
     return { ok: true };
   }
 
-  async ignore(user: AuthUser, lineId: string) {
+  async ignore(user: AuthUser, lineId: string, reason: string) {
+    const note = reason?.trim() ?? '';
+    if (note.length < 5) throw new BadRequestException('Alasan mengabaikan wajib diisi (minimal 5 karakter)');
     await this.db.transaction(async (tx) => {
       const { l } = await this.lockLine(tx, user.tenantId, lineId);
       if (l.status !== 'UNMATCHED') throw new BadRequestException('Mutasi ini sudah diproses');
-      await tx.update(bankStatementLines).set({ status: 'IGNORED' }).where(eq(bankStatementLines.id, l.id));
+      // pemisahan tugas: uang keluar yang tidak ada di buku hanya boleh diabaikan Pemilik/Admin (bukan staf keuangan)
+      if (D(l.amount).isNegative() && !['OWNER', 'ADMIN'].includes(user.role)) throw new ForbiddenException('Uang keluar di bank hanya boleh diabaikan oleh Pemilik atau Admin; catat transaksinya atau minta persetujuan');
+      await tx.update(bankStatementLines).set({ status: 'IGNORED', note }).where(eq(bankStatementLines.id, l.id));
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'IGNORE', entity: 'BankStatementLine', entityId: l.id, data: { amount: l.amount, reason: note } });
     });
     return { ok: true };
   }
 
   /** Mutasi yang belum ada di buku (biaya admin, bunga, transfer masuk tak dikenal) → jurnal langsung */
+  /** Jurnal dari satu mutasi bank yang belum tercatat (dipakai manual dan oleh aturan otomatis) */
+  private async postFromLine(tx: Tx, user: AuthUser, l: typeof bankStatementLines.$inferSelect, st: typeof bankStatements.$inferSelect, accountId: string, description: string | undefined, matchedBy: string) {
+    const [acc] = await tx.select().from(accounts).where(and(eq(accounts.id, accountId), eq(accounts.tenantId, user.tenantId)));
+    if (!acc || !acc.isPostable) throw new BadRequestException('Akun lawan tidak valid');
+    if (acc.id === st.cashAccountId) throw new BadRequestException('Akun lawan tidak boleh rekening bank itu sendiri');
+    const amt = D(l.amount);
+    const abs = amt.abs();
+    const j = await this.posting.post(tx, {
+      tenantId: user.tenantId,
+      date: l.date,
+      description: description?.trim() || l.description,
+      sourceType: 'BANK',
+      sourceId: l.id,
+      reference: 'Rekening koran',
+      createdById: user.sub,
+      lines: amt.gt(0)
+        ? [
+            { accountId: st.cashAccountId, debit: abs },
+            { accountId: acc.id, credit: abs },
+          ]
+        : [
+            { accountId: acc.id, debit: abs },
+            { accountId: st.cashAccountId, credit: abs },
+          ],
+    });
+    const bankLine = j.lines.find((x) => x.accountId === st.cashAccountId)!;
+    await tx.update(bankStatementLines).set({ status: 'CREATED', journalLineId: bankLine.id, journalId: j.id, matchedBy }).where(eq(bankStatementLines.id, l.id));
+    return j;
+  }
+
   async createFromLine(user: AuthUser, lineId: string, dto: CreateFromLineDto) {
     return this.db.transaction(async (tx) => {
       const { l, st } = await this.lockLine(tx, user.tenantId, lineId);
       if (l.status !== 'UNMATCHED') throw new BadRequestException('Mutasi ini sudah diproses');
-      const [acc] = await tx.select().from(accounts).where(and(eq(accounts.id, dto.accountId), eq(accounts.tenantId, user.tenantId)));
-      if (!acc || !acc.isPostable) throw new BadRequestException('Akun lawan tidak valid');
-      if (acc.id === st.cashAccountId) throw new BadRequestException('Akun lawan tidak boleh rekening bank itu sendiri');
-      const amt = D(l.amount);
-      const abs = amt.abs();
-      const j = await this.posting.post(tx, {
-        tenantId: user.tenantId,
-        date: l.date,
-        description: dto.description?.trim() || l.description,
-        sourceType: 'BANK',
-        sourceId: l.id,
-        reference: 'Rekening koran',
-        createdById: user.sub,
-        lines: amt.gt(0)
-          ? [
-              { accountId: st.cashAccountId, debit: abs },
-              { accountId: acc.id, credit: abs },
-            ]
-          : [
-              { accountId: acc.id, debit: abs },
-              { accountId: st.cashAccountId, credit: abs },
-            ],
-      });
-      const bankLine = j.lines.find((x) => x.accountId === st.cashAccountId)!;
-      await tx.update(bankStatementLines).set({ status: 'CREATED', journalLineId: bankLine.id, journalId: j.id, matchedBy: 'CREATED' }).where(eq(bankStatementLines.id, l.id));
+      const j = await this.postFromLine(tx, user, l, st, dto.accountId, dto.description, 'CREATED');
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE_FROM_BANK', entity: 'BankStatementLine', entityId: l.id, data: { amount: l.amount, journal: j.number } });
       return { journalNumber: j.number };
     });
   }
 
-  async remove(user: AuthUser, id: string) {
+  // ---------- Aturan kategori otomatis ----------
+  listRules(tenantId: string) {
+    return this.db.select().from(bankRules).where(eq(bankRules.tenantId, tenantId)).orderBy(asc(bankRules.name));
+  }
+
+  private async ruleAccount(tenantId: string, accountId: string) {
+    const [a] = await this.db.select().from(accounts).where(and(eq(accounts.id, accountId), eq(accounts.tenantId, tenantId)));
+    // hanya akun pendapatan / beban: aturan otomatis tidak boleh menyentuh piutang, hutang, persediaan, atau aset
+    if (!a || !a.isPostable || !['REVENUE', 'EXPENSE'].includes(a.type) || a.isCashAccount) throw new BadRequestException('Aturan otomatis hanya boleh memakai akun pendapatan atau beban');
+  }
+
+  async saveRule(user: AuthUser, dto: BankRuleDto, id?: string) {
+    await this.ruleAccount(user.tenantId, dto.accountId);
+    const values = { name: dto.name.trim(), keyword: dto.keyword.trim(), direction: dto.direction, accountId: dto.accountId, maxAmount: money(dto.maxAmount ?? '5000000').toFixed(2), isActive: dto.isActive ?? true };
+    if (money(values.maxAmount).lte(0)) throw new BadRequestException('Batas nilai harus lebih dari 0');
+    let row;
+    if (id) {
+      [row] = await this.db.update(bankRules).set(values).where(and(eq(bankRules.id, id), eq(bankRules.tenantId, user.tenantId))).returning();
+      if (!row) throw new NotFoundException('Aturan tidak ditemukan');
+    } else {
+      [row] = await this.db.insert(bankRules).values({ ...values, tenantId: user.tenantId, createdById: user.sub }).returning();
+    }
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: id ? 'UPDATE' : 'CREATE', entity: 'BankRule', entityId: row.id, data: { keyword: values.keyword } });
+    return row;
+  }
+
+  async removeRule(user: AuthUser, id: string) {
+    const r = await this.db.delete(bankRules).where(and(eq(bankRules.id, id), eq(bankRules.tenantId, user.tenantId))).returning({ id: bankRules.id });
+    if (!r.length) throw new NotFoundException('Aturan tidak ditemukan');
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'DELETE', entity: 'BankRule', entityId: id });
+    return { ok: true };
+  }
+
+  /** Mutasi yang belum cocok dibuatkan jurnal otomatis bila ada aturan yang cocok dan nilainya di bawah batas aturan */
+  private async applyRules(tx: Tx, user: AuthUser, statementId: string) {
+    const rules = await tx.select().from(bankRules).where(and(eq(bankRules.tenantId, user.tenantId), eq(bankRules.isActive, true)));
+    if (!rules.length) return 0;
+    const [st] = await tx.select().from(bankStatements).where(eq(bankStatements.id, statementId));
+    const accs = new Map((await tx.select().from(accounts).where(and(eq(accounts.tenantId, user.tenantId), inArray(accounts.id, rules.map((r) => r.accountId))))).map((a) => [a.id, a]));
+    const lines = await tx.select().from(bankStatementLines).where(and(eq(bankStatementLines.statementId, statementId), eq(bankStatementLines.status, 'UNMATCHED'))).orderBy(asc(bankStatementLines.date), asc(bankStatementLines.seq));
+    let n = 0;
+    for (const l of lines) {
+      const amt = D(l.amount);
+      const hay = l.description.toUpperCase();
+      const rule = rules.find((r) => hay.includes(r.keyword.toUpperCase()) && (r.direction === 'ANY' || (r.direction === 'IN') === amt.gt(0)) && amt.abs().lte(r.maxAmount));
+      const acc = rule && accs.get(rule.accountId);
+      if (!rule || !acc || !acc.isPostable || !['REVENUE', 'EXPENSE'].includes(acc.type)) continue;
+      await this.postFromLine(tx, user, l, st, rule.accountId, undefined, 'RULE');
+      n++;
+    }
+    return n;
+  }
+
+  // ---------- Pengesahan rekonsiliasi bulanan ----------
+  listSignoffs(tenantId: string, cashAccountId?: string) {
+    return this.db.select().from(bankReconciliations).where(and(eq(bankReconciliations.tenantId, tenantId), cashAccountId ? eq(bankReconciliations.cashAccountId, cashAccountId) : undefined)).orderBy(desc(bankReconciliations.period)).limit(60);
+  }
+
+  /** Sahkan rekonsiliasi akhir bulan: selisih harus nol dan pengesah bukan orang yang mengimpor rekening koran bulan itu */
+  async sign(user: AuthUser, dto: SignReconciliationDto) {
+    const [y, m] = dto.period.split('-').map(Number);
+    const start = `${dto.period}-01` as DocDate;
+    const end = addDays(`${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`, -1);
+    if (end >= todayJakarta()) throw new BadRequestException('Bulan itu belum berakhir');
+    const rec = await this.reconciliation(user.tenantId, dto.cashAccountId, end);
+    if (!rec.reconciled) throw new BadRequestException(`Rekonsiliasi ${dto.period} belum selisih nol (selisih ${rec.difference ?? 'belum ada saldo bank'}). Selesaikan dulu mutasi yang belum cocok.`);
+    if (user.role !== 'OWNER') {
+      const [mine] = (await this.db.execute<{ n: number }>(sql`
+        SELECT COUNT(*)::int AS n FROM bank_statements WHERE tenant_id = ${user.tenantId} AND cash_account_id = ${dto.cashAccountId}
+          AND imported_by_id = ${user.sub} AND period_from <= ${end} AND period_to >= ${start}`)).rows;
+      if (mine.n > 0) throw new ForbiddenException('Rekonsiliasi harus disahkan orang lain dari yang mengimpor rekening koran bulan itu (pemisahan tugas)');
+    }
+    const ins = await this.db.insert(bankReconciliations).values({ tenantId: user.tenantId, cashAccountId: dto.cashAccountId, period: dto.period, bookBalance: rec.bookBalance, signedById: user.sub, notes: dto.notes }).onConflictDoNothing().returning();
+    if (!ins.length) throw new BadRequestException('Periode ini sudah disahkan');
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'SIGN', entity: 'BankReconciliation', entityId: ins[0].id, data: { period: dto.period, bookBalance: rec.bookBalance } });
+    return ins[0];
+  }
+
+  // ---------- Temuan kontrol ----------
+  async controls(tenantId: string) {
+    const today = todayJakarta();
+    const items: { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string; refs: string[] }[] = [];
+    const add = (key: string, level: 'error' | 'warning' | 'info', title: string, refs: string[], detail: string) => {
+      if (refs.length) items.push({ key, level, title: `${title} (${refs.length})`, detail, refs });
+    };
+    const rp = (v: string | number) => `Rp${Math.abs(Math.round(Number(v))).toLocaleString('id-ID')}`;
+    const outRows = await this.db.execute<{ date: string; amount: string; description: string; name: string }>(sql`
+      SELECT l.date::text, l.amount, l.description, a.name FROM bank_statement_lines l JOIN bank_statements s ON s.id = l.statement_id JOIN accounts a ON a.id = s.cash_account_id
+      WHERE s.tenant_id = ${tenantId} AND l.status = 'UNMATCHED' AND l.amount < 0 AND l.date <= ${addDays(today, -3)} ORDER BY l.date`);
+    add('BANK_OUT_UNRECORDED', 'error', 'Uang keluar di bank belum ada di buku', outRows.rows.map((r) => `${r.date} ${rp(r.amount)} ${r.description.slice(0, 40)}`), 'Bank mencatat uang keluar yang tidak ada transaksinya di SANSU > 3 hari. Cari bukti dan catat, atau selidiki.');
+    const inRows = await this.db.execute<{ date: string; amount: string; description: string }>(sql`
+      SELECT l.date::text, l.amount, l.description FROM bank_statement_lines l JOIN bank_statements s ON s.id = l.statement_id
+      WHERE s.tenant_id = ${tenantId} AND l.status = 'UNMATCHED' AND l.amount > 0 AND l.date <= ${addDays(today, -7)} ORDER BY l.date`);
+    add('BANK_IN_UNRECORDED', 'warning', 'Uang masuk di bank belum dicatat', inRows.rows.map((r) => `${r.date} ${rp(r.amount)} ${r.description.slice(0, 40)}`), 'Uang masuk > 7 hari belum dicocokkan ke faktur/penerimaan; bisa jadi penjualan tidak tercatat.');
+    const book = await this.db.execute<{ number: string; credit: string }>(sql`
+      SELECT j.number, l.credit FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
+      WHERE j.tenant_id = ${tenantId} AND a.is_cash_account AND a.code IN (SELECT a2.code FROM accounts a2 WHERE a2.tenant_id = ${tenantId} AND EXISTS (SELECT 1 FROM bank_statements s WHERE s.cash_account_id = a2.id))
+        AND l.credit > 0 AND j.date <= ${addDays(today, -21)} AND j.source_type <> 'CLOSING'
+        AND EXISTS (SELECT 1 FROM bank_statements s WHERE s.cash_account_id = l.account_id AND s.period_to >= j.date)
+        AND NOT EXISTS (SELECT 1 FROM bank_statement_lines b WHERE b.journal_line_id = l.id) ORDER BY j.date LIMIT 50`);
+    add('BOOK_OUT_NOT_IN_BANK', 'warning', 'Pembayaran di buku tidak muncul di bank > 21 hari', book.rows.map((r) => `${r.number} ${rp(r.credit)}`), 'Pembayaran tercatat tetapi tidak pernah keluar dari bank (cek/giro tidak dicairkan, atau pencatatan fiktif).');
+    const ign = await this.db.execute<{ date: string; amount: string; note: string | null }>(sql`
+      SELECT l.date::text, l.amount, l.note FROM bank_statement_lines l JOIN bank_statements s ON s.id = l.statement_id
+      WHERE s.tenant_id = ${tenantId} AND l.status = 'IGNORED' AND l.date >= ${addDays(today, -60)} ORDER BY l.date DESC`);
+    add('BANK_IGNORED', 'info', 'Mutasi bank yang diabaikan', ign.rows.map((r) => `${r.date} ${rp(r.amount)}${r.note ? ` — ${r.note}` : ''}`), 'Tinjau alasan mutasi yang diabaikan; ini cara menyembunyikan uang keluar.');
+    const prev = addDays(`${today.slice(0, 7)}-01`, -1).slice(0, 7);
+    if (Number(today.slice(8, 10)) > 10) {
+      const unsigned = await this.db.execute<{ name: string }>(sql`
+        SELECT a.name FROM accounts a WHERE a.tenant_id = ${tenantId} AND a.is_cash_account
+          AND EXISTS (SELECT 1 FROM bank_statements s WHERE s.cash_account_id = a.id AND s.period_to >= ${`${prev}-01`})
+          AND NOT EXISTS (SELECT 1 FROM bank_reconciliations r WHERE r.cash_account_id = a.id AND r.period = ${prev})`);
+      add('RECON_NOT_SIGNED', 'warning', `Rekonsiliasi ${prev} belum disahkan`, unsigned.rows.map((r) => r.name), 'Selesaikan dan sahkan rekonsiliasi bulan lalu (oleh orang selain pengimpor).');
+    }
+    const rank = { error: 0, warning: 1, info: 2 } as const;
+    items.sort((a, b) => rank[a.level] - rank[b.level]);
+    return { asOf: today, items };
+  }
+
+  async remove(user: AuthUser, id: string, reason: string) {
+    const note = reason?.trim() ?? '';
+    if (!['OWNER', 'ADMIN'].includes(user.role)) throw new ForbiddenException('Hanya Pemilik atau Admin yang boleh menghapus rekening koran');
+    if (note.length < 5) throw new BadRequestException('Alasan penghapusan wajib diisi (minimal 5 karakter)');
     await this.db.transaction(async (tx) => {
       const [st] = await tx.select().from(bankStatements).where(and(eq(bankStatements.id, id), eq(bankStatements.tenantId, user.tenantId)));
       if (!st) throw new NotFoundException('Rekening koran tidak ditemukan');
       // Jurnal yang dibuat dari mutasi tetap ada (transaksinya nyata); hanya pencocokannya yang dilepas
       await tx.delete(bankStatements).where(eq(bankStatements.id, id));
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'DELETE', entity: 'BankStatement', entityId: id, data: { file: st.fileName, from: st.periodFrom, to: st.periodTo, reason: note } });
     });
     return { ok: true };
   }
@@ -417,8 +595,8 @@ export class BankController {
     return this.svc.autoMatch(u, id);
   }
   @Delete('statements/:id')
-  remove(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.remove(u, id);
+  remove(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Query('reason') reason?: string) {
+    return this.svc.remove(u, id, reason ?? '');
   }
   @Get('lines/:id/candidates')
   candidates(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
@@ -433,8 +611,8 @@ export class BankController {
     return this.svc.unmatch(u, id);
   }
   @Post('lines/:id/ignore')
-  ignore(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.ignore(u, id);
+  ignore(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto) {
+    return this.svc.ignore(u, id, dto.reason);
   }
   @Post('lines/:id/create')
   createFromLine(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CreateFromLineDto) {
@@ -447,6 +625,34 @@ export class BankController {
   @Get('status')
   status(@CurrentUser() u: AuthUser) {
     return this.svc.status(u.tenantId);
+  }
+  @Get('controls')
+  controls(@CurrentUser() u: AuthUser) {
+    return this.svc.controls(u.tenantId);
+  }
+  @Get('rules')
+  rules(@CurrentUser() u: AuthUser) {
+    return this.svc.listRules(u.tenantId);
+  }
+  @Post('rules')
+  createRule(@CurrentUser() u: AuthUser, @Body() dto: BankRuleDto) {
+    return this.svc.saveRule(u, dto);
+  }
+  @Put('rules/:id')
+  updateRule(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: BankRuleDto) {
+    return this.svc.saveRule(u, dto, id);
+  }
+  @Delete('rules/:id')
+  deleteRule(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.svc.removeRule(u, id);
+  }
+  @Get('signoffs')
+  signoffs(@CurrentUser() u: AuthUser, @Query('cashAccountId') cashAccountId?: string) {
+    return this.svc.listSignoffs(u.tenantId, cashAccountId && /^[0-9a-f-]{36}$/.test(cashAccountId) ? cashAccountId : undefined);
+  }
+  @Post('signoffs')
+  sign(@CurrentUser() u: AuthUser, @Body() dto: SignReconciliationDto) {
+    return this.svc.sign(u, dto);
   }
 }
 
