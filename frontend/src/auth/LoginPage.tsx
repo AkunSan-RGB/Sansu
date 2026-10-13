@@ -1,34 +1,90 @@
 import { BRAND } from '@sansu/shared';
-import { Alert, Button, Card, Form, Grid, Input, Tabs, Typography } from 'antd';
+import { Alert, Button, Form, Grid, Input, Tabs } from 'antd';
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { CSSProperties, useEffect, useRef, useState } from 'react';
+import { Link, Navigate } from 'react-router-dom';
 import { get } from '@/api/client';
 import Logo, { LogoMark } from '@/brand/Logo';
 import { PASSWORD_RULES } from '@/components/AccountMenu';
 import BusinessModelPicker from '@/components/BusinessModelPicker';
 import { useAuth } from './AuthContext';
+import './login.css';
+import { clearReturnTo, peekReturnTo } from './returnTo';
+
+const LAST_EMAIL_KEY = 'sansu.lastEmail';
+const readLastEmail = () => {
+  try {
+    return localStorage.getItem(LAST_EMAIL_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+};
+const saveLastEmail = (email: string) => {
+  try {
+    localStorage.setItem(LAST_EMAIL_KEY, email);
+  } catch {
+    /* penyimpanan browser tidak tersedia */
+  }
+};
+const trim = (v?: string) => (v ?? '').trim();
+const delay = (s: number): CSSProperties => ({ ['--d' as string]: `${s}s` });
 
 export default function LoginPage() {
   const { me, login, loginTwoFactor, register } = useAuth();
-  const navigate = useNavigate();
   const screens = Grid.useBreakpoint();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [caps, setCaps] = useState(false);
   /** Langkah kedua: kode dari aplikasi authenticator */
   const [challenge, setChallenge] = useState<string>();
   const [useBackup, setUseBackup] = useState(false);
-  // Pendaftaran mandiri bisa ditutup oleh pengelola server (ALLOW_SIGNUP=false)
+  const [codeForm] = Form.useForm<{ code: string }>();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Status server + pendaftaran mandiri (bisa ditutup oleh pengelola server: ALLOW_SIGNUP=false)
   const health = useQuery({
     queryKey: ['health-public'],
     queryFn: () => get<{ signup?: boolean }>('/health'),
     staleTime: 60_000,
+    retry: 1,
+    retryDelay: 1500,
   });
   const signupOpen = health.data?.signup !== false;
+  const server: 'ok' | 'wait' | 'down' = health.isError ? 'down' : health.isPending ? 'wait' : 'ok';
 
-  if (me) return <Navigate to="/" replace />;
+  // Sorotan cahaya mengikuti kursor (satu pembaruan per frame)
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    let raf = 0;
+    const onMove = (e: MouseEvent) => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        root.style.setProperty('--mx', `${e.clientX}px`);
+        root.style.setProperty('--my', `${e.clientY}px`);
+        const card = cardRef.current?.getBoundingClientRect();
+        if (card) {
+          cardRef.current!.style.setProperty('--cx', `${e.clientX - card.left}px`);
+          cardRef.current!.style.setProperty('--cy', `${e.clientY - card.top}px`);
+        }
+      });
+    };
+    window.addEventListener('mousemove', onMove, { passive: true });
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
 
-  const run = async (fn: () => Promise<unknown>) => {
+  // setelah masuk: kembali ke halaman yang tadi dituju (bila ada), lalu bersihkan pengingatnya
+  useEffect(() => {
+    if (me) clearReturnTo();
+  }, [me]);
+  if (me) return <Navigate to={peekReturnTo() ?? '/'} replace />;
+
+  const run = async (fn: () => Promise<unknown>, email?: string) => {
+    if (busy) return; // cegah kirim ganda
     setBusy(true);
     setError(undefined);
     try {
@@ -37,7 +93,8 @@ export default function LoginPage() {
         setChallenge(r.challenge);
         return;
       }
-      navigate('/');
+      if (email) saveLastEmail(email);
+      // pengalihan ke halaman tujuan dilakukan oleh <Navigate> di atas begitu profil pengguna terisi
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -45,270 +102,222 @@ export default function LoginPage() {
     }
   };
 
-  const form = (
-    <Card
-      variant="borderless"
-      style={{
-        width: '100%',
-        maxWidth: 420,
-        borderRadius: 16,
-        boxShadow: '0 1px 2px rgba(13,22,40,0.04), 0 18px 48px -12px rgba(13,22,40,0.16)',
-      }}
-      styles={{ body: { padding: screens.sm ? 36 : 24 } }}
-    >
-      <Typography.Title level={3} style={{ marginTop: 0, marginBottom: 4, fontWeight: 700 }}>
-        Selamat datang
-      </Typography.Title>
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 20 }}>
-        Masuk untuk mengelola bisnis Anda di {BRAND.name}.
-      </Typography.Paragraph>
-      {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
-      {challenge ? (
-        <Form name="two-factor" layout="vertical" onFinish={(v) => run(() => loginTwoFactor(challenge, v.code))}>
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 16 }}
-            message="Verifikasi 2 langkah"
-            description={
-              useBackup
-                ? 'Masukkan salah satu kode cadangan yang Anda simpan saat mengaktifkan verifikasi 2 langkah.'
-                : 'Buka aplikasi authenticator di HP (Google Authenticator, Microsoft Authenticator, dll.) lalu masukkan 6 angka untuk SANSU.'
-            }
-          />
-          <Form.Item
-            name="code"
-            label={useBackup ? 'Kode cadangan' : 'Kode 6 angka'}
-            rules={[{ required: true, message: 'Masukkan kode' }]}
-          >
-            {useBackup ? (
-              <Input size="large" autoFocus placeholder="xxxx-xxxx" autoComplete="off" />
-            ) : (
-              <Input
-                size="large"
-                autoFocus
-                inputMode="numeric"
-                maxLength={6}
-                placeholder="123456"
-                autoComplete="one-time-code"
-                style={{ letterSpacing: 8, fontSize: 22, textAlign: 'center' }}
-              />
-            )}
-          </Form.Item>
-          <Button type="primary" size="large" htmlType="submit" block loading={busy}>
-            Verifikasi & masuk
-          </Button>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14 }}>
-            <Button type="link" style={{ padding: 0 }} onClick={() => setUseBackup((b) => !b)}>
-              {useBackup ? 'Pakai kode dari aplikasi' : 'Pakai kode cadangan'}
-            </Button>
-            <Button
-              type="link"
-              style={{ padding: 0 }}
-              onClick={() => {
-                setChallenge(undefined);
-                setUseBackup(false);
-                setError(undefined);
-              }}
-            >
-              Kembali
-            </Button>
-          </div>
-        </Form>
-      ) : (
-        <Tabs
-          items={[
-            {
-              key: 'login',
-              label: 'Masuk',
-              children: (
-                <Form
-                  name="login"
-                  layout="vertical"
-                  onFinish={(v) => run(() => login(v.email, v.password))}
-                  initialValues={import.meta.env.DEV ? { email: 'admin@demo.id', password: 'demo12345' } : undefined}
-                >
-                  <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}>
-                    <Input size="large" autoComplete="email" />
-                  </Form.Item>
-                  <Form.Item
-                    name="password"
-                    label="Kata sandi"
-                    rules={[{ required: true }]}
-                    style={{ marginBottom: 8 }}
-                  >
-                    <Input.Password size="large" autoComplete="current-password" />
-                  </Form.Item>
-                  <div style={{ textAlign: 'right', marginBottom: 20 }}>
-                    <Link to="/forgot-password">Lupa kata sandi?</Link>
-                  </div>
-                  <Button type="primary" size="large" htmlType="submit" block loading={busy}>
-                    Masuk
-                  </Button>
-                </Form>
-              ),
-            },
-            {
-              key: 'register',
-              label: 'Coba gratis',
-              children: (
-                <Form name="register" layout="vertical" initialValues={{ businessModel: 'DAGANG' }} onFinish={(v) => run(() => register(v))}>
-                  <Form.Item name="businessModel" label="Model bisnis Anda" extra="Menentukan aplikasi yang disiapkan. Bisa diubah kapan saja.">
-                    <BusinessModelPicker />
-                  </Form.Item>
-                  <Form.Item name="companyName" label="Nama perusahaan" rules={[{ required: true }]}>
-                    <Input />
-                  </Form.Item>
-                  <Form.Item name="name" label="Nama Anda" rules={[{ required: true }]}>
-                    <Input />
-                  </Form.Item>
-                  <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}>
-                    <Input />
-                  </Form.Item>
-                  <Form.Item name="password" label="Kata sandi (min. 8, huruf & angka)" rules={PASSWORD_RULES}>
-                    <Input.Password autoComplete="new-password" />
-                  </Form.Item>
-                  <Button type="primary" htmlType="submit" block loading={busy}>
-                    Buat akun perusahaan
-                  </Button>
-                </Form>
-              ),
-            },
-          ].filter((t) => t.key !== 'register' || signupOpen)}
-        />
+  const statusPill = (
+    <div className={`lg-status ${server} lg-in`} style={delay(0.05)} role="status" aria-live="polite">
+      <i />
+      {server === 'ok' && 'Server SANSU terhubung'}
+      {server === 'wait' && 'Menghubungkan ke server…'}
+      {server === 'down' && (
+        <>
+          Server belum terhubung ·{' '}
+          <button type="button" onClick={() => health.refetch()}>
+            Coba lagi
+          </button>
+        </>
       )}
-    </Card>
+    </div>
+  );
+
+  const loginForm = (
+    <Form
+      name="login"
+      layout="vertical"
+      requiredMark={false}
+      onFinish={(v) => run(() => login(trim(v.email).toLowerCase(), v.password), trim(v.email).toLowerCase())}
+      initialValues={import.meta.env.DEV ? { email: 'admin@demo.id', password: 'demo12345' } : { email: readLastEmail() }}
+    >
+      <Form.Item name="email" label="Email" normalize={trim} rules={[{ required: true, message: 'Masukkan email' }, { type: 'email', message: 'Format email belum benar' }]}>
+        <Input size="large" autoComplete="email" inputMode="email" autoFocus={!readLastEmail()} placeholder="nama@perusahaan.com" />
+      </Form.Item>
+      <Form.Item name="password" label="Kata sandi" rules={[{ required: true, message: 'Masukkan kata sandi' }]} style={{ marginBottom: 8 }}>
+        <Input.Password
+          size="large"
+          autoComplete="current-password"
+          autoFocus={!!readLastEmail()}
+          onKeyUp={(e) => setCaps(e.getModifierState('CapsLock'))}
+          onBlur={() => setCaps(false)}
+        />
+      </Form.Item>
+      {caps && <div className="lg-caps">⚠ Caps Lock sedang aktif</div>}
+      <div style={{ textAlign: 'right', marginBottom: 20 }}>
+        <Link to="/forgot-password">Lupa kata sandi?</Link>
+      </div>
+      <Button className="lg-cta" type="primary" size="large" htmlType="submit" block loading={busy}>
+        Masuk
+      </Button>
+    </Form>
+  );
+
+  const registerForm = (
+    <Form name="register" layout="vertical" initialValues={{ businessModel: 'DAGANG' }} onFinish={(v) => run(() => register({ ...v, email: trim(v.email).toLowerCase() }))}>
+      <Form.Item name="businessModel" label="Model bisnis Anda" extra="Menentukan aplikasi yang disiapkan. Bisa diubah kapan saja.">
+        <BusinessModelPicker />
+      </Form.Item>
+      <Form.Item name="companyName" label="Nama perusahaan" normalize={trim} rules={[{ required: true }]}>
+        <Input />
+      </Form.Item>
+      <Form.Item name="name" label="Nama Anda" normalize={trim} rules={[{ required: true }]}>
+        <Input />
+      </Form.Item>
+      <Form.Item name="email" label="Email" normalize={trim} rules={[{ required: true, type: 'email' }]}>
+        <Input autoComplete="email" />
+      </Form.Item>
+      <Form.Item name="password" label="Kata sandi (min. 8, huruf & angka)" rules={PASSWORD_RULES}>
+        <Input.Password autoComplete="new-password" />
+      </Form.Item>
+      <Button className="lg-cta" type="primary" htmlType="submit" block loading={busy}>
+        Buat akun perusahaan
+      </Button>
+    </Form>
+  );
+
+  const twoFactorForm = challenge && (
+    <Form form={codeForm} name="two-factor" layout="vertical" onFinish={(v) => run(() => loginTwoFactor(challenge, v.code.trim()))}>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16, borderRadius: 12 }}
+        message="Verifikasi 2 langkah"
+        description={
+          useBackup
+            ? 'Masukkan salah satu kode cadangan yang Anda simpan saat mengaktifkan verifikasi 2 langkah.'
+            : 'Buka aplikasi authenticator di HP (Google Authenticator, Microsoft Authenticator, dll.) lalu masukkan 6 angka untuk SANSU.'
+        }
+      />
+      <Form.Item name="code" label={useBackup ? 'Kode cadangan' : 'Kode 6 angka'} rules={[{ required: true, message: 'Masukkan kode' }]}>
+        {useBackup ? (
+          <Input size="large" autoFocus placeholder="xxxx-xxxx" autoComplete="off" />
+        ) : (
+          <Input
+            size="large"
+            autoFocus
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="123456"
+            autoComplete="one-time-code"
+            style={{ letterSpacing: 8, fontSize: 22, textAlign: 'center' }}
+            onChange={(e) => {
+              // hanya angka; kirim otomatis begitu 6 angka lengkap
+              const digits = e.target.value.replace(/\D/g, '').slice(0, 6);
+              codeForm.setFieldValue('code', digits);
+              if (digits.length === 6 && !busy) codeForm.submit();
+            }}
+          />
+        )}
+      </Form.Item>
+      <Button className="lg-cta" type="primary" size="large" htmlType="submit" block loading={busy}>
+        Verifikasi & masuk
+      </Button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14 }}>
+        <Button type="link" style={{ padding: 0 }} onClick={() => { setUseBackup((b) => !b); codeForm.resetFields(); }}>
+          {useBackup ? 'Pakai kode dari aplikasi' : 'Pakai kode cadangan'}
+        </Button>
+        <Button
+          type="link"
+          style={{ padding: 0 }}
+          onClick={() => {
+            setChallenge(undefined);
+            setUseBackup(false);
+            setError(undefined);
+          }}
+        >
+          Kembali
+        </Button>
+      </div>
+    </Form>
   );
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', background: BRAND.colors.surface }}>
+    <div className="lg-root" ref={rootRef}>
+      <div className="lg-aurora" aria-hidden>
+        <span className="lg-orb a" />
+        <span className="lg-orb b" />
+        <span className="lg-orb c" />
+      </div>
       {screens.lg ? <Hero /> : null}
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '32px 16px',
-          gap: 28,
-        }}
-      >
+      <main className="lg-panel">
         {!screens.lg && (
-          <div style={{ textAlign: 'center' }}>
+          <div className="lg-in" style={{ textAlign: 'center' }}>
             <Logo size={44} />
-            <div style={{ marginTop: 12, color: BRAND.colors.primary, fontWeight: 600, fontSize: 15 }}>
-              {BRAND.tagline}
-            </div>
+            <div style={{ marginTop: 12, color: BRAND.colors.primary, fontWeight: 600, fontSize: 15 }}>{BRAND.tagline}</div>
           </div>
         )}
-        {form}
+        {statusPill}
+        <div className="lg-card lg-in" style={delay(0.12)} ref={cardRef}>
+          <h2>{challenge ? 'Satu langkah lagi' : 'Selamat datang'}</h2>
+          <p className="lg-lead">{challenge ? 'Pastikan ini benar-benar Anda.' : `Masuk untuk mengelola bisnis Anda di ${BRAND.name}.`}</p>
+          {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16, borderRadius: 12 }} />}
+          {challenge ? (
+            twoFactorForm
+          ) : (
+            <Tabs
+              onChange={() => setError(undefined)}
+              items={[
+                { key: 'login', label: 'Masuk', children: loginForm },
+                { key: 'register', label: 'Coba gratis', children: registerForm },
+              ].filter((t) => t.key !== 'register' || signupOpen)}
+            />
+          )}
+        </div>
         {!screens.lg && <ValueChips />}
-      </div>
+      </main>
     </div>
   );
 }
 
-/** Panel kiri (layar lebar): logo, tagline, dan makna SANSU. */
+/** Panel kiri (layar lebar): logo, tagline, dan makna SANSU yang menyala bergantian. */
 function Hero() {
-  const c = BRAND.colors;
+  const [active, setActive] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const n = BRAND.values.length;
+
+  useEffect(() => {
+    if (paused || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const t = setInterval(() => setActive((a) => (a + 1) % n), 2800);
+    return () => clearInterval(t);
+  }, [paused, n]);
+
   return (
-    <div
-      style={{
-        flex: '0 0 52%',
-        maxWidth: 760,
-        position: 'relative',
-        overflow: 'hidden',
-        color: '#fff',
-        padding: '48px 64px',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'space-between',
-        gap: 40,
-        background: `radial-gradient(900px 520px at 100% 0%, ${c.accent}26, transparent 60%), radial-gradient(700px 500px at 0% 100%, #2A4580aa, transparent 65%), linear-gradient(155deg, ${c.inkSoft} 0%, ${c.ink} 55%, #080F1D 100%)`,
-      }}
-    >
-      {/* garis diagonal halus — gema dari garis hijau di logo */}
-      <div
-        aria-hidden
-        style={{
-          position: 'absolute',
-          inset: 0,
-          backgroundImage: 'repeating-linear-gradient(-45deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 28px)',
-          maskImage: 'linear-gradient(180deg, #000 0%, transparent 85%)',
-          WebkitMaskImage: 'linear-gradient(180deg, #000 0%, transparent 85%)',
-        }}
-      />
-      {/* tanda besar samar di pojok */}
-      <div aria-hidden style={{ position: 'absolute', right: -90, bottom: -70, opacity: 0.06 }}>
+    <div className="lg-hero">
+      <div className="lg-grid" aria-hidden />
+      <div className="lg-bigmark" aria-hidden>
         <LogoMark size={460} tone="light" />
       </div>
 
-      <div style={{ position: 'relative' }}>
+      <div className="lg-in" style={{ position: 'relative' }}>
         <Logo size={42} tone="light" />
       </div>
 
-      <div style={{ position: 'relative', maxWidth: 520 }}>
-        <h1
-          style={{
-            color: '#fff',
-            fontSize: 40,
-            lineHeight: 1.15,
-            fontWeight: 700,
-            letterSpacing: '-0.02em',
-            margin: '0 0 36px',
-          }}
-        >
-          {BRAND.tagline}
+      <div style={{ position: 'relative', maxWidth: 540 }}>
+        <h1 className="lg-title lg-in" style={delay(0.1)}>
+          Alur Bisnis Terhubung dalam <em>Satu Sistem</em>
         </h1>
+        <p className="lg-sub lg-in" style={delay(0.2)}>
+          Dari penjualan, stok, hingga pajak dan laporan — semuanya mengalir otomatis, akurat sampai rupiah terakhir.
+        </p>
 
-        {/* makna SANSU: lima huruf tersambung satu alur */}
-        <div style={{ position: 'relative' }}>
-          <div
-            aria-hidden
-            style={{
-              position: 'absolute',
-              left: 21,
-              top: 26,
-              bottom: 26,
-              width: 1,
-              background: `linear-gradient(180deg, ${c.accent}cc 0%, ${c.accent}55 50%, rgba(255,255,255,0.08) 100%)`,
-            }}
-          />
+        <div className="lg-vals lg-in" style={delay(0.3)} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
+          <div className="lg-rail" aria-hidden>
+            <i style={{ height: `${((active + 1) / n) * 100}%` }} />
+          </div>
           {BRAND.values.map((v, i) => (
-            <div
-              key={i}
-              style={{ position: 'relative', display: 'flex', gap: 20, alignItems: 'flex-start', padding: '9px 0' }}
-            >
-              <span
-                style={{
-                  flex: 'none',
-                  width: 43,
-                  height: 43,
-                  borderRadius: '50%',
-                  display: 'grid',
-                  placeItems: 'center',
-                  fontSize: 17,
-                  fontWeight: 700,
-                  letterSpacing: '0.02em',
-                  color: '#fff',
-                  background: `radial-gradient(circle at 30% 25%, ${c.accent}55, ${c.ink} 72%)`,
-                  boxShadow: `0 0 0 1px ${c.accent}80, 0 0 0 5px ${c.ink}, 0 8px 22px -10px ${c.accent}`,
-                }}
-              >
-                {v.letter}
-              </span>
+            <div key={i} className={`lg-val${i === active ? ' on' : ''}`} onMouseEnter={() => setActive(i)}>
+              <span className="lg-badge">{v.letter}</span>
               <div style={{ minWidth: 0, paddingTop: 1 }}>
-                <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '0.03em', lineHeight: 1.35 }}>
-                  <span style={{ color: c.accent }}>{v.word.charAt(0)}</span>
+                <div className="lg-word">
+                  <b>{v.word.charAt(0)}</b>
                   {v.word.slice(1)}
                 </div>
-                <div style={{ fontSize: 13.5, lineHeight: 1.55, color: 'rgba(255,255,255,0.62)', marginTop: 2 }}>
-                  {v.text}
-                </div>
+                <div className="lg-text">{v.text}</div>
               </div>
             </div>
           ))}
+        </div>
+
+        <div className="lg-trust lg-in" style={delay(0.45)}>
+          <span>Data tiap perusahaan terisolasi</span>
+          <span>Verifikasi 2 langkah</span>
+          <span>Jejak audit lengkap</span>
         </div>
       </div>
 
@@ -322,7 +331,7 @@ function Hero() {
 /** Versi ringkas makna SANSU untuk layar HP. */
 function ValueChips() {
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8, maxWidth: 420 }}>
+    <div className="lg-in" style={{ ...delay(0.25), display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8, maxWidth: 420 }}>
       {BRAND.values.map((v, i) => (
         <span
           key={i}
@@ -333,24 +342,13 @@ function ValueChips() {
             gap: 6,
             padding: '4px 10px 4px 4px',
             borderRadius: 999,
-            background: '#fff',
+            background: 'rgba(255,255,255,0.8)',
             border: '1px solid #e3e8f0',
             fontSize: 12.5,
             color: BRAND.colors.mark,
           }}
         >
-          <b
-            style={{
-              width: 22,
-              height: 22,
-              borderRadius: 999,
-              display: 'grid',
-              placeItems: 'center',
-              background: BRAND.colors.primary,
-              color: '#fff',
-              fontSize: 12,
-            }}
-          >
+          <b style={{ width: 22, height: 22, borderRadius: 999, display: 'grid', placeItems: 'center', background: BRAND.colors.primary, color: '#fff', fontSize: 12 }}>
             {v.letter}
           </b>
           {v.word}
