@@ -3,6 +3,8 @@ import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestj
 import { Type } from 'class-transformer';
 import { ArrayMinSize, IsBoolean, IsIn, IsNumberString, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateNested } from 'class-validator';
 import { and, desc, eq, sql } from 'drizzle-orm';
+import { CONTROL_PROFILES } from '@sansu/shared';
+import { SettingsService } from '../../common/settings.service';
 import { RequireApp } from '../../common/apps/app.guard';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -181,11 +183,15 @@ export interface PosFinding {
 /** Temuan kontrol kasir 30 hari terakhir: selisih kas, sesi menggantung, retur berulang, dijual di bawah HPP */
 @Injectable()
 export class PosControlsService {
-  constructor(@InjectDb() private readonly db: Db) {}
+  constructor(
+    @InjectDb() private readonly db: Db,
+    private readonly settings: SettingsService,
+  ) {}
 
   async controls(tenantId: string) {
     const today = todayJakarta();
     const since = addDays(today, -30);
+    const cp = CONTROL_PROFILES[await this.settings.businessModel(this.db, tenantId)];
     const items: PosFinding[] = [];
     const add = (key: string, level: PosFinding['level'], title: string, refs: string[], detail: string) => {
       if (refs.length) items.push({ key, level, title: `${title} (${refs.length})`, detail, refs });
@@ -196,7 +202,7 @@ export class PosControlsService {
     add('SESSION_DIFF', 'warning', 'Selisih kas saat tutup kasir', diff.rows.map((r) => `${r.number} ${r.name} (${Number(r.difference) > 0 ? '+' : '−'}Rp${Math.abs(Number(r.difference)).toLocaleString('id-ID')})`), 'Uang di laci tidak sama dengan seharusnya. Selisih berulang pada kasir yang sama patut diselidiki.');
     const old = await this.db.execute<{ number: string; name: string }>(sql`
       SELECT s.number, u.name FROM pos_sessions s JOIN users u ON u.id = s.user_id
-      WHERE s.tenant_id = ${tenantId} AND s.status = 'OPEN' AND s.opened_at < now() - interval '30 hours'`);
+      WHERE s.tenant_id = ${tenantId} AND s.status = 'OPEN' AND s.opened_at < now() - make_interval(hours => ${cp.posOpenHours})`);
     add('SESSION_OPEN_OLD', 'warning', 'Sesi kasir terbuka lebih dari sehari', old.rows.map((r) => `${r.number} ${r.name}`), 'Tutup kasir tiap hari agar uang laci dihitung dan dijurnal.');
     const rets = await this.db.execute<{ number: string; total: string; reason: string }>(sql`
       SELECT r.number, r.total, r.reason FROM pos_returns r WHERE r.tenant_id = ${tenantId} AND r.date >= ${since} ORDER BY r.date DESC`);

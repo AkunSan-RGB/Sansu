@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { REPORT_GROUPS } from '@sansu/shared';
+import { CONTROL_PROFILES, REPORT_GROUPS } from '@sansu/shared';
+import { SettingsService } from '../../common/settings.service';
 import { IsBoolean, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service';
@@ -48,6 +49,7 @@ export class BranchesService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly audit: AuditService,
+    private readonly settings: SettingsService,
   ) {}
 
   async list(tenantId: string) {
@@ -218,6 +220,7 @@ export class BranchesService {
     const brs = await this.db.select().from(branches).where(and(eq(branches.tenantId, tenantId), eq(branches.isActive, true)));
     if (!brs.length) return { items };
     const today = todayJakarta();
+    const cp = CONTROL_PROFILES[await this.settings.businessModel(this.db, tenantId)];
     const unassigned = await this.db.select({ code: warehouses.code, name: warehouses.name }).from(warehouses).where(and(eq(warehouses.tenantId, tenantId), eq(warehouses.isActive, true), sql`${warehouses.branchId} IS NULL`));
     add('WAREHOUSE_NO_BRANCH', 'warning', 'Gudang/toko belum masuk cabang mana pun', unassigned.map((w) => `${w.code} ${w.name}`), 'Transaksi di gudang ini tidak berlabel cabang sehingga masuk "Pusat / belum ditentukan". Atur di Pengaturan › Cabang.');
     const rep90 = await this.report(tenantId, addDays(today, -90), today);
@@ -233,17 +236,17 @@ export class BranchesService {
       const s = rep90.summary[b.id];
       if (!s || Number(s.revenue) <= 0) continue;
       if (Number(s.netProfit) < 0) neg.push(`${b.code} ${b.name}`);
-      else if (coMargin !== null && s.margin !== null && Number(s.margin) < coMargin - 15) low.push(`${b.code} ${b.name} (margin ${s.margin}% vs rata-rata ${coMargin.toFixed(1)}%)`);
+      else if (coMargin !== null && s.margin !== null && Number(s.margin) < coMargin - cp.branchMarginGapPts) low.push(`${b.code} ${b.name} (margin ${s.margin}% vs rata-rata ${coMargin.toFixed(1)}%)`);
     }
     add('BRANCH_LOSS', 'warning', 'Cabang merugi (90 hari)', neg, 'Biaya cabang melebihi pendapatannya. Tinjau biaya dan kemungkinan pendapatan yang belum tercatat.');
-    add('BRANCH_LOW_MARGIN', 'info', 'Margin cabang jauh di bawah rata-rata', low, 'Margin laba bersih lebih dari 15 poin di bawah rata-rata perusahaan.');
+    add('BRANCH_LOW_MARGIN', 'info', 'Margin cabang jauh di bawah rata-rata', low, `Margin laba bersih lebih dari ${cp.branchMarginGapPts} poin di bawah rata-rata perusahaan.`);
     const act = await this.db.execute<{ id: string }>(sql`
       SELECT DISTINCT l.branch_id::text AS id FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
-      WHERE j.tenant_id = ${tenantId} AND a.type = 'REVENUE' AND l.branch_id IS NOT NULL AND j.date >= ${addDays(today, -30)} AND j.source_type <> 'CLOSING'`);
+      WHERE j.tenant_id = ${tenantId} AND a.type = 'REVENUE' AND l.branch_id IS NOT NULL AND j.date >= ${addDays(today, -cp.branchNoSalesDays)} AND j.source_type <> 'CLOSING'`);
     const active = new Set(act.rows.map((r) => r.id));
-    const firstTx = await this.db.execute<{ id: string }>(sql`SELECT DISTINCT branch_id::text AS id FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id WHERE j.tenant_id = ${tenantId} AND branch_id IS NOT NULL AND j.date < ${addDays(today, -30)}`);
+    const firstTx = await this.db.execute<{ id: string }>(sql`SELECT DISTINCT branch_id::text AS id FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id WHERE j.tenant_id = ${tenantId} AND branch_id IS NOT NULL AND j.date < ${addDays(today, -cp.branchNoSalesDays)}`);
     const hadHistory = new Set(firstTx.rows.map((r) => r.id));
-    add('BRANCH_NO_SALES', 'warning', 'Cabang tanpa pendapatan 30 hari terakhir', brs.filter((b) => hadHistory.has(b.id) && !active.has(b.id)).map((b) => `${b.code} ${b.name}`), 'Cabang yang biasanya berjualan tiba-tiba tanpa pendapatan: periksa apakah penjualan tidak dicatat.');
+    add('BRANCH_NO_SALES', 'warning', `Cabang tanpa pendapatan ${cp.branchNoSalesDays} hari terakhir`, brs.filter((b) => hadHistory.has(b.id) && !active.has(b.id)).map((b) => `${b.code} ${b.name}`), 'Cabang yang biasanya berjualan tiba-tiba tanpa pendapatan: periksa apakah penjualan tidak dicatat.');
     const bs = await this.balanceSheet(tenantId, today);
     if (!bs.interbranch.eliminated) add('INTERBRANCH_NOT_ZERO', 'error', 'Rekening Antar Cabang tidak nol saat digabung', [`selisih Rp${Math.abs(Number(bs.interbranch.net)).toLocaleString('id-ID')}`], 'Seharusnya nol karena transaksi antar-cabang saling menghapus. Periksa jurnal yang memakai akun ini.');
     const off = Object.entries(bs.summary).filter(([, v]) => !v.balanced).map(([k, v]) => `${k === NONE ? 'Pusat' : (brs.find((b) => b.id === k)?.code ?? k)} (selisih Rp${Math.abs(Number(v.difference)).toLocaleString('id-ID')})`);

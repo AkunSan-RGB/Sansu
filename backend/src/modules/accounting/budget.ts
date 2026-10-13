@@ -1,3 +1,5 @@
+import { BUDGET_SUGGESTED_CODES } from '@sansu/shared';
+import { SettingsService } from '../../common/settings.service';
 import { ApprovalsService, type ApprovalKind } from '../../common/approvals/approvals.service';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
@@ -46,6 +48,7 @@ export class BudgetService {
     private readonly mail: MailService,
     private readonly telegram: TelegramService,
     private readonly approvals: ApprovalsService,
+    private readonly settings: SettingsService,
   ) {}
 
   /** Akun pendapatan & beban yang boleh dianggarkan */
@@ -60,6 +63,14 @@ export class BudgetService {
   private async find(tenantId: string, year: number) {
     const [b] = await this.db.select().from(budgets).where(and(eq(budgets.tenantId, tenantId), eq(budgets.year, year)));
     return b;
+  }
+
+  /** Akun yang disarankan masuk anggaran untuk jenis usaha perusahaan (hanya yang ada & aktif di bagan akun) */
+  async suggested(tenantId: string) {
+    const model = await this.settings.businessModel(this.db, tenantId);
+    const accs = await this.plAccounts(tenantId);
+    const codes = BUDGET_SUGGESTED_CODES[model];
+    return { model, accountIds: accs.filter((a) => codes.includes(a.code)).map((a) => a.id) };
   }
 
   /** Anggaran + isian per akun (12 bulan) untuk layar penyusunan */
@@ -347,6 +358,12 @@ const yearOf = (y: number) => {
 @Controller('budgets')
 export class BudgetController {
   constructor(private readonly svc: BudgetService) {}
+
+  @Get('suggested')
+  @Roles('ADMIN', 'FINANCE')
+  suggested(@CurrentUser() u: AuthUser) {
+    return this.svc.suggested(u.tenantId);
+  }
 
   @Get(':year')
   @Roles('ADMIN', 'FINANCE')

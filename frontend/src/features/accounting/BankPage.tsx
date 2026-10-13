@@ -450,14 +450,26 @@ function RulesTab() {
     { success: 'Aturan disimpan', invalidate: ['bank', 'rules'], onSuccess: () => setEditing(null) },
   );
   const del = useAction((id: string) => api(`/bank/rules/${id}`, { method: 'DELETE' }), { success: 'Aturan dihapus', invalidate: ['bank', 'rules'] });
+  const { me } = useAuth();
+  const admin = me?.role === 'OWNER' || me?.role === 'ADMIN';
+  const defaults = useAction(() => post<{ added: number }>('/bank/rules/defaults'), { success: (r) => (r.added ? `${r.added} aturan bawaan dipasang` : 'Aturan bawaan sudah ada semua'), invalidate: ['bank', 'rules'] });
   const options = (accounts.data ?? []).filter((a) => a.isPostable && (a.type === 'EXPENSE' || a.type === 'REVENUE')).map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` }));
   const name = (id: string) => accounts.data?.find((a) => a.id === id);
   return (
     <>
       <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Saat mutasi diimpor, mutasi yang belum cocok dengan buku dan memuat kata kunci aturan langsung dijurnal otomatis (mis. 'BIAYA ADM' → Beban Administrasi Bank). Hanya akun pendapatan/beban, dan hanya sampai batas nilai aturan; di atasnya tetap manual." />
-      <Button type="primary" style={{ marginBottom: 12 }} onClick={() => { form.resetFields(); form.setFieldsValue({ direction: 'OUT', maxAmount: 5000000 }); setEditing('new'); }}>
-        Aturan baru
-      </Button>
+      {admin ? (
+        <Space style={{ marginBottom: 12 }}>
+          <Button type="primary" onClick={() => { form.resetFields(); form.setFieldsValue({ direction: 'OUT', maxAmount: 5000000 }); setEditing('new'); }}>
+            Aturan baru
+          </Button>
+          <Button onClick={() => defaults.mutate(undefined)} loading={defaults.isPending}>
+            Pasang aturan bawaan untuk usaha Anda
+          </Button>
+        </Space>
+      ) : (
+        <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="Aturan otomatis hanya dapat diubah Pemilik/Admin." />
+      )}
       <Table
         rowKey="id"
         size="small"
@@ -471,7 +483,7 @@ function RulesTab() {
           { title: 'Akun', render: (_, r: BankRule) => `${name(r.accountId)?.code ?? ''} ${name(r.accountId)?.name ?? ''}` },
           { title: 'Batas nilai', dataIndex: 'maxAmount', align: 'right', render: fmtMoney },
           {
-            render: (_, r: BankRule) => (
+            render: (_, r: BankRule) => admin && (
               <Space>
                 <Button size="small" type="link" onClick={() => { form.setFieldsValue({ ...r, maxAmount: Number(r.maxAmount) }); setEditing(r); }}>Ubah</Button>
                 <Popconfirm title="Hapus aturan ini?" onConfirm={() => del.mutate(r.id)}>
