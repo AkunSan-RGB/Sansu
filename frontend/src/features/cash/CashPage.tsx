@@ -69,6 +69,14 @@ export default function CashPage() {
   const canVoid = me?.role === 'OWNER' || me?.role === 'ADMIN';
   const [voiding, setVoiding] = useState<CashTransaction | null>(null);
   const [voidForm] = Form.useForm<{ reason: string }>();
+  const canEvidence = me?.role === 'OWNER' || me?.role === 'ADMIN' || me?.role === 'FINANCE';
+  const [proofing, setProofing] = useState<CashTransaction | null>(null);
+  const [proofForm] = Form.useForm<{ reference: string }>();
+  const doProof = useAction((v: { id: string; reference: string }) => post(`/cash/transactions/${v.id}/evidence`, { reference: v.reference }), {
+    success: 'Nomor bukti disimpan',
+    invalidate: ['cash'],
+    onSuccess: () => setProofing(null),
+  });
   const doVoid = useAction((v: { id: string; reason: string }) => post(`/cash/transactions/${v.id}/void`, { reason: v.reason }), {
     success: 'Transaksi dibatalkan (jurnal pembalik dibuat)',
     invalidate: [...LEDGER_KEYS, 'cash'],
@@ -215,7 +223,26 @@ export default function CashPage() {
               render: (_, t) => (t.toCashAccount ? `${t.cashAccount.name} → ${t.toCashAccount.name}` : t.cashAccount.name),
             },
             { title: 'Keterangan', dataIndex: 'description' },
-            { title: 'Referensi', dataIndex: 'reference' },
+            {
+              title: 'Referensi',
+              dataIndex: 'reference',
+              render: (r: string | undefined, t: CashTransaction) =>
+                r || t.status === 'VOID' || t.type === 'IN' || !canEvidence ? (
+                  r
+                ) : (
+                  <Button
+                    size="small"
+                    type="link"
+                    style={{ padding: 0 }}
+                    onClick={() => {
+                      proofForm.resetFields();
+                      setProofing(t);
+                    }}
+                  >
+                    Lengkapi bukti
+                  </Button>
+                ),
+            },
             {
               title: 'Status',
               render: (_, t) =>
@@ -262,6 +289,15 @@ export default function CashPage() {
           ]}
         />
       </Card>
+
+      <Modal title={`Nomor bukti ${proofing?.number ?? ''}`} open={!!proofing} onCancel={() => setProofing(null)} onOk={() => proofForm.submit()} confirmLoading={doProof.isPending} okText="Simpan">
+        <Typography.Paragraph type="secondary">Isi nomor kuitansi / nota / bukti transfer. Hanya bisa diisi sekali dan tidak mengubah jurnal.</Typography.Paragraph>
+        <Form form={proofForm} layout="vertical" onFinish={(v) => proofing && doProof.mutate({ id: proofing.id, reference: v.reference })}>
+          <Form.Item name="reference" label="No. bukti" rules={[{ required: true, min: 2, message: 'Isi nomor bukti' }]}>
+            <Input maxLength={100} />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal title={`Batalkan ${voiding?.number ?? ''}`} open={!!voiding} onCancel={() => setVoiding(null)} onOk={() => voidForm.submit()} confirmLoading={doVoid.isPending} okText="Batalkan transaksi" okButtonProps={{ danger: true }}>
         <Typography.Paragraph type="secondary">

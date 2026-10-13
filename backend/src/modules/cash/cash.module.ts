@@ -75,6 +75,10 @@ export class VoidCashDto {
   @ApiProperty({ description: 'Alasan pembatalan (wajib, min. 5 karakter)' }) @IsString() @MaxLength(300) reason: string;
 }
 
+export class CashEvidenceDto {
+  @ApiProperty({ description: 'Nomor bukti (kuitansi/nota/bukti transfer)', example: 'KW-2026-0123' }) @IsString() @MaxLength(100) reference: string;
+}
+
 export class CashSettingsDto {
   @ApiPropertyOptional({ description: 'Kas keluar/transfer mulai nilai ini wajib punya nomor bukti (0 = tidak wajib)' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) evidenceFrom?: number;
   @ApiPropertyOptional({ description: 'Tolak kas keluar/transfer yang membuat saldo akun kas/bank negatif' }) @IsOptional() @IsBoolean() blockNegative?: boolean;
@@ -342,6 +346,22 @@ export class CashService {
     return outer ? work(outer) : this.db.transaction(work);
   }
 
+  /** Lengkapi nomor bukti pada transaksi yang sudah diposting (hanya bila masih kosong; tidak mengubah angka/jurnal) */
+  async setEvidence(user: AuthUser, id: string, dto: CashEvidenceDto) {
+    const reference = dto.reference?.trim() ?? '';
+    if (reference.length < 2) throw new BadRequestException('Isi nomor bukti (minimal 2 karakter)');
+    return this.db.transaction(async (tx) => {
+      const locked = await tx.execute<{ id: string }>(sql`SELECT id FROM cash_transactions WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      if (!locked.rows.length) throw new NotFoundException('Transaksi kas tidak ditemukan');
+      const [t] = await tx.select().from(cashTransactions).where(eq(cashTransactions.id, id));
+      if (t.status === 'VOID') throw new BadRequestException('Transaksi ini sudah dibatalkan');
+      if (t.reference?.trim()) throw new BadRequestException('Transaksi ini sudah punya nomor bukti dan tidak bisa diubah');
+      await tx.update(cashTransactions).set({ reference }).where(eq(cashTransactions.id, id));
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'CashTransaction', entityId: id, data: { number: t.number, reference } });
+      return { id, number: t.number, reference };
+    });
+  }
+
   /**
    * Temuan kontrol kas & bank 60 hari terakhir: uang keluar tanpa bukti, di akhir pekan, dipecah di bawah batas persetujuan,
    * saldo negatif/melebihi batas, rekening bank lama belum direkonsiliasi, selisih hitung kas, dan pembatalan baru-baru ini.
@@ -462,6 +482,11 @@ export class CashController {
   @Put('settings')
   saveCashSettings(@CurrentUser() u: AuthUser, @Body() dto: CashSettingsDto) {
     return this.svc.saveCashSettings(u.tenantId, dto);
+  }
+  @Roles('ADMIN', 'FINANCE')
+  @Post('transactions/:id/evidence')
+  evidence(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CashEvidenceDto) {
+    return this.svc.setEvidence(u, id, dto);
   }
   @Roles('ADMIN')
   @Post('transactions/:id/void')
