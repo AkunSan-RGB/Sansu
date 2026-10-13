@@ -17,7 +17,9 @@ Tanpa nginx, tanpa CORS, tanpa pengalihan `/api`. Berkas yang dipakai: `railway.
    | `APP_URL` | alamat publik layanan, mis. `https://sansu-production.up.railway.app` (diisi setelah langkah 4) |
    | `CORS_ORIGIN` | sama dengan `APP_URL` |
    | `PLATFORM_ADMIN_EMAILS` | email pemilik layanan (akses panel pemilik) |
-   | `SMTP_HOST` `SMTP_PORT` `SMTP_USER` `SMTP_PASS` `MAIL_FROM` | pengaturan email (mis. Brevo) |
+   | `BREVO_API_KEY` | kunci API Brevo (Brevo › SMTP & API › **API Keys**). Email lewat HTTPS, jadi jalan di Railway |
+   | `BREVO_SENDER_EMAIL` `BREVO_SENDER_NAME` | pengirim: alamat yang **sudah diverifikasi** di Brevo, dan nama tampilan (mis. `SANSU`) |
+   | `MAIL_REPLY_TO` (opsional) | alamat balasan |
 
    `NODE_ENV=production` dan `WEB_DIST` sudah diatur di Dockerfile. `PORT` disuntikkan Railway otomatis.
 4. Tab **Settings** › **Networking** › **Generate Domain**. Salin alamatnya ke `APP_URL` dan `CORS_ORIGIN`, lalu **Redeploy**.
@@ -32,7 +34,7 @@ Migrasi database dijalankan otomatis setiap start. Healthcheck Railway memakai `
 | Deploy gagal "Konfigurasi produksi tidak aman" | `JWT_SECRET` kurang dari 32 karakter atau memuat kata `ganti`/`secret`/`rahasia` |
 | Healthcheck gagal (503 `database: down`) | `DATABASE_URL` belum diisi atau salah referensi ke layanan Postgres |
 | Halaman terbuka tetapi login gagal | `APP_URL`/`CORS_ORIGIN` belum sama dengan alamat publik; cek tab **Logs** |
-| Email tidak terkirim | `SMTP_*`/`MAIL_FROM` belum diisi atau pengirim belum diverifikasi |
+| Email tidak terkirim | `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` belum diisi, atau pengirim belum diverifikasi di Brevo (lihat tab Logs: "Brevo menolak email (401/400)"). Jangan pakai `SMTP_*` di Railway: port SMTP diblokir pada paket gratis/Hobby |
 | Migrasi gagal "Peran sansu_app sudah ada…" | lihat catatan RLS di `docs/ARCHITECTURE.md` (peran dibuat pengguna database lain) |
 
 ## Cadangan
