@@ -3,13 +3,16 @@ import { CheckCircleFilled, CloudUploadOutlined, DownloadOutlined, ExclamationCi
 import { useQueryClient } from '@tanstack/react-query';
 import { Alert, App, Button, Card, Col, Input, Result, Row, Segmented, Select, Space, Statistic, Steps, Table, Tag, Typography, Upload } from 'antd';
 import dayjs from 'dayjs';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ApiError, post } from '@/api/client';
 import { useWarehouses } from '@/api/queries';
 import PageHeader from '@/layout/PageHeader';
 import { readGrid } from '@/lib/bankParse';
 import { downloadTemplate, findHeaderRow, IMPORT_SPECS, type ImportKind, matchHeaders, SPEC_BY_KIND } from '@/lib/importSpec';
+
+/** Batas baris per impor di server (ImportDto) */
+const MAX_ROWS = 10000;
 
 type RowResult = { row: number; key: string; action: 'CREATE' | 'UPDATE' | 'ERROR'; errors: string[]; warnings: string[] };
 type ImportResponse = { dryRun: boolean; summary: { total: number; create: number; update: number; errors: number; warnings: number }; results: RowResult[] };
@@ -24,7 +27,9 @@ const ACTION = {
 export default function ImportPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
+  /** Hanya jawaban pemeriksaan TERBARU yang dipakai (ganti tanggal/gudang cepat-cepat tidak menimpa hasil baru dengan yang lama) */
+  const checkSeq = useRef(0);
   const [params, setParams] = useSearchParams();
   const kind = (params.get('kind') as ImportKind) || 'products';
   const spec = SPEC_BY_KIND[kind] ?? IMPORT_SPECS[0];
@@ -59,14 +64,16 @@ export default function ImportPage() {
 
   const check = async (p = parsed) => {
     if (!p || !p.rows.length) return;
+    const seq = ++checkSeq.current;
     setBusy(true);
     setPreview(undefined);
     try {
-      setPreview(await post<ImportResponse>('/imports', body(true, p)));
+      const r = await post<ImportResponse>('/imports', body(true, p));
+      if (seq === checkSeq.current) setPreview(r);
     } catch (e) {
-      message.error(e instanceof ApiError ? e.message : 'Gagal memeriksa file');
+      if (seq === checkSeq.current) message.error(e instanceof ApiError ? e.message : 'Gagal memeriksa file');
     } finally {
-      setBusy(false);
+      if (seq === checkSeq.current) setBusy(false);
     }
   };
 
@@ -97,6 +104,10 @@ export default function ImportPage() {
           excelRows.push(h + 2 + i);
         }
       });
+      if (rows.length > MAX_ROWS) {
+        message.error(`File berisi ${rows.length.toLocaleString('id-ID')} baris; batas satu kali impor ${MAX_ROWS.toLocaleString('id-ID')} baris. Pecah file menjadi beberapa bagian lalu impor satu per satu.`);
+        return false;
+      }
       const p = { fileName: file.name, rows, excelRows, matched, header };
       setParsed(p);
       setDone(undefined);
@@ -289,7 +300,13 @@ export default function ImportPage() {
                         description="Perbaiki baris yang ditandai merah, simpan file, lalu unggah lagi. Impor hanya berjalan bila semua baris benar — tidak ada data setengah masuk."
                       />
                     ) : (
-                      <Alert type="success" showIcon style={{ marginBottom: 12 }} message="Semua baris siap diimpor." />
+                      <Alert
+                        type={preview.summary.warnings > 0 ? 'warning' : 'success'}
+                        showIcon
+                        style={{ marginBottom: 12 }}
+                        message={preview.summary.warnings > 0 ? `Siap diimpor, tetapi ${preview.summary.warnings} baris punya peringatan — baca dulu sebelum menyimpan.` : 'Semua baris siap diimpor.'}
+                        action={preview.summary.warnings > 0 ? <Button size="small" onClick={() => setFilter('warn')}>Lihat peringatan</Button> : undefined}
+                      />
                     )}
                     <Space style={{ marginBottom: 8 }} wrap>
                       <Segmented
@@ -339,7 +356,28 @@ export default function ImportPage() {
                         icon={<CloudUploadOutlined />}
                         loading={busy}
                         disabled={preview.summary.errors > 0 || preview.summary.create + preview.summary.update === 0}
-                        onClick={doImport}
+                        onClick={() => {
+                          if (!preview.summary.warnings) return void doImport();
+                          const sample = (preview.results ?? []).flatMap((r) => r.warnings.map((w) => `${r.row === 0 ? 'Ringkasan' : `Baris ${parsed?.excelRows[preview.results.indexOf(r)] ?? r.row}`}: ${w}`)).slice(0, 5);
+                          modal.confirm({
+                            title: `Impor dengan ${preview.summary.warnings} peringatan?`,
+                            width: 560,
+                            content: (
+                              <div>
+                                <p>Data akan langsung masuk ke pembukuan. Pastikan peringatan berikut memang disengaja:</p>
+                                <ul style={{ paddingLeft: 18, marginBottom: 0 }}>
+                                  {sample.map((t, i) => (
+                                    <li key={i}>{t}</li>
+                                  ))}
+                                </ul>
+                                {preview.summary.warnings > sample.length && <p style={{ marginTop: 8 }}>…dan {preview.summary.warnings - sample.length} peringatan lain (lihat tab Peringatan).</p>}
+                              </div>
+                            ),
+                            okText: 'Ya, impor sekarang',
+                            cancelText: 'Periksa lagi',
+                            onOk: () => doImport(),
+                          });
+                        }}
                       >
                         Impor {preview.summary.create + preview.summary.update} baris
                       </Button>

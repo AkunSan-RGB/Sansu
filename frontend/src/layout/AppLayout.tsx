@@ -1,3 +1,4 @@
+import { rememberReturnTo } from '@/auth/returnTo';
 import { AppstoreOutlined, AuditOutlined, CrownOutlined, MenuOutlined } from '@ant-design/icons';
 import { localize, type AppKey, type BusinessModel } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
@@ -277,7 +278,10 @@ export default function AppLayout() {
   const [openState, setOpenState] = useState<{ for: string | undefined; keys: string[] }>();
 
   if (loading) return <Spin fullscreen tip="Menghubungkan ke server SANSU…" />;
-  if (!me) return <Navigate to="/login" replace />;
+  if (!me) {
+    rememberReturnTo(pathname + search);
+    return <Navigate to="/login" replace />;
+  }
   // Perusahaan mewajibkan 2FA tetapi akun ini belum mengaktifkan → harus diatur dulu
   if (me.twoFactor?.required && !me.twoFactor.enabled && pathname !== '/account/security')
     return <Navigate to="/account/security" replace />;

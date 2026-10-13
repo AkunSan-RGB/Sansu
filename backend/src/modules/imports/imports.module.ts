@@ -171,10 +171,12 @@ export class ImportsService {
   // ---------------------------------------------------------------- produk
   private async products(user: AuthUser, rows: Row[]): Promise<Plan> {
     const existing = await this.db
-      .select({ id: products.id, sku: products.sku, barcode: products.barcode })
+      .select({ id: products.id, sku: products.sku, barcode: products.barcode, baseUom: products.baseUom })
       .from(products)
       .where(eq(products.tenantId, user.tenantId));
     const bySku = new Map(existing.map((p) => [p.sku.toUpperCase(), p]));
+    // produk yang pernah punya catatan stok: satuan dasarnya tidak boleh berubah (qty & HPP lama jadi salah arti)
+    const withStock = new Set((await this.db.selectDistinct({ id: stockBalances.productId }).from(stockBalances).where(eq(stockBalances.tenantId, user.tenantId))).map((x) => x.id));
     const barcodeOwner = new Map(existing.filter((p) => p.barcode).map((p) => [p.barcode!, p.sku.toUpperCase()]));
     const seenSku = new Set<string>();
     const seenBarcode = new Map<string, string>();
@@ -196,6 +198,8 @@ export class ImportsService {
       }
       const baseUom = upper(text(row.satuan));
       if (baseUom && !/^[A-Z0-9]{1,10}$/.test(baseUom)) r.errors.push('Satuan hanya huruf/angka tanpa spasi, maks. 10 (mis. PCS)');
+      else if (cur && baseUom && baseUom !== cur.baseUom.toUpperCase() && withStock.has(cur.id))
+        r.errors.push(`Satuan dasar produk yang sudah punya stok tidak boleh diubah lewat impor (sekarang ${cur.baseUom.toUpperCase()}). Kosongkan kolom satuan atau samakan.`);
       const price = amount(row.harga_jual, 'Harga jual', { required: !cur, min: 0 });
       const barcode = text(row.barcode);
       if (barcode) {
@@ -408,8 +412,13 @@ export class ImportsService {
               .where(eq(purchaseInvoices.tenantId, user.tenantId))
           ).map((x) => `${x.s}|${x.n.toUpperCase()}`),
     );
+    // nomor dokumen internal utang awal = SA/<kode supplier>/<no faktur>; wajib unik per perusahaan (indeks unik di database)
+    const usedDocNo = new Set(
+      isAR ? [] : (await this.db.select({ n: purchaseInvoices.number }).from(purchaseInvoices).where(eq(purchaseInvoices.tenantId, user.tenantId))).map((x) => x.n.toUpperCase()),
+    );
+    const docNo = (supplierCode: string, no: string) => `SA/${supplierCode.toUpperCase()}/${no}`;
     const results: RowResult[] = [];
-    const items: { partyId: string; no: string; date: string; due: string; amount: Dec }[] = [];
+    const items: { partyId: string; code: string; no: string; date: string; due: string; amount: Dec }[] = [];
 
     dto.rows.forEach((row, i) => {
       const code = text(isAR ? row.kode_pelanggan : row.kode_supplier);
@@ -429,6 +438,12 @@ export class ImportsService {
         const k = isAR ? no.toUpperCase() : `${party.id}|${no.toUpperCase()}`;
         if (used.has(k)) r.errors.push(isAR ? `No. faktur ${no} sudah dipakai` : `Faktur ${no} dari supplier ini sudah ada`);
         used.add(k);
+        if (!isAR) {
+          const dn = docNo(party.code, no).toUpperCase();
+          if (dn.length > 80) r.errors.push('Kode supplier + no. faktur terlalu panjang (gabungan maks. 76 karakter)');
+          else if (usedDocNo.has(dn)) r.errors.push(`Nomor dokumen ${dn} sudah ada`);
+          usedDocNo.add(dn);
+        }
       }
       if (r.errors.length) {
         r.action = 'ERROR';
@@ -436,7 +451,7 @@ export class ImportsService {
       }
       const dueDate = due ?? addDays(d!, party!.term);
       if (dueDate < openingDate) r.warnings.push('Sudah lewat jatuh tempo');
-      items.push({ partyId: party!.id, no: no!, date: d!, due: dueDate, amount: amt! });
+      items.push({ partyId: party!.id, code: party!.code, no: no!, date: d!, due: dueDate, amount: amt! });
     });
 
     return {
@@ -481,7 +496,7 @@ export class ImportsService {
             await tx.insert(purchaseInvoices).values(
               chunk.map((x) => ({
                 tenantId: user.tenantId,
-                number: `SA/${x.no}`.slice(0, 80),
+                number: docNo(x.code, x.no),
                 supplierInvoiceNo: x.no,
                 date: x.date,
                 dueDate: x.due,
@@ -504,6 +519,14 @@ export class ImportsService {
   private async accountBalances(user: AuthUser, dto: ImportDto): Promise<Plan> {
     const accs = await this.db.select().from(accounts).where(eq(accounts.tenantId, user.tenantId));
     const byCode = new Map(accs.map((a) => [a.code, a]));
+    // akun yang sudah punya jurnal saldo awal: impor lagi akan MENAMBAH, bukan mengganti
+    const alreadyOpened = new Set(
+      (
+        await this.db.execute<{ account_id: string }>(sql`
+          SELECT DISTINCT l.account_id::text AS account_id FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
+          WHERE j.tenant_id = ${user.tenantId} AND j.source_type = 'OPENING'`)
+      ).rows.map((x) => x.account_id),
+    );
     const viaOther: Record<string, string> = {
       [SYS.AR]: 'Piutang usaha diisi lewat impor "Piutang awal per faktur" agar umur piutang tercatat',
       [SYS.AP]: 'Utang usaha diisi lewat impor "Utang awal per faktur" agar jatuh tempo tercatat',
@@ -533,6 +556,8 @@ export class ImportsService {
       const c = amount(row.kredit, 'Kredit', { min: 0 }) ?? ZERO;
       if (d.gt(0) && c.gt(0)) r.errors.push('Isi debit ATAU kredit, bukan keduanya');
       if (d.isZero() && c.isZero() && !r.errors.length) r.warnings.push('Saldo nol — dilewati');
+      if (a && alreadyOpened.has(a.id) && (d.gt(0) || c.gt(0)))
+        r.warnings.push('Akun ini sudah punya saldo awal — nilai di file akan DITAMBAHKAN ke saldo yang ada, bukan menggantinya. Impor ulang hanya untuk akun yang belum terisi.');
       if (a && !r.errors.length) {
         const natural = ['ASSET', 'EXPENSE'].includes(a.type) ? 'D' : 'C';
         if ((natural === 'D' && c.gt(0)) || (natural === 'C' && d.gt(0))) r.warnings.push('Saldo di sisi yang tidak biasa untuk jenis akun ini — periksa lagi');

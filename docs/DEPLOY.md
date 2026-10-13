@@ -17,7 +17,8 @@ Frontend memanggil API lewat alamat relatif `/api/*`. Karena itu di mana pun web
 | **A. VPS satu server** (disarankan) | nginx (container `web`) | container `api` + `db` + Caddy HTTPS | `docker-compose.prod.yml`, `deploy/install.sh` |
 | **B. Vercel + Render** | Vercel | Render (+ Neon) | `vercel.json`, `render.yaml` |
 | **C. Netlify + Render/Railway** | Netlify | Render atau Railway (+ database luar) | `netlify.toml`, `render.yaml` / `railway.json` |
-| **D. Railway penuh** | Railway (service web) | Railway (service api) | `deploy/railway/web.json`, `railway.json` |
+| **D. Railway (satu layanan, disarankan)** | sama dengan API (disajikan API) | Railway + Postgres Railway | `railway.json`, `deploy/railway/Dockerfile` — panduan: [DEPLOY-RAILWAY.md](DEPLOY-RAILWAY.md) |
+| D2. Railway dua layanan | Railway (service web, nginx) | Railway (service api) | `deploy/railway/web.json`, `backend/Dockerfile` |
 
 ### A. VPS (Docker Compose)
 ```bash
@@ -37,8 +38,11 @@ Detail: [PANDUAN-SERVER.md](PANDUAN-SERVER.md).
    - **Netlify**: otomatis memakai `netlify.toml` di akar repo.
 4. Di server API set `CORS_ORIGIN` dan `APP_URL` ke alamat web (mis. `https://sansu.vercel.app`).
 
-### D. Railway penuh
-- Service **api**: build memakai `railway.json` (akar repo) → `backend/Dockerfile`.
+### D. Railway satu layanan
+Lihat [DEPLOY-RAILWAY.md](DEPLOY-RAILWAY.md): satu layanan (API + web) + Postgres Railway, langkah demi langkah.
+
+### D2. Railway dua layanan (lama)
+- Service **api**: ubah *Config-as-code* ke `/deploy/railway/api.json` (`backend/Dockerfile`).
 - Service **web**: *Settings › Config-as-code* → path `/deploy/railway/web.json` → `frontend/Dockerfile`. Tambahkan variabel `API_UPSTREAM` = alamat internal service api, mis. `http://api.railway.internal:3000`.
 
 ## Docker image
