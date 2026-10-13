@@ -16,7 +16,7 @@ import { AppsService } from '../../common/apps/apps.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { authTokens, branches, tenants, users } from '../../db/schema';
+import { authTokens, branches, budgets, tenants, users } from '../../db/schema';
 import { SubscriptionService } from '../../common/billing/subscription.service';
 import { verificationRequired } from '../../common/billing/subscription.guard';
 import { isPlatformAdmin } from '../../common/auth/platform-admin';
@@ -395,6 +395,7 @@ export class AuthService {
       apps: [...(await this.apps.enabled(u.tenantId))],
       businessModel: await this.settings.businessModel(this.db, u.tenantId),
       multiBranch: await this.multiBranch(u.tenantId),
+      hasBudget: !!(await this.db.select({ id: budgets.id }).from(budgets).where(eq(budgets.tenantId, u.tenantId)).limit(1))[0],
       framework: (await this.settings.reporting(this.db, u.tenantId)).framework,
       taxProfile: await this.settings.taxProfile(this.db, u.tenantId),
       taxFeatures: await this.taxFeatures(u.tenantId),
