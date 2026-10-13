@@ -69,7 +69,9 @@ describe('Permintaan pembelian (e2e)', () => {
     expect(r.status).toBe('APPROVED');
     expect(r.estimateComplete).toBe(true);
     expect(r.estimatedTotal).toBe(50 * 2000 + 20 * 800);
-    const c = (await post(gudang, `/api/purchase-requests/${r.id}/convert`).expect(201)).body;
+    // pemisahan fungsi: Gudang meminta, bukan memesan; konversi menjadi PO dilakukan Pemilik/Admin/Keuangan
+    await post(gudang, `/api/purchase-requests/${r.id}/convert`).expect(403);
+    const c = (await post(owner, `/api/purchase-requests/${r.id}/convert`).expect(201)).body;
     expect(c.status).toBe('CONVERTED');
     const orders = new Set(c.lines.map((l: { order: { id: string } }) => l.order.id));
     expect(orders.size).toBe(2); // satu PO per supplier
@@ -77,7 +79,7 @@ describe('Permintaan pembelian (e2e)', () => {
     expect(Number(poB.lines[0].qty)).toBe(20);
     expect(Number(poB.lines[0].price)).toBe(800);
     expect(poB.status).toBe('DRAFT');
-    await post(gudang, `/api/purchase-requests/${r.id}/convert`).expect(400); // tidak bisa dua kali
+    await post(owner, `/api/purchase-requests/${r.id}/convert`).expect(400); // tidak bisa dua kali
     await post(owner, `/api/purchase-requests/${r.id}/cancel`).expect(400); // sudah dipesan
   });
 

@@ -77,9 +77,14 @@ describe('Pembelian cepat & riwayat harga (e2e)', () => {
     expect((await get(lain, `/api/purchase-orders/price-history?productIds=${p1}`).expect(200)).body).toEqual({});
   });
 
+  it('pemisahan fungsi: Keuangan tidak boleh menerima barang sendiri lewat pembelian cepat', async () => {
+    const r = await post(finance, '/api/purchase-orders/quick', { supplierId: supA, warehouseId: wh, receiveNow: true, lines: [{ productId: p1, qty: '1', price: '2000' }] });
+    expect(r.status).toBe(403);
+  });
+
   it('nilai di atas batas persetujuan: PO tetap draft dan menunggu keputusan', async () => {
     await http.put('/api/approvals/policy').set(as(owner)).send({ purchaseOrder: 100000 }).expect(200);
-    const r = (await post(finance, '/api/purchase-orders/quick', { supplierId: supA, warehouseId: wh, receiveNow: true, lines: [{ productId: p1, qty: '100', price: '2000' }] }).expect(201)).body;
+    const r = (await post(finance, '/api/purchase-orders/quick', { supplierId: supA, warehouseId: wh, lines: [{ productId: p1, qty: '100', price: '2000' }] }).expect(201)).body;
     expect(r).toMatchObject({ status: 'DRAFT', approvalPending: true, receiptStatus: 'NONE' });
     expect(r.approvalMessage).toContain('persetujuan');
   });
