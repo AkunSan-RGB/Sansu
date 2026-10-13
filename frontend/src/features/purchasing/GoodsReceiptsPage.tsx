@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Card, Tag } from 'antd';
+import { Alert, Card, Tag } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { get } from '@/api/client';
 import type { GoodsReceipt } from '@/api/types';
@@ -18,6 +18,7 @@ export default function GoodsReceiptsPage() {
   return (
     <>
       <PageHeader title="Penerimaan barang" />
+      <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Catat di sini saat barang pesanan tiba (stok langsung bertambah, bisa bertahap). Tagihan pemasok diinput terpisah di Faktur & hutang. Pembelian cepat sudah mencakup penerimaan." />
       <Card>
         <ResponsiveTable
           rowKey="id"

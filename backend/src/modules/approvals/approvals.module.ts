@@ -43,6 +43,7 @@ class PolicyDto implements Partial<ApprovalPolicy> {
   @ApiPropertyOptional({ description: 'Aktifkan pengendalian selisih harga faktur terhadap PO' }) @IsOptional() @IsBoolean() priceControl?: boolean;
   @ApiPropertyOptional({ description: 'Toleransi kenaikan harga faktur vs PO (%) per baris' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(1000) priceTolerancePct?: number;
   @ApiPropertyOptional({ description: 'Toleransi harga faktur di atas rata-rata harga beli 90 hari (%)' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(1000) priceBenchmarkPct?: number;
+  @ApiPropertyOptional({ description: 'Pembayaran pertama ke supplier wajib disetujui' }) @IsOptional() @IsBoolean() firstSupplierPayment?: boolean;
   @ApiPropertyOptional({ description: 'Masa berlaku tautan persetujuan lewat Telegram (jam, 1–72)' }) @IsOptional() @IsInt() @Min(1) @Max(72) telegramLinkHours?: number;
 }
 class DecisionDto {
