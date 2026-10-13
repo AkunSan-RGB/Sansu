@@ -57,6 +57,7 @@ export class CreateCashTxDto {
   @ApiPropertyOptional({ example: '2026-10-03' }) @IsOptional() @IsDateString() date?: string;
   @ApiProperty({ example: 'Bayar listrik gudang Oktober' }) @IsString() @MaxLength(255) description: string;
   @ApiPropertyOptional({ example: 'No. tagihan PLN 123' }) @IsOptional() @IsString() @MaxLength(100) reference?: string;
+  @ApiPropertyOptional({ description: 'Cabang transaksi ini (biaya/pendapatan cabang tertentu); kosong = pusat' }) @IsOptional() @IsUUID() branchId?: string;
   @ApiPropertyOptional({ type: [CashLineDto], description: 'IN/OUT: rincian akun lawan' })
   @IsOptional()
   @ValidateNested({ each: true })
@@ -205,6 +206,10 @@ export class CashService {
         }
       }
       if (amount.lte(0)) throw new BadRequestException('Jumlah harus > 0');
+      if (dto.branchId) {
+        const [br] = (await tx.execute<{ id: string }>(sql`SELECT id FROM branches WHERE id = ${dto.branchId} AND tenant_id = ${user.tenantId}`)).rows;
+        if (!br) throw new BadRequestException('Cabang tidak ditemukan');
+      }
       if (!opts.petty) await this.assertNotPettyCash(tx, user.tenantId, dto, cash.id, to?.id, amount);
       if (dto.type !== 'IN' && (await this.cashSettings(user.tenantId)).blockNegative) {
         const [b] = (await tx.execute<{ bal: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0) AS bal FROM journal_lines l WHERE l.account_id = ${cash.id}`)).rows;
@@ -227,6 +232,7 @@ export class CashService {
           description: dto.description,
           reference: dto.reference,
           createdById: user.sub,
+          branchId: dto.branchId ?? null,
         })
         .returning();
       if (lines.length && dto.type !== 'TRANSFER') {

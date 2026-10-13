@@ -1,0 +1,232 @@
+import { BadRequestException, Body, Controller, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { REPORT_GROUPS } from '@sansu/shared';
+import { IsBoolean, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { and, asc, eq, sql } from 'drizzle-orm';
+import { AuditService } from '../../common/audit/audit.service';
+import { AuthUser } from '../../common/auth/auth-user';
+import { CurrentUser, Roles } from '../../common/auth/decorators';
+import { addDays, toDocDate, todayJakarta } from '../../common/utils/dates';
+import { D, Dec, ZERO } from '../../common/utils/money';
+import { Db } from '../../db/db';
+import { InjectDb } from '../../db/db.module';
+import { branches, warehouses } from '../../db/schema';
+import { loadAccounts } from '../accounting/ledger-data';
+
+export class CreateBranchDto {
+  @ApiProperty({ example: 'CB-BKS' }) @IsString() @MinLength(2) @MaxLength(20) code: string;
+  @ApiProperty({ example: 'Cabang Bekasi' }) @IsString() @MinLength(2) @MaxLength(120) name: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) address?: string;
+}
+export class UpdateBranchDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() @MinLength(2) @MaxLength(120) name?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) address?: string;
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() isActive?: boolean;
+}
+export class AssignWarehouseDto {
+  @ApiPropertyOptional({ description: 'Cabang pemilik gudang/toko; kosong = lepas dari cabang' }) @IsOptional() @IsUUID() branchId?: string | null;
+}
+
+const NONE = 'NONE';
+
+interface Cell {
+  revenue: Dec;
+  cost: Dec;
+  opex: Dec;
+  other: Dec;
+}
+const emptyCell = (): Cell => ({ revenue: ZERO, cost: ZERO, opex: ZERO, other: ZERO });
+const fin = (c: Cell) => {
+  const gross = c.revenue.minus(c.cost);
+  const net = gross.minus(c.opex).plus(c.other);
+  return { revenue: c.revenue.toFixed(2), costOfSales: c.cost.toFixed(2), grossProfit: gross.toFixed(2), operatingExpense: c.opex.toFixed(2), other: c.other.toFixed(2), netProfit: net.toFixed(2), margin: c.revenue.gt(0) ? net.div(c.revenue).times(100).toFixed(1) : null };
+};
+
+@Injectable()
+export class BranchesService {
+  constructor(
+    @InjectDb() private readonly db: Db,
+    private readonly audit: AuditService,
+  ) {}
+
+  async list(tenantId: string) {
+    const rows = await this.db.select().from(branches).where(eq(branches.tenantId, tenantId)).orderBy(asc(branches.code));
+    const whs = await this.db.select({ id: warehouses.id, code: warehouses.code, name: warehouses.name, branchId: warehouses.branchId, isActive: warehouses.isActive }).from(warehouses).where(eq(warehouses.tenantId, tenantId)).orderBy(asc(warehouses.code));
+    return { branches: rows.map((b) => ({ ...b, warehouses: whs.filter((w) => w.branchId === b.id) })), unassignedWarehouses: whs.filter((w) => !w.branchId && w.isActive) };
+  }
+
+  async create(user: AuthUser, dto: CreateBranchDto) {
+    const code = dto.code.trim().toUpperCase();
+    const [dup] = await this.db.select({ id: branches.id }).from(branches).where(and(eq(branches.tenantId, user.tenantId), eq(branches.code, code)));
+    if (dup) throw new BadRequestException(`Kode cabang ${code} sudah dipakai`);
+    const [row] = await this.db.insert(branches).values({ tenantId: user.tenantId, code, name: dto.name.trim(), address: dto.address }).returning();
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'Branch', entityId: row.id, data: { code } });
+    return row;
+  }
+
+  async update(user: AuthUser, id: string, dto: UpdateBranchDto) {
+    const [b] = await this.db.select().from(branches).where(and(eq(branches.id, id), eq(branches.tenantId, user.tenantId)));
+    if (!b) throw new NotFoundException('Cabang tidak ditemukan');
+    if (dto.isActive === false && b.isActive) {
+      const [n] = (await this.db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM warehouses WHERE branch_id = ${id} AND is_active`)).rows;
+      if (n.n > 0) throw new BadRequestException('Cabang masih punya gudang/toko aktif. Pindahkan atau nonaktifkan dulu.');
+    }
+    const [row] = await this.db.update(branches).set({ name: dto.name?.trim(), address: dto.address, isActive: dto.isActive }).where(eq(branches.id, id)).returning();
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'Branch', entityId: id, data: { ...dto } });
+    return row;
+  }
+
+  /** Gudang/toko milik cabang: transaksi berikutnya di gudang ini berlabel cabang itu. Riwayat tidak diubah (jurnal tidak bisa diubah). */
+  async assignWarehouse(user: AuthUser, warehouseId: string, branchId: string | null) {
+    const [w] = await this.db.select().from(warehouses).where(and(eq(warehouses.id, warehouseId), eq(warehouses.tenantId, user.tenantId)));
+    if (!w) throw new NotFoundException('Gudang tidak ditemukan');
+    if (branchId) {
+      const [b] = await this.db.select().from(branches).where(and(eq(branches.id, branchId), eq(branches.tenantId, user.tenantId)));
+      if (!b || !b.isActive) throw new BadRequestException('Cabang tidak ditemukan atau nonaktif');
+    }
+    await this.db.update(warehouses).set({ branchId }).where(eq(warehouses.id, warehouseId));
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'ASSIGN_BRANCH', entity: 'Warehouse', entityId: warehouseId, data: { from: w.branchId, to: branchId } });
+    return { ok: true };
+  }
+
+  /** Laba rugi per cabang berdampingan; kolom "Gabungan" = laporan laba rugi seluruh perusahaan (konsolidasi) */
+  async report(tenantId: string, fromIn?: string, toIn?: string) {
+    const today = todayJakarta();
+    const to = toIn ? toDocDate(toIn) : today;
+    const from = fromIn ? toDocDate(fromIn) : `${to.slice(0, 7)}-01`;
+    const accs = new Map((await loadAccounts(this.db, tenantId)).filter((a) => a.type === 'REVENUE' || a.type === 'EXPENSE').map((a) => [a.id, a]));
+    const brs = await this.db.select().from(branches).where(eq(branches.tenantId, tenantId)).orderBy(asc(branches.code));
+    const res = await this.db.execute<{ account_id: string; branch_id: string | null; d: string; c: string }>(sql`
+      SELECT l.account_id, l.branch_id::text AS branch_id, SUM(l.debit) AS d, SUM(l.credit) AS c
+      FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
+      WHERE j.tenant_id = ${tenantId} AND j.date >= ${from} AND j.date <= ${to} AND j.source_type <> 'CLOSING' AND a.type IN ('REVENUE', 'EXPENSE')
+      GROUP BY l.account_id, l.branch_id`);
+    const cols = [...brs.map((b) => b.id), NONE];
+    const cells = new Map<string, Cell>(cols.map((k) => [k, emptyCell()]));
+    const lines = new Map<string, Map<string, Dec>>(); // akun → kolom → nilai natural
+    for (const r of res.rows) {
+      const a = accs.get(r.account_id);
+      if (!a) continue;
+      const key = r.branch_id && cells.has(r.branch_id) ? r.branch_id : NONE;
+      const nat = a.type === 'REVENUE' ? D(r.c).minus(r.d) : D(r.d).minus(r.c);
+      const cell = cells.get(key)!;
+      const section = REPORT_GROUPS[a.reportGroup]?.section;
+      if (a.type === 'REVENUE' && section === 'REVENUE') cell.revenue = cell.revenue.plus(nat);
+      else if (a.type === 'EXPENSE' && section === 'COST_OF_SALES') cell.cost = cell.cost.plus(nat);
+      else if (a.type === 'EXPENSE' && section === 'OPERATING_EXPENSE') cell.opex = cell.opex.plus(nat);
+      else cell.other = cell.other.plus(a.type === 'REVENUE' ? nat : nat.negated()); // pendapatan lain + / beban lain −
+      const m = lines.get(a.id) ?? new Map<string, Dec>();
+      m.set(key, (m.get(key) ?? ZERO).plus(nat));
+      lines.set(a.id, m);
+    }
+    const total = emptyCell();
+    for (const c of cells.values()) {
+      total.revenue = total.revenue.plus(c.revenue);
+      total.cost = total.cost.plus(c.cost);
+      total.opex = total.opex.plus(c.opex);
+      total.other = total.other.plus(c.other);
+    }
+    const columns = [...brs.map((b) => ({ key: b.id, code: b.code, name: b.name })), { key: NONE, code: '-', name: 'Pusat / belum ditentukan' }];
+    return {
+      from,
+      to,
+      columns,
+      summary: Object.fromEntries([...cells].map(([k, c]) => [k, fin(c)])),
+      consolidated: fin(total),
+      rows: [...lines]
+        .map(([id, m]) => {
+          const a = accs.get(id)!;
+          const sum = [...m.values()].reduce<Dec>((s, v) => s.plus(v), ZERO);
+          return { accountId: id, code: a.code, name: a.name, type: a.type, values: Object.fromEntries([...m].map(([k, v]) => [k, v.toFixed(2)])), total: sum.toFixed(2) };
+        })
+        .filter((r) => !D(r.total).isZero() || Object.values(r.values).some((v) => !D(v).isZero()))
+        .sort((x, y) => x.code.localeCompare(y.code)),
+    };
+  }
+
+  /** Temuan kontrol per cabang (anti-fraud & kualitas data) */
+  async controls(tenantId: string) {
+    const items: { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string; refs: string[] }[] = [];
+    const add = (key: string, level: 'error' | 'warning' | 'info', title: string, refs: string[], detail: string) => {
+      if (refs.length) items.push({ key, level, title: `${title} (${refs.length})`, detail, refs });
+    };
+    const brs = await this.db.select().from(branches).where(and(eq(branches.tenantId, tenantId), eq(branches.isActive, true)));
+    if (!brs.length) return { items };
+    const today = todayJakarta();
+    const unassigned = await this.db.select({ code: warehouses.code, name: warehouses.name }).from(warehouses).where(and(eq(warehouses.tenantId, tenantId), eq(warehouses.isActive, true), sql`${warehouses.branchId} IS NULL`));
+    add('WAREHOUSE_NO_BRANCH', 'warning', 'Gudang/toko belum masuk cabang mana pun', unassigned.map((w) => `${w.code} ${w.name}`), 'Transaksi di gudang ini tidak berlabel cabang sehingga masuk "Pusat / belum ditentukan". Atur di Pengaturan › Cabang.');
+    const rep90 = await this.report(tenantId, addDays(today, -90), today);
+    const co = rep90.consolidated;
+    const coMargin = Number(co.revenue) > 0 ? (Number(co.netProfit) / Number(co.revenue)) * 100 : null;
+    const unNet = rep90.summary[NONE];
+    if (Number(co.revenue) > 0 && Number(unNet.revenue) / Number(co.revenue) > 0.2) {
+      add('UNLABELED_REVENUE', 'info', 'Pendapatan banyak yang belum berlabel cabang', [`${((Number(unNet.revenue) / Number(co.revenue)) * 100).toFixed(0)}% pendapatan 90 hari terakhir`], 'Periksa gudang tanpa cabang dan transaksi kas/jurnal manual yang belum diberi cabang.');
+    }
+    const low: string[] = [];
+    const neg: string[] = [];
+    for (const b of brs) {
+      const s = rep90.summary[b.id];
+      if (!s || Number(s.revenue) <= 0) continue;
+      if (Number(s.netProfit) < 0) neg.push(`${b.code} ${b.name}`);
+      else if (coMargin !== null && s.margin !== null && Number(s.margin) < coMargin - 15) low.push(`${b.code} ${b.name} (margin ${s.margin}% vs rata-rata ${coMargin.toFixed(1)}%)`);
+    }
+    add('BRANCH_LOSS', 'warning', 'Cabang merugi (90 hari)', neg, 'Biaya cabang melebihi pendapatannya. Tinjau biaya dan kemungkinan pendapatan yang belum tercatat.');
+    add('BRANCH_LOW_MARGIN', 'info', 'Margin cabang jauh di bawah rata-rata', low, 'Margin laba bersih lebih dari 15 poin di bawah rata-rata perusahaan.');
+    const act = await this.db.execute<{ id: string }>(sql`
+      SELECT DISTINCT l.branch_id::text AS id FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
+      WHERE j.tenant_id = ${tenantId} AND a.type = 'REVENUE' AND l.branch_id IS NOT NULL AND j.date >= ${addDays(today, -30)} AND j.source_type <> 'CLOSING'`);
+    const active = new Set(act.rows.map((r) => r.id));
+    const firstTx = await this.db.execute<{ id: string }>(sql`SELECT DISTINCT branch_id::text AS id FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id WHERE j.tenant_id = ${tenantId} AND branch_id IS NOT NULL AND j.date < ${addDays(today, -30)}`);
+    const hadHistory = new Set(firstTx.rows.map((r) => r.id));
+    add('BRANCH_NO_SALES', 'warning', 'Cabang tanpa pendapatan 30 hari terakhir', brs.filter((b) => hadHistory.has(b.id) && !active.has(b.id)).map((b) => `${b.code} ${b.name}`), 'Cabang yang biasanya berjualan tiba-tiba tanpa pendapatan: periksa apakah penjualan tidak dicatat.');
+    const rank = { error: 0, warning: 1, info: 2 } as const;
+    items.sort((a, b) => rank[a.level] - rank[b.level]);
+    return { items };
+  }
+}
+
+@ApiTags('Cabang')
+@ApiBearerAuth()
+@Controller('branches')
+export class BranchesController {
+  constructor(private readonly svc: BranchesService) {}
+
+  @Get()
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'CASHIER')
+  list(@CurrentUser() u: AuthUser) {
+    return this.svc.list(u.tenantId);
+  }
+
+  @Get('report')
+  @Roles('ADMIN', 'FINANCE')
+  report(@CurrentUser() u: AuthUser, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.svc.report(u.tenantId, from, to);
+  }
+
+  @Get('controls')
+  @Roles('ADMIN', 'FINANCE')
+  controls(@CurrentUser() u: AuthUser) {
+    return this.svc.controls(u.tenantId);
+  }
+
+  @Post()
+  @Roles('ADMIN')
+  create(@CurrentUser() u: AuthUser, @Body() dto: CreateBranchDto) {
+    return this.svc.create(u, dto);
+  }
+
+  @Patch(':id')
+  @Roles('ADMIN')
+  update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateBranchDto) {
+    return this.svc.update(u, id, dto);
+  }
+
+  @Put('warehouses/:warehouseId')
+  @Roles('ADMIN')
+  assign(@CurrentUser() u: AuthUser, @Param('warehouseId', ParseUUIDPipe) warehouseId: string, @Body() dto: AssignWarehouseDto) {
+    return this.svc.assignWarehouse(u, warehouseId, dto.branchId ?? null);
+  }
+}
+
+@Module({ controllers: [BranchesController], providers: [BranchesService] })
+export class BranchesModule {}

@@ -25,7 +25,7 @@ import {
 import { useAuth } from '@/auth/AuthContext';
 import { useState } from 'react';
 import { api, ApiError, get, patch, post, qs, del } from '@/api/client';
-import { LEDGER_KEYS, useAccounts, useAction } from '@/api/queries';
+import { LEDGER_KEYS, useAccounts, useAction, useBranches } from '@/api/queries';
 import type { JournalEntry, Project, RecurringJournal } from '@/api/types';
 import { useApps } from '@/lib/apps';
 import PageHeader from '@/layout/PageHeader';
@@ -138,9 +138,10 @@ function JournalList() {
 
   const { me } = useAuth();
   const { modal } = App.useApp();
+  const branches = useBranches();
   const create = useAction(
-    async (v: { date: string; description: string; reference?: string; adjustment?: boolean; autoReverse?: boolean; controlOverrideReason?: string; lines: LineValue[] }) => {
-      const body = { ...v, reference: v.reference || undefined, autoReverse: v.adjustment ? v.autoReverse : undefined, controlOverrideReason: v.controlOverrideReason?.trim() || undefined, lines: toLines(v.lines) };
+    async (v: { date: string; description: string; reference?: string; branchId?: string; adjustment?: boolean; autoReverse?: boolean; controlOverrideReason?: string; lines: LineValue[] }) => {
+      const body = { ...v, branchId: v.branchId || undefined, reference: v.reference || undefined, autoReverse: v.adjustment ? v.autoReverse : undefined, controlOverrideReason: v.controlOverrideReason?.trim() || undefined, lines: toLines(v.lines) };
       try {
         return await post<JournalEntry>('/accounting/journals', body);
       } catch (e) {
@@ -287,6 +288,11 @@ function JournalList() {
               <Input style={{ width: 360, maxWidth: '100%' }} placeholder={t('Bayar sewa gudang Oktober')} />
             </Form.Item>
           </Space>
+          {!!branches.data?.branches.filter((b) => b.isActive).length && (
+            <Form.Item name="branchId" label="Cabang" extra="Kosong = pusat. Seluruh baris jurnal ini dimasukkan ke cabang yang dipilih.">
+              <Select allowClear placeholder="Pusat" style={{ width: 280 }} options={branches.data.branches.filter((b) => b.isActive).map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))} />
+            </Form.Item>
+          )}
           <Form.Item name="adjustment" valuePropName="checked" extra="Jurnal penyesuaian akhir periode tampil di kolom penyesuaian neraca lajur.">
             <Checkbox>Jurnal penyesuaian</Checkbox>
           </Form.Item>

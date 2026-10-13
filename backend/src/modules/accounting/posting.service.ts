@@ -18,6 +18,8 @@ export interface PostLine {
   memo?: string;
   /** Proyek (usaha jasa) — dipakai jurnal umum untuk biaya langsung proyek */
   projectId?: string | null;
+  /** Cabang baris ini; kosong = ikut cabang jurnal (diturunkan dari dokumen sumbernya) */
+  branchId?: string | null;
 }
 
 export interface PostJournalInput {
@@ -29,6 +31,8 @@ export interface PostJournalInput {
   /** Nomor bukti transaksi */
   reference?: string;
   createdById?: string;
+  /** Cabang untuk seluruh baris tanpa cabang sendiri; kosong = diturunkan otomatis dari gudang / kas dokumen sumber */
+  branchId?: string | null;
   lines: PostLine[];
 }
 
@@ -61,6 +65,13 @@ export class PostingService {
       if (found.rows.length !== pids.length) throw new BadRequestException('Proyek tidak ditemukan');
     }
     if (input.sourceType !== 'CASH_COUNT') await this.assertCashNotCounted(tx, input.tenantId, input.date, normalized.lines.map((l) => l.accountId));
+    // Cabang: eksplisit per baris / per jurnal, atau diturunkan otomatis dari gudang atau kas dokumen sumber
+    const explicit = [...new Set(normalized.lines.map((l) => l.branchId).filter((x): x is string => !!x)), ...(input.branchId ? [input.branchId] : [])];
+    if (explicit.length) {
+      const ok = await tx.execute(sql`SELECT id FROM branches WHERE tenant_id = ${input.tenantId} AND id IN (${sql.join(explicit.map((b) => sql`${b}`), sql`, `)})`);
+      if (ok.rows.length !== explicit.length) throw new BadRequestException('Cabang tidak ditemukan');
+    }
+    const entryBranch = input.branchId ?? (await this.deriveBranch(tx, input.tenantId, input.sourceType, input.sourceId));
 
     const number = await this.seq.next(tx, input.tenantId, 'JOURNAL', input.date);
     const [entry] = await tx
@@ -86,10 +97,69 @@ export class PostingService {
           credit: l.credit.toFixed(2),
           memo: l.memo,
           projectId: l.projectId ?? null,
+          branchId: l.branchId ?? entryBranch,
         })),
       )
       .returning();
     return { ...entry, lines };
+  }
+
+  /**
+   * Cabang dokumen sumber: gudang/toko → cabang pemiliknya; kas → cabang yang dipilih di transaksi kas.
+   * Hanya dijalankan bila perusahaan punya cabang (satu query ringan); kosong bila tidak bisa ditentukan.
+   */
+  private async deriveBranch(tx: Tx, tenantId: string, sourceType: string, sourceId?: string): Promise<string | null> {
+    if (!sourceId) return null;
+    const any = await tx.execute(sql`SELECT 1 FROM branches WHERE tenant_id = ${tenantId} LIMIT 1`);
+    if (!any.rows.length) return null;
+    const id = sourceId;
+    const wh = (whSql: ReturnType<typeof sql>) => sql`SELECT w.branch_id::text AS b FROM warehouses w WHERE w.tenant_id = ${tenantId} AND w.id = (${whSql})`;
+    let q;
+    switch (sourceType) {
+      case 'POS':
+        q = wh(sql`SELECT s.warehouse_id FROM pos_orders o JOIN pos_sessions s ON s.id = o.session_id WHERE o.id::text = ${id}`);
+        break;
+      case 'POS_CLOSE':
+        q = wh(sql`SELECT warehouse_id FROM pos_sessions WHERE id::text = ${id}`);
+        break;
+      case 'POS_RETURN':
+        q = wh(sql`SELECT warehouse_id FROM pos_returns WHERE id::text = ${id}`);
+        break;
+      case 'DELIVERY':
+        q = wh(sql`SELECT warehouse_id FROM delivery_orders WHERE id::text = ${id}`);
+        break;
+      case 'GOODS_RECEIPT':
+        q = wh(sql`SELECT warehouse_id FROM goods_receipts WHERE id::text = ${id}`);
+        break;
+      case 'INVOICE':
+        q = wh(sql`SELECT so.warehouse_id FROM invoices i JOIN sales_orders so ON so.id = i.sales_order_id WHERE i.id::text = ${id}`);
+        break;
+      case 'PAYMENT':
+        q = wh(sql`SELECT so.warehouse_id FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN sales_orders so ON so.id = i.sales_order_id WHERE p.id::text = ${id}`);
+        break;
+      case 'SALES_RETURN':
+        q = wh(sql`SELECT so.warehouse_id FROM sales_returns r JOIN invoices i ON i.id = r.invoice_id JOIN sales_orders so ON so.id = i.sales_order_id WHERE r.id::text = ${id}`);
+        break;
+      case 'PURCHASE_INVOICE':
+        q = wh(sql`SELECT warehouse_id FROM purchase_invoices WHERE id::text = ${id}`);
+        break;
+      case 'SUPPLIER_PAYMENT':
+        q = wh(sql`SELECT i.warehouse_id FROM supplier_payments p JOIN purchase_invoices i ON i.id = p.purchase_invoice_id WHERE p.id::text = ${id}`);
+        break;
+      case 'PURCHASE_RETURN':
+        q = wh(sql`SELECT warehouse_id FROM purchase_returns WHERE id::text = ${id}`);
+        break;
+      case 'CASH_IN':
+      case 'CASH_OUT':
+      case 'TRANSFER':
+        q = sql`SELECT branch_id::text AS b FROM cash_transactions WHERE tenant_id = ${tenantId} AND id::text = ${id}`;
+        break;
+      default:
+        // dokumen stok lain (penyesuaian, transfer, produksi, penurunan nilai): gudang dari mutasi stok dokumen itu
+        q = wh(sql`SELECT warehouse_id FROM stock_moves WHERE tenant_id = ${tenantId} AND ref_id = ${id} ORDER BY created_at LIMIT 1`);
+    }
+    const r = await tx.execute<{ b: string | null }>(q);
+    return r.rows[0]?.b ?? null;
   }
 
   /** Koreksi jurnal = jurnal balik. Jurnal asli tidak pernah diubah/dihapus. */
@@ -133,6 +203,7 @@ export class PostingService {
           credit: l.debit,
           memo: l.memo,
           projectId: l.projectId,
+          branchId: l.branchId,
         })),
       )
       .returning();

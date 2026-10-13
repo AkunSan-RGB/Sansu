@@ -41,3 +41,19 @@ export function useAction<TVars, TResult = unknown>(
     onError: (e: Error) => message.error(e.message, 6),
   });
 }
+
+export interface BranchRow {
+  id: string;
+  code: string;
+  name: string;
+  address: string | null;
+  isActive: boolean;
+  warehouses: { id: string; code: string; name: string; isActive: boolean }[];
+}
+/** Daftar cabang perusahaan (kosong bila perusahaan belum memakai cabang) */
+export const useBranches = () =>
+  useQuery({
+    queryKey: ['branches'],
+    queryFn: () => get<{ branches: BranchRow[]; unassignedWarehouses: { id: string; code: string; name: string }[] }>('/branches'),
+    staleTime: 60_000,
+  });

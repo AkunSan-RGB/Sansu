@@ -35,6 +35,7 @@ import { AssetsModule } from './modules/assets/assets.module';
 import { InsightsModule } from './modules/insights/insights.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { BankModule } from './modules/bank/bank.module';
+import { BranchesModule } from './modules/branches/branches.module';
 import { TaxModule } from './modules/tax/tax.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { ImportsModule } from './modules/imports/imports.module';
@@ -85,6 +86,7 @@ import { MailModule } from './mail/mail.module';
     OnboardingModule,
     TaxModule,
     BankModule,
+    BranchesModule,
     IntegrationsModule,
     ImportsModule,
     AuditLogModule,

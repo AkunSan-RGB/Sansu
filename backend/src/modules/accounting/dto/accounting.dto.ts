@@ -65,6 +65,10 @@ export class CreateJournalDto {
   @IsOptional()
   @IsBoolean()
   confirmDuplicate?: boolean;
+  @ApiPropertyOptional({ description: 'Cabang untuk seluruh baris jurnal ini; kosong = pusat' })
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
   @ApiProperty({ type: [JournalLineDto] })
   @ValidateNested({ each: true })
   @Type(() => JournalLineDto)

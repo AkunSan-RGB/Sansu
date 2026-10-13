@@ -173,8 +173,25 @@ export const warehouses = pgTable(
     name: text('name').notNull(),
     address: text('address'),
     isActive: boolean('is_active').notNull().default(true),
+    /** Cabang pemilik gudang/toko; transaksi di gudang ini otomatis berlabel cabang tersebut */
+    branchId: uuid('branch_id').references((): AnyPgColumn => branches.id),
   },
   (t) => [uniqueIndex('warehouses_code_uq').on(t.tenantId, t.code)],
+);
+
+/** Cabang / unit usaha dalam satu perusahaan (satu pembukuan; label cabang pada baris jurnal) */
+export const branches = pgTable(
+  'branches',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    address: text('address'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('branches_code_uq').on(t.tenantId, t.code)],
 );
 
 export const products = pgTable(
@@ -635,6 +652,8 @@ export const journalLines = pgTable(
     memo: text('memo'),
     /** Jurnal umum: biaya/pendapatan untuk proyek tertentu (usaha jasa) */
     projectId: uuid('project_id'),
+    /** Cabang (diturunkan otomatis dari gudang/kas bila tidak diisi); kosong = pusat / belum ditentukan */
+    branchId: uuid('branch_id'),
   },
   (t) => [index('journal_lines_account_idx').on(t.accountId), index('journal_lines_journal_idx').on(t.journalId)],
 );
@@ -1055,6 +1074,8 @@ export const cashTransactions = pgTable(
     journalId: uuid('journal_id'),
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
+    /** Cabang transaksi kas/biaya (kosong = pusat) */
+    branchId: uuid('branch_id'),
     /** POSTED | VOID (dibatalkan dengan jurnal pembalik; transaksi tidak pernah dihapus) */
     status: text('status').$type<'POSTED' | 'VOID'>().notNull().default('POSTED'),
     voidedAt: timestamp('voided_at', { withTimezone: true }),

@@ -7,7 +7,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, post, qs } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
-import { LEDGER_KEYS, useAction, useCashAccounts } from '@/api/queries';
+import { LEDGER_KEYS, useBranches, useAction, useCashAccounts } from '@/api/queries';
 import type { CashTransaction, Project } from '@/api/types';
 import { useApps } from '@/lib/apps';
 import CashAccountSelect from '@/components/CashAccountSelect';
@@ -27,6 +27,7 @@ interface FormValues {
   date: string;
   description: string;
   reference?: string;
+  branchId?: string;
   lines?: { accountId?: string; amount?: number; memo?: string; projectId?: string; assetCategoryId?: string; assetName?: string; assetUsefulLifeMonths?: number; assetLocation?: string }[];
 }
 
@@ -82,6 +83,7 @@ export default function CashPage() {
     invalidate: [...LEDGER_KEYS, 'cash'],
     onSuccess: () => setVoiding(null),
   });
+  const branches = useBranches();
   const counter = useQuery({
     queryKey: ['cash-counter-accounts'],
     queryFn: () => get<CounterAccount[]>('/cash/counter-accounts'),
@@ -96,6 +98,7 @@ export default function CashPage() {
         date: v.date,
         description: v.description,
         reference: v.reference || undefined,
+        branchId: v.branchId || undefined,
         ...(mode === 'TRANSFER'
           ? { toCashAccountId: v.toCashAccountId, amount: String(v.amount) }
           : {
@@ -361,6 +364,12 @@ export default function CashPage() {
               </Form.Item>
             </Col>
           </Row>
+
+          {(mode === 'IN' || mode === 'OUT') && !!branches.data?.branches.filter((b) => b.isActive).length && (
+            <Form.Item name="branchId" label="Cabang" extra="Kosong = pusat. Biaya/pendapatan ini masuk laporan laba rugi cabang yang dipilih.">
+              <Select allowClear placeholder="Pusat / semua" options={branches.data.branches.filter((b) => b.isActive).map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))} />
+            </Form.Item>
+          )}
 
           {(mode === 'IN' || mode === 'OUT') && (
             <Form.List name="lines">
