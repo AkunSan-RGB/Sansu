@@ -139,4 +139,34 @@ describe('Multi-cabang (e2e)', () => {
     expect(c.items.map((i) => i.key)).toContain('WAREHOUSE_NO_BRANCH');
     await get(cashier, '/api/branches/report').expect(403);
   });
+  it('barang pindah antar-cabang: neraca tiap cabang seimbang, Rekening Antar Cabang nol saat digabung, persediaan cocok dengan stok', async () => {
+    // langsung (toko 1 → toko 2) dan lewat perjalanan dengan kekurangan (toko 2 → toko 1)
+    await post(owner, '/api/inventory/transfers', { fromWarehouseId: W1, toWarehouseId: W2, date: day, lines: [{ productId: P, qty: '5' }] }).expect(201);
+    const t = (await post(owner, '/api/inventory/transfers', { fromWarehouseId: W2, toWarehouseId: W1, date: day, mode: 'IN_TRANSIT', lines: [{ productId: P, qty: '10' }] }).expect(201)).body;
+    await post(owner, `/api/inventory/transfers/${t.id}/receive`, { lines: [{ productId: P, receivedQty: '8' }] }).expect(201);
+
+    const bs = (await get(owner, `/api/branches/balance-sheet?asOf=${day}`).expect(200)).body;
+    for (const k of Object.keys(bs.summary)) expect(bs.summary[k].balanced).toBe(true); // tiap cabang seimbang sendiri
+    expect(bs.consolidated.balanced).toBe(true);
+    expect(bs.interbranch.eliminated).toBe(true);
+    expect(Number(bs.interbranch.net)).toBe(0);
+    expect(bs.transfers.length).toBeGreaterThanOrEqual(2);
+    // gabungan = neraca perusahaan
+    const pos = (await get(owner, `/api/accounting/reports/balance-sheet?to=${day}`).expect(200)).body;
+    expect(Number(bs.consolidated.assets)).toBeCloseTo(Number(pos.totalAssets), 2);
+    // persediaan per cabang di buku besar = nilai stok gudang cabang itu (kekurangan 2 unit masuk selisih, bukan persediaan)
+    const inv = bs.rows.find((r: { code: string }) => r.code === '1-1400');
+    const stockVal = async (w: string) => {
+      const r = (await get(owner, `/api/inventory/balances?warehouseId=${w}`).expect(200)).body as { value: string }[];
+      return r.reduce((a, x) => a + Number(x.value), 0);
+    };
+    expect(Number(inv.values[B1])).toBeCloseTo(await stockVal(W1), 2);
+    expect(Number(inv.values[B2])).toBeCloseTo(await stockVal(W2), 2);
+    const c = (await get(owner, '/api/branches/controls').expect(200)).body as { items: { key: string }[] };
+    expect(c.items.map((i) => i.key)).not.toContain('INTERBRANCH_NOT_ZERO');
+    expect(c.items.map((i) => i.key)).not.toContain('BRANCH_BS_UNBALANCED');
+    // akun antar-cabang tidak boleh dipakai jurnal manual
+    const rak = ((await get(owner, '/api/accounting/accounts').expect(200)).body as { id: string; systemKey: string }[]).find((a) => a.systemKey === 'INTERBRANCH')!;
+    await post(owner, '/api/accounting/journals', { date: day, description: 'Coba manual', lines: [{ accountId: rak.id, debit: '1000' }, { accountId: cashId, credit: '1000' }] }).expect(400);
+  });
 });

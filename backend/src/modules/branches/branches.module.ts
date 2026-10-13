@@ -11,7 +11,8 @@ import { D, Dec, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { branches, warehouses } from '../../db/schema';
-import { loadAccounts } from '../accounting/ledger-data';
+import { get as gets, loadAccounts, natural, unclosedEarnings, type Sum, ZERO_SUM } from '../accounting/ledger-data';
+import { SYS } from '../accounting/default-coa';
 
 export class CreateBranchDto {
   @ApiProperty({ example: 'CB-BKS' }) @IsString() @MinLength(2) @MaxLength(20) code: string;
@@ -144,6 +145,70 @@ export class BranchesService {
     };
   }
 
+  /**
+   * Posisi keuangan (neraca) per cabang + gabungan. Tiap jurnal seimbang di dalam cabangnya (perpindahan barang antar-cabang
+   * lewat Rekening Antar Cabang), jadi neraca tiap cabang seimbang. Kolom Gabungan = neraca perusahaan; Rekening Antar Cabang
+   * saling menghapus (eliminasi) menjadi nol.
+   */
+  async balanceSheet(tenantId: string, asOfIn?: string) {
+    const asOf = asOfIn ? toDocDate(asOfIn) : todayJakarta();
+    const accs = (await loadAccounts(this.db, tenantId)).filter((a) => a.isPostable);
+    const brs = await this.db.select().from(branches).where(eq(branches.tenantId, tenantId)).orderBy(asc(branches.code));
+    const res = await this.db.execute<{ account_id: string; branch_id: string | null; d: string; c: string }>(sql`
+      SELECT l.account_id, l.branch_id::text AS branch_id, SUM(l.debit) AS d, SUM(l.credit) AS c
+      FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
+      WHERE j.tenant_id = ${tenantId} AND j.date <= ${asOf}
+      GROUP BY l.account_id, l.branch_id`);
+    const keys = [...brs.map((b) => b.id), NONE];
+    const bal = new Map<string, Map<string, Sum>>(keys.map((k) => [k, new Map()]));
+    const all = new Map<string, Sum>();
+    const addTo = (m: Map<string, Sum>, id: string, d: Dec, c: Dec) => {
+      const cur = m.get(id) ?? { debit: ZERO, credit: ZERO };
+      m.set(id, { debit: cur.debit.plus(d), credit: cur.credit.plus(c) });
+    };
+    for (const r of res.rows) {
+      const key = r.branch_id && bal.has(r.branch_id) ? r.branch_id : NONE;
+      addTo(bal.get(key)!, r.account_id, D(r.d), D(r.c));
+      addTo(all, r.account_id, D(r.d), D(r.c));
+    }
+    const totals = (m: Map<string, Sum>) => {
+      const sum = (type: 'ASSET' | 'LIABILITY' | 'EQUITY') => accs.filter((a) => a.type === type).reduce<Dec>((s, a) => s.plus(natural(a.type, gets(m, a.id))), ZERO);
+      const assets = sum('ASSET');
+      const liabilities = sum('LIABILITY');
+      const earnings = unclosedEarnings(accs, m);
+      const equity = sum('EQUITY').plus(earnings);
+      return { assets: assets.toFixed(2), liabilities: liabilities.toFixed(2), equity: equity.toFixed(2), earnings: earnings.toFixed(2), balanced: assets.minus(liabilities.plus(equity)).abs().lt(0.005), difference: assets.minus(liabilities.plus(equity)).toFixed(2) };
+    };
+    const interbranch = accs.find((a) => a.systemKey === SYS.INTERBRANCH);
+    const rakBy = (m: Map<string, Sum>) => (interbranch ? natural(interbranch.type, gets(m, interbranch.id)) : ZERO);
+    const rows = accs
+      .filter((a) => a.type !== 'REVENUE' && a.type !== 'EXPENSE')
+      .map((a) => {
+        const values: Record<string, string> = {};
+        for (const k of keys) values[k] = natural(a.type, gets(bal.get(k)!, a.id)).toFixed(2);
+        const total = natural(a.type, gets(all, a.id));
+        return { accountId: a.id, code: a.code, name: a.name, type: a.type, values, total: total.toFixed(2), isInterbranch: a.id === interbranch?.id };
+      })
+      .filter((r) => !D(r.total).isZero() || Object.values(r.values).some((v) => !D(v).isZero()));
+    const columns = [...brs.map((b) => ({ key: b.id, code: b.code, name: b.name })), { key: NONE, code: '-', name: 'Pusat / belum ditentukan' }];
+    // perpindahan persediaan antar-cabang (nilai yang dieliminasi lewat Rekening Antar Cabang)
+    const transfers = await this.db.execute<{ number: string; date: string; from_b: string | null; to_b: string | null; total: string }>(sql`
+      SELECT t.number, t.date::text AS date, wf.branch_id::text AS from_b, wt.branch_id::text AS to_b, t.total_value AS total
+      FROM stock_transfers t JOIN warehouses wf ON wf.id = t.from_warehouse_id JOIN warehouses wt ON wt.id = t.to_warehouse_id
+      WHERE t.tenant_id = ${tenantId} AND t.date <= ${asOf} AND wf.branch_id IS DISTINCT FROM wt.branch_id AND t.status <> 'CANCELLED'
+      ORDER BY t.date DESC LIMIT 50`);
+    const name = (id: string | null) => (id ? brs.find((b) => b.id === id)?.name ?? '-' : 'Pusat');
+    return {
+      asOf,
+      columns,
+      summary: Object.fromEntries(keys.map((k) => [k, totals(bal.get(k)!)])),
+      consolidated: totals(all),
+      interbranch: { byBranch: Object.fromEntries(keys.map((k) => [k, rakBy(bal.get(k)!).toFixed(2)])), net: rakBy(all).toFixed(2), eliminated: rakBy(all).abs().lt(0.005) },
+      transfers: transfers.rows.map((r) => ({ number: r.number, date: r.date, from: name(r.from_b), to: name(r.to_b), total: D(r.total).toFixed(2) })),
+      rows,
+    };
+  }
+
   /** Temuan kontrol per cabang (anti-fraud & kualitas data) */
   async controls(tenantId: string) {
     const items: { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string; refs: string[] }[] = [];
@@ -179,6 +244,10 @@ export class BranchesService {
     const firstTx = await this.db.execute<{ id: string }>(sql`SELECT DISTINCT branch_id::text AS id FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id WHERE j.tenant_id = ${tenantId} AND branch_id IS NOT NULL AND j.date < ${addDays(today, -30)}`);
     const hadHistory = new Set(firstTx.rows.map((r) => r.id));
     add('BRANCH_NO_SALES', 'warning', 'Cabang tanpa pendapatan 30 hari terakhir', brs.filter((b) => hadHistory.has(b.id) && !active.has(b.id)).map((b) => `${b.code} ${b.name}`), 'Cabang yang biasanya berjualan tiba-tiba tanpa pendapatan: periksa apakah penjualan tidak dicatat.');
+    const bs = await this.balanceSheet(tenantId, today);
+    if (!bs.interbranch.eliminated) add('INTERBRANCH_NOT_ZERO', 'error', 'Rekening Antar Cabang tidak nol saat digabung', [`selisih Rp${Math.abs(Number(bs.interbranch.net)).toLocaleString('id-ID')}`], 'Seharusnya nol karena transaksi antar-cabang saling menghapus. Periksa jurnal yang memakai akun ini.');
+    const off = Object.entries(bs.summary).filter(([, v]) => !v.balanced).map(([k, v]) => `${k === NONE ? 'Pusat' : (brs.find((b) => b.id === k)?.code ?? k)} (selisih Rp${Math.abs(Number(v.difference)).toLocaleString('id-ID')})`);
+    add('BRANCH_BS_UNBALANCED', 'error', 'Neraca cabang tidak seimbang', off, 'Aset tidak sama dengan kewajiban + ekuitas pada cabang ini; periksa jurnal lintas-cabang.');
     const rank = { error: 0, warning: 1, info: 2 } as const;
     items.sort((a, b) => rank[a.level] - rank[b.level]);
     return { items };
@@ -201,6 +270,12 @@ export class BranchesController {
   @Roles('ADMIN', 'FINANCE')
   report(@CurrentUser() u: AuthUser, @Query('from') from?: string, @Query('to') to?: string) {
     return this.svc.report(u.tenantId, from, to);
+  }
+
+  @Get('balance-sheet')
+  @Roles('ADMIN', 'FINANCE')
+  balanceSheet(@CurrentUser() u: AuthUser, @Query('asOf') asOf?: string) {
+    return this.svc.balanceSheet(u.tenantId, asOf);
   }
 
   @Get('controls')

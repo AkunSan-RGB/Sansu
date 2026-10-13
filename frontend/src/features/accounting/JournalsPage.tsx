@@ -26,6 +26,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { useState } from 'react';
 import { api, ApiError, get, patch, post, qs, del } from '@/api/client';
 import { LEDGER_KEYS, useAccounts, useAction, useBranches } from '@/api/queries';
+import { withBudgetOverride } from '@/lib/budgetOverride';
 import type { JournalEntry, Project, RecurringJournal } from '@/api/types';
 import { useApps } from '@/lib/apps';
 import PageHeader from '@/layout/PageHeader';
@@ -143,7 +144,7 @@ function JournalList() {
     async (v: { date: string; description: string; reference?: string; branchId?: string; adjustment?: boolean; autoReverse?: boolean; controlOverrideReason?: string; lines: LineValue[] }) => {
       const body = { ...v, branchId: v.branchId || undefined, reference: v.reference || undefined, autoReverse: v.adjustment ? v.autoReverse : undefined, controlOverrideReason: v.controlOverrideReason?.trim() || undefined, lines: toLines(v.lines) };
       try {
-        return await post<JournalEntry>('/accounting/journals', body);
+        return await withBudgetOverride(modal, me?.role, (budgetOverrideReason) => post<JournalEntry>('/accounting/journals', { ...body, budgetOverrideReason }));
       } catch (e) {
         const data = e instanceof ApiError ? (e.data as { code?: string; duplicates?: { number: string; date: string; description: string }[] } | undefined) : undefined;
         if (data?.code !== 'POSSIBLE_DUPLICATE') throw e;

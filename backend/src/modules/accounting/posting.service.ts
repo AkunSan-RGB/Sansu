@@ -18,7 +18,7 @@ export interface PostLine {
   memo?: string;
   /** Proyek (usaha jasa) — dipakai jurnal umum untuk biaya langsung proyek */
   projectId?: string | null;
-  /** Cabang baris ini; kosong = ikut cabang jurnal (diturunkan dari dokumen sumbernya) */
+  /** Cabang baris ini; tidak diisi = ikut cabang jurnal (diturunkan dari dokumen sumbernya); null = pusat (paksa tanpa cabang) */
   branchId?: string | null;
 }
 
@@ -66,7 +66,7 @@ export class PostingService {
     }
     if (input.sourceType !== 'CASH_COUNT') await this.assertCashNotCounted(tx, input.tenantId, input.date, normalized.lines.map((l) => l.accountId));
     // Cabang: eksplisit per baris / per jurnal, atau diturunkan otomatis dari gudang atau kas dokumen sumber
-    const explicit = [...new Set(normalized.lines.map((l) => l.branchId).filter((x): x is string => !!x)), ...(input.branchId ? [input.branchId] : [])];
+    const explicit = [...new Set([...normalized.lines.map((l) => l.branchId).filter((x): x is string => !!x), ...(input.branchId ? [input.branchId] : [])])];
     if (explicit.length) {
       const ok = await tx.execute(sql`SELECT id FROM branches WHERE tenant_id = ${input.tenantId} AND id IN (${sql.join(explicit.map((b) => sql`${b}`), sql`, `)})`);
       if (ok.rows.length !== explicit.length) throw new BadRequestException('Cabang tidak ditemukan');
@@ -97,7 +97,7 @@ export class PostingService {
           credit: l.credit.toFixed(2),
           memo: l.memo,
           projectId: l.projectId ?? null,
-          branchId: l.branchId ?? entryBranch,
+          branchId: l.branchId === undefined ? entryBranch : l.branchId,
         })),
       )
       .returning();

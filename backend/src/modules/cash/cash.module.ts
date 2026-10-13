@@ -32,6 +32,7 @@ import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { accounts, cashTransactionLines, cashTransactions, projects } from '../../db/schema';
 import { AccountingModule } from '../accounting/accounting.module';
+import { BudgetService } from '../accounting/budget';
 import { PostingService } from '../accounting/posting.service';
 import { AssetsModule, AssetsService } from '../assets/assets.module';
 import { CashCountController, CashCountService } from './cash-count';
@@ -58,6 +59,7 @@ export class CreateCashTxDto {
   @ApiProperty({ example: 'Bayar listrik gudang Oktober' }) @IsString() @MaxLength(255) description: string;
   @ApiPropertyOptional({ example: 'No. tagihan PLN 123' }) @IsOptional() @IsString() @MaxLength(100) reference?: string;
   @ApiPropertyOptional({ description: 'Cabang transaksi ini (biaya/pendapatan cabang tertentu); kosong = pusat' }) @IsOptional() @IsUUID() branchId?: string;
+  @ApiPropertyOptional({ description: 'Hanya Pemilik: alasan menembus blokir anggaran (min. 10 karakter)' }) @IsOptional() @IsString() @MaxLength(300) budgetOverrideReason?: string;
   @ApiPropertyOptional({ type: [CashLineDto], description: 'IN/OUT: rincian akun lawan' })
   @IsOptional()
   @ValidateNested({ each: true })
@@ -101,6 +103,7 @@ export class CashService {
     private readonly assets: AssetsService,
     private readonly approvals: ApprovalsService,
     private readonly settings: SettingsService,
+    private readonly budget: BudgetService,
   ) {}
 
   /** Akun kas & bank beserta saldo per hari ini */
@@ -163,6 +166,14 @@ export class CashService {
           }
         }
       }
+    }
+    // ---- Anggaran: belanja beban yang melewati anggaran (kas kecil dikecualikan; dana tetap sudah punya batasnya sendiri) ----
+    if (dto.type === 'OUT' && !opts.petty) {
+      await this.budget.guard(
+        user,
+        (dto.lines ?? []).filter((l) => Number(l.amount) > 0).map((l) => ({ accountId: l.accountId, amount: money(l.amount), date })),
+        { kind: 'CASH_TX', title: `Kas keluar: ${dto.description}`, payload: JSON.parse(JSON.stringify(dto)), approved: opts.approved, overrideReason: dto.budgetOverrideReason },
+      );
     }
     const run = async (tx: Tx) => {
       const cash = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'CASH');

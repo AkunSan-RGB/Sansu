@@ -61,7 +61,7 @@ function CashControlCard() {
 
 /** Batas nilai yang memerlukan persetujuan pemilik / admin (0 = nonaktif) */
 function ApprovalPolicyCard() {
-  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; telegramLinkHours: number };
+  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK'; telegramLinkHours: number };
   const [form] = Form.useForm<Policy>();
   const policy = useQuery({ queryKey: ['approvals', 'policy'], queryFn: () => get<Policy>('/approvals/policy') });
   useEffect(() => {
@@ -76,7 +76,7 @@ function ApprovalPolicyCard() {
         style={{ marginBottom: 16 }}
         message="Transaksi bernilai di atas batas dari peran selain pemilik dan admin menunggu persetujuan. Isi 0 untuk mematikan."
       />
-      <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)} initialValues={{ purchaseOrder: 0, manualJournal: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, telegramLinkHours: 72 }}>
+      <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)} initialValues={{ purchaseOrder: 0, manualJournal: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, budgetControl: 'OFF', telegramLinkHours: 72 }}>
         <Form.Item name="purchaseOrder" label="Pesanan pembelian dengan total mulai dari" extra="Konfirmasi pesanan oleh keuangan menunggu persetujuan.">
           <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
         </Form.Item>
@@ -98,6 +98,13 @@ function ApprovalPolicyCard() {
         </Form.Item>
         <Form.Item name="priceBenchmarkPct" label="Toleransi di atas rata-rata harga beli 90 hari (%)" extra="Harga faktur yang melebihi rata-rata harga beli 90 hari terakhir sebesar ini juga perlu persetujuan, walau PO-nya sudah mahal.">
           <InputNumber min={0} max={1000} step={1} style={{ width: '100%' }} suffix="%" />
+        </Form.Item>
+        <Form.Item
+          name="budgetControl"
+          label="Belanja yang melewati anggaran"
+          extra="Berlaku untuk kas keluar, tagihan biaya, dan jurnal manual ke akun beban yang punya anggaran disetujui (kas kecil dan jurnal penyesuaian dikecualikan). Mati = hanya peringatan di laporan; Persetujuan = staf menunggu persetujuan Pemilik/Admin; Blokir = ditolak, hanya Pemilik yang bisa melanjutkan dengan alasan."
+        >
+          <Select options={[{ value: 'OFF', label: 'Mati (hanya peringatan)' }, { value: 'APPROVAL', label: 'Perlu persetujuan' }, { value: 'BLOCK', label: 'Blokir' }]} style={{ width: 260 }} />
         </Form.Item>
         <Form.Item name="firstSupplierPayment" label="Pembayaran pertama ke supplier wajib disetujui" valuePropName="checked" extra="Anti pemasok fiktif: staf (selain pemilik dan admin) yang membayar supplier untuk pertama kali menunggu persetujuan. Pembayaran berikutnya ke supplier yang sama berjalan biasa.">
           <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />

@@ -1,9 +1,11 @@
 import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { WITHHOLDING_LABELS } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Checkbox, Col, Descriptions, Form, Input, InputNumber, Modal, Radio, Row, Select, Space, Typography } from 'antd';
+import { Alert, App, Button, Checkbox, Col, Descriptions, Form, Input, InputNumber, Modal, Radio, Row, Select, Space, Typography } from 'antd';
 import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAccounts, useAction } from '@/api/queries';
+import { useAuth } from '@/auth/AuthContext';
+import { withBudgetOverride } from '@/lib/budgetOverride';
 import type { AssetCategory, CompanySettings, Project, PurchaseInvoice } from '@/api/types';
 import { useApps } from '@/lib/apps';
 import { fmtMoney, today } from '@/lib/format';
@@ -50,13 +52,18 @@ export default function BillModal({ open, onClose }: { open: boolean; onClose: (
     ?.filter((a) => a.isPostable && a.isActive !== false && !a.isCashAccount && ['EXPENSE', 'ASSET'].includes(a.type) && a.systemKey !== 'INVENTORY')
     .map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` }));
 
+  const { modal } = App.useApp();
+  const { me } = useAuth();
   const save = useAction(
     (v: Record<string, unknown> & { lines: LineV[] }) =>
-      post<PurchaseInvoice & { journalNumber: string; expensedLines?: number }>('/purchase-invoices/bills', {
-        ...v,
-        withholdingRate: v.withholdingType ? String(v.withholdingRate ?? 0) : undefined,
-        lines: v.lines.map((l) => ({ ...l, qty: String(l.qty ?? 1), price: String(l.price ?? 0), withholding: l.withholding ?? l.type === 'EXPENSE' })),
-      }),
+      withBudgetOverride(modal, me?.role, (budgetOverrideReason) =>
+        post<PurchaseInvoice & { journalNumber: string; expensedLines?: number }>('/purchase-invoices/bills', {
+          ...v,
+          budgetOverrideReason,
+          withholdingRate: v.withholdingType ? String(v.withholdingRate ?? 0) : undefined,
+          lines: v.lines.map((l) => ({ ...l, qty: String(l.qty ?? 1), price: String(l.price ?? 0), withholding: l.withholding ?? l.type === 'EXPENSE' })),
+        }),
+      ),
     {
       success: (r) =>
         `Tagihan ${r.number} diposting · jurnal ${r.journalNumber}` +

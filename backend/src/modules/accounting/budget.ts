@@ -1,3 +1,4 @@
+import { ApprovalsService, type ApprovalKind } from '../../common/approvals/approvals.service';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -44,6 +45,7 @@ export class BudgetService {
     private readonly audit: AuditService,
     private readonly mail: MailService,
     private readonly telegram: TelegramService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   /** Akun pendapatan & beban yang boleh dianggarkan */
@@ -216,6 +218,70 @@ export class BudgetService {
       },
     };
     return { year, month: through, budget: budget ?? null, rows, totals, alerts: rows.filter((r) => r.status !== 'OK') };
+  }
+
+  /**
+   * Gerbang belanja terhadap anggaran. Hanya untuk beban yang akan dicatat (kas keluar, tagihan biaya, jurnal manual).
+   * Bila realisasi + transaksi ini melewati anggaran s.d. bulan itu + toleransi: APPROVAL = staf menunggu persetujuan;
+   * BLOCK = ditolak, hanya Pemilik yang dapat menembus dengan alasan (tercatat). Akun tanpa anggaran tidak diblokir (hanya diperingatkan di laporan).
+   */
+  async guard(
+    user: AuthUser,
+    items: { accountId: string; amount: Dec; date: string }[],
+    ctx: { kind: ApprovalKind; title: string; payload: Record<string, unknown>; approved?: boolean; overrideReason?: string },
+  ) {
+    if (ctx.approved || !items.length) return;
+    const mode = (await this.approvals.policy(this.db, user.tenantId)).budgetControl ?? 'OFF';
+    if (mode === 'OFF') return;
+    const ids = [...new Set(items.map((i) => i.accountId))];
+    const exp = await this.db.select({ id: accounts.id, code: accounts.code, name: accounts.name }).from(accounts).where(and(eq(accounts.tenantId, user.tenantId), inArray(accounts.id, ids), eq(accounts.type, 'EXPENSE')));
+    if (!exp.length) return;
+    const expIds = new Map(exp.map((a) => [a.id, a]));
+    const byYear = new Map<number, typeof items>();
+    for (const i of items.filter((x) => expIds.has(x.accountId))) byYear.set(Number(i.date.slice(0, 4)), [...(byYear.get(Number(i.date.slice(0, 4))) ?? []), i]);
+    const over: { code: string; name: string; budget: string; actual: string; amount: string }[] = [];
+    for (const [year, list] of byYear) {
+      const b = await this.find(user.tenantId, year);
+      if (!b || b.status !== 'APPROVED') continue;
+      const lines = await this.db.select().from(budgetLines).where(eq(budgetLines.budgetId, b.id));
+      const act = await this.actualByMonth(user.tenantId, year);
+      const tol = 1 + b.tolerancePct / 100;
+      for (const id of new Set(list.map((x) => x.accountId))) {
+        const mine = list.filter((x) => x.accountId === id);
+        const through = Math.max(...mine.map((x) => Number(x.date.slice(5, 7))));
+        const amount = mine.reduce<Dec>((s, x) => s.plus(x.amount), ZERO);
+        const budgetYear = lines.filter((l) => l.accountId === id).reduce<Dec>((s, l) => s.plus(l.amount), ZERO);
+        if (budgetYear.isZero()) continue; // tanpa anggaran: tidak diblokir
+        const budgetYtd = lines.filter((l) => l.accountId === id && l.month <= through).reduce<Dec>((s, l) => s.plus(l.amount), ZERO);
+        const actualYtd = MONTHS.filter((m) => m <= through).reduce<Dec>((s, m) => {
+          const v = act.get(`${id}:${m}`);
+          return v ? s.plus(v.debit.minus(v.credit)) : s;
+        }, ZERO);
+        if (actualYtd.plus(amount).gt(budgetYtd.times(tol))) {
+          const a = expIds.get(id)!;
+          over.push({ code: a.code, name: a.name, budget: budgetYtd.toFixed(2), actual: actualYtd.toFixed(2), amount: amount.toFixed(2) });
+        }
+      }
+    }
+    if (!over.length) return;
+    const rp = (v: string) => `Rp${Math.round(Number(v)).toLocaleString('id-ID')}`;
+    const detail = over.map((o) => `${o.code} ${o.name}: anggaran s.d. bulan ini ${rp(o.budget)}, realisasi ${rp(o.actual)}, transaksi ini ${rp(o.amount)}`).join('; ');
+    const approver = this.approvals.isApprover(user.role);
+    if (mode === 'BLOCK') {
+      if (user.role === 'OWNER' && (ctx.overrideReason?.trim().length ?? 0) >= 10) {
+        await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'BUDGET_OVERRIDE', entity: 'Budget', entityId: user.tenantId, data: { over, reason: ctx.overrideReason!.trim(), title: ctx.title } });
+        return;
+      }
+      throw new BadRequestException({ statusCode: 400, code: 'BUDGET_EXCEEDED', message: `Melebihi anggaran: ${detail}.${user.role === 'OWNER' ? ' Isi alasan (min. 10 karakter) untuk menembus sebagai Pemilik.' : ' Hubungi Pemilik atau revisi anggaran.'}`, over });
+    }
+    // APPROVAL
+    if (approver) {
+      await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'BUDGET_OVERRIDE', entity: 'Budget', entityId: user.tenantId, data: { over, title: ctx.title } });
+      return;
+    }
+    const total = items.reduce<Dec>((s, x) => s.plus(x.amount), ZERO);
+    const req = await this.approvals.create(this.db, user, { kind: ctx.kind, refId: null, title: `${ctx.title} (melebihi anggaran)`, amount: total.toNumber(), payload: ctx.payload });
+    throw this.approvals.required(req.id, `Transaksi ini melewati anggaran (${detail}); permintaan dikirim ke pemilik atau admin dan diproses setelah disetujui.`);
   }
 
   // ---------- Peringatan otomatis ----------
