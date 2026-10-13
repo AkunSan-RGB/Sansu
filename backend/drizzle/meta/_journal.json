@@ -316,6 +316,13 @@
       "when": 1793029886484,
       "tag": "0044_supplier_payment_void",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1793116286484,
+      "tag": "0045_pos_returns",
+      "breakpoints": true
     }
   ]
 }

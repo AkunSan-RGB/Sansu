@@ -22,6 +22,7 @@ export const DOC_PREFIX = {
   TRANSFER: 'TRF',
   POS_SESSION: 'KSR',
   POS_ORDER: 'POS',
+  POS_RETURN: 'RPS',
   QUOTATION: 'SQ',
   PAYROLL: 'GJ',
   TAX_PAYMENT: 'SP',

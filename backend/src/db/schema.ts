@@ -1250,6 +1250,52 @@ export const posOrderLines = pgTable('pos_order_lines', {
   discountPct: numeric('discount_pct', { precision: 5, scale: 2 }).notNull().default('0'),
   lineTotal: money('line_total').notNull(),
   unitCost: qty('unit_cost').notNull(),
+  /** Sudah diretur (satuan sesuai baris) */
+  returnedQty: qty('returned_qty').notNull().default('0'),
+});
+
+/** Retur / pembatalan penjualan kasir oleh supervisor */
+export const posReturns = pgTable(
+  'pos_returns',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    date: date('date').notNull(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => posOrders.id),
+    /** Sesi kasir yang laci tunainya dipakai mengembalikan uang (hanya bila sesi asal masih terbuka) */
+    sessionId: uuid('session_id'),
+    warehouseId: uuid('warehouse_id')
+      .notNull()
+      .references(() => warehouses.id),
+    refundMethod: text('refund_method').$type<'CASH' | 'BANK'>().notNull(),
+    reason: text('reason').notNull(),
+    subtotal: money('subtotal').notNull(),
+    taxAmount: money('tax_amount').notNull(),
+    total: money('total').notNull(),
+    cogsAmount: money('cogs_amount').notNull(),
+    journalId: uuid('journal_id'),
+    createdById: uuid('created_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('pos_returns_number_uq').on(t.tenantId, t.number), index('pos_returns_order_idx').on(t.orderId), index('pos_returns_session_idx').on(t.sessionId)],
+);
+
+export const posReturnLines = pgTable('pos_return_lines', {
+  id: id(),
+  returnId: uuid('return_id')
+    .notNull()
+    .references(() => posReturns.id, { onDelete: 'cascade' }),
+  orderLineId: uuid('order_line_id')
+    .notNull()
+    .references(() => posOrderLines.id),
+  productId: uuid('product_id')
+    .notNull()
+    .references(() => products.id),
+  qty: qty('qty').notNull(),
+  unitCost: qty('unit_cost').notNull(),
 });
 
 export const posPayments = pgTable('pos_payments', {
@@ -1797,6 +1843,14 @@ export const posOrdersRelations = relations(posOrders, ({ one, many }) => ({
 export const posOrderLinesRelations = relations(posOrderLines, ({ one }) => ({
   order: one(posOrders, { fields: [posOrderLines.orderId], references: [posOrders.id] }),
   product: one(products, { fields: [posOrderLines.productId], references: [products.id] }),
+}));
+export const posReturnsRelations = relations(posReturns, ({ one, many }) => ({
+  order: one(posOrders, { fields: [posReturns.orderId], references: [posOrders.id] }),
+  lines: many(posReturnLines),
+}));
+export const posReturnLinesRelations = relations(posReturnLines, ({ one }) => ({
+  ret: one(posReturns, { fields: [posReturnLines.returnId], references: [posReturns.id] }),
+  product: one(products, { fields: [posReturnLines.productId], references: [products.id] }),
 }));
 export const posPaymentsRelations = relations(posPayments, ({ one }) => ({
   order: one(posOrders, { fields: [posPayments.orderId], references: [posOrders.id] }),
