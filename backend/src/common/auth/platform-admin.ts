@@ -18,8 +18,12 @@ export const isPlatformAdmin = (email?: string | null) => !!email && platformAdm
 @Injectable()
 export class PlatformAdminGuard implements CanActivate {
   canActivate(ctx: ExecutionContext): boolean {
-    const u: AuthUser | undefined = ctx.switchToHttp().getRequest().user;
-    if (u && isPlatformAdmin(u.email)) return true;
+    const req = ctx.switchToHttp().getRequest();
+    const u: AuthUser | undefined = req.user;
+    if (u && isPlatformAdmin(u.email)) {
+      req.rlsBypass = true; // panel pemilik layanan lintas perusahaan: tanpa penyaringan row-level security
+      return true;
+    }
     throw new ForbiddenException('Khusus pemilik layanan SANSU');
   }
 }

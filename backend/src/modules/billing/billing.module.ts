@@ -39,6 +39,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { withRlsBypass } from '../../db/db-scope';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Public, Roles } from '../../common/auth/decorators';
 import { AllowWhenLocked, PlatformAdminGuard, platformAdminEmails } from '../../common/auth/platform-admin';
@@ -204,10 +205,13 @@ export class BillingService {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(727002)`);
     const now = new Date();
     const prefix = `SNS/${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/`;
-    const [r] = await tx
-      .select({ n: sql<number>`count(*)::int` })
-      .from(billingInvoices)
-      .where(sql`${billingInvoices.number} LIKE ${`${prefix}%`}`);
+    // nomor tagihan berurut GLOBAL lintas perusahaan: hitung tanpa penyaringan perusahaan (pengecualian RLS yang disengaja)
+    const [r] = await withRlsBypass(tx, () =>
+      tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(billingInvoices)
+        .where(sql`${billingInvoices.number} LIKE ${`${prefix}%`}`),
+    );
     return `${prefix}${String(r.n + 1).padStart(4, '0')}`;
   }
 
