@@ -4,6 +4,7 @@ import { Button, Card, Select, Space, Tag } from 'antd';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, qs } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import type { PurchaseOrder } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
@@ -13,6 +14,7 @@ import { t } from '@/lib/terms';
 
 export default function PurchaseOrdersPage() {
   const navigate = useNavigate();
+  const { me } = useAuth();
   const [status, setStatus] = useState<string>();
   const { data, isLoading } = useQuery({
     queryKey: ['purchase-orders', status],
@@ -25,10 +27,10 @@ export default function PurchaseOrdersPage() {
         title={t('Purchase Order')}
         extra={
           <Space wrap>
-            <Button icon={<ThunderboltOutlined />} onClick={() => navigate('/purchase-orders/quick')}>
+            <Button type={me?.businessModel === 'RITEL' ? 'primary' : 'default'} icon={<ThunderboltOutlined />} onClick={() => navigate('/purchase-orders/quick')}>
               Pembelian cepat
             </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/purchase-orders/new')}>
+            <Button type={me?.businessModel === 'RITEL' ? 'default' : 'primary'} icon={<PlusOutlined />} onClick={() => navigate('/purchase-orders/new')}>
               PO baru
             </Button>
           </Space>

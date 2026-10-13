@@ -1,9 +1,9 @@
 import { useApps } from '@/lib/apps';
 import { useNavigate } from 'react-router-dom';
 import { FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Card, Form, Input, InputNumber, Modal, Space, Switch, Tag } from 'antd';
+import { App, Button, Card, Form, Input, InputNumber, Modal, Space, Switch, Tag } from 'antd';
 import { useState } from 'react';
-import { patch, post } from '@/api/client';
+import { ApiError, patch, post } from '@/api/client';
 import { useAction, useSuppliers } from '@/api/queries';
 import type { Supplier } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
@@ -30,11 +30,24 @@ export default function SuppliersPage() {
   const [editing, setEditing] = useState<Supplier | 'new' | null>(null);
   const [form] = Form.useForm<FormValues>();
 
+  const { modal } = App.useApp();
   const save = useAction(
-    (v: FormValues) => {
+    async (v: FormValues) => {
       // batas persetujuan otomatis hanya dikirim oleh pemilik/admin (server menolak peran lain)
       const body = isAdmin ? { ...v, autoApproveLimit: v.isPreferred ? String(v.autoApproveLimit ?? 0) : '0' } : { ...v, isPreferred: undefined, autoApproveLimit: undefined };
-      return editing && editing !== 'new' ? patch(`/suppliers/${editing.id}`, body) : post('/suppliers', body);
+      const send = (extra: object) => (editing && editing !== 'new' ? patch(`/suppliers/${editing.id}`, { ...body, ...extra }) : post('/suppliers', { ...body, ...extra }));
+      try {
+        return await send({});
+      } catch (e) {
+        const data = e instanceof ApiError ? (e.data as { code?: string; message?: string } | undefined) : undefined;
+        if (data?.code !== 'POSSIBLE_DUPLICATE_SUPPLIER') throw e;
+        // anti pemasok ganda/fiktif: tampilkan yang mirip, simpan hanya bila pengguna yakin
+        const ok = await new Promise<boolean>((resolve) =>
+          modal.confirm({ title: 'Mirip dengan supplier lain', width: 520, content: data.message, okText: 'Tetap simpan', cancelText: 'Periksa dulu', onOk: () => resolve(true), onCancel: () => resolve(false) }),
+        );
+        if (!ok) throw new Error('Penyimpanan dibatalkan');
+        return send({ confirmDuplicate: true });
+      }
     },
     { success: 'Supplier disimpan', invalidate: ['suppliers'], onSuccess: () => setEditing(null) },
   );

@@ -39,10 +39,12 @@ export interface ApprovalPolicy {
   priceTolerancePct: number;
   /** Harga faktur di atas rata-rata harga beli 90 hari terakhir lebih dari persen ini juga butuh persetujuan */
   priceBenchmarkPct: number;
+  /** Pembayaran PERTAMA ke supplier oleh peran selain pemilik/admin wajib disetujui (anti pemasok fiktif) */
+  firstSupplierPayment: boolean;
   /** Masa berlaku tautan persetujuan yang dikirim lewat Telegram (jam, 1–72); email tetap 72 jam */
   telegramLinkHours: number;
 }
-export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, telegramLinkHours: 72 };
+export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, telegramLinkHours: 72 };
 
 export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PURCHASE_ORDER: 'Pesanan pembelian',

@@ -753,6 +753,17 @@ export class PurchaseInvoicesService {
       }
     }
 
+    // Pembayaran pertama ke supplier (belum pernah dibayar sama sekali) oleh staf: wajib disetujui bila kebijakan menyalakannya
+    if (!opts.approved && !this.approvals.isApprover(user.role) && (await this.approvals.policy(this.db, user.tenantId)).firstSupplierPayment) {
+      const first = await this.db.execute<{ n: number; no: string }>(sql`
+        SELECT (SELECT COUNT(*)::int FROM supplier_payments p WHERE p.tenant_id = ${user.tenantId} AND p.supplier_id = i.supplier_id AND p.status = 'POSTED') AS n, i.supplier_invoice_no AS no
+        FROM purchase_invoices i WHERE i.id = ${dto.purchaseInvoiceId} AND i.tenant_id = ${user.tenantId}`);
+      if (first.rows[0] && first.rows[0].n === 0) {
+        const req = await this.approvals.create(this.db, user, { kind: 'SUPPLIER_PAYMENT', refId: null, title: `Pembayaran PERTAMA ke supplier baru — faktur ${first.rows[0].no}`, amount: amount.toNumber(), payload: JSON.parse(JSON.stringify(dto)) });
+        throw this.approvals.required(req.id, 'Ini pembayaran pertama ke supplier tersebut; permintaan dikirim ke pemilik atau admin dan dibayar setelah disetujui.');
+      }
+    }
+
     return this.db.transaction(async (tx) => {
       const locked = await tx.execute(sql`
         SELECT id FROM purchase_invoices WHERE id = ${dto.purchaseInvoiceId} AND tenant_id = ${user.tenantId} FOR UPDATE`);
