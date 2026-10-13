@@ -12,8 +12,9 @@ import { runMigrations } from './db/run-migrations';
 async function bootstrap() {
   assertProductionConfig();
   // Pastikan skema database selalu sesuai versi kode sebelum menerima permintaan
-  const pool = createPool();
+  let pool: ReturnType<typeof createPool> | undefined;
   try {
+    pool = createPool();
     await runMigrations(pool);
   } catch (e) {
     // Galat koneksi/migrasi ditulis jelas satu blok (tanpa password) lalu berhenti; tumpukan teknis menyusul di bawahnya
@@ -21,7 +22,7 @@ async function bootstrap() {
     console.error(e);
     process.exit(1);
   } finally {
-    await pool.end().catch(() => undefined);
+    await pool?.end().catch(() => undefined);
   }
 
   const app = configureApp(await NestFactory.create(AppModule, { bodyParser: false }));

@@ -1,4 +1,4 @@
-import { describeDbError, safeDbTarget } from './db-error';
+import { cleanDbUrl, describeDbError, safeDbTarget } from './db-error';
 
 describe('db-error', () => {
   const url = 'postgresql://pengguna:RAHASIA@ep-abc.ap-southeast-1.aws.neon.tech/neondb?sslmode=require';
@@ -19,5 +19,31 @@ describe('db-error', () => {
   it('mengenali DATABASE_URL kosong dan tidak valid', () => {
     expect(describeDbError(new Error('x'), '')).toMatch(/belum diisi/);
     expect(safeDbTarget('bukan-url')).toMatch(/tidak valid/);
+  });
+});
+
+describe('cleanDbUrl', () => {
+  const ok = 'postgresql://pengguna:RAHASIA@ep-abc.neon.tech/neondb?sslmode=require';
+  it('merapikan spasi, tanda kutip, dan awalan DATABASE_URL=', () => {
+    expect(cleanDbUrl(`  ${ok}  `)).toBe(ok);
+    expect(cleanDbUrl(`"${ok}"`)).toBe(ok);
+    expect(cleanDbUrl(`'${ok}'`)).toBe(ok);
+    expect(cleanDbUrl(`DATABASE_URL=${ok}`)).toBe(ok);
+    expect(cleanDbUrl(`postgres://u:p@h/db`)).toBe('postgres://u:p@h/db');
+  });
+  it('menolak yang bukan alamat PostgreSQL, tanpa membocorkan isinya', () => {
+    for (const bad of ['', 'ep-abc.neon.tech', 'psql postgresql://u:RAHASIA@h/db', 'mysql://u:RAHASIA@h/db', '${{Postgres.DATABASE_URL}}']) {
+      let msg = '';
+      try {
+        cleanDbUrl(bad);
+      } catch (e) {
+        msg = (e as Error).message;
+      }
+      expect(msg).toMatch(/DATABASE_URL/);
+      expect(msg).not.toMatch(/RAHASIA/);
+    }
+  });
+  it('galat host "base" dijelaskan sebagai DATABASE_URL tidak valid', () => {
+    expect(describeDbError({ code: 'ENOTFOUND', hostname: 'base', message: 'getaddrinfo ENOTFOUND base' }, 'x')).toMatch(/bukan alamat PostgreSQL yang valid/);
   });
 });
