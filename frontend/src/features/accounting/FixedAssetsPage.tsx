@@ -279,11 +279,38 @@ function AssetList() {
   const [status, setStatus] = useState<'ACTIVE' | 'ALL'>('ACTIVE');
   const assets = useQuery({ queryKey: ['assets', 'list', asOf], queryFn: () => get<FixedAsset[]>(`/assets?asOf=${asOf}`) });
   const cats = useQuery({ queryKey: ['assets', 'categories'], queryFn: () => get<AssetCategory[]>('/assets/categories') });
+  const recon = useQuery({
+    queryKey: ['assets', 'reconciliation', asOf],
+    queryFn: () => get<{ mismatched: number; rows: { accountId: string; code: string; name: string; kind: 'COST' | 'ACCUMULATED'; register: string; ledger: string; diff: string }[] }>(`/assets/reconciliation?asOf=${asOf}`),
+  });
+  const mismatches = (recon.data?.rows ?? []).filter((r) => Math.abs(Number(r.diff)) >= 1);
   const rows = useMemo(() => (assets.data ?? []).filter((a) => status === 'ALL' || a.status === 'ACTIVE'), [assets.data, status]);
   const total = (k: 'cost' | 'accumulated' | 'bookValue') => rows.reduce((s, a) => s + Number(a[k] ?? 0), 0);
   const monthly = rows.filter((a) => a.status === 'ACTIVE').reduce((s, a) => s + Number(a.monthlyEstimate ?? 0), 0);
   return (
     <>
+      {mismatches.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Daftar aset belum sama dengan buku besar"
+          description={
+            <>
+              {mismatches.map((m) => (
+                <div key={`${m.kind}${m.accountId}`}>
+                  {m.code} {m.name} ({m.kind === 'COST' ? 'harga perolehan' : 'akumulasi penyusutan'}): daftar aset {fmtMoney(Number(m.register))}, buku besar {fmtMoney(Number(m.ledger))}, selisih{' '}
+                  <b>{fmtMoney(Number(m.diff))}</b>
+                </div>
+              ))}
+              <div style={{ marginTop: 6 }}>
+                Selisih positif biasanya berarti ada aset lama yang saldonya sudah masuk lewat saldo awal tetapi belum dirinci di daftar ini.{' '}
+                <a onClick={() => navigate('/settings/import?kind=assets')}>Impor aset lama dari Excel</a>
+              </div>
+            </>
+          }
+        />
+      )}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         {[
           ['Harga perolehan', total('cost')],

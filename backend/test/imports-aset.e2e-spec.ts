@@ -59,4 +59,28 @@ describe('Impor aset tetap lama (e2e)', () => {
     expect(msg).toMatch(/setelah tanggal saldo awal/);
     await imp([{ nama: 'X', kategori: 'Tidak Ada', tanggal_perolehan: '2022-01-01', harga_perolehan: 1 }], { dryRun: false }).expect(400);
   });
+
+  it('pemeriksaan selisih: daftar aset vs buku besar, cocok setelah saldo awal akun ikut diisi', async () => {
+    const rec = () => get('/api/assets/reconciliation?asOf=2025-12-31').expect(200).then((r) => r.body as { mismatched: number; rows: { kind: string; register: string; ledger: string; diff: string }[] });
+    // daftar berisi aset (dari tes pertama) tetapi buku besar belum punya saldonya
+    const before = await rec();
+    expect(before.mismatched).toBeGreaterThan(0);
+    const cost = before.rows.find((r) => r.kind === 'COST' && Number(r.register) > 0)!;
+    const acc = before.rows.find((r) => r.kind === 'ACCUMULATED' && Number(r.register) > 0)!;
+    expect(Number(cost.diff)).toBe(-Number(cost.register));
+    // isi saldo awal akun sebesar daftar aset
+    const cats = (await get('/api/assets/categories').expect(200)).body as { assetAccount: { code: string }; accumulatedAccount: { code: string } | null }[];
+    const c = cats.find((x) => x.accumulatedAccount)!;
+    await http.post('/api/imports').set(auth()).send({
+      kind: 'accounts',
+      date: '2025-12-31',
+      dryRun: false,
+      rows: [
+        { kode_akun: c.assetAccount.code, debit: Number(cost.register) },
+        { kode_akun: c.accumulatedAccount!.code, kredit: Number(acc.register) },
+      ],
+    }).expect(200);
+    const after = await rec();
+    expect(after.mismatched).toBe(0);
+  });
 });

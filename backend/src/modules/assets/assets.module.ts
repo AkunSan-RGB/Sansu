@@ -150,6 +150,54 @@ export class AssetsService {
     return rows.map((a) => this.withValues(a, posted.get(a.id), date));
   }
 
+  /**
+   * Cocokkan daftar aset dengan buku besar per tanggal: total harga perolehan vs saldo akun aset, dan total akumulasi vs
+   * saldo akun akumulasi penyusutan. Selisih biasanya berarti aset lama belum dirinci (saldo awal sudah diisi tetapi daftar asetnya belum),
+   * atau ada jurnal manual langsung ke akun aset.
+   */
+  async reconciliation(tenantId: string, asOf?: string) {
+    const date = toDocDate(asOf);
+    const assets = (await this.list(tenantId, date)).filter((a) => a.acquisitionDate <= date);
+    const cats = await this.listCategories(tenantId);
+    type Acc = { id: string; code: string; name: string };
+    const accs = new Map<string, { acc: Acc; kind: 'COST' | 'ACCUMULATED'; register: Dec }>();
+    const bump = (acc: Acc | null | undefined, kind: 'COST' | 'ACCUMULATED', v: Dec) => {
+      if (!acc) return;
+      const k = `${kind}:${acc.id}`;
+      const cur = accs.get(k) ?? { acc, kind, register: ZERO };
+      cur.register = cur.register.plus(v);
+      accs.set(k, cur);
+    };
+    for (const c of cats) {
+      bump(c.assetAccount, 'COST', ZERO);
+      bump(c.accumulatedAccount, 'ACCUMULATED', ZERO);
+    }
+    const catById = new Map(cats.map((c) => [c.id, c]));
+    for (const a of assets) {
+      const c = catById.get(a.categoryId);
+      if (!c) continue;
+      bump(c.assetAccount, 'COST', D(a.status === 'DISPOSED' && a.disposalDate && a.disposalDate <= date ? 0 : a.cost));
+      bump(c.accumulatedAccount, 'ACCUMULATED', D(a.accumulated));
+    }
+    const ids = [...new Set([...accs.values()].map((x) => x.acc.id))];
+    const gl = new Map<string, { debit: Dec; credit: Dec }>();
+    if (ids.length) {
+      const res = await this.db.execute<{ account_id: string; debit: string; credit: string }>(sql`
+        SELECT l.account_id, SUM(l.debit) AS debit, SUM(l.credit) AS credit
+        FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
+        WHERE j.tenant_id = ${tenantId} AND j.date <= ${date} AND l.account_id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})
+        GROUP BY l.account_id`);
+      for (const r of res.rows) gl.set(r.account_id, { debit: D(r.debit), credit: D(r.credit) });
+    }
+    const rows = [...accs.values()].map((x) => {
+      const g = gl.get(x.acc.id) ?? { debit: ZERO, credit: ZERO };
+      const ledger = x.kind === 'COST' ? g.debit.minus(g.credit) : g.credit.minus(g.debit);
+      const diff = ledger.minus(x.register);
+      return { accountId: x.acc.id, code: x.acc.code, name: x.acc.name, kind: x.kind, register: x.register.toFixed(2), ledger: ledger.toFixed(2), diff: diff.toFixed(2) };
+    });
+    return { asOf: date, rows, mismatched: rows.filter((r) => D(r.diff).abs().gte(1)).length };
+  }
+
   private withValues(a: Asset & { category: { id: string; name: string; fiscalGroup: string } }, p: { total: Dec; last: string | null } | undefined, date: string) {
     const disposed = a.status === 'DISPOSED' && a.disposalDate && a.disposalDate <= date;
     const accumulated = disposed ? ZERO : D(a.openingAccumulated).plus(p?.total ?? ZERO);
@@ -617,6 +665,11 @@ export class AssetsController {
   @Get('reports/fiscal')
   fiscal(@CurrentUser() u: AuthUser, @Query('year') year?: string) {
     return this.svc.fiscalComparison(u.tenantId, Number(year) || new Date().getFullYear());
+  }
+
+  @Get('reconciliation')
+  reconciliation(@CurrentUser() u: AuthUser, @Query('asOf') asOf?: string) {
+    return this.svc.reconciliation(u.tenantId, asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : undefined);
   }
 
   @Get()
