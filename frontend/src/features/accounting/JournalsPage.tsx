@@ -21,6 +21,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
+import { useAuth } from '@/auth/AuthContext';
 import { useState } from 'react';
 import { api, get, patch, post, qs } from '@/api/client';
 import { LEDGER_KEYS, useAccounts, useAction } from '@/api/queries';
@@ -134,9 +135,10 @@ function JournalList() {
   const [form] = Form.useForm();
   const journals = useQuery({ queryKey: ['journals', filter], queryFn: () => get<JournalEntry[]>(`/accounting/journals${qs(filter)}`) });
 
+  const { me } = useAuth();
   const create = useAction(
-    (v: { date: string; description: string; reference?: string; adjustment?: boolean; lines: LineValue[] }) =>
-      post<JournalEntry>('/accounting/journals', { ...v, reference: v.reference || undefined, lines: toLines(v.lines) }),
+    (v: { date: string; description: string; reference?: string; adjustment?: boolean; controlOverrideReason?: string; lines: LineValue[] }) =>
+      post<JournalEntry>('/accounting/journals', { ...v, reference: v.reference || undefined, controlOverrideReason: v.controlOverrideReason?.trim() || undefined, lines: toLines(v.lines) }),
     { success: (j) => `Jurnal ${j.number} diposting`, invalidate: LEDGER_KEYS, onSuccess: () => setOpen(false) },
   );
   const reverse = useAction((id: string) => post<JournalEntry>(`/accounting/journals/${id}/reverse`), {
@@ -241,6 +243,18 @@ function JournalList() {
           <Form.Item name="adjustment" valuePropName="checked" extra="Jurnal penyesuaian akhir periode tampil di kolom penyesuaian neraca lajur.">
             <Checkbox>Jurnal penyesuaian</Checkbox>
           </Form.Item>
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="Akun kontrol tidak bisa dipakai di jurnal manual"
+            description="Piutang usaha, hutang usaha, persediaan, kas/bank, dan aset tetap punya rincian per dokumen; koreksinya lewat faktur, retur, penyesuaian stok, transaksi kas, atau menu Aset Tetap."
+          />
+          {me?.role === 'OWNER' && (
+            <Form.Item name="controlOverrideReason" label="Pengecualian akun kontrol (khusus Pemilik, opsional)" extra="Isi alasan (min. 10 karakter) hanya bila benar-benar perlu memakai akun kontrol; tercatat di jejak audit.">
+              <Input maxLength={300} />
+            </Form.Item>
+          )}
           <LinesEditor form={form} />
         </Form>
       </Modal>

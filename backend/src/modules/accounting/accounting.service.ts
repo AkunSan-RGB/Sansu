@@ -9,7 +9,7 @@ import { addDays, DocDate, toDocDate, todayJakarta } from '../../common/utils/da
 import { D, Dec, DecValue, money, ZERO } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { AccountType, accounts, journalEntries, journalLines, recurringJournals, tenants } from '../../db/schema';
+import { AccountType, accounts, assetCategories, journalEntries, journalLines, recurringJournals, tenants } from '../../db/schema';
 import { guessReportGroup, SYS } from './default-coa';
 import {
   CloseYearDto,
@@ -167,6 +167,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
 
   /** Jurnal manual. Bernilai besar dari peran yang tidak berwenang: dikirim sebagai permintaan persetujuan dan baru diposting setelah disetujui. */
   async createManualJournal(user: AuthUser, dto: CreateJournalDto, opts: { approved?: boolean } = {}) {
+    await this.assertNoControlAccounts(user, dto.lines.map((l) => l.accountId), dto.controlOverrideReason);
     if (!opts.approved) {
       const total = dto.lines.reduce((a, l) => a + Number(l.debit ?? 0), 0);
       const limit = await this.approvals.needs(this.db, user, 'MANUAL_JOURNAL', total);
@@ -304,6 +305,36 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
     return this.db.select().from(recurringJournals).where(eq(recurringJournals.tenantId, tenantId)).orderBy(asc(recurringJournals.nextDate));
   }
 
+  /**
+   * Akun kontrol punya rincian per dokumen (piutang, hutang, stok, kas/bank, aset tetap). Jurnal manual ke akun ini membuat
+   * buku besar tidak sama dengan daftar di bawahnya, jadi dikoreksi lewat dokumennya. Hanya Pemilik yang boleh mengecualikan,
+   * dengan alasan (min. 10 karakter) yang tercatat di jejak audit.
+   */
+  private async assertNoControlAccounts(user: AuthUser, accountIds: string[], override?: string, context = 'Jurnal manual') {
+    const ids = [...new Set(accountIds)];
+    if (!ids.length) return;
+    const accs = await this.db.select().from(accounts).where(and(eq(accounts.tenantId, user.tenantId), inArray(accounts.id, ids)));
+    const cats = await this.db.select({ a: assetCategories.assetAccountId, b: assetCategories.accumulatedAccountId }).from(assetCategories).where(eq(assetCategories.tenantId, user.tenantId));
+    const assetAccounts = new Set(cats.flatMap((c) => [c.a, c.b].filter((x): x is string => !!x)));
+    const reasonOf = (a: (typeof accs)[number]) =>
+      a.systemKey === SYS.AR ? 'piutang usaha (dikoreksi lewat faktur, pembayaran, atau retur)'
+      : a.systemKey === SYS.AP ? 'hutang usaha (dikoreksi lewat faktur pembelian, pembayaran, atau retur)'
+      : a.systemKey === SYS.INVENTORY || a.systemKey === SYS.INVENTORY_SEMI ? 'persediaan (dikoreksi lewat penyesuaian stok atau opname)'
+      : a.isCashAccount ? 'kas/bank (dicatat lewat Kas & Bank, kas kecil, atau rekonsiliasi bank)'
+      : assetAccounts.has(a.id) ? 'aset tetap (dicatat lewat faktur/kas dan menu Aset Tetap)'
+      : null;
+    const hits = accs.map((a) => ({ a, why: reasonOf(a) })).filter((x) => x.why);
+    if (!hits.length) return;
+    if (user.role === 'OWNER' && override && override.trim().length >= 10) {
+      await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CONTROL_OVERRIDE', entity: 'Journal', entityId: user.tenantId, data: { context, accounts: hits.map((h) => h.a.code), reason: override.trim() } });
+      return;
+    }
+    throw new BadRequestException(
+      `${context} tidak boleh memakai akun kontrol: ${hits.map((h) => `${h.a.code} ${h.a.name} — ${h.why}`).join('; ')}.` +
+        (user.role === 'OWNER' ? ' Pemilik dapat mengecualikan dengan mengisi alasan pengecualian (min. 10 karakter).' : ''),
+    );
+  }
+
   private async validateLines(tenantId: string, lines: { accountId: string; debit?: string; credit?: string }[]) {
     const ids = [...new Set(lines.map((l) => l.accountId))];
     const accs = await this.db.select().from(accounts).where(eq(accounts.tenantId, tenantId));
@@ -319,6 +350,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
 
   async createRecurring(user: AuthUser, dto: CreateRecurringDto) {
     await this.validateLines(user.tenantId, dto.lines);
+    await this.assertNoControlAccounts(user, dto.lines.map((l) => l.accountId), undefined, 'Jurnal berulang');
     const [r] = await this.db
       .insert(recurringJournals)
       .values({ ...dto, tenantId: user.tenantId, nextDate: toDocDate(dto.nextDate), endDate: dto.endDate ? toDocDate(dto.endDate) : null, isAdjustment: dto.isAdjustment ?? true })
@@ -327,7 +359,10 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
   }
 
   async updateRecurring(user: AuthUser, id: string, dto: UpdateRecurringDto) {
-    if (dto.lines) await this.validateLines(user.tenantId, dto.lines);
+    if (dto.lines) {
+      await this.validateLines(user.tenantId, dto.lines);
+      await this.assertNoControlAccounts(user, dto.lines.map((l) => l.accountId), undefined, 'Jurnal berulang');
+    }
     const [r] = await this.db
       .update(recurringJournals)
       .set({ ...dto, nextDate: dto.nextDate ? toDocDate(dto.nextDate) : undefined })
