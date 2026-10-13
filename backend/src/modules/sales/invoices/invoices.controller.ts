@@ -14,6 +14,7 @@ export class InvoicesController {
   constructor(private readonly svc: InvoicesService) {}
 
   @Get()
+  @Roles('ADMIN', 'FINANCE', 'SALES')
   list(@CurrentUser() u: AuthUser, @Query() q: InvoiceQueryDto) {
     return this.svc.list(u.tenantId, q);
   }
@@ -25,6 +26,7 @@ export class InvoicesController {
   }
 
   @Get(':id')
+  @Roles('ADMIN', 'FINANCE', 'SALES')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }

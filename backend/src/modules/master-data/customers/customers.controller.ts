@@ -13,11 +13,13 @@ export class CustomersController {
   constructor(private readonly svc: CustomersService) {}
 
   @Get()
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'CASHIER')
   list(@CurrentUser() u: AuthUser, @Query() q: ListQueryDto) {
     return this.svc.list(u.tenantId, q.q);
   }
 
   @Get(':id')
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'CASHIER')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }

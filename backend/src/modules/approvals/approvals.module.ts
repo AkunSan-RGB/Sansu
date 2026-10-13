@@ -27,11 +27,16 @@ import { AssetsModule, AssetsService } from '../assets/assets.module';
 import { CashModule } from '../cash/cash.module';
 import { CashService, type CreateCashTxDto } from '../cash/cash.module';
 import { PettyCashService } from '../cash/petty-cash';
+import { InventoryModule } from '../inventory/inventory.module';
+import { InventoryService } from '../inventory/inventory.service';
+import type { StockAdjustmentDto } from '../inventory/dto/inventory.dto';
+import type { CreateSupplierPaymentDto } from '../purchasing/purchasing.dto';
 import type { DisposeDto } from '../assets/assets.module';
 
 class PolicyDto implements Partial<ApprovalPolicy> {
   @ApiPropertyOptional({ description: 'Pesanan pembelian dengan total ≥ nilai ini perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) purchaseOrder?: number;
   @ApiPropertyOptional({ description: 'Jurnal manual dengan total debit ≥ nilai ini perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) manualJournal?: number;
+  @ApiPropertyOptional({ description: 'Penyesuaian stok bernilai ≥ batas ini perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) stockAdjustment?: number;
   @ApiPropertyOptional({ description: 'Kas keluar / transfer dengan nilai ≥ batas ini perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) cashOut?: number;
   @ApiPropertyOptional({ description: 'Pelepasan aset tetap dengan harga perolehan ≥ nilai ini perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) assetDisposal?: number;
   @ApiPropertyOptional({ description: 'Permintaan pembelian dengan perkiraan nilai ≤ batas ini langsung disetujui otomatis; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) purchaseRequestAuto?: number;
@@ -59,6 +64,7 @@ export class ApprovalRequestsService {
     private readonly assets: AssetsService,
     private readonly cash: CashService,
     private readonly petty: PettyCashService,
+    private readonly inventory: InventoryService,
     private readonly audit: AuditService,
   ) {}
 
@@ -118,6 +124,12 @@ export class ApprovalRequestsService {
         // dicatat atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
         const t = await this.cash.create({ ...user, sub: req.requestedById }, req.payload as unknown as CreateCashTxDto, { approved: true });
         resultRef = t.number;
+      } else if (req.kind === 'STOCK_ADJUSTMENT') {
+        const r = await this.inventory.adjust({ ...user, sub: req.requestedById }, req.payload as unknown as StockAdjustmentDto, undefined, { approved: true });
+        resultRef = r.number;
+      } else if (req.kind === 'SUPPLIER_PAYMENT') {
+        const r = await this.invoices.pay({ ...user, sub: req.requestedById }, req.payload as unknown as CreateSupplierPaymentDto, { approved: true });
+        resultRef = (r as { number?: string }).number;
       } else if (req.kind === 'PETTY_REPLENISH') {
         // dijalankan atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
         const r = await this.petty.executeReplenish({ ...user, sub: req.requestedById }, req.payload as unknown as { fundId: string; date?: string; voucherIds: string[] });
@@ -299,7 +311,7 @@ export class PublicApprovalLinksController {
 }
 
 @Module({
-  imports: [AccountingModule, PurchasingModule, AssetsModule, CashModule],
+  imports: [AccountingModule, PurchasingModule, AssetsModule, CashModule, InventoryModule],
   controllers: [ApprovalsController, PublicApprovalLinksController],
   providers: [ApprovalRequestsService],
 })

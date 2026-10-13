@@ -8,6 +8,7 @@ import PageHeader from '@/layout/PageHeader';
 import { isForeignCurrency } from '@sansu/shared';
 import { fmtCurrency, fmtDate, fmtMoney, fmtQty, fmtRate } from '@/lib/format';
 import DocumentChain from '@/components/DocumentChain';
+import { useAuth } from '@/auth/AuthContext';
 import { SalesOrderStatusTag } from './status';
 import { t } from '@/lib/terms';
 
@@ -19,6 +20,7 @@ export default function SalesOrderDetailPage() {
 
   const confirm = useAction(() => post(`/sales-orders/${id}/confirm`), { success: 'Order dikonfirmasi', invalidate: refresh });
   const cancel = useAction(() => post(`/sales-orders/${id}/cancel`), { success: 'Order dibatalkan', invalidate: refresh });
+  const { me } = useAuth();
   const deliver = useAction(() => post<{ id: string; number: string }>(`/sales-orders/${id}/deliver`), {
     success: (r) => `Surat jalan ${r.number} dibuat · stok keluar`,
     invalidate: refresh,
@@ -44,7 +46,7 @@ export default function SalesOrderDetailPage() {
                   Konfirmasi
                 </Button>
               )}
-              {o.status === 'CONFIRMED' && (
+              {o.status === 'CONFIRMED' && ['OWNER', 'ADMIN', 'WAREHOUSE'].includes(me?.role ?? '') && (
                 <Popconfirm title="Kirim barang? Surat jalan dibuat, stok dikurangi, dan HPP dijurnal. Faktur bisa dibuat sesudahnya." onConfirm={() => deliver.mutate(undefined)}>
                   <Button type="primary" loading={deliver.isPending}>
                     Kirim barang (surat jalan)

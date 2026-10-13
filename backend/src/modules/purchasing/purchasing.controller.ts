@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { RequireApp } from '../../common/apps/app.guard';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -34,17 +34,19 @@ export class SuppliersController {
   constructor(private readonly svc: SuppliersService) {}
 
   @Get()
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
   list(@CurrentUser() u: AuthUser, @Query() q: ListQueryDto) {
     return this.svc.list(u.tenantId, q.q);
   }
 
   @Get(':id')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
 
   @Post()
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreateSupplierDto) {
     this.svc.assertCanSetPreferred(u, dto);
     return this.svc.create(u.tenantId, dto);
@@ -69,17 +71,20 @@ export class PurchaseOrdersController {
   ) {}
 
   @Get()
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
   list(@CurrentUser() u: AuthUser, @Query() q: PurchaseOrderQueryDto) {
     return this.svc.list(u.tenantId, q);
   }
 
   /** Riwayat harga beli aktual per produk (untuk menilai penawaran supplier) */
   @Get('price-history')
+  @Roles('ADMIN', 'FINANCE')
   priceHistory(@CurrentUser() u: AuthUser, @Query() q: PriceHistoryQueryDto) {
     return this.svc.priceHistory(u.tenantId, q.productIds.split(','));
   }
 
   @Get(':id')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
@@ -89,6 +94,10 @@ export class PurchaseOrdersController {
   @Roles('ADMIN', 'FINANCE')
   async quick(@CurrentUser() u: AuthUser, @Body() dto: QuickPurchaseDto) {
     const { receiveNow, ...po } = dto;
+    // Pemisahan fungsi: yang memesan/menagih (Keuangan) tidak menerima barang sendiri
+    if (receiveNow && !['OWNER', 'ADMIN', 'WAREHOUSE'].includes(u.role)) {
+      throw new ForbiddenException('Penerimaan barang dilakukan oleh Gudang atau Admin. Buat pesanan tanpa "barang sudah tiba", lalu minta Gudang menerimanya');
+    }
     const out = await this.svc.quick(u, po);
     if (receiveNow && !out.approvalPending) {
       await this.receipts.receive(u, out.id, { date: dto.date });
@@ -98,7 +107,7 @@ export class PurchaseOrdersController {
   }
 
   @Post()
-  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreatePurchaseOrderDto) {
     return this.svc.create(u, dto);
   }
@@ -117,7 +126,7 @@ export class PurchaseOrdersController {
 
   /** Terima barang atas pesanan (bisa bertahap) */
   @Post(':id/receipts')
-  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  @Roles('ADMIN', 'WAREHOUSE')
   receive(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CreateGoodsReceiptDto) {
     return this.receipts.receive(u, id, dto);
   }
@@ -131,17 +140,19 @@ export class GoodsReceiptsController {
   constructor(private readonly svc: GoodsReceiptsService) {}
 
   @Get()
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
   list(@CurrentUser() u: AuthUser, @Query('from') from?: string, @Query('to') to?: string, @Query('purchaseOrderId') purchaseOrderId?: string) {
     return this.svc.list(u.tenantId, { from, to, purchaseOrderId });
   }
 
   @Get(':id')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
 
   @Post(':id/cancel')
-  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  @Roles('ADMIN', 'WAREHOUSE')
   cancel(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CancelGoodsReceiptDto) {
     return this.svc.cancel(u, id, dto);
   }
@@ -155,6 +166,7 @@ export class PurchaseInvoicesController {
   constructor(private readonly svc: PurchaseInvoicesService) {}
 
   @Get()
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
   list(@CurrentUser() u: AuthUser, @Query() q: PurchaseInvoiceQueryDto) {
     return this.svc.list(u.tenantId, q);
   }
@@ -191,12 +203,13 @@ export class PurchaseInvoicesController {
   }
 
   @Get(':id')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
 
   @Post()
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreatePurchaseInvoiceDto) {
     return this.svc.createFromOrder(u, dto);
   }
@@ -210,17 +223,20 @@ export class PurchaseRequestsController {
   constructor(private readonly svc: PurchaseRequestsService) {}
 
   @Get()
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
   list(@CurrentUser() u: AuthUser, @Query() q: PurchaseRequestQueryDto) {
     return this.svc.list(u.tenantId, q.status);
   }
 
   /** Usulan dari stok minimum (produk yang perlu dipesan) */
   @Get('suggestions')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
   suggestions(@CurrentUser() u: AuthUser, @Query() q: SuggestionQueryDto) {
     return this.svc.suggestions(u.tenantId, q.warehouseId);
   }
 
   @Get(':id')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
@@ -257,7 +273,7 @@ export class PurchaseRequestsController {
 
   /** Jadikan PO draft per supplier */
   @Post(':id/convert')
-  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE')
   convert(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ConvertPurchaseRequestDto) {
     return this.svc.convert(u, id, dto);
   }

@@ -60,7 +60,7 @@ function CashControlCard() {
 
 /** Batas nilai yang memerlukan persetujuan pemilik / admin (0 = nonaktif) */
 function ApprovalPolicyCard() {
-  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; telegramLinkHours: number };
+  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; telegramLinkHours: number };
   const [form] = Form.useForm<Policy>();
   const policy = useQuery({ queryKey: ['approvals', 'policy'], queryFn: () => get<Policy>('/approvals/policy') });
   useEffect(() => {
@@ -104,7 +104,10 @@ function ApprovalPolicyCard() {
         <Form.Item name="manualJournal" label="Jurnal manual dengan total debit mulai dari" extra="Jurnal baru diposting setelah disetujui.">
           <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
         </Form.Item>
-        <Form.Item name="cashOut" label="Kas keluar / transfer dengan nilai mulai dari" extra="Uang keluar oleh staf (selain pemilik dan admin) di atas batas menunggu persetujuan, lalu diposting setelah disetujui. 0 = tidak perlu persetujuan.">
+        <Form.Item name="cashOut" label="Kas keluar / transfer dengan nilai mulai dari" extra="Uang keluar oleh staf (selain pemilik dan admin) di atas batas, termasuk pembayaran ke supplier, menunggu persetujuan lalu diposting setelah disetujui. 0 = tidak perlu persetujuan.">
+          <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
+        </Form.Item>
+        <Form.Item name="stockAdjustment" label="Penyesuaian stok bernilai mulai dari" extra="Penyesuaian stok (masuk + keluar) oleh Gudang di atas batas menunggu persetujuan; stok berubah setelah disetujui. 0 = tidak perlu persetujuan.">
           <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
         </Form.Item>
         <Form.Item name="assetDisposal" label="Pelepasan aset tetap dengan harga perolehan mulai dari" extra="Penjualan/penghapusan aset oleh staf (selain pemilik dan admin) menunggu persetujuan. 0 = tidak perlu persetujuan.">

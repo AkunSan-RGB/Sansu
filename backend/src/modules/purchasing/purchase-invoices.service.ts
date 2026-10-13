@@ -737,10 +737,20 @@ export class PurchaseInvoicesService {
   }
 
   /** Pembayaran hutang: Dr Hutang Usaha | Cr Kas/Bank */
-  async pay(user: AuthUser, dto: CreateSupplierPaymentDto) {
+  async pay(user: AuthUser, dto: CreateSupplierPaymentDto, opts: { approved?: boolean } = {}) {
     const date = toDocDate(dto.date);
     const amount = money(dto.amount);
     if (amount.lte(0)) throw new BadRequestException('Jumlah pembayaran harus > 0');
+    // Pemisahan fungsi: pembayaran besar oleh peran selain pemilik/admin menunggu persetujuan (batas sama dengan kas keluar)
+    if (!opts.approved) {
+      const limit = await this.approvals.needs(this.db, user, 'SUPPLIER_PAYMENT', amount.toNumber());
+      if (limit !== null) {
+        const [inv] = await this.db.select({ n: purchaseInvoices.supplierInvoiceNo }).from(purchaseInvoices).where(and(eq(purchaseInvoices.id, dto.purchaseInvoiceId), eq(purchaseInvoices.tenantId, user.tenantId)));
+        if (!inv) throw new NotFoundException('Faktur pembelian tidak ditemukan');
+        const req = await this.approvals.create(this.db, user, { kind: 'SUPPLIER_PAYMENT', refId: null, title: `Pembayaran faktur supplier ${inv.n}`, amount: amount.toNumber(), payload: JSON.parse(JSON.stringify(dto)) });
+        throw this.approvals.required(req.id, 'Nilai pembayaran mencapai batas persetujuan; permintaan dikirim ke pemilik atau admin dan dibayar setelah disetujui.');
+      }
+    }
 
     return this.db.transaction(async (tx) => {
       const locked = await tx.execute(sql`

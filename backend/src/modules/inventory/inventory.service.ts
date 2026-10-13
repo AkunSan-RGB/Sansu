@@ -4,6 +4,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { AuthUser } from '../../common/auth/auth-user';
 import { allowedWarehouses, assertWarehouseAccess } from '../../common/auth/warehouse-access';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { toDocDate } from '../../common/utils/dates';
@@ -24,6 +25,7 @@ export class InventoryService {
     private readonly posting: PostingService,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   async balances(tenantId: string, q: StockQueryDto, u?: AuthUser) {
@@ -74,8 +76,9 @@ export class InventoryService {
    * Penyesuaian stok (saldo awal, hasil stock opname, barang rusak).
    * Membuat mutasi stok + jurnal persediaan dalam satu transaksi.
    */
-  async adjust(user: AuthUser, dto: StockAdjustmentDto, outerTx?: Tx) {
+  async adjust(user: AuthUser, dto: StockAdjustmentDto, outerTx?: Tx, opts: { approved?: boolean } = {}) {
     const date = toDocDate(dto.date);
+    let gate: { limit: number; total: number } | null = null;
     const run = async (tx: Tx) => {
       const [wh] = await tx
         .select()
@@ -120,6 +123,16 @@ export class InventoryService {
         }
       }
 
+      // Pemisahan fungsi: penyesuaian stok bernilai besar oleh peran selain pemilik/admin menunggu persetujuan.
+      // Nilai baru diketahui setelah biaya per baris dihitung, maka transaksi dibatalkan dulu lalu permintaan dibuat.
+      if (!outerTx && !opts.approved) {
+        const total = valueIn.plus(valueOut).toNumber();
+        const limit = await this.approvals.needs(tx, user, 'STOCK_ADJUSTMENT', total);
+        if (limit !== null) {
+          gate = { limit, total };
+          throw new Error('STOCK_ADJUSTMENT_NEEDS_APPROVAL');
+        }
+      }
       const semi = await semiSet(tx, user.tenantId, dto.lines.map((l) => l.productId));
       // Saldo awal → Ekuitas Saldo Awal; selain itu → Selisih Persediaan
       const counterKey = dto.reason === 'OPENING' ? SYS.OPENING_EQUITY : SYS.INVENTORY_ADJ;
@@ -154,6 +167,22 @@ export class InventoryService {
       return { id, number, valueIn: valueIn.toFixed(2), valueOut: valueOut.toFixed(2), journalNumber };
     };
     // dipakai juga oleh impor data (satu transaksi untuk seluruh file)
-    return outerTx ? run(outerTx) : this.db.transaction(run);
+    if (outerTx) return run(outerTx);
+    try {
+      return await this.db.transaction(run);
+    } catch (e) {
+      if (gate && (e as Error).message === 'STOCK_ADJUSTMENT_NEEDS_APPROVAL') {
+        const g = gate as { limit: number; total: number };
+        const req = await this.approvals.create(this.db, user, {
+          kind: 'STOCK_ADJUSTMENT',
+          refId: null,
+          title: `Penyesuaian stok (${dto.reason}) ${dto.lines.length} barang`,
+          amount: g.total,
+          payload: JSON.parse(JSON.stringify(dto)),
+        });
+        throw this.approvals.required(req.id, 'Nilai penyesuaian stok mencapai batas persetujuan; permintaan dikirim ke pemilik atau admin dan stok disesuaikan setelah disetujui.');
+      }
+      throw e;
+    }
   }
 }

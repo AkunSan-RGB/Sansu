@@ -1,5 +1,6 @@
 import { AuditOutlined, CheckCircleOutlined, PrinterOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/auth/AuthContext';
 import { Alert, App, Button, Card, Form, Input, InputNumber, Modal, Progress, Segmented, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -145,6 +146,7 @@ function CountSheet({ c }: { c: CountDetail }) {
     invalidate: ['counts'],
     onSuccess: () => setDirty(false),
   });
+  const { me } = useAuth();
   const postCount = useAction(
     async () => {
       if (dirty) await put(`/inventory/counts/${c.id}`, { lines: c.lines.map((l) => ({ productId: l.productId, countedQty: values[l.productId] == null ? null : String(values[l.productId]) })) });
@@ -217,9 +219,14 @@ function CountSheet({ c }: { c: CountDetail }) {
                 <Button icon={<SaveOutlined />} disabled={!dirty} loading={save.isPending} onClick={() => save.mutate(undefined)}>
                   Simpan
                 </Button>
-                <Button type="primary" icon={<CheckCircleOutlined />} disabled={!done} loading={postCount.isPending} onClick={confirmPost}>
-                  Bukukan selisih
-                </Button>
+                {/* pemisahan fungsi: yang menghitung (Gudang) tidak membukukan selisihnya; Keuangan/Admin/Pemilik yang membukukan */}
+                {me?.role === 'WAREHOUSE' ? (
+                  <Tag color="blue">Selisih dibukukan oleh Keuangan/Admin</Tag>
+                ) : (
+                  <Button type="primary" icon={<CheckCircleOutlined />} disabled={!done} loading={postCount.isPending} onClick={confirmPost}>
+                    Bukukan selisih
+                  </Button>
+                )}
               </>
             )}
           </Space>
