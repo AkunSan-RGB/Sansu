@@ -15,12 +15,13 @@ import {
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { ArrayMinSize, IsIn, IsNumberString, IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from 'class-validator';
-import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { POS_PAYMENT_METHODS, type PosPaymentMethod } from '@sansu/shared';
 import { RequireApp } from '../../common/apps/app.guard';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
+import { assertWarehouseAccess } from '../../common/auth/warehouse-access';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { outputVatRate, taxProfileOf } from '../../common/settings.service';
 import { nowAt, todayJakarta } from '../../common/utils/dates';
@@ -33,6 +34,7 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { InventoryModule } from '../inventory/inventory.module';
 import { StockService } from '../inventory/stock.service';
+import { PosControlsService, PosReturnsController, PosReturnsService } from './pos-returns';
 import { buildLines } from '../master-data/products/line-builder';
 import { documentTotals, inclusiveTotals } from '../sales/pricing';
 
@@ -133,6 +135,8 @@ export class PosService {
         .from(warehouses)
         .where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
       if (!wh) throw new BadRequestException('Gudang / toko tidak ditemukan');
+      // kasir yang dibatasi ke toko tertentu tidak bisa membuka sesi di toko lain
+      assertWarehouseAccess(user, wh.id);
       const cash = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'CASH');
       const bank = await this.posting.resolveCashAccount(tx, user.tenantId, dto.bankAccountId, 'BANK');
       const opening = money(dto.openingCash);
@@ -174,6 +178,18 @@ export class PosService {
         if (!c) throw new BadRequestException('Pelanggan tidak ditemukan');
       }
       const lines = await buildLines(tx, user.tenantId, dto.lines, 'sell');
+      // Anti-fraud: kasir/sales tidak boleh mengubah harga atau memberi diskon sendiri; hanya supervisor (Pemilik, Admin, Keuangan)
+      if (user.role === 'CASHIER' || user.role === 'SALES') {
+        const masters = await tx.query.products.findMany({ where: and(eq(products.tenantId, user.tenantId), inArray(products.id, lines.map((l) => l.productId))), columns: { id: true, sellPrice: true } });
+        const m = new Map(masters.map((p) => [p.id, p]));
+        for (const l of lines) {
+          const p = m.get(l.productId)!;
+          const master = money(D(p.sellPrice).times(l.uomFactor));
+          if (!l.price.eq(master) || l.discountPct.gt(0)) {
+            throw new ForbiddenException('Harga dan diskon hanya dapat diubah oleh supervisor (Pemilik, Admin, atau Keuangan). Kasir menjual dengan harga master.');
+          }
+        }
+      }
       // Harga rak termasuk PPN → DPP & PPN dihitung mundur; non-PKP → tanpa PPN
       const inclusive = taxProfileOf(tenant.settings).posPricesIncludeVat;
       const rate = outputVatRate(tenant);
@@ -373,11 +389,14 @@ export class PosService {
     ).rows;
     const byMethod = Object.fromEntries(POS_PAYMENT_METHODS.map((m) => [m, '0.00'])) as Record<PosPaymentMethod, string>;
     res.rows.forEach((r) => (byMethod[r.method] = D(r.amount).toFixed(2)));
+    // uang tunai yang dikembalikan dari laci sesi ini (retur kasir oleh supervisor)
+    const [ref] = (await db.execute<{ total: string }>(sql`SELECT COALESCE(SUM(total), 0) AS total FROM pos_returns WHERE session_id = ${sessionId} AND refund_method = 'CASH'`)).rows;
     return {
       orderCount: agg.n,
       totalSales: D(agg.total).toFixed(2),
       byMethod,
-      expectedCash: D(openingCash).plus(byMethod.CASH).toFixed(2),
+      cashRefunds: D(ref.total).toFixed(2),
+      expectedCash: D(openingCash).plus(byMethod.CASH).minus(ref.total).toFixed(2),
     };
   }
 
@@ -447,7 +466,7 @@ export class PosController {
 
 @Module({
   imports: [AccountingModule, InventoryModule],
-  controllers: [PosController],
-  providers: [PosService],
+  controllers: [PosController, PosReturnsController],
+  providers: [PosService, PosReturnsService, PosControlsService],
 })
 export class PosModule {}

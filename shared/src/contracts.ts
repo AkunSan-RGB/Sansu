@@ -799,6 +799,8 @@ export interface PosOrder {
     price: string;
     discountPct: string;
     lineTotal: string;
+    /** Sudah diretur (satuan baris) */
+    returnedQty?: string;
     product: { sku: string; name: string };
   }[];
   session?: { number: string; user: { name: string }; warehouse: { name: string; address: string | null } };

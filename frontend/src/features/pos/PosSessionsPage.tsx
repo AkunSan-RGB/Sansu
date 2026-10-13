@@ -1,11 +1,12 @@
 import { DollarOutlined } from '@ant-design/icons';
 import { POS_PAYMENT_LABELS, type PosPaymentMethod } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Card, Modal, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Form, Input, InputNumber, Modal, Radio, Space, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { get, qs } from '@/api/client';
+import { get, post, qs } from '@/api/client';
+import { LEDGER_KEYS, useAction } from '@/api/queries';
 import type { PosOrder, PosSession } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
@@ -36,10 +37,61 @@ function SessionOrders({ sessionId, onOpen }: { sessionId: string; onOpen: (id: 
   );
 }
 
+/** Retur / pembatalan penjualan kasir — hanya supervisor */
+function ReturnModal({ order, onClose }: { order: PosOrder | undefined; onClose: () => void }) {
+  const [qtys, setQtys] = useState<Record<string, number>>({});
+  const [form] = Form.useForm<{ reason: string; refundMethod: 'CASH' | 'BANK' }>();
+  useEffect(() => {
+    if (!order) return;
+    setQtys(Object.fromEntries((order.lines ?? []).map((l) => [l.id, Math.max(0, Number(l.qty) - Number(l.returnedQty ?? 0))])));
+    form.setFieldsValue({ refundMethod: order.payments.some((p) => p.method === 'CASH') ? 'CASH' : 'BANK', reason: '' });
+  }, [order, form]);
+  const submit = useAction(
+    (v: { reason: string; refundMethod: 'CASH' | 'BANK' }) =>
+      post(`/pos/orders/${order!.id}/return`, { reason: v.reason, refundMethod: v.refundMethod, lines: Object.entries(qtys).filter(([, q]) => q > 0).map(([orderLineId, q]) => ({ orderLineId, qty: String(q) })) }),
+    { success: 'Retur dicatat: stok kembali & jurnal dibalik', invalidate: ['pos-orders', 'pos-order', 'pos-sessions', 'pos', ...LEDGER_KEYS], onSuccess: onClose },
+  );
+  const any = Object.values(qtys).some((q) => q > 0);
+  return (
+    <Modal title={`Retur ${order?.number ?? ''}`} open={!!order} onCancel={onClose} onOk={() => form.submit()} okText="Proses retur" okButtonProps={{ danger: true, disabled: !any }} confirmLoading={submit.isPending} width={560}>
+      <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Stok kembali ke toko pada HPP saat dijual, jurnal penjualan & HPP dibalik, dan uang dikembalikan. Alasan tercatat di jejak audit." />
+      <Table
+        size="small"
+        rowKey="id"
+        pagination={false}
+        dataSource={order?.lines ?? []}
+        columns={[
+          { title: 'Barang', render: (_, l) => l.product.name },
+          { title: 'Sisa', align: 'right', render: (_, l) => Math.max(0, Number(l.qty) - Number(l.returnedQty ?? 0)) },
+          {
+            title: 'Diretur',
+            align: 'right',
+            render: (_, l) => {
+              const rest = Math.max(0, Number(l.qty) - Number(l.returnedQty ?? 0));
+              return <InputNumber size="small" min={0} max={rest} disabled={rest <= 0} value={qtys[l.id] ?? 0} onChange={(v) => setQtys((q) => ({ ...q, [l.id]: Number(v ?? 0) }))} style={{ width: 80 }} />;
+            },
+          },
+        ]}
+      />
+      <Form form={form} layout="vertical" style={{ marginTop: 12 }} onFinish={(v) => submit.mutate(v)}>
+        <Form.Item name="refundMethod" label="Uang dikembalikan lewat">
+          <Radio.Group options={[{ label: 'Tunai (laci kasir)', value: 'CASH' }, { label: 'Rekening / non-tunai', value: 'BANK' }]} />
+        </Form.Item>
+        <Form.Item name="reason" label="Alasan retur" rules={[{ required: true, min: 5, message: 'Isi alasan (min. 5 karakter)' }]}>
+          <Input.TextArea rows={2} maxLength={300} />
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+}
+
 export default function PosSessionsPage() {
   const navigate = useNavigate();
   const { me } = useAuth();
   const [orderId, setOrderId] = useState<string | null>(null);
+  const [returning, setReturning] = useState(false);
+  const supervisor = me?.role === 'OWNER' || me?.role === 'ADMIN' || me?.role === 'FINANCE';
+  const controls = useQuery({ queryKey: ['pos', 'controls'], queryFn: () => get<{ items: { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string }[] }>('/pos/controls'), enabled: supervisor });
   const { data, isLoading } = useQuery({ queryKey: ['pos-sessions'], queryFn: () => get<PosSession[]>('/pos/sessions') });
   const order = useQuery({ queryKey: ['pos-order', orderId], queryFn: () => get<PosOrder>(`/pos/orders/${orderId}`), enabled: !!orderId });
 
@@ -53,6 +105,15 @@ export default function PosSessionsPage() {
           </Button>
         }
       />
+      {!!controls.data?.items.length && (
+        <Card size="small" title="Kontrol kasir (30 hari terakhir)" style={{ marginBottom: 16 }}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {controls.data.items.map((c) => (
+              <Alert key={c.key} type={c.level} showIcon message={c.title} description={c.detail} />
+            ))}
+          </Space>
+        </Card>
+      )}
       <Card>
         <Table
           rowKey="id"
@@ -85,9 +146,16 @@ export default function PosSessionsPage() {
         onCancel={() => setOrderId(null)}
         width={380}
         footer={
-          <Button icon={<DollarOutlined />} onClick={printReceipt}>
-            Cetak ulang struk
-          </Button>
+          <Space>
+            {supervisor && (
+              <Button danger onClick={() => setReturning(true)}>
+                Retur / batalkan
+              </Button>
+            )}
+            <Button icon={<DollarOutlined />} onClick={printReceipt}>
+              Cetak ulang struk
+            </Button>
+          </Space>
         }
       >
         {order.data && (
@@ -99,6 +167,7 @@ export default function PosSessionsPage() {
           />
         )}
       </Modal>
+      <ReturnModal order={returning ? order.data : undefined} onClose={() => setReturning(false)} />
     </>
   );
 }

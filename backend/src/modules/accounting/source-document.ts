@@ -173,6 +173,19 @@ export async function loadSourceDocument(db: Db, tenantId: string, sourceType: s
         related: [{ label: 'Riwayat sesi kasir', route: '/pos/sessions' }],
       };
     }
+    case 'POS_RETURN': {
+      const d = await one(db, sql`SELECT r.number, r.date::text, r.subtotal, r.tax_amount, r.total, r.refund_method, r.reason, o.number AS order_number FROM pos_returns r JOIN pos_orders o ON o.id = r.order_id WHERE r.tenant_id = ${tenantId} AND r.id = ${sourceId}`);
+      if (!d) return null;
+      return {
+        title: 'Retur penjualan kasir', number: d.number, date: d.date,
+        fields: [f('Atas transaksi', d.order_number), f('Subtotal (DPP)', d.subtotal, true), f('PPN', d.tax_amount, true), f('Dikembalikan', d.total, true), f('Cara pengembalian', d.refund_method === 'CASH' ? 'Tunai (laci kasir)' : 'Rekening'), f('Alasan', d.reason)],
+        table: {
+          columns: [{ key: 'item', title: 'Barang' }, { key: 'qty', title: 'Jumlah', align: 'right', qty: true }],
+          rows: await q(db, sql`SELECT p.sku || ' · ' || p.name AS item, l.qty FROM pos_return_lines l JOIN products p ON p.id = l.product_id WHERE l.return_id = ${sourceId}`),
+        },
+        related: [{ label: 'Riwayat sesi kasir', route: '/pos/sessions' }],
+      };
+    }
     case 'POS_CLOSE': {
       const d = await one(db, sql`SELECT number, opened_at::text, closed_at::text, opening_cash, expected_cash, counted_cash, difference, status FROM pos_sessions WHERE tenant_id = ${tenantId} AND id = ${sourceId}`);
       if (!d) return null;
@@ -258,4 +271,4 @@ export async function loadSourceDocument(db: Db, tenantId: string, sourceType: s
 }
 
 /** Jenis sumber yang dokumennya dapat dibuka di halaman rincian dokumen */
-export const DOCUMENT_VIEW_TYPES = new Set(['PURCHASE_INVOICE', 'SUPPLIER_PAYMENT', 'PURCHASE_RETURN', 'SALES_RETURN', 'STOCK_ADJUSTMENT', 'STOCK_TRANSFER', 'PRODUCTION', 'INVENTORY_WRITEDOWN', 'CASH_IN', 'CASH_OUT', 'TRANSFER', 'POS', 'POS_CLOSE', 'TAX_PAYMENT', 'CUSTOMER_DEPOSIT', 'DEPOSIT_APPLICATION', 'PROJECT_PROGRESS', 'CASH_COUNT', 'DEPRECIATION']);
+export const DOCUMENT_VIEW_TYPES = new Set(['PURCHASE_INVOICE', 'SUPPLIER_PAYMENT', 'PURCHASE_RETURN', 'SALES_RETURN', 'STOCK_ADJUSTMENT', 'STOCK_TRANSFER', 'PRODUCTION', 'INVENTORY_WRITEDOWN', 'CASH_IN', 'CASH_OUT', 'TRANSFER', 'POS', 'POS_CLOSE', 'POS_RETURN', 'TAX_PAYMENT', 'CUSTOMER_DEPOSIT', 'DEPOSIT_APPLICATION', 'PROJECT_PROGRESS', 'CASH_COUNT', 'DEPRECIATION']);
