@@ -200,3 +200,7 @@ export class CreateBillDto {
   @ArrayMinSize(1)
   lines: BillLineDto[];
 }
+
+export class VoidSupplierPaymentDto {
+  @ApiProperty({ description: 'Alasan pembatalan (wajib, min. 5 karakter)' }) @IsString() @MaxLength(300) reason: string;
+}

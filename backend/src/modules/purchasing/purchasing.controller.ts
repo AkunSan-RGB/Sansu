@@ -21,6 +21,7 @@ import {
   PurchaseOrderQueryDto,
   QuickPurchaseDto,
   UpdateSupplierDto,
+  VoidSupplierPaymentDto,
 } from './purchasing.dto';
 import { PurchaseRequestsService } from './purchase-requests.service';
 import { ConvertPurchaseRequestDto, CreatePurchaseRequestDto, DecisionNoteDto, PurchaseRequestQueryDto, SuggestionQueryDto } from './purchase-requests.dto';
@@ -194,6 +195,13 @@ export class PurchaseInvoicesController {
   @Roles('ADMIN', 'FINANCE')
   pay(@CurrentUser() u: AuthUser, @Body() dto: CreateSupplierPaymentDto) {
     return this.svc.pay(u, dto);
+  }
+
+  /** Batalkan pembayaran yang salah (jurnal dibalik, hutang terbuka lagi) */
+  @Post('payments/:id/void')
+  @Roles('ADMIN')
+  voidPayment(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VoidSupplierPaymentDto) {
+    return this.svc.voidPayment(u, id, dto.reason);
   }
 
   @Post('bills')

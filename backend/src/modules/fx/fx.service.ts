@@ -107,7 +107,7 @@ export class FxService {
       SELECT i.id, i.number, s.name AS party, i.currency, i.date::text AS date,
              i.total_foreign - i.returned_foreign - COALESCE(p.f, 0) AS out_f, i.total - i.returned_amount - COALESCE(p.idr, 0) AS carrying
       FROM purchase_invoices i JOIN suppliers s ON s.id = i.supplier_id
-      LEFT JOIN LATERAL (SELECT SUM(amount_foreign) AS f, SUM(amount) AS idr FROM supplier_payments y WHERE y.purchase_invoice_id = i.id AND y.date <= ${asOf}) p ON true
+      LEFT JOIN LATERAL (SELECT SUM(amount_foreign) AS f, SUM(amount) AS idr FROM supplier_payments y WHERE y.purchase_invoice_id = i.id AND y.status = 'POSTED' AND y.date <= ${asOf}) p ON true
       WHERE i.tenant_id = ${tenantId} AND i.currency <> 'IDR' AND i.date <= ${asOf}`);
     const map = (kind: 'AR' | 'AP') => (r: R): OpenItem => ({ kind, id: r.id, number: r.number, party: r.party, currency: r.currency, date: r.date, outstandingForeign: D(r.out_f), carrying: D(r.carrying) });
     return [...ar.rows.map(map('AR')), ...ap.rows.map(map('AP'))].filter((x) => x.outstandingForeign.gt(0.004));

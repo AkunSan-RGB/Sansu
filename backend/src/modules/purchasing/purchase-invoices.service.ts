@@ -6,7 +6,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { SettingsService, taxProfileOf } from '../../common/settings.service';
 import { lineTotal, roundVat } from '../sales/pricing';
-import { addDays, diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
+import { addDays, assertNotFuture, diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, qty4, ZERO } from '../../common/utils/money';
 import { settleForeign } from '../../common/utils/fx';
 import { FxService } from '../fx/fx.service';
@@ -741,6 +741,7 @@ export class PurchaseInvoicesService {
     const date = toDocDate(dto.date);
     const amount = money(dto.amount);
     if (amount.lte(0)) throw new BadRequestException('Jumlah pembayaran harus > 0');
+    assertNotFuture(date, 'Tanggal pembayaran');
     // Pemisahan fungsi: pembayaran besar oleh peran selain pemilik/admin menunggu persetujuan (batas sama dengan kas keluar)
     if (!opts.approved) {
       const limit = await this.approvals.needs(this.db, user, 'SUPPLIER_PAYMENT', amount.toNumber());
@@ -817,6 +818,42 @@ export class PurchaseInvoicesService {
       await tx.update(supplierPayments).set({ journalId: journal.id }).where(eq(supplierPayments.id, payment.id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'SupplierPayment', entityId: payment.id });
       return { ...payment, journalNumber: journal.number };
+    });
+  }
+
+  /** Batalkan pembayaran supplier yang salah: jurnal dibalik, hutang faktur kembali terbuka; pembayaran tidak dihapus */
+  async voidPayment(user: AuthUser, id: string, reasonInput: string) {
+    const reason = reasonInput?.trim() ?? '';
+    if (reason.length < 5) throw new BadRequestException('Alasan pembatalan wajib diisi (minimal 5 karakter)');
+    return this.db.transaction(async (tx) => {
+      const [p0] = await tx.select({ invoiceId: supplierPayments.purchaseInvoiceId }).from(supplierPayments).where(and(eq(supplierPayments.id, id), eq(supplierPayments.tenantId, user.tenantId)));
+      if (!p0) throw new NotFoundException('Pembayaran tidak ditemukan');
+      // urutan kunci sama dengan pay(): faktur dulu, lalu pembayaran
+      await tx.execute(sql`SELECT id FROM purchase_invoices WHERE id = ${p0.invoiceId} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      await tx.execute(sql`SELECT id FROM supplier_payments WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      const [p] = await tx.select().from(supplierPayments).where(eq(supplierPayments.id, id));
+      if (p.status === 'VOID') throw new BadRequestException('Pembayaran ini sudah dibatalkan');
+      if (!p.journalId) throw new BadRequestException('Pembayaran belum punya jurnal');
+      const matched = await tx.execute<{ n: number }>(sql`
+        SELECT COUNT(*)::int AS n FROM bank_statement_lines b
+        WHERE b.status IN ('MATCHED', 'CREATED')
+          AND (b.journal_id = ${p.journalId} OR b.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${p.journalId}))`);
+      if (matched.rows[0].n > 0) throw new BadRequestException('Pembayaran ini sudah dicocokkan dengan mutasi bank. Batalkan pencocokannya di Rekonsiliasi Bank dulu');
+      const rev = await this.posting.reverse(tx, user.tenantId, p.journalId, todayJakarta(), user.sub, true);
+      const [inv] = await tx.select().from(purchaseInvoices).where(eq(purchaseInvoices.id, p.purchaseInvoiceId));
+      const paid = D(inv.paidAmount).minus(p.amount);
+      const foreign = inv.currency !== 'IDR';
+      await tx
+        .update(purchaseInvoices)
+        .set({
+          paidAmount: paid.toFixed(2),
+          paidForeign: foreign ? D(inv.paidForeign).minus(p.amountForeign ?? 0).toFixed(2) : inv.paidForeign,
+          status: paid.lte(0) ? 'UNPAID' : paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL',
+        })
+        .where(eq(purchaseInvoices.id, inv.id));
+      await tx.update(supplierPayments).set({ status: 'VOID', voidedAt: new Date(), voidedById: user.sub, voidReason: reason, voidJournalId: rev.id }).where(eq(supplierPayments.id, id));
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'VOID', entity: 'SupplierPayment', entityId: id, data: { number: p.number, amount: p.amount, reason } });
+      return { id, number: p.number, status: 'VOID', reversalJournal: rev.number };
     });
   }
 

@@ -619,11 +619,13 @@ export class WarehouseOpsService {
     });
   }
 
-  private async ownCount(u: AuthUser, id: string, db: Db | Tx = this.db) {
-    const [c] = await db
+  /** `lock`: kunci baris opname (di dalam transaksi) supaya dua permintaan serentak tidak membukukan selisih dua kali */
+  private async ownCount(u: AuthUser, id: string, db: Db | Tx = this.db, lock = false) {
+    const q = db
       .select()
       .from(stockCounts)
       .where(and(eq(stockCounts.id, id), eq(stockCounts.tenantId, u.tenantId)));
+    const [c] = lock ? await q.for('update') : await q;
     if (!c) throw new NotFoundException('Stock opname tidak ditemukan');
     assertWarehouseAccess(u, c.warehouseId);
     return c;
@@ -659,7 +661,7 @@ export class WarehouseOpsService {
 
   async updateCount(u: AuthUser, id: string, dto: UpdateCountDto) {
     return this.db.transaction(async (tx) => {
-      const c = await this.ownCount(u, id, tx);
+      const c = await this.ownCount(u, id, tx, true);
       if (c.status !== 'DRAFT') throw new BadRequestException('Stock opname ini sudah selesai');
       for (const l of dto.lines) {
         if (l.countedQty !== null && D(l.countedQty).isNegative())
@@ -677,7 +679,7 @@ export class WarehouseOpsService {
   /** Bukukan selisih: jumlah fisik dibandingkan stok sistem SAAT DIPOSTING → penyesuaian stok + jurnal */
   async postCount(u: AuthUser, id: string) {
     return this.db.transaction(async (tx) => {
-      const c = await this.ownCount(u, id, tx);
+      const c = await this.ownCount(u, id, tx, true);
       if (c.status !== 'DRAFT') throw new BadRequestException('Stock opname ini sudah selesai');
       const lines = await tx
         .select({
@@ -735,11 +737,13 @@ export class WarehouseOpsService {
   }
 
   async cancelCount(u: AuthUser, id: string) {
-    const c = await this.ownCount(u, id);
-    if (c.status !== 'DRAFT')
-      throw new BadRequestException('Hanya stock opname yang belum selesai yang bisa dibatalkan');
-    await this.db.update(stockCounts).set({ status: 'CANCELLED' }).where(eq(stockCounts.id, id));
-    return { ok: true };
+    return this.db.transaction(async (tx) => {
+      const c = await this.ownCount(u, id, tx, true);
+      if (c.status !== 'DRAFT')
+        throw new BadRequestException('Hanya stock opname yang belum selesai yang bisa dibatalkan');
+      await tx.update(stockCounts).set({ status: 'CANCELLED' }).where(eq(stockCounts.id, id));
+      return { ok: true };
+    });
   }
 
   // ===================== Stok minimum =====================
