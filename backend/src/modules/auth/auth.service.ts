@@ -394,6 +394,7 @@ export class AuthService {
       twoFactor: { enabled: !!totpEnabledAt, required: await this.twoFactor.requiredFor(u.tenantId, row.role) },
       apps: [...(await this.apps.enabled(u.tenantId))],
       businessModel: await this.settings.businessModel(this.db, u.tenantId),
+      multiBranch: await this.multiBranch(u.tenantId),
       framework: (await this.settings.reporting(this.db, u.tenantId)).framework,
       taxProfile: await this.settings.taxProfile(this.db, u.tenantId),
       taxFeatures: await this.taxFeatures(u.tenantId),
@@ -457,6 +458,14 @@ export class AuthService {
       })
       .returning({ id: users.id, name: users.name, email: users.email, role: users.role });
     return user;
+  }
+
+  /** Fitur cabang hanya untuk perusahaan yang punya cabang usaha: dinyalakan di Pengaturan, atau otomatis bila sudah ada cabang */
+  private async multiBranch(tenantId: string) {
+    const flag = await this.settings.section(this.db, tenantId, 'branches', { enabled: false });
+    if (flag.enabled) return true;
+    const [b] = await this.db.select({ id: branches.id }).from(branches).where(eq(branches.tenantId, tenantId)).limit(1);
+    return !!b;
   }
 
   private async normalizeBranchIds(tenantId: string, ids?: string[]) {

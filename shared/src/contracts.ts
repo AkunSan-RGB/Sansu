@@ -44,6 +44,8 @@ export interface Me {
   taxFeatures: TaxFeatures;
   /** Model bisnis perusahaan (Dagang, Ritel, Jasa, Produksi, Manufaktur) */
   businessModel: BusinessModel;
+  /** Perusahaan punya cabang usaha (fitur cabang tampil); mati = menu & isian cabang disembunyikan */
+  multiBranch?: boolean;
   /** Standar pelaporan: SAK EMKM tidak mengenal penurunan nilai persediaan dan pengakuan pendapatan berdasarkan persentase penyelesaian */
   framework: ReportingFramework;
   emailVerified: boolean;

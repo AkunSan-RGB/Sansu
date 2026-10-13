@@ -13,10 +13,12 @@ import {
   ShopOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
-import { Alert, Button, Card, Col, List, Progress, Row, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Col, List, Progress, Row, Select, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { get } from '@/api/client';
+import { get, qs } from '@/api/client';
+import { useBranches } from '@/api/queries';
 import type { Dashboard } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import { fmtDate, fmtMoney } from '@/lib/format';
@@ -27,12 +29,17 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const { me } = useAuth();
   const finance = ['OWNER', 'ADMIN', 'FINANCE'].includes(me?.role ?? '');
-  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ['dashboard'], queryFn: () => get<Dashboard>('/dashboard') });
+  const branchList = useBranches();
+  const myBranches = me?.branchIds?.length ? me.branchIds : null;
+  const branchOpts = (branchList.data?.branches ?? []).filter((b) => b.isActive && (!myBranches || myBranches.includes(b.id)));
+  const [branchPick, setBranchPick] = useState<string>();
+  const branchId = myBranches ? (branchPick ?? myBranches[0]) : branchPick;
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ['dashboard', 'summary', branchId], queryFn: () => get<Dashboard>(`/dashboard${qs({ branchId })}`) });
   const attention = useQuery({
     queryKey: ['dashboard', 'attention'],
     queryFn: () =>
       get<{ score: number; grade: string; items: { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string; link: string }[] }>('/dashboard/attention'),
-    enabled: finance,
+    enabled: finance && !myBranches,
   });
   const ICON = {
     error: <CloseCircleFilled style={{ color: '#ff4d4f' }} />,
@@ -70,6 +77,18 @@ export default function DashboardPage() {
 
   return (
     <>
+      {branchOpts.length > 0 && (
+        <div style={{ marginBottom: 12, textAlign: 'right' }}>
+          <Select
+            allowClear={!myBranches}
+            placeholder="Semua cabang (konsolidasi)"
+            style={{ width: 260 }}
+            value={branchId}
+            onChange={setBranchPick}
+            options={[...(myBranches ? [] : [{ value: 'NONE', label: 'Pusat' }]), ...branchOpts.map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))]}
+          />
+        </div>
+      )}
       <div className="dash-hero" style={{ marginBottom: 20 }}>
         <div className="hero-grid">
           <div>

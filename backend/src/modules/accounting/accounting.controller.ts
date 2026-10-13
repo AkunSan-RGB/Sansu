@@ -69,7 +69,7 @@ export class AccountingController {
 
   @Get('journals')
   listJournals(@CurrentUser() u: AuthUser, @Query() q: JournalQueryDto) {
-    return this.svc.listJournals(u.tenantId, q);
+    return this.svc.listJournals(u.tenantId, q, u.branchIds);
   }
 
   // ---------- Jurnal berulang ----------
@@ -126,12 +126,12 @@ export class AccountingController {
 
   @Get('journals/:id')
   getJournal(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.getJournal(u.tenantId, id);
+    return this.svc.getJournal(u.tenantId, id, u.branchIds);
   }
 
   @Get('journals/:id/document')
   journalDocument(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.journalDocument(u.tenantId, id);
+    return this.svc.journalDocument(u.tenantId, id, u.branchIds);
   }
 
   @Post('journals')

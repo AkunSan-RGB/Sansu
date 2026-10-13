@@ -23,6 +23,7 @@ import { useApps } from '@/lib/apps';
 import PageHeader from '@/layout/PageHeader';
 import { rupiahInput } from '@/lib/format';
 import BrandingCard from './BrandingCard';
+import BranchFeatureCard from './BranchFeatureCard';
 import BusinessModelCard from './BusinessModelCard';
 import InventoryMethodCard from './InventoryMethodCard';
 import PettyCashPolicyCard from './PettyCashPolicyCard';
@@ -353,6 +354,7 @@ export default function CompanySettingsPage() {
       children: (
         <div style={wide}>
           <BusinessModelCard />
+          <BranchFeatureCard />
         </div>
       ),
     },

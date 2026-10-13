@@ -1,6 +1,7 @@
-import { Controller, Get, Injectable, Module } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Injectable, Module, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { and, count, desc, eq, gte, inArray, lt, lte, ne, sql } from 'drizzle-orm';
+import { scopeBranch } from '../../common/auth/branch-access';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { monthStart, todayJakarta } from '../../common/utils/dates';
@@ -95,8 +96,15 @@ export class DashboardService {
   }
 
   /** Ringkasan untuk pemilik: penjualan bulan ini, piutang, nilai stok, faktur jatuh tempo. */
-  async summary(tenantId: string, role: string) {
+  async summary(tenantId: string, role: string, branchId?: string) {
     const today = todayJakarta();
+    // Filter cabang (id cabang atau 'NONE' = Pusat): cabang dokumen = cabang gudangnya; tanpa gudang/cabang = Pusat
+    const whBranch = (whCol: ReturnType<typeof sql>) => sql`COALESCE((SELECT w.branch_id::text FROM warehouses w WHERE w.id = ${whCol}), 'NONE') = ${branchId}`;
+    const invBr = branchId ? sql`COALESCE((SELECT w.branch_id::text FROM sales_orders so JOIN warehouses w ON w.id = so.warehouse_id WHERE so.id = ${invoices.salesOrderId}), 'NONE') = ${branchId}` : undefined;
+    const soBr = branchId ? whBranch(sql`${salesOrders.warehouseId}`) : undefined;
+    const piBr = branchId ? whBranch(sql`${purchaseInvoices.warehouseId}`) : undefined;
+    const stBr = branchId ? whBranch(sql`${stockBalances.warehouseId}`) : undefined;
+    const cashBr = branchId ? sql`COALESCE(${journalLines.branchId}::text, 'NONE') = ${branchId}` : undefined;
     const outstanding = sql<string>`COALESCE(SUM(${invoices.total} - ${invoices.paidAmount} - ${invoices.returnedAmount}), 0)`;
 
     const [[sales], [ar], [overdue], [stock], [pending], recent, [ap], [cash]] = await Promise.all([
@@ -107,25 +115,25 @@ export class DashboardService {
           n: count(),
         })
         .from(invoices)
-        .where(and(eq(invoices.tenantId, tenantId), eq(invoices.isOpening, false), gte(invoices.date, monthStart(today)), lte(invoices.date, today))),
+        .where(and(eq(invoices.tenantId, tenantId), eq(invoices.isOpening, false), gte(invoices.date, monthStart(today)), lte(invoices.date, today), invBr)),
       this.db
         .select({ v: outstanding })
         .from(invoices)
-        .where(and(eq(invoices.tenantId, tenantId), ne(invoices.status, 'PAID'))),
+        .where(and(eq(invoices.tenantId, tenantId), ne(invoices.status, 'PAID'), invBr)),
       this.db
         .select({ v: outstanding, n: count() })
         .from(invoices)
-        .where(and(eq(invoices.tenantId, tenantId), ne(invoices.status, 'PAID'), lt(invoices.dueDate, today))),
+        .where(and(eq(invoices.tenantId, tenantId), ne(invoices.status, 'PAID'), lt(invoices.dueDate, today), invBr)),
       this.db
         .select({ v: sql<string>`COALESCE(SUM(${stockBalances.qty} * ${stockBalances.avgCost}), 0)` })
         .from(stockBalances)
-        .where(eq(stockBalances.tenantId, tenantId)),
+        .where(and(eq(stockBalances.tenantId, tenantId), stBr)),
       this.db
         .select({ n: count() })
         .from(salesOrders)
-        .where(and(eq(salesOrders.tenantId, tenantId), inArray(salesOrders.status, ['DRAFT', 'CONFIRMED', 'DELIVERED']))),
+        .where(and(eq(salesOrders.tenantId, tenantId), inArray(salesOrders.status, ['DRAFT', 'CONFIRMED', 'DELIVERED']), soBr)),
       this.db.query.invoices.findMany({
-        where: eq(invoices.tenantId, tenantId),
+        where: and(eq(invoices.tenantId, tenantId), invBr),
         with: { customer: { columns: { name: true } } },
         orderBy: [desc(invoices.createdAt)],
         limit: 5,
@@ -135,12 +143,12 @@ export class DashboardService {
           v: sql<string>`COALESCE(SUM(${purchaseInvoices.total} - ${purchaseInvoices.paidAmount} - ${purchaseInvoices.returnedAmount}), 0)`,
         })
         .from(purchaseInvoices)
-        .where(and(eq(purchaseInvoices.tenantId, tenantId), ne(purchaseInvoices.status, 'PAID'))),
+        .where(and(eq(purchaseInvoices.tenantId, tenantId), ne(purchaseInvoices.status, 'PAID'), piBr)),
       this.db
         .select({ v: sql<string>`COALESCE(SUM(${journalLines.debit} - ${journalLines.credit}), 0)` })
         .from(journalLines)
         .innerJoin(accounts, eq(accounts.id, journalLines.accountId))
-        .where(and(eq(accounts.tenantId, tenantId), eq(accounts.isCashAccount, true))),
+        .where(and(eq(accounts.tenantId, tenantId), eq(accounts.isCashAccount, true), cashBr)),
     ]);
 
     const salesMonth = D(sales.sales);
@@ -169,13 +177,15 @@ export class DashboardController {
   constructor(private readonly svc: DashboardService) {}
 
   @Get()
-  summary(@CurrentUser() u: AuthUser) {
-    return this.svc.summary(u.tenantId, u.role);
+  summary(@CurrentUser() u: AuthUser, @Query('branchId') branchId?: string) {
+    if (branchId && !/^(NONE|[0-9a-f-]{36})$/i.test(branchId)) throw new BadRequestException('branchId tidak valid');
+    return this.svc.summary(u.tenantId, u.role, scopeBranch(u, branchId));
   }
 
   @Get('attention')
   @Roles('ADMIN', 'FINANCE')
   attention(@CurrentUser() u: AuthUser) {
+    if (u.branchIds?.length) return { score: null, grade: null, items: [] }; // data perusahaan utuh, bukan per cabang
     return this.svc.attention(u.tenantId);
   }
 }
