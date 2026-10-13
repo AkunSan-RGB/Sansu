@@ -72,6 +72,8 @@ export interface SumFilter {
    * jurnal penyesuaian tetap berada di kolom penyesuaian (bukan mengotori kolom neraca saldo sebelum penyesuaian).
    */
   reversalInheritsSource?: boolean;
+  /** Hanya baris jurnal cabang ini; 'NONE' = pusat / tanpa cabang */
+  branchId?: string;
 }
 
 // satu sub-kueri (di-hash sekali) — jauh lebih cepat daripada EXISTS per baris jurnal pada data besar
@@ -108,6 +110,7 @@ async function sumByAccountRaw(db: DbOrTx, tenantId: string, f: SumFilter): Prom
     : sql`j.source_type`;
   if (f.excludeSources?.length) conds.push(sql`${src} NOT IN (${sql.join(f.excludeSources.map((s) => sql`${s}`), sql`, `)})`);
   if (f.onlySources?.length) conds.push(sql`${src} IN (${sql.join(f.onlySources.map((s) => sql`${s}`), sql`, `)})`);
+  if (f.branchId) conds.push(f.branchId === 'NONE' ? sql`l.branch_id IS NULL` : sql`l.branch_id = ${f.branchId}`);
   if (f.openingLike === 'exclude') conds.push(sql`NOT ${openingLike(tenantId)}`);
   if (f.openingLike === 'only') conds.push(openingLike(tenantId));
   const res = await db.execute<{ account_id: string; debit: string; credit: string }>(sql`

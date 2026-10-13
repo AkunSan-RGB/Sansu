@@ -199,7 +199,6 @@ const MENU: Group[] = [
           { key: '/worksheet', label: 'Neraca lajur' },
           { key: '/reports', label: 'Laporan keuangan' },
           { key: '/budget', label: 'Anggaran vs realisasi' },
-          { key: '/branches', label: 'Cabang', roles: ['ADMIN', 'FINANCE'], hideFor: ['JASA'] },
           { key: '/closing', label: 'Tutup buku' },
         ],
       },
@@ -258,6 +257,7 @@ const MENU: Group[] = [
     children: [
       { key: '/settings/company', label: 'Perusahaan' },
       { key: '/settings/users', label: 'Pengguna' },
+      { key: '/settings/branches', label: 'Cabang & toko', hideFor: ['JASA'] },
       { key: '/settings/apps', label: 'Aplikasi' },
       { key: '/settings/import', label: 'Impor data (Excel)' },
       { key: '/billing', label: 'Langganan', billing: true },

@@ -96,7 +96,7 @@ export class AccountingController {
   // ---------- Laporan keuangan SAK EP / SAK EMKM ----------
   @Get('statements/financial-position')
   financialPosition(@CurrentUser() u: AuthUser, @Query() q: PositionQueryDto) {
-    return this.statements.financialPosition(u.tenantId, q.asOf, q.compareAsOf);
+    return this.statements.financialPosition(u.tenantId, q.asOf, q.compareAsOf, q.branchId);
   }
   @Get('statements/income')
   income(@CurrentUser() u: AuthUser, @Query() q: StatementQueryDto) {

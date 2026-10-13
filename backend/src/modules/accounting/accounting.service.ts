@@ -660,16 +660,24 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       );
       if (!rows.length) throw new BadRequestException(`Tidak ada saldo pendapatan/beban di tahun ${dto.year}`);
 
-      const lines = rows.map((r) => {
-        // Nolkan: pendapatan (saldo kredit) di-debit, beban (saldo debit) di-kredit
-        const amount = r.balance.abs();
-        const toDebit = r.type === 'REVENUE' ? r.balance.isPositive() : r.balance.isNegative();
-        return { accountId: r.id, debit: toDebit ? amount : 0, credit: toDebit ? 0 : amount };
-      });
-      const net = rows
-        .filter((r) => r.type === 'REVENUE')
-        .reduce<Dec>((a, r) => a.plus(r.balance), ZERO)
-        .minus(rows.filter((r) => r.type === 'EXPENSE').reduce<Dec>((a, r) => a.plus(r.balance), ZERO));
+      // Nolkan per akun per cabang (label cabang dipertahankan) agar laba ditahan tiap cabang benar dan neraca per cabang tetap seimbang
+      const grouped = await tx.execute<{ account_id: string; type: string; b: string | null; d: string; c: string }>(sql`
+        SELECT l.account_id, a.type, l.branch_id::text AS b, SUM(l.debit) AS d, SUM(l.credit) AS c
+        FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
+        WHERE j.tenant_id = ${user.tenantId} AND j.date >= ${from} AND j.date <= ${to} AND j.source_type <> 'CLOSING' AND a.type IN ('REVENUE', 'EXPENSE')
+        GROUP BY l.account_id, a.type, l.branch_id`);
+      const netByBranch = new Map<string | null, Dec>();
+      const lines: { accountId: string; debit: Dec | number; credit: Dec | number; branchId: string | null }[] = [];
+      for (const g of grouped.rows) {
+        const balance = g.type === 'REVENUE' ? D(g.c).minus(g.d) : D(g.d).minus(g.c);
+        if (balance.isZero()) continue;
+        const amount = balance.abs();
+        const toDebit = g.type === 'REVENUE' ? balance.isPositive() : balance.isNegative();
+        lines.push({ accountId: g.account_id, debit: toDebit ? amount : 0, credit: toDebit ? 0 : amount, branchId: g.b });
+        netByBranch.set(g.b, (netByBranch.get(g.b) ?? ZERO).plus(g.type === 'REVENUE' ? balance : balance.negated()));
+      }
+      const net = [...netByBranch.values()].reduce<Dec>((a, v) => a.plus(v), ZERO);
+      const retainedLines = [...netByBranch].map(([b, v]) => ({ key: SYS.RETAINED, credit: v.gt(0) ? v : 0, debit: v.lt(0) ? v.abs() : 0, branchId: b }));
 
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
@@ -678,7 +686,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
         sourceType: 'CLOSING',
         sourceId: String(dto.year),
         createdById: user.sub,
-        lines: [...lines, { key: SYS.RETAINED, credit: net.gt(0) ? net : 0, debit: net.lt(0) ? net.abs() : 0 }],
+        lines: [...lines, ...retainedLines],
       });
       if (dto.lock !== false) {
         const current = await this.period.lockedUntil(tx, user.tenantId);

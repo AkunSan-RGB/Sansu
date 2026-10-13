@@ -1,6 +1,6 @@
 /** Cabang: laba rugi per cabang (+ gabungan), temuan kontrol, dan pengaturan cabang & gudang/toko */
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Col, DatePicker, Form, Input, Modal, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Col, DatePicker, Form, Input, Modal, Row, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { get, patch, post, put } from '@/api/client';
@@ -34,7 +34,7 @@ interface Finding {
   refs: string[];
 }
 
-function ReportTab() {
+export function BranchReportTab() {
   const [range, setRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([dayjs().startOf('month'), dayjs()]);
   const from = range[0].format('YYYY-MM-DD');
   const to = range[1].format('YYYY-MM-DD');
@@ -134,7 +134,7 @@ interface Bs {
 }
 
 /** Posisi keuangan (neraca) per cabang + gabungan dengan eliminasi Rekening Antar Cabang */
-function BalanceTab() {
+export function BranchBalanceTab() {
   const [asOf, setAsOf] = useState(dayjs());
   const q = useQuery({ queryKey: ['branches', 'bs', asOf.format('YYYY-MM-DD')], queryFn: () => get<Bs>(`/branches/balance-sheet?asOf=${asOf.format('YYYY-MM-DD')}`) });
   const r = q.data;
@@ -286,19 +286,19 @@ function SettingsTab() {
   );
 }
 
+/** Pengaturan cabang & toko (laporan per cabang ada di Laporan Keuangan › Perbandingan cabang) */
 export default function BranchesPage() {
-  const { me } = useAuth();
-  const reportOk = me?.role === 'OWNER' || me?.role === 'ADMIN' || me?.role === 'FINANCE';
   return (
     <>
-      <PageHeader title="Cabang" />
+      <PageHeader title="Cabang & toko" />
       <Card>
-        <Tabs
-          items={[
-            ...(reportOk ? [{ key: 'report', label: 'Laba rugi per cabang', children: <ReportTab /> }, { key: 'bs', label: 'Neraca per cabang', children: <BalanceTab /> }] : []),
-            { key: 'settings', label: 'Cabang & toko', children: <SettingsTab /> },
-          ]}
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="Laporan per cabang tidak terpisah dari keuangan: buka Akuntansi › Laporan keuangan, lalu pilih cabang di pojok kanan atas atau tab Perbandingan cabang."
         />
+        <SettingsTab />
       </Card>
     </>
   );

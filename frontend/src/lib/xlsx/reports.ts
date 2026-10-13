@@ -13,6 +13,7 @@ import {
   type AnnualTaxRecap,
   type BpjsRecap,
   type CashCount,
+  type CashTransaction,
   type CashFlowStatement,
   type EquityStatement,
   type FinancialAppendix,
@@ -1201,6 +1202,46 @@ export function assetCountSheet(rows: FixedAsset[], asOf: string, company?: stri
       sign: '',
     });
   });
+  return [s.spec];
+}
+
+/** Daftar transaksi kas & bank (sesuai filter di layar) */
+export function cashListSheet(rows: CashTransaction[], range: { from: string; to: string }, company?: string): SheetSpec[] {
+  const s = new SheetBuilder('Kas & Bank', {
+    company,
+    title: 'Transaksi Kas & Bank',
+    subtitle: [`Periode ${tgl(range.from)} s/d ${tgl(range.to)}`, RP],
+    columns: [
+      { key: 'no', header: 'Nomor', fmt: 'code', width: 18 },
+      { key: 'date', header: 'Tanggal', fmt: 'date', width: 12 },
+      { key: 'type', header: 'Jenis', width: 12 },
+      { key: 'acc', header: 'Kas / bank', width: 22 },
+      { key: 'desc', header: 'Keterangan', width: 34 },
+      { key: 'ref', header: 'No. bukti', width: 16 },
+      { key: 'branch', header: 'Cabang', width: 18 },
+      { key: 'status', header: 'Status', width: 12 },
+      { key: 'in', header: 'Masuk', fmt: 'money', width: 16 },
+      { key: 'out', header: 'Keluar', fmt: 'money', width: 16 },
+    ],
+    filter: true,
+    freezeCols: 2,
+  });
+  const live = rows.filter((r) => r.status !== 'VOID');
+  rows.forEach((r) =>
+    s.row({
+      no: r.number,
+      date: new Date(`${r.date}T00:00:00`),
+      type: r.type === 'IN' ? 'Kas masuk' : r.type === 'OUT' ? 'Kas keluar' : 'Transfer',
+      acc: r.toCashAccount ? `${r.cashAccount.name} → ${r.toCashAccount.name}` : r.cashAccount.name,
+      desc: r.description,
+      ref: r.reference ?? '',
+      branch: r.branchName ?? '',
+      status: r.status === 'VOID' ? 'Dibatalkan' : 'Diposting',
+      in: r.type === 'IN' && r.status !== 'VOID' ? Number(r.amount) : 0,
+      out: r.type === 'OUT' && r.status !== 'VOID' ? Number(r.amount) : 0,
+    }),
+  );
+  void live;
   return [s.spec];
 }
 

@@ -570,6 +570,11 @@ export interface CashTransaction {
   cashAccount: { code: string; name: string };
   toCashAccount: { code: string; name: string } | null;
   lines: { id: string; amount: string; memo: string | null; account: { code: string; name: string } }[];
+  journalNumber?: string | null;
+  branchId?: string | null;
+  branchName?: string | null;
+  /** Kartu aset tetap yang lahir dari transaksi ini (pembelian tunai aset) */
+  assets?: { id: string; code: string; name: string }[];
 }
 
 // ---------- Retur ----------
