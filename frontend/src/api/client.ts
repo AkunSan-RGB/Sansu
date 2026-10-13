@@ -1,3 +1,5 @@
+import { rememberReturnTo } from '@/auth/returnTo';
+
 const TOKEN_KEY = 'sansu.token';
 
 // sesi dari versi sebelum ganti nama (Akurata) dipindahkan sekali agar pengguna tidak perlu login ulang
@@ -50,10 +52,18 @@ export async function api<T = unknown>(path: string, init: RequestInit & { json?
 
   if (res.status === 401 && !path.startsWith('/auth/')) {
     tokenStore.clear();
+    rememberReturnTo(window.location.pathname + window.location.search);
     window.location.href = '/login';
   }
 
   const text = await res.text();
+  // Yang terbaca halaman web (HTML), bukan data: alamat ini belum tersambung ke server API (mis. hosting tampilan saja)
+  if (/^\s*</.test(text)) {
+    throw new ApiError(
+      503,
+      'Alamat ini belum tersambung ke server API SANSU (yang terbaca halaman web, bukan data). Hubungi pengelola untuk mengisi alamat API.',
+    );
+  }
   let data: { message?: string | string[] } | null = null;
   try {
     data = text ? JSON.parse(text) : null;
@@ -68,6 +78,9 @@ export async function api<T = unknown>(path: string, init: RequestInit & { json?
         404,
         'Fitur ini belum ada di server yang sedang berjalan (server versi lama). Tutup semua jendela SANSU lalu jalankan ulang',
       );
+    }
+    if (res.status === 429 && typeof data?.message === 'string' && /^Throttler/i.test(data.message)) {
+      throw new ApiError(429, 'Terlalu banyak permintaan dalam waktu singkat. Tunggu sebentar lalu coba lagi.');
     }
     if (res.status >= 500)
       throw new ApiError(
