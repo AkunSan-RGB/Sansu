@@ -2577,3 +2577,56 @@ export const reminderLog = pgTable(
   },
   (t) => [uniqueIndex('reminder_log_uq').on(t.tenantId, t.kind, t.ref, t.stage)],
 );
+
+// ---------- Anggaran ----------
+export const budgets = pgTable(
+  'budgets',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    year: integer('year').notNull(),
+    name: text('name').notNull(),
+    /** DRAFT (bisa diubah) | APPROVED (terkunci; dibuka kembali hanya Pemilik/Admin dengan alasan) */
+    status: text('status').$type<'DRAFT' | 'APPROVED'>().notNull().default('DRAFT'),
+    /** Realisasi beban melebihi anggaran sampai tahun-ke-tanggal + persen ini → peringatan */
+    tolerancePct: integer('tolerance_pct').notNull().default(10),
+    createdById: uuid('created_by_id'),
+    approvedById: uuid('approved_by_id'),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('budgets_year_uq').on(t.tenantId, t.year)],
+);
+
+export const budgetLines = pgTable(
+  'budget_lines',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    budgetId: uuid('budget_id')
+      .notNull()
+      .references(() => budgets.id, { onDelete: 'cascade' }),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    month: integer('month').notNull(),
+    amount: money('amount').notNull(),
+  },
+  (t) => [uniqueIndex('budget_lines_uq').on(t.budgetId, t.accountId, t.month)],
+);
+
+export const budgetAlerts = pgTable(
+  'budget_alerts',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    budgetId: uuid('budget_id')
+      .notNull()
+      .references(() => budgets.id, { onDelete: 'cascade' }),
+    accountId: uuid('account_id').notNull(),
+    month: integer('month').notNull(),
+    level: text('level').notNull(),
+    sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('budget_alerts_uq').on(t.budgetId, t.accountId, t.month, t.level)],
+);
