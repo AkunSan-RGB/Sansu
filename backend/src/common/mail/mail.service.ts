@@ -54,8 +54,13 @@ export class MailService {
   /** Email terakhir (hanya diisi saat SMTP tidak aktif) — dipakai pengujian */
   readonly outbox: (Mail & { at: Date })[] = [];
 
+  /** Brevo lewat API (HTTPS) — dipakai di hosting yang memblokir port SMTP (mis. Railway paket gratis/Hobby) */
+  private get brevoKey() {
+    return process.env.BREVO_API_KEY?.trim() || undefined;
+  }
+
   get configured() {
-    return !!process.env.SMTP_HOST;
+    return !!this.brevoKey || !!process.env.SMTP_HOST;
   }
 
   get from() {
@@ -75,17 +80,45 @@ export class MailService {
     return this.transporter;
   }
 
+  /** Kirim lewat REST API Brevo. Pengirim: BREVO_SENDER_EMAIL/NAME, bila kosong diambil dari MAIL_FROM. */
+  private async sendViaBrevo(m: Mail, html: string, text: string) {
+    const parsed = parseFrom(this.from);
+    const senderEmail = process.env.BREVO_SENDER_EMAIL?.trim() || parsed.email;
+    if (!senderEmail || senderEmail.endsWith('@localhost')) throw new Error('Pengirim email belum diatur: isi BREVO_SENDER_EMAIL (alamat yang sudah diverifikasi di Brevo)');
+    const replyTo = process.env.MAIL_REPLY_TO?.trim();
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': this.brevoKey!, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({
+        sender: { name: process.env.BREVO_SENDER_NAME?.trim() || parsed.name || 'SANSU', email: senderEmail },
+        to: [{ email: m.to }],
+        subject: m.subject,
+        htmlContent: html,
+        textContent: text,
+        ...(replyTo ? { replyTo: { email: parseFrom(replyTo).email ?? replyTo } } : {}),
+      }),
+    });
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => '')).slice(0, 300);
+      throw new Error(`Brevo menolak email (${res.status}): ${detail}`);
+    }
+  }
+
   /** Kirim email. Tidak pernah melempar galat ke pemanggil kecuali `strict` (dipakai tombol "kirim email uji"). */
   async send(m: Mail, strict = false): Promise<boolean> {
     if (!this.configured) {
       this.outbox.push({ ...m, at: new Date() });
       if (this.outbox.length > 50) this.outbox.shift();
-      this.logger.log(`[SMTP belum diatur — email tidak dikirim] Ke: ${m.to} · ${m.subject}${m.action ? ` · ${m.action.url}` : ''}`);
-      if (strict) throw new Error('SMTP belum diatur (isi SMTP_HOST dkk. di file .env)');
+      this.logger.log(`[Email belum diatur (SMTP/Brevo) — tidak dikirim] Ke: ${m.to} · ${m.subject}${m.action ? ` · ${m.action.url}` : ''}`);
+      if (strict) throw new Error('Email belum diatur (isi BREVO_API_KEY atau SMTP_HOST dkk.)');
       return false;
     }
     try {
       const { html, text } = renderMail(m);
+      if (this.brevoKey) {
+        await this.sendViaBrevo(m, html, text);
+        return true;
+      }
       // Message-ID memakai domain pengirim dan Reply-To tetap (MAIL_REPLY_TO) agar konsisten di mata filter spam
       const domain = senderDomain(this.from) ?? 'localhost';
       await this.transport().sendMail({ from: this.from, replyTo: process.env.MAIL_REPLY_TO || undefined, to: m.to, subject: m.subject, html, text, messageId: `<${randomUUID()}@${domain}>` });
@@ -96,4 +129,11 @@ export class MailService {
       return false;
     }
   }
+}
+
+/** "Nama <alamat@domain>" atau "alamat@domain" → nama & alamat. */
+export function parseFrom(from: string): { name?: string; email?: string } {
+  const m = from.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/);
+  if (m) return { name: m[1].trim() || undefined, email: m[2].trim() };
+  return { email: from.trim() || undefined };
 }
