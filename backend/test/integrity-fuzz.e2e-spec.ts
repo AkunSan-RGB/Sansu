@@ -14,7 +14,7 @@ import { Pool } from 'pg';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
-import { todayJakarta } from '../src/common/utils/dates';
+import { addDays, todayJakarta } from '../src/common/utils/dates';
 
 function rng(seed: number) {
   let a = seed >>> 0;
@@ -27,7 +27,7 @@ function rng(seed: number) {
   };
 }
 
-const SEEDS = process.env.FUZZ_SEEDS ? process.env.FUZZ_SEEDS.split(',').map(Number) : process.env.FUZZ_SEED ? [Number(process.env.FUZZ_SEED)] : [101, 202, 303, 404, 505];
+const SEEDS = process.env.FUZZ_SEEDS ? process.env.FUZZ_SEEDS.split(',').map(Number) : process.env.FUZZ_SEED ? [Number(process.env.FUZZ_SEED)] : [101, 202, 303, 404, 505, 17];
 const STEPS = Number(process.env.FUZZ_STEPS ?? 70);
 
 describe('Uji acak invarian akuntansi (e2e)', () => {
@@ -117,6 +117,7 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
     const fxPurchases: string[] = [];
     const journals: string[] = [];
     let posSession: string | null = null;
+    let menu: string | null = null;
     let seq = 0;
 
     // ---- invarian ----
@@ -134,6 +135,9 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
       expect({ ctx, unbalancedJournals: unbalanced }).toEqual({ ctx, unbalancedJournals: [] });
       const negStock = await q(`SELECT product_id, warehouse_id, qty FROM stock_balances WHERE tenant_id=$1 AND qty < 0`, [tenantId]);
       expect({ ctx, negativeStock: negStock }).toEqual({ ctx, negativeStock: [] });
+      // lot kedaluwarsa: tidak pernah negatif dan jumlahnya tidak melebihi stok barang di gudang yang sama
+      const badLots = await q(`SELECT l.product_id, l.warehouse_id, SUM(l.qty_remaining) AS lots, b.qty FROM stock_lots l JOIN stock_balances b ON b.product_id=l.product_id AND b.warehouse_id=l.warehouse_id WHERE l.tenant_id=$1 GROUP BY l.product_id, l.warehouse_id, b.qty HAVING SUM(l.qty_remaining) > b.qty + 0.0001 OR MIN(l.qty_remaining) < 0`, [tenantId]);
+      expect({ ctx, lotsAboveStock: badLots }).toEqual({ ctx, lotsAboveStock: [] });
       const badInv = await q(`SELECT number, total, paid_amount, returned_amount, status FROM invoices WHERE tenant_id=$1 AND (paid_amount<0 OR returned_amount<0 OR paid_amount+returned_amount > total + 0.005)`, [tenantId]);
       expect({ ctx, overpaidInvoices: badInv }).toEqual({ ctx, overpaidInvoices: [] });
       const badPi = await q(`SELECT number, total, paid_amount, returned_amount FROM purchase_invoices WHERE tenant_id=$1 AND (paid_amount<0 OR returned_amount<0 OR paid_amount+returned_amount > total + 0.005)`, [tenantId]);
@@ -189,7 +193,7 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
         if (po.status !== 201) return;
         await tryPost('po-confirm', `/purchase-orders/${po.body.id}/confirm`, {});
         const full = (await http.get(`/api/purchase-orders/${po.body.id}`).set(H)).body as { lines: { id: string; qty: string }[] };
-        const part = full.lines.map((l) => ({ orderLineId: l.id, qty: String(Math.max(1, Math.floor(Number(l.qty) * (0.3 + rand() * 0.5)))) }));
+        const part = full.lines.map((l) => ({ orderLineId: l.id, qty: String(Math.max(1, Math.floor(Number(l.qty) * (0.3 + rand() * 0.5)))), ...(rand() < 0.6 ? { lotNo: `L${++seq}`, expiryDate: addDays(todayStr, int(1, 60)) } : {}) }));
         const g1 = await tryPost('gr', `/purchase-orders/${po.body.id}/receipts`, { lines: part, ...when });
         if (g1.status !== 201) return;
         if (rand() < 0.2) {
@@ -270,7 +274,7 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
         const p = pick(products);
         const w = pick([wh1, wh2]);
         const have = await stockOf(p, w);
-        if (rand() < 0.5 || have < 2) await tryPost('adj+', '/inventory/adjustments', { warehouseId: w, reason: pick(['OPENING', 'OTHER']), lines: [{ productId: p, qty: String(int(1, 20)), unitCost: String(int(3, 8) * 1000) }] });
+        if (rand() < 0.5 || have < 2) await tryPost('adj+', '/inventory/adjustments', { warehouseId: w, reason: pick(['OPENING', 'OTHER']), lines: [{ productId: p, qty: String(int(1, 20)), unitCost: String(int(3, 8) * 1000), ...(rand() < 0.6 ? { lotNo: `A${++seq}`, expiryDate: addDays(todayStr, int(1, 90)) } : {}) }] });
         else await tryPost('adj-', '/inventory/adjustments', { warehouseId: w, reason: 'DAMAGED', lines: [{ productId: p, qty: String(-int(1, Math.floor(have))) }] });
       },
       async transfer() {
@@ -295,6 +299,28 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
         const price = 8000 + products.indexOf(p) * 3000;
         const qty = int(1, 3);
         await tryPost('pos-order', '/pos/orders', { sessionId: posSession, lines: [{ productId: p, qty: String(qty) }], payments: [{ method: 'CASH', amount: String(Math.ceil(price * qty * 1.11) + 100000) }] });
+      },
+      /** Menu dibuat saat dipesan: kasir memotong bahan sesuai resep; kadang dibatalkan (bahan tidak kembali) */
+      async menuSale() {
+        if (!menu) {
+          const m = await tryPost('menu', '/products', { sku: `MN-${seed}`, name: 'Menu Uji', sellPrice: '30000', madeToOrder: true });
+          if (m.status !== 201) return;
+          const b = await tryPost('menu-bom', '/production/boms', { name: `Resep menu ${seed}`, productId: m.body.id, outputQty: '1', laborCost: '0', overheadCost: '0', lines: [{ productId: products[0], qty: '2' }, { productId: products[1], qty: '1' }] });
+          if (b.status !== 201) return;
+          menu = m.body.id;
+        }
+        if (!posSession) {
+          const s2 = await tryPost('pos-open', '/pos/sessions', { warehouseId: wh1, openingCash: '100000' });
+          if (s2.status === 201) posSession = s2.body.id;
+          return;
+        }
+        const o = await tryPost('menu-order', '/pos/orders', { sessionId: posSession, lines: [{ productId: menu, qty: String(int(1, 3)) }], payments: [{ method: 'CASH', amount: '500000' }] });
+        if (o.status === 201 && rand() < 0.3) await tryPost('menu-return', `/pos/orders/${o.body.id}/return`, { all: true, reason: 'Pesanan dibatalkan pelanggan' });
+      },
+      async discardLot() {
+        const l = (await call('get', '/inventory/lots')).body as { items: { id: string }[] };
+        if (!l.items?.length) return;
+        await tryPost('lot-discard', `/inventory/lots/${pick(l.items).id}/discard`, {});
       },
       async journal() {
         const amount = String(int(1, 500) * 1000);
@@ -416,7 +442,7 @@ describe('Uji acak invarian akuntansi (e2e)', () => {
         await tryPost('tax-pay', '/tax/payments', { type, period, date: todayStr });
       },
     });
-    const weighted: [string, number][] = [['buy', 6], ['receiveThenBill', 5], ['sell', 10], ['deliverThenInvoice', 6], ['payAR', 7], ['payAP', 5], ['salesReturn', 4], ['purchaseReturn', 3], ['adjust', 4], ['transfer', 3], ['pos', 6], ['journal', 3], ['reverse', 1], ['bill', 2], ['asset', 1], ['cash', 3], ['opname', 1], ['depreciate', 2], ['disposeAsset', 1], ['production', 4], ['payroll', 2], ['taxPayment', 2], ['sellUsd', 4], ['payUsd', 4], ['buyUsd', 3], ['payUsdAP', 3], ['revalUsd', 1]];
+    const weighted: [string, number][] = [['buy', 6], ['receiveThenBill', 5], ['sell', 10], ['deliverThenInvoice', 6], ['payAR', 7], ['payAP', 5], ['salesReturn', 4], ['purchaseReturn', 3], ['adjust', 4], ['transfer', 3], ['pos', 6], ['menuSale', 4], ['discardLot', 2], ['journal', 3], ['reverse', 1], ['bill', 2], ['asset', 1], ['cash', 3], ['opname', 1], ['depreciate', 2], ['disposeAsset', 1], ['production', 4], ['payroll', 2], ['taxPayment', 2], ['sellUsd', 4], ['payUsd', 4], ['buyUsd', 3], ['payUsdAP', 3], ['revalUsd', 1]];
     const bag = weighted.flatMap(([k, w]) => Array(w).fill(k) as string[]);
 
     // bekal awal agar ada dokumen untuk dibayar/diretur

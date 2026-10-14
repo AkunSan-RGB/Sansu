@@ -333,13 +333,19 @@ export class StockService {
     const oldCost = D(row.avg_cost);
     let newCost = qty4(oldCost.plus(D(m.amount).div(qty)));
     if (newCost.isNegative()) newCost = D(0);
-    const applied = money(qty.times(newCost)).minus(money(qty.times(oldCost)));
-    if (newCost.equals(oldCost)) return applied;
-    await tx.execute(sql`
-      UPDATE stock_balances SET avg_cost = ${newCost.toFixed(4)}
-      WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
+    if (newCost.equals(oldCost)) return money(qty.times(newCost)).minus(money(qty.times(oldCost)));
     await tx.execute(sql`
       UPDATE stock_layers SET unit_cost = GREATEST(0, unit_cost + ${newCost.minus(oldCost).toFixed(4)}::numeric)
+      WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
+    // FIFO: lapisan yang lebih murah dari penurunan tidak bisa di bawah nol, sehingga nilai lapisan bisa lebih besar dari perkiraan rata-rata.
+    // Biaya rata-rata mengikuti nilai lapisan yang sebenarnya agar nilai buku stok (dan jurnal) tetap sama dengan kartu stok.
+    const layers = await tx.execute<{ q: string; v: string }>(sql`
+      SELECT COALESCE(SUM(qty_remaining), 0) AS q, COALESCE(SUM(qty_remaining * unit_cost), 0) AS v FROM stock_layers
+      WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId} AND qty_remaining > 0`);
+    if (D(layers.rows[0].q).minus(qty).abs().lt(0.0001)) newCost = qty4(D(layers.rows[0].v).div(qty));
+    const applied = money(qty.times(newCost)).minus(money(qty.times(oldCost)));
+    await tx.execute(sql`
+      UPDATE stock_balances SET avg_cost = ${newCost.toFixed(4)}
       WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
     await tx.insert(stockMoves).values({
       tenantId: m.tenantId,
