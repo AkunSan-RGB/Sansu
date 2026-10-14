@@ -188,7 +188,12 @@ export class PosService {
   }
 
   /** Inti penjualan kasir di dalam transaksi pemanggil (dipakai juga oleh pembayaran pesanan meja); mengembalikan id transaksi */
-  async createOrderTx(tx: Tx, user: AuthUser, dto: CreatePosOrderDto, extra: { tabId?: string } = {}): Promise<string> {
+  async createOrderTx(
+    tx: Tx,
+    user: AuthUser,
+    dto: CreatePosOrderDto,
+    extra: { tabId?: string; online?: { channel: string; externalRef: string | null; feePct: number } } = {},
+  ): Promise<string> {
     const session = await this.lockSession(tx, user, dto.sessionId);
     const date = todayJakarta();
     const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
@@ -220,9 +225,15 @@ export class PosService {
     const totals = inclusive ? inclusiveTotals(lines, rate) : documentTotals(lines, rate, taxProfileOf(tenant.settings).vatRounding);
 
     // Pembayaran: non-tunai tidak boleh lebih dari tagihan; kelebihan tunai = kembalian
+    // Pesanan online dibayar platform kemudian (piutang platform); metode itu tidak boleh dipilih kasir pada penjualan biasa
+    const online = extra.online ?? null;
+    if (!online && dto.payments?.some((p) => p.method === 'PLATFORM')) throw new BadRequestException('Metode "Dibayar platform" hanya untuk pesanan online');
+    const payments: { method: PosPaymentMethod; amount: string }[] = online ? [{ method: 'PLATFORM', amount: totals.total.toFixed(2) }] : dto.payments;
+    if (!payments?.length) throw new BadRequestException('Pembayaran wajib diisi');
+    const platformFee = online ? money(totals.subtotal.times(online.feePct).div(100)) : ZERO;
     let nonCash: Dec = ZERO;
     let cashIn: Dec = ZERO;
-    for (const p of dto.payments) {
+    for (const p of payments) {
       const amt = money(p.amount);
       if (amt.lte(0)) throw new BadRequestException('Jumlah pembayaran harus > 0');
       if (p.method === 'CASH') cashIn = cashIn.plus(amt);
@@ -253,6 +264,9 @@ export class PosService {
         pricesIncludeVat: inclusive,
         taxKind: local.enabled ? 'LOCAL' : 'VAT',
         tabId: extra.tabId ?? null,
+        channel: online?.channel ?? null,
+        externalRef: online?.externalRef ?? null,
+        platformFee: platformFee.toFixed(2),
         orderType: dto.orderType ?? null,
         tableLabel: dto.tableLabel?.trim() || null,
       })
@@ -322,7 +336,7 @@ export class PosService {
 
     // Gabungkan pembayaran per metode (tunai bersih setelah kembalian)
     const byMethod = new Map<PosPaymentMethod, Dec>();
-    for (const p of dto.payments) if (p.method !== 'CASH') byMethod.set(p.method, (byMethod.get(p.method) ?? ZERO).plus(money(p.amount)));
+    for (const p of payments) if (p.method !== 'CASH') byMethod.set(p.method, (byMethod.get(p.method) ?? ZERO).plus(money(p.amount)));
     if (cashNet.gt(0)) byMethod.set('CASH', cashNet);
     await tx.insert(posPayments).values([...byMethod].map(([method, amount]) => ({ orderId: order.id, method, amount: amount.toFixed(2) })));
 
@@ -334,8 +348,16 @@ export class PosService {
       sourceId: order.id,
       createdById: user.sub,
       lines: [
-        { accountId: session.cashAccountId, debit: cashNet },
-        { accountId: session.bankAccountId, debit: nonCash },
+        ...(online
+          ? [
+              // dibayar platform: piutang platform sebesar penjualan dikurangi komisi, komisi langsung menjadi beban
+              { key: SYS.PLATFORM_RECEIVABLE, debit: totals.total.minus(platformFee) },
+              { key: SYS.PLATFORM_FEE, debit: platformFee },
+            ]
+          : [
+              { accountId: session.cashAccountId, debit: cashNet },
+              { accountId: session.bankAccountId, debit: nonCash },
+            ]),
         { key: SYS.SALES, credit: totals.subtotal },
         { key: local.enabled ? SYS.LOCAL_TAX : SYS.VAT_OUT, credit: totals.taxAmount },
         { key: SYS.COGS, debit: cogs },

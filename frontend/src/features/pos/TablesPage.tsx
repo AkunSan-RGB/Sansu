@@ -1,5 +1,5 @@
 import { CheckCircleOutlined, DeleteOutlined, PlusOutlined, PrinterOutlined, SendOutlined, SettingOutlined, SwapOutlined } from '@ant-design/icons';
-import { POS_ORDER_TYPE_LABELS, POS_ORDER_TYPES, POS_PAYMENT_LABELS, type PosOrderType, type PosPaymentMethod } from '@sansu/shared';
+import { ONLINE_CHANNEL_LABELS, ONLINE_CHANNELS, type OnlineChannel, POS_CASHIER_PAYMENT_METHODS, POS_ORDER_TYPE_LABELS, POS_ORDER_TYPES, POS_PAYMENT_LABELS, type PosOrderType, type PosPaymentMethod } from '@sansu/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Card, Checkbox, Col, Divider, Drawer, Empty, Form, Input, InputNumber, Modal, Row, Segmented, Select, Space, Spin, Switch, Table, Tag, Typography } from 'antd';
 import { useMemo, useState } from 'react';
@@ -37,6 +37,7 @@ export default function TablesPage() {
   const warehouseId = wh ?? session.data?.warehouse?.id ?? warehouses?.[0]?.id;
   const [tabId, setTabId] = useState<string>();
   const [newOpen, setNewOpen] = useState(false);
+  const [onlineOpen, setOnlineOpen] = useState(false);
   const [manage, setManage] = useState(false);
   const canManage = me?.role === 'OWNER' || me?.role === 'ADMIN';
 
@@ -57,6 +58,7 @@ export default function TablesPage() {
             <Button icon={<PlusOutlined />} type="primary" onClick={() => setNewOpen(true)}>
               Pesanan bawa pulang / antar
             </Button>
+            <Button onClick={() => setOnlineOpen(true)}>Pesanan online</Button>
             {canManage && (
               <Button icon={<SettingOutlined />} onClick={() => setManage(true)}>
                 Atur meja
@@ -107,7 +109,7 @@ export default function TablesPage() {
                 <Card hoverable size="small" onClick={() => setTabId(t.id)}>
                   <Space wrap>
                     <Typography.Text strong>{t.tableLabel ?? t.guestName ?? t.number}</Typography.Text>
-                    <Tag>{POS_ORDER_TYPE_LABELS[t.orderType]}</Tag>
+                    <Tag color={t.channel ? 'purple' : undefined}>{t.channel ? ONLINE_CHANNEL_LABELS[t.channel] : POS_ORDER_TYPE_LABELS[t.orderType]}</Tag>
                     {t.pending > 0 && <Tag color="blue">{t.pending} diproses</Tag>}
                   </Space>
                   <div style={{ fontSize: 12 }}>{t.number} · {t.items} menu · {fmtMoney(t.unpaidSubtotal)} · {since(t.createdAt)}</div>
@@ -118,6 +120,7 @@ export default function TablesPage() {
         </Card>
       )}
       <NewTabModal open={newOpen} onClose={() => setNewOpen(false)} warehouseId={warehouseId} onCreated={(id) => { setNewOpen(false); setTabId(id); }} />
+      <OnlineTabModal open={onlineOpen} onClose={() => setOnlineOpen(false)} warehouseId={warehouseId} onCreated={(id) => { setOnlineOpen(false); setTabId(id); }} />
       <TabDrawer tabId={tabId} onClose={() => setTabId(undefined)} session={session.data ?? null} tables={tables.data ?? []} />
       {canManage && <ManageTables open={manage} onClose={() => setManage(false)} warehouseId={warehouseId} rows={tables.data ?? []} />}
     </>
@@ -188,7 +191,7 @@ function TabDrawer({ tabId, onClose, session, tables }: { tabId?: string; onClos
       ) : (
         <>
           <Space wrap style={{ marginBottom: 12 }}>
-            <Tag>{POS_ORDER_TYPE_LABELS[tab.orderType]}</Tag>
+            <Tag color={tab.channel ? 'purple' : undefined}>{tab.channel ? `${ONLINE_CHANNEL_LABELS[tab.channel]} · ${tab.externalRef}` : POS_ORDER_TYPE_LABELS[tab.orderType]}</Tag>
             {tab.guestName && <Tag>{tab.guestName}</Tag>}
             {tab.cancelReason && <Typography.Text type="secondary">Alasan batal: {tab.cancelReason}</Typography.Text>}
           </Space>
@@ -228,7 +231,7 @@ function TabDrawer({ tabId, onClose, session, tables }: { tabId?: string; onClos
                 <Button icon={<SwapOutlined />} onClick={() => setMoveOpen(true)}>Pindah meja</Button>
                 <Button danger onClick={() => { setVoidReason(''); setCancelOpen(true); }}>Batalkan pesanan</Button>
                 <Button icon={<SendOutlined />} disabled={!tab.draftCount} loading={send.isPending} onClick={() => send.mutate()}>Kirim ke dapur{tab.draftCount ? ` (${tab.draftCount})` : ''}</Button>
-                <Button type="primary" disabled={!unpaid.length || !session} onClick={() => setPaying(true)} title={session ? undefined : 'Buka sesi kasir dulu'}>Bayar…</Button>
+                <Button type="primary" disabled={!unpaid.length || !session} onClick={() => setPaying(true)} title={session ? undefined : 'Buka sesi kasir dulu'}>{tab.channel ? 'Selesai (dibayar platform)' : 'Bayar…'}</Button>
               </Space>
             )}
           </Space>
@@ -287,6 +290,23 @@ function PayModal({ open, onClose, tab, session, onPaid }: { open: boolean; onCl
     { invalidate: KEYS, onSuccess: (o) => { setPicked(null); setAmount(null); onPaid(o); } },
   );
   const unsent = unpaid.filter((l) => ids.includes(l.id) && l.status === 'DRAFT').length;
+  const payOnline = useAction(() => post<PosOrder>(`/pos/tabs/${tab.id}/pay`, { sessionId: session!.id }), { invalidate: KEYS, onSuccess: (o) => onPaid(o) });
+  const commissions = useQuery({ queryKey: ['pos-online-settings'], queryFn: () => get<{ commissions: Record<string, number> }>('/pos/online/settings'), enabled: !!tab.channel });
+  if (tab.channel) {
+    const pct = commissions.data?.commissions[tab.channel] ?? 0;
+    const fee = Math.round(((sum * pct) / 100) * 100) / 100;
+    return (
+      <Modal title={`Selesaikan pesanan ${ONLINE_CHANNEL_LABELS[tab.channel]}`} open={open} onCancel={onClose} onOk={() => payOnline.mutate()} okText="Selesai" confirmLoading={payOnline.isPending} okButtonProps={{ disabled: !session || unsent > 0 }} destroyOnHidden>
+        <Typography.Paragraph>
+          Pesanan ini dibayar oleh platform, bukan oleh pelanggan di kasir. Penjualan dicatat sebagai <strong>piutang platform</strong> (dikurangi komisi). Saat dana dari platform masuk, catat di <strong>Pesanan online › Pencairan</strong>.
+        </Typography.Paragraph>
+        <div>Total termasuk {label} {rate}%: <strong>{fmtMoney(total)}</strong></div>
+        <div>Komisi {ONLINE_CHANNEL_LABELS[tab.channel]} ({pct}% dari harga menu): <strong>{fmtMoney(fee)}</strong></div>
+        <div>Perkiraan diterima dari platform: <strong>{fmtMoney(total - fee)}</strong></div>
+        {unsent > 0 && <Alert type="warning" showIcon style={{ marginTop: 12 }} message="Ada menu yang belum dikirim ke dapur. Kirim dulu." />}
+      </Modal>
+    );
+  }
   return (
     <Modal title="Pembayaran" open={open} onCancel={onClose} onOk={() => pay.mutate()} okText="Terima pembayaran" confirmLoading={pay.isPending} okButtonProps={{ disabled: !ids.length || !enough || unsent > 0 || !session }} destroyOnHidden>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>Pilih menu yang dibayar sekarang. Bayar sebagian untuk pisah bill; sisanya tetap terbuka.</Typography.Paragraph>
@@ -305,7 +325,7 @@ function PayModal({ open, onClose, tab, session, onPaid }: { open: boolean; onCl
         <div style={{ fontSize: 12, color: '#666' }}>Total termasuk {label} {rate}%</div>
         <Typography.Title level={3} style={{ margin: 0 }}>{fmtMoney(total)}</Typography.Title>
       </div>
-      <Segmented block style={{ margin: '12px 0' }} value={method} onChange={(v) => { setMethod(v as PosPaymentMethod); setAmount(null); }} options={(Object.keys(POS_PAYMENT_LABELS) as PosPaymentMethod[]).map((k) => ({ value: k, label: POS_PAYMENT_LABELS[k] }))} />
+      <Segmented block style={{ margin: '12px 0' }} value={method} onChange={(v) => { setMethod(v as PosPaymentMethod); setAmount(null); }} options={POS_CASHIER_PAYMENT_METHODS.map((k) => ({ value: k, label: POS_PAYMENT_LABELS[k] }))} />
       {method === 'CASH' && (
         <>
           <InputNumber style={{ width: '100%' }} min={0} prefix="Rp" placeholder="Uang diterima" value={amount} onChange={setAmount} />
@@ -313,6 +333,30 @@ function PayModal({ open, onClose, tab, session, onPaid }: { open: boolean; onCl
         </>
       )}
       {unsent > 0 && <Alert type="warning" showIcon style={{ marginTop: 12 }} message="Ada menu yang belum dikirim ke dapur. Kirim dulu sebelum dibayar." />}
+    </Modal>
+  );
+}
+
+function OnlineTabModal({ open, onClose, warehouseId, onCreated }: { open: boolean; onClose: () => void; warehouseId?: string; onCreated: (id: string) => void }) {
+  const [form] = Form.useForm<{ channel: OnlineChannel; externalRef: string; guestName?: string }>();
+  const create = useAction(
+    (v: { channel: OnlineChannel; externalRef: string; guestName?: string }) => post<PosTabDetail>('/pos/tabs', { warehouseId, channel: v.channel, externalRef: v.externalRef.trim(), guestName: v.guestName?.trim() || undefined }),
+    { invalidate: KEYS, onSuccess: (t) => { form.resetFields(); onCreated(t.id); } },
+  );
+  return (
+    <Modal title="Catat pesanan online" open={open} onCancel={onClose} onOk={() => form.submit()} confirmLoading={create.isPending} okText="Buat pesanan" destroyOnHidden>
+      <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Untuk pesanan dari GoFood, GrabFood, ShopeeFood, atau website. Pesanan yang dikirim otomatis lewat kunci API muncul sendiri di daftar ini." />
+      <Form form={form} layout="vertical" initialValues={{ channel: 'GOFOOD' }} onFinish={(v) => create.mutate(v)}>
+        <Form.Item name="channel" label="Kanal" rules={[{ required: true }]}>
+          <Select options={ONLINE_CHANNELS.map((c) => ({ value: c, label: ONLINE_CHANNEL_LABELS[c] }))} />
+        </Form.Item>
+        <Form.Item name="externalRef" label="Nomor pesanan di platform" rules={[{ required: true, message: 'Isi nomor pesanan' }]}>
+          <Input maxLength={60} placeholder="Mis. GF-123456" />
+        </Form.Item>
+        <Form.Item name="guestName" label="Nama pemesan (opsional)">
+          <Input maxLength={60} />
+        </Form.Item>
+      </Form>
     </Modal>
   );
 }

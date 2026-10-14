@@ -1,4 +1,4 @@
-import { POS_ORDER_TYPE_LABELS } from '@sansu/shared';
+import { ONLINE_CHANNEL_LABELS, POS_ORDER_TYPE_LABELS } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Card, Col, Empty, Row, Select, Space, Spin, Tag, Typography } from 'antd';
 import { useState } from 'react';
@@ -50,7 +50,7 @@ export default function KitchenPage() {
                 title={
                   <Space wrap>
                     <Typography.Text strong style={{ fontSize: 18 }}>{t.tableLabel ?? t.guestName ?? t.number}</Typography.Text>
-                    <Tag>{POS_ORDER_TYPE_LABELS[t.orderType]}</Tag>
+                    <Tag color={t.channel ? 'purple' : undefined}>{t.channel ? ONLINE_CHANNEL_LABELS[t.channel] : POS_ORDER_TYPE_LABELS[t.orderType]}</Tag>
                   </Space>
                 }
                 extra={<Tag color={t.waitingMinutes >= 20 ? 'red' : t.waitingMinutes >= 10 ? 'orange' : 'default'}>{t.waitingMinutes} mnt</Tag>}

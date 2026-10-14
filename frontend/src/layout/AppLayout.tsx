@@ -92,6 +92,7 @@ const MENU: Group[] = [
       { key: '/pos', label: 'Layar kasir' },
       { key: '/pos/tables', label: 'Meja & pesanan', models: ['FNB'] },
       { key: '/pos/kitchen', label: 'Layar dapur', models: ['FNB'] },
+      { key: '/pos/online', label: 'Pesanan online', models: ['FNB'], roles: ['ADMIN', 'FINANCE'] },
       { key: '/pos/sessions', label: 'Riwayat sesi kasir' },
     ],
   },

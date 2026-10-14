@@ -59,6 +59,7 @@ export class PosReturnsService {
       const locked = await tx.execute<{ id: string }>(sql`SELECT id FROM pos_orders WHERE id = ${orderId} AND tenant_id = ${user.tenantId} FOR UPDATE`);
       if (!locked.rows.length) throw new NotFoundException('Transaksi kasir tidak ditemukan');
       const [order] = await tx.select().from(posOrders).where(eq(posOrders.id, orderId));
+      if (order.channel) throw new BadRequestException('Pesanan online tidak diretur lewat kasir: uang dikembalikan oleh platform. Catat koreksinya dengan jurnal penyesuaian setelah platform mengonfirmasi.');
       const [session] = await tx.select().from(posSessions).where(eq(posSessions.id, order.sessionId));
       const lines = await tx.select().from(posOrderLines).where(eq(posOrderLines.orderId, orderId));
       const byId = new Map(lines.map((l) => [l.id, l]));

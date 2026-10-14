@@ -1311,6 +1311,11 @@ export const posOrders = pgTable(
     taxKind: text('tax_kind').$type<'VAT' | 'LOCAL'>().notNull().default('VAT'),
     /** Pesanan terbuka (meja) yang dibayar lewat transaksi ini */
     tabId: uuid('tab_id'),
+    /** Pesanan online: kanal (GOFOOD…), nomor pesanan di platform, komisi platform yang dicatat, dan pencairan yang melunasinya */
+    channel: text('channel'),
+    externalRef: text('external_ref'),
+    platformFee: money('platform_fee').notNull().default('0'),
+    settlementId: uuid('settlement_id'),
     tableLabel: text('table_label'),
     journalId: uuid('journal_id'),
     createdAt: createdAt(),
@@ -1357,6 +1362,9 @@ export const posTabs = pgTable(
       .references(() => warehouses.id),
     tableId: uuid('table_id').references(() => posTables.id),
     tableLabel: text('table_label'),
+    /** Pesanan online: kanal dan nomor pesanan di platform (unik per kanal; dipakai agar kiriman ganda tidak membuat pesanan ganda) */
+    channel: text('channel'),
+    externalRef: text('external_ref'),
     orderType: text('order_type').$type<'DINE_IN' | 'TAKEAWAY' | 'DELIVERY'>().notNull().default('DINE_IN'),
     guestName: text('guest_name'),
     status: text('status').$type<PosTabStatus>().notNull().default('OPEN'),
@@ -1372,6 +1380,7 @@ export const posTabs = pgTable(
   (t) => [
     uniqueIndex('pos_tabs_number_uq').on(t.tenantId, t.number),
     uniqueIndex('pos_tabs_open_table_uq').on(t.tableId).where(sql`status = 'OPEN' AND table_id IS NOT NULL`),
+    uniqueIndex('pos_tabs_external_uq').on(t.tenantId, t.channel, t.externalRef).where(sql`external_ref IS NOT NULL`),
     index('pos_tabs_status_idx').on(t.tenantId, t.status),
   ],
 );
@@ -1403,6 +1412,56 @@ export const posTabLines = pgTable(
     paidOrderId: uuid('paid_order_id').references(() => posOrders.id),
   },
   (t) => [index('pos_tab_lines_tab_idx').on(t.tabId), index('pos_tab_lines_kitchen_idx').on(t.status).where(sql`status IN ('NEW', 'PREPARING', 'READY')`)],
+);
+
+/** Pencairan dana dari platform pesan-antar atas sekumpulan pesanan online */
+export const posPlatformSettlements = pgTable(
+  'pos_platform_settlements',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    channel: text('channel').notNull(),
+    date: date('date').notNull(),
+    bankAccountId: uuid('bank_account_id')
+      .notNull()
+      .references(() => accounts.id),
+    orderCount: integer('order_count').notNull(),
+    /** Seharusnya diterima (total pesanan − komisi), dana yang benar-benar masuk, dan selisihnya */
+    expected: money('expected').notNull(),
+    received: money('received').notNull(),
+    difference: money('difference').notNull(),
+    notes: text('notes'),
+    journalId: uuid('journal_id'),
+    status: text('status').$type<'POSTED' | 'CANCELLED'>().notNull().default('POSTED'),
+    createdById: uuid('created_by_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('pos_platform_settlements_number_uq').on(t.tenantId, t.number)],
+);
+
+/** Kunci API untuk menerima pesanan online dari luar (aplikasi pihak ketiga / integrator); hanya hash yang disimpan */
+export const onlineApiKeys = pgTable(
+  'online_api_keys',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    name: text('name').notNull(),
+    keyHash: text('key_hash').notNull(),
+    keyPrefix: text('key_prefix').notNull(),
+    warehouseId: uuid('warehouse_id')
+      .notNull()
+      .references(() => warehouses.id),
+    createdById: uuid('created_by_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [uniqueIndex('online_api_keys_hash_uq').on(t.keyHash)],
 );
 
 export const posOrderLines = pgTable('pos_order_lines', {

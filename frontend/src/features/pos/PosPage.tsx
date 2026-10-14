@@ -8,7 +8,7 @@ import {
   PrinterOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
-import { BRAND, POS_ORDER_TYPE_LABELS, POS_ORDER_TYPES, POS_PAYMENT_LABELS, type PosOrderType, type PosPaymentMethod } from '@sansu/shared';
+import { BRAND, POS_CASHIER_PAYMENT_METHODS, POS_ORDER_TYPE_LABELS, POS_ORDER_TYPES, POS_PAYMENT_LABELS, type PosOrderType, type PosPaymentMethod } from '@sansu/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -145,7 +145,7 @@ function CloseSession({ session, open, onClose }: { session: PosSession; open: b
           <Descriptions column={1} size="small" bordered style={{ marginBottom: 16 }}>
             <Descriptions.Item label="Transaksi">{s.orderCount}</Descriptions.Item>
             <Descriptions.Item label={t('Total penjualan')}>{fmtMoney(s.totalSales)}</Descriptions.Item>
-            {(Object.keys(s.byMethod) as PosPaymentMethod[]).map((m) => (
+            {(Object.keys(s.byMethod) as PosPaymentMethod[]).filter((m) => m !== 'PLATFORM' || Number(s.byMethod[m]) > 0).map((m) => (
               <Descriptions.Item key={m} label={POS_PAYMENT_LABELS[m]}>
                 {fmtMoney(s.byMethod[m])}
               </Descriptions.Item>
@@ -483,7 +483,7 @@ function Register({ session }: { session: PosSession }) {
           size="large"
           value={method}
           onChange={(v) => setMethod(v as PosPaymentMethod)}
-          options={(Object.keys(POS_PAYMENT_LABELS) as PosPaymentMethod[]).map((m) => ({ value: m, label: POS_PAYMENT_LABELS[m] }))}
+          options={POS_CASHIER_PAYMENT_METHODS.map((m) => ({ value: m, label: POS_PAYMENT_LABELS[m] }))}
           style={{ marginBottom: 16 }}
         />
         {method === 'CASH' ? (

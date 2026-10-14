@@ -15,6 +15,7 @@ import type {
   LeaveStatus,
   LeaveType,
   PayrollStatus,
+  OnlineChannel,
   PosOrderType,
   PosPaymentMethod,
   PosSessionStatus,
@@ -839,6 +840,9 @@ export interface PosTabDetail {
   warehouseId: string;
   tableId: string | null;
   tableLabel: string | null;
+  /** Pesanan online: kanal dan nomor pesanan di platform */
+  channel: OnlineChannel | null;
+  externalRef: string | null;
   orderType: PosOrderType;
   guestName: string | null;
   notes: string | null;
@@ -858,6 +862,7 @@ export interface PosTabSummary {
   status: PosTabStatus;
   warehouseId: string;
   tableLabel: string | null;
+  channel?: OnlineChannel | null;
   orderType: PosOrderType;
   guestName: string | null;
   createdAt: string;
@@ -869,11 +874,44 @@ export interface KitchenTicket {
   tabId: string;
   number: string;
   tableLabel: string | null;
+  channel: OnlineChannel | null;
   orderType: PosOrderType;
   guestName: string | null;
   since: string;
   waitingMinutes: number;
   items: { id: string; product: string; sku: string; qty: string; notes: string | null; status: PosTabLineStatus; paid: boolean }[];
+}
+/** Pesanan online yang sudah dibayar platform tetapi dananya belum dicairkan */
+export interface UnsettledOnlineOrder {
+  id: string;
+  number: string;
+  date: string;
+  channel: OnlineChannel;
+  externalRef: string | null;
+  total: string;
+  platformFee: string;
+  net: string;
+}
+export interface PlatformSettlement {
+  id: string;
+  number: string;
+  channel: OnlineChannel;
+  date: string;
+  orderCount: number;
+  expected: string;
+  received: string;
+  difference: string;
+  notes: string | null;
+  status: 'POSTED' | 'CANCELLED';
+}
+export interface OnlineApiKeyRow {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  warehouseId: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
 }
 export interface KitchenBoard {
   tickets: KitchenTicket[];

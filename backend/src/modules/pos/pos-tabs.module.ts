@@ -10,7 +10,7 @@ import { BadRequestException, Body, Controller, ForbiddenException, Get, Injecta
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsNumberString, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
-import { POS_ORDER_TYPES, type PosOrderType } from '@sansu/shared';
+import { DEFAULT_PLATFORM_COMMISSIONS, ONLINE_CHANNEL_LABELS, ONLINE_CHANNELS, type OnlineChannel, POS_ORDER_TYPES, type PosOrderType } from '@sansu/shared';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { RequireApp } from '../../common/apps/app.guard';
 import { AuditService } from '../../common/audit/audit.service';
@@ -18,11 +18,12 @@ import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { allowedWarehouses, assertWarehouseAccess } from '../../common/auth/warehouse-access';
 import { SequenceService } from '../../common/sequence/sequence.service';
+import { SettingsService } from '../../common/settings.service';
 import { todayJakarta } from '../../common/utils/dates';
 import { D, Dec, qty4, ZERO } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { posSessions, posTabLines, posTables, posTabs, products, stockBalances, type PosTabLineStatus, warehouses } from '../../db/schema';
+import { accounts, posSessions, posTabLines, posTables, posTabs, products, stockBalances, type PosTabLineStatus, warehouses } from '../../db/schema';
 import { CreatePosOrderDto, PosModule, PosPaymentDto, PosService } from './pos.module';
 import { componentNeeds, recipesFor } from './recipe-issue';
 
@@ -54,6 +55,8 @@ export class CreateTabDto {
   @ApiPropertyOptional({ enum: POS_ORDER_TYPES }) @IsOptional() @IsIn(POS_ORDER_TYPES) orderType?: PosOrderType;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(60) guestName?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(200) notes?: string;
+  @ApiPropertyOptional({ enum: ONLINE_CHANNELS, description: 'Pesanan online dari platform; wajib disertai nomor pesanan platform' }) @IsOptional() @IsIn(ONLINE_CHANNELS) channel?: OnlineChannel;
+  @ApiPropertyOptional({ example: 'GF-123456', description: 'Nomor pesanan di platform (unik per kanal)' }) @IsOptional() @IsString() @MinLength(1) @MaxLength(60) externalRef?: string;
   @ApiPropertyOptional({ type: [TabLineInputDto] }) @IsOptional() @IsArray() @ArrayMaxSize(100) @ValidateNested({ each: true }) @Type(() => TabLineInputDto) lines?: TabLineInputDto[];
 }
 export class AddTabLinesDto {
@@ -79,7 +82,13 @@ export class PayTabDto {
   @ArrayMaxSize(100)
   @IsUUID('all', { each: true })
   lineIds?: string[];
-  @ApiProperty({ type: [PosPaymentDto] }) @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => PosPaymentDto) payments: PosPaymentDto[];
+  @ApiPropertyOptional({ type: [PosPaymentDto], description: 'Wajib untuk pesanan biasa; pesanan online otomatis dibayar platform' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => PosPaymentDto)
+  payments?: PosPaymentDto[];
 }
 export class KitchenStatusDto {
   @ApiProperty({ enum: ['PREPARING', 'READY', 'SERVED'] }) @IsIn(['PREPARING', 'READY', 'SERVED']) status: 'PREPARING' | 'READY' | 'SERVED';
@@ -101,6 +110,7 @@ export class PosTabsService {
     private readonly pos: PosService,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
+    private readonly settings: SettingsService,
   ) {}
 
   // ================= Meja =================
@@ -246,37 +256,104 @@ export class PosTabsService {
     await tx.insert(posTabLines).values(lines.map((l) => ({ tabId, productId: l.productId, qty: qty4(l.qty).toFixed(4), notes: l.notes?.trim() || null })));
   }
 
+  /** Fitur pesanan online butuh akun piutang platform dan komisi (ada pada jenis usaha F&B) */
+  private async assertOnlineReady(tx: Tx, tenantId: string) {
+    const r = await tx.select({ k: accounts.systemKey }).from(accounts).where(and(eq(accounts.tenantId, tenantId), inArray(accounts.systemKey, ['PLATFORM_RECEIVABLE', 'PLATFORM_FEE'])));
+    if (r.length < 2) throw new BadRequestException('Pesanan online tersedia untuk jenis usaha F&B (akun piutang dan komisi platform belum ada)');
+  }
+
+  private uniqueViolation(e: unknown): string | null {
+    const c = (e as { cause?: { code?: string; constraint?: string }; code?: string; constraint?: string });
+    const code = c.cause?.code ?? c.code;
+    return String(code) === '23505' ? (c.cause?.constraint ?? c.constraint ?? 'unique') : null;
+  }
+
+  /** Buat pesanan terbuka di dalam transaksi pemanggil; mengembalikan id */
+  private async createTx(tx: Tx, user: AuthUser, dto: CreateTabDto): Promise<string> {
+    const [wh] = await tx.select().from(warehouses).where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
+    if (!wh || !wh.isActive) throw new BadRequestException('Outlet tidak ditemukan atau nonaktif');
+    assertWarehouseAccess(user, wh.id);
+    const online = !!dto.channel;
+    if (online) {
+      await this.assertOnlineReady(tx, user.tenantId);
+      if (!dto.externalRef?.trim()) throw new BadRequestException('Isi nomor pesanan dari platform');
+      if (dto.tableId) throw new BadRequestException('Pesanan online tidak memakai meja');
+    } else if (dto.externalRef) {
+      throw new BadRequestException('Nomor pesanan platform hanya untuk pesanan online');
+    }
+    const orderType: PosOrderType = online ? 'DELIVERY' : (dto.orderType ?? 'DINE_IN');
+    let label = dto.tableLabel?.trim() || null;
+    if (online) label = `${ONLINE_CHANNEL_LABELS[dto.channel!]} ${dto.externalRef!.trim()}`;
+    if (dto.tableId) {
+      const [t] = await tx.select().from(posTables).where(and(eq(posTables.id, dto.tableId), eq(posTables.tenantId, user.tenantId)));
+      if (!t || !t.isActive || t.warehouseId !== wh.id) throw new BadRequestException('Meja tidak ditemukan di outlet ini');
+      label = t.name;
+    } else if (orderType === 'DINE_IN' && !label) {
+      throw new BadRequestException('Pilih meja atau isi nama pemesan untuk pesanan makan di tempat');
+    }
+    if (dto.lines?.length) await this.checkProducts(tx, user.tenantId, dto.lines);
+    const number = await this.seq.next(tx, user.tenantId, 'POS_TAB', todayJakarta());
+    let tab: typeof posTabs.$inferSelect;
+    try {
+      [tab] = await tx
+        .insert(posTabs)
+        .values({
+          tenantId: user.tenantId,
+          number,
+          warehouseId: wh.id,
+          tableId: dto.tableId ?? null,
+          tableLabel: label,
+          channel: dto.channel ?? null,
+          externalRef: online ? dto.externalRef!.trim() : null,
+          orderType,
+          guestName: dto.guestName?.trim() || null,
+          notes: dto.notes?.trim() || null,
+          createdById: user.sub,
+        })
+        .returning();
+    } catch (e) {
+      const u = this.uniqueViolation(e);
+      if (u === 'pos_tabs_external_uq') throw new BadRequestException('Pesanan online dengan nomor ini sudah tercatat');
+      if (u) throw new BadRequestException('Meja ini sudah punya pesanan terbuka. Tambah menu ke pesanan itu atau bayar dulu.');
+      throw e;
+    }
+    await this.insertLines(tx, tab.id, dto.lines ?? []);
+    await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PosTab', entityId: tab.id, data: { number, table: label, orderType, channel: dto.channel ?? null, externalRef: dto.externalRef ?? null } });
+    return tab.id;
+  }
+
   async create(user: AuthUser, dto: CreateTabDto) {
     assertWarehouseAccess(user, dto.warehouseId);
-    const id = await this.db.transaction(async (tx) => {
-      const [wh] = await tx.select().from(warehouses).where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
-      if (!wh || !wh.isActive) throw new BadRequestException('Outlet tidak ditemukan atau nonaktif');
-      const orderType: PosOrderType = dto.orderType ?? 'DINE_IN';
-      let label = dto.tableLabel?.trim() || null;
-      if (dto.tableId) {
-        const [t] = await tx.select().from(posTables).where(and(eq(posTables.id, dto.tableId), eq(posTables.tenantId, user.tenantId)));
-        if (!t || !t.isActive || t.warehouseId !== wh.id) throw new BadRequestException('Meja tidak ditemukan di outlet ini');
-        label = t.name;
-      } else if (orderType === 'DINE_IN' && !label) {
-        throw new BadRequestException('Pilih meja atau isi nama pemesan untuk pesanan makan di tempat');
-      }
-      if (dto.lines?.length) await this.checkProducts(tx, user.tenantId, dto.lines);
-      const number = await this.seq.next(tx, user.tenantId, 'POS_TAB', todayJakarta());
-      let tab: typeof posTabs.$inferSelect;
-      try {
-        [tab] = await tx
-          .insert(posTabs)
-          .values({ tenantId: user.tenantId, number, warehouseId: wh.id, tableId: dto.tableId ?? null, tableLabel: label, orderType, guestName: dto.guestName?.trim() || null, notes: dto.notes?.trim() || null, createdById: user.sub })
-          .returning();
-      } catch (e) {
-        if (String((e as { cause?: { code?: string } }).cause?.code ?? (e as { code?: string }).code) === '23505') throw new BadRequestException('Meja ini sudah punya pesanan terbuka. Tambah menu ke pesanan itu atau bayar dulu.');
-        throw e;
-      }
-      await this.insertLines(tx, tab.id, dto.lines ?? []);
-      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PosTab', entityId: tab.id, data: { number, table: label, orderType } });
-      return tab.id;
-    });
+    const id = await this.db.transaction((tx) => this.createTx(tx, user, dto));
     return this.get(user, id);
+  }
+
+  /**
+   * Pesanan online masuk dari luar (kunci API): idempoten per (kanal, nomor pesanan platform). Menu dicari lewat SKU; stok bahan dicek dan
+   * pesanan langsung dikirim ke dapur. Ditolak seluruhnya bila ada SKU tak dikenal atau stok bahan kurang, supaya integrator bisa menandai menu habis.
+   */
+  async receiveOnline(user: AuthUser, warehouseId: string, dto: { channel: OnlineChannel; externalRef: string; customerName?: string; notes?: string; items: { sku: string; qty: string; notes?: string }[] }) {
+    const existing = await this.db.query.posTabs.findFirst({ where: and(eq(posTabs.tenantId, user.tenantId), eq(posTabs.channel, dto.channel), eq(posTabs.externalRef, dto.externalRef.trim())) });
+    if (existing) return { duplicate: true, tab: await this.get(user, existing.id) };
+    const id = await this.db.transaction(async (tx) => {
+      const skus = [...new Set(dto.items.map((i) => i.sku.trim().toUpperCase()))];
+      const found = await tx.select({ id: products.id, sku: products.sku }).from(products).where(and(eq(products.tenantId, user.tenantId), inArray(products.sku, skus)));
+      const missing = skus.filter((k) => !found.some((f) => f.sku === k));
+      if (missing.length) throw new BadRequestException(`SKU tidak dikenal: ${missing.join(', ')}`);
+      const bySku = new Map(found.map((f) => [f.sku, f.id]));
+      const tabId = await this.createTx(tx, user, {
+        warehouseId,
+        channel: dto.channel,
+        externalRef: dto.externalRef,
+        guestName: dto.customerName,
+        notes: dto.notes,
+        lines: dto.items.map((i) => ({ productId: bySku.get(i.sku.trim().toUpperCase())!, qty: i.qty, notes: i.notes })),
+      });
+      const tab = (await tx.select().from(posTabs).where(eq(posTabs.id, tabId)))[0];
+      await this.sendTx(tx, user, tab);
+      return tabId;
+    });
+    return { duplicate: false, tab: await this.get(user, id) };
   }
 
   async addLines(user: AuthUser, id: string, dto: AddTabLinesDto) {
@@ -322,25 +399,29 @@ export class PosTabsService {
     }
   }
 
-  /** Kirim pesanan baru ke dapur: menu masuk antrean, barang biasa (mis. air kemasan) langsung dianggap disajikan */
+  /** Kirim pesanan baru ke dapur (di dalam transaksi): menu masuk antrean, barang biasa (mis. air kemasan) langsung dianggap disajikan */
+  private async sendTx(tx: Tx, user: AuthUser, tab: typeof posTabs.$inferSelect) {
+    const drafts = await tx.select().from(posTabLines).where(and(eq(posTabLines.tabId, tab.id), eq(posTabLines.status, 'DRAFT')));
+    if (!drafts.length) throw new BadRequestException('Tidak ada pesanan baru untuk dikirim');
+    await this.assertAvailable(tx, user.tenantId, tab.warehouseId, drafts.map((d) => ({ productId: d.productId, qty: D(d.qty) })));
+    const menuIds = new Set(
+      (await tx.select({ id: products.id }).from(products).where(and(inArray(products.id, [...new Set(drafts.map((d) => d.productId))]), eq(products.madeToOrder, true)))).map((p) => p.id),
+    );
+    const now = new Date();
+    for (const d of drafts) {
+      const kitchen = menuIds.has(d.productId);
+      await tx
+        .update(posTabLines)
+        .set(kitchen ? { status: 'NEW', sentAt: now } : { status: 'SERVED', sentAt: now, servedAt: now })
+        .where(eq(posTabLines.id, d.id));
+    }
+    await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'SEND', entity: 'PosTab', entityId: tab.id, data: { number: tab.number, lines: drafts.length } });
+  }
+
   async send(user: AuthUser, id: string) {
     await this.db.transaction(async (tx) => {
       const tab = await this.lockTab(tx, user, id);
-      const drafts = await tx.select().from(posTabLines).where(and(eq(posTabLines.tabId, id), eq(posTabLines.status, 'DRAFT')));
-      if (!drafts.length) throw new BadRequestException('Tidak ada pesanan baru untuk dikirim');
-      await this.assertAvailable(tx, user.tenantId, tab.warehouseId, drafts.map((d) => ({ productId: d.productId, qty: D(d.qty) })));
-      const menuIds = new Set(
-        (await tx.select({ id: products.id }).from(products).where(and(inArray(products.id, [...new Set(drafts.map((d) => d.productId))]), eq(products.madeToOrder, true)))).map((p) => p.id),
-      );
-      const now = new Date();
-      for (const d of drafts) {
-        const kitchen = menuIds.has(d.productId);
-        await tx
-          .update(posTabLines)
-          .set(kitchen ? { status: 'NEW', sentAt: now } : { status: 'SERVED', sentAt: now, servedAt: now })
-          .where(eq(posTabLines.id, d.id));
-      }
-      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'SEND', entity: 'PosTab', entityId: id, data: { number: tab.number, lines: drafts.length } });
+      await this.sendTx(tx, user, tab);
     });
     return this.get(user, id);
   }
@@ -443,6 +524,9 @@ export class PosTabsService {
         if (picks.length !== want.size) throw new BadRequestException('Ada baris yang tidak ada, sudah dibayar, atau sudah dibatalkan');
       }
       if (!picks.length) throw new BadRequestException('Tidak ada pesanan yang perlu dibayar');
+      // pesanan online dibayar platform sekaligus (komisi dihitung dari seluruh pesanan), bukan per baris
+      if (tab.channel && picks.length !== payable.length) throw new BadRequestException('Pesanan online dibayar sekaligus; koreksi baris lewat pembatalan baris sebelum dibayar');
+      if (!tab.channel && !dto.payments?.length) throw new BadRequestException('Pembayaran wajib diisi');
       if (picks.some((l) => l.status === 'DRAFT')) throw new BadRequestException('Ada menu yang belum dikirim ke dapur. Kirim dulu sebelum dibayar.');
       const order = await this.pos.createOrderTx(
         tx,
@@ -453,9 +537,9 @@ export class PosTabsService {
           orderType: tab.orderType,
           tableLabel: tab.tableLabel ?? undefined,
           lines: picks.map((l) => ({ productId: l.productId, qty: D(l.qty).toString() })),
-          payments: dto.payments,
+          payments: dto.payments ?? [],
         } as CreatePosOrderDto,
-        { tabId: id },
+        { tabId: id, online: tab.channel ? { channel: tab.channel, externalRef: tab.externalRef, feePct: await this.commissionPct(tx, user.tenantId, tab.channel as OnlineChannel) } : undefined },
       );
       await tx.update(posTabLines).set({ paidOrderId: order }).where(inArray(posTabLines.id, picks.map((l) => l.id)));
       await this.closeIfDone(tx, id);
@@ -463,6 +547,21 @@ export class PosTabsService {
       return order;
     });
     return this.pos.getOrder(user.tenantId, orderId);
+  }
+
+  /** Komisi platform (% dari harga menu sebelum pajak) untuk satu kanal, dari pengaturan perusahaan */
+  async commissionPct(db: Db | Tx, tenantId: string, channel: OnlineChannel): Promise<number> {
+    const s = await this.settings.section(db, tenantId, 'platforms', { commissions: DEFAULT_PLATFORM_COMMISSIONS as Record<string, number> });
+    const v = Number(s.commissions?.[channel]);
+    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : DEFAULT_PLATFORM_COMMISSIONS[channel];
+  }
+
+  /** Status pesanan online (untuk integrator): per baris dan apakah sudah dibayar platform */
+  async onlineStatus(user: AuthUser, channel: OnlineChannel, externalRef: string) {
+    const tab = await this.db.query.posTabs.findFirst({ where: and(eq(posTabs.tenantId, user.tenantId), eq(posTabs.channel, channel), eq(posTabs.externalRef, externalRef.trim())) });
+    if (!tab) throw new NotFoundException('Pesanan tidak ditemukan');
+    const t = await this.get(user, tab.id);
+    return { id: t.id, number: t.number, status: t.status, lines: t.lines.map((l) => ({ sku: l.product.sku, qty: l.qty, status: l.status, paid: !!l.paidOrderId })) };
   }
 
   // ================= Dapur =================
@@ -494,10 +593,10 @@ export class PosTabsService {
     if (q.warehouseId) assertWarehouseAccess(user, q.warehouseId);
     const allowed = allowedWarehouses(user);
     const rows = await this.db.execute<{
-      line_id: string; tab_id: string; number: string; table_label: string | null; order_type: string; guest_name: string | null; warehouse_id: string;
+      line_id: string; tab_id: string; number: string; table_label: string | null; order_type: string; guest_name: string | null; warehouse_id: string; channel: string | null;
       product: string; sku: string; qty: string; notes: string | null; status: PosTabLineStatus; sent_at: string; paid: boolean;
     }>(sql`
-      SELECT l.id AS line_id, t.id AS tab_id, t.number, t.table_label, t.order_type, t.guest_name, t.warehouse_id,
+      SELECT l.id AS line_id, t.id AS tab_id, t.number, t.table_label, t.order_type, t.guest_name, t.warehouse_id, t.channel,
              p.name AS product, p.sku, l.qty, l.notes, l.status, l.sent_at::text AS sent_at, (l.paid_order_id IS NOT NULL) AS paid
       FROM pos_tab_lines l
       JOIN pos_tabs t ON t.id = l.tab_id
@@ -506,9 +605,9 @@ export class PosTabsService {
         ${q.warehouseId ? sql`AND t.warehouse_id = ${q.warehouseId}` : allowed ? sql`AND t.warehouse_id = ANY(${allowed}::uuid[])` : sql``}
       ORDER BY l.sent_at, l.id`);
     const now = Date.now();
-    const tickets = new Map<string, { tabId: string; number: string; tableLabel: string | null; orderType: string; guestName: string | null; since: string; waitingMinutes: number; items: unknown[] }>();
+    const tickets = new Map<string, { tabId: string; number: string; tableLabel: string | null; orderType: string; channel: string | null; guestName: string | null; since: string; waitingMinutes: number; items: unknown[] }>();
     for (const r of rows.rows) {
-      const t = tickets.get(r.tab_id) ?? { tabId: r.tab_id, number: r.number, tableLabel: r.table_label, orderType: r.order_type, guestName: r.guest_name, since: r.sent_at, waitingMinutes: Math.max(0, Math.round((now - Date.parse(r.sent_at)) / 60000)), items: [] };
+      const t = tickets.get(r.tab_id) ?? { tabId: r.tab_id, number: r.number, tableLabel: r.table_label, orderType: r.order_type, channel: r.channel, guestName: r.guest_name, since: r.sent_at, waitingMinutes: Math.max(0, Math.round((now - Date.parse(r.sent_at)) / 60000)), items: [] };
       t.items.push({ id: r.line_id, product: r.product, sku: r.sku, qty: r.qty, notes: r.notes, status: r.status, paid: r.paid });
       tickets.set(r.tab_id, t);
     }
@@ -587,5 +686,5 @@ export class PosTabsController {
   }
 }
 
-@Module({ imports: [PosModule], controllers: [PosTabsController], providers: [PosTabsService] })
+@Module({ imports: [PosModule], controllers: [PosTabsController], providers: [PosTabsService], exports: [PosTabsService] })
 export class PosTabsModule {}
