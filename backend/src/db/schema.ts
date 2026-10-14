@@ -213,6 +213,8 @@ export const products = pgTable(
     inventoryKind: text('inventory_kind').$type<'GOODS' | 'SEMI'>().notNull().default('GOODS'),
     /** Menu: dibuat saat dipesan. Kasir memotong bahan sesuai resep aktif (bukan stok produk ini) dan HPP dihitung dari bahan */
     madeToOrder: boolean('made_to_order').notNull().default(false),
+    /** Umur simpan (hari): hasil produksi barang ini otomatis mendapat lot dengan tanggal kedaluwarsa = tanggal selesai + umur simpan */
+    shelfLifeDays: integer('shelf_life_days'),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: createdAt(),
   },

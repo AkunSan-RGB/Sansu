@@ -3,11 +3,14 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
+  IsInt,
   IsNumberString,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
@@ -46,6 +49,12 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   madeToOrder?: boolean;
+  @ApiPropertyOptional({ example: 3, description: 'Umur simpan (hari). Hasil produksi barang ini otomatis dipantau kedaluwarsanya; kosong = tidak dipantau' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  shelfLifeDays?: number | null;
 }
 
 export class UpdateProductDto extends PartialType(CreateProductDto) {

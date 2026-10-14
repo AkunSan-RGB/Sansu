@@ -372,6 +372,13 @@
       "when": 1793721086484,
       "tag": "0052_pajak_daerah",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1793807486484,
+      "tag": "0053_umur_simpan",
+      "breakpoints": true
     }
   ]
 }

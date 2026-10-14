@@ -208,6 +208,8 @@ export interface Product {
   inventoryKind?: 'GOODS' | 'SEMI';
   /** Menu dibuat saat dipesan: kasir memotong bahan sesuai resep (stok = porsi yang bisa dibuat) */
   madeToOrder?: boolean;
+  /** Umur simpan (hari) untuk hasil produksi; kosong = kedaluwarsa tidak dipantau */
+  shelfLifeDays?: number | null;
   /** Peran dalam produksi (otomatis dari resep): bahan baku, setengah jadi, produk jadi, atau barang dagang */
   role?: 'RAW' | 'SEMI' | 'FINISHED' | 'TRADING';
   isActive: boolean;
