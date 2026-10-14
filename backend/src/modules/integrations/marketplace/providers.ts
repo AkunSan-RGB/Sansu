@@ -468,7 +468,8 @@ export class SimulationProvider implements MarketplaceProvider {
   async orders(_t: Tokens, _shopId: string, _from: Date, to: Date, ctx: ProviderContext) {
     const prods = ((await ctx.products?.()) ?? []).filter((p) => Number(p.price) > 0);
     if (!prods.length) return [];
-    const seed = Math.floor(to.getTime() / 60_000);
+    // satu jam = satu rangkaian pesanan: dua sinkron berurutan tidak menghasilkan pesanan berbeda hanya karena menit berganti
+    const seed = Math.floor(to.getTime() / 3_600_000);
     let x = seed;
     const rnd = () => ((x = (x * 1103515245 + 12345) % 2147483648) / 2147483648);
     const n = 1 + Math.floor(rnd() * 3);
