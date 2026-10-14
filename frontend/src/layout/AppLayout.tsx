@@ -31,7 +31,7 @@ type Group = {
   icon: React.ReactNode;
   children?: Sub[];
   to?: string;
-  /** Judul bagian di sidebar (Penjualan, Pembelian, Persediaan & produksi, Keuangan, SDM, Administrasi) */
+  /** Judul bagian di sidebar (Penjualan, Pembelian, Persediaan, Produksi, Keuangan, SDM, Administrasi) */
   part: string;
 };
 const PART_STYLE: React.CSSProperties = {
@@ -112,7 +112,7 @@ const MENU: Group[] = [
     ],
   },
   {
-    part: 'Persediaan & produksi',
+    part: 'Persediaan',
     key: 'inventory',
     app: 'inventory',
     label: t('Inventori'),
@@ -135,7 +135,7 @@ const MENU: Group[] = [
   },
 
   {
-    part: 'Persediaan & produksi',
+    part: 'Produksi',
     key: 'production',
     app: 'inventory',
     models: ['PRODUKSI', 'MANUFAKTUR'],
