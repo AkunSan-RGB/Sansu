@@ -385,6 +385,68 @@ export const HELP_ARTICLES: HelpArticle[] = [
     keywords: 'pkp non-pkp pengusaha kena pajak ppn termasuk ppn harga rak kasir dpp ritel umkm penawaran sales order inklusif',
     link: { label: 'Buka Pengaturan perusahaan', to: '/settings/company' },
   },
+  // ---------- Fitur lanjutan ----------
+  {
+    id: 'cabang',
+    category: 'Akuntansi & Pajak',
+    title: 'Usaha dengan cabang: laporan Pusat, Cabang, dan Konsolidasi',
+    summary: 'Satu perusahaan, satu pembukuan, banyak cabang. Hanya perlu dinyalakan bila usaha Anda punya cabang.',
+    paths: ['/settings/branches'],
+    steps: [
+      'Pengaturan › Perusahaan › Jenis usaha: nyalakan "Perusahaan ini punya cabang usaha". Menu Cabang & toko lalu muncul.',
+      'Pengaturan › Cabang & toko: buat cabang, lalu pasangkan tiap toko/gudang dan rekening kas/bank ke cabangnya.',
+      'Isi cabang pada karyawan (gaji) dan aset tetap (penyusutan). Transaksi dari toko, kasir, dan kas otomatis berlabel cabang.',
+      'Laporan Keuangan: pilih Konsolidasi (gabungan), Pusat, atau satu Cabang. Buku besar, neraca saldo, dan beranda juga bisa difilter per cabang.',
+      'Pindah barang antar cabang atau pusat membayar biaya cabang dicatat otomatis lewat Rekening Antar Cabang; nol saat digabung.',
+    ],
+    tips: [
+      'Transaksi sebelum cabang dipakai tetap tercatat di "Pusat" (jurnal tidak bisa diubah).',
+      'Pengguna bisa dibatasi ke cabang tertentu di Pengaturan › Pengguna › Akses cabang.',
+    ],
+    keywords: 'cabang konsolidasi pusat toko antar cabang laporan per cabang',
+  },
+  {
+    id: 'anggaran',
+    category: 'Akuntansi & Pajak',
+    title: 'Anggaran vs realisasi',
+    summary: 'Susun anggaran tahunan, bandingkan dengan realisasi, dan terima peringatan saat melewati batas.',
+    paths: ['/budget'],
+    steps: [
+      'Laporan Keuangan › Buat anggaran (menu Anggaran vs realisasi muncul setelah anggaran dibuat).',
+      'Isi anggaran per akun per bulan, atau klik "Isi dari realisasi tahun lalu" lalu atur kenaikannya.',
+      'Pemilik/Admin menyetujui anggaran; setelah disetujui anggaran terkunci. Membuka kunci wajib beralasan dan tercatat.',
+      'Pantau selisih tiap bulan. Pengaturan › Perusahaan › Persetujuan menentukan apakah belanja yang melewati anggaran hanya diperingatkan, perlu persetujuan, atau diblokir.',
+    ],
+    keywords: 'anggaran budget realisasi selisih batas belanja',
+  },
+  {
+    id: 'bank',
+    category: 'Akuntansi & Pajak',
+    title: 'Rekonsiliasi bank dan aturan otomatis',
+    summary: 'Impor rekening koran, cocokkan dengan buku, dan catat biaya bank rutin otomatis.',
+    paths: ['/bank'],
+    steps: [
+      'Kas & Bank › Bank › impor file mutasi (CSV/Excel) rekening koran.',
+      'Cocokkan mutasi dengan transaksi di buku, atau buat jurnal dari mutasi yang belum tercatat.',
+      'Aturan otomatis (mis. "BIAYA ADM" menjadi Beban Administrasi Bank) hanya dibuat Admin/Pemilik dan berlaku sampai batas nilai tertentu.',
+      'Akhir bulan: selisih harus nol, lalu rekonsiliasi disahkan oleh orang lain selain pengimpor.',
+    ],
+    tips: ['Mutasi uang keluar yang belum ada di buku muncul sebagai temuan kontrol; jangan diabaikan tanpa alasan.'],
+    keywords: 'bank rekonsiliasi mutasi rekening koran impor aturan biaya admin',
+  },
+  {
+    id: 'kas-kecil',
+    category: 'Akuntansi & Pajak',
+    title: 'Kas kecil (sistem dana tetap)',
+    summary: 'Dana kas kecil dengan plafon; pengeluaran dicatat per bukti dan diisi kembali sesuai bukti.',
+    paths: ['/cash'],
+    steps: [
+      'Pengaturan › Perusahaan: tetapkan plafon, batas per bukti, juru kas, dan sumber pengisian.',
+      'Kas & Bank › Kas kecil: catat tiap pengeluaran beserta bukti.',
+      'Saat dana menipis, ajukan pengisian kembali sebesar total bukti. Saldo kas kecil kembali ke plafon.',
+    ],
+    keywords: 'kas kecil petty cash dana tetap imprest bukti pengisian',
+  },
   // ---------- Pengaturan & Keamanan ----------
   {
     id: 'pengguna',

@@ -1,5 +1,5 @@
 import { BRAND } from '@sansu/shared';
-import { Alert, Button, Form, Grid, Input, Tabs } from 'antd';
+import { Alert, Button, Checkbox, Form, Grid, Input, Tabs } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { CSSProperties, useEffect, useRef, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
@@ -209,6 +209,15 @@ export default function LoginPage() {
       </Form.Item>
       <Form.Item name="password" label="Kata sandi (min. 8, huruf & angka)" rules={PASSWORD_RULES}>
         <Input.Password autoComplete="new-password" />
+      </Form.Item>
+      <Form.Item
+        name="acceptTerms"
+        valuePropName="checked"
+        rules={[{ validator: (_, v) => (v ? Promise.resolve() : Promise.reject(new Error('Centang persetujuan untuk melanjutkan'))) }]}
+      >
+        <Checkbox>
+          Saya menyetujui <Link to="/syarat-layanan" target="_blank">Syarat Layanan</Link> dan <Link to="/kebijakan-privasi" target="_blank">Kebijakan Privasi</Link>
+        </Checkbox>
       </Form.Item>
       <Button className="lg-cta" type="primary" htmlType="submit" block loading={busy}>
         Buat akun perusahaan

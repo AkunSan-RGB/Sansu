@@ -92,11 +92,14 @@ import SalesOrderDetailPage from './features/sales/SalesOrderDetailPage';
 import SalesOrderFormPage from './features/sales/SalesOrderFormPage';
 import SalesOrdersPage from './features/sales/SalesOrdersPage';
 import AppLayout from './layout/AppLayout';
+import { PrivacyPage, TermsPage } from './auth/LegalPages';
 
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/syarat-layanan" element={<TermsPage />} />
+      <Route path="/kebijakan-privasi" element={<PrivacyPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
