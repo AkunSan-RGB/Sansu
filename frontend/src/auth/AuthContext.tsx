@@ -12,6 +12,8 @@ interface AuthState {
   login: (email: string, password: string) => Promise<{ challenge: string } | void>;
   loginTwoFactor: (challenge: string, code: string) => Promise<void>;
   register: (data: { companyName: string; name: string; email: string; password: string; businessModel?: BusinessModel; acceptTerms?: boolean }) => Promise<{ verifyEmail: string } | void>;
+  /** Lihat Demo: buat PT DEMO berisi transaksi contoh sesuai jenis usaha lalu masuk */
+  startDemo: (model: BusinessModel) => Promise<void>;
   logout: () => void;
 }
 
@@ -59,6 +61,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // email wajib diverifikasi dulu: belum ada sesi, tampilkan petunjuk cek email
       if (res.verificationRequired) return { verifyEmail: res.email ?? data.email };
       await afterAuth({ accessToken: res.accessToken! });
+    },
+    startDemo: async (model) => {
+      const res = await post<{ accessToken: string }>('/demo/start', { businessModel: model });
+      await afterAuth({ accessToken: res.accessToken });
     },
     logout: () => {
       tokenStore.clear();

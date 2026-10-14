@@ -10,8 +10,9 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { randomUUID } from 'node:crypto';
 import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
-import { taxFeatures } from '@sansu/shared';
+import { type BusinessModel, taxFeatures } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { Db } from '../../db/db';
@@ -85,6 +86,29 @@ export class AuthService {
     // Email belum terbukti milik pendaftar → belum boleh masuk; login baru dibuka setelah klik tautan di email
     if (verificationRequired(this.mail)) return { verificationRequired: true as const, email };
     return this.issue(user);
+  }
+
+  /**
+   * Akun "Lihat Demo": perusahaan baru bernama PT DEMO untuk satu pengunjung (terpisah dari perusahaan lain).
+   * Email palsu (tidak dikirimi apa pun) dan langsung terverifikasi; ditandai settings.demo agar bisa dibersihkan.
+   */
+  async createDemoAccount(model: BusinessModel) {
+    const email = `demo-${randomUUID().slice(0, 12)}@demo.sansu.invalid`;
+    const passwordHash = await bcrypt.hash(randomUUID(), 8);
+    const user = await this.db.transaction(async (tx) => {
+      const [tenant] = await tx
+        .insert(tenants)
+        .values({ name: 'PT DEMO', settings: { demo: { model, createdAt: new Date().toISOString() } } })
+        .returning();
+      await this.setup.provision(tx, tenant.id, model);
+      await this.subs.startTrial(tx, tenant.id);
+      const [u] = await tx
+        .insert(users)
+        .values({ tenantId: tenant.id, email, name: 'Pengunjung Demo', passwordHash, role: 'OWNER', emailVerifiedAt: new Date() })
+        .returning();
+      return u;
+    });
+    return { user, session: await this.issue(user) };
   }
 
   async login(dto: LoginDto) {
@@ -399,6 +423,7 @@ export class AuthService {
       apps: [...(await this.apps.enabled(u.tenantId))],
       businessModel: await this.settings.businessModel(this.db, u.tenantId),
       multiBranch: await this.multiBranch(u.tenantId),
+      demo: await this.demoInfo(u.tenantId),
       hasBudget: !!(await this.db.select({ id: budgets.id }).from(budgets).where(eq(budgets.tenantId, u.tenantId)).limit(1))[0],
       framework: (await this.settings.reporting(this.db, u.tenantId)).framework,
       taxProfile: await this.settings.taxProfile(this.db, u.tenantId),
@@ -463,6 +488,13 @@ export class AuthService {
       })
       .returning({ id: users.id, name: users.name, email: users.email, role: users.role });
     return user;
+  }
+
+  /** Perusahaan "Lihat Demo": kapan dihapus otomatis (null = perusahaan biasa) */
+  private async demoInfo(tenantId: string) {
+    const d = await this.settings.section(this.db, tenantId, 'demo', {} as { createdAt?: string });
+    if (!d.createdAt) return null;
+    return { expiresAt: new Date(Date.parse(d.createdAt) + 3 * 86_400_000).toISOString() };
   }
 
   /** Fitur cabang hanya untuk perusahaan yang punya cabang usaha: dinyalakan di Pengaturan, atau otomatis bila sudah ada cabang */

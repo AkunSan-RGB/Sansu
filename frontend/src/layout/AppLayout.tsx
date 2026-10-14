@@ -2,7 +2,7 @@ import { rememberReturnTo } from '@/auth/returnTo';
 import { AppstoreOutlined, AuditOutlined, CrownOutlined, MenuOutlined } from '@ant-design/icons';
 import { localize, type AppKey, type BusinessModel } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Badge, Button, Drawer, Grid, Layout, Menu, type MenuProps, Spin, Typography } from 'antd';
+import { Alert, Badge, Button, Drawer, Grid, Layout, Menu, type MenuProps, Spin, Typography } from 'antd';
 import { useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { BRAND } from '@sansu/shared';
@@ -267,7 +267,7 @@ const MENU: Group[] = [
 ];
 
 export default function AppLayout() {
-  const { me, loading } = useAuth();
+  const { me, loading, logout } = useAuth();
   const navigate = useNavigate();
   const { pathname, search } = useLocation();
   const { can, isAdmin } = useApps();
@@ -443,6 +443,20 @@ export default function AppLayout() {
           </div>
         </Layout.Header>
         <Layout.Content style={{ margin: screens.md ? 24 : 12, minWidth: 0 }}>
+          {me.demo && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="Mode demo — PT DEMO berisi data contoh"
+              description={`Jangan memasukkan data asli. Perusahaan demo ini dihapus otomatis pada ${new Date(me.demo.expiresAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}.`}
+              action={
+                <Button size="small" type="primary" onClick={() => logout()}>
+                  Keluar & daftar sendiri
+                </Button>
+              }
+            />
+          )}
           <ServerStatus />
           <AccountStatusBanner />
           <Outlet />
