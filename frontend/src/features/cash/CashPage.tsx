@@ -508,6 +508,19 @@ export default function CashPage() {
         <Typography.Paragraph type="secondary">
           Transaksi tidak dihapus: SANSU membuat jurnal pembalik dan mencatat alasan serta pelakunya di jejak audit. Tidak bisa dibatalkan bila sudah dicocokkan dengan mutasi bank atau sudah menjadi aset tetap.
         </Typography.Paragraph>
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="Ini hanya mengoreksi pembukuan, bukan mengembalikan uang"
+          description={
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              <li>Salah catat dan uang belum keluar: batalkan, lalu catat ulang dengan benar.</li>
+              <li>Uang sudah benar-benar keluar atau salah tujuan: jangan dibatalkan. Minta uang dikembalikan, lalu catat sebagai Uang masuk.</li>
+              <li>Membatalkan transaksi yang uangnya sudah keluar membuat saldo di SANSU lebih besar dari saldo bank asli.</li>
+            </ul>
+          }
+        />
         <Form form={voidForm} layout="vertical" onFinish={(v) => voiding && doVoid.mutate({ id: voiding.id, reason: v.reason })}>
           <Form.Item name="reason" label="Alasan pembatalan" rules={[{ required: true, min: 5, message: 'Isi alasan (min. 5 karakter)' }]}>
             <Input.TextArea rows={3} maxLength={300} />

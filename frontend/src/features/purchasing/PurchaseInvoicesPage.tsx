@@ -1,7 +1,7 @@
 import { isForeignCurrency } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { PlusOutlined } from '@ant-design/icons';
-import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
 import { useState } from 'react';
 import { useAuth } from '@/auth/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -236,6 +236,13 @@ export default function PurchaseInvoicesPage() {
         <Typography.Paragraph type="secondary">
           Pembayaran tidak dihapus: SANSU membuat jurnal pembalik, hutang faktur terbuka lagi, dan alasan serta pelakunya tercatat di jejak audit. Tidak bisa dibatalkan bila sudah dicocokkan dengan mutasi bank.
         </Typography.Paragraph>
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="Ini hanya mengoreksi pembukuan, bukan menarik uang kembali"
+          description="Salah catat dan uang belum keluar: batalkan, lalu bayar ulang dengan benar. Kalau uang sudah benar-benar terkirim ke supplier, jangan dibatalkan: minta pengembalian dari supplier, lalu catat sebagai Uang masuk di Kas & Bank. Membatalkan pembayaran yang uangnya sudah keluar membuat saldo di SANSU lebih besar dari saldo bank asli."
+        />
         <Form form={voidForm} layout="vertical" onFinish={(v) => voiding && doVoid.mutate({ id: voiding.id, reason: v.reason })}>
           <Form.Item name="reason" label="Alasan pembatalan" rules={[{ required: true, min: 5, message: 'Isi alasan (min. 5 karakter)' }]}>
             <Input.TextArea rows={3} maxLength={300} />
