@@ -307,7 +307,7 @@ export class MarketplaceScheduler implements OnModuleInit, OnModuleDestroy {
 
 @ApiTags('Integrasi')
 @ApiBearerAuth()
-@Roles('ADMIN', 'FINANCE')
+@Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
 @Controller('integrations/marketplace')
 export class MarketplaceSyncController {
   constructor(private readonly svc: MarketplaceSyncService) {}
@@ -321,19 +321,23 @@ export class MarketplaceSyncController {
     return this.svc.list(u.tenantId);
   }
   @Post('connections')
+  @Roles('ADMIN', 'FINANCE')
   start(@CurrentUser() u: AuthUser, @Body() dto: StartConnectionDto) {
     return this.svc.start(u, dto);
   }
   @Patch('connections/:id')
+  @Roles('ADMIN', 'FINANCE')
   update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateConnectionDto) {
     return this.svc.update(u, id, dto);
   }
   @Delete('connections/:id')
+  @Roles('ADMIN', 'FINANCE')
   remove(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.remove(u, id);
   }
   @HttpCode(200)
   @Post('connections/:id/sync')
+  @Roles('ADMIN', 'FINANCE')
   sync(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.syncNow(u, id);
   }

@@ -133,7 +133,7 @@ export class PurchaseControlsController {
   constructor(private readonly svc: PurchaseControlsService) {}
 
   @Get()
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   controls(@CurrentUser() u: AuthUser) {
     return this.svc.controls(u.tenantId);
   }

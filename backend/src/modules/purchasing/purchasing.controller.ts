@@ -35,13 +35,13 @@ export class SuppliersController {
   constructor(private readonly svc: SuppliersService) {}
 
   @Get()
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
   list(@CurrentUser() u: AuthUser, @Query() q: ListQueryDto) {
     return this.svc.list(u.tenantId, q.q);
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
@@ -72,20 +72,20 @@ export class PurchaseOrdersController {
   ) {}
 
   @Get()
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
   list(@CurrentUser() u: AuthUser, @Query() q: PurchaseOrderQueryDto) {
     return this.svc.list(u.tenantId, q);
   }
 
   /** Riwayat harga beli aktual per produk (untuk menilai penawaran supplier) */
   @Get('price-history')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   priceHistory(@CurrentUser() u: AuthUser, @Query() q: PriceHistoryQueryDto) {
     return this.svc.priceHistory(u.tenantId, q.productIds.split(','));
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
@@ -141,13 +141,13 @@ export class GoodsReceiptsController {
   constructor(private readonly svc: GoodsReceiptsService) {}
 
   @Get()
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
   list(@CurrentUser() u: AuthUser, @Query('from') from?: string, @Query('to') to?: string, @Query('purchaseOrderId') purchaseOrderId?: string) {
     return this.svc.list(u.tenantId, { from, to, purchaseOrderId });
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
@@ -167,26 +167,26 @@ export class PurchaseInvoicesController {
   constructor(private readonly svc: PurchaseInvoicesService) {}
 
   @Get()
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
   list(@CurrentUser() u: AuthUser, @Query() q: PurchaseInvoiceQueryDto) {
     return this.svc.list(u.tenantId, q);
   }
 
   @Get('reports/ap-aging')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   apAging(@CurrentUser() u: AuthUser) {
     return this.svc.apAging(u.tenantId);
   }
 
   /** Laporan selisih harga faktur vs PO + penanda untuk ditinjau (anti-fraud) */
   @Get('reports/price-variances')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   priceVariances(@CurrentUser() u: AuthUser, @Query() q: PriceVarianceQueryDto) {
     return this.svc.priceVarianceReport(u.tenantId, q.from, q.to);
   }
 
   @Get('payments')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   payments(@CurrentUser() u: AuthUser) {
     return this.svc.listPayments(u.tenantId);
   }
@@ -211,7 +211,7 @@ export class PurchaseInvoicesController {
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
@@ -231,20 +231,20 @@ export class PurchaseRequestsController {
   constructor(private readonly svc: PurchaseRequestsService) {}
 
   @Get()
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
   list(@CurrentUser() u: AuthUser, @Query() q: PurchaseRequestQueryDto) {
     return this.svc.list(u.tenantId, q.status);
   }
 
   /** Usulan dari stok minimum (produk yang perlu dipesan) */
   @Get('suggestions')
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
   suggestions(@CurrentUser() u: AuthUser, @Query() q: SuggestionQueryDto) {
     return this.svc.suggestions(u.tenantId, q.warehouseId);
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }

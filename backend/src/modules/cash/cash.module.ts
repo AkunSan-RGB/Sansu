@@ -488,7 +488,7 @@ export class CashService {
 // ---------- Controller ----------
 @ApiTags('Kas & Bank')
 @ApiBearerAuth()
-@Roles('ADMIN', 'FINANCE')
+@Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
 @RequireApp('cash')
 @Controller('cash')
 export class CashController {
@@ -496,26 +496,30 @@ export class CashController {
 
   /** Dipakai juga layar kasir untuk memilih laci kas & rekening QRIS */
   @Get('accounts')
-  @Roles('ADMIN', 'FINANCE', 'CASHIER')
+  @Roles('ADMIN', 'FINANCE', 'CASHIER', 'ACCOUNTANT')
   @RequireApp('cash', 'pos')
   accounts(@CurrentUser() u: AuthUser) {
     return this.svc.accounts(u.tenantId);
   }
 
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('counter-accounts')
   counter(@CurrentUser() u: AuthUser) {
     return this.svc.counterAccounts(u.tenantId);
   }
 
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('transactions')
   list(@CurrentUser() u: AuthUser, @Query() q: CashQueryDto) {
     return this.svc.list(u.tenantId, q, u.branchIds);
   }
 
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('controls')
   controls(@CurrentUser() u: AuthUser) {
     return this.svc.controls(u.tenantId);
   }
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('settings')
   cashSettings(@CurrentUser() u: AuthUser) {
     return this.svc.cashSettings(u.tenantId);
@@ -536,6 +540,7 @@ export class CashController {
     return this.svc.void(u, id, dto);
   }
 
+  @Roles('ADMIN', 'FINANCE')
   @Post('transactions')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreateCashTxDto) {
     return this.svc.create(u, dto);

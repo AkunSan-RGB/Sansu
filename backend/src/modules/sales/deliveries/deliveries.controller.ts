@@ -33,13 +33,13 @@ export class DeliveriesController {
   }
 
   @Get('deliveries')
-  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT')
   list(@CurrentUser() u: AuthUser, @Query() q: DeliveryQueryDto) {
     return this.svc.list(u.tenantId, q);
   }
 
   @Get('deliveries/:id')
-  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
@@ -52,13 +52,13 @@ export class DeliveriesController {
 
   /** Jejak dokumen dari pesanan: penawaran → pesanan → surat jalan → faktur → pembayaran → jurnal */
   @Get('sales-orders/:id/chain')
-  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT')
   orderChain(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.chain(u.tenantId, { orderId: id });
   }
 
   @Get('invoices/:id/chain')
-  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT')
   invoiceChain(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.chain(u.tenantId, { invoiceId: id });
   }

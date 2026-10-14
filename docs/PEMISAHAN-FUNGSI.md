@@ -11,7 +11,8 @@ seluruh endpoint dan gagal bila ada peran yang memegang dua fungsi yang harus te
 |---|---|---|
 | **Pemilik** | Seluruh akses, persetujuan akhir, pengaturan keamanan, persetujuan selisih hitung kas | — |
 | **Admin** | Pengelola sistem: pengguna, pengaturan, persetujuan transaksi, data master | Menyetujui permintaannya sendiri; mengubah akun Pemilik |
-| **Keuangan** | Pembukuan, faktur penjualan & pembelian, pembayaran, kas & bank, pembukuan selisih opname, pajak | Menerima barang, mengirim barang, menyusun gaji |
+| **Keuangan** | Memegang uang: kas & bank, kas kecil, hitung kas, penerimaan & pembayaran, rekonsiliasi bank (impor & pencocokan), setor pajak, bayar gaji, faktur penjualan & pembelian | **Membukukan** (jurnal manual, bagan akun, kunci periode, aset tetap, penyusutan, penurunan nilai, revaluasi, posting gaji, mengesahkan rekonsiliasi); menerima barang, mengirim barang, menyusun gaji |
+| **Akuntan** | Pembukuan: jurnal manual & pembalik, bagan akun, jurnal berulang, saldo awal, kunci periode & tutup buku, aset tetap & penyusutan, penurunan nilai persediaan, revaluasi valas, anggaran, koreksi fiskal & catatan laporan, pengaturan pelaporan, mengesahkan rekonsiliasi bank, memposting jurnal gaji | **Memegang uang** (mencatat kas, menerima/membayar, setor pajak, bayar gaji, kas kecil, impor rekening koran); hanya melihat dokumen penjualan, pembelian, stok, kas, dan gaji |
 | **Sales** | Prospek (CRM), pesanan penjualan, pelanggan baru, kasir bila perlu | Mengirim barang, membuat faktur, menerima pembayaran, mengubah limit kredit, melihat biaya pembelian |
 | **Gudang** | Permintaan beli, penerimaan barang, pengiriman barang, mutasi & penghitungan stok, penyesuaian stok | Membuat PO, supplier, faktur, atau pembayaran; membukukan hasil opname sendiri |
 | **Kasir** | Penjualan di kasir (POS) | Semua transaksi di luar kasir; membaca faktur, pembelian, atau mutasi stok bernilai |
@@ -26,10 +27,11 @@ Pemilik selalu lolos semua pemeriksaan peran (dan tidak terkena batas persetujua
 | **Pembelian** | Permintaan beli (Gudang/Keuangan/Admin) → disetujui (Admin/Pemilik) → PO (Keuangan/Admin) → **penerimaan barang (Gudang/Admin)** → faktur supplier (Keuangan/Admin) → pembayaran (Keuangan/Admin; di atas batas menunggu persetujuan) |
 | **Penjualan** | Pesanan (Sales/Admin) → konfirmasi (Sales/Keuangan/Admin) → **pengiriman (Gudang/Admin)** → faktur (Keuangan/Admin) → pembayaran diterima (Keuangan/Admin) |
 | **Stok** | Hitung (Gudang) → **dibukukan (Keuangan/Admin)**; penyesuaian stok bernilai besar menunggu persetujuan |
-| **Kas & bank** | Catat kas (Keuangan/Admin) → di atas batas menunggu persetujuan → pembatalan hanya Pemilik/Admin dengan alasan; hitung kas fisik berselisih besar disetujui Pemilik |
+| **Kas & bank** | Catat kas & cocokkan rekening koran (Keuangan/Admin) → di atas batas menunggu persetujuan → pembatalan hanya Pemilik/Admin dengan alasan; hitung kas fisik berselisih besar disetujui Pemilik; **rekonsiliasi bulanan disahkan Akuntan/Admin** (bukan pengimpor rekening koran) |
 | **Kas kecil** | Juru kas mencatat bukti → pengisian kembali menunggu persetujuan → pembatalan Pemilik/Admin |
-| **Gaji** | Disusun SDM → dibayar Keuangan |
-| **Aset tetap** | Dicatat dari faktur/kas → penyusutan otomatis → pelepasan di atas batas menunggu persetujuan |
+| **Gaji** | Disusun SDM → **jurnalnya diposting Akuntan** → dibayar Keuangan |
+| **Aset tetap** | Dicatat dan disusutkan oleh Akuntan/Admin → pelepasan di atas batas menunggu persetujuan |
+| **Pembukuan** | Jurnal manual, penyesuaian, kunci periode, tutup buku: Akuntan/Admin (jurnal di atas batas `manualJournal` menunggu persetujuan). Keuangan hanya membaca laporan |
 
 ## Pengendali pembuat–penyetuju (maker-checker)
 
@@ -45,6 +47,24 @@ membuat permintaan (Telegram + email) dan dijalankan **atas nama pemohon** setel
 | Pelepasan aset tetap | `assetDisposal` |
 | Pengisian kembali kas kecil | selalu (peran selain Pemilik/Admin) |
 | Selisih harga faktur terhadap PO | `priceControl` |
+
+## Pemisahan Keuangan dan Akuntan
+
+Satu orang tidak boleh sekaligus **memegang uang** dan **membukukannya**: yang bisa membayar/menerima uang bisa menutupi kecurangan lewat jurnal,
+dan yang bisa membuat jurnal bisa menyembunyikan uang yang diambil.
+
+| | Keuangan | Akuntan |
+|---|---|---|
+| Kas, bank, kas kecil, hitung kas, impor & pencocokan rekening koran | **tulis** | baca |
+| Terima pembayaran pelanggan, bayar pemasok, setor pajak, bayar gaji | **tulis** | baca |
+| Jurnal manual, bagan akun, saldo awal, kunci periode, tutup buku | baca | **tulis** |
+| Aset tetap, penyusutan, penurunan nilai, revaluasi valas, anggaran, koreksi fiskal | baca | **tulis** |
+| Posting jurnal gaji · pengesahan rekonsiliasi bank | — | **tulis** |
+| Laporan keuangan, pajak, pengingat | baca | baca |
+
+Pemilik dan Admin memegang keduanya sebagai pengelola (tindakan mereka tercatat di jejak audit). Pada perusahaan kecil yang hanya punya Keuangan,
+jurnal manual, kunci periode, dan posting gaji dikerjakan Pemilik/Admin sampai ada Akuntan. **Pengguna Keuangan yang sudah ada tidak berpindah otomatis**:
+Pemilik perlu menetapkan peran Akuntan bagi yang bertugas membukukan.
 
 ## Hak baca (need-to-know)
 

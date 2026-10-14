@@ -245,7 +245,7 @@ export class PosControlsService {
 @ApiTags('Kasir (POS)')
 @ApiBearerAuth()
 @RequireApp('pos')
-@Roles('ADMIN', 'FINANCE')
+@Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
 @Controller('pos')
 export class PosReturnsController {
   constructor(
@@ -253,16 +253,19 @@ export class PosReturnsController {
     private readonly controlsSvc: PosControlsService,
   ) {}
 
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('returns')
   list(@CurrentUser() u: AuthUser) {
     return this.svc.list(u.tenantId);
   }
 
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('controls')
   controls(@CurrentUser() u: AuthUser) {
     return this.controlsSvc.controls(u.tenantId);
   }
 
+  @Roles('ADMIN', 'FINANCE')
   @Post('orders/:id/return')
   create(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CreatePosReturnDto) {
     return this.svc.create(u, id, dto);

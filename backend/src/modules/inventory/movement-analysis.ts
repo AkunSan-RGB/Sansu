@@ -94,7 +94,7 @@ export class MovementAnalysisController {
   constructor(private readonly svc: MovementAnalysisService) {}
 
   @Get('movement-analysis')
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
   analyze(@CurrentUser() u: AuthUser) {
     return this.svc.analyze(u);
   }

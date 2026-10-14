@@ -14,19 +14,19 @@ export class InvoicesController {
   constructor(private readonly svc: InvoicesService) {}
 
   @Get()
-  @Roles('ADMIN', 'FINANCE', 'SALES')
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT')
   list(@CurrentUser() u: AuthUser, @Query() q: InvoiceQueryDto) {
     return this.svc.list(u.tenantId, q);
   }
 
   @Get('reports/ar-aging')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   arAging(@CurrentUser() u: AuthUser) {
     return this.svc.arAging(u.tenantId);
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'FINANCE', 'SALES')
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }

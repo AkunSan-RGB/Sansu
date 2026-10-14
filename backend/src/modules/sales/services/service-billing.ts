@@ -982,19 +982,19 @@ export class ServiceBillingController {
   }
 
   @Get('withheld')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   withheld(@CurrentUser() u: AuthUser, @Query('period') period?: string) {
     return this.svc.withheld(u.tenantId, period || new Date().getFullYear().toString());
   }
 
   @Get('projects')
-  @Roles('ADMIN', 'FINANCE', 'SALES')
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT')
   projects(@CurrentUser() u: AuthUser) {
     return this.svc.listProjects(u.tenantId);
   }
 
   @Get('projects/:id')
-  @Roles('ADMIN', 'FINANCE', 'SALES')
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT')
   project(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.getProject(u.tenantId, id);
   }
@@ -1018,7 +1018,7 @@ export class ServiceBillingController {
   }
 
   @Get('deposits')
-  @Roles('ADMIN', 'FINANCE', 'SALES')
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT')
   deposits(@CurrentUser() u: AuthUser, @Query('customerId') customerId?: string, @Query('open') open?: string) {
     return this.svc.listDeposits(u.tenantId, {
       customerId: customerId || undefined,

@@ -30,25 +30,25 @@ export class FxController {
   }
 
   @Put('rates')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   upsert(@CurrentUser() u: AuthUser, @Body() dto: UpsertRateDto) {
     return this.svc.upsert(u, dto);
   }
 
   @Delete('rates/:id')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   remove(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.remove(u, id);
   }
 
   @Get('exposure')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   exposure(@CurrentUser() u: AuthUser, @Query() q: ExposureQueryDto) {
     return this.svc.exposure(u.tenantId, q.date);
   }
 
   @Post('revaluation')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'ACCOUNTANT')
   revalue(@CurrentUser() u: AuthUser, @Body() dto: RevaluationDto) {
     return this.svc.revalue(u, dto);
   }

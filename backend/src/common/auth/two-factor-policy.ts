@@ -6,11 +6,11 @@ import { SettingsService } from '../settings.service';
 
 export type TwoFactorRequirement = 'NONE' | 'ADMINS' | 'ALL';
 export interface SecuritySettings {
-  /** Wajib verifikasi 2 langkah: tidak ada · Pemilik/Admin/Keuangan · semua pengguna */
+  /** Wajib verifikasi 2 langkah: tidak ada · Pemilik/Admin/Keuangan/Akuntan · semua pengguna */
   require2fa: TwoFactorRequirement;
 }
 export const DEFAULT_SECURITY: SecuritySettings = { require2fa: 'NONE' };
-const PRIVILEGED: Role[] = ['OWNER', 'ADMIN', 'FINANCE'];
+const PRIVILEGED: Role[] = ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'];
 
 /** Kebijakan 2FA per perusahaan (disimpan di pengaturan perusahaan, di-cache singkat) */
 @Injectable()

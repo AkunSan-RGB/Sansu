@@ -180,7 +180,7 @@ export class PlatformService {
     if ((target.role === 'OWNER' || dto.role === 'OWNER') && actor.role !== 'OWNER') {
       throw new ForbiddenException('Hanya Pemilik yang bisa mengubah akun Pemilik');
     }
-    if (dto.resetTwoFactor && actor.role !== 'OWNER' && ['OWNER', 'ADMIN', 'FINANCE'].includes(target.role)) {
+    if (dto.resetTwoFactor && actor.role !== 'OWNER' && ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'].includes(target.role)) {
       throw new ForbiddenException('Hanya Pemilik yang bisa me-reset verifikasi 2 langkah akun Admin/Keuangan');
     }
     if (dto.resetTwoFactor && id === actor.sub)
@@ -349,7 +349,7 @@ export class PlatformController {
     return this.svc.updateUser(u, id, dto);
   }
 
-  @Roles('ADMIN', 'FINANCE', 'HR')
+  @Roles('ADMIN', 'FINANCE', 'HR', 'ACCOUNTANT')
   @Get('settings/company')
   company(@CurrentUser() u: AuthUser) {
     return this.svc.company(u.tenantId);
@@ -379,7 +379,7 @@ export class PlatformController {
     return this.svc.updateTerms(u, dto);
   }
 
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'ACCOUNTANT')
   @Patch('settings/reporting')
   updateReporting(@CurrentUser() u: AuthUser, @Body() dto: ReportingSettingsDto) {
     return this.svc.updateReporting(u, dto);

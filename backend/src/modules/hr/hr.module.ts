@@ -362,12 +362,12 @@ export class HrController {
   constructor(private readonly svc: HrService) {}
 
   @Get('employees')
-  @Roles('HR', 'FINANCE')
+  @Roles('HR', 'FINANCE', 'ACCOUNTANT')
   employees(@CurrentUser() u: AuthUser, @Query('active') active?: string) {
     return this.svc.listEmployees(u.tenantId, active === '1');
   }
   @Get('employees/:id')
-  @Roles('HR', 'FINANCE')
+  @Roles('HR', 'FINANCE', 'ACCOUNTANT')
   employee(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.getEmployee(u.tenantId, id);
   }

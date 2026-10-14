@@ -294,27 +294,27 @@ export class BranchesController {
   constructor(private readonly svc: BranchesService) {}
 
   @Get()
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'CASHIER')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'CASHIER', 'ACCOUNTANT')
   list(@CurrentUser() u: AuthUser) {
     return this.svc.list(u.tenantId);
   }
 
   @Get('report')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   report(@CurrentUser() u: AuthUser, @Query('from') from?: string, @Query('to') to?: string) {
     assertAllBranches(u);
     return this.svc.report(u.tenantId, from, to);
   }
 
   @Get('balance-sheet')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   balanceSheet(@CurrentUser() u: AuthUser, @Query('asOf') asOf?: string) {
     assertAllBranches(u);
     return this.svc.balanceSheet(u.tenantId, asOf);
   }
 
   @Get('controls')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   controls(@CurrentUser() u: AuthUser) {
     assertAllBranches(u);
     return this.svc.controls(u.tenantId);

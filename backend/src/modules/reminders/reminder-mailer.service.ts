@@ -15,7 +15,7 @@ import { InjectDb } from '../../db/db.module';
 import { Role } from '../../db/schema';
 import { RemindersService, type ReminderItem, type ReminderSettings } from './reminders.service';
 
-const DIGEST_ROLES: Role[] = ['OWNER', 'ADMIN', 'FINANCE'];
+const DIGEST_ROLES: Role[] = ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'];
 const DIGEST_HOUR_WIB = 7;
 const rp = (v: number | string) => `Rp${Math.round(Number(v)).toLocaleString('id-ID')}`;
 const LEVEL_MARK = { error: '‼', warning: '•', info: '·' } as const;
