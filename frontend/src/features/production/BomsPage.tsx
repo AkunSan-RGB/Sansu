@@ -59,19 +59,19 @@ export default function BomsPage() {
   return (
     <>
       <PageHeader
-        title="Resep produksi (BOM)"
+        title={t("Resep produksi (BOM)")}
         extra={
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing('new')}>
-            Resep baru
+            {t('Resep baru')}
           </Button>
         }
       />
       {!q.isLoading && all.length > 0 && (
         <SummaryCards
           items={[
-            { label: 'Jumlah resep', value: String(all.length), hint: 'bahan per satu batch produksi', onClick: () => setView('ALL'), active: view === 'ALL' },
-            { label: 'Resep aktif', value: String(active.length), hint: 'bisa dipakai untuk produksi', tone: active.length ? 'good' : 'neutral', onClick: () => setView('ACTIVE'), active: view === 'ACTIVE' },
-            { label: 'Resep nonaktif', value: String(off.length), hint: 'tidak muncul saat membuat produksi', onClick: () => setView('OFF'), active: view === 'OFF' },
+            { label: t('Jumlah resep'), value: String(all.length), hint: 'bahan per satu batch produksi', onClick: () => setView('ALL'), active: view === 'ALL' },
+            { label: t('Resep aktif'), value: String(active.length), hint: 'bisa dipakai untuk produksi', tone: active.length ? 'good' : 'neutral', onClick: () => setView('ACTIVE'), active: view === 'ACTIVE' },
+            { label: t('Resep nonaktif'), value: String(off.length), hint: 'tidak muncul saat membuat produksi', onClick: () => setView('OFF'), active: view === 'OFF' },
           ]}
         />
       )}
@@ -79,7 +79,7 @@ export default function BomsPage() {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="Resep = bahan yang dibutuhkan untuk satu batch produksi"
+        message={t("Resep = bahan yang dibutuhkan untuk satu batch produksi")}
         description={t('Isi bahan per batch (termasuk susut normal) dan biaya konversi standar: upah langsung dan overhead pabrik (listrik, penyusutan mesin, dll.) per batch. Harga pokok produk jadi = bahan + upah + overhead (SAK EP Bab 13). Taksiran di bawah memakai harga rata-rata bahan saat ini.')}
       />
       <Card>
@@ -95,7 +95,7 @@ export default function BomsPage() {
               ]}
             />
           </div>
-          <Input.Search allowClear placeholder="Cari resep atau produk" style={{ width: 260 }} onChange={(e) => setSearch(e.target.value)} />
+          <Input.Search allowClear placeholder={t("Cari resep atau produk")} style={{ width: 260 }} onChange={(e) => setSearch(e.target.value)} />
         </Space>
         <ResponsiveTable<Bom>
           rowKey="id"
@@ -103,7 +103,7 @@ export default function BomsPage() {
           dataSource={shown}
           scroll={{ x: 1000 }}
           onRow={(r) => ({ onClick: () => setEditing(r), style: { cursor: 'pointer' } })}
-          locale={{ emptyText: <Empty description={all.length ? 'Tidak ada resep yang cocok dengan pilihan ini' : 'Belum ada resep. Klik Resep baru untuk membuat yang pertama.'} /> }}
+          locale={{ emptyText: <Empty description={t(all.length ? 'Tidak ada resep yang cocok dengan pilihan ini' : 'Belum ada resep. Klik Resep baru untuk membuat yang pertama.')} /> }}
           expandable={{
             expandedRowRender: (b) => (
               <Table
@@ -165,7 +165,7 @@ function BomDrawer({ bom, onClose }: { bom: Bom | null; onClose: () => void }) {
       return bom ? put<Bom>(`/production/boms/${bom.id}`, body) : post<Bom>('/production/boms', body);
     },
     {
-      success: (b) => `Resep ${b.code} disimpan · taksiran HPP ${fmtMoney(b.estimate.unitCost)}/unit`,
+      success: (b) => `${t('Resep')} ${b.code} disimpan · taksiran HPP ${fmtMoney(b.estimate.unitCost)}/unit`,
       invalidate: ['boms'],
       onSuccess: onClose,
     },
@@ -174,7 +174,7 @@ function BomDrawer({ bom, onClose }: { bom: Bom | null; onClose: () => void }) {
     <Drawer
       open
       width={760}
-      title={bom ? `Resep ${bom.code}` : 'Resep baru'}
+      title={bom ? `${t('Resep')} ${bom.code}` : t('Resep baru')}
       onClose={onClose}
       extra={
         <Button type="primary" loading={save.isPending} onClick={() => form.submit()}>
@@ -205,7 +205,7 @@ function BomDrawer({ bom, onClose }: { bom: Bom | null; onClose: () => void }) {
             </Form.Item>
           </Col>
           <Col xs={24} md={10}>
-            <Form.Item name="name" label="Nama resep" rules={[{ required: true, min: 2 }]}>
+            <Form.Item name="name" label={t("Nama resep")} rules={[{ required: true, min: 2 }]}>
               <Input placeholder="Mis. Kemeja katun L" />
             </Form.Item>
           </Col>

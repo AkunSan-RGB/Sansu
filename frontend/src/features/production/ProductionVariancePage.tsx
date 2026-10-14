@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { t } from '@/lib/terms';
 import { Alert, Card, Empty, Input, InputNumber, Segmented, Space, Tag, Tooltip } from 'antd';
 import { useState } from 'react';
 import { get } from '@/api/client';
@@ -32,7 +33,7 @@ interface Report {
 }
 
 const FLAG: Record<string, { label: string; hint: string }> = {
-  HIGH_USAGE: { label: 'Bahan berlebih', hint: 'Pemakaian bahan di atas standar resep melebihi toleransi — periksa pemborosan atau kebocoran bahan' },
+  HIGH_USAGE: { label: 'Bahan berlebih', hint: t('Pemakaian bahan di atas standar resep melebihi toleransi — periksa pemborosan atau kebocoran bahan') },
   LOW_YIELD: { label: 'Hasil rendah', hint: 'Hasil jadi di bawah rencana melebihi toleransi — periksa susut, cacat, atau pencatatan hasil' },
 };
 const signed = (v: number) => (v === 0 ? '-' : <span style={{ color: v > 0 ? '#d46b08' : '#389e0d' }}>{`${v > 0 ? 'Lebih' : 'Hemat'} ${fmtMoney(Math.abs(v))}`}</span>);
@@ -50,13 +51,13 @@ export default function ProductionVariancePage() {
   return (
     <>
       <PageHeader title="Analisis selisih produksi" extra={<Space>Toleransi <InputNumber min={0} max={100} step={0.5} value={tol} onChange={(v) => setTol(Number(v ?? 3))} addonAfter="%" /></Space>} />
-      <Alert type="info" showIcon style={{ marginBottom: 16 }} message="Membandingkan setiap perintah produksi yang selesai dengan standar resepnya: bahan yang benar-benar keluar gudang, hasil jadi, serta upah dan overhead yang dibebankan. Perintah dengan pemakaian bahan atau hasil di luar toleransi diberi penanda untuk ditinjau." />
+      <Alert type="info" showIcon style={{ marginBottom: 16 }} message={t("Membandingkan setiap perintah produksi yang selesai dengan standar resepnya: bahan yang benar-benar keluar gudang, hasil jadi, serta upah dan overhead yang dibebankan. Perintah dengan pemakaian bahan atau hasil di luar toleransi diberi penanda untuk ditinjau.")} />
       {r && (
         <SummaryCards
           items={[
-            { label: 'Perintah selesai', value: String(r.totals.orders), hint: 'dibandingkan dengan resep' },
+            { label: 'Perintah selesai', value: String(r.totals.orders), hint: t('dibandingkan dengan resep') },
             { label: 'Perlu ditinjau', value: String(r.totals.flagged), hint: 'di luar batas toleransi', tone: r.totals.flagged ? 'bad' : 'good', onClick: () => setView('FLAG'), active: view === 'FLAG' },
-            { label: 'Selisih pemakaian bahan', value: fmtMoney(Math.abs(r.totals.materialValue)), hint: r.totals.materialValue > 0 ? 'bahan lebih banyak dari resep' : r.totals.materialValue < 0 ? 'bahan lebih hemat dari resep' : 'sesuai resep', tone: r.totals.materialValue > 0 ? 'warn' : 'neutral' },
+            { label: 'Selisih pemakaian bahan', value: fmtMoney(Math.abs(r.totals.materialValue)), hint: t(r.totals.materialValue > 0 ? 'bahan lebih banyak dari resep' : r.totals.materialValue < 0 ? 'bahan lebih hemat dari resep' : 'sesuai resep'), tone: r.totals.materialValue > 0 ? 'warn' : 'neutral' },
           ]}
         />
       )}

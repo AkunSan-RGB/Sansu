@@ -87,7 +87,7 @@ export default function ProductionReportPage() {
                 type="info"
                 showIcon
                 message={t('Selisih tetap di beban pokok penjualan periode ini (SAK EP 13.9).')}
-                description="Catat gaji pekerja produksi dengan menandai karyawan sebagai tenaga kerja produksi, dan biaya pabrik (listrik mesin, sewa pabrik, penyusutan mesin) ke akun 5-4200. Bila selisih terus besar, perbarui upah & overhead standar di resep."
+                description={t("Catat gaji pekerja produksi dengan menandai karyawan sebagai tenaga kerja produksi, dan biaya pabrik (listrik mesin, sewa pabrik, penyusutan mesin) ke akun 5-4200. Bila selisih terus besar, perbarui upah & overhead standar di resep.")}
               />
             </Card>
           </Col>

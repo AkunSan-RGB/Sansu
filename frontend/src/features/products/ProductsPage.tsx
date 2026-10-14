@@ -85,9 +85,9 @@ export default function ProductsPage() {
         summary={(rows) =>
           prod
             ? [
-                { label: 'Bahan baku', value: String(rows.filter((p) => p.role === 'RAW').length), hint: 'dipakai di resep', tone: 'warn' },
+                { label: 'Bahan baku', value: String(rows.filter((p) => p.role === 'RAW').length), hint: t('dipakai di resep'), tone: 'warn' },
                 { label: 'Setengah jadi', value: String(rows.filter((p) => p.role === 'SEMI').length), hint: 'hasil antara produksi' },
-                { label: 'Produk jadi', value: String(rows.filter((p) => p.role === 'FINISHED').length), hint: 'hasil akhir resep', tone: 'good' },
+                { label: 'Produk jadi', value: String(rows.filter((p) => p.role === 'FINISHED').length), hint: t('hasil akhir resep'), tone: 'good' },
               ]
             : [
                 { label: `Jumlah ${t('Produk').toLowerCase()}`, value: String(rows.length), hint: `${rows.filter((p) => p.isActive).length} aktif` },
