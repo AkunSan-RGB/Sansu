@@ -22,7 +22,7 @@ const n = (v: string | number) => Number(v);
 
 export default function PayrollRunPage() {
   const { me } = useAuth();
-  const canPostRun = me?.role === 'OWNER' || me?.role === 'ACCOUNTANT';
+  const canPostRun = me?.role === 'OWNER' || me?.role === 'ADMIN' || me?.role === 'ACCOUNTANT';
   const canPayRun = me?.role === 'OWNER' || me?.role === 'FINANCE';
   const canEditRun = me?.role === 'OWNER' || me?.role === 'HR';
   const { id } = useParams<{ id: string }>();

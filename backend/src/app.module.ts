@@ -16,6 +16,7 @@ import { DbModule } from './db/db.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { PermissionsModule } from './common/auth/permissions';
+import { AutoBookkeepingModule } from './modules/accounting/auto-bookkeeping';
 import { AuthModule } from './modules/auth/auth.module';
 import { DashboardModule } from './modules/dashboard/dashboard';
 import { RemindersModule } from './modules/reminders/reminders.module';
@@ -88,6 +89,7 @@ import { MailModule } from './mail/mail.module';
     CrmModule,
     HrModule,
     PayrollModule,
+    AutoBookkeepingModule,
     AssetsModule,
     InsightsModule,
     OnboardingModule,

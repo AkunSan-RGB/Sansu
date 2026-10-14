@@ -9,6 +9,7 @@ import type { PeriodStatus } from '@/api/types';
 import { canBookkeep } from '@sansu/shared';
 import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
+import AutoBookkeepingCard from './AutoBookkeepingCard';
 import { fmtDate, fmtMoney } from '@/lib/format';
 
 export default function ClosingPage() {
@@ -39,6 +40,7 @@ export default function ClosingPage() {
   return (
     <>
       <PageHeader title="Tutup Buku" />
+      <AutoBookkeepingCard />
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>
           <Card title="Kunci periode" loading={status.isLoading}>
