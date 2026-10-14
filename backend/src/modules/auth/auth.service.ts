@@ -72,7 +72,15 @@ export class AuthService {
     const user = await this.db.transaction(async (tx) => {
       const [tenant] = await tx
         .insert(tenants)
-        .values({ name: dto.companyName, ...(dto.acceptTerms ? { settings: { legal: { acceptedAt: new Date().toISOString(), version: LEGAL_VERSION, by: email } } } : {}) })
+        .values({
+          name: dto.companyName,
+          settings: {
+            // Perusahaan BARU langsung terlindungi dari pemasok fiktif: pembayaran pertama ke supplier oleh staf menunggu persetujuan
+            // (perusahaan lama tidak diubah; pemilik bisa mematikannya di Pengaturan › Persetujuan)
+            approvals: { firstSupplierPayment: true },
+            ...(dto.acceptTerms ? { legal: { acceptedAt: new Date().toISOString(), version: LEGAL_VERSION, by: email } } : {}),
+          },
+        })
         .returning();
       await this.setup.provision(tx, tenant.id, dto.businessModel ?? 'DAGANG');
       await this.subs.startTrial(tx, tenant.id);
