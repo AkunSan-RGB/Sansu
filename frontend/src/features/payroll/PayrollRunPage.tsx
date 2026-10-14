@@ -22,6 +22,9 @@ const n = (v: string | number) => Number(v);
 
 export default function PayrollRunPage() {
   const { me } = useAuth();
+  const canPostRun = me?.role === 'OWNER' || me?.role === 'ACCOUNTANT';
+  const canPayRun = me?.role === 'OWNER' || me?.role === 'FINANCE';
+  const canEditRun = me?.role === 'OWNER' || me?.role === 'HR';
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [editing, setEditing] = useState<Payslip | null>(null);
@@ -68,20 +71,26 @@ export default function PayrollRunPage() {
               />
               {isDraft && (
                 <>
-                  <Button icon={<CalculatorOutlined />} onClick={() => recompute.mutate(undefined)} loading={recompute.isPending}>
-                    Hitung ulang
-                  </Button>
-                  <Popconfirm title="Hapus draft gaji ini?" onConfirm={() => remove.mutate(undefined)}>
-                    <Button danger>Hapus draft</Button>
-                  </Popconfirm>
-                  <Popconfirm title="Posting gaji ke jurnal? Slip tidak bisa diubah lagi." onConfirm={() => postRun.mutate(undefined)}>
-                    <Button type="primary" loading={postRun.isPending}>
-                      Posting
+                  {canEditRun && (
+                    <Button icon={<CalculatorOutlined />} onClick={() => recompute.mutate(undefined)} loading={recompute.isPending}>
+                      Hitung ulang
                     </Button>
-                  </Popconfirm>
+                  )}
+                  {canEditRun && (
+                    <Popconfirm title="Hapus draft gaji ini?" onConfirm={() => remove.mutate(undefined)}>
+                      <Button danger>Hapus draft</Button>
+                    </Popconfirm>
+                  )}
+                  {canPostRun && (
+                    <Popconfirm title="Posting gaji ke jurnal? Slip tidak bisa diubah lagi." onConfirm={() => postRun.mutate(undefined)}>
+                      <Button type="primary" loading={postRun.isPending}>
+                        Posting
+                      </Button>
+                    </Popconfirm>
+                  )}
                 </>
               )}
-              {run.status === 'POSTED' && (
+              {run.status === 'POSTED' && canPayRun && (
                 <Button
                   type="primary"
                   onClick={() => {

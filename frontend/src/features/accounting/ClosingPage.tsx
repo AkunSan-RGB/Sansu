@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAction } from '@/api/queries';
 import type { PeriodStatus } from '@/api/types';
+import { canBookkeep } from '@sansu/shared';
 import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
@@ -13,6 +14,7 @@ import { fmtDate, fmtMoney } from '@/lib/format';
 export default function ClosingPage() {
   const { me } = useAuth();
   const isOwner = me?.role === 'OWNER';
+  const bookkeeper = canBookkeep(me?.role);
   const status = useQuery({ queryKey: ['period'], queryFn: () => get<PeriodStatus>('/accounting/period') });
   const lockedUntil = status.data?.lockedUntil ?? null;
 
@@ -57,6 +59,7 @@ export default function ClosingPage() {
               Setelah laporan bulanan final (sudah lapor pajak / dikirim ke pemilik), kunci periodenya. Transaksi bertanggal sampai tanggal kunci
               tidak bisa dibuat, dibatalkan, atau dikoreksi — termasuk faktur, pembayaran, retur, kas, dan stok.
             </Typography.Paragraph>
+            {bookkeeper ? (
             <Space wrap>
               <Input type="date" value={until} onChange={(e) => setUntil(e.target.value)} style={{ width: 170 }} />
               <Popconfirm
@@ -69,7 +72,10 @@ export default function ClosingPage() {
                 </Button>
               </Popconfirm>
             </Space>
-            {unlocking && !isOwner && <Alert style={{ marginTop: 12 }} type="warning" showIcon message="Membuka kembali periode yang sudah dikunci hanya bisa dilakukan Pemilik." />}
+            ) : (
+              <Typography.Text type="secondary">Peran Anda hanya dapat melihat halaman ini.</Typography.Text>
+            )}
+            {bookkeeper && unlocking && !isOwner && <Alert style={{ marginTop: 12 }} type="warning" showIcon message="Membuka kembali periode yang sudah dikunci hanya bisa dilakukan Pemilik." />}
           </Card>
         </Col>
 
@@ -79,6 +85,7 @@ export default function ClosingPage() {
               Membuat jurnal penutup per 31 Desember: saldo semua akun pendapatan & beban dinolkan dan laba/rugi bersih dipindah ke Laba Ditahan.
               Laporan laba rugi tahun tersebut tetap bisa dibaca.
             </Typography.Paragraph>
+            {bookkeeper && (
             <Space wrap align="center">
               <InputNumber value={year} min={2000} max={2100} onChange={(v) => v && setYear(v)} prefix="Tahun" style={{ width: 160 }} />
               <Checkbox checked={lockYear} onChange={(e) => setLockYear(e.target.checked)}>
@@ -90,6 +97,7 @@ export default function ClosingPage() {
                 </Button>
               </Popconfirm>
             </Space>
+            )}
             <Table
               style={{ marginTop: 16 }}
               rowKey="number"

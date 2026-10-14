@@ -783,7 +783,7 @@ export class ProductionController {
   }
   /** Analisis selisih produksi: pemakaian bahan, hasil, dan biaya konversi terhadap standar */
   @Get('variance')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   variance(@CurrentUser() u: AuthUser, @Query() q: VarianceQueryDto) {
     return this.mfg.variance(u.tenantId, q);
   }
@@ -796,7 +796,7 @@ export class ProductionController {
   }
 
   @Get('boms')
-  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT')
   boms(@CurrentUser() u: AuthUser) {
     return this.svc.listBoms(u.tenantId);
   }
@@ -812,17 +812,17 @@ export class ProductionController {
   }
 
   @Get('orders')
-  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT')
   orders(@CurrentUser() u: AuthUser) {
     return this.svc.listOrders(u.tenantId);
   }
   @Get('report')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   report(@CurrentUser() u: AuthUser, @Query('period') period?: string) {
     return this.svc.report(u.tenantId, period || new Date().toISOString().slice(0, 7));
   }
   @Get('orders/:id')
-  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT')
   order(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.getOrder(u.tenantId, id);
   }

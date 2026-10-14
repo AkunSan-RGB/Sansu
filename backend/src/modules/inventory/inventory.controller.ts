@@ -19,7 +19,7 @@ export class InventoryController {
   }
 
   @Get('moves')
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
   moves(@CurrentUser() u: AuthUser, @Query() q: StockQueryDto) {
     return this.svc.moves(u.tenantId, q, u);
   }

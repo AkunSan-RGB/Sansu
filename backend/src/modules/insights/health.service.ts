@@ -536,6 +536,36 @@ export class HealthService {
       link: '/closing',
     });
 
+    // 12b. Pemisahan fungsi: yang memegang uang (Keuangan) berbeda dari yang membukukan (Akuntan)
+    const roleRows = await q<{ role: string; n: number }>(sql`SELECT role::text AS role, COUNT(*)::int AS n FROM users WHERE tenant_id = ${tenantId} AND is_active GROUP BY role`);
+    const nRole = (r: string) => roleRows.find((x) => x.role === r)?.n ?? 0;
+    const sod =
+      nRole('FINANCE') > 0 && nRole('ACCOUNTANT') === 0
+        ? { status: 'WARN' as const, message: 'Ada pengguna Keuangan tetapi belum ada Akuntan. Jurnal manual, kunci periode, tutup buku, dan penyusutan kini hanya bisa dikerjakan Pemilik/Admin, dan posting gaji hanya Pemilik. Tetapkan peran Akuntan bagi yang bertugas membukukan.' }
+        : nRole('FINANCE') > 0
+          ? { status: 'OK' as const, message: 'Pemegang uang (Keuangan) dan pembukuan (Akuntan) dipegang orang berbeda' }
+          : { status: 'INFO' as const, message: nRole('ACCOUNTANT') > 0 ? 'Belum ada pengguna Keuangan: uang dipegang Pemilik/Admin, pembukuan oleh Akuntan.' : 'Pemilik/Admin memegang uang sekaligus pembukuan. Wajar untuk usaha kecil; tambahkan peran Keuangan dan Akuntan saat tim bertambah.' };
+    checks.push({ key: 'sod-roles', category: 'Kepatuhan', title: 'Pemisahan fungsi: Keuangan dan Akuntan', ...sod, link: '/settings/users' });
+    // peran yang saling mengawasi tidak boleh sekadar dipertukarkan orang yang sama (menutupi penyimpangan)
+    const hops = await q<{ name: string; from: string; to: string; at: string }>(sql`
+      SELECT u.name, a.data->>'previousRole' AS "from", a.data->>'role' AS "to", to_char(a.created_at AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM-DD') AS at
+      FROM audit_logs a JOIN users u ON u.id::text = a.entity_id AND u.tenant_id = a.tenant_id
+      WHERE a.tenant_id = ${tenantId} AND a.entity = 'User' AND a.action = 'UPDATE' AND a.created_at > now() - interval '180 days'
+        AND ((a.data->>'previousRole' = 'FINANCE' AND a.data->>'role' = 'ACCOUNTANT') OR (a.data->>'previousRole' = 'ACCOUNTANT' AND a.data->>'role' = 'FINANCE'))
+      ORDER BY a.created_at DESC LIMIT 5`);
+    const roleName = (r: string) => (r === 'FINANCE' ? 'Keuangan' : 'Akuntan');
+    checks.push({
+      key: 'sod-role-change',
+      category: 'Kepatuhan',
+      title: 'Tidak ada pengguna berpindah antara Keuangan dan Akuntan',
+      status: hops.length ? 'WARN' : 'OK',
+      message: hops.length
+        ? `${hops.length} perpindahan dalam 180 hari terakhir. Orang yang sama memegang uang lalu pembukuan (atau sebaliknya) bisa menutupi penyimpangan; tinjau transaksi yang dibuatnya di jejak audit.`
+        : 'Tidak ada perpindahan peran dalam 180 hari terakhir',
+      detail: hops.map((h) => ({ label: `${h.name} (${h.at})`, value: `${roleName(h.from)} → ${roleName(h.to)}` })),
+      link: '/settings/audit',
+    });
+
     // 13. Tutup buku tahun lalu
     const lastYear = Number(asOf.slice(0, 4)) - 1;
     const [closed] = await q<{ n: number }>(

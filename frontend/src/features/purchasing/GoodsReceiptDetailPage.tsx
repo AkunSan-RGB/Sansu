@@ -4,6 +4,7 @@ import { Alert, Button, Card, Popconfirm, Space, Tag } from 'antd';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAction } from '@/api/queries';
+import { useCan } from '@/auth/useCan';
 import type { GoodsReceipt } from '@/api/types';
 import { cell, DocHeader, head, PartyBlock, PrintSheet, Signatures, useLetterhead } from '@/components/print/Letterhead';
 import QueryState from '@/components/QueryState';
@@ -17,6 +18,7 @@ export default function GoodsReceiptDetailPage() {
   const lh = useLetterhead();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const can = useCan();
   const q = useQuery({ queryKey: ['goods-receipts', 'detail', id], queryFn: () => get<GoodsReceipt>(`/goods-receipts/${id}`) });
   const cancel = useAction(() => post(`/goods-receipts/${id}/cancel`, {}), {
     success: 'Penerimaan dibatalkan, stok dan jurnal dikembalikan',
@@ -36,7 +38,7 @@ export default function GoodsReceiptDetailPage() {
                 Cetak / PDF
               </Button>
             )}
-            {q.data && q.data.status === 'RECEIVED' && !q.data.autoInvoiceId && !q.data.lines?.some((l) => Number(l.billedQty) > 0) && (
+            {q.data && q.data.status === 'RECEIVED' && can('POST', '/goods-receipts/:id/cancel') && !q.data.autoInvoiceId && !q.data.lines?.some((l) => Number(l.billedQty) > 0) && (
               <Popconfirm title="Batalkan penerimaan? Stok keluar kembali dan jurnal dibalik." onConfirm={() => cancel.mutate(undefined)}>
                 <Button danger loading={cancel.isPending}>
                   Batalkan penerimaan

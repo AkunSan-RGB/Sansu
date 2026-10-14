@@ -5,6 +5,7 @@ import { Alert, Button, Popconfirm, Tag, Typography } from 'antd';
 import { get, post } from '@/api/client';
 import { useAction } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
+import { useCan } from '@/auth/useCan';
 import ListPage from '@/components/ListPage';
 import { fmtDate, fmtMoney, fmtQty } from '@/lib/format';
 import { t } from '@/lib/terms';
@@ -20,7 +21,8 @@ const STATUS: Record<StockLotRow['status'], { color: string; text: (l: StockLotR
 /** Pantau bahan yang akan atau sudah kedaluwarsa (lot dicatat saat penerimaan barang atau saldo awal) */
 export default function ExpiryPage() {
   const { me } = useAuth();
-  const canDiscard = ['OWNER', 'ADMIN', 'WAREHOUSE'].includes(me?.role ?? '');
+  const can = useCan();
+  const canDiscard = ['OWNER', 'ADMIN', 'WAREHOUSE'].includes(me?.role ?? '') && can('POST', '/inventory/lots/:id/discard');
   const { data, isLoading } = useQuery({ queryKey: ['stock-lots'], queryFn: () => get<StockLotList>('/inventory/lots') });
   const discard = useAction((id: string) => post(`/inventory/lots/${id}/discard`, {}), {
     success: 'Lot dibuang dan dicatat sebagai bahan rusak/kedaluwarsa',

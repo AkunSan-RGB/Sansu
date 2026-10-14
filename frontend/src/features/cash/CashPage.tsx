@@ -1,5 +1,5 @@
 import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, FilterOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
-import { BRAND, CASH_TX_TYPE_LABELS, type CashTxType } from '@sansu/shared';
+import { BRAND, CASH_TX_TYPE_LABELS, canHandleMoney, type CashTxType } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, App, Badge, Button, Card, Checkbox, Col, Collapse, Empty, Form, Input, InputNumber, Modal, Popover, Row, Segmented, Select, Space, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
@@ -99,7 +99,7 @@ export default function CashPage() {
   const canVoid = me?.role === 'OWNER' || me?.role === 'ADMIN';
   const [voiding, setVoiding] = useState<CashTransaction | null>(null);
   const [voidForm] = Form.useForm<{ reason: string }>();
-  const canEvidence = me?.role === 'OWNER' || me?.role === 'ADMIN' || me?.role === 'FINANCE';
+  const canEvidence = canHandleMoney(me?.role);
   const [proofing, setProofing] = useState<CashTransaction | null>(null);
   const [proofForm] = Form.useForm<{ reference: string }>();
   const doProof = useAction((v: { id: string; reference: string }) => post(`/cash/transactions/${v.id}/evidence`, { reference: v.reference }), {
@@ -167,6 +167,7 @@ export default function CashPage() {
       <PageHeader
         title="Kas & Bank"
         extra={
+          canEvidence && (
           <Space wrap>
             <Button type="primary" icon={<ArrowDownOutlined />} onClick={() => openForm('IN')} style={{ background: '#16A37B' }}>
               Uang masuk
@@ -178,6 +179,7 @@ export default function CashPage() {
               Pindah antar rekening
             </Button>
           </Space>
+          )
         }
       />
 
@@ -382,10 +384,12 @@ export default function CashPage() {
           locale={{
             emptyText: (
               <Empty description="Belum ada transaksi pada periode dan filter ini">
-                <Space>
-                  <Button type="primary" onClick={() => openForm('OUT')}>Catat uang keluar</Button>
-                  <Button onClick={() => openForm('IN')}>Catat uang masuk</Button>
-                </Space>
+                {canEvidence && (
+                  <Space>
+                    <Button type="primary" onClick={() => openForm('OUT')}>Catat uang keluar</Button>
+                    <Button onClick={() => openForm('IN')}>Catat uang masuk</Button>
+                  </Space>
+                )}
               </Empty>
             ),
           }}

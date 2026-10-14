@@ -3,17 +3,30 @@
  * dan frontend (pilihan dropdown, label status).
  */
 
-export const ROLES = ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'CASHIER', 'HR'] as const;
+export const ROLES = ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'WAREHOUSE', 'CASHIER', 'HR'] as const;
 export type Role = (typeof ROLES)[number];
 export const ROLE_LABELS: Record<Role, string> = {
   OWNER: 'Pemilik',
   ADMIN: 'Admin',
   FINANCE: 'Keuangan',
+  ACCOUNTANT: 'Akuntan',
   SALES: 'Sales',
   WAREHOUSE: 'Gudang',
   CASHIER: 'Kasir',
   HR: 'SDM / HRD',
 };
+
+/**
+ * Pemisahan fungsi uang vs pembukuan: yang memegang uang (Keuangan) tidak membukukan,
+ * yang membukukan (Akuntan) tidak memegang uang. Pemilik dan Admin memegang keduanya sebagai pengelola.
+ */
+export const BOOKKEEPING_ROLES: readonly Role[] = ['OWNER', 'ADMIN', 'ACCOUNTANT'];
+export const TREASURY_ROLES: readonly Role[] = ['OWNER', 'ADMIN', 'FINANCE'];
+/** Boleh melihat laporan keuangan dan pembukuan (termasuk Keuangan dan Akuntan) */
+export const FINANCIAL_VIEW_ROLES: readonly Role[] = ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'];
+export const canBookkeep = (role: string | null | undefined): boolean => BOOKKEEPING_ROLES.includes(role as Role);
+export const canHandleMoney = (role: string | null | undefined): boolean => TREASURY_ROLES.includes(role as Role);
+export const canViewFinancials = (role: string | null | undefined): boolean => FINANCIAL_VIEW_ROLES.includes(role as Role);
 
 export const ACCOUNT_TYPES = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];

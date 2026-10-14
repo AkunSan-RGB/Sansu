@@ -693,7 +693,7 @@ export class ImportsController {
   constructor(private readonly svc: ImportsService) {}
 
   /** dryRun (default) = pratinjau tanpa menyimpan; dryRun=false = simpan semua dalam satu transaksi */
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @HttpCode(200)
   @Post()
   run(@CurrentUser() u: AuthUser, @Body() dto: ImportDto) {

@@ -9,6 +9,7 @@ import { isForeignCurrency } from '@sansu/shared';
 import { fmtCurrency, fmtDate, fmtMoney, fmtQty, fmtRate } from '@/lib/format';
 import DocumentChain from '@/components/DocumentChain';
 import { useAuth } from '@/auth/AuthContext';
+import { useCan } from '@/auth/useCan';
 import { SalesOrderStatusTag } from './status';
 import { t } from '@/lib/terms';
 
@@ -21,6 +22,7 @@ export default function SalesOrderDetailPage() {
   const confirm = useAction(() => post(`/sales-orders/${id}/confirm`), { success: 'Order dikonfirmasi', invalidate: refresh });
   const cancel = useAction(() => post(`/sales-orders/${id}/cancel`), { success: 'Order dibatalkan', invalidate: refresh });
   const { me } = useAuth();
+  const can = useCan();
   const deliver = useAction(() => post<{ id: string; number: string }>(`/sales-orders/${id}/deliver`), {
     success: (r) => `Surat jalan ${r.number} dibuat · stok keluar`,
     invalidate: refresh,
@@ -41,19 +43,19 @@ export default function SalesOrderDetailPage() {
         extra={
           o && (
             <Space wrap>
-              {o.status === 'DRAFT' && (
+              {o.status === 'DRAFT' && can('POST', '/sales-orders/:id/confirm') && (
                 <Button type="primary" loading={confirm.isPending} onClick={() => confirm.mutate(undefined)}>
                   Konfirmasi
                 </Button>
               )}
-              {o.status === 'CONFIRMED' && ['OWNER', 'ADMIN', 'WAREHOUSE'].includes(me?.role ?? '') && (
+              {o.status === 'CONFIRMED' && ['OWNER', 'ADMIN', 'WAREHOUSE'].includes(me?.role ?? '') && can('POST', '/sales-orders/:id/deliver') && (
                 <Popconfirm title="Kirim barang? Surat jalan dibuat, stok dikurangi, dan HPP dijurnal. Faktur bisa dibuat sesudahnya." onConfirm={() => deliver.mutate(undefined)}>
                   <Button type="primary" loading={deliver.isPending}>
                     Kirim barang (surat jalan)
                   </Button>
                 </Popconfirm>
               )}
-              {(o.status === 'CONFIRMED' || o.status === 'DELIVERED') && (
+              {(o.status === 'CONFIRMED' || o.status === 'DELIVERED') && can('POST', '/invoices') && (
                 <Popconfirm
                   title={o.status === 'DELIVERED' ? 'Buat faktur dari surat jalan? Piutang, penjualan, dan PPN dijurnal.' : t('Buat faktur? Stok akan dikurangi dan jurnal diposting.')}
                   onConfirm={() => invoice.mutate(undefined)}
@@ -63,7 +65,7 @@ export default function SalesOrderDetailPage() {
                   </Button>
                 </Popconfirm>
               )}
-              {(o.status === 'DRAFT' || o.status === 'CONFIRMED') && (
+              {(o.status === 'DRAFT' || o.status === 'CONFIRMED') && can('POST', '/sales-orders/:id/cancel') && (
                 <Popconfirm title="Batalkan order ini?" onConfirm={() => cancel.mutate(undefined)}>
                   <Button danger>Batalkan</Button>
                 </Popconfirm>

@@ -19,7 +19,7 @@ const SALES_FIELDS = ['salesMonth', 'invoicesMonth', 'arOutstanding', 'arOverdue
 const WAREHOUSE_FIELDS = ['ordersPending'] as const;
 
 export function redactDashboard<T extends Record<string, unknown> & { recentInvoices: unknown[] }>(full: T, role: string) {
-  if (['OWNER', 'ADMIN', 'FINANCE'].includes(role)) return full;
+  if (['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'].includes(role)) return full;
   const keep: readonly string[] = role === 'SALES' ? SALES_FIELDS : role === 'WAREHOUSE' ? WAREHOUSE_FIELDS : [];
   const out: Record<string, unknown> = {};
   for (const k of Object.keys(full)) out[k] = keep.includes(k) ? full[k] : k === 'recentInvoices' ? [] : null;
@@ -183,7 +183,7 @@ export class DashboardController {
   }
 
   @Get('attention')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   attention(@CurrentUser() u: AuthUser) {
     if (u.branchIds?.length) return { score: null, grade: null, items: [] }; // data perusahaan utuh, bukan per cabang
     return this.svc.attention(u.tenantId);

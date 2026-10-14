@@ -44,7 +44,7 @@ export const APPS: AppInfo[] = [
     description: 'Sales order, faktur, piutang, retur penjualan',
     color: '#0F766E',
     depends: ['inventory', 'accounting'],
-    roles: ['SALES', 'FINANCE', 'WAREHOUSE'],
+    roles: ['SALES', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE'],
     home: '/sales-orders',
   },
   {
@@ -64,7 +64,7 @@ export const APPS: AppInfo[] = [
     description: 'Purchase order, faktur supplier, hutang, retur pembelian',
     color: '#7C3AED',
     depends: ['inventory', 'accounting'],
-    roles: ['FINANCE', 'WAREHOUSE'],
+    roles: ['FINANCE', 'ACCOUNTANT', 'WAREHOUSE'],
     home: '/purchase-orders',
   },
   {
@@ -73,7 +73,7 @@ export const APPS: AppInfo[] = [
     category: 'Supply Chain',
     description: 'Produk, multi satuan, stok per gudang, kartu stok, opname',
     color: '#2563EB',
-    roles: ['WAREHOUSE', 'SALES', 'FINANCE'],
+    roles: ['WAREHOUSE', 'SALES', 'FINANCE', 'ACCOUNTANT'],
     home: '/inventory',
   },
   {
@@ -83,7 +83,7 @@ export const APPS: AppInfo[] = [
     description: 'Jurnal, buku besar, laporan keuangan, PPN, tutup buku',
     color: '#0B1F2A',
     core: true,
-    roles: ['FINANCE'],
+    roles: ['FINANCE', 'ACCOUNTANT'],
     home: '/reports',
   },
   {
@@ -93,7 +93,7 @@ export const APPS: AppInfo[] = [
     description: 'Saldo kas & rekening, kas masuk/keluar, transfer',
     color: '#059669',
     depends: ['accounting'],
-    roles: ['FINANCE'],
+    roles: ['FINANCE', 'ACCOUNTANT'],
     home: '/cash',
   },
   {
@@ -112,7 +112,7 @@ export const APPS: AppInfo[] = [
     description: 'Slip gaji, BPJS, PPh 21 TER, jurnal & pembayaran gaji',
     color: '#9333EA',
     depends: ['hr', 'accounting'],
-    roles: ['HR', 'FINANCE'],
+    roles: ['HR', 'FINANCE', 'ACCOUNTANT'],
     home: '/payroll',
   },
 ];

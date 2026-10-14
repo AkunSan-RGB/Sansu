@@ -7,6 +7,7 @@ import { Button, Checkbox, Form, Input, InputNumber, Modal, Space, Switch, Tag }
 import { useState } from 'react';
 import { patch, post } from '@/api/client';
 import { useAction, useProducts } from '@/api/queries';
+import { useCan } from '@/auth/useCan';
 import type { Product } from '@/api/types';
 import ListPage from '@/components/ListPage';
 import { fmtMoney, fmtQty } from '@/lib/format';
@@ -29,10 +30,12 @@ interface FormValues {
 export default function ProductsPage() {
   const { isAdmin } = useApps();
   const { me } = useAuth();
+  const can = useCan();
   const navigate = useNavigate();
   const { data, isLoading } = useProducts();
   const prod = isProductionModel(me?.businessModel);
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
+  const canSave = editing === 'new' ? can('POST', '/products') : can('PATCH', '/products/:id');
   const [form] = Form.useForm<FormValues>();
 
   const save = useAction(
@@ -81,9 +84,11 @@ export default function ProductsPage() {
                 Impor Excel
               </Button>
             )}
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>
-              Produk baru
-            </Button>
+            {can('POST', '/products') && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>
+                Produk baru
+              </Button>
+            )}
           </>
         }
         rows={data}
@@ -162,6 +167,7 @@ export default function ProductsPage() {
         onCancel={() => setEditing(null)}
         onOk={() => form.submit()}
         confirmLoading={save.isPending}
+        okButtonProps={{ style: canSave ? undefined : { display: 'none' } }}
         okText="Simpan"
         destroyOnHidden
       >

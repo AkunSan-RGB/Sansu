@@ -1,11 +1,13 @@
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { CheckCircleFilled, MinusCircleOutlined } from '@ant-design/icons';
 import { Alert, Button, Card, Col, Form, Input, InputNumber, Row, Select, Space, Table, Tag, Typography } from 'antd';
+import { canBookkeep } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { Link } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAccounts, useAction } from '@/api/queries';
+import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, rupiahInput } from '@/lib/format';
 import { t } from '@/lib/terms';
@@ -38,6 +40,7 @@ interface Line {
 }
 
 export default function OpeningBalancePage() {
+  const bookkeeper = canBookkeep(useAuth().me?.role);
   const accounts = useAccounts();
   const [form] = Form.useForm<{ date: string; lines: Line[] }>();
   const lines: Line[] = Form.useWatch('lines', form) ?? [];
@@ -70,6 +73,7 @@ export default function OpeningBalancePage() {
   return (
     <>
       <PageHeader title="Saldo Awal" />
+      {!bookkeeper && <Alert type="info" showIcon style={{ marginBottom: 16 }} message="Peran Anda hanya dapat melihat halaman ini." />}
       <Card style={{ marginBottom: 16 }}>
         <Typography.Paragraph>
           Saldo awal adalah <strong>neraca penutup sistem lama</strong> per tanggal Anda mulai memakai SANSU (biasanya akhir bulan sebelumnya). Isi
@@ -198,9 +202,11 @@ export default function OpeningBalancePage() {
                 Selisih {fmtMoney(Math.abs(diff))} akan dicatat di Ekuitas Saldo Awal ({diff > 0 ? 'kredit' : 'debit'})
               </Typography.Text>
             )}
-            <Button type="primary" htmlType="submit" loading={save.isPending}>
-              Posting saldo awal
-            </Button>
+            {bookkeeper && (
+              <Button type="primary" htmlType="submit" loading={save.isPending}>
+                Posting saldo awal
+              </Button>
+            )}
           </Space>
         </Form>
       </Card>

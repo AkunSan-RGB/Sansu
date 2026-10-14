@@ -15,6 +15,7 @@ import { DbExceptionFilter } from './common/filters/db-exception.filter';
 import { DbModule } from './db/db.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
+import { PermissionsModule } from './common/auth/permissions';
 import { AuthModule } from './modules/auth/auth.module';
 import { DashboardModule } from './modules/dashboard/dashboard';
 import { RemindersModule } from './modules/reminders/reminders.module';
@@ -69,6 +70,7 @@ import { MailModule } from './mail/mail.module';
     MailModule, // pengirim email via Brevo API (BREVO_API_KEY)
     // Modul domain — batas modul tegas (modular monolith)
     AuthModule,
+    PermissionsModule,
     MasterDataModule,
     AccountingModule,
     InventoryModule,

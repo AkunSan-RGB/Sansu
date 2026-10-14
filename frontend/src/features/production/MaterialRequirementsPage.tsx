@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Bom } from '@sansu/shared';
 import { get, post } from '@/api/client';
 import { useAction, useWarehouses } from '@/api/queries';
+import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
@@ -40,6 +41,7 @@ interface Result {
  * dibandingkan dengan stok, pesanan berjalan, dan permintaan pembelian → kekurangan langsung bisa diminta dibeli.
  */
 export default function MaterialRequirementsPage() {
+  const can = useCan();
   const navigate = useNavigate();
   const { data: warehouses } = useWarehouses();
   const boms = useQuery({ queryKey: ['production', 'boms'], queryFn: () => get<Bom[]>('/production/boms') });
@@ -102,10 +104,12 @@ export default function MaterialRequirementsPage() {
               <Button icon={<PlusOutlined />} onClick={() => setItems([...items, { batches: 1 }])}>
                 {t('Tambah resep')}
               </Button>
-              <Button type="primary" disabled={!valid} loading={calc.isPending} onClick={() => calc.mutate(undefined)}>
-                Hitung kebutuhan
-              </Button>
-              {r && (
+              {can('POST', '/production/requirements') && (
+                <Button type="primary" disabled={!valid} loading={calc.isPending} onClick={() => calc.mutate(undefined)}>
+                  Hitung kebutuhan
+                </Button>
+              )}
+              {r && can('POST', '/production/plan') && (
                 <Popconfirm title="Buat perintah produksi dari rencana ini?" description="Satu perintah untuk tiap barang jadi dan satu perintah anak untuk setiap barang setengah jadi yang kurang. Perintah induk baru bisa dimulai setelah anaknya selesai." onConfirm={() => plan.mutate(undefined)}>
                   <Button loading={plan.isPending}>Buat perintah produksi</Button>
                 </Popconfirm>
@@ -143,7 +147,7 @@ export default function MaterialRequirementsPage() {
               title="Bahan baku"
               size="small"
               extra={
-                r.shortageCount > 0 && (
+                r.shortageCount > 0 && can('POST', '/purchase-requests') && (
                   <Button type="primary" icon={<ShoppingCartOutlined />} loading={request.isPending} onClick={() => request.mutate(undefined)}>
                     Minta beli kekurangan
                   </Button>

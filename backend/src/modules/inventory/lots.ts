@@ -141,7 +141,7 @@ export class LotsController {
   constructor(private readonly svc: LotsService) {}
 
   @Get()
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
   list(@CurrentUser() u: AuthUser, @Query() q: LotQueryDto) {
     return this.svc.list(u, q);
   }

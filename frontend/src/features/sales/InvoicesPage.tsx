@@ -1,5 +1,6 @@
 import { PlusOutlined } from '@ant-design/icons';
-import { isForeignCurrency } from '@sansu/shared';
+import { canHandleMoney, isForeignCurrency } from '@sansu/shared';
+import { useCan } from '@/auth/useCan';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Card, Empty, Input, Segmented, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
 import dayjs from 'dayjs';
@@ -21,6 +22,7 @@ import { useAuth } from '@/auth/AuthContext';
 export default function InvoicesPage() {
   const navigate = useNavigate();
   const { me } = useAuth();
+  const can = useCan();
   const [view, setView] = useState<'OPEN' | 'OVERDUE' | 'PAID' | 'ALL'>('OPEN');
   const [search, setSearch] = useState('');
   const [paying, setPaying] = useState<Invoice | null>(null);
@@ -46,7 +48,7 @@ export default function InvoicesPage() {
       <PageHeader
         title={t('Faktur & Piutang')}
         extra={
-          me?.businessModel === 'RITEL' ? undefined : (
+          me?.businessModel === 'RITEL' || !can('POST', '/services/invoices') ? undefined : (
             <Button icon={<PlusOutlined />} onClick={() => navigate('/invoices/services/new')}>
               {me?.businessModel === 'JASA' ? 'Tagihan jasa' : 'Faktur jasa'}
             </Button>
@@ -128,10 +130,12 @@ export default function InvoicesPage() {
                         render: (_: unknown, i: Invoice) =>
                           i.status !== 'PAID' && (
                             <Space>
-                              <Button size="small" type="primary" onClick={() => setPaying(i)}>
-                                Terima bayar
-                              </Button>
-                              {!i.isOpening && (
+                              {canHandleMoney(me?.role) && can('POST', '/payments') && (
+                                <Button size="small" type="primary" onClick={() => setPaying(i)}>
+                                  Terima bayar
+                                </Button>
+                              )}
+                              {!i.isOpening && can('POST', '/sales-returns') && (
                                 <Button size="small" onClick={() => navigate(`/returns?tab=sales&invoice=${i.id}`)}>
                                   Retur
                                 </Button>

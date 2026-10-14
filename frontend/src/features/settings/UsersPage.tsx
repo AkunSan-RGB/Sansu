@@ -1,7 +1,7 @@
 import { PlusOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { APPS, canUseApp, ROLE_LABELS, type Role, ROLES, toOptions } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { App, Button, Form, Input, Modal, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd';
+import { Alert, App, Button, Form, Input, Modal, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd';
 import { useState } from 'react';
 import { get, patch, post } from '@/api/client';
 import { useAction, useBranches, useWarehouses } from '@/api/queries';
@@ -14,7 +14,8 @@ import { t } from '@/lib/terms';
 const ROLE_HELP: Record<Role, string> = {
   OWNER: 'Semua akses, termasuk membuka kembali periode yang dikunci',
   ADMIN: 'Semua aplikasi & pengaturan',
-  FINANCE: 'Akuntansi, kas & bank, faktur, pembayaran',
+  FINANCE: 'Kas & bank, pembayaran, faktur, setor pajak, bayar gaji (tidak membukukan jurnal)',
+  ACCOUNTANT: 'Jurnal, bagan akun, tutup buku, aset tetap, laporan & pajak (tidak memegang uang)',
   SALES: 'CRM, penawaran, sales order, pelanggan',
   WAREHOUSE: 'Stok, produk, penerimaan barang',
   CASHIER: 'Layar kasir saja',
@@ -57,7 +58,7 @@ export default function UsersPage() {
     onSuccess: () => setEditing(null),
   });
   const canReset = (u: UserRow) =>
-    u.id !== me?.id && (me?.role === 'OWNER' || !['OWNER', 'ADMIN', 'FINANCE'].includes(u.role));
+    u.id !== me?.id && (me?.role === 'OWNER' || !['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'].includes(u.role));
 
   const roles = ROLES.filter((r) => r !== 'OWNER' || me?.role === 'OWNER');
 
@@ -80,6 +81,17 @@ export default function UsersPage() {
         }
         rows={data}
         loading={isLoading}
+        below={
+          data && data.some((u) => u.isActive && u.role === 'FINANCE') && !data.some((u) => u.isActive && u.role === 'ACCOUNTANT') ? (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="Peran Akuntan belum ditetapkan"
+              description="Pemisahan fungsi: Keuangan memegang uang (kas, bank, pembayaran, setor pajak, bayar gaji) dan tidak lagi bisa membukukan. Jurnal manual, kunci periode, tutup buku, dan penyusutan kini hanya bisa dikerjakan Pemilik/Admin, dan posting gaji hanya Pemilik, sampai ada pengguna berperan Akuntan. Klik pengguna yang bertugas membukukan, lalu ubah perannya menjadi Akuntan. Jangan menetapkan orang yang sama memegang uang dan membukukan."
+            />
+          ) : null
+        }
         summary={(r) => [
           { label: 'Semua pengguna', value: r.length },
           { label: 'Aktif', value: r.filter((u) => u.isActive).length, tone: 'good' },
@@ -203,6 +215,15 @@ export default function UsersPage() {
           <Form.Item name="role" label="Peran" rules={[{ required: true }]} extra={role && ROLE_HELP[role]}>
             <Select options={toOptions(ROLE_LABELS).filter((o) => roles.includes(o.value))} />
           </Form.Item>
+          {editing && editing !== 'new' && role && role !== editing.role && [role, editing.role].every((r) => r === 'FINANCE' || r === 'ACCOUNTANT') && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="Perpindahan Keuangan ↔ Akuntan"
+              description="Dua peran ini saling mengawasi. Perpindahan ini dicatat di jejak audit dan ditandai di Cek kesehatan selama 180 hari. Pastikan alasannya sah dan tinjau transaksi yang dibuat pengguna ini."
+            />
+          )}
           {role && (
             <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
               Aplikasi yang bisa dibuka:{' '}

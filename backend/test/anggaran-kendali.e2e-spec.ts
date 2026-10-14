@@ -16,6 +16,7 @@ describe('Kendali anggaran saat belanja (e2e)', () => {
   let http: ReturnType<typeof request>;
   let owner: string;
   let finance: string;
+  let acct: string;
   let cashId: string;
   let expA: string;
   let expB: string;
@@ -42,6 +43,8 @@ describe('Kendali anggaran saat belanja (e2e)', () => {
     owner = (await http.post('/api/auth/register').send({ companyName: 'PT Kendali Anggaran', name: 'Pemilik', email: `ak-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
     await post(owner, '/api/users', { name: 'Keuangan', email: `ak-fin-${stamp}@uji.id`, password: 'keuangan123', role: 'FINANCE' }).expect(201);
     finance = (await http.post('/api/auth/login').send({ email: `ak-fin-${stamp}@uji.id`, password: 'keuangan123' }).expect(200)).body.accessToken;
+    await post(owner, '/api/users', { name: 'Akuntan', email: `ak-akn-${stamp}@uji.id`, password: 'akuntan123', role: 'ACCOUNTANT' }).expect(201);
+    acct = (await http.post('/api/auth/login').send({ email: `ak-akn-${stamp}@uji.id`, password: 'akuntan123' }).expect(200)).body.accessToken;
     cashId = ((await get(owner, '/api/cash/accounts').expect(200)).body as { id: string; code: string }[]).find((a) => a.code === '1-1100')!.id;
     const counters = (await get(owner, '/api/cash/counter-accounts').expect(200)).body as { id: string; type: string; code: string }[];
     const exp = counters.filter((a) => a.type === 'EXPENSE');
@@ -69,8 +72,8 @@ describe('Kendali anggaran saat belanja (e2e)', () => {
     await spend(finance, expB, '900000').expect(201); // akun tanpa anggaran: tidak diblokir
     // jurnal manual biaya A melebihi: ditolak; jurnal penyesuaian lolos
     const lines = [{ accountId: expA, debit: '50000' }, { accountId: cashId, credit: '50000' }];
-    await post(finance, '/api/accounting/journals', { date: today, description: 'Biaya A manual', lines }).expect(400);
-    await post(finance, '/api/accounting/journals', { date: today, description: 'Akrual A', adjustment: true, lines }).expect(201);
+    await post(acct, '/api/accounting/journals', { date: today, description: 'Biaya A manual', lines }).expect(400);
+    await post(acct, '/api/accounting/journals', { date: today, description: 'Akrual A', adjustment: true, lines }).expect(201);
     // tagihan biaya melewati anggaran: ditolak
     const b = await bill(finance, expA, '50000').expect(400);
     expect(b.body.code).toBe('BUDGET_EXCEEDED');

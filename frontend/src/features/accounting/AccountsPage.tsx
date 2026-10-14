@@ -1,4 +1,4 @@
-import { REPORTING_FRAMEWORK_SHORT, BUSINESS_MODEL_BY_KEY, BUSINESS_MODELS, type BusinessModel, ACCOUNT_TYPE_LABELS, type AccountType, FISCAL_TREATMENT_LABELS, type FiscalTreatment, REPORT_GROUPS, type ReportGroup, reportGroupsFor, toOptions } from '@sansu/shared';
+import { canBookkeep, REPORTING_FRAMEWORK_SHORT, BUSINESS_MODEL_BY_KEY, BUSINESS_MODELS, type BusinessModel, ACCOUNT_TYPE_LABELS, type AccountType, FISCAL_TREATMENT_LABELS, type FiscalTreatment, REPORT_GROUPS, type ReportGroup, reportGroupsFor, toOptions } from '@sansu/shared';
 import { PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Card, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, Typography } from 'antd';
@@ -86,6 +86,7 @@ function ChartProfileBar({ hiddenCount }: { hiddenCount: number }) {
 
 export default function AccountsPage() {
   const navigate = useNavigate();
+  const bookkeeper = canBookkeep(useAuth().me?.role);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Account | null>(null);
   const [form] = Form.useForm();
@@ -120,10 +121,12 @@ export default function AccountsPage() {
                 Tampilkan {unusedCount} akun yang tidak dipakai di jenis usaha ini
               </Checkbox>
             )}
-            <Button onClick={() => navigate('/opening-balance')}>Isi saldo awal</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => (form.resetFields(), setOpen(true))}>
-              Akun baru
-            </Button>
+            {bookkeeper && <Button onClick={() => navigate('/opening-balance')}>Isi saldo awal</Button>}
+            {bookkeeper && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => (form.resetFields(), setOpen(true))}>
+                Akun baru
+              </Button>
+            )}
           </Space>
         }
       />
@@ -185,17 +188,19 @@ export default function AccountsPage() {
                         Buku besar
                       </Button>
                     )}
-                    <Button
-                      size="small"
-                      type="link"
-                      onClick={() => {
-                        editForm.setFieldsValue({ ...a, isActive: a.isActive !== false });
-                        setEditing(a);
-                      }}
-                    >
-                      Ubah
-                    </Button>
-                    {!a.systemKey && !a.children?.length && (
+                    {bookkeeper && (
+                      <Button
+                        size="small"
+                        type="link"
+                        onClick={() => {
+                          editForm.setFieldsValue({ ...a, isActive: a.isActive !== false });
+                          setEditing(a);
+                        }}
+                      >
+                        Ubah
+                      </Button>
+                    )}
+                    {bookkeeper && !a.systemKey && !a.children?.length && (
                       <Popconfirm title="Hapus akun ini? Hanya bisa jika belum pernah dipakai." onConfirm={() => remove.mutate(a.id)}>
                         <Button size="small" type="link" danger>
                           Hapus

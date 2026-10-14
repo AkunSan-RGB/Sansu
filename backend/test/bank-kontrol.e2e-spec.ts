@@ -14,6 +14,8 @@ describe('Bank: kontrol & otomatisasi (e2e)', () => {
   let http: ReturnType<typeof request>;
   let owner: string;
   let finance: string;
+  let acct: string;
+  let adm: string;
   let bankId: string;
   let expenseId: string;
   let equityId: string;
@@ -31,6 +33,10 @@ describe('Bank: kontrol & otomatisasi (e2e)', () => {
     owner = (await http.post('/api/auth/register').send({ companyName: 'PT Bank Kontrol', name: 'Pemilik', email: `bk-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
     await post(owner, '/api/users', { name: 'Keuangan', email: `bk-fin-${stamp}@uji.id`, password: 'keuangan123', role: 'FINANCE' }).expect(201);
     finance = (await http.post('/api/auth/login').send({ email: `bk-fin-${stamp}@uji.id`, password: 'keuangan123' }).expect(200)).body.accessToken;
+    await post(owner, '/api/users', { name: 'Akuntan', email: `bk-akn-${stamp}@uji.id`, password: 'akuntan123', role: 'ACCOUNTANT' }).expect(201);
+    acct = (await http.post('/api/auth/login').send({ email: `bk-akn-${stamp}@uji.id`, password: 'akuntan123' }).expect(200)).body.accessToken;
+    await post(owner, '/api/users', { name: 'Admin', email: `bk-adm-${stamp}@uji.id`, password: 'admin12345', role: 'ADMIN' }).expect(201);
+    adm = (await http.post('/api/auth/login').send({ email: `bk-adm-${stamp}@uji.id`, password: 'admin12345' }).expect(200)).body.accessToken;
     const accs = (await get(owner, '/api/cash/accounts').expect(200)).body as { id: string; code: string }[];
     bankId = accs.find((a) => a.code === '1-1200')!.id;
     const counters = (await get(owner, '/api/cash/counter-accounts').expect(200)).body as { id: string; type: string; code: string }[];
@@ -84,14 +90,15 @@ describe('Bank: kontrol & otomatisasi (e2e)', () => {
     await http.delete(`/api/bank/statements/${sts[0].id}?reason=salah%20unggah%20file`).set(as(owner)).expect(200);
   });
 
-  it('pengesahan rekonsiliasi: bulan berjalan ditolak, pengimpor tidak boleh mengesahkan sendiri, Pemilik boleh', async () => {
+  it('pengesahan rekonsiliasi: Keuangan tidak boleh mengesahkan, bulan berjalan ditolak, pengimpor (Admin) tidak mengesahkan sendiri, Akuntan/Pemilik boleh', async () => {
     const d = addDays(`${todayJakarta().slice(0, 7)}-01`, -15); // pertengahan bulan lalu
     const period = d.slice(0, 7);
     await post(owner, '/api/cash/transactions', { type: 'IN', cashAccountId: bankId, date: d, description: 'Setoran modal', reference: 'M-1', lines: [{ accountId: equityId, amount: '7000000' }] }).expect(201);
-    await post(finance, '/api/bank/statements', { cashAccountId: bankId, lines: [{ date: d, description: 'SETORAN MODAL', amount: '7000000', balance: '7000000' }] }).expect(201);
-    await post(finance, '/api/bank/signoffs', { cashAccountId: bankId, period: todayJakarta().slice(0, 7) }).expect(400);
-    await post(finance, '/api/bank/signoffs', { cashAccountId: bankId, period }).expect(403);
-    await post(owner, '/api/bank/signoffs', { cashAccountId: bankId, period }).expect(201);
+    await post(adm, '/api/bank/statements', { cashAccountId: bankId, lines: [{ date: d, description: 'SETORAN MODAL', amount: '7000000', balance: '7000000' }] }).expect(201);
+    await post(finance, '/api/bank/signoffs', { cashAccountId: bankId, period }).expect(403); // pemegang uang tidak mengesahkan pembukuannya sendiri
+    await post(acct, '/api/bank/signoffs', { cashAccountId: bankId, period: todayJakarta().slice(0, 7) }).expect(400);
+    await post(adm, '/api/bank/signoffs', { cashAccountId: bankId, period }).expect(403); // pengimpor tidak mengesahkan sendiri
+    await post(acct, '/api/bank/signoffs', { cashAccountId: bankId, period }).expect(201);
     await post(owner, '/api/bank/signoffs', { cashAccountId: bankId, period }).expect(400); // sudah
     const list = (await get(owner, `/api/bank/signoffs?cashAccountId=${bankId}`).expect(200)).body as { period: string }[];
     expect(list.map((x) => x.period)).toContain(period);

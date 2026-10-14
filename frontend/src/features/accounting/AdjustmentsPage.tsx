@@ -1,11 +1,12 @@
 import { CheckCircleFilled, ClockCircleFilled, InfoCircleFilled, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
-import { JOURNAL_SOURCE_LABELS, type JournalSource } from '@sansu/shared';
+import { canBookkeep, JOURNAL_SOURCE_LABELS, type JournalSource } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Checkbox, Col, Form, Input, InputNumber, List, Modal, Popconfirm, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, post, qs } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import { LEDGER_KEYS, useAccounts, useAction } from '@/api/queries';
 import type { Account, JournalEntry } from '@/api/types';
 import QueryState from '@/components/QueryState';
@@ -207,6 +208,7 @@ function AdjustmentModal({ open, onClose, initial, defaultDate }: { open: boolea
 
 export default function AdjustmentsPage() {
   const navigate = useNavigate();
+  const bookkeeper = canBookkeep(useAuth().me?.role);
   const { from, to, setFrom, setTo, query } = usePeriod();
   const [month, setMonth] = useState(() => (dayjs(to).date() < 25 ? dayjs(to).subtract(1, 'month') : dayjs(to)).format('YYYY-MM'));
   const [modal, setModal] = useState<{ open: boolean; template?: ChecklistItem['template'] }>({ open: false });
@@ -239,9 +241,11 @@ export default function AdjustmentsPage() {
             <Input type="date" value={from} onChange={(e) => e.target.value && setFrom(e.target.value)} />
             <span>s/d</span>
             <Input type="date" value={to} onChange={(e) => e.target.value && setTo(e.target.value)} />
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setModal({ open: true })}>
-              Jurnal penyesuaian
-            </Button>
+            {bookkeeper && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setModal({ open: true })}>
+                Jurnal penyesuaian
+              </Button>
+            )}
           </Space>
         }
       />
@@ -281,7 +285,7 @@ export default function AdjustmentsPage() {
                         renderItem={(i) => (
                           <List.Item
                             actions={[
-                              i.template && i.status !== 'DONE' && (
+                              bookkeeper && i.template && i.status !== 'DONE' && (
                                 <Button key="t" size="small" type="primary" onClick={() => setModal({ open: true, template: i.template })}>
                                   Buat jurnal
                                 </Button>
@@ -344,6 +348,7 @@ export default function AdjustmentsPage() {
                     { title: 'Nilai', align: 'right', render: (_, j) => fmtMoney(j.lines.reduce((a, l) => a + Number(l.debit), 0)) },
                     {
                       render: (_, j) =>
+                        bookkeeper &&
                         (j.sourceType === 'ADJUSTMENT' || j.sourceType === 'INCOME_TAX') &&
                         !reversed.has(j.id) && (
                           <Popconfirm title="Batalkan dengan jurnal balik?" onConfirm={() => reverse.mutate(j.id)}>

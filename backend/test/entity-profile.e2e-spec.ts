@@ -31,7 +31,7 @@ describe('Wizard standar akuntansi & pajak (e2e)', () => {
   });
   afterAll(() => app.close());
 
-  it('butuh login, dan hanya Admin/Keuangan yang boleh membuka wizard', async () => {
+  it('butuh login, dan hanya Admin/Keuangan/Akuntan yang boleh membuka wizard', async () => {
     await http.get('/api/accounting/entity-profile').expect(401);
     await post('/api/users', { name: 'Kasir', email: `wiz-k-${stamp}@uji.id`, password: 'kasir1234', role: 'CASHIER' }).expect(201);
     const kasir = (await http.post('/api/auth/login').send({ email: `wiz-k-${stamp}@uji.id`, password: 'kasir1234' }).expect(200)).body.accessToken;
@@ -101,8 +101,8 @@ describe('Wizard standar akuntansi & pajak (e2e)', () => {
     expect(after.taxProfile).toEqual(before.taxProfile);
   });
 
-  it('peran Keuangan boleh menerapkan standar, tetapi tidak boleh mengubah status PKP', async () => {
-    await post('/api/users', { name: 'Keuangan', email: `wiz-f-${stamp}@uji.id`, password: 'rahasia123', role: 'FINANCE' }).expect(201);
+  it('peran Akuntan boleh menerapkan standar, tetapi tidak boleh mengubah status PKP', async () => {
+    await post('/api/users', { name: 'Akuntan', email: `wiz-f-${stamp}@uji.id`, password: 'rahasia123', role: 'ACCOUNTANT' }).expect(201);
     const fin = (await http.post('/api/auth/login').send({ email: `wiz-f-${stamp}@uji.id`, password: 'rahasia123' }).expect(200)).body.accessToken;
     await apply({ pkp: false }, fin).expect(403);
     expect((await get('/api/settings/company')).body.taxProfile.pkp).toBe(true);

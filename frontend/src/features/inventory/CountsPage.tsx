@@ -1,6 +1,7 @@
 import { AuditOutlined, CheckCircleOutlined, PrinterOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/auth/AuthContext';
+import { useCan } from '@/auth/useCan';
 import { Alert, App, Button, Card, Form, Input, InputNumber, Modal, Progress, Segmented, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -57,6 +58,7 @@ const KEYS = ['counts', 'stock', 'stock-moves', 'matrix', 'low-stock', 'journals
 /** Daftar stock opname */
 export default function CountsPage() {
   const navigate = useNavigate();
+  const can = useCan();
   const { data: warehouses } = useWarehouses();
   const { data: products } = useProducts();
   const [open, setOpen] = useState(false);
@@ -72,9 +74,11 @@ export default function CountsPage() {
       <ListPage<CountRow>
         title="Stock opname"
         actions={
-          <Button type="primary" icon={<AuditOutlined />} onClick={() => setOpen(true)}>
-            Mulai stock opname
-          </Button>
+          can('POST', '/inventory/counts') && (
+            <Button type="primary" icon={<AuditOutlined />} onClick={() => setOpen(true)}>
+              Mulai stock opname
+            </Button>
+          )
         }
         rows={list.data}
         loading={list.isLoading}
@@ -163,6 +167,8 @@ function CountSheet({ c }: { c: CountDetail }) {
     onSuccess: () => setDirty(false),
   });
   const { me } = useAuth();
+  const can = useCan();
+  const canEditCount = can('PUT', '/inventory/counts/:id');
   const postCount = useAction(
     async () => {
       if (dirty) await put(`/inventory/counts/${c.id}`, { lines: c.lines.map((l) => ({ productId: l.productId, countedQty: values[l.productId] == null ? null : String(values[l.productId]) })) });
@@ -229,16 +235,20 @@ function CountSheet({ c }: { c: CountDetail }) {
             </Button>
             {editable && (
               <>
+                {can('POST', '/inventory/counts/:id/cancel') && (
                 <Button danger onClick={() => modal.confirm({ title: 'Batalkan stock opname ini?', okText: 'Batalkan', cancelText: 'Tidak', onOk: () => cancel.mutateAsync(undefined) })}>
                   Batalkan
                 </Button>
+                )}
+                {canEditCount && (
                 <Button icon={<SaveOutlined />} disabled={!dirty} loading={save.isPending} onClick={() => save.mutate(undefined)}>
                   Simpan
                 </Button>
+                )}
                 {/* pemisahan fungsi: yang menghitung (Gudang) tidak membukukan selisihnya; Keuangan/Admin/Pemilik yang membukukan */}
                 {me?.role === 'WAREHOUSE' ? (
                   <Tag color="blue">Selisih dibukukan oleh Keuangan/Admin</Tag>
-                ) : (
+                ) : can('POST', '/inventory/counts/:id/post') && (
                   <Button type="primary" icon={<CheckCircleOutlined />} disabled={!done} loading={postCount.isPending} onClick={confirmPost}>
                     Bukukan selisih
                   </Button>
@@ -271,7 +281,7 @@ function CountSheet({ c }: { c: CountDetail }) {
                 { value: 'DIFF', label: 'Ada selisih' },
               ]}
             />
-            {editable && (
+            {editable && canEditCount && (
               <Button
                 onClick={() => {
                   setValues((v) => Object.fromEntries(c.lines.map((l) => [l.productId, v[l.productId] ?? Number(l.currentQty)])));
@@ -298,7 +308,7 @@ function CountSheet({ c }: { c: CountDetail }) {
                 width: 150,
                 align: 'right',
                 render: (_, l) =>
-                  editable ? (
+                  editable && canEditCount ? (
                     <InputNumber
                       min={0}
                       value={values[l.productId] ?? null}

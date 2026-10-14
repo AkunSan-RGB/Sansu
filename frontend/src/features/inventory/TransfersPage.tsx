@@ -31,6 +31,7 @@ import { useSearchParams } from 'react-router-dom';
 import { get, post, qs } from '@/api/client';
 import { LEDGER_KEYS, useAction, useProducts, useWarehouses } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
+import { useCan } from '@/auth/useCan';
 import type { StockBalance } from '@/api/types';
 import ListPage from '@/components/ListPage';
 import QueryState from '@/components/QueryState';
@@ -100,6 +101,7 @@ const KEYS = ['transfers', 'stock', 'stock-moves', 'matrix', 'low-stock', 'dashb
 export default function TransfersPage() {
   const [params, setParams] = useSearchParams();
   const [warehouseId, setWarehouseId] = useState<string>();
+  const can = useCan();
   const [open, setOpen] = useState(params.get('new') === '1');
   const detailId = params.get('id');
   const { data: warehouses } = useWarehouses();
@@ -123,9 +125,11 @@ export default function TransfersPage() {
               onChange={setWarehouseId}
               options={warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))}
             />
-            <Button type="primary" icon={<SwapOutlined />} onClick={() => setOpen(true)} disabled={(warehouses?.length ?? 0) < 2}>
-              Transfer baru
-            </Button>
+            {can('POST', '/inventory/transfers') && (
+              <Button type="primary" icon={<SwapOutlined />} onClick={() => setOpen(true)} disabled={(warehouses?.length ?? 0) < 2}>
+                Transfer baru
+              </Button>
+            )}
           </>
         }
         rows={list.data}
@@ -369,7 +373,8 @@ function TransferDoc({ id }: { id: string }) {
   const { me } = useAuth();
   const { modal } = App.useApp();
   const [receiving, setReceiving] = useState(false);
-  const can = (whId: string) =>
+  const can = useCan();
+  const inWarehouse = (whId: string) =>
     (me?.role === 'OWNER' || me?.role === 'ADMIN' || me?.role === 'WAREHOUSE') &&
     (!me?.warehouseIds?.length || me.warehouseIds.includes(whId));
   const cancel = useAction(() => post(`/inventory/transfers/${id}/cancel`, {}), {
@@ -417,12 +422,12 @@ function TransferDoc({ id }: { id: string }) {
             >
               Cetak surat jalan
             </Button>
-            {t.status === 'IN_TRANSIT' && can(t.to.id) && (
+            {t.status === 'IN_TRANSIT' && inWarehouse(t.to.id) && can('POST', '/inventory/transfers/:id/receive') && (
               <Button type="primary" icon={<CheckOutlined />} onClick={() => setReceiving(true)}>
                 Terima barang
               </Button>
             )}
-            {t.status === 'IN_TRANSIT' && can(t.from.id) && (
+            {t.status === 'IN_TRANSIT' && inWarehouse(t.from.id) && can('POST', '/inventory/transfers/:id/cancel') && (
               <Button
                 danger
                 icon={<RollbackOutlined />}

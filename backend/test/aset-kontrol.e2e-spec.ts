@@ -29,7 +29,7 @@ describe('Aset tetap — otomatisasi & kontrol (e2e)', () => {
     await app.init();
     http = request(app.getHttpServer());
     owner = (await http.post('/api/auth/register').send({ companyName: 'PT Kontrol Aset', name: 'Pemilik', email: `ka-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
-    await post(owner, '/api/users', { name: 'Keuangan', email: `ka-fin-${stamp}@uji.id`, password: 'keuangan123', role: 'FINANCE' }).expect(201);
+    await post(owner, '/api/users', { name: 'Akuntan', email: `ka-fin-${stamp}@uji.id`, password: 'keuangan123', role: 'ACCOUNTANT' }).expect(201);
     finance = (await http.post('/api/auth/login').send({ email: `ka-fin-${stamp}@uji.id`, password: 'keuangan123' }).expect(200)).body.accessToken;
     const cats = (await get(owner, '/api/assets/categories').expect(200)).body as { id: string; method: string; accumulatedAccountId: string | null }[];
     categoryId = cats.find((c) => c.method !== 'NONE' && c.accumulatedAccountId)!.id;

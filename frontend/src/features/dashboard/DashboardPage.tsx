@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { canViewFinancials } from '@sansu/shared';
 import {
   CheckCircleTwoTone,
   CloseCircleFilled,
@@ -27,7 +28,7 @@ import { t } from '@/lib/terms';
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { me } = useAuth();
-  const finance = ['OWNER', 'ADMIN', 'FINANCE'].includes(me?.role ?? '');
+  const finance = canViewFinancials(me?.role);
   const branchList = useBranches();
   const myBranches = me?.branchIds?.length ? me.branchIds : null;
   const branchOpts = (branchList.data?.branches ?? []).filter(

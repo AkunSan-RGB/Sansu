@@ -14,13 +14,13 @@ export class SalesOrdersController {
   constructor(private readonly svc: SalesOrdersService) {}
 
   @Get()
-  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT')
   list(@CurrentUser() u: AuthUser, @Query() q: SalesOrderQueryDto) {
     return this.svc.list(u.tenantId, q);
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE')
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }

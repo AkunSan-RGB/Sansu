@@ -266,7 +266,7 @@ export class PosOnlineController {
   ) {}
 
   @Get('settings')
-  @Roles('ADMIN', 'FINANCE', 'CASHIER')
+  @Roles('ADMIN', 'FINANCE', 'CASHIER', 'ACCOUNTANT')
   async getSettings(@CurrentUser() u: AuthUser) {
     return { commissions: await this.settings.commissions(u.tenantId) };
   }
@@ -291,10 +291,12 @@ export class PosOnlineController {
   }
 
   @Get('unsettled')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   unsettled(@CurrentUser() u: AuthUser, @Query() q: UnsettledQueryDto) {
     return this.settlements.unsettled(u.tenantId, q.channel);
   }
   @Get('settlements')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   listSettlements(@CurrentUser() u: AuthUser) {
     return this.settlements.list(u.tenantId);
   }

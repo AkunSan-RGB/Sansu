@@ -1,5 +1,6 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { ROLE_LABELS } from '@sansu/shared';
 import { Role } from '../../db/schema';
 import { AuthUser } from './auth-user';
 import { ROLES_KEY } from './decorators';
@@ -13,6 +14,9 @@ export class RolesGuard implements CanActivate {
     if (!roles?.length) return true;
     const user: AuthUser | undefined = ctx.switchToHttp().getRequest().user;
     if (user && (user.role === 'OWNER' || roles.includes(user.role))) return true;
-    throw new ForbiddenException('Peran Anda tidak memiliki akses ke fitur ini');
+    // pesan menyebut siapa yang berhak, supaya pengguna tahu harus meminta tolong ke peran yang mana (pemisahan fungsi)
+    const label = (r: string) => (ROLE_LABELS as Record<string, string>)[r] ?? r;
+    const who = ['OWNER', ...roles.filter((r) => r !== 'OWNER')].map(label).join(', ');
+    throw new ForbiddenException(`Peran Anda${user ? ` (${label(user.role)})` : ''} tidak memiliki akses ke fitur ini. Yang berhak: ${who}.`);
   }
 }

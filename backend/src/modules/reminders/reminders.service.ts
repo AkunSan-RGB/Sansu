@@ -76,19 +76,19 @@ export const DEFAULT_REMINDERS: ReminderSettings = {
 
 /** Peran yang melihat tiap pengingat */
 const AUDIENCE: Record<string, readonly string[]> = {
-  'ar-overdue': ['OWNER', 'ADMIN', 'FINANCE', 'SALES'],
-  'ar-due-soon': ['OWNER', 'ADMIN', 'FINANCE', 'SALES'],
-  'ap-overdue': ['OWNER', 'ADMIN', 'FINANCE'],
-  'ap-due-soon': ['OWNER', 'ADMIN', 'FINANCE'],
+  'ar-overdue': ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'],
+  'ar-due-soon': ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'],
+  'ap-overdue': ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'],
+  'ap-due-soon': ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'],
   'low-stock': ['OWNER', 'ADMIN', 'WAREHOUSE', 'FINANCE'],
-  'grni-old': ['OWNER', 'ADMIN', 'FINANCE'],
+  'grni-old': ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'],
   'po-not-received': ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE'],
   'delivery-not-invoiced': ['OWNER', 'ADMIN', 'FINANCE', 'SALES'],
-  tax: ['OWNER', 'ADMIN', 'FINANCE'],
+  tax: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'],
   approvals: ['OWNER', 'ADMIN'],
   'pr-pending': ['OWNER', 'ADMIN'],
   'pr-approved': ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE'],
-  payroll: ['OWNER', 'ADMIN', 'FINANCE', 'HR'],
+  payroll: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'HR'],
   subscription: ['OWNER', 'ADMIN'],
 };
 const audienceOf = (key: string) => AUDIENCE[key.startsWith('tax-') ? 'tax' : key] ?? [];

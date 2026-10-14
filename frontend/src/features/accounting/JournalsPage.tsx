@@ -1,6 +1,6 @@
 import { Link, useSearchParams } from 'react-router-dom';
 import { MinusCircleOutlined, PlayCircleOutlined, PlusOutlined } from '@ant-design/icons';
-import { JOURNAL_SOURCE_LABELS, type JournalSource, RECURRING_FREQUENCY_LABELS, toOptions } from '@sansu/shared';
+import { canBookkeep, JOURNAL_SOURCE_LABELS, type JournalSource, RECURRING_FREQUENCY_LABELS, toOptions } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import {
   Alert,
@@ -219,17 +219,19 @@ function JournalList() {
           <Input type="date" onChange={(e) => setFilter((r) => ({ ...r, from: e.target.value || undefined }))} />
           <span>s/d</span>
           <Input type="date" onChange={(e) => setFilter((r) => ({ ...r, to: e.target.value || undefined }))} />
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              form.resetFields();
-              form.setFieldsValue({ date: today(), adjustment: false, lines: [{}, {}] });
-              setOpen(true);
-            }}
-          >
-            Jurnal manual
-          </Button>
+          {canBookkeep(me?.role) && (
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                form.resetFields();
+                form.setFieldsValue({ date: today(), adjustment: false, lines: [{}, {}] });
+                setOpen(true);
+              }}
+            >
+              Jurnal manual
+            </Button>
+          )}
         </Space>
         <Table
           rowKey="id"
@@ -266,6 +268,7 @@ function JournalList() {
             },
             {
               render: (_, j) =>
+                canBookkeep(me?.role) &&
                 REVERSIBLE.includes(j.sourceType) &&
                 !j.reversalOfId &&
                 !reversedIds.has(j.id) && (
@@ -343,6 +346,7 @@ function JournalList() {
 }
 
 function RecurringList() {
+  const bookkeeper = canBookkeep(useAuth().me?.role);
   const [editing, setEditing] = useState<RecurringJournal | 'new' | null>(null);
   const [form] = Form.useForm();
   const accounts = useAccounts();
@@ -370,6 +374,7 @@ function RecurringList() {
         style={{ marginBottom: 12 }}
         message="Jurnal berulang diposting otomatis setiap jatuh tempo — cocok untuk amortisasi sewa/asuransi dibayar dimuka, akrual gaji, atau angsuran pinjaman."
       />
+      {bookkeeper && (
       <Space style={{ marginBottom: 12 }} wrap>
         <Button
           type="primary"
@@ -386,6 +391,7 @@ function RecurringList() {
           Posting yang jatuh tempo sekarang
         </Button>
       </Space>
+      )}
       <Table
         rowKey="id"
         loading={list.isLoading}
@@ -414,9 +420,9 @@ function RecurringList() {
           { title: 'Sisa', dataIndex: 'remaining', render: (r) => (r == null ? 'Tanpa batas' : `${r}×`) },
           { title: 'Nilai', render: (_, r) => fmtMoney(r.lines.reduce((a, l) => a + Number(l.debit ?? 0), 0)) },
           { title: 'Jenis', dataIndex: 'isAdjustment', render: (a) => (a ? <Tag color="orange">Penyesuaian</Tag> : <Tag>Biasa</Tag>) },
-          { title: 'Aktif', render: (_, r) => <Switch size="small" checked={r.isActive} onChange={() => toggle.mutate(r)} /> },
+          { title: 'Aktif', render: (_, r) => <Switch size="small" checked={r.isActive} disabled={!bookkeeper} onChange={() => toggle.mutate(r)} /> },
           {
-            render: (_, r) => (
+            render: (_, r) => bookkeeper && (
               <Space>
                 <Button
                   size="small"
