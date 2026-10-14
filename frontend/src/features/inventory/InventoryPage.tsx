@@ -21,7 +21,7 @@ interface AdjustValues {
   reason: string;
   date?: string;
   notes?: string;
-  lines: { productId: string; qty: number; unitCost?: number }[];
+  lines: { productId: string; qty: number; unitCost?: number; lotNo?: string; expiryDate?: string }[];
 }
 
 export default function InventoryPage() {
@@ -51,7 +51,7 @@ export default function InventoryPage() {
     (v: AdjustValues) =>
       post<{ number: string; journalNumber: string | null }>('/inventory/adjustments', {
         ...v,
-        lines: v.lines.map((l) => ({ productId: l.productId, qty: String(l.qty), unitCost: l.unitCost != null ? String(l.unitCost) : undefined })),
+        lines: v.lines.map((l) => ({ productId: l.productId, qty: String(l.qty), unitCost: l.unitCost != null ? String(l.unitCost) : undefined, ...(l.qty > 0 ? { lotNo: l.lotNo?.trim() || undefined, expiryDate: l.expiryDate || undefined } : {}) })),
       }),
     {
       success: (r) => `Penyesuaian ${r.number} disimpan${r.journalNumber ? `, jurnal ${r.journalNumber}` : ''}`,
@@ -248,6 +248,20 @@ export default function InventoryPage() {
                     </Form.Item>
                     <Form.Item name={[f.name, 'unitCost']}>
                       <InputNumber min={0} placeholder="Biaya/unit" style={{ width: 150 }} prefix="Rp" />
+                    </Form.Item>
+                    <Form.Item noStyle shouldUpdate>
+                      {({ getFieldValue }) =>
+                        Number(getFieldValue(['lines', f.name, 'qty'])) > 0 && (
+                          <>
+                            <Form.Item name={[f.name, 'lotNo']}>
+                              <Input placeholder="No. lot (opsional)" maxLength={40} style={{ width: 150 }} />
+                            </Form.Item>
+                            <Form.Item name={[f.name, 'expiryDate']}>
+                              <Input type="date" title="Tanggal kedaluwarsa (opsional)" style={{ width: 150 }} />
+                            </Form.Item>
+                          </>
+                        )
+                      }
                     </Form.Item>
                     {fields.length > 1 && <MinusCircleOutlined onClick={() => remove(f.name)} />}
                   </Space>

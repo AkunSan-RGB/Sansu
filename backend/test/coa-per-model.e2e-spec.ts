@@ -9,7 +9,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 
 type Acc = { id: string; code: string; name: string; systemKey: string | null; isActive: boolean; description: string | null };
-const MODELS = ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR'] as const;
+const MODELS = ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR', 'FNB'] as const;
 
 describe('Bagan akun per jenis usaha (e2e)', () => {
   let app: INestApplication;
@@ -44,6 +44,10 @@ describe('Bagan akun per jenis usaha (e2e)', () => {
     expect(has('PRODUKSI', '5-4500')).toBe(true);
     expect(has('PRODUKSI', '5-4800')).toBe(true);
     expect(has('DAGANG', '5-4500')).toBe(false);
+    // F&B: bahan terbuang, kemasan saji, komisi pesan-antar; pembayaran digital dipakai bersama ritel
+    for (const code of ['5-1350', '5-1450', '6-2460', '1-1130', '6-2450']) expect(has('FNB', code)).toBe(true);
+    for (const code of ['5-1350', '5-1450', '6-2460']) expect(has('RITEL', code)).toBe(false);
+    expect(has('FNB', '5-4500')).toBe(false);
   });
 
   it('nama akun inti mengikuti jenis usaha', () => {
@@ -52,6 +56,9 @@ describe('Bagan akun per jenis usaha (e2e)', () => {
     expect(name('JASA', '5-1000')).toBe('Beban Pokok Pendapatan (Barang & Material)');
     expect(name('RITEL', '4-1000')).toBe('Penjualan Toko (Kasir)');
     expect(name('PRODUKSI', '1-2200')).toBe('Mesin & Peralatan Produksi');
+    expect(name('FNB', '4-1000')).toBe('Penjualan Makanan & Minuman');
+    expect(name('FNB', '1-1400')).toBe('Persediaan Bahan Makanan, Minuman & Kemasan');
+    expect(name('FNB', '1-2200')).toBe('Peralatan Dapur & Outlet');
   });
 
   it('akun yang tidak relevan tidak dibuat, tetapi akun yang dipakai modul tetap ada di semua jenis usaha', () => {
@@ -94,6 +101,9 @@ describe('Bagan akun per jenis usaha (e2e)', () => {
       expect(active('PRODUKSI', '1-1400')).toBe(true);
       expect(active('PRODUKSI', '1-1420')).toBe(true);
       expect(active('PRODUKSI', '4-2100')).toBe(false); // konstruksi tidak relevan untuk produksi
+      expect(active('FNB', '1-1400')).toBe(true);
+      expect(active('FNB', '1-1430')).toBe(true); // barang setengah jadi (saus, adonan)
+      expect(active('FNB', '6-9100')).toBe(true); // selisih kas kasir
     });
     it('dagang/ritel: produksi nonaktif, persediaan aktif; ritel: kasir aktif; dagang: kasir nonaktif', () => {
       expect(active('DAGANG', '1-1400')).toBe(true);
@@ -175,8 +185,8 @@ describe('Bagan akun per jenis usaha (e2e)', () => {
         const notes = JSON.stringify((await http.get(`/api/accounting/notes/${new Date().getFullYear()}`).set(auth).expect(200)).body);
         expect(notes).toContain('Piutang usaha dicatat sebesar jumlah tagihan');
         expect(notes).not.toContain('nilai realisasi neto');
-        if (m !== 'RITEL') {
-          // Ritel tidak mengaktifkan aplikasi Penjualan/proyek
+        if (m !== 'RITEL' && m !== 'FNB') {
+          // Ritel dan F&B tidak mengaktifkan aplikasi Penjualan/proyek
           const pr = await http.post(`/api/services/projects/${zero}/progress`).set(auth).send({ date: '2026-01-31', percent: '30' });
           expect(pr.body.message).toContain('SAK EMKM');
         }

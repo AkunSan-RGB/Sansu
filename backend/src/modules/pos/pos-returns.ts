@@ -118,6 +118,12 @@ export class PosReturnsService {
 
       let cogs: Dec = ZERO;
       for (const p of picks) {
+        if (p.line.fromRecipe) {
+          // menu yang sudah dibuat: bahan sudah diolah dan tidak kembali ke stok; pendapatan dibalik, biaya bahan tetap tercatat sebagai beban
+          await tx.insert(posReturnLines).values({ returnId: ret.id, orderLineId: p.line.id, productId: p.line.productId, qty: p.qty.toFixed(4), unitCost: '0' });
+          await tx.update(posOrderLines).set({ returnedQty: D(p.line.returnedQty).plus(p.qty).toFixed(4) }).where(eq(posOrderLines.id, p.line.id));
+          continue;
+        }
         const moved = await this.stock.move(tx, {
           tenantId: user.tenantId,
           productId: p.line.productId,

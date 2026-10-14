@@ -28,6 +28,8 @@ export type LockedOrder = Awaited<ReturnType<PurchaseOrdersService['lock']>>;
 export interface ReceiveItem {
   orderLineId: string;
   qty: string;
+  lotNo?: string;
+  expiryDate?: string;
 }
 
 /** Selisih kuantitas di bawah ini dianggap nol (pembulatan 4 desimal) */
@@ -63,8 +65,8 @@ export class GoodsReceiptsService {
         throw new BadRequestException(`PO berstatus ${order.status}; hanya PO yang sudah dikonfirmasi yang bisa diterima barangnya`);
       }
       const left = this.remaining(order);
-      const picks = dto.lines ?? order.lines.map((l) => ({ orderLineId: l.id, qty: left.get(l.id)!.toString() }));
-      const items: { line: LockedOrder['lines'][number]; qty: Dec }[] = [];
+      const picks: ReceiveItem[] = dto.lines ?? order.lines.map((l) => ({ orderLineId: l.id, qty: left.get(l.id)!.toString() }));
+      const items: { line: LockedOrder['lines'][number]; qty: Dec; lot?: { lotNo?: string; expiryDate?: string } }[] = [];
       const seen = new Set<string>();
       for (const p of picks) {
         const line = order.lines.find((l) => l.id === p.orderLineId);
@@ -77,7 +79,7 @@ export class GoodsReceiptsService {
         if (q.gt(left.get(line.id)!.plus(QTY_EPS))) {
           throw new BadRequestException(`Jumlah diterima melebihi sisa pesanan (sisa ${left.get(line.id)!.toString()} dari ${D(line.qty).toString()})`);
         }
-        items.push({ line, qty: q });
+        items.push({ line, qty: q, lot: { lotNo: p.lotNo, expiryDate: p.expiryDate } });
       }
       if (!items.length) throw new BadRequestException('Tidak ada barang yang diterima: isi jumlah pada minimal satu baris');
       const receipt = await this.record(tx, user, order, items, date, { deliveryNo: dto.supplierDeliveryNo, notes: dto.notes });
@@ -92,7 +94,7 @@ export class GoodsReceiptsService {
     tx: Tx,
     user: AuthUser,
     order: LockedOrder,
-    items: { line: LockedOrder['lines'][number]; qty: Dec }[],
+    items: { line: LockedOrder['lines'][number]; qty: Dec; lot?: { lotNo?: string; expiryDate?: string } }[],
     date: DocDate,
     o: { deliveryNo?: string; notes?: string },
   ) {
@@ -118,7 +120,7 @@ export class GoodsReceiptsService {
       .returning();
 
     let total: Dec = ZERO;
-    for (const { line, qty } of items) {
+    for (const { line, qty, lot } of items) {
       const baseQty = qty.times(line.uomFactor);
       const net = D(line.lineTotal).times(qty).div(line.qty);
       const unitCost = qty4(net.times(factor).div(baseQty));
@@ -133,6 +135,7 @@ export class GoodsReceiptsService {
         refId: receipt.id,
         refNumber: number,
         date,
+        lot,
       });
       total = total.plus(moved.value);
       await tx.insert(goodsReceiptLines).values({

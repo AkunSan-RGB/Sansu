@@ -102,6 +102,8 @@ export class InventoryService {
 
       for (const line of dto.lines) {
         const qty = D(line.qty);
+        if ((line.lotNo || line.expiryDate) && !qty.isPositive()) throw new BadRequestException('Nomor lot dan tanggal kedaluwarsa hanya untuk barang masuk');
+        if (line.lotId && qty.isPositive()) throw new BadRequestException('Pilihan lot hanya untuk barang keluar');
         const r = await this.stock.move(tx, {
           tenantId: user.tenantId,
           productId: line.productId,
@@ -109,6 +111,8 @@ export class InventoryService {
           type: qty.isPositive() ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT',
           qty,
           unitCost: line.unitCost,
+          lot: qty.isPositive() ? { lotNo: line.lotNo, expiryDate: line.expiryDate } : undefined,
+          lotId: line.lotId,
           refType: 'STOCK_ADJUSTMENT',
           refId: id,
           refNumber: number,

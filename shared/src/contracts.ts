@@ -15,6 +15,7 @@ import type {
   LeaveStatus,
   LeaveType,
   PayrollStatus,
+  PosOrderType,
   PosPaymentMethod,
   PosSessionStatus,
   QuotationStatus,
@@ -205,6 +206,8 @@ export interface Product {
   barcode: string | null;
   /** SEMI = barang setengah jadi (akun persediaan tersendiri) */
   inventoryKind?: 'GOODS' | 'SEMI';
+  /** Menu dibuat saat dipesan: kasir memotong bahan sesuai resep (stok = porsi yang bisa dibuat) */
+  madeToOrder?: boolean;
   /** Peran dalam produksi (otomatis dari resep): bahan baku, setengah jadi, produk jadi, atau barang dagang */
   role?: 'RAW' | 'SEMI' | 'FINISHED' | 'TRADING';
   isActive: boolean;
@@ -795,6 +798,33 @@ export interface PosSessionSummary {
   expectedCash: string;
 }
 
+/** Status lot menurut sisa hari sampai kedaluwarsa */
+export type StockLotStatus = 'EXPIRED' | 'SOON' | 'WARNING' | 'OK' | 'NO_EXPIRY';
+export interface StockLotRow {
+  id: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  baseUom: string;
+  warehouseId: string;
+  warehouseCode: string;
+  lotNo: string | null;
+  expiryDate: string | null;
+  receivedDate: string;
+  qtyRemaining: string;
+  daysLeft: number | null;
+  status: StockLotStatus;
+  /** Perkiraan nilai sisa lot (sisa × biaya rata-rata saat ini) */
+  value: string;
+}
+export interface StockLotList {
+  today: string;
+  soonDays: number;
+  warningDays: number;
+  summary: { expired: number; expiredValue: string; soon: number; soonValue: string; warning: number; tracked: number };
+  items: StockLotRow[];
+}
+
 export interface PosOrder {
   id: string;
   number: string;
@@ -807,6 +837,9 @@ export interface PosOrder {
   change: string;
   /** Harga di struk sudah termasuk PPN */
   pricesIncludeVat?: boolean;
+  /** Jenis pesanan dan label meja/pemesan (opsional) */
+  orderType?: PosOrderType | null;
+  tableLabel?: string | null;
   customer: { code?: string; name: string } | null;
   payments: { id: string; method: PosPaymentMethod; amount: string }[];
   lines?: {

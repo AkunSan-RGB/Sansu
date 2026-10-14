@@ -138,10 +138,10 @@ export function withDependencies(key: AppKey): AppKey[] {
 export const canUseApp = (role: Role, app: AppKey) => role === 'OWNER' || role === 'ADMIN' || APP_BY_KEY[app].roles.includes(role);
 
 // ---------- Model bisnis ----------
-export const BUSINESS_MODEL_KEYS = ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR'] as const;
+export const BUSINESS_MODEL_KEYS = ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR', 'FNB'] as const;
 export type BusinessModel = (typeof BUSINESS_MODEL_KEYS)[number];
-/** Model yang mengolah bahan menjadi barang jadi (resep, perintah produksi, biaya pabrik) */
-export const isProductionModel = (m: BusinessModel | string | null | undefined): boolean => m === 'PRODUKSI' || m === 'MANUFAKTUR';
+/** Model yang mengolah bahan menjadi barang jadi atau menu (resep, perintah produksi, biaya pabrik/dapur) */
+export const isProductionModel = (m: BusinessModel | string | null | undefined): boolean => m === 'PRODUKSI' || m === 'MANUFAKTUR' || m === 'FNB';
 export interface BusinessModelInfo {
   key: BusinessModel;
   name: string;
@@ -157,7 +157,7 @@ export interface BusinessModelInfo {
   note?: string;
 }
 /**
- * Lima model bisnis. Satu sistem untuk semuanya — model hanya menentukan aplikasi bawaan,
+ * Enam model bisnis. Satu sistem untuk semuanya — model hanya menentukan aplikasi bawaan,
  * langkah panduan mulai, dan istilah; aplikasi lain tetap bisa dinyalakan kapan saja.
  */
 export const BUSINESS_MODELS: BusinessModelInfo[] = [
@@ -205,6 +205,16 @@ export const BUSINESS_MODELS: BusinessModelInfo[] = [
     flow: ['Perencanaan kebutuhan bahan', 'Pembelian bahan', 'Produksi bertingkat', 'Stok barang jadi', 'Penjualan', 'Analisis selisih & laporan'],
     apps: ['sales', 'purchase', 'inventory', 'accounting', 'cash'],
     ready: true,
+  },
+  {
+    key: 'FNB',
+    name: 'F&B (kafe & restoran)',
+    summary: 'Membuat makanan dan minuman dari bahan sesuai resep, lalu menjualnya langsung lewat kasir',
+    examples: 'Kafe, restoran, warung makan, kedai kopi, bakery, katering, food stall',
+    flow: ['Pembelian bahan', 'Persediaan bahan (pantau kedaluwarsa)', 'Resep menu', 'Kasir (bahan terpotong otomatis)', 'Tutup kasir', 'Laporan & pajak'],
+    apps: ['pos', 'purchase', 'inventory', 'accounting', 'cash'],
+    ready: true,
+    note: 'Tandai produk sebagai "Menu (dibuat saat dipesan)" dan buat resepnya di Produksi › Resep. Setiap menu terjual di kasir, bahan sesuai resep otomatis terpotong dan HPP dihitung dari bahan. Catatan: pajak restoran daerah (PB1) belum dihitung otomatis; atur dengan konsultan pajak Anda.',
   },
 ];
 export const BUSINESS_MODEL_BY_KEY = Object.fromEntries(BUSINESS_MODELS.map((m) => [m.key, m])) as Record<BusinessModel, BusinessModelInfo>;

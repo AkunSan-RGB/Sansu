@@ -204,6 +204,10 @@ export const CASH_TX_TYPE_LABELS: Record<CashTxType, string> = {
 };
 
 // ---------- POS ----------
+/** Jenis pesanan di kasir (usaha makanan & minuman) */
+export const POS_ORDER_TYPES = ['DINE_IN', 'TAKEAWAY', 'DELIVERY'] as const;
+export type PosOrderType = (typeof POS_ORDER_TYPES)[number];
+export const POS_ORDER_TYPE_LABELS: Record<PosOrderType, string> = { DINE_IN: 'Makan di tempat', TAKEAWAY: 'Bawa pulang', DELIVERY: 'Antar' };
 export const POS_PAYMENT_METHODS = ['CASH', 'QRIS', 'DEBIT', 'TRANSFER'] as const;
 export type PosPaymentMethod = (typeof POS_PAYMENT_METHODS)[number];
 export const POS_PAYMENT_LABELS: Record<PosPaymentMethod, string> = {

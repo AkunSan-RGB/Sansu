@@ -68,6 +68,7 @@ import WarehouseStockPage from './features/inventory/WarehouseStockPage';
 import WritedownsPage from './features/inventory/WritedownsPage';
 import PurchaseControlsPage from './features/purchasing/PurchaseControlsPage';
 import BranchesPage from './features/accounting/BranchesPage';
+import ExpiryPage from './features/inventory/ExpiryPage';
 import MovementPage from './features/inventory/MovementPage';
 import BomsPage from './features/production/BomsPage';
 import MaterialRequirementsPage from './features/production/MaterialRequirementsPage';
@@ -173,6 +174,7 @@ export default function App() {
           <Route path="settings/branches" element={<BranchesPage />} />
           <Route path="branches" element={<Navigate to="/reports?tab=branches" replace />} />
           <Route path="inventory/movement" element={<MovementPage />} />
+          <Route path="inventory/expiry" element={<ExpiryPage />} />
           <Route path="production/boms" element={<BomsPage />} />
           <Route path="production/orders" element={<ProductionOrdersPage />} />
           <Route path="production/report" element={<ProductionReportPage />} />

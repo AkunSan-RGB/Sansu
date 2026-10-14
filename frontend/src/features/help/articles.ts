@@ -127,6 +127,26 @@ export const HELP_ARTICLES: HelpArticle[] = [
     keywords: 'pos kasir toko struk barcode scan shift laci',
     link: { label: 'Buka Kasir', to: '/pos' },
   },
+  {
+    id: 'menu-resep',
+    category: 'Kasir',
+    title: 'Menu makanan & minuman: bahan terpotong otomatis',
+    summary: 'Untuk kafe dan restoran: tiap menu terjual di kasir, bahan sesuai resep otomatis berkurang dan HPP dihitung dari bahan.',
+    paths: ['/pos', '/products', '/production/boms'],
+    steps: [
+      'Daftarkan bahan (kopi, susu, beras) di Produk dan isi stoknya lewat penerimaan barang atau saldo awal.',
+      'Buat produk menu (mis. Kopi Susu) dan centang "Menu (dibuat saat dipesan)".',
+      'Buka Produksi › Resep, buat resep menu itu: bahan dan jumlahnya per porsi.',
+      'Jual di Kasir seperti biasa. Angka di kartu menu adalah jumlah porsi yang masih bisa dibuat dari stok bahan.',
+      'Pesanan dibatalkan setelah dibuat: pendapatan dibalik, tetapi bahan tidak kembali ke stok karena sudah diolah.',
+    ],
+    tips: [
+      'Menu hanya dijual lewat Kasir. Untuk pesanan kantor atau katering lewat faktur, jual sebagai barang biasa.',
+      'Barang setengah jadi (adonan, saus) dibuat lewat Perintah produksi lalu dipakai sebagai bahan di resep menu.',
+    ],
+    keywords: 'menu resep bom bahan kafe restoran fnb makanan minuman potong otomatis porsi hpp',
+    link: { label: 'Buka Resep', to: '/production/boms' },
+  },
   // ---------- Pembelian & Stok ----------
   {
     id: 'beli',
@@ -140,6 +160,25 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Catat pembayaran ke supplier dari halaman faktur pembelian.',
     ],
     keywords: 'beli po purchase supplier vendor utang hutang terima barang',
+  },
+  {
+    id: 'kedaluwarsa',
+    category: 'Pembelian & Stok',
+    title: 'Memantau bahan yang akan kedaluwarsa',
+    summary: 'Catat nomor lot dan tanggal kedaluwarsa saat barang masuk; SANSU menandai bahan yang segera atau sudah kedaluwarsa.',
+    paths: ['/inventory/expiry', '/purchase-orders', '/inventory'],
+    steps: [
+      'Saat menerima barang dari PO, isi "Lot" dan "Kedaluwarsa" pada barang yang ada tanggalnya (boleh dikosongkan untuk barang lain).',
+      'Saldo awal juga bisa membawa lot dan tanggal lewat Penyesuaian stok.',
+      'Buka Persediaan › Kedaluwarsa bahan: merah = sudah lewat, oranye = 7 hari lagi atau kurang, kuning = 30 hari atau kurang.',
+      'Bahan yang sudah tidak layak: klik Buang. Stok berkurang dan dicatat sebagai bahan rusak/kedaluwarsa.',
+    ],
+    tips: [
+      'Barang keluar (jual, resep, buang) mengurangi lot yang paling cepat kedaluwarsa lebih dulu.',
+      'Ini pemantauan saja: nilai persediaan dan jurnal tetap mengikuti biaya biasa. Barang hasil produksi sendiri belum dilacak per lot.',
+    ],
+    keywords: 'kedaluwarsa expired lot fefo basi bahan makanan tanggal buang',
+    link: { label: 'Buka Kedaluwarsa bahan', to: '/inventory/expiry' },
   },
   {
     id: 'gudang',

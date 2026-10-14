@@ -16,7 +16,7 @@ import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestj
 import { Type } from 'class-transformer';
 import { ArrayMinSize, IsIn, IsNumberString, IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from 'class-validator';
 import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
-import { POS_PAYMENT_METHODS, type PosPaymentMethod } from '@sansu/shared';
+import { POS_ORDER_TYPES, POS_PAYMENT_METHODS, type PosOrderType, type PosPaymentMethod } from '@sansu/shared';
 import { RequireApp } from '../../common/apps/app.guard';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -34,6 +34,8 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { InventoryModule } from '../inventory/inventory.module';
 import { StockService } from '../inventory/stock.service';
+import { inventoryLines, semiSet } from '../inventory/inventory-accounts';
+import { componentNeeds, portionsAvailable, recipesFor } from './recipe-issue';
 import { PosControlsService, PosReturnsController, PosReturnsService } from './pos-returns';
 import { buildLines } from '../master-data/products/line-builder';
 import { documentTotals, inclusiveTotals } from '../sales/pricing';
@@ -66,6 +68,8 @@ export class PosPaymentDto {
 
 export class CreatePosOrderDto {
   @ApiProperty() @IsUUID() sessionId: string;
+  @ApiPropertyOptional({ enum: POS_ORDER_TYPES, description: 'Jenis pesanan (usaha makanan & minuman): makan di tempat, bawa pulang, antar' }) @IsOptional() @IsIn(POS_ORDER_TYPES) orderType?: PosOrderType;
+  @ApiPropertyOptional({ example: 'Meja 5', description: 'Nomor meja atau nama pemesan' }) @IsOptional() @IsString() @MaxLength(40) tableLabel?: string;
   @ApiPropertyOptional({ description: 'Pelanggan terdaftar (opsional)' }) @IsOptional() @IsUUID() customerId?: string;
   @ApiProperty({ type: [PosLineDto] }) @ValidateNested({ each: true }) @Type(() => PosLineDto) @ArrayMinSize(1) lines: PosLineDto[];
   @ApiProperty({ type: [PosPaymentDto] }) @ValidateNested({ each: true }) @Type(() => PosPaymentDto) @ArrayMinSize(1) payments: PosPaymentDto[];
@@ -107,7 +111,20 @@ export class PosService {
           .where(and(eq(stockBalances.tenantId, tenantId), eq(stockBalances.warehouseId, q.warehouseId)))
       : [];
     const byId = new Map(stock.map((s) => [s.productId, s.qty]));
-    return rows.map((p) => ({ ...p, stock: byId.get(p.id) ?? '0' }));
+    // menu yang dibuat saat dipesan: "stok" = porsi yang masih bisa dibuat dari bahan (resep belum ada = 0)
+    const menu = rows.filter((p) => p.madeToOrder);
+    const portions = new Map<string, string>();
+    if (menu.length && q.warehouseId) {
+      for (const m of menu) {
+        try {
+          const rec = await recipesFor(this.db, tenantId, [m]);
+          for (const [k, v] of await portionsAvailable(this.db, tenantId, q.warehouseId, rec)) portions.set(k, v);
+        } catch {
+          portions.set(m.id, '0');
+        }
+      }
+    }
+    return rows.map((p) => ({ ...p, stock: p.madeToOrder ? (portions.get(p.id) ?? '0') : (byId.get(p.id) ?? '0') }));
   }
 
   /** Sesi terbuka milik kasir yang sedang login */
@@ -177,7 +194,7 @@ export class PosService {
           .where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, user.tenantId)));
         if (!c) throw new BadRequestException('Pelanggan tidak ditemukan');
       }
-      const lines = await buildLines(tx, user.tenantId, dto.lines, 'sell');
+      const lines = await buildLines(tx, user.tenantId, dto.lines, 'sell', 2, { menuOk: true });
       // Anti-fraud: kasir/sales tidak boleh mengubah harga atau memberi diskon sendiri; hanya supervisor (Pemilik, Admin, Keuangan)
       if (user.role === 'CASHIER' || user.role === 'SALES') {
         const masters = await tx.query.products.findMany({ where: and(eq(products.tenantId, user.tenantId), inArray(products.id, lines.map((l) => l.productId))), columns: { id: true, sellPrice: true } });
@@ -227,23 +244,58 @@ export class PosService {
           tendered: tendered.toFixed(2),
           change: change.toFixed(2),
           pricesIncludeVat: inclusive,
+          orderType: dto.orderType ?? null,
+          tableLabel: dto.tableLabel?.trim() || null,
         })
         .returning();
 
       let cogs: Dec = ZERO;
+      const issued: { productId: string; value: Dec }[] = [];
+      const menuRows = await tx.query.products.findMany({
+        where: and(eq(products.tenantId, user.tenantId), inArray(products.id, lines.map((l) => l.productId)), eq(products.madeToOrder, true)),
+        columns: { id: true, sku: true },
+      });
+      const recipes = await recipesFor(tx, user.tenantId, menuRows);
       for (const l of lines) {
-        const moved = await this.stock.move(tx, {
-          tenantId: user.tenantId,
-          productId: l.productId,
-          warehouseId: session.warehouseId,
-          type: 'SALE',
-          qty: D(l.qty).times(l.uomFactor).negated(),
-          refType: 'POS_ORDER',
-          refId: order.id,
-          refNumber: number,
-          date,
-        });
-        cogs = cogs.plus(moved.value);
+        const baseQty = D(l.qty).times(l.uomFactor);
+        const recipe = recipes.get(l.productId);
+        let lineValue: Dec = ZERO;
+        let unitCost: Dec;
+        if (recipe) {
+          // menu: bahan dipotong sesuai resep; HPP baris = nilai bahan yang terpakai
+          for (const need of componentNeeds(recipe, baseQty)) {
+            const moved = await this.stock.move(tx, {
+              tenantId: user.tenantId,
+              productId: need.productId,
+              warehouseId: session.warehouseId,
+              type: 'SALE',
+              qty: need.qty.negated(),
+              refType: 'POS_ORDER',
+              refId: order.id,
+              refNumber: number,
+              date,
+            });
+            lineValue = lineValue.plus(moved.value);
+            issued.push({ productId: need.productId, value: moved.value });
+          }
+          unitCost = baseQty.gt(0) ? lineValue.div(baseQty) : ZERO;
+        } else {
+          const moved = await this.stock.move(tx, {
+            tenantId: user.tenantId,
+            productId: l.productId,
+            warehouseId: session.warehouseId,
+            type: 'SALE',
+            qty: baseQty.negated(),
+            refType: 'POS_ORDER',
+            refId: order.id,
+            refNumber: number,
+            date,
+          });
+          lineValue = moved.value;
+          unitCost = moved.unitCost;
+          issued.push({ productId: l.productId, value: moved.value });
+        }
+        cogs = cogs.plus(lineValue);
         await tx.insert(posOrderLines).values({
           orderId: order.id,
           productId: l.productId,
@@ -253,7 +305,8 @@ export class PosService {
           price: l.price.toFixed(2),
           discountPct: l.discountPct.toFixed(2),
           lineTotal: l.lineTotal.toFixed(2),
-          unitCost: moved.unitCost.toFixed(4),
+          unitCost: unitCost.toFixed(4),
+          fromRecipe: !!recipe,
         });
       }
       cogs = money(cogs);
@@ -277,7 +330,7 @@ export class PosService {
           { key: SYS.SALES, credit: totals.subtotal },
           { key: SYS.VAT_OUT, credit: totals.taxAmount },
           { key: SYS.COGS, debit: cogs },
-          { key: SYS.INVENTORY, credit: cogs },
+          ...inventoryLines(issued, await semiSet(tx, user.tenantId, issued.map((i) => i.productId)), 'credit'),
         ],
       });
       await tx.update(posOrders).set({ cogsAmount: cogs.toFixed(2), journalId: journal.id }).where(eq(posOrders.id, order.id));

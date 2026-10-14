@@ -38,6 +38,8 @@ export function inventoryMethodGuide(model: BusinessModel, framework: ReportingF
       return { recommended: null, notes: ['Usaha jasa umumnya tidak menyimpan persediaan dagang; metode hanya berlaku bila Inventori dipakai untuk bahan atau perlengkapan.', ...base] };
     case 'RITEL':
       return { recommended: 'AVERAGE', notes: ['Toko dengan banyak SKU dan transaksi harian lebih praktis memakai rata-rata bergerak. Pilih FIFO untuk barang cepat kedaluwarsa atau harga beli sering berubah.', ...base] };
+    case 'FNB':
+      return { recommended: 'AVERAGE', notes: ['Bahan makanan dan minuman dengan banyak resep lebih praktis memakai rata-rata bergerak. Pilih FIFO bila harga bahan sering berubah dan bahan cepat basi, agar biaya mengikuti urutan pembelian.', ...base] };
     case 'PRODUKSI':
     case 'MANUFAKTUR':
       return { recommended: 'AVERAGE', notes: ['Bahan baku yang dicampur dalam satu gudang lazim memakai rata-rata bergerak. FIFO cocok untuk bahan bermasa simpan terbatas.', ...base] };

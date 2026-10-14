@@ -16,6 +16,13 @@ import { ReceiptStatusTag } from './GoodsReceiptsPage';
 import { PurchaseOrderStatusTag } from '../sales/status';
 import { t } from '@/lib/terms';
 
+/** Lot dan tanggal kedaluwarsa per baris (opsional; dipantau di Persediaan › Kedaluwarsa bahan) */
+interface LotPayload {
+  orderLineId: string;
+  lotNo?: string;
+  expiryDate?: string;
+}
+
 export default function PurchaseOrderDetailPage() {
   const lh = useLetterhead();
   const { id } = useParams<{ id: string }>();
@@ -32,12 +39,12 @@ export default function PurchaseOrderDetailPage() {
   const cancel = useAction(() => post(`/purchase-orders/${id}/cancel`), { success: 'PO dibatalkan', invalidate: refresh });
   const refreshAll = [...refresh, 'goods-receipts', 'approvals'];
   const both = useAction(
-    (v: { supplierInvoiceNo: string; date: string; fxRate?: string; prices: { orderLineId: string; price: string }[]; varianceReason?: string; varianceNote?: string }) =>
-      post<PurchaseInvoice & { journalNumber: string }>('/purchase-invoices', { supplierInvoiceNo: v.supplierInvoiceNo, date: v.date, fxRate: v.fxRate, prices: v.prices.length ? v.prices : undefined, varianceReason: v.prices.length ? v.varianceReason : undefined, varianceNote: v.prices.length ? v.varianceNote : undefined, purchaseOrderId: id }),
+    (v: { supplierInvoiceNo: string; date: string; fxRate?: string; prices: { orderLineId: string; price: string }[]; lots?: LotPayload[]; varianceReason?: string; varianceNote?: string }) =>
+      post<PurchaseInvoice & { journalNumber: string }>('/purchase-invoices', { supplierInvoiceNo: v.supplierInvoiceNo, date: v.date, fxRate: v.fxRate, lots: v.lots?.length ? v.lots : undefined, prices: v.prices.length ? v.prices : undefined, varianceReason: v.prices.length ? v.varianceReason : undefined, varianceNote: v.prices.length ? v.varianceNote : undefined, purchaseOrderId: id }),
     { success: (r) => `Barang diterima · faktur ${r.number} · jurnal ${r.journalNumber}`, invalidate: refreshAll, onSuccess: () => setMode(null) },
   );
   const receive = useAction(
-    (v: { date: string; supplierDeliveryNo?: string; lines: { orderLineId: string; qty: string }[] }) => post<{ number: string }>(`/purchase-orders/${id}/receipts`, v),
+    (v: { date: string; supplierDeliveryNo?: string; lines: ({ orderLineId: string; qty: string } & Partial<LotPayload>)[] }) => post<{ number: string }>(`/purchase-orders/${id}/receipts`, v),
     { success: (r) => `Barang diterima · penerimaan ${r.number}`, invalidate: refreshAll, onSuccess: () => setMode(null) },
   );
   const bill = useAction(
@@ -50,6 +57,9 @@ export default function PurchaseOrderDetailPage() {
   const qtyFields = (pick: (l: NonNullable<PurchaseOrder['lines']>[number]) => number) => Object.fromEntries((o?.lines ?? []).map((l) => [`q_${l.id}`, pick(l)]));
   const linesPayload = (v: Record<string, string | number>) =>
     (o?.lines ?? []).map((l) => ({ orderLineId: l.id, qty: String(v[`q_${l.id}`] ?? 0) })).filter((l) => Number(l.qty) > 0);
+  const lotOf = (v: Record<string, string | number>, id: string): Partial<LotPayload> => ({ lotNo: v[`lot_${id}`] ? String(v[`lot_${id}`]).trim() : undefined, expiryDate: v[`exp_${id}`] ? String(v[`exp_${id}`]) : undefined });
+  const lotsPayload = (v: Record<string, string | number>, only?: { orderLineId: string }[]): LotPayload[] =>
+    (o?.lines ?? []).filter((l) => !only || only.some((x) => x.orderLineId === l.id)).map((l) => ({ orderLineId: l.id, ...lotOf(v, l.id) })).filter((l) => l.lotNo || l.expiryDate);
   const foreign = isForeignCurrency(o?.currency);
   const cur = o?.currency ?? 'IDR';
   /** Harga PO per baris dalam mata uang PO (valas) atau Rupiah */
@@ -312,7 +322,7 @@ export default function PurchaseOrderDetailPage() {
         onOk={() => form.submit()}
         confirmLoading={both.isPending || receive.isPending || bill.isPending}
         okText="Posting"
-        width={700}
+        width={900}
       >
         <Alert
           type="info"
@@ -331,8 +341,8 @@ export default function PurchaseOrderDetailPage() {
           layout="vertical"
           onFinish={(v) => {
             const fxRate = foreign && v.fxRate ? String(v.fxRate) : undefined;
-            if (mode === 'both') both.mutate({ supplierInvoiceNo: String(v.supplierInvoiceNo), date: String(v.date), fxRate, prices: pricesPayload(v), varianceReason: v.varianceReason ? String(v.varianceReason) : undefined, varianceNote: v.varianceNote ? String(v.varianceNote) : undefined });
-            else if (mode === 'receive') receive.mutate({ date: String(v.date), supplierDeliveryNo: v.supplierDeliveryNo ? String(v.supplierDeliveryNo) : undefined, lines: linesPayload(v) });
+            if (mode === 'both') both.mutate({ supplierInvoiceNo: String(v.supplierInvoiceNo), date: String(v.date), fxRate, prices: pricesPayload(v), lots: lotsPayload(v), varianceReason: v.varianceReason ? String(v.varianceReason) : undefined, varianceNote: v.varianceNote ? String(v.varianceNote) : undefined });
+            else if (mode === 'receive') receive.mutate({ date: String(v.date), supplierDeliveryNo: v.supplierDeliveryNo ? String(v.supplierDeliveryNo) : undefined, lines: linesPayload(v).map((l) => ({ ...l, ...lotOf(v, l.orderLineId) })) });
             else if (mode === 'bill') bill.mutate({ supplierInvoiceNo: String(v.supplierInvoiceNo), date: String(v.date), fxRate, lines: linesPayload(v), prices: pricesPayload(v, linesPayload(v)), varianceReason: v.varianceReason ? String(v.varianceReason) : undefined, varianceNote: v.varianceNote ? String(v.varianceNote) : undefined });
           }}
         >
@@ -364,6 +374,7 @@ export default function PurchaseOrderDetailPage() {
               size="small"
               rowKey="id"
               pagination={false}
+              scroll={{ x: 'max-content' }}
               dataSource={o?.lines}
               columns={[
                 { title: t('Produk'), render: (_, l) => `${l.product.sku} · ${l.product.name}` },
@@ -382,6 +393,28 @@ export default function PurchaseOrderDetailPage() {
                         ),
                       },
                     ]),
+                ...(mode !== 'bill'
+                  ? [
+                      {
+                        title: 'Lot (opsional)',
+                        width: 120,
+                        render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => (
+                          <Form.Item name={`lot_${l.id}`} noStyle>
+                            <Input placeholder="No. lot" maxLength={40} style={{ width: 100 }} />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: 'Kedaluwarsa (opsional)',
+                        width: 150,
+                        render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => (
+                          <Form.Item name={`exp_${l.id}`} noStyle>
+                            <Input type="date" min={today()} style={{ width: 140 }} />
+                          </Form.Item>
+                        ),
+                      },
+                    ]
+                  : []),
                 ...(mode !== 'receive'
                   ? [
                       { title: foreign ? `Harga PO (${cur})` : 'Harga PO', align: 'right' as const, render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => money(foreign ? l.priceForeign : l.price) },

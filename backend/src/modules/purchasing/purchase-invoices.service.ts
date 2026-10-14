@@ -332,6 +332,7 @@ export class PurchaseInvoicesService {
 
     let stockValue: Dec = ZERO;
     const values = new Map<string, { unitCost: Dec; value: Dec }>();
+    const lotOf = new Map((dto.lots ?? []).map((l) => [l.orderLineId, { lotNo: l.lotNo, expiryDate: l.expiryDate }]));
     for (const line of order.lines) {
       const baseQty = D(line.qty).times(line.uomFactor);
       const dpp = dppOf(line);
@@ -347,6 +348,7 @@ export class PurchaseInvoicesService {
         refId: invoice.id,
         refNumber: number,
         date,
+        lot: lotOf.get(line.id),
       });
       stockValue = stockValue.plus(moved.value);
       values.set(line.id, { unitCost, value: moved.value });

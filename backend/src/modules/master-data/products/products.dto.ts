@@ -42,6 +42,10 @@ export class CreateProductDto {
   @IsOptional()
   @IsIn(['GOODS', 'SEMI'])
   inventoryKind?: 'GOODS' | 'SEMI';
+  @ApiPropertyOptional({ description: 'Menu dibuat saat dipesan: kasir memotong bahan sesuai resep aktif dan HPP dihitung dari bahan (butuh resep aktif)' })
+  @IsOptional()
+  @IsBoolean()
+  madeToOrder?: boolean;
 }
 
 export class UpdateProductDto extends PartialType(CreateProductDto) {
