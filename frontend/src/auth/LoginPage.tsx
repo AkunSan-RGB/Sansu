@@ -1,5 +1,5 @@
-import { BRAND } from '@sansu/shared';
-import { Alert, Button, Form, Grid, Input, Tabs } from 'antd';
+import { BRAND, type BusinessModel } from '@sansu/shared';
+import { Alert, Button, Form, Grid, Input, Modal, Tabs, Typography } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { CSSProperties, useEffect, useRef, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
@@ -30,7 +30,9 @@ const trim = (v?: string) => (v ?? '').trim();
 const delay = (s: number): CSSProperties => ({ ['--d' as string]: `${s}s` });
 
 export default function LoginPage() {
-  const { me, login, loginTwoFactor, register } = useAuth();
+  const { me, login, loginTwoFactor, register, startDemo } = useAuth();
+  const [demoOpen, setDemoOpen] = useState(false);
+  const [demoModel, setDemoModel] = useState<BusinessModel>('DAGANG');
   const screens = Grid.useBreakpoint();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -305,6 +307,34 @@ export default function LoginPage() {
               ].filter((t) => t.key !== 'register' || signupOpen)}
             />
           )}
+          {!challenge && !verifyEmail && (
+            <div style={{ marginTop: 16, textAlign: 'center' }}>
+              <Typography.Text type="secondary">Ingin melihat dulu sebelum mendaftar?</Typography.Text>
+              <Button block style={{ marginTop: 8 }} onClick={() => setDemoOpen(true)}>
+                Lihat Demo
+              </Button>
+            </div>
+          )}
+          <Modal
+            title="Lihat Demo — PT DEMO"
+            open={demoOpen}
+            onCancel={() => !busy && setDemoOpen(false)}
+            okText="Mulai demo"
+            cancelText="Batal"
+            confirmLoading={busy}
+            onOk={() => run(() => startDemo(demoModel))}
+            maskClosable={!busy}
+            destroyOnHidden
+          >
+            <Typography.Paragraph>
+              Pilih jenis usaha. SANSU menyiapkan perusahaan contoh <b>PT DEMO</b> lengkap dengan transaksi yang sesuai jenis usahanya, supaya Anda bisa menjelajah semua fitur.
+            </Typography.Paragraph>
+            <BusinessModelPicker value={demoModel} onChange={setDemoModel} />
+            {error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
+            <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+              {busy ? 'Menyiapkan data contoh, sekitar 5–10 detik…' : 'Data contoh dihapus otomatis setelah 3 hari. Jangan memasukkan data asli.'}
+            </Typography.Paragraph>
+          </Modal>
         </div>
         {!screens.lg && <ValueChips />}
       </main>
