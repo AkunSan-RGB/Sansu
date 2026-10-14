@@ -379,6 +379,13 @@
       "when": 1793807486484,
       "tag": "0053_umur_simpan",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1793893886484,
+      "tag": "0054_meja_dapur",
+      "breakpoints": true
     }
   ]
 }

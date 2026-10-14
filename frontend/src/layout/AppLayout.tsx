@@ -90,6 +90,8 @@ const MENU: Group[] = [
     icon: APP_ICONS.pos,
     children: [
       { key: '/pos', label: 'Layar kasir' },
+      { key: '/pos/tables', label: 'Meja & pesanan', models: ['FNB'] },
+      { key: '/pos/kitchen', label: 'Layar dapur', models: ['FNB'] },
       { key: '/pos/sessions', label: 'Riwayat sesi kasir' },
     ],
   },

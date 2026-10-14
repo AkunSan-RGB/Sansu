@@ -23,6 +23,7 @@ export const DOC_PREFIX = {
   POS_SESSION: 'KSR',
   POS_ORDER: 'POS',
   POS_RETURN: 'RPS',
+  POS_TAB: 'PSN',
   QUOTATION: 'SQ',
   PAYROLL: 'GJ',
   TAX_PAYMENT: 'SP',

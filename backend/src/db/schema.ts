@@ -1309,6 +1309,8 @@ export const posOrders = pgTable(
     orderType: text('order_type').$type<'DINE_IN' | 'TAKEAWAY' | 'DELIVERY'>(),
     /** Pajak pada transaksi: VAT = PPN keluaran, LOCAL = pajak restoran daerah (PB1/PBJT) */
     taxKind: text('tax_kind').$type<'VAT' | 'LOCAL'>().notNull().default('VAT'),
+    /** Pesanan terbuka (meja) yang dibayar lewat transaksi ini */
+    tabId: uuid('tab_id'),
     tableLabel: text('table_label'),
     journalId: uuid('journal_id'),
     createdAt: createdAt(),
@@ -1317,6 +1319,90 @@ export const posOrders = pgTable(
     uniqueIndex('pos_orders_number_uq').on(t.tenantId, t.number),
     index('pos_orders_session_idx').on(t.sessionId),
   ],
+);
+
+/** Meja kafe/restoran per outlet */
+export const posTables = pgTable(
+  'pos_tables',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    warehouseId: uuid('warehouse_id')
+      .notNull()
+      .references(() => warehouses.id),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    seats: integer('seats'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('pos_tables_code_uq').on(t.tenantId, t.warehouseId, t.code)],
+);
+
+export type PosTabStatus = 'OPEN' | 'PAID' | 'CANCELLED';
+export type PosTabLineStatus = 'DRAFT' | 'NEW' | 'PREPARING' | 'READY' | 'SERVED' | 'VOID';
+
+/**
+ * Pesanan terbuka (tab): menu dipesan dulu (dikirim ke dapur), dibayar belakangan lewat transaksi kasir. Stok dan jurnal baru
+ * terjadi saat dibayar; satu meja hanya punya satu pesanan terbuka.
+ */
+export const posTabs = pgTable(
+  'pos_tabs',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    warehouseId: uuid('warehouse_id')
+      .notNull()
+      .references(() => warehouses.id),
+    tableId: uuid('table_id').references(() => posTables.id),
+    tableLabel: text('table_label'),
+    orderType: text('order_type').$type<'DINE_IN' | 'TAKEAWAY' | 'DELIVERY'>().notNull().default('DINE_IN'),
+    guestName: text('guest_name'),
+    status: text('status').$type<PosTabStatus>().notNull().default('OPEN'),
+    notes: text('notes'),
+    createdById: uuid('created_by_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    cancelReason: text('cancel_reason'),
+    cancelledById: uuid('cancelled_by_id'),
+  },
+  (t) => [
+    uniqueIndex('pos_tabs_number_uq').on(t.tenantId, t.number),
+    uniqueIndex('pos_tabs_open_table_uq').on(t.tableId).where(sql`status = 'OPEN' AND table_id IS NOT NULL`),
+    index('pos_tabs_status_idx').on(t.tenantId, t.status),
+  ],
+);
+
+export const posTabLines = pgTable(
+  'pos_tab_lines',
+  {
+    id: id(),
+    tabId: uuid('tab_id')
+      .notNull()
+      .references(() => posTabs.id, { onDelete: 'cascade' }),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    qty: qty('qty').notNull(),
+    notes: text('notes'),
+    /** DRAFT belum dikirim; NEW antre di dapur; PREPARING dimasak; READY siap diantar; SERVED sudah disajikan; VOID dibatalkan */
+    status: text('status').$type<PosTabLineStatus>().notNull().default('DRAFT'),
+    createdAt: createdAt(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    preparedAt: timestamp('prepared_at', { withTimezone: true }),
+    readyAt: timestamp('ready_at', { withTimezone: true }),
+    servedAt: timestamp('served_at', { withTimezone: true }),
+    voidReason: text('void_reason'),
+    voidedById: uuid('voided_by_id'),
+    voidedAt: timestamp('voided_at', { withTimezone: true }),
+    /** Status saat dibatalkan (pembatalan setelah dimasak/disajikan adalah titik rawan kecurangan) */
+    voidFromStatus: text('void_from_status'),
+    paidOrderId: uuid('paid_order_id').references(() => posOrders.id),
+  },
+  (t) => [index('pos_tab_lines_tab_idx').on(t.tabId), index('pos_tab_lines_kitchen_idx').on(t.status).where(sql`status IN ('NEW', 'PREPARING', 'READY')`)],
 );
 
 export const posOrderLines = pgTable('pos_order_lines', {
@@ -1933,6 +2019,15 @@ export const posOrdersRelations = relations(posOrders, ({ one, many }) => ({
 export const posOrderLinesRelations = relations(posOrderLines, ({ one }) => ({
   order: one(posOrders, { fields: [posOrderLines.orderId], references: [posOrders.id] }),
   product: one(products, { fields: [posOrderLines.productId], references: [products.id] }),
+}));
+export const posTabsRelations = relations(posTabs, ({ one, many }) => ({
+  lines: many(posTabLines),
+  table: one(posTables, { fields: [posTabs.tableId], references: [posTables.id] }),
+  warehouse: one(warehouses, { fields: [posTabs.warehouseId], references: [warehouses.id] }),
+}));
+export const posTabLinesRelations = relations(posTabLines, ({ one }) => ({
+  tab: one(posTabs, { fields: [posTabLines.tabId], references: [posTabs.id] }),
+  product: one(products, { fields: [posTabLines.productId], references: [products.id] }),
 }));
 export const posReturnsRelations = relations(posReturns, ({ one, many }) => ({
   order: one(posOrders, { fields: [posReturns.orderId], references: [posOrders.id] }),

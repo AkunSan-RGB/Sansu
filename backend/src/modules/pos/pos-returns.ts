@@ -20,6 +20,8 @@ import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
 
 const QTY_EPS = D('0.00005');
+/** Pesanan meja terbuka lebih lama dari ini dianggap menggantung */
+const STALE_TAB_HOURS = 12;
 
 export class PosReturnLineDto {
   @ApiProperty() @IsUUID() orderLineId: string;
@@ -222,6 +224,17 @@ export class PosControlsService {
       WHERE o.tenant_id = ${tenantId} AND o.date >= ${since} AND NOT o.prices_include_vat AND l.qty > 0
         AND l.line_total / l.qty < l.unit_cost * l.uom_factor - 0.005 AND l.unit_cost > 0`);
     add('BELOW_COST', 'warning', 'Dijual di bawah harga pokok', below.rows.map((r) => `${r.number} (${r.sku})`), 'Harga jual lebih rendah dari HPP barang saat itu. Periksa harga master atau kemungkinan penyalahgunaan.');
+    // Pesanan meja: pembatalan menu yang sudah dimasak/disajikan (rawan penggelapan: menu dihidangkan lalu "dibatalkan" dan uangnya diambil)
+    const voids = await this.db.execute<{ number: string; product: string; from_status: string; reason: string | null; by: string | null }>(sql`
+      SELECT t.number, p.name AS product, l.void_from_status AS from_status, l.void_reason AS reason, u.name AS by
+      FROM pos_tab_lines l JOIN pos_tabs t ON t.id = l.tab_id JOIN products p ON p.id = l.product_id LEFT JOIN users u ON u.id = l.voided_by_id
+      WHERE t.tenant_id = ${tenantId} AND l.status = 'VOID' AND l.void_from_status IN ('PREPARING', 'READY', 'SERVED') AND l.voided_at >= ${since}::date
+      ORDER BY l.voided_at DESC`);
+    add('POS_TAB_VOIDS', 'warning', 'Menu dibatalkan setelah dimasak atau disajikan', voids.rows.map((r) => `${r.number} ${r.product} (${r.from_status === 'SERVED' ? 'sudah disajikan' : 'sudah dimasak'}) oleh ${r.by ?? '-'} — ${r.reason ?? ''}`), 'Pastikan menu yang sudah dibuat memang tidak jadi dibayar (komplain, salah buat), bukan dihidangkan lalu dibatalkan.');
+    const stale = await this.db.execute<{ number: string; label: string | null }>(sql`
+      SELECT t.number, t.table_label AS label FROM pos_tabs t
+      WHERE t.tenant_id = ${tenantId} AND t.status = 'OPEN' AND t.created_at < now() - make_interval(hours => ${STALE_TAB_HOURS})`);
+    add('POS_TABS_STALE', 'warning', 'Pesanan meja menggantung lebih dari 12 jam', stale.rows.map((r) => `${r.number}${r.label ? ` · ${r.label}` : ''}`), 'Pesanan belum dibayar atau dibatalkan. Selesaikan agar stok, pajak, dan pendapatan tercatat benar.');
     const rank = { error: 0, warning: 1, info: 2 } as const;
     items.sort((a, b) => rank[a.level] - rank[b.level]);
     return { asOf: today, since, items };

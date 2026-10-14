@@ -183,163 +183,167 @@ export class PosService {
    *  stok keluar (HPP rata-rata) · jurnal Dr Kas/Bank | Cr Penjualan, Cr PPN Keluaran · Dr HPP | Cr Persediaan
    */
   async createOrder(user: AuthUser, dto: CreatePosOrderDto) {
-    const result = await this.db.transaction(async (tx) => {
-      const session = await this.lockSession(tx, user, dto.sessionId);
-      const date = todayJakarta();
-      const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
-      if (dto.customerId) {
-        const [c] = await tx
-          .select({ id: customers.id })
-          .from(customers)
-          .where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, user.tenantId)));
-        if (!c) throw new BadRequestException('Pelanggan tidak ditemukan');
-      }
-      const lines = await buildLines(tx, user.tenantId, dto.lines, 'sell', 2, { menuOk: true });
-      // Anti-fraud: kasir/sales tidak boleh mengubah harga atau memberi diskon sendiri; hanya supervisor (Pemilik, Admin, Keuangan)
-      if (user.role === 'CASHIER' || user.role === 'SALES') {
-        const masters = await tx.query.products.findMany({ where: and(eq(products.tenantId, user.tenantId), inArray(products.id, lines.map((l) => l.productId))), columns: { id: true, sellPrice: true } });
-        const m = new Map(masters.map((p) => [p.id, p]));
-        for (const l of lines) {
-          const p = m.get(l.productId)!;
-          const master = money(D(p.sellPrice).times(l.uomFactor));
-          if (!l.price.eq(master) || l.discountPct.gt(0)) {
-            throw new ForbiddenException('Harga dan diskon hanya dapat diubah oleh supervisor (Pemilik, Admin, atau Keuangan). Kasir menjual dengan harga master.');
-          }
+    const result = await this.db.transaction((tx) => this.createOrderTx(tx, user, dto));
+    return this.getOrder(user.tenantId, result);
+  }
+
+  /** Inti penjualan kasir di dalam transaksi pemanggil (dipakai juga oleh pembayaran pesanan meja); mengembalikan id transaksi */
+  async createOrderTx(tx: Tx, user: AuthUser, dto: CreatePosOrderDto, extra: { tabId?: string } = {}): Promise<string> {
+    const session = await this.lockSession(tx, user, dto.sessionId);
+    const date = todayJakarta();
+    const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
+    if (dto.customerId) {
+      const [c] = await tx
+        .select({ id: customers.id })
+        .from(customers)
+        .where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, user.tenantId)));
+      if (!c) throw new BadRequestException('Pelanggan tidak ditemukan');
+    }
+    const lines = await buildLines(tx, user.tenantId, dto.lines, 'sell', 2, { menuOk: true });
+    // Anti-fraud: kasir/sales tidak boleh mengubah harga atau memberi diskon sendiri; hanya supervisor (Pemilik, Admin, Keuangan)
+    if (user.role === 'CASHIER' || user.role === 'SALES') {
+      const masters = await tx.query.products.findMany({ where: and(eq(products.tenantId, user.tenantId), inArray(products.id, lines.map((l) => l.productId))), columns: { id: true, sellPrice: true } });
+      const m = new Map(masters.map((p) => [p.id, p]));
+      for (const l of lines) {
+        const p = m.get(l.productId)!;
+        const master = money(D(p.sellPrice).times(l.uomFactor));
+        if (!l.price.eq(master) || l.discountPct.gt(0)) {
+          throw new ForbiddenException('Harga dan diskon hanya dapat diubah oleh supervisor (Pemilik, Admin, atau Keuangan). Kasir menjual dengan harga master.');
         }
       }
-      // Harga rak termasuk PPN → DPP & PPN dihitung mundur; non-PKP → tanpa PPN
-      const inclusive = taxProfileOf(tenant.settings).posPricesIncludeVat;
-      // Pajak daerah (PB1/PBJT) menggantikan PPN pada penjualan kasir bila dinyalakan
-      const local = localTaxOf(tenant.settings);
-      const rate = local.enabled ? local.rate : outputVatRate(tenant);
-      const totals = inclusive ? inclusiveTotals(lines, rate) : documentTotals(lines, rate, taxProfileOf(tenant.settings).vatRounding);
+    }
+    // Harga rak termasuk PPN → DPP & PPN dihitung mundur; non-PKP → tanpa PPN
+    const inclusive = taxProfileOf(tenant.settings).posPricesIncludeVat;
+    // Pajak daerah (PB1/PBJT) menggantikan PPN pada penjualan kasir bila dinyalakan
+    const local = localTaxOf(tenant.settings);
+    const rate = local.enabled ? local.rate : outputVatRate(tenant);
+    const totals = inclusive ? inclusiveTotals(lines, rate) : documentTotals(lines, rate, taxProfileOf(tenant.settings).vatRounding);
 
-      // Pembayaran: non-tunai tidak boleh lebih dari tagihan; kelebihan tunai = kembalian
-      let nonCash: Dec = ZERO;
-      let cashIn: Dec = ZERO;
-      for (const p of dto.payments) {
-        const amt = money(p.amount);
-        if (amt.lte(0)) throw new BadRequestException('Jumlah pembayaran harus > 0');
-        if (p.method === 'CASH') cashIn = cashIn.plus(amt);
-        else nonCash = nonCash.plus(amt);
-      }
-      if (nonCash.gt(totals.total)) throw new BadRequestException('Pembayaran non-tunai melebihi total belanja');
-      const tendered = cashIn.plus(nonCash);
-      if (tendered.lt(totals.total)) {
-        throw new BadRequestException(`Pembayaran kurang ${totals.total.minus(tendered).toFixed(0)}`);
-      }
-      const change = tendered.minus(totals.total);
-      const cashNet = cashIn.minus(change);
+    // Pembayaran: non-tunai tidak boleh lebih dari tagihan; kelebihan tunai = kembalian
+    let nonCash: Dec = ZERO;
+    let cashIn: Dec = ZERO;
+    for (const p of dto.payments) {
+      const amt = money(p.amount);
+      if (amt.lte(0)) throw new BadRequestException('Jumlah pembayaran harus > 0');
+      if (p.method === 'CASH') cashIn = cashIn.plus(amt);
+      else nonCash = nonCash.plus(amt);
+    }
+    if (nonCash.gt(totals.total)) throw new BadRequestException('Pembayaran non-tunai melebihi total belanja');
+    const tendered = cashIn.plus(nonCash);
+    if (tendered.lt(totals.total)) {
+      throw new BadRequestException(`Pembayaran kurang ${totals.total.minus(tendered).toFixed(0)}`);
+    }
+    const change = tendered.minus(totals.total);
+    const cashNet = cashIn.minus(change);
 
-      const number = await this.seq.next(tx, user.tenantId, 'POS_ORDER', date);
-      const [order] = await tx
-        .insert(posOrders)
-        .values({
-          tenantId: user.tenantId,
-          sessionId: session.id,
-          number,
-          date,
-          customerId: dto.customerId,
-          subtotal: totals.subtotal.toFixed(2),
-          taxAmount: totals.taxAmount.toFixed(2),
-          total: totals.total.toFixed(2),
-          tendered: tendered.toFixed(2),
-          change: change.toFixed(2),
-          pricesIncludeVat: inclusive,
-          taxKind: local.enabled ? 'LOCAL' : 'VAT',
-          orderType: dto.orderType ?? null,
-          tableLabel: dto.tableLabel?.trim() || null,
-        })
-        .returning();
+    const number = await this.seq.next(tx, user.tenantId, 'POS_ORDER', date);
+    const [order] = await tx
+      .insert(posOrders)
+      .values({
+        tenantId: user.tenantId,
+        sessionId: session.id,
+        number,
+        date,
+        customerId: dto.customerId,
+        subtotal: totals.subtotal.toFixed(2),
+        taxAmount: totals.taxAmount.toFixed(2),
+        total: totals.total.toFixed(2),
+        tendered: tendered.toFixed(2),
+        change: change.toFixed(2),
+        pricesIncludeVat: inclusive,
+        taxKind: local.enabled ? 'LOCAL' : 'VAT',
+        tabId: extra.tabId ?? null,
+        orderType: dto.orderType ?? null,
+        tableLabel: dto.tableLabel?.trim() || null,
+      })
+      .returning();
 
-      let cogs: Dec = ZERO;
-      const issued: { productId: string; value: Dec }[] = [];
-      const menuRows = await tx.query.products.findMany({
-        where: and(eq(products.tenantId, user.tenantId), inArray(products.id, lines.map((l) => l.productId)), eq(products.madeToOrder, true)),
-        columns: { id: true, sku: true },
-      });
-      const recipes = await recipesFor(tx, user.tenantId, menuRows);
-      for (const l of lines) {
-        const baseQty = D(l.qty).times(l.uomFactor);
-        const recipe = recipes.get(l.productId);
-        let lineValue: Dec = ZERO;
-        let unitCost: Dec;
-        if (recipe) {
-          // menu: bahan dipotong sesuai resep; HPP baris = nilai bahan yang terpakai
-          for (const need of componentNeeds(recipe, baseQty)) {
-            const moved = await this.stock.move(tx, {
-              tenantId: user.tenantId,
-              productId: need.productId,
-              warehouseId: session.warehouseId,
-              type: 'SALE',
-              qty: need.qty.negated(),
-              refType: 'POS_ORDER',
-              refId: order.id,
-              refNumber: number,
-              date,
-            });
-            lineValue = lineValue.plus(moved.value);
-            issued.push({ productId: need.productId, value: moved.value });
-          }
-          unitCost = baseQty.gt(0) ? lineValue.div(baseQty) : ZERO;
-        } else {
+    let cogs: Dec = ZERO;
+    const issued: { productId: string; value: Dec }[] = [];
+    const menuRows = await tx.query.products.findMany({
+      where: and(eq(products.tenantId, user.tenantId), inArray(products.id, lines.map((l) => l.productId)), eq(products.madeToOrder, true)),
+      columns: { id: true, sku: true },
+    });
+    const recipes = await recipesFor(tx, user.tenantId, menuRows);
+    for (const l of lines) {
+      const baseQty = D(l.qty).times(l.uomFactor);
+      const recipe = recipes.get(l.productId);
+      let lineValue: Dec = ZERO;
+      let unitCost: Dec;
+      if (recipe) {
+        // menu: bahan dipotong sesuai resep; HPP baris = nilai bahan yang terpakai
+        for (const need of componentNeeds(recipe, baseQty)) {
           const moved = await this.stock.move(tx, {
             tenantId: user.tenantId,
-            productId: l.productId,
+            productId: need.productId,
             warehouseId: session.warehouseId,
             type: 'SALE',
-            qty: baseQty.negated(),
+            qty: need.qty.negated(),
             refType: 'POS_ORDER',
             refId: order.id,
             refNumber: number,
             date,
           });
-          lineValue = moved.value;
-          unitCost = moved.unitCost;
-          issued.push({ productId: l.productId, value: moved.value });
+          lineValue = lineValue.plus(moved.value);
+          issued.push({ productId: need.productId, value: moved.value });
         }
-        cogs = cogs.plus(lineValue);
-        await tx.insert(posOrderLines).values({
-          orderId: order.id,
+        unitCost = baseQty.gt(0) ? lineValue.div(baseQty) : ZERO;
+      } else {
+        const moved = await this.stock.move(tx, {
+          tenantId: user.tenantId,
           productId: l.productId,
-          uom: l.uom,
-          uomFactor: l.uomFactor,
-          qty: l.qty,
-          price: l.price.toFixed(2),
-          discountPct: l.discountPct.toFixed(2),
-          lineTotal: l.lineTotal.toFixed(2),
-          unitCost: unitCost.toFixed(4),
-          fromRecipe: !!recipe,
+          warehouseId: session.warehouseId,
+          type: 'SALE',
+          qty: baseQty.negated(),
+          refType: 'POS_ORDER',
+          refId: order.id,
+          refNumber: number,
+          date,
         });
+        lineValue = moved.value;
+        unitCost = moved.unitCost;
+        issued.push({ productId: l.productId, value: moved.value });
       }
-      cogs = money(cogs);
-
-      // Gabungkan pembayaran per metode (tunai bersih setelah kembalian)
-      const byMethod = new Map<PosPaymentMethod, Dec>();
-      for (const p of dto.payments) if (p.method !== 'CASH') byMethod.set(p.method, (byMethod.get(p.method) ?? ZERO).plus(money(p.amount)));
-      if (cashNet.gt(0)) byMethod.set('CASH', cashNet);
-      await tx.insert(posPayments).values([...byMethod].map(([method, amount]) => ({ orderId: order.id, method, amount: amount.toFixed(2) })));
-
-      const journal = await this.posting.post(tx, {
-        tenantId: user.tenantId,
-        date,
-        description: `Penjualan kasir ${number}`,
-        sourceType: 'POS',
-        sourceId: order.id,
-        createdById: user.sub,
-        lines: [
-          { accountId: session.cashAccountId, debit: cashNet },
-          { accountId: session.bankAccountId, debit: nonCash },
-          { key: SYS.SALES, credit: totals.subtotal },
-          { key: local.enabled ? SYS.LOCAL_TAX : SYS.VAT_OUT, credit: totals.taxAmount },
-          { key: SYS.COGS, debit: cogs },
-          ...inventoryLines(issued, await semiSet(tx, user.tenantId, issued.map((i) => i.productId)), 'credit'),
-        ],
+      cogs = cogs.plus(lineValue);
+      await tx.insert(posOrderLines).values({
+        orderId: order.id,
+        productId: l.productId,
+        uom: l.uom,
+        uomFactor: l.uomFactor,
+        qty: l.qty,
+        price: l.price.toFixed(2),
+        discountPct: l.discountPct.toFixed(2),
+        lineTotal: l.lineTotal.toFixed(2),
+        unitCost: unitCost.toFixed(4),
+        fromRecipe: !!recipe,
       });
-      await tx.update(posOrders).set({ cogsAmount: cogs.toFixed(2), journalId: journal.id }).where(eq(posOrders.id, order.id));
-      return order.id;
+    }
+    cogs = money(cogs);
+
+    // Gabungkan pembayaran per metode (tunai bersih setelah kembalian)
+    const byMethod = new Map<PosPaymentMethod, Dec>();
+    for (const p of dto.payments) if (p.method !== 'CASH') byMethod.set(p.method, (byMethod.get(p.method) ?? ZERO).plus(money(p.amount)));
+    if (cashNet.gt(0)) byMethod.set('CASH', cashNet);
+    await tx.insert(posPayments).values([...byMethod].map(([method, amount]) => ({ orderId: order.id, method, amount: amount.toFixed(2) })));
+
+    const journal = await this.posting.post(tx, {
+      tenantId: user.tenantId,
+      date,
+      description: `Penjualan kasir ${number}`,
+      sourceType: 'POS',
+      sourceId: order.id,
+      createdById: user.sub,
+      lines: [
+        { accountId: session.cashAccountId, debit: cashNet },
+        { accountId: session.bankAccountId, debit: nonCash },
+        { key: SYS.SALES, credit: totals.subtotal },
+        { key: local.enabled ? SYS.LOCAL_TAX : SYS.VAT_OUT, credit: totals.taxAmount },
+        { key: SYS.COGS, debit: cogs },
+        ...inventoryLines(issued, await semiSet(tx, user.tenantId, issued.map((i) => i.productId)), 'credit'),
+      ],
     });
-    return this.getOrder(user.tenantId, result);
+    await tx.update(posOrders).set({ cogsAmount: cogs.toFixed(2), journalId: journal.id }).where(eq(posOrders.id, order.id));
+    return order.id;
   }
 
   async getOrder(tenantId: string, id: string) {
@@ -524,5 +528,6 @@ export class PosController {
   imports: [AccountingModule, InventoryModule],
   controllers: [PosController, PosReturnsController],
   providers: [PosService, PosReturnsService, PosControlsService],
+  exports: [PosService],
 })
 export class PosModule {}

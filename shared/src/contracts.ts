@@ -806,6 +806,80 @@ export interface PosSessionSummary {
   expectedCash: string;
 }
 
+// ---------- Meja, pesanan terbuka, dapur ----------
+export type PosTabStatus = 'OPEN' | 'PAID' | 'CANCELLED';
+/** DRAFT belum dikirim · NEW antre di dapur · PREPARING dimasak · READY siap diantar · SERVED disajikan · VOID dibatalkan */
+export type PosTabLineStatus = 'DRAFT' | 'NEW' | 'PREPARING' | 'READY' | 'SERVED' | 'VOID';
+export interface PosTableRow {
+  id: string;
+  warehouseId: string;
+  warehouseCode: string;
+  code: string;
+  name: string;
+  seats: number | null;
+  isActive: boolean;
+  openTab: { id: string; number: string; since: string; items: number; amount: string } | null;
+}
+export interface PosTabLine {
+  id: string;
+  productId: string;
+  qty: string;
+  notes: string | null;
+  status: PosTabLineStatus;
+  sentAt: string | null;
+  paidOrderId: string | null;
+  voidReason: string | null;
+  voidFromStatus: string | null;
+  product: { sku: string; name: string; sellPrice: string; madeToOrder: boolean; baseUom: string };
+}
+export interface PosTabDetail {
+  id: string;
+  number: string;
+  status: PosTabStatus;
+  warehouseId: string;
+  tableId: string | null;
+  tableLabel: string | null;
+  orderType: PosOrderType;
+  guestName: string | null;
+  notes: string | null;
+  createdAt: string;
+  closedAt: string | null;
+  cancelReason: string | null;
+  lines: PosTabLine[];
+  /** Perkiraan sebelum pajak; nilai pasti dihitung saat dibayar */
+  unpaidSubtotal: string;
+  paidSubtotal: string;
+  draftCount: number;
+  warehouse?: { code: string; name: string };
+}
+export interface PosTabSummary {
+  id: string;
+  number: string;
+  status: PosTabStatus;
+  warehouseId: string;
+  tableLabel: string | null;
+  orderType: PosOrderType;
+  guestName: string | null;
+  createdAt: string;
+  items: number;
+  unpaidSubtotal: string;
+  pending: number;
+}
+export interface KitchenTicket {
+  tabId: string;
+  number: string;
+  tableLabel: string | null;
+  orderType: PosOrderType;
+  guestName: string | null;
+  since: string;
+  waitingMinutes: number;
+  items: { id: string; product: string; sku: string; qty: string; notes: string | null; status: PosTabLineStatus; paid: boolean }[];
+}
+export interface KitchenBoard {
+  tickets: KitchenTicket[];
+  summary: { NEW: number; PREPARING: number; READY: number };
+}
+
 /** Status lot menurut sisa hari sampai kedaluwarsa */
 export type StockLotStatus = 'EXPIRED' | 'SOON' | 'WARNING' | 'OK' | 'NO_EXPIRY';
 export interface StockLotRow {
