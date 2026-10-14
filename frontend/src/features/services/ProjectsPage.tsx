@@ -24,6 +24,7 @@ import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { get, patch, post } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
+import { useCan } from '@/auth/useCan';
 import { LEDGER_KEYS, useAction, useCustomers } from '@/api/queries';
 import ListPage from '@/components/ListPage';
 import PageHeader from '@/layout/PageHeader';
@@ -39,6 +40,7 @@ const STATUS: Record<Project['status'], { label: string; color: string }> = {
 
 export default function ProjectsPage() {
   const navigate = useNavigate();
+  const can = useCan();
   const [open, setOpen] = useState(false);
   const q = useQuery({ queryKey: ['projects'], queryFn: () => get<Project[]>('/services/projects') });
   return (
@@ -46,9 +48,11 @@ export default function ProjectsPage() {
       <ListPage<Project>
         title="Proyek & termin"
         actions={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
-            Proyek baru
-          </Button>
+          can('POST', '/services/projects') ? (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
+              Proyek baru
+            </Button>
+          ) : undefined
         }
         rows={q.data}
         loading={q.isLoading}
@@ -182,6 +186,7 @@ export function ProjectDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const q = useQuery({ queryKey: ['projects', id], queryFn: () => get<ProjectDetail>(`/services/projects/${id}`) });
+  const can = useCan();
   const [edit, setEdit] = useState(false);
   const [form] = Form.useForm();
   const save = useAction(
@@ -216,6 +221,7 @@ export function ProjectDetailPage() {
         extra={
           p && (
             <Space wrap>
+              {can('PATCH', '/services/projects/:id') && (
               <Button
                 onClick={() => {
                   form.setFieldsValue({
@@ -229,9 +235,13 @@ export function ProjectDetailPage() {
               >
                 Ubah / addendum
               </Button>
+              )}
+              {can('POST', '/services/deposits') && (
               <Button onClick={() => navigate(`/customer-deposits?customerId=${p.customerId}&projectId=${p.id}`)}>
                 Terima uang muka
               </Button>
+              )}
+              {can('POST', '/services/invoices') && (
               <Button
                 type="primary"
                 icon={<FileAddOutlined />}
@@ -240,6 +250,7 @@ export function ProjectDetailPage() {
               >
                 Tagih termin
               </Button>
+              )}
             </Space>
           )
         }
@@ -351,6 +362,7 @@ export function ProjectDetailPage() {
 /** Kemajuan pekerjaan → pendapatan diakui sesuai % selesai (SAK EP Bab 23) */
 function ProgressCard({ project: p }: { project: ProjectDetail }) {
   const emkm = useAuth().me?.framework === 'SAK_EMKM';
+  const can = useCan();
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm<{ date: string; percent: number; notes?: string }>();
   const pct = Form.useWatch('percent', form);
@@ -378,7 +390,7 @@ function ProgressCard({ project: p }: { project: ProjectDetail }) {
       title="Kemajuan pekerjaan & pengakuan pendapatan"
       style={{ marginBottom: 16 }}
       extra={
-        p.status !== 'CANCELLED' && !emkm && (
+        p.status !== 'CANCELLED' && !emkm && can('POST', '/services/projects/:id/progress') && (
           <Button
             onClick={() => {
               form.setFieldsValue({ date: today(), percent: p.progressPct ?? undefined, notes: undefined });

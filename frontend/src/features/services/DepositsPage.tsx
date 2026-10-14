@@ -23,6 +23,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { get, post, qs } from '@/api/client';
 import { LEDGER_KEYS, useAction, useCustomers } from '@/api/queries';
+import { useCan } from '@/auth/useCan';
 import { useAuth } from '@/auth/AuthContext';
 import CashAccountSelect from '@/components/CashAccountSelect';
 import ResponsiveTable from '@/components/ResponsiveTable';
@@ -35,6 +36,7 @@ import { t } from '@/lib/terms';
 const INVALIDATE = ['deposits', 'invoices', 'invoice', 'projects', 'customers', ...LEDGER_KEYS];
 
 export default function DepositsPage() {
+  const can = useCan();
   const [params] = useSearchParams();
   const [creating, setCreating] = useState(!!params.get('customerId'));
   const [applying, setApplying] = useState<CustomerDeposit | null>(null);
@@ -56,9 +58,11 @@ export default function DepositsPage() {
       <PageHeader
         title={t('Uang muka pelanggan')}
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
-            Terima uang muka
-          </Button>
+          can('POST', '/services/deposits') ? (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
+              Terima uang muka
+            </Button>
+          ) : undefined
         }
       />
       <Alert
@@ -127,7 +131,8 @@ export default function DepositsPage() {
             },
             {
               render: (_, r) =>
-                Number(r.remaining) > 0 && (
+                Number(r.remaining) > 0 &&
+                can('POST', '/services/deposits/:id/apply') && (
                   <Button size="small" onClick={() => setApplying(r)}>
                     Pakai untuk faktur
                   </Button>

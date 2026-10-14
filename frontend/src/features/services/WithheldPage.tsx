@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, put, qs } from '@/api/client';
 import { useAction } from '@/api/queries';
+import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
@@ -17,6 +18,7 @@ const TYPE_LABEL = { PPH23: 'PPh 23', PPH4_2: 'PPh 4(2) final' } as const;
 
 export default function WithheldPage() {
   const navigate = useNavigate();
+  const can = useCan();
   const [year, setYear] = useState(dayjs().year());
   const [month, setMonth] = useState<number | null>(null);
   const [view, setView] = useState<'ALL' | 'MISSING'>('ALL');
@@ -113,7 +115,7 @@ export default function WithheldPage() {
                   <span>
                     {r.slipNo} · {fmtDate(r.slipDate)}
                   </span>
-                ) : (
+                ) : can('PUT', '/services/invoices/:id/withholding-slip') ? (
                   <Button
                     size="small"
                     onClick={() => {
@@ -123,6 +125,8 @@ export default function WithheldPage() {
                   >
                     Catat
                   </Button>
+                ) : (
+                  '-'
                 ),
             },
           ]}

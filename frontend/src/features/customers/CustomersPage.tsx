@@ -5,6 +5,7 @@ import { Button, Form, Input, InputNumber, Modal, Space, Tag } from 'antd';
 import { useState } from 'react';
 import { patch, post } from '@/api/client';
 import { useAction, useCustomers } from '@/api/queries';
+import { useCan } from '@/auth/useCan';
 import type { Customer } from '@/api/types';
 import ListPage from '@/components/ListPage';
 import { fmtMoney } from '@/lib/format';
@@ -23,6 +24,7 @@ interface FormValues {
 export default function CustomersPage() {
   const { isAdmin } = useApps();
   const navigate = useNavigate();
+  const can = useCan();
   const { data, isLoading } = useCustomers();
   const [editing, setEditing] = useState<Customer | 'new' | null>(null);
   const [form] = Form.useForm<FormValues>();
@@ -49,6 +51,8 @@ export default function CustomersPage() {
     setEditing(c);
   };
 
+  const canSave = editing === 'new' ? can('POST', '/customers') : can('PATCH', '/customers/:id');
+
   return (
     <>
       <ListPage<Customer>
@@ -60,9 +64,11 @@ export default function CustomersPage() {
                 Impor Excel
               </Button>
             )}
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>
-              Pelanggan baru
-            </Button>
+            {can('POST', '/customers') && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>
+                Pelanggan baru
+              </Button>
+            )}
           </>
         }
         rows={data}
@@ -96,6 +102,7 @@ export default function CustomersPage() {
         onOk={() => form.submit()}
         confirmLoading={save.isPending}
         okText="Simpan"
+        okButtonProps={{ style: canSave ? undefined : { display: 'none' } }}
         destroyOnHidden
       >
         <Form form={form} layout="vertical" initialValues={{ creditLimit: 0, paymentTermDays: 30 }} onFinish={(v) => save.mutate(v)}>

@@ -4,6 +4,7 @@ import { Button, Card, Popconfirm, Space, Tag } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { useAction } from '@/api/queries';
+import { useCan } from '@/auth/useCan';
 import DocumentChain from '@/components/DocumentChain';
 import { DocHeader, PartyBlock, PrintSheet, Signatures, cell, head } from '@/components/print/Letterhead';
 import QueryState from '@/components/QueryState';
@@ -18,6 +19,7 @@ export default function DeliveryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const q = useQuery({ queryKey: ['deliveries', 'detail', id], queryFn: () => get<Delivery>(`/deliveries/${id}`) });
+  const can = useCan();
   const cancel = useAction(() => post(`/deliveries/${id}/cancel`), {
     success: 'Surat jalan dibatalkan, stok dikembalikan',
     invalidate: ['deliveries', 'sales-orders', 'stock', 'stock-moves', 'dashboard', 'journals', 'doc-chain'],
@@ -36,7 +38,7 @@ export default function DeliveryDetailPage() {
                 Cetak / PDF
               </Button>
             )}
-            {q.data && q.data.status === 'DELIVERED' && !q.data.invoice && (
+            {q.data && q.data.status === 'DELIVERED' && !q.data.invoice && can('POST', '/deliveries/:id/cancel') && (
               <Popconfirm title="Batalkan surat jalan? Stok dikembalikan dan jurnal HPP dibalik." onConfirm={() => cancel.mutate(undefined)}>
                 <Button danger loading={cancel.isPending}>
                   Batalkan surat jalan

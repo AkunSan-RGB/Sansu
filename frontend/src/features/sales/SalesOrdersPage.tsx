@@ -1,6 +1,7 @@
 import { PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from 'antd';
+import { useCan } from '@/auth/useCan';
 import { useNavigate } from 'react-router-dom';
 import { get } from '@/api/client';
 import type { SalesOrder } from '@/api/types';
@@ -13,14 +14,17 @@ const sum = (xs: SalesOrder[]) => xs.reduce((a, o) => a + Number(o.total), 0);
 
 export default function SalesOrdersPage() {
   const navigate = useNavigate();
+  const can = useCan();
   const { data, isLoading } = useQuery({ queryKey: ['sales-orders', 'all'], queryFn: () => get<SalesOrder[]>('/sales-orders') });
   return (
     <ListPage<SalesOrder>
       title={t('Sales Order')}
       actions={
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/sales-orders/new')}>
-          Order baru
-        </Button>
+        can('POST', '/sales-orders') ? (
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/sales-orders/new')}>
+            Order baru
+          </Button>
+        ) : undefined
       }
       rows={data}
       loading={isLoading}
