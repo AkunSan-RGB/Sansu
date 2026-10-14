@@ -294,7 +294,12 @@ export default function CashPage() {
             <Statistic title="Uang keluar" value={fmtMoney(flow.out)} valueStyle={{ color: '#cf1322', fontSize: 20 }} />
           </Col>
           <Col xs={24} md={8}>
-            <Statistic title="Selisih (masuk − keluar)" value={fmtMoney(flow.net)} valueStyle={{ fontSize: 20 }} suffix={flow.missing ? <Tag color="orange">{flow.missing} belum ada bukti</Tag> : undefined} />
+            <Statistic
+              title={flow.net > 0 ? 'Kas bertambah' : flow.net < 0 ? 'Kas berkurang' : 'Perubahan kas'}
+              value={flow.net === 0 ? 'Tidak ada perubahan' : fmtMoney(Math.abs(flow.net))}
+              valueStyle={{ fontSize: 20, color: flow.net > 0 ? '#389e0d' : flow.net < 0 ? '#cf1322' : undefined }}
+              suffix={flow.missing ? <Tag color="orange">{flow.missing} belum ada bukti</Tag> : undefined}
+            />
           </Col>
         </Row>
         <Typography.Paragraph type="secondary">
@@ -392,7 +397,6 @@ export default function CashPage() {
               align: 'right',
               render: (v, t) => (
                 <Typography.Text type={t.type === 'OUT' ? 'danger' : t.type === 'IN' ? 'success' : undefined}>
-                  {t.type === 'OUT' ? '−' : ''}
                   {fmtMoney(v)}
                 </Typography.Text>
               ),
