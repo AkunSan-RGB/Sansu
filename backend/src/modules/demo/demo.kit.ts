@@ -10,6 +10,18 @@ import { Db } from '../../db/db';
 import { accounts, suppliers, tenants, warehouses } from '../../db/schema';
 import { AccountingService } from '../accounting/accounting.service';
 import { CashService } from '../cash/cash.module';
+import { CashCountService } from '../cash/cash-count';
+import { PettyCashService } from '../cash/petty-cash';
+import { AssetsService } from '../assets/assets.module';
+import { BankService } from '../bank/bank.module';
+import { BudgetService } from '../accounting/budget';
+import { CrmService } from '../crm/crm.module';
+import { WritedownService } from '../inventory/writedown';
+import { WarehouseOpsService } from '../inventory/warehouse-ops';
+import { GoodsReceiptsService } from '../purchasing/goods-receipts.service';
+import { PurchaseRequestsService } from '../purchasing/purchase-requests.service';
+import { ReturnsService } from '../returns/returns.service';
+import { TaxService } from '../tax/tax.module';
 import { HrService } from '../hr/hr.module';
 import { InventoryService } from '../inventory/inventory.service';
 import { CustomersService } from '../master-data/customers/customers.service';
@@ -53,11 +65,25 @@ export interface Demo {
     payroll: PayrollService;
     production: ProductionService;
     billing: ServiceBillingService;
+    assets: AssetsService;
+    bank: BankService;
+    budget: BudgetService;
+    crm: CrmService;
+    ops: WarehouseOpsService;
+    grn: GoodsReceiptsService;
+    prq: PurchaseRequestsService;
+    returns: ReturnsService;
+    tax: TaxService;
+    petty: PettyCashService;
+    writedown: WritedownService;
+    cashCount: CashCountService;
   };
   acc: (code: string) => string;
   kas: string;
   bank: string;
   wh: string;
+  /** Dokumen terakhir yang dibuat (dipakai untuk contoh retur) */
+  last: { bill?: string; inv?: string };
   /** Jalankan langkah; galat dilewati (data contoh tetap jadi) kecuali DEMO_STRICT=true (dipakai tes) */
   step: <T>(label: string, fn: () => Promise<T>) => Promise<T | undefined>;
 }
@@ -141,11 +167,24 @@ export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: 
       payroll: get(PayrollService),
       production: get(ProductionService),
       billing: get(ServiceBillingService),
+      assets: get(AssetsService),
+      bank: get(BankService),
+      budget: get(BudgetService),
+      crm: get(CrmService),
+      ops: get(WarehouseOpsService),
+      grn: get(GoodsReceiptsService),
+      prq: get(PurchaseRequestsService),
+      returns: get(ReturnsService),
+      tax: get(TaxService),
+      petty: get(PettyCashService),
+      writedown: get(WritedownService),
+      cashCount: get(CashCountService),
     },
     acc: (code) => acc.get(code)!,
     kas: acc.get('1-1100')!,
     bank: acc.get('1-1200')!,
     wh: wh.id,
+    last: {},
     step: async (label, fn) => {
       try {
         return await fn();
@@ -160,7 +199,7 @@ export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: 
 
 /** Saldo awal 60 hari lalu: kas, bank, persediaan, dan modal (seimbang) */
 export async function openingBalance(c: Demo, o: { kas: number; bank: number; stockValue: number }) {
-  const date = c.ago(60);
+  const date = c.ago(120);
   // persediaan awal sudah menyeimbangkan dirinya ke Ekuitas Saldo Awal lewat penyesuaian stok OPENING
   const modal = o.kas + o.bank;
   await c.svc.accounting.openingBalance(c.admin as never, {
@@ -274,6 +313,7 @@ export async function purchase(c: Demo, supplierId: string, daysAgo: number, lin
   await c.svc.po.confirm(c.admin as never, po.id);
   const bill = await c.svc.pi.createFromOrder(c.admin as never, { purchaseOrderId: po.id, supplierInvoiceNo: opts.invoiceNo, date: c.ago(daysAgo - 1) } as never);
   if (opts.pay) await payBill(c, bill.id, Math.max(daysAgo - 8, 1));
+  c.last.bill = bill.id;
   return bill;
 }
 
@@ -287,6 +327,7 @@ export async function sell(c: Demo, customerId: string, daysAgo: number, lines: 
   } as never);
   await c.svc.so.confirm(c.admin as never, so.id);
   const inv = await c.svc.inv.createFromOrder(c.admin as never, { salesOrderId: so.id, date: c.ago(daysAgo) } as never);
+  c.last.inv = inv.id;
   return inv.id as string;
 }
 

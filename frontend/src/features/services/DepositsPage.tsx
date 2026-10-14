@@ -7,10 +7,12 @@ import {
   Button,
   Card,
   Checkbox,
+  Empty,
   Form,
   Input,
   InputNumber,
   Modal,
+  Segmented,
   Select,
   Space,
   Table,
@@ -23,6 +25,8 @@ import { get, post, qs } from '@/api/client';
 import { LEDGER_KEYS, useAction, useCustomers } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
 import CashAccountSelect from '@/components/CashAccountSelect';
+import ResponsiveTable from '@/components/ResponsiveTable';
+import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { outputVatRate } from '@/lib/vat';
@@ -35,10 +39,18 @@ export default function DepositsPage() {
   const [creating, setCreating] = useState(!!params.get('customerId'));
   const [applying, setApplying] = useState<CustomerDeposit | null>(null);
   const [openOnly, setOpenOnly] = useState(false);
+  const [search, setSearch] = useState('');
   const q = useQuery({
-    queryKey: ['deposits', openOnly],
-    queryFn: () => get<CustomerDeposit[]>(`/services/deposits${qs({ open: openOnly ? '1' : undefined })}`),
+    queryKey: ['deposits', 'all'],
+    queryFn: () => get<CustomerDeposit[]>(`/services/deposits${qs({})}`),
   });
+  const all = q.data ?? [];
+  const term = search.trim().toLowerCase();
+  const shown = all.filter(
+    (r) => (!openOnly || Number(r.remaining) > 0) && (!term || `${r.number} ${r.customer.name} ${r.project?.name ?? ''}`.toLowerCase().includes(term)),
+  );
+  const left = all.filter((r) => Number(r.remaining) > 0);
+  const sum = (xs: CustomerDeposit[], k: 'amount' | 'remaining') => xs.reduce((a, r) => a + Number(r[k] ?? 0), 0);
   return (
     <>
       <PageHeader
@@ -56,18 +68,34 @@ export default function DepositsPage() {
         message="Uang muka belum menjadi pendapatan"
         description={t('DP dicatat sebagai utang kepada pelanggan (Uang Muka Pelanggan) sampai pekerjaan ditagih. Bila PKP, PPN atas uang muka terutang saat uang diterima — terbitkan faktur pajak uang muka. Saat faktur termin terbit, pakai uang muka untuk mengurangi tagihan.')}
       />
-      <Card
-        extra={
-          <Checkbox checked={openOnly} onChange={(e) => setOpenOnly(e.target.checked)}>
-            Hanya yang masih tersisa
-          </Checkbox>
-        }
-      >
-        <Table<CustomerDeposit>
+      {!q.isLoading && all.length > 0 && (
+        <SummaryCards
+          items={[
+            { label: 'Total uang muka diterima', value: fmtMoney(sum(all, 'amount')), hint: `${all.length} uang muka` },
+            { label: 'Masih tersisa (belum dipakai)', value: fmtMoney(sum(left, 'remaining')), hint: `${left.length} uang muka`, tone: left.length ? 'warn' : 'neutral' },
+            { label: 'Sudah terpakai', value: fmtMoney(sum(all, 'amount') - sum(all, 'remaining')), tone: 'good' },
+          ]}
+        />
+      )}
+      <Card>
+        <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
+          <Segmented
+            value={openOnly ? 'OPEN' : 'ALL'}
+            onChange={(v) => setOpenOnly(v === 'OPEN')}
+            options={[
+              { value: 'ALL', label: `Semua (${all.length})` },
+              { value: 'OPEN', label: `Masih tersisa (${left.length})` },
+            ]}
+          />
+          <Input.Search allowClear placeholder="Cari pelanggan, proyek, atau nomor" style={{ width: 260 }} onChange={(e) => setSearch(e.target.value)} />
+        </Space>
+        <ResponsiveTable<CustomerDeposit>
           rowKey="id"
           size="small"
           loading={q.isLoading}
-          dataSource={q.data}
+          dataSource={shown}
+          scroll={{ x: 800 }}
+          locale={{ emptyText: <Empty description={search || openOnly ? 'Tidak ada data yang cocok dengan pilihan ini' : 'Belum ada uang muka'} /> }}
           expandable={{
             rowExpandable: (r) => !!r.applications?.length,
             expandedRowRender: (r) => (

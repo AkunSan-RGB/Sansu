@@ -1,13 +1,15 @@
 import { SaveOutlined, SearchOutlined, ShoppingCartOutlined, SwapOutlined, WarningOutlined } from '@ant-design/icons';
 import { BRAND, type Warehouse } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Checkbox, Empty, Input, InputNumber, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Checkbox, Empty, Input, InputNumber, Segmented, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { get, put, qs } from '@/api/client';
 import { useAction, useProducts, useWarehouses } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
 import ExportButtons from '@/components/ExportButtons';
+import ResponsiveTable from '@/components/ResponsiveTable';
+import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import InventoryMethodBadge from './InventoryMethodBadge';
 import { fmtMoney, fmtQty } from '@/lib/format';
@@ -102,11 +104,32 @@ function MatrixTab() {
   const q = useQuery({ queryKey: ['matrix', includeZero, category], queryFn: () => get<Matrix>(`/inventory/matrix${qs({ includeZero: includeZero ? 'true' : undefined, category })}`) });
   const categories = [...new Set((products ?? []).map((p) => p.category).filter(Boolean))] as string[];
   const m = q.data;
-  const rows = (m?.rows ?? []).filter((r) => !search || `${r.sku} ${r.name}`.toLowerCase().includes(search.toLowerCase()));
+  const [view, setView] = useState<'ALL' | 'LOW'>('ALL');
   const below = (r: Matrix['rows'][number], wid: string) => r.min[wid] != null && Number(r.qty[wid] ?? 0) < Number(r.min[wid]);
+  const isLow = (r: Matrix['rows'][number]) => (m?.warehouses ?? []).some((w) => below(r, w.id));
+  const allRows = m?.rows ?? [];
+  const lowCount = allRows.filter(isLow).length;
+  const rows = allRows.filter((r) => (view === 'ALL' || isLow(r)) && (!search || `${r.sku} ${r.name}`.toLowerCase().includes(search.toLowerCase())));
   return (
+    <>
+      {m && (
+        <SummaryCards
+          items={[
+            { label: t('Total nilai persediaan'), value: fmtMoney(m.totals.value), hint: `${m.warehouses.length} gudang` },
+            { label: 'Jumlah produk', value: String(allRows.length), hint: includeZero ? 'termasuk yang tanpa stok' : 'yang ada stoknya', onClick: () => setView('ALL'), active: view === 'ALL' },
+            { label: 'Stok di bawah minimum', value: String(lowCount), hint: 'produk perlu ditambah', tone: lowCount ? 'bad' : 'good', onClick: () => setView('LOW'), active: view === 'LOW' },
+          ]}
+        />
+      )}
     <Card>
-      <Space wrap style={{ marginBottom: 12 }} className="no-print">
+      <Space wrap size={[8, 8]} style={{ marginBottom: 12 }} className="no-print">
+        <div style={{ maxWidth: '100%', overflowX: 'auto' }}>
+          <Segmented
+            value={view}
+            onChange={(v) => setView(v as typeof view)}
+            options={[{ value: 'ALL', label: `Semua (${allRows.length})` }, { value: 'LOW', label: `Di bawah minimum (${lowCount})` }]}
+          />
+        </div>
         <Input prefix={<SearchOutlined />} placeholder="Cari SKU / nama" allowClear value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 240 }} />
         <Select allowClear placeholder="Semua kategori" style={{ width: 180 }} value={category} onChange={setCategory} options={categories.map((c) => ({ value: c, label: c }))} />
         <Checkbox checked={includeZero} onChange={(e) => setIncludeZero(e.target.checked)}>
@@ -123,6 +146,7 @@ function MatrixTab() {
           size="small"
           loading={q.isLoading}
           dataSource={rows}
+          locale={{ emptyText: <Empty description={allRows.length ? 'Tidak ada produk yang cocok dengan pilihan ini' : 'Belum ada stok di gudang'} /> }}
           pagination={{ pageSize: 100, showSizeChanger: false }}
           scroll={{ x: 520 + (m?.warehouses.length ?? 0) * 110 }}
           columns={[
@@ -172,6 +196,7 @@ function MatrixTab() {
         />
       </div>
     </Card>
+    </>
   );
 }
 
@@ -179,10 +204,24 @@ function LowTab() {
   const navigate = useNavigate();
   const { data: warehouses } = useWarehouses();
   const [warehouseId, setWarehouseId] = useState<string>();
+  const [lowSearch, setLowSearch] = useState('');
   const q = useQuery({ queryKey: ['low-stock', warehouseId], queryFn: () => get<LowRow[]>(`/inventory/low-stock${qs({ warehouseId })}`) });
+  const lowRows = q.data ?? [];
+  const lowShown = lowRows.filter((r) => !lowSearch.trim() || `${r.sku} ${r.name} ${r.warehouseName}`.toLowerCase().includes(lowSearch.trim().toLowerCase()));
   return (
+    <>
+    {!q.isLoading && lowRows.length > 0 && (
+      <SummaryCards
+        items={[
+          { label: 'Barang menipis', value: String(new Set(lowRows.map((r) => r.productId)).size), hint: 'di bawah stok minimum', tone: 'bad' },
+          { label: 'Gudang terdampak', value: String(new Set(lowRows.map((r) => r.warehouseId)).size), hint: 'punya barang menipis', tone: 'warn' },
+          { label: 'Baris perlu ditambah', value: String(lowRows.length), hint: 'kombinasi barang dan gudang' },
+        ]}
+      />
+    )}
     <Card>
-      <Space wrap style={{ marginBottom: 12 }}>
+      <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
+        <Input.Search allowClear placeholder="Cari SKU atau nama barang" style={{ width: 240 }} onChange={(e) => setLowSearch(e.target.value)} />
         <Select allowClear placeholder={t('Semua gudang')} style={{ width: 240 }} value={warehouseId} onChange={setWarehouseId} options={warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
         <Button icon={<SwapOutlined />} onClick={() => navigate('/inventory/transfers?new=1')}>
           Transfer dari gudang lain
@@ -191,11 +230,11 @@ function LowTab() {
           Buat pesanan pembelian
         </Button>
       </Space>
-      <Table
+      <ResponsiveTable<LowRow>
         rowKey={(r) => `${r.productId}-${r.warehouseId}`}
         size="small"
         loading={q.isLoading}
-        dataSource={q.data}
+        dataSource={lowShown}
         scroll={{ x: 760 }}
         locale={{ emptyText: <Empty description="Tidak ada stok di bawah minimum. Atur stok minimum di tab sebelah." /> }}
         columns={[
@@ -208,6 +247,7 @@ function LowTab() {
         ]}
       />
     </Card>
+    </>
   );
 }
 

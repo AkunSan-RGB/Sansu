@@ -1,13 +1,13 @@
 import { PlusOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { APPS, canUseApp, ROLE_LABELS, type Role, ROLES, toOptions } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { App, Button, Card, Form, Input, Modal, Select, Space, Switch, Table, Tag, Tooltip, Typography } from 'antd';
+import { App, Button, Form, Input, Modal, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd';
 import { useState } from 'react';
 import { get, patch, post } from '@/api/client';
 import { useAction, useBranches, useWarehouses } from '@/api/queries';
 import type { UserRow } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
-import PageHeader from '@/layout/PageHeader';
+import ListPage from '@/components/ListPage';
 import { fmtDate } from '@/lib/format';
 import { t } from '@/lib/terms';
 
@@ -63,9 +63,9 @@ export default function UsersPage() {
 
   return (
     <>
-      <PageHeader
+      <ListPage<UserRow>
         title="Pengguna"
-        extra={
+        actions={
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -78,81 +78,101 @@ export default function UsersPage() {
             Pengguna baru
           </Button>
         }
-      />
-      <Card>
-        <Table
-          rowKey="id"
-          loading={isLoading}
-          dataSource={data}
-          scroll={{ x: 700 }}
-          onRow={(u) => ({
-            onClick: () => {
-              form.resetFields();
-              form.setFieldsValue({ ...u, password: undefined, warehouseIds: u.warehouseIds ?? [], branchIds: u.branchIds ?? [] });
-              setEditing(u);
-            },
-            style: { cursor: 'pointer' },
-          })}
-          columns={[
-            {
-              title: 'Nama',
-              dataIndex: 'name',
-              render: (n, u) =>
-                u.id === me?.id ? (
-                  <>
-                    {n} <Tag>Anda</Tag>
-                  </>
-                ) : (
-                  n
-                ),
-            },
-            { title: 'Email', dataIndex: 'email' },
-            {
-              title: 'Peran',
-              dataIndex: 'role',
-              render: (r: Role) => <Tag color={r === 'OWNER' ? 'gold' : 'volcano'}>{ROLE_LABELS[r]}</Tag>,
-            },
-            ...((branches.data?.branches.length ?? 0) > 0
-              ? [{
+        rows={data}
+        loading={isLoading}
+        summary={(r) => [
+          { label: 'Semua pengguna', value: r.length },
+          { label: 'Aktif', value: r.filter((u) => u.isActive).length, tone: 'good' },
+          {
+            label: 'Verifikasi 2 langkah aktif',
+            value: r.filter((u) => u.twoFactor).length,
+            hint: 'Makin banyak makin aman',
+          },
+        ]}
+        views={[
+          { value: 'all', label: 'Semua', test: () => true },
+          { value: 'active', label: 'Aktif', test: (u) => u.isActive },
+          { value: 'off', label: 'Nonaktif', test: (u) => !u.isActive },
+        ]}
+        searchText={(u) => `${u.name} ${u.email}`}
+        searchPlaceholder="Cari nama atau email"
+        emptyText="Belum ada pengguna"
+        scrollX={700}
+        onRowClick={(u) => {
+          form.resetFields();
+          form.setFieldsValue({
+            ...u,
+            password: undefined,
+            warehouseIds: u.warehouseIds ?? [],
+            branchIds: u.branchIds ?? [],
+          });
+          setEditing(u);
+        }}
+        columns={[
+          {
+            title: 'Nama',
+            dataIndex: 'name',
+            render: (n, u) =>
+              u.id === me?.id ? (
+                <>
+                  {n} <Tag>Anda</Tag>
+                </>
+              ) : (
+                n
+              ),
+          },
+          { title: 'Email', dataIndex: 'email' },
+          {
+            title: 'Peran',
+            dataIndex: 'role',
+            render: (r: Role) => <Tag color={r === 'OWNER' ? 'gold' : 'volcano'}>{ROLE_LABELS[r]}</Tag>,
+          },
+          ...((branches.data?.branches.length ?? 0) > 0
+            ? [
+                {
                   title: 'Akses cabang',
                   dataIndex: 'branchIds',
                   render: (ids: string[] | null | undefined) =>
-                    ids?.length ? ids.map((id) => <Tag key={id}>{brName.get(id) ?? '?'}</Tag>) : <Typography.Text type="secondary">Semua</Typography.Text>,
-                }]
-              : []),
-            {
-              title: t('Akses gudang'),
-              dataIndex: 'warehouseIds',
-              render: (ids: string[] | null) =>
-                ids?.length ? (
-                  ids.map((id) => <Tag key={id}>{whName.get(id) ?? '?'}</Tag>)
-                ) : (
-                  <Typography.Text type="secondary">Semua</Typography.Text>
-                ),
-            },
-            {
-              title: '2FA',
-              dataIndex: 'twoFactor',
-              render: (on: boolean) =>
-                on ? (
-                  <Tooltip title="Verifikasi 2 langkah aktif">
-                    <Tag color="green" icon={<SafetyCertificateOutlined />}>
-                      Aktif
-                    </Tag>
-                  </Tooltip>
-                ) : (
-                  <Typography.Text type="secondary">—</Typography.Text>
-                ),
-            },
-            {
-              title: 'Status',
-              dataIndex: 'isActive',
-              render: (a) => (a ? <Tag color="green">Aktif</Tag> : <Tag>Nonaktif</Tag>),
-            },
-            { title: 'Dibuat', dataIndex: 'createdAt', render: fmtDate },
-          ]}
-        />
-      </Card>
+                    ids?.length ? (
+                      ids.map((id) => <Tag key={id}>{brName.get(id) ?? '?'}</Tag>)
+                    ) : (
+                      <Typography.Text type="secondary">Semua</Typography.Text>
+                    ),
+                },
+              ]
+            : []),
+          {
+            title: t('Akses gudang'),
+            dataIndex: 'warehouseIds',
+            render: (ids: string[] | null) =>
+              ids?.length ? (
+                ids.map((id) => <Tag key={id}>{whName.get(id) ?? '?'}</Tag>)
+              ) : (
+                <Typography.Text type="secondary">Semua</Typography.Text>
+              ),
+          },
+          {
+            title: '2FA',
+            dataIndex: 'twoFactor',
+            render: (on: boolean) =>
+              on ? (
+                <Tooltip title="Verifikasi 2 langkah aktif">
+                  <Tag color="green" icon={<SafetyCertificateOutlined />}>
+                    Aktif
+                  </Tag>
+                </Tooltip>
+              ) : (
+                <Typography.Text type="secondary">—</Typography.Text>
+              ),
+          },
+          {
+            title: 'Status',
+            dataIndex: 'isActive',
+            render: (a) => (a ? <Tag color="green">Aktif</Tag> : <Tag>Nonaktif</Tag>),
+          },
+          { title: 'Dibuat', dataIndex: 'createdAt', render: fmtDate },
+        ]}
+      />
       <Modal
         title={editing === 'new' ? 'Pengguna baru' : 'Ubah pengguna'}
         open={!!editing}
@@ -201,7 +221,9 @@ export default function UsersPage() {
                 mode="multiple"
                 allowClear
                 placeholder="Semua cabang"
-                options={branches.data?.branches.filter((b) => b.isActive).map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))}
+                options={branches.data?.branches
+                  .filter((b) => b.isActive)
+                  .map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))}
               />
             </Form.Item>
           )}
@@ -209,7 +231,9 @@ export default function UsersPage() {
             <Form.Item
               name="warehouseIds"
               label={t('Akses gudang')}
-              extra={t('Kosongkan = boleh semua gudang. Jika diisi, pengguna hanya melihat & mengubah stok gudang tersebut (tetap boleh mengirim transfer ke gudang lain).')}
+              extra={t(
+                'Kosongkan = boleh semua gudang. Jika diisi, pengguna hanya melihat & mengubah stok gudang tersebut (tetap boleh mengirim transfer ke gudang lain).',
+              )}
             >
               <Select
                 mode="multiple"

@@ -9,6 +9,7 @@ import {
   Col,
   Descriptions,
   Drawer,
+  Empty,
   Form,
   Input,
   InputNumber,
@@ -18,7 +19,6 @@ import {
   Select,
   Space,
   Switch,
-  Statistic,
   Table,
   Tabs,
   Tag,
@@ -32,6 +32,8 @@ import { LEDGER_KEYS, useAccounts, useAction, useBranches } from '@/api/queries'
 import type { AssetCategory, CompanySettings, FixedAsset } from '@/api/types';
 import CashAccountSelect from '@/components/CashAccountSelect';
 import ExportButtons from '@/components/ExportButtons';
+import ResponsiveTable from '@/components/ResponsiveTable';
+import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { Amount } from './statements/format';
@@ -385,6 +387,7 @@ function AssetList() {
   // tautan dari jurnal / buku besar: ?asset=ID langsung membuka rincian aset
   const [detail, setDetail] = useState<string | null>(params.get('asset'));
   const [status, setStatus] = useState<'ACTIVE' | 'ALL'>('ACTIVE');
+  const [search, setSearch] = useState('');
   const assets = useQuery({ queryKey: ['assets', 'list', asOf], queryFn: () => get<FixedAsset[]>(`/assets?asOf=${asOf}`) });
   const cats = useQuery({ queryKey: ['assets', 'categories'], queryFn: () => get<AssetCategory[]>('/assets/categories') });
   const recon = useQuery({
@@ -409,6 +412,10 @@ function AssetList() {
   const mismatches = (recon.data?.rows ?? []).filter((r) => Math.abs(Number(r.diff)) >= 1);
   const rows = useMemo(() => (assets.data ?? []).filter((a) => status === 'ALL' || a.status === 'ACTIVE'), [assets.data, status]);
   const total = (k: 'cost' | 'accumulated' | 'bookValue') => rows.reduce((s, a) => s + Number(a[k] ?? 0), 0);
+  const shownRows = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return term ? rows.filter((a) => `${a.code} ${a.name} ${a.category.name} ${a.custodian ?? ''}`.toLowerCase().includes(term)) : rows;
+  }, [rows, search]);
   const monthly = rows.filter((a) => a.status === 'ACTIVE').reduce((s, a) => s + Number(a.monthlyEstimate ?? 0), 0);
   return (
     <>
@@ -502,20 +509,14 @@ function AssetList() {
           }
         />
       )}
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        {[
-          ['Harga perolehan', total('cost')],
-          ['Akumulasi penyusutan', total('accumulated')],
-          ['Nilai buku', total('bookValue')],
-          ['Penyusutan per bulan (perkiraan)', monthly],
-        ].map(([t, v]) => (
-          <Col xs={12} md={6} key={t}>
-            <Card size="small">
-              <Statistic title={t} value={Number(v)} formatter={(x) => fmtMoney(Number(x))} />
-            </Card>
-          </Col>
-        ))}
-      </Row>
+      <SummaryCards
+        items={[
+          { label: 'Harga perolehan', value: fmtMoney(total('cost')) },
+          { label: 'Akumulasi penyusutan', value: fmtMoney(total('accumulated')) },
+          { label: 'Nilai buku', value: fmtMoney(total('bookValue')), tone: 'good' },
+          { label: 'Penyusutan per bulan', value: fmtMoney(monthly), hint: 'perkiraan' },
+        ]}
+      />
       <Card>
         <Space wrap style={{ marginBottom: 12 }}>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setAdding(true)} disabled={!cats.data?.length}>
@@ -532,6 +533,7 @@ function AssetList() {
             unCheckedChildren="Penyusutan manual"
           />
           <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value || today())} prefix="Per" style={{ width: 220 }} />
+          <Input.Search allowClear placeholder="Cari kode / nama aset" style={{ width: 220 }} onChange={(e) => setSearch(e.target.value)} />
           <Radio.Group size="small" value={status} onChange={(e) => setStatus(e.target.value)} optionType="button" options={[{ value: 'ACTIVE', label: 'Aktif' }, { value: 'ALL', label: 'Semua' }]} />
           <ExportButtons
             filename={`daftar-aset-tetap-${asOf}`}
@@ -555,11 +557,14 @@ function AssetList() {
             </span>
           </Tooltip>
         </Space>
-        <Table
+        <ResponsiveTable<FixedAsset>
           rowKey="id"
           loading={assets.isLoading}
-          dataSource={rows}
+          dataSource={shownRows}
           scroll={{ x: 1000 }}
+          mobileTitle={1}
+          onMobileClick={(a) => setDetail(a.id)}
+          locale={{ emptyText: <Empty description={search ? 'Tidak ada aset yang cocok dengan pencarian' : 'Belum ada aset tetap. Klik "Aset baru" untuk mencatat yang pertama.'} /> }}
           onRow={(a) => ({ onClick: () => setDetail(a.id), style: { cursor: 'pointer' } })}
           columns={[
             { title: 'Kode', dataIndex: 'code', width: 100 },

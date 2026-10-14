@@ -1,11 +1,12 @@
 import { PhoneOutlined, PlusOutlined, WhatsAppOutlined } from '@ant-design/icons';
 import { ACTIVITY_TYPE_LABELS, BRAND, LEAD_STATUS_LABELS } from '@sansu/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Badge, Button, Card, Col, Empty, Form, Modal, Row, Segmented, Select, Space, Statistic, Table, Tabs, Tag, Typography } from 'antd';
+import { Badge, Button, Card, Empty, Form, Modal, Segmented, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { get, patch, post, qs } from '@/api/client';
 import { useAction } from '@/api/queries';
 import type { CrmActivity, CrmStage, Lead } from '@/api/types';
+import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import LeadDrawer, { LEAD_STATUS_COLOR, LeadForm, waLink } from './LeadDrawer';
@@ -117,28 +118,14 @@ export default function PipelinePage() {
           </Space>
         }
       />
-      <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
-        <Col xs={12} md={6}>
-          <Card size="small">
-            <Statistic title="Nilai pipeline" value={fmtMoney(totalOpen)} />
-          </Card>
-        </Col>
-        <Col xs={12} md={6}>
-          <Card size="small">
-            <Statistic title="Perkiraan tertimbang" value={fmtMoney(weighted)} />
-          </Card>
-        </Col>
-        <Col xs={12} md={6}>
-          <Card size="small">
-            <Statistic title="Menang 90 hari" value={fmtMoney(summary.data?.wonValue90)} suffix={<Typography.Text type="secondary" style={{ fontSize: 13 }}>{summary.data?.won90} deal</Typography.Text>} />
-          </Card>
-        </Col>
-        <Col xs={12} md={6}>
-          <Card size="small">
-            <Statistic title="Rasio menang 90 hari" value={summary.data?.winRate90 ?? 0} suffix="%" />
-          </Card>
-        </Col>
-      </Row>
+      <SummaryCards
+        items={[
+          { label: 'Nilai pipeline', value: fmtMoney(totalOpen), hint: 'semua peluang yang masih berjalan' },
+          { label: 'Perkiraan yang akan masuk', value: fmtMoney(weighted), hint: 'sudah dikalikan peluang berhasil' },
+          { label: 'Menang 90 hari terakhir', value: fmtMoney(summary.data?.wonValue90), hint: `${summary.data?.won90 ?? 0} kesepakatan`, tone: 'good' },
+          { label: 'Rasio menang 90 hari', value: `${summary.data?.winRate90 ?? 0}%`, hint: `${summary.data?.lost90 ?? 0} gagal` },
+        ]}
+      />
 
       <Tabs
         items={[

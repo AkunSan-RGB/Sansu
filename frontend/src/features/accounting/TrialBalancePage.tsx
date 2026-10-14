@@ -28,6 +28,7 @@ export default function TrialBalancePage() {
       to={to}
       onFrom={setFrom}
       onTo={setTo}
+      hint="Daftar saldo semua akun pada periode yang dipilih. Klik nama akun untuk melihat rinciannya di buku besar."
       controls={
         <>
           <Checkbox checked={hideZero} onChange={(e) => setHideZero(e.target.checked)}>

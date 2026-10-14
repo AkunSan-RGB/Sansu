@@ -1,13 +1,13 @@
 import { PlusOutlined } from '@ant-design/icons';
 import { BRAND, type Warehouse } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Form, Input, Modal, Progress, Space, Switch, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Form, Input, Modal, Progress, Space, Switch, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, patch, post } from '@/api/client';
 import { useAction, useWarehouses } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
-import PageHeader from '@/layout/PageHeader';
+import ListPage from '@/components/ListPage';
 import { t } from '@/lib/terms';
 
 /** Daftar gudang: tambah, ubah nama/alamat, nonaktifkan. Jumlah gudang aktif dibatasi paket langganan. */
@@ -46,92 +46,101 @@ export default function WarehousesPage() {
 
   return (
     <>
-      <PageHeader
+      <ListPage<Warehouse>
         title={t('Gudang')}
-        extra={
+        actions={
           isAdmin && (
             <Button type="primary" icon={<PlusOutlined />} disabled={full} onClick={() => setEditing({})}>
               Tambah gudang
             </Button>
           )
         }
-      />
-      <Space direction="vertical" size={16} style={{ width: '100%' }}>
-        {isAdmin && (
-          <Card size="small">
-            <Space size={24} wrap align="center">
-              <div>
-                <Typography.Text type="secondary">
-                  Gudang aktif · paket {me?.subscription.plan?.name ?? '-'}
-                </Typography.Text>
-                <div style={{ fontSize: 20, fontWeight: 600 }}>
-                  {used} <Typography.Text type="secondary">/ {max ?? 'tanpa batas'}</Typography.Text>
+        rows={list.data}
+        loading={list.isLoading}
+        summary={(r) => [
+          { label: 'Semua gudang', value: r.length },
+          { label: 'Aktif', value: r.filter((w) => w.isActive !== false).length, tone: 'good' },
+          { label: 'Nonaktif', value: r.filter((w) => w.isActive === false).length },
+        ]}
+        views={[
+          { value: 'all', label: 'Semua', test: () => true },
+          { value: 'active', label: 'Aktif', test: (w) => w.isActive !== false },
+          { value: 'off', label: 'Nonaktif', test: (w) => w.isActive === false },
+        ]}
+        searchText={(w) => `${w.code} ${w.name} ${w.address ?? ''}`}
+        searchPlaceholder="Cari kode, nama, atau alamat"
+        emptyText="Belum ada gudang"
+        scrollX={640}
+        below={
+          isAdmin && (
+            <Card size="small" style={{ marginBottom: 12 }}>
+              <Space size={24} wrap align="center">
+                <div>
+                  <Typography.Text type="secondary">
+                    Gudang aktif · paket {me?.subscription.plan?.name ?? '-'}
+                  </Typography.Text>
+                  <div style={{ fontSize: 20, fontWeight: 600 }}>
+                    {used} <Typography.Text type="secondary">/ {max ?? 'tanpa batas'}</Typography.Text>
+                  </div>
                 </div>
-              </div>
-              {max != null && (
-                <Progress
-                  percent={Math.min(100, Math.round((used / max) * 100))}
-                  showInfo={false}
-                  strokeColor={BRAND.colors.primary}
-                  style={{ width: 220 }}
-                  status={full ? 'exception' : 'normal'}
+                {max != null && (
+                  <Progress
+                    percent={Math.min(100, Math.round((used / max) * 100))}
+                    showInfo={false}
+                    strokeColor={BRAND.colors.primary}
+                    style={{ width: 220 }}
+                    status={full ? 'exception' : 'normal'}
+                  />
+                )}
+              </Space>
+              {full && (
+                <Alert
+                  style={{ marginTop: 12 }}
+                  type="info"
+                  showIcon
+                  message={`Paket ${me?.subscription.plan?.name} dibatasi ${max} gudang aktif.`}
+                  description={t(
+                    'Untuk menambah gudang, tingkatkan paket — atau nonaktifkan gudang yang sudah tidak dipakai (stoknya harus kosong).',
+                  )}
+                  action={
+                    <Button size="small" type="primary" onClick={() => navigate('/billing')}>
+                      Lihat paket
+                    </Button>
+                  }
                 />
               )}
-            </Space>
-            {full && (
-              <Alert
-                style={{ marginTop: 12 }}
-                type="info"
-                showIcon
-                message={`Paket ${me?.subscription.plan?.name} dibatasi ${max} gudang aktif.`}
-                description={t('Untuk menambah gudang, tingkatkan paket — atau nonaktifkan gudang yang sudah tidak dipakai (stoknya harus kosong).')}
-                action={
-                  <Button size="small" type="primary" onClick={() => navigate('/billing')}>
-                    Lihat paket
-                  </Button>
-                }
+            </Card>
+          )
+        }
+        columns={[
+          { title: 'Kode', dataIndex: 'code', width: 110 },
+          {
+            title: 'Nama',
+            dataIndex: 'name',
+            render: (v, w) => (isAdmin ? <a onClick={() => setEditing(w)}>{v}</a> : v),
+          },
+          {
+            title: 'Alamat',
+            dataIndex: 'address',
+            render: (v) => v || <Typography.Text type="secondary">-</Typography.Text>,
+          },
+          {
+            title: 'Aktif',
+            dataIndex: 'isActive',
+            width: 90,
+            render: (v: boolean | undefined, w) => (
+              <Switch
+                size="small"
+                disabled={!isAdmin}
+                checked={v !== false}
+                loading={toggle.isPending && toggle.variables?.id === w.id}
+                onChange={(on) => toggle.mutate({ id: w.id, isActive: on })}
               />
-            )}
-          </Card>
-        )}
-        <Card>
-          <Table
-            rowKey="id"
-            loading={list.isLoading}
-            dataSource={list.data}
-            pagination={false}
-            scroll={{ x: 640 }}
-            columns={[
-              { title: 'Kode', dataIndex: 'code', width: 110 },
-              {
-                title: 'Nama',
-                dataIndex: 'name',
-                render: (v, w) => (isAdmin ? <a onClick={() => setEditing(w)}>{v}</a> : v),
-              },
-              {
-                title: 'Alamat',
-                dataIndex: 'address',
-                render: (v) => v || <Typography.Text type="secondary">-</Typography.Text>,
-              },
-              {
-                title: 'Aktif',
-                dataIndex: 'isActive',
-                width: 90,
-                render: (v: boolean | undefined, w) => (
-                  <Switch
-                    size="small"
-                    disabled={!isAdmin}
-                    checked={v !== false}
-                    loading={toggle.isPending && toggle.variables?.id === w.id}
-                    onChange={(on) => toggle.mutate({ id: w.id, isActive: on })}
-                  />
-                ),
-              },
-              { title: '', width: 90, render: (_, w) => (w.isActive === false ? <Tag>Nonaktif</Tag> : null) },
-            ]}
-          />
-        </Card>
-      </Space>
+            ),
+          },
+          { title: '', width: 90, render: (_, w) => (w.isActive === false ? <Tag>Nonaktif</Tag> : null) },
+        ]}
+      />
       <Modal
         open={!!editing}
         title={editing?.id ? `Ubah gudang ${editing.code}` : 'Gudang baru'}

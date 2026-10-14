@@ -23,6 +23,7 @@ export default function WorksheetPage() {
       to={to}
       onFrom={setFrom}
       onTo={setTo}
+      hint="Satu tabel dari neraca saldo, penyesuaian, sampai laba rugi dan posisi keuangan."
       controls={
         <>
           <Button size="small" onClick={() => navigate(`/trial-balance?${query}`)}>

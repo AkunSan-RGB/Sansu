@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Card, Col, InputNumber, Row, Space, Statistic, Tag, Tooltip } from 'antd';
+import { Alert, Card, Empty, Input, InputNumber, Segmented, Space, Tag, Tooltip } from 'antd';
 import { useState } from 'react';
 import { get } from '@/api/client';
 import ResponsiveTable from '@/components/ResponsiveTable';
+import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
 
@@ -34,23 +35,31 @@ const FLAG: Record<string, { label: string; hint: string }> = {
   HIGH_USAGE: { label: 'Bahan berlebih', hint: 'Pemakaian bahan di atas standar resep melebihi toleransi — periksa pemborosan atau kebocoran bahan' },
   LOW_YIELD: { label: 'Hasil rendah', hint: 'Hasil jadi di bawah rencana melebihi toleransi — periksa susut, cacat, atau pencatatan hasil' },
 };
-const signed = (v: number) => (v === 0 ? '-' : <span style={{ color: v > 0 ? '#d46b08' : '#389e0d' }}>{`${v > 0 ? '+' : '−'}${fmtMoney(Math.abs(v))}`}</span>);
+const signed = (v: number) => (v === 0 ? '-' : <span style={{ color: v > 0 ? '#d46b08' : '#389e0d' }}>{`${v > 0 ? 'Lebih' : 'Hemat'} ${fmtMoney(Math.abs(v))}`}</span>);
 
 /** Analisis selisih produksi: pemakaian bahan, hasil, dan biaya konversi sesungguhnya vs standar resep */
 export default function ProductionVariancePage() {
   const [tol, setTol] = useState(3);
   const q = useQuery({ queryKey: ['production', 'variance', tol], queryFn: () => get<Report>(`/production/variance?tolerancePct=${tol}`) });
   const r = q.data;
+  const [view, setView] = useState<'ALL' | 'FLAG'>('ALL');
+  const [search, setSearch] = useState('');
+  const allRows = r?.rows ?? [];
+  const term = search.trim().toLowerCase();
+  const shown = allRows.filter((x) => (view === 'ALL' || x.flags.length > 0) && (!term || `${x.number} ${x.product}`.toLowerCase().includes(term)));
   return (
     <>
       <PageHeader title="Analisis selisih produksi" extra={<Space>Toleransi <InputNumber min={0} max={100} step={0.5} value={tol} onChange={(v) => setTol(Number(v ?? 3))} addonAfter="%" /></Space>} />
       <Alert type="info" showIcon style={{ marginBottom: 16 }} message="Membandingkan setiap perintah produksi yang selesai dengan standar resepnya: bahan yang benar-benar keluar gudang, hasil jadi, serta upah dan overhead yang dibebankan. Perintah dengan pemakaian bahan atau hasil di luar toleransi diberi penanda untuk ditinjau." />
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={12} md={6}><Card size="small"><Statistic title="Perintah selesai" value={r?.totals.orders ?? 0} /></Card></Col>
-        <Col xs={12} md={6}><Card size="small"><Statistic title="Perlu ditinjau" value={r?.totals.flagged ?? 0} valueStyle={{ color: r?.totals.flagged ? '#cf1322' : undefined }} /></Card></Col>
-        <Col xs={12} md={6}><Card size="small"><Statistic title="Selisih pemakaian bahan" value={fmtMoney(r?.totals.materialValue ?? 0)} /></Card></Col>
-        <Col xs={12} md={6}><Card size="small"><Statistic title="Nilai hasil kurang" value={fmtMoney(r?.totals.yieldValue ?? 0)} /></Card></Col>
-      </Row>
+      {r && (
+        <SummaryCards
+          items={[
+            { label: 'Perintah selesai', value: String(r.totals.orders), hint: 'dibandingkan dengan resep' },
+            { label: 'Perlu ditinjau', value: String(r.totals.flagged), hint: 'di luar batas toleransi', tone: r.totals.flagged ? 'bad' : 'good', onClick: () => setView('FLAG'), active: view === 'FLAG' },
+            { label: 'Selisih pemakaian bahan', value: fmtMoney(Math.abs(r.totals.materialValue)), hint: r.totals.materialValue > 0 ? 'bahan lebih banyak dari resep' : r.totals.materialValue < 0 ? 'bahan lebih hemat dari resep' : 'sesuai resep', tone: r.totals.materialValue > 0 ? 'warn' : 'neutral' },
+          ]}
+        />
+      )}
       {r && r.byMaterial.length > 0 && (
         <Card size="small" title="Per bahan" style={{ marginBottom: 16 }}>
           <ResponsiveTable
@@ -68,16 +77,31 @@ export default function ProductionVariancePage() {
           />
         </Card>
       )}
+      <Card>
+        <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
+          <div style={{ maxWidth: '100%', overflowX: 'auto' }}>
+            <Segmented
+              value={view}
+              onChange={(v) => setView(v as typeof view)}
+              options={[
+                { value: 'ALL', label: `Semua (${allRows.length})` },
+                { value: 'FLAG', label: `Perlu ditinjau (${allRows.filter((x) => x.flags.length).length})` },
+              ]}
+            />
+          </div>
+          <Input.Search allowClear placeholder="Cari nomor atau produk" style={{ width: 260 }} onChange={(e) => setSearch(e.target.value)} />
+        </Space>
       <ResponsiveTable
         rowKey="orderId"
         loading={q.isLoading}
-        dataSource={r?.rows}
+        dataSource={shown}
         scroll={{ x: 1000 }}
+        locale={{ emptyText: <Empty description={allRows.length ? 'Tidak ada perintah yang cocok dengan pilihan ini' : 'Belum ada produksi yang selesai untuk dibandingkan'} /> }}
         columns={[
           { title: 'Selesai', dataIndex: 'date', render: fmtDate, width: 100 },
           { title: 'Perintah', dataIndex: 'number' },
           { title: 'Produk', dataIndex: 'product' },
-          { title: 'Hasil (rencana → nyata)', align: 'right', render: (_, x: Row_) => `${x.plannedOutput} → ${x.actualOutput}${x.yieldPct ? ` (−${x.yieldPct}%)` : ''}` },
+          { title: 'Hasil (rencana → nyata)', align: 'right', render: (_, x: Row_) => `${x.plannedOutput} → ${x.actualOutput}${x.yieldPct ? ` (kurang ${Math.abs(x.yieldPct)}%)` : ''}` },
           { title: 'Selisih bahan', align: 'right', render: (_, x: Row_) => signed(x.materialValue) },
           { title: 'Selisih upah', align: 'right', render: (_, x: Row_) => signed(x.laborVariance) },
           { title: 'Selisih overhead', align: 'right', render: (_, x: Row_) => signed(x.overheadVariance) },
@@ -96,13 +120,14 @@ export default function ProductionVariancePage() {
                 { title: 'Bahan', render: (_, m) => `${m.sku} · ${m.name}` },
                 { title: 'Standar', align: 'right', dataIndex: 'planned' },
                 { title: 'Dikeluarkan', align: 'right', dataIndex: 'issued' },
-                { title: '%', align: 'right', render: (_, m) => (m.pct ? `${m.pct > 0 ? '+' : ''}${m.pct}%` : '-') },
+                { title: '%', align: 'right', render: (_, m) => (m.pct ? `${m.pct > 0 ? 'Lebih' : 'Hemat'} ${Math.abs(m.pct)}%` : '-') },
                 { title: 'Selisih nilai', align: 'right', render: (_, m) => signed(m.value) },
               ]}
             />
           ),
         }}
       />
+      </Card>
     </>
   );
 }

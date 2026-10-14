@@ -1,14 +1,16 @@
 import { DollarOutlined } from '@ant-design/icons';
 import { POS_PAYMENT_LABELS, type PosPaymentMethod } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Form, Input, InputNumber, Modal, Radio, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Empty, Form, Input, InputNumber, Modal, Radio, Segmented, Space, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, post, qs } from '@/api/client';
 import { LEDGER_KEYS, useAction } from '@/api/queries';
 import type { PosOrder, PosSession } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
+import ResponsiveTable from '@/components/ResponsiveTable';
+import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtMoney } from '@/lib/format';
 import Receipt, { printReceipt } from './Receipt';
@@ -93,6 +95,20 @@ export default function PosSessionsPage() {
   const supervisor = me?.role === 'OWNER' || me?.role === 'ADMIN' || me?.role === 'FINANCE';
   const controls = useQuery({ queryKey: ['pos', 'controls'], queryFn: () => get<{ items: { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string }[] }>('/pos/controls'), enabled: supervisor });
   const { data, isLoading } = useQuery({ queryKey: ['pos-sessions'], queryFn: () => get<PosSession[]>('/pos/sessions') });
+  const [view, setView] = useState<'ALL' | 'OPEN' | 'CLOSED' | 'DIFF'>('ALL');
+  const [search, setSearch] = useState('');
+  const all = data ?? [];
+  const tests = {
+    ALL: () => true,
+    OPEN: (s: PosSession) => s.status === 'OPEN',
+    CLOSED: (s: PosSession) => s.status !== 'OPEN',
+    DIFF: (s: PosSession) => s.difference != null && Number(s.difference) !== 0,
+  };
+  const shown = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return all.filter((s) => tests[view](s) && (!term || `${s.number} ${s.user?.name ?? ''} ${s.warehouse.name}`.toLowerCase().includes(term)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [all, view, search]);
   const order = useQuery({ queryKey: ['pos-order', orderId], queryFn: () => get<PosOrder>(`/pos/orders/${orderId}`), enabled: !!orderId });
 
   return (
@@ -114,12 +130,37 @@ export default function PosSessionsPage() {
           </Space>
         </Card>
       )}
+      {!isLoading && all.length > 0 && (
+        <SummaryCards
+          items={[
+            { label: 'Total penjualan', value: fmtMoney(all.reduce((a, s) => a + Number(s.totalSales ?? 0), 0)), hint: `${all.length} sesi` },
+            { label: 'Kasir sedang buka', value: String(all.filter(tests.OPEN).length), hint: 'sesi belum ditutup', tone: all.some(tests.OPEN) ? 'good' : 'neutral' },
+            { label: 'Sesi dengan selisih kas', value: String(all.filter(tests.DIFF).length), hint: 'uang di laci tidak sama', tone: all.some(tests.DIFF) ? 'warn' : 'neutral' },
+          ]}
+        />
+      )}
       <Card>
-        <Table
+        <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
+          <div style={{ maxWidth: '100%', overflowX: 'auto' }}>
+            <Segmented
+              value={view}
+              onChange={(v) => setView(v as typeof view)}
+              options={[
+                { value: 'ALL', label: `Semua (${all.length})` },
+                { value: 'OPEN', label: `Sedang buka (${all.filter(tests.OPEN).length})` },
+                { value: 'CLOSED', label: `Sudah tutup (${all.filter(tests.CLOSED).length})` },
+                { value: 'DIFF', label: `Ada selisih (${all.filter(tests.DIFF).length})` },
+              ]}
+            />
+          </div>
+          <Input.Search allowClear placeholder="Cari kasir, toko, atau nomor sesi" style={{ width: 260 }} onChange={(e) => setSearch(e.target.value)} />
+        </Space>
+        <ResponsiveTable<PosSession>
           rowKey="id"
           loading={isLoading}
-          dataSource={data}
+          dataSource={shown}
           scroll={{ x: 1000 }}
+          locale={{ emptyText: <Empty description={search || view !== 'ALL' ? 'Tidak ada data yang cocok dengan pilihan ini' : 'Belum ada sesi kasir'} /> }}
           expandable={{ expandedRowRender: (s) => <SessionOrders sessionId={s.id} onOpen={setOrderId} />, rowExpandable: (s) => (s.orderCount ?? 0) > 0 }}
           columns={[
             { title: 'Sesi', dataIndex: 'number' },

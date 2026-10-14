@@ -8,10 +8,12 @@ import {
   Card,
   Col,
   Drawer,
+  Empty,
   Form,
   Input,
   InputNumber,
   Row,
+  Segmented,
   Select,
   Space,
   Switch,
@@ -22,6 +24,8 @@ import {
 import { useState } from 'react';
 import { get, post, put } from '@/api/client';
 import { useAction, useProducts } from '@/api/queries';
+import ResponsiveTable from '@/components/ResponsiveTable';
+import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtMoney, fmtQty } from '@/lib/format';
 import { t } from '@/lib/terms';
@@ -41,6 +45,17 @@ type FormV = {
 export default function BomsPage() {
   const q = useQuery({ queryKey: ['boms'], queryFn: () => get<Bom[]>('/production/boms') });
   const [editing, setEditing] = useState<Bom | 'new' | null>(null);
+  const [view, setView] = useState<'ALL' | 'ACTIVE' | 'OFF'>('ALL');
+  const [search, setSearch] = useState('');
+  const all = q.data ?? [];
+  const active = all.filter((b) => b.isActive);
+  const off = all.filter((b) => !b.isActive);
+  const term = search.trim().toLowerCase();
+  const shown = all.filter(
+    (b) =>
+      (view === 'ALL' || (view === 'ACTIVE' ? b.isActive : !b.isActive)) &&
+      (!term || `${b.code} ${b.name} ${b.product.sku} ${b.product.name}`.toLowerCase().includes(term)),
+  );
   return (
     <>
       <PageHeader
@@ -51,6 +66,15 @@ export default function BomsPage() {
           </Button>
         }
       />
+      {!q.isLoading && all.length > 0 && (
+        <SummaryCards
+          items={[
+            { label: 'Jumlah resep', value: String(all.length), hint: 'bahan per satu batch produksi', onClick: () => setView('ALL'), active: view === 'ALL' },
+            { label: 'Resep aktif', value: String(active.length), hint: 'bisa dipakai untuk produksi', tone: active.length ? 'good' : 'neutral', onClick: () => setView('ACTIVE'), active: view === 'ACTIVE' },
+            { label: 'Resep nonaktif', value: String(off.length), hint: 'tidak muncul saat membuat produksi', onClick: () => setView('OFF'), active: view === 'OFF' },
+          ]}
+        />
+      )}
       <Alert
         type="info"
         showIcon
@@ -59,13 +83,27 @@ export default function BomsPage() {
         description={t('Isi bahan per batch (termasuk susut normal) dan biaya konversi standar: upah langsung dan overhead pabrik (listrik, penyusutan mesin, dll.) per batch. Harga pokok produk jadi = bahan + upah + overhead (SAK EP Bab 13). Taksiran di bawah memakai harga rata-rata bahan saat ini.')}
       />
       <Card>
-        <Table<Bom>
+        <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
+          <div style={{ maxWidth: '100%', overflowX: 'auto' }}>
+            <Segmented
+              value={view}
+              onChange={(v) => setView(v as typeof view)}
+              options={[
+                { value: 'ALL', label: `Semua (${all.length})` },
+                { value: 'ACTIVE', label: `Aktif (${active.length})` },
+                { value: 'OFF', label: `Nonaktif (${off.length})` },
+              ]}
+            />
+          </div>
+          <Input.Search allowClear placeholder="Cari resep atau produk" style={{ width: 260 }} onChange={(e) => setSearch(e.target.value)} />
+        </Space>
+        <ResponsiveTable<Bom>
           rowKey="id"
-          size="small"
           loading={q.isLoading}
-          dataSource={q.data}
+          dataSource={shown}
+          scroll={{ x: 1000 }}
           onRow={(r) => ({ onClick: () => setEditing(r), style: { cursor: 'pointer' } })}
-          locale={{ emptyText: 'Belum ada resep' }}
+          locale={{ emptyText: <Empty description={all.length ? 'Tidak ada resep yang cocok dengan pilihan ini' : 'Belum ada resep. Klik Resep baru untuk membuat yang pertama.'} /> }}
           expandable={{
             expandedRowRender: (b) => (
               <Table
@@ -73,6 +111,7 @@ export default function BomsPage() {
                 size="small"
                 pagination={false}
                 dataSource={b.lines}
+                scroll={{ x: 480 }}
                 columns={[
                   { title: 'Bahan', render: (_, l) => `${l.sku} · ${l.name}` },
                   { title: 'Per batch', align: 'right', render: (_, l) => `${fmtQty(l.qty)} ${l.unit}` },
