@@ -234,7 +234,8 @@ export class PlatformService {
       action: 'UPDATE',
       entity: 'User',
       entityId: id,
-      data: { ...dto, password: dto.password ? '***' : undefined },
+      // peran lama dicatat agar perpindahan peran yang saling mengawasi (Keuangan ↔ Akuntan) bisa dideteksi
+      data: { ...dto, password: dto.password ? '***' : undefined, ...(dto.role && dto.role !== target.role ? { previousRole: target.role } : {}) },
     });
     return u;
   }

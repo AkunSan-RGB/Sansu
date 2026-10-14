@@ -66,6 +66,21 @@ Pemilik dan Admin memegang keduanya sebagai pengelola (tindakan mereka tercatat 
 jurnal manual, kunci periode, dan posting gaji dikerjakan Pemilik/Admin sampai ada Akuntan. **Pengguna Keuangan yang sudah ada tidak berpindah otomatis**:
 Pemilik perlu menetapkan peran Akuntan bagi yang bertugas membukukan.
 
+### Peralihan perusahaan yang sudah berjalan
+
+Pengguna Keuangan lama **tidak dipindahkan otomatis** (memindahkan diam-diam justru melanggar pemisahan fungsi). Sebagai gantinya:
+
+- Halaman **Pengguna** menampilkan peringatan selama ada pengguna Keuangan tetapi belum ada Akuntan, dan **Cek kesehatan** memuat temuan "Pemisahan fungsi: Keuangan dan Akuntan".
+- Memindahkan pengguna antara Keuangan dan Akuntan tercatat di jejak audit beserta peran lamanya dan **ditandai di Cek kesehatan selama 180 hari** ("Tidak ada pengguna berpindah antara Keuangan dan Akuntan"), karena dua peran yang saling mengawasi tidak boleh sekadar dipertukarkan orang yang sama.
+- Pesan penolakan (403) menyebut peran yang berhak, jadi pengguna tahu harus meminta tolong ke siapa.
+- Selama belum ada Akuntan: jurnal manual, kunci periode, tutup buku, dan penyusutan dikerjakan Pemilik/Admin; posting gaji hanya Pemilik.
+
+### Tampilan mengikuti server
+
+Tombol tulis ditampilkan berdasarkan izin dari server (`GET /auth/permissions`, diturunkan dari `@Roles` tiap endpoint), bukan daftar peran yang
+ditulis ulang di tampilan. Tes `segregation` memeriksa izin tiap peran sama persis dengan matriks server dan memeriksa semua kunci `can(...)` di kode
+tampilan terhadap matriks rute (salah ketik gagal di tes, tidak diam-diam menyembunyikan tombol). Server tetap menolak yang tidak berhak.
+
 ## Hak baca (need-to-know)
 
 Data biaya dan stok bernilai tidak terbuka untuk semua peran:

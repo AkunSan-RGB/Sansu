@@ -5,9 +5,12 @@
  */
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { readdirSync, readFileSync, statSync } from 'fs';
+import { join } from 'path';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
+import { permissionKey } from '../src/common/auth/route-matrix';
 import { routeMatrix, type RouteAccess } from '../scripts/rbac-matrix';
 import { todayJakarta } from '../src/common/utils/dates';
 
@@ -146,6 +149,39 @@ describe('Pemisahan fungsi (e2e)', () => {
         const a = find(m, p);
         for (const r of ['HR', 'CASHIER'] as const) expect(`${p} ${r} ${a.has(r)}`).toBe(`${p} ${r} false`);
       }
+    });
+  });
+
+  describe('izin tampilan (/auth/permissions)', () => {
+    const allowOf = async (r: Role) => new Set<string>((await call(r, 'get', '/api/auth/permissions').expect(200)).body.allow);
+    it('izin tiap peran sama persis dengan matriks hak akses server', async () => {
+      for (const r of ROLES) {
+        const got = await allowOf(r);
+        const want = new Set(matrix.filter((x) => x.method !== 'GET' && !x.public && allowed(x).has(r)).map(permissionKey));
+        expect({ r, missing: [...want].filter((k) => !got.has(k)), extra: [...got].filter((k) => !want.has(k)) }).toEqual({ r, missing: [], extra: [] });
+      }
+    });
+    it('Akuntan: membukukan tetapi tidak memegang uang; Keuangan sebaliknya; Gudang tidak memesan', async () => {
+      const [acc, fin, wh] = await Promise.all([allowOf('ACCOUNTANT'), allowOf('FINANCE'), allowOf('WAREHOUSE')]);
+      expect(acc.has('POST /accounting/journals') && !acc.has('POST /cash/transactions') && !acc.has('POST /payments') && !acc.has('POST /purchase-orders')).toBe(true);
+      expect(fin.has('POST /cash/transactions') && fin.has('POST /payments') && !fin.has('POST /accounting/journals')).toBe(true);
+      expect(wh.has('POST /purchase-orders')).toBe(false);
+    });
+    it('semua kunci can(...) di kode tampilan ada di matriks rute (tidak ada salah ketik yang diam-diam menyembunyikan tombol)', () => {
+      const keys = new Set(matrix.filter((x) => x.method !== 'GET').map(permissionKey));
+      const walk = (dir: string): string[] => readdirSync(dir).flatMap((f) => (statSync(join(dir, f)).isDirectory() ? walk(join(dir, f)) : /\.tsx?$/.test(f) ? [join(dir, f)] : []));
+      const bad: string[] = [];
+      let found = 0;
+      for (const file of walk(join(__dirname, '../../frontend/src'))) {
+        const src = readFileSync(file, 'utf8');
+        for (const m of src.matchAll(/\bcan\(\s*'(POST|PUT|PATCH|DELETE)'\s*,\s*(['`])([^'`]*)\2/g)) {
+          found++;
+          if (m[3].includes('${') || !keys.has(`${m[1]} ${m[3]}`)) bad.push(`${file.split('frontend/src/')[1]}: ${m[1]} ${m[3]}`);
+        }
+        for (const m of src.matchAll(/\bcan\(\s*'(POST|PUT|PATCH|DELETE)'\s*,\s*[^'`\s]/g)) bad.push(`${file.split('frontend/src/')[1]}: kunci bukan literal (${m[0]})`);
+      }
+      expect(bad).toEqual([]);
+      expect(found).toBeGreaterThan(0);
     });
   });
 
