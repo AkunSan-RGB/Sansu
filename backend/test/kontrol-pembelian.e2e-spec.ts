@@ -78,4 +78,12 @@ describe('Kontrol pembelian (e2e)', () => {
     expect(r.items.find((i) => i.key === 'PO_SPLIT')?.refs.length).toBe(3);
     await get(owner, '/api/purchase-controls').expect(200);
   });
+
+  it('perusahaan baru otomatis mewajibkan persetujuan pembayaran pertama ke supplier baru; pemilik bisa mematikannya', async () => {
+    const reg = (await http.post('/api/auth/register').send({ companyName: 'PT Baru Terlindungi', name: 'Pemilik', email: `kp-baru-${Date.now()}@uji.id`, password: 'rahasia123' }).expect(201)).body;
+    const policy = (await get(reg.accessToken, '/api/approvals/policy').expect(200)).body;
+    expect(policy.firstSupplierPayment).toBe(true);
+    await put(reg.accessToken, '/api/approvals/policy', { firstSupplierPayment: false }).expect(200);
+    expect((await get(reg.accessToken, '/api/approvals/policy').expect(200)).body.firstSupplierPayment).toBe(false);
+  });
 });
