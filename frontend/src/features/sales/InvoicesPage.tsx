@@ -1,5 +1,5 @@
 import { PlusOutlined } from '@ant-design/icons';
-import { isForeignCurrency } from '@sansu/shared';
+import { canHandleMoney, isForeignCurrency } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Card, Empty, Input, Segmented, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
 import dayjs from 'dayjs';
@@ -128,9 +128,11 @@ export default function InvoicesPage() {
                         render: (_: unknown, i: Invoice) =>
                           i.status !== 'PAID' && (
                             <Space>
-                              <Button size="small" type="primary" onClick={() => setPaying(i)}>
-                                Terima bayar
-                              </Button>
+                              {canHandleMoney(me?.role) && (
+                                <Button size="small" type="primary" onClick={() => setPaying(i)}>
+                                  Terima bayar
+                                </Button>
+                              )}
                               {!i.isOpening && (
                                 <Button size="small" onClick={() => navigate(`/returns?tab=sales&invoice=${i.id}`)}>
                                   Retur

@@ -14,7 +14,8 @@ import { t } from '@/lib/terms';
 const ROLE_HELP: Record<Role, string> = {
   OWNER: 'Semua akses, termasuk membuka kembali periode yang dikunci',
   ADMIN: 'Semua aplikasi & pengaturan',
-  FINANCE: 'Akuntansi, kas & bank, faktur, pembayaran',
+  FINANCE: 'Kas & bank, pembayaran, faktur, setor pajak, bayar gaji (tidak membukukan jurnal)',
+  ACCOUNTANT: 'Jurnal, bagan akun, tutup buku, aset tetap, laporan & pajak (tidak memegang uang)',
   SALES: 'CRM, penawaran, sales order, pelanggan',
   WAREHOUSE: 'Stok, produk, penerimaan barang',
   CASHIER: 'Layar kasir saja',
@@ -57,7 +58,7 @@ export default function UsersPage() {
     onSuccess: () => setEditing(null),
   });
   const canReset = (u: UserRow) =>
-    u.id !== me?.id && (me?.role === 'OWNER' || !['OWNER', 'ADMIN', 'FINANCE'].includes(u.role));
+    u.id !== me?.id && (me?.role === 'OWNER' || !['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'].includes(u.role));
 
   const roles = ROLES.filter((r) => r !== 'OWNER' || me?.role === 'OWNER');
 

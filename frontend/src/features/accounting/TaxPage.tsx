@@ -1,5 +1,5 @@
 import { DeleteOutlined } from '@ant-design/icons';
-import { TAX_PAYMENT_LABELS, type TaxPaymentType } from '@sansu/shared';
+import { canHandleMoney, TAX_PAYMENT_LABELS, type TaxPaymentType } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Col, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
@@ -139,6 +139,7 @@ export default function TaxPage() {
                 const nothingToDo = o.type === 'PPN' && Number(o.outstanding) <= 0 && Number(o.detail?.ppnKeluaran ?? 0) <= 0;
                 return (
                   canPay &&
+                  canHandleMoney(me?.role) &&
                   !nothingToDo && (
                     <Button
                       size="small"
@@ -192,7 +193,8 @@ export default function TaxPage() {
             { title: 'NTPN', dataIndex: 'ntpn', render: (v) => v ?? <Typography.Text type="warning">belum diisi</Typography.Text> },
             { title: 'Dari', render: (_, p) => p.cashAccount?.name ?? '-' },
             {
-              render: (_, p) => (
+              render: (_, p) =>
+                !canHandleMoney(me?.role) ? null : (
                 <Popconfirm title="Batalkan setoran ini? Jurnalnya akan dibalik." onConfirm={() => remove.mutate(p.id)}>
                   <Button size="small" type="text" danger icon={<DeleteOutlined />} />
                 </Popconfirm>

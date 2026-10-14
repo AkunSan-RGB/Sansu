@@ -1,9 +1,10 @@
 import { EditOutlined, UndoOutlined } from '@ant-design/icons';
-import { REPORTING_FRAMEWORK_LABELS } from '@sansu/shared';
+import { canBookkeep, REPORTING_FRAMEWORK_LABELS } from '@sansu/shared';
 import { Button, Input, Modal, Popconfirm, Space, Table, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { api } from '@/api/client';
 import { useAction } from '@/api/queries';
+import { useAuth } from '@/auth/AuthContext';
 import type { FinancialNotes, NoteSection, NoteTable } from '@/api/types';
 import { acc } from './format';
 
@@ -62,6 +63,7 @@ const Paras = ({ ps }: { ps: string[] }) => (
 
 /** Catatan atas Laporan Keuangan (CALK) — disusun otomatis, paragraf bisa disunting */
 export default function NotesView({ d }: { d: FinancialNotes }) {
+  const bookkeeper = canBookkeep(useAuth().me?.role);
   const [editing, setEditing] = useState<NoteSection | null>(null);
   const [text, setText] = useState('');
   const save = useAction((v: { key: string; content: string }) => api(`/accounting/notes/${d.year}/${v.key}`, { method: 'PUT', json: { content: v.content } }), {
@@ -83,7 +85,7 @@ export default function NotesView({ d }: { d: FinancialNotes }) {
             <Typography.Title level={5} style={{ margin: 0 }}>
               {s.number}. {s.title}
             </Typography.Title>
-            {s.editable && (
+            {s.editable && bookkeeper && (
               <Space className="no-print" size={4}>
                 {s.edited && <Tag color="orange">Disunting</Tag>}
                 <Button

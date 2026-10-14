@@ -1,5 +1,5 @@
 import { ArrowLeftOutlined, DollarOutlined, MailOutlined, PrinterOutlined, WhatsAppOutlined } from '@ant-design/icons';
-import { isForeignCurrency, PAYMENT_METHOD_LABELS, type InvoiceDetail } from '@sansu/shared';
+import { canHandleMoney, isForeignCurrency, PAYMENT_METHOD_LABELS, type InvoiceDetail } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Segmented, Space, Table, Tag, Tooltip } from 'antd';
 import { useState } from 'react';
@@ -14,6 +14,7 @@ import DocumentChain from '@/components/DocumentChain';
 import { printDoc } from '@/lib/print';
 import { terbilang } from '@/lib/terbilang';
 import { hasPhone, invoiceMessage, waLink } from '@/lib/wa';
+import { useAuth } from '@/auth/AuthContext';
 import PaymentModal, { outstanding } from './PaymentModal';
 import { ApplyDepositModal } from '../services/DepositsPage';
 import { InvoiceStatusTag } from './status';
@@ -31,6 +32,7 @@ const right = { ...cell, textAlign: 'right' as const };
 export default function InvoiceDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const money = canHandleMoney(useAuth().me?.role);
   const lh = useLetterhead();
   const q = useQuery({ queryKey: ['invoice', id], queryFn: () => get<Detail>(`/invoices/${id}`) });
   const [doc, setDoc] = useState<'invoice' | 'delivery'>('invoice');
@@ -109,8 +111,8 @@ export default function InvoiceDetailPage() {
                   </Button>
                 </Tooltip>
               )}
-              {inv.status !== 'PAID' && !inv.isOpening && <Button onClick={() => setApplying(true)}>Pakai uang muka</Button>}
-              {inv.status !== 'PAID' && (
+              {money && inv.status !== 'PAID' && !inv.isOpening && <Button onClick={() => setApplying(true)}>Pakai uang muka</Button>}
+              {money && inv.status !== 'PAID' && (
                 <Button type="primary" icon={<DollarOutlined />} onClick={() => setPaying(true)}>
                   Terima bayar
                 </Button>

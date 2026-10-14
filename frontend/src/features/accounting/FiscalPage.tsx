@@ -1,5 +1,5 @@
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { FISCAL_ASSET_GROUP_INFO, type FiscalAssetGroup, LEGAL_FORM_LABELS, type LegalForm, TAX_SCHEME_LABELS } from '@sansu/shared';
+import { canBookkeep, FISCAL_ASSET_GROUP_INFO, type FiscalAssetGroup, LEGAL_FORM_LABELS, type LegalForm, TAX_SCHEME_LABELS } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, Modal, Popconfirm, Radio, Row, Space, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
@@ -69,6 +69,7 @@ function Items({ title, items, total, year, removable }: { title: string; items:
 
 export default function FiscalPage() {
   const { me } = useAuth();
+  const bookkeeper = canBookkeep(me?.role);
   const navigate = useNavigate();
   const [year, setYear] = useState(dayjs().month() < 3 ? dayjs().year() - 1 : dayjs().year());
   const [adding, setAdding] = useState(false);
@@ -117,9 +118,11 @@ export default function FiscalPage() {
           <Space wrap style={{ marginBottom: 12 }} className="no-print">
             <Tag color="blue">{TAX_SCHEME_LABELS[d.scheme]}</Tag>
             <Tag>Bentuk usaha: {LEGAL_FORM_LABELS[d.legalForm as LegalForm] ?? d.legalForm}</Tag>
-            <Button size="small" type="link" onClick={() => navigate('/settings/company?tab=pelaporan')}>
-              Ubah skema pajak
-            </Button>
+            {bookkeeper && (
+              <Button size="small" type="link" onClick={() => navigate('/settings/company?tab=pelaporan')}>
+                Ubah skema pajak
+              </Button>
+            )}
           </Space>
           {d.warnings.map((w, i) => (
             <Alert key={i} type="warning" showIcon message={w} style={{ marginBottom: 8 }} />
@@ -132,8 +135,9 @@ export default function FiscalPage() {
                 </Descriptions>
                 {general && (
                   <>
-                    <Items title="Koreksi fiskal positif (menambah laba)" items={d.positive} total={d.totalPositive} year={year} removable />
-                    <Items title="Koreksi fiskal negatif (mengurangi laba)" items={d.negative} total={d.totalNegative} year={year} removable />
+                    <Items title="Koreksi fiskal positif (menambah laba)" items={d.positive} total={d.totalPositive} year={year} removable={bookkeeper} />
+                    <Items title="Koreksi fiskal negatif (mengurangi laba)" items={d.negative} total={d.totalNegative} year={year} removable={bookkeeper} />
+                    {bookkeeper && (
                     <Button
                       icon={<PlusOutlined />}
                       className="no-print"
@@ -146,6 +150,7 @@ export default function FiscalPage() {
                     >
                       Koreksi manual
                     </Button>
+                    )}
                   </>
                 )}
                 <Descriptions size="small" column={1} bordered styles={{ content: { whiteSpace: 'nowrap', textAlign: 'right' } }}>
@@ -192,7 +197,7 @@ export default function FiscalPage() {
                   <div style={{ marginTop: 16 }} className="no-print">
                     {d.journal ? (
                       <Alert type="success" showIcon message={`Sudah dijurnal: ${d.journal.number}`} description="Untuk menghitung ulang, balik dulu jurnal tersebut di Jurnal Umum." />
-                    ) : (
+                    ) : !bookkeeper ? null : (
                       <Popconfirm title={`Posting beban pajak kini${d.deferred ? ' & tangguhan' : ''} per 31 Desember ${year}?`} onConfirm={() => postTax.mutate(undefined)}>
                         <Button type="primary" block loading={postTax.isPending} disabled={Number(d.taxDue) <= 0 && !d.deferred}>
                           Jurnal beban pajak penghasilan
@@ -241,9 +246,11 @@ export default function FiscalPage() {
                       <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
                     </Form.Item>
                   )}
-                  <Button htmlType="submit" loading={saveYear.isPending}>
-                    Simpan
-                  </Button>
+                  {bookkeeper && (
+                    <Button htmlType="submit" loading={saveYear.isPending}>
+                      Simpan
+                    </Button>
+                  )}
                 </Form>
               </Card>
             </Col>

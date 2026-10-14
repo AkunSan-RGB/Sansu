@@ -1,5 +1,5 @@
 import { PlayCircleOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
-import { DEPRECIATION_METHOD_LABELS, type DepreciationMethod, FISCAL_ASSET_GROUP_INFO, type FiscalAssetGroup, toOptions } from '@sansu/shared';
+import { canBookkeep, canViewFinancials, DEPRECIATION_METHOD_LABELS, type DepreciationMethod, FISCAL_ASSET_GROUP_INFO, type FiscalAssetGroup, toOptions } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import {
   Alert,
@@ -213,6 +213,8 @@ function VerifyTag({ a }: { a: FixedAsset }) {
 }
 
 function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }) {
+  const { me } = useAuth();
+  const bookkeeper = canBookkeep(me?.role);
   const [dispose, setDispose] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveForm] = Form.useForm();
@@ -261,7 +263,7 @@ function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }
             {d.location && <Descriptions.Item label="Lokasi">{d.location}</Descriptions.Item>}
             {d.disposalPrice && <Descriptions.Item label="Harga jual">{fmtMoney(d.disposalPrice)}</Descriptions.Item>}
           </Descriptions>
-          {d.status === 'ACTIVE' && (
+          {bookkeeper && d.status === 'ACTIVE' && (
             <Space wrap style={{ marginBottom: 16 }}>
               <Input
                 style={{ width: 240 }}
@@ -285,7 +287,7 @@ function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }
               {d.lastVerifiedAt && <VerifyTag a={d} />}
             </Space>
           )}
-          {d.status === 'ACTIVE' && activeBranches.length > 0 && (
+          {(me?.role === 'OWNER' || me?.role === 'ADMIN') && d.status === 'ACTIVE' && activeBranches.length > 0 && (
             <Space style={{ marginBottom: 16, marginRight: 8 }}>
               <Typography.Text>Cabang: <b>{activeBranches.find((b) => b.id === d.branchId)?.name ?? 'Pusat'}</b></Typography.Text>
               <Button
@@ -298,7 +300,7 @@ function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }
               </Button>
             </Space>
           )}
-          {d.status === 'ACTIVE' && (
+          {bookkeeper && d.status === 'ACTIVE' && (
             <Button
               danger
               style={{ marginBottom: 16 }}
@@ -380,6 +382,7 @@ function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }
 
 function AssetList() {
   const { me } = useAuth();
+  const bookkeeper = canBookkeep(me?.role);
   const [asOf, setAsOf] = useState(today());
   const [adding, setAdding] = useState(false);
   const [params] = useSearchParams();
@@ -447,7 +450,7 @@ function AssetList() {
               { title: 'Belum terdaftar', dataIndex: 'remaining', align: 'right', render: fmtMoney },
               {
                 title: '',
-                render: (_, r) => (
+                render: (_, r) => bookkeeper && (
                   <Button
                     size="small"
                     type="primary"
@@ -519,13 +522,18 @@ function AssetList() {
       />
       <Card>
         <Space wrap style={{ marginBottom: 12 }}>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setAdding(true)} disabled={!cats.data?.length}>
-            Aset baru
-          </Button>
-          <Button icon={<UploadOutlined />} onClick={() => navigate('/settings/import?kind=assets')} disabled={!cats.data?.length}>
-            Impor aset lama dari Excel
-          </Button>
+          {bookkeeper && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setAdding(true)} disabled={!cats.data?.length}>
+              Aset baru
+            </Button>
+          )}
+          {canViewFinancials(me?.role) && (
+            <Button icon={<UploadOutlined />} onClick={() => navigate('/settings/import?kind=assets')} disabled={!cats.data?.length}>
+              Impor aset lama dari Excel
+            </Button>
+          )}
           <Switch
+            disabled={!bookkeeper}
             checked={autoSetting.data?.autoDepreciation ?? true}
             loading={saveAuto.isPending}
             onChange={(v) => saveAuto.mutate(v)}
@@ -590,6 +598,7 @@ function AssetList() {
 }
 
 function DepreciationTab() {
+  const bookkeeper = canBookkeep(useAuth().me?.role);
   const [period, setPeriod] = useState(dayjs().subtract(dayjs().date() < 25 ? 1 : 0, 'month').format('YYYY-MM'));
   const [year, setYear] = useState(dayjs().year());
   const runs = useQuery({ queryKey: ['asset-runs'], queryFn: () => get<{ period: string; total: string; n: number; number: string }[]>('/assets/depreciation/runs') });
@@ -618,9 +627,11 @@ function DepreciationTab() {
           </Typography.Paragraph>
           <Space wrap>
             <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} style={{ width: 180 }} />
-            <Button type="primary" icon={<PlayCircleOutlined />} loading={run.isPending} onClick={() => run.mutate(undefined)}>
-              Susutkan sampai {period}
-            </Button>
+            {bookkeeper && (
+              <Button type="primary" icon={<PlayCircleOutlined />} loading={run.isPending} onClick={() => run.mutate(undefined)}>
+                Susutkan sampai {period}
+              </Button>
+            )}
           </Space>
           <Table
             style={{ marginTop: 16 }}
@@ -680,6 +691,7 @@ function DepreciationTab() {
 }
 
 function CategoriesTab() {
+  const bookkeeper = canBookkeep(useAuth().me?.role);
   const [editing, setEditing] = useState<AssetCategory | 'new' | null>(null);
   const [form] = Form.useForm();
   const accounts = useAccounts();
@@ -695,6 +707,7 @@ function CategoriesTab() {
   );
   return (
     <Card>
+      {bookkeeper && (
       <Button
         type="primary"
         icon={<PlusOutlined />}
@@ -707,6 +720,7 @@ function CategoriesTab() {
       >
         Kategori baru
       </Button>
+      )}
       <Table
         rowKey="id"
         size="small"
@@ -722,7 +736,7 @@ function CategoriesTab() {
           { title: 'Akun beban', render: (_, c) => c.expenseAccount && `${c.expenseAccount.code} · ${c.expenseAccount.name}` },
           { title: 'Fiskal', dataIndex: 'fiscalGroup', render: (g: FiscalAssetGroup) => FISCAL_ASSET_GROUP_INFO[g]?.label },
           {
-            render: (_, c) => (
+            render: (_, c) => bookkeeper && (
               <Button
                 size="small"
                 onClick={() => {

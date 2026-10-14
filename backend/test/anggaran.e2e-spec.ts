@@ -36,7 +36,7 @@ describe('Anggaran vs realisasi (e2e)', () => {
     await app.init();
     http = request(app.getHttpServer());
     owner = (await http.post('/api/auth/register').send({ companyName: 'PT Anggaran', name: 'Pemilik', email: `ang-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
-    await post(owner, '/api/users', { name: 'Keuangan', email: `ang-fin-${stamp}@uji.id`, password: 'keuangan123', role: 'FINANCE' }).expect(201);
+    await post(owner, '/api/users', { name: 'Akuntan', email: `ang-fin-${stamp}@uji.id`, password: 'keuangan123', role: 'ACCOUNTANT' }).expect(201);
     finance = (await http.post('/api/auth/login').send({ email: `ang-fin-${stamp}@uji.id`, password: 'keuangan123' }).expect(200)).body.accessToken;
     cashId = ((await get(owner, '/api/cash/accounts').expect(200)).body as { id: string }[])[0].id;
     const counters = (await get(owner, '/api/cash/counter-accounts').expect(200)).body as { id: string; type: string; code: string }[];

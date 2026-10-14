@@ -1,4 +1,4 @@
-import { type TaxThresholdReport, type ThresholdAlert } from '@sansu/shared';
+import { canViewFinancials, type TaxThresholdReport, type ThresholdAlert } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Progress, Space, Typography } from 'antd';
 import { useNavigate } from 'react-router-dom';
@@ -14,7 +14,7 @@ export default function TaxThresholdAlerts() {
   const { me } = useAuth();
   const { can } = useApps();
   const navigate = useNavigate();
-  const allowed = !!me && ['OWNER', 'ADMIN', 'FINANCE'].includes(me.role) && can('accounting');
+  const allowed = !!me && canViewFinancials(me.role) && can('accounting');
   const q = useQuery({
     queryKey: ['tax-thresholds'],
     queryFn: () => get<TaxThresholdReport>('/accounting/tax-thresholds'),

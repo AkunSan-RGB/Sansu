@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAction } from '@/api/queries';
+import { canHandleMoney } from '@sansu/shared';
 import { useAuth } from '@/auth/AuthContext';
 import { PettyReplenishSheet, PettyVoucherSheet } from '@/components/print/PettyCashDocs';
 import PageHeader from '@/layout/PageHeader';
@@ -51,6 +52,7 @@ export default function PettyCashPage() {
   const navigate = useNavigate();
   const { me } = useAuth();
   const admin = me?.role === 'OWNER' || me?.role === 'ADMIN';
+  const money = canHandleMoney(me?.role);
   const funds = useQuery({ queryKey: ['petty', 'funds'], queryFn: () => get<Fund[]>('/petty-cash/funds') });
   const fund = funds.data?.[0];
   const vouchers = useQuery({ queryKey: ['petty', 'vouchers', fund?.id], queryFn: () => get<Voucher[]>(`/petty-cash/vouchers?fundId=${fund!.id}`), enabled: !!fund });
@@ -140,6 +142,7 @@ export default function PettyCashPage() {
               </Descriptions.Item>
             </Descriptions>
             <Space wrap style={{ marginTop: 12 }}>
+              {money && (
               <Button
                 type="primary"
                 disabled={fund.status !== 'ACTIVE'}
@@ -151,9 +154,12 @@ export default function PettyCashPage() {
               >
                 Bukti kas kecil baru
               </Button>
+              )}
+              {money && (
               <Button disabled={fund.openCount === 0} loading={replenish.isPending} onClick={() => replenish.mutate(fund.id)}>
                 {admin ? 'Isi kembali dana' : 'Ajukan pengisian kembali'}
               </Button>
+              )}
               {admin && fund.openCount === 0 && Number(fund.toReplenish) > 0 && (
                 <Button loading={topUp.isPending} onClick={() => topUp.mutate(fund.id)}>
                   Isi dana awal / tambah plafon
@@ -162,7 +168,7 @@ export default function PettyCashPage() {
               <Button icon={<PrinterOutlined />} disabled={fund.openCount === 0} onClick={() => setPreview({ kind: 'list' })}>
                 Cetak daftar pengisian kembali
               </Button>
-              <Button onClick={() => navigate('/cash/counts')}>Hitung kas fisik</Button>
+              {money && <Button onClick={() => navigate('/cash/counts')}>Hitung kas fisik</Button>}
             </Space>
           </Card>
           <Card title="Bukti kas kecil">

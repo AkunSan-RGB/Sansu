@@ -3,6 +3,7 @@
  * Daftar indikasi (harga jual < biaya rata-rata) → pilih barang → isi NRV per satuan → posting.
  * Pemulihan: bila harga naik lagi, nilai dipulihkan paling tinggi sebesar penurunan yang masih melekat.
  */
+import { canBookkeep, canViewFinancials } from '@sansu/shared';
 import { FallOutlined, PlusOutlined, RiseOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -60,7 +61,8 @@ const lineInvalid = (l: Line, kind: Kind) =>
 
 export default function WritedownsPage() {
   const { me } = useAuth();
-  const canPost = me?.role === 'OWNER' || me?.role === 'ADMIN' || me?.role === 'FINANCE';
+  const canView = canViewFinancials(me?.role);
+  const canPost = canBookkeep(me?.role);
   const { data: warehouses } = useWarehouses();
   const [warehouseId, setWarehouseId] = useState<string>();
   const [pct, setPct] = useState<number>(0);
@@ -77,7 +79,7 @@ export default function WritedownsPage() {
       get<WritedownCandidate[]>(
         `/inventory/writedowns/candidates${qs({ warehouseId: wh, costToSellPct: pct ? String(pct) : undefined })}`,
       ),
-    enabled: !!wh && canPost,
+    enabled: !!wh && canView,
   });
   const recoverable = useQuery({
     queryKey: ['writedowns', 'recoverable', wh, pct],
@@ -85,12 +87,12 @@ export default function WritedownsPage() {
       get<WritedownRecoverable[]>(
         `/inventory/writedowns/recoverable${qs({ warehouseId: wh, costToSellPct: pct ? String(pct) : undefined })}`,
       ),
-    enabled: !!wh && canPost,
+    enabled: !!wh && canView,
   });
   const history = useQuery({
     queryKey: ['writedowns'],
     queryFn: () => get<InventoryWritedown[]>('/inventory/writedowns'),
-    enabled: canPost,
+    enabled: canView,
   });
 
   const start = (rows: WritedownCandidate[]) =>
@@ -121,14 +123,14 @@ export default function WritedownsPage() {
       })),
     });
 
-  if (!canPost) {
+  if (!canView) {
     return (
       <>
         <PageHeader title={t('Penurunan nilai persediaan')} />
         <Alert
           type="info"
           showIcon
-          message={t('Hanya Pemilik, Admin, atau Keuangan yang bisa mencatat penurunan nilai persediaan.')}
+          message={t('Hanya Pemilik, Admin, Keuangan, atau Akuntan yang bisa membuka halaman penurunan nilai persediaan.')}
         />
       </>
     );
@@ -189,7 +191,7 @@ export default function WritedownsPage() {
           dataSource={candidates.data}
           loading={candidates.isLoading}
           pagination={{ pageSize: 20, hideOnSinglePage: true }}
-          rowSelection={{ selectedRowKeys: selected, onChange: (k) => setSelected(k as string[]) }}
+          rowSelection={canPost ? { selectedRowKeys: selected, onChange: (k) => setSelected(k as string[]) } : undefined}
           locale={{ emptyText: 'Tidak ada barang yang harga jualnya di bawah harga pokok' }}
           columns={[
             { title: 'Barang', render: (_, r) => `${r.sku} · ${r.name}` },
@@ -217,6 +219,7 @@ export default function WritedownsPage() {
             ) : null
           }
         />
+        {canPost && (
         <Space style={{ marginTop: 12 }} wrap>
           <Button
             type="primary"
@@ -230,6 +233,7 @@ export default function WritedownsPage() {
             Barang lain (rusak / kedaluwarsa)
           </Button>
         </Space>
+        )}
       </Card>
 
       {!!recoverable.data?.length && (
@@ -243,7 +247,7 @@ export default function WritedownsPage() {
             size="small"
             dataSource={recoverable.data}
             pagination={{ pageSize: 20, hideOnSinglePage: true }}
-            rowSelection={{ selectedRowKeys: selectedUp, onChange: (k) => setSelectedUp(k as string[]) }}
+            rowSelection={canPost ? { selectedRowKeys: selectedUp, onChange: (k) => setSelectedUp(k as string[]) } : undefined}
             columns={[
               { title: 'Barang', render: (_, r) => `${r.sku} · ${r.name}` },
               { title: 'Stok', align: 'right', render: (_, r) => `${fmtQty(r.qty)} ${r.unit}` },
@@ -259,6 +263,7 @@ export default function WritedownsPage() {
               },
             ]}
           />
+          {canPost && (
           <Button
             style={{ marginTop: 12 }}
             icon={<RiseOutlined />}
@@ -267,6 +272,7 @@ export default function WritedownsPage() {
           >
             Pulihkan nilai {selectedUp.length ? `(${selectedUp.length} barang)` : ''}
           </Button>
+          )}
         </Card>
       )}
 

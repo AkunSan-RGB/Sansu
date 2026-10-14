@@ -1,4 +1,5 @@
 import { CloudDownloadOutlined, InboxOutlined, ShopOutlined } from '@ant-design/icons';
+import { canHandleMoney } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import {
   Alert,
@@ -57,6 +58,7 @@ function guessMp(header: (string | number | null)[]): MpMap {
 }
 
 function MarketplaceTab() {
+  const money = canHandleMoney(useAuth().me?.role);
   const [channel, setChannel] = useState('Shopee');
   const [grid, setGrid] = useState<Grid>([]);
   const [fileName, setFileName] = useState<string>();
@@ -133,6 +135,8 @@ function MarketplaceTab() {
             Harga di file sudah termasuk PPN
           </Checkbox>
         </Space>
+        {money && (
+          <>
         <Upload.Dragger
           accept=".csv,.xls,.xlsx"
           maxCount={1}
@@ -200,10 +204,13 @@ function MarketplaceTab() {
             }
           />
         )}
+          </>
+        )}
       </Card>
       <Card
         title={`Pesanan ${channel}`}
         extra={
+          money && (
           <Button
             type="primary"
             disabled={open <= 0}
@@ -214,6 +221,7 @@ function MarketplaceTab() {
           >
             Catat pencairan dana
           </Button>
+          )
         }
       >
         <Table
@@ -253,6 +261,7 @@ function MarketplaceTab() {
 }
 
 function CoretaxTab() {
+  const money = canHandleMoney(useAuth().me?.role);
   const [from, setFrom] = useState(dayjs().subtract(1, 'month').startOf('month').format('YYYY-MM-DD'));
   const [to, setTo] = useState(dayjs().subtract(1, 'month').endOf('month').format('YYYY-MM-DD'));
   const [selected, setSelected] = useState<string[]>([]);
@@ -308,9 +317,11 @@ function CoretaxTab() {
                 onChange={(e) => setUnits((x) => ({ ...x, [u]: e.target.value.trim().toUpperCase() }))}
               />
             ))}
-            <Button onClick={() => saveUnits.mutate(undefined)} loading={saveUnits.isPending}>
-              Simpan
-            </Button>
+            {money && (
+              <Button onClick={() => saveUnits.mutate(undefined)} loading={saveUnits.isPending}>
+                Simpan
+              </Button>
+            )}
           </Space>
         </Card>
       )}
@@ -354,7 +365,7 @@ export default function IntegrationsPage() {
   const tab = ['coretax', 'sync'].includes(params.get('tab') ?? '') ? params.get('tab')! : 'marketplace';
   const { can } = useApps();
   const { me } = useAuth();
-  const isFinance = !!me && ['OWNER', 'ADMIN', 'FINANCE'].includes(me.role);
+  const isFinance = canHandleMoney(me?.role);
   return (
     <>
       <PageHeader title="Integrasi: Marketplace & Coretax" />

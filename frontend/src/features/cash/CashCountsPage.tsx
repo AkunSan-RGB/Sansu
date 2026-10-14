@@ -14,6 +14,7 @@ import {
   type CashCountItem,
   type CashCountSettings,
   type CashCountStatus,
+  canHandleMoney,
 } from '@sansu/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -94,9 +95,11 @@ export default function CashCountsPage() {
             {me?.role === 'OWNER' && (
               <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)} aria-label="Pengaturan opname" />
             )}
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
-              Opname baru
-            </Button>
+            {canHandleMoney(me?.role) && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
+                Opname baru
+              </Button>
+            )}
           </Space>
         }
       />
@@ -362,7 +365,8 @@ function CountDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
   return (
     <QueryState q={q}>
       {(c) => {
-        const editable = c.status === 'DRAFT';
+        const money = canHandleMoney(me?.role);
+        const editable = c.status === 'DRAFT' && money;
         const counted = editable ? denomTotal(denoms) : Number(c.countedTotal);
         const itemsTotal = editable
           ? items.reduce((s, i) => s + (i.type === 'ADD' ? 1 : -1) * Number(i.amount || 0), 0)
@@ -449,7 +453,7 @@ function CountDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
                   />
                 </>
               )}
-              {(c.status === 'DRAFT' ||
+              {money && (c.status === 'DRAFT' ||
                 c.status === 'WAITING_APPROVAL' ||
                 (c.status === 'POSTED' && me?.role === 'OWNER')) && (
                 <Button

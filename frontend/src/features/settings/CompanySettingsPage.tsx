@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { LEGAL_FORM_LABELS, REPORTING_FRAMEWORK_LABELS, REPORTING_FRAMEWORK_SHORT, TAX_SCHEME_LABELS, toOptions } from '@sansu/shared';
+import { canBookkeep, LEGAL_FORM_LABELS, REPORTING_FRAMEWORK_LABELS, REPORTING_FRAMEWORK_SHORT, TAX_SCHEME_LABELS, toOptions } from '@sansu/shared';
 import {
   AuditOutlined,
   BankOutlined,
@@ -405,7 +405,7 @@ export default function CompanySettingsPage() {
                       <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%', maxWidth: 320 }} prefix="Rp" />
                     </Form.Item>
                   </Section>
-                    <SaveBar loading={saveReporting.isPending} />
+                    {canBookkeep(me?.role) && <SaveBar loading={saveReporting.isPending} />}
                   </Form>
                 </Card>
                 <InventoryMethodCard />
@@ -481,7 +481,7 @@ export default function CompanySettingsPage() {
                       </Form.Item>
                     )}
                   </Section>
-                  <SaveBar loading={saveReporting.isPending} />
+                  {canBookkeep(me?.role) && <SaveBar loading={saveReporting.isPending} />}
                 </Form>
               </Card>
             ),

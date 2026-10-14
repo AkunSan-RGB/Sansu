@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { useAction } from '@/api/queries';
 import type { PayrollRun } from '@/api/types';
+import { useAuth } from '@/auth/AuthContext';
 import ListPage from '@/components/ListPage';
 import { fmtDate, fmtMoney } from '@/lib/format';
 
@@ -15,6 +16,7 @@ export const PAYROLL_COLOR: Record<PayrollStatus, string> = { DRAFT: 'default', 
 
 export default function PayrollRunsPage() {
   const navigate = useNavigate();
+  const { me } = useAuth();
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm();
   const { data, isLoading } = useQuery({ queryKey: ['payroll'], queryFn: () => get<PayrollRun[]>('/payroll/runs') });
@@ -29,6 +31,7 @@ export default function PayrollRunsPage() {
       <ListPage<PayrollRun>
         title="Penggajian"
         actions={
+          (me?.role === 'OWNER' || me?.role === 'HR') && (
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -40,6 +43,7 @@ export default function PayrollRunsPage() {
           >
             Proses gaji bulan ini
           </Button>
+          )
         }
         rows={data}
         loading={isLoading}

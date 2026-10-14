@@ -28,6 +28,7 @@ import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, get, post, put } from '@/api/client';
+import { canBookkeep, canHandleMoney } from '@sansu/shared';
 import { useAuth } from '@/auth/AuthContext';
 import { LEDGER_KEYS, useAccounts, useAction, useCashAccounts } from '@/api/queries';
 import type { BankCandidate, BankLineStatus, BankReconciliation, BankStatement, BankStatementLine, BankStatementSummary } from '@/api/types';
@@ -170,6 +171,7 @@ function ImportModal({ open, onClose, cashAccountId, onDone }: { open: boolean; 
 }
 
 function StatementDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
+  const money = canHandleMoney(useAuth().me?.role);
   const accounts = useAccounts();
   const [filter, setFilter] = useState<BankLineStatus | 'ALL'>('ALL');
   const [creating, setCreating] = useState<BankStatementLine | null>(null);
@@ -211,9 +213,11 @@ function StatementDrawer({ id, onClose }: { id: string | null; onClose: () => vo
             ))}
           </Row>
           <Space style={{ marginBottom: 12 }} wrap>
-            <Button icon={<ReloadOutlined />} loading={auto.isPending} onClick={() => auto.mutate(undefined)}>
-              Cocokkan otomatis lagi
-            </Button>
+            {money && (
+              <Button icon={<ReloadOutlined />} loading={auto.isPending} onClick={() => auto.mutate(undefined)}>
+                Cocokkan otomatis lagi
+              </Button>
+            )}
             <Typography.Text type="secondary">
               Masuk {fmtMoney(d.summary.totalIn)} · keluar {fmtMoney(-Number(d.summary.totalOut))}
               {d.closingBalance && ` · saldo akhir bank ${fmtMoney(d.closingBalance)}`}
@@ -243,7 +247,7 @@ function StatementDrawer({ id, onClose }: { id: string | null; onClose: () => vo
               {
                 width: 250,
                 render: (_, l) =>
-                  l.status === 'UNMATCHED' ? (
+                  !money ? null : l.status === 'UNMATCHED' ? (
                     <Space size={4}>
                       <Button
                         size="small"
@@ -509,6 +513,7 @@ function RulesTab() {
 
 /** Pengesahan rekonsiliasi akhir bulan oleh orang selain pengimpor */
 function SignoffTab({ cashAccountId }: { cashAccountId?: string }) {
+  const canSign = canBookkeep(useAuth().me?.role);
   const q = useQuery({ queryKey: ['bank', 'signoffs', cashAccountId], queryFn: () => get<{ id: string; period: string; bookBalance: string; signedAt: string }[]>(`/bank/signoffs?cashAccountId=${cashAccountId}`), enabled: !!cashAccountId });
   const periods = Array.from({ length: 6 }, (_, i) => dayjs().subtract(i + 1, 'month').format('YYYY-MM'));
   const sign = useAction((period: string) => post('/bank/signoffs', { cashAccountId, period }), { success: 'Rekonsiliasi disahkan', invalidate: ['bank', 'signoffs'] });
@@ -526,7 +531,7 @@ function SignoffTab({ cashAccountId }: { cashAccountId?: string }) {
           { title: 'Status', render: (_, r: { period: string }) => (done.has(r.period) ? <Tag color="green">Disahkan</Tag> : <Tag>Belum</Tag>) },
           { title: 'Saldo buku', render: (_, r: { period: string }) => (done.has(r.period) ? fmtMoney(done.get(r.period)!.bookBalance) : '-'), align: 'right' },
           { title: 'Disahkan', render: (_, r: { period: string }) => (done.has(r.period) ? fmtDate(done.get(r.period)!.signedAt) : '-') },
-          { render: (_, r: { period: string }) => (done.has(r.period) ? null : <Button size="small" onClick={() => sign.mutate(r.period)} loading={sign.isPending}>Sahkan</Button>) },
+          { render: (_, r: { period: string }) => (done.has(r.period) || !canSign ? null : <Button size="small" onClick={() => sign.mutate(r.period)} loading={sign.isPending}>Sahkan</Button>) },
         ]}
       />
     </>
@@ -565,9 +570,11 @@ export default function BankPage() {
               optionType="button"
               options={banks.map((b) => ({ value: b.id, label: b.name }))}
             />
-            <Button type="primary" icon={<UploadOutlined />} onClick={() => setImporting(true)}>
-              Impor mutasi
-            </Button>
+            {canHandleMoney(me?.role) && (
+              <Button type="primary" icon={<UploadOutlined />} onClick={() => setImporting(true)}>
+                Impor mutasi
+              </Button>
+            )}
           </Space>
         }
       />

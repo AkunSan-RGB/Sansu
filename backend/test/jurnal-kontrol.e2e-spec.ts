@@ -28,7 +28,7 @@ describe('Jurnal manual — akun kontrol (e2e)', () => {
     await app.init();
     http = request(app.getHttpServer());
     owner = (await http.post('/api/auth/register').send({ companyName: 'PT Jurnal Kontrol', name: 'Pemilik', email: `jk-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
-    await http.post('/api/users').set(as(owner)).send({ name: 'Keuangan', email: `jk-fin-${stamp}@uji.id`, password: 'keuangan123', role: 'FINANCE' }).expect(201);
+    await http.post('/api/users').set(as(owner)).send({ name: 'Akuntan', email: `jk-fin-${stamp}@uji.id`, password: 'keuangan123', role: 'ACCOUNTANT' }).expect(201);
     finance = (await http.post('/api/auth/login').send({ email: `jk-fin-${stamp}@uji.id`, password: 'keuangan123' }).expect(200)).body.accessToken;
     const accs = (await get(owner, '/api/accounting/accounts').expect(200)).body as { id: string; code: string; type: string; isPostable: boolean }[];
     const by = (code: string) => accs.find((a) => a.code === code)!.id;
@@ -60,7 +60,7 @@ describe('Jurnal manual — akun kontrol (e2e)', () => {
     }
   });
 
-  it('pengecualian hanya untuk Pemilik dengan alasan memadai; Keuangan tidak bisa', async () => {
+  it('pengecualian hanya untuk Pemilik dengan alasan memadai; Akuntan tidak bisa', async () => {
     await journal(finance, id.ar, { controlOverrideReason: 'Koreksi saldo piutang karena salah input' }).expect(400);
     await journal(owner, id.ar).expect(400);
     await journal(owner, id.ar, { controlOverrideReason: 'singkat' }).expect(400);

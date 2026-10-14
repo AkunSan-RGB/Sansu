@@ -110,7 +110,7 @@ const MENU: Group[] = [
       { key: '/goods-receipts', label: 'Penerimaan barang', hideFor: ['JASA'] },
       { key: '/purchase-invoices', label: t('Faktur & hutang') },
       { key: '/returns?tab=purchase', label: t('Retur pembelian') },
-      { key: '/purchase-controls', label: 'Kontrol pembelian', roles: ['OWNER', 'ADMIN', 'FINANCE'], hideFor: ['JASA'] },
+      { key: '/purchase-controls', label: 'Kontrol pembelian', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA'] },
       { section: 'Data', items: [{ key: '/suppliers', label: t('Supplier') }] },
     ],
   },
@@ -203,6 +203,7 @@ const MENU: Group[] = [
           { key: '/worksheet', label: 'Neraca lajur' },
           { key: '/reports', label: 'Laporan keuangan' },
           { key: '/closing', label: 'Tutup buku' },
+          { key: '/settings/company?tab=pelaporan', label: 'Pelaporan keuangan', roles: ['ACCOUNTANT'] },
         ],
       },
     ],
@@ -307,7 +308,7 @@ export default function AppLayout() {
 
   const isDesktop = screens.lg !== false && screens.lg !== undefined;
   // Dashboard memuat angka penjualan/keuangan: hanya untuk peran yang berhak melihatnya (sama dengan aturan di server)
-  const dashboardRole = ['OWNER', 'ADMIN', 'FINANCE', 'SALES'].includes(me.role);
+  const dashboardRole = ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'].includes(me.role);
   const visible = MENU.filter(
     (g) =>
       (!g.models || g.models.includes(me.businessModel)) &&

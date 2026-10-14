@@ -1,5 +1,5 @@
 import { DeleteOutlined } from '@ant-design/icons';
-import { currencyName, FOREIGN_CURRENCIES, type ExchangeRate } from '@sansu/shared';
+import { canBookkeep, canViewFinancials, currencyName, FOREIGN_CURRENCIES, type ExchangeRate } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
 import { useState } from 'react';
@@ -34,7 +34,8 @@ const gainTag = (v: string | null) => (v == null ? '-' : Number(v) === 0 ? fmtMo
 
 export default function FxPage() {
   const { me } = useAuth();
-  const canEdit = me?.role === 'OWNER' || me?.role === 'ADMIN' || me?.role === 'FINANCE';
+  const canEdit = canViewFinancials(me?.role);
+  const canRevalue = canBookkeep(me?.role);
   const [form] = Form.useForm();
   const [asOf, setAsOf] = useState(today());
   const rates = useQuery({ queryKey: ['fx-rates'], queryFn: () => get<ExchangeRate[]>('/fx/rates') });
@@ -111,6 +112,7 @@ export default function FxPage() {
                       <Space wrap style={{ marginBottom: 12 }}>
                         <span>Per tanggal</span>
                         <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value || today())} style={{ width: 170 }} />
+                        {canRevalue && (
                         <Popconfirm
                           title="Catat penilaian ulang?"
                           description={`Piutang dan utang valas dinilai pada kurs penutup per ${fmtDate(asOf)}; jurnal dibalik otomatis esok harinya.`}
@@ -121,6 +123,7 @@ export default function FxPage() {
                             Catat penilaian ulang
                           </Button>
                         </Popconfirm>
+                        )}
                       </Space>
                       <Alert
                         type="info"

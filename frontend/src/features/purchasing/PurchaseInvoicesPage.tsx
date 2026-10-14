@@ -1,4 +1,4 @@
-import { isForeignCurrency } from '@sansu/shared';
+import { canHandleMoney, isForeignCurrency } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { PlusOutlined } from '@ant-design/icons';
 import { Alert, Button, Card, Empty, Form, Input, InputNumber, Modal, Segmented, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
@@ -96,9 +96,11 @@ export default function PurchaseInvoicesPage() {
       <PageHeader
         title={t('Faktur Pembelian & Hutang')}
         extra={
-          <Button icon={<PlusOutlined />} onClick={() => setBillOpen(true)}>
-            Catat tagihan biaya / aset
-          </Button>
+          canHandleMoney(me?.role) && (
+            <Button icon={<PlusOutlined />} onClick={() => setBillOpen(true)}>
+              Catat tagihan biaya / aset
+            </Button>
+          )
         }
       />
       <BillModal open={billOpen} onClose={() => setBillOpen(false)} />
@@ -188,6 +190,7 @@ export default function PurchaseInvoicesPage() {
                         render: (_: unknown, i: PurchaseInvoice) =>
                           i.status !== 'PAID' && (
                             <Space>
+                              {canHandleMoney(me?.role) && (
                               <Button
                                 size="small"
                                 type="primary"
@@ -198,6 +201,7 @@ export default function PurchaseInvoicesPage() {
                               >
                                 Bayar
                               </Button>
+                              )}
                               {i.kind === 'GOODS' && (
                                 <Button size="small" onClick={() => navigate(`/returns?tab=purchase&invoice=${i.id}`)}>
                                   Retur
