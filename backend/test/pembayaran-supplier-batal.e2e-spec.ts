@@ -34,6 +34,8 @@ describe('Batal pembayaran supplier (e2e)', () => {
     owner = (await http.post('/api/auth/register').send({ companyName: 'PT Batal Bayar', name: 'Pemilik', email: `bb-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
     await post(owner, '/api/users', { name: 'Keuangan', email: `bb-fin-${stamp}@uji.id`, password: 'keuangan123', role: 'FINANCE' }).expect(201);
     finance = (await http.post('/api/auth/login').send({ email: `bb-fin-${stamp}@uji.id`, password: 'keuangan123' }).expect(200)).body.accessToken;
+    // yang diuji di sini adalah pembatalan, bukan persetujuan pembayaran pertama (bawaan perusahaan baru): matikan dulu
+    await http.put('/api/approvals/policy').set(as(owner)).send({ firstSupplierPayment: false }).expect(200);
     supplierId = (await post(owner, '/api/suppliers', { code: 'SUP-BB', name: 'CV Batal' }).expect(201)).body.id;
     const counters = (await get(owner, '/api/cash/counter-accounts').expect(200)).body as { id: string; type: string }[];
     expenseId = counters.find((a) => a.type === 'EXPENSE')!.id;
