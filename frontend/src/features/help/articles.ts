@@ -406,20 +406,6 @@ export const HELP_ARTICLES: HelpArticle[] = [
     keywords: 'cabang konsolidasi pusat toko antar cabang laporan per cabang',
   },
   {
-    id: 'anggaran',
-    category: 'Akuntansi & Pajak',
-    title: 'Anggaran vs realisasi',
-    summary: 'Susun anggaran tahunan, bandingkan dengan realisasi, dan terima peringatan saat melewati batas.',
-    paths: ['/budget'],
-    steps: [
-      'Laporan Keuangan › Buat anggaran (menu Anggaran vs realisasi muncul setelah anggaran dibuat).',
-      'Isi anggaran per akun per bulan, atau klik "Isi dari realisasi tahun lalu" lalu atur kenaikannya.',
-      'Pemilik/Admin menyetujui anggaran; setelah disetujui anggaran terkunci. Membuka kunci wajib beralasan dan tercatat.',
-      'Pantau selisih tiap bulan. Pengaturan › Perusahaan › Persetujuan menentukan apakah belanja yang melewati anggaran hanya diperingatkan, perlu persetujuan, atau diblokir.',
-    ],
-    keywords: 'anggaran budget realisasi selisih batas belanja',
-  },
-  {
     id: 'bank',
     category: 'Akuntansi & Pajak',
     title: 'Rekonsiliasi bank dan aturan otomatis',
