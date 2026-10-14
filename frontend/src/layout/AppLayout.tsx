@@ -96,7 +96,7 @@ const MENU: Group[] = [
 
   // ---------- Pembelian & stok ----------
   {
-    part: 'Pembelian & stok',
+    part: 'Pembelian',
     key: 'purchase',
     app: 'purchase',
     label: t('Pembelian'),
@@ -112,7 +112,7 @@ const MENU: Group[] = [
     ],
   },
   {
-    part: 'Pembelian & stok',
+    part: 'Stok & produksi',
     key: 'inventory',
     app: 'inventory',
     label: t('Inventori'),
@@ -135,7 +135,7 @@ const MENU: Group[] = [
   },
 
   {
-    part: 'Pembelian & stok',
+    part: 'Stok & produksi',
     key: 'production',
     app: 'inventory',
     models: ['PRODUKSI', 'MANUFAKTUR'],
