@@ -63,6 +63,7 @@ export class ProductsService {
   async create(tenantId: string, dto: CreateProductDto) {
     const baseUom = dto.baseUom ?? 'PCS';
     this.validateUoms(baseUom, dto.uoms);
+    if (dto.madeToOrder && dto.inventoryKind === 'SEMI') throw new BadRequestException('Barang setengah jadi tidak bisa menjadi menu yang dijual di kasir');
     if (dto.inventoryKind === 'SEMI') await this.assertSemiAllowed(tenantId);
     const id = await this.db.transaction(async (tx) => {
       const [p] = await tx
@@ -76,6 +77,7 @@ export class ProductsService {
           sellPrice: dto.sellPrice,
           barcode: dto.barcode?.trim() || null,
           inventoryKind: dto.inventoryKind ?? 'GOODS',
+          madeToOrder: dto.madeToOrder ?? false,
         })
         .returning({ id: products.id });
       if (dto.uoms?.length) {
@@ -90,6 +92,7 @@ export class ProductsService {
     const current = await this.get(tenantId, id);
     const baseUom = dto.baseUom ?? current.baseUom;
     if (dto.uoms) this.validateUoms(baseUom, dto.uoms);
+    if ((dto.madeToOrder ?? current.madeToOrder) && (dto.inventoryKind ?? current.inventoryKind) === 'SEMI') throw new BadRequestException('Barang setengah jadi tidak bisa menjadi menu yang dijual di kasir');
     if (dto.inventoryKind !== undefined && dto.inventoryKind !== current.inventoryKind) {
       if (dto.inventoryKind === 'SEMI') await this.assertSemiAllowed(tenantId);
       // riwayat jurnal persediaan mengikuti jenis barang saat bergerak; jenisnya tidak boleh berubah setelah ada mutasi stok
@@ -114,6 +117,7 @@ export class ProductsService {
           sellPrice: dto.sellPrice,
           barcode: dto.barcode === undefined ? undefined : dto.barcode.trim() || null,
           inventoryKind: dto.inventoryKind,
+          madeToOrder: dto.madeToOrder,
           isActive: dto.isActive,
         })
         .where(eq(products.id, id));

@@ -439,7 +439,7 @@ function Register({ session }: { session: PosSession }) {
                   const stock = Number(p.stock);
                   return (
                     <Col key={p.id} xs={12} sm={8} lg={6} xl={4}>
-                      <Badge.Ribbon text={fmtQty(stock)} color={stock > 0 ? 'cyan' : 'red'}>
+                      <Badge.Ribbon text={p.madeToOrder ? `${fmtQty(stock)} porsi` : fmtQty(stock)} color={stock > 0 ? 'cyan' : 'red'}>
                         <Card hoverable size="small" onClick={() => add(p)} style={{ height: 104 }} styles={{ body: { padding: 10 } }}>
                           <Typography.Paragraph strong ellipsis={{ rows: 2 }} style={{ marginBottom: 4, minHeight: 44, paddingRight: 24 }}>
                             {p.name}

@@ -211,6 +211,8 @@ export const products = pgTable(
     barcode: text('barcode'),
     /** GOODS = bahan / barang dagang / barang jadi; SEMI = barang setengah jadi (akun persediaan tersendiri, hanya lewat produksi) */
     inventoryKind: text('inventory_kind').$type<'GOODS' | 'SEMI'>().notNull().default('GOODS'),
+    /** Menu: dibuat saat dipesan. Kasir memotong bahan sesuai resep aktif (bukan stok produk ini) dan HPP dihitung dari bahan */
+    madeToOrder: boolean('made_to_order').notNull().default(false),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: createdAt(),
   },
@@ -1275,6 +1277,8 @@ export const posOrderLines = pgTable('pos_order_lines', {
   discountPct: numeric('discount_pct', { precision: 5, scale: 2 }).notNull().default('0'),
   lineTotal: money('line_total').notNull(),
   unitCost: qty('unit_cost').notNull(),
+  /** Baris menu: bahan dipotong sesuai resep saat dijual (retur tidak mengembalikan bahan yang sudah diolah) */
+  fromRecipe: boolean('from_recipe').notNull().default(false),
   /** Sudah diretur (satuan sesuai baris) */
   returnedQty: qty('returned_qty').notNull().default('0'),
 });

@@ -22,6 +22,7 @@ interface FormValues {
   uoms?: { uom: string; factor: number }[];
   isActive?: boolean;
   semi?: boolean;
+  madeToOrder?: boolean;
 }
 
 export default function ProductsPage() {
@@ -42,6 +43,7 @@ export default function ProductsPage() {
         sellPrice: String(v.sellPrice),
         barcode: v.barcode ?? '',
         inventoryKind: v.semi ? 'SEMI' : 'GOODS',
+        madeToOrder: !!v.madeToOrder && !v.semi,
         uoms: (v.uoms ?? []).map((u) => ({ uom: u.uom.toUpperCase(), factor: String(u.factor) })),
       };
       return editing && editing !== 'new' ? patch(`/products/${editing.id}`, body) : post('/products', body);
@@ -58,6 +60,7 @@ export default function ProductsPage() {
         barcode: p.barcode ?? undefined,
         sellPrice: Number(p.sellPrice),
         semi: p.inventoryKind === 'SEMI',
+        madeToOrder: !!p.madeToOrder,
         uoms: p.uoms.map((u) => ({ uom: u.uom, factor: Number(u.factor) })),
       });
     }
@@ -146,7 +149,7 @@ export default function ProductsPage() {
             ),
           },
           { title: 'Harga jual', dataIndex: 'sellPrice', align: 'right' as const, render: fmtMoney },
-          { title: 'Status', render: (_: unknown, p: Product) => <Space size={4}>{p.isActive ? <Tag color="green">Aktif</Tag> : <Tag>Nonaktif</Tag>}{p.inventoryKind === 'SEMI' && <Tag color="purple">Setengah jadi</Tag>}</Space> },
+          { title: 'Status', render: (_: unknown, p: Product) => <Space size={4}>{p.isActive ? <Tag color="green">Aktif</Tag> : <Tag>Nonaktif</Tag>}{p.inventoryKind === 'SEMI' && <Tag color="purple">Setengah jadi</Tag>}{p.madeToOrder && <Tag color="orange">Menu</Tag>}</Space> },
         ]}
       />
 
@@ -181,6 +184,19 @@ export default function ProductsPage() {
               <Checkbox>Barang setengah jadi</Checkbox>
             </Form.Item>
           )}
+          <Form.Item noStyle shouldUpdate={(a, b) => a.semi !== b.semi}>
+            {({ getFieldValue }) =>
+              !getFieldValue('semi') && (
+                <Form.Item
+                  name="madeToOrder"
+                  valuePropName="checked"
+                  extra={t('Untuk menu makanan/minuman atau barang yang dibuat setelah dipesan: saat dijual di kasir, bahan sesuai resep otomatis terpotong dan HPP dihitung dari bahan. Wajib punya resep aktif (Produksi › Resep).')}
+                >
+                  <Checkbox>Menu (dibuat saat dipesan)</Checkbox>
+                </Form.Item>
+              )
+            }
+          </Form.Item>
           <Space wrap>
             <Form.Item name="baseUom" label="Satuan dasar" rules={[{ required: true }]}>
               <Input style={{ width: 120 }} />
