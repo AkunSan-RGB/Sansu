@@ -11,7 +11,7 @@ interface AuthState {
   /** Mengembalikan `challenge` bila akun memakai verifikasi 2 langkah */
   login: (email: string, password: string) => Promise<{ challenge: string } | void>;
   loginTwoFactor: (challenge: string, code: string) => Promise<void>;
-  register: (data: { companyName: string; name: string; email: string; password: string; businessModel?: BusinessModel }) => Promise<{ verifyEmail: string } | void>;
+  register: (data: { companyName: string; name: string; email: string; password: string; businessModel?: BusinessModel; acceptTerms?: boolean }) => Promise<{ verifyEmail: string } | void>;
   /** Lihat Demo: buat PT DEMO berisi transaksi contoh sesuai jenis usaha lalu masuk */
   startDemo: (model: BusinessModel) => Promise<void>;
   logout: () => void;

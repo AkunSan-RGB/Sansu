@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
 
 /** Kata sandi: 8–72 karakter (batas bcrypt), minimal satu huruf dan satu angka */
 const StrongPassword = () => (target: object, key: string) => {
@@ -21,6 +21,10 @@ export class RegisterDto {
   @IsOptional()
   @IsIn(BUSINESS_MODEL_KEYS)
   businessModel?: BusinessModel;
+  @ApiPropertyOptional({ description: 'Pendaftar menyetujui Syarat Layanan & Kebijakan Privasi (dicatat bersama waktu & versi)' })
+  @IsOptional()
+  @IsBoolean()
+  acceptTerms?: boolean;
 }
 
 export class LoginDto {

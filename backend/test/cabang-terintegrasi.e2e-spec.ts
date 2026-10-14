@@ -230,7 +230,10 @@ describe('Cabang terintegrasi (e2e)', () => {
   });
 
   it('fitur cabang hanya untuk perusahaan yang punya cabang: mati secara bawaan, bisa dinyalakan, tidak bisa dimatikan bila sudah ada cabang', async () => {
-    const t2 = (await http.post('/api/auth/register').send({ companyName: 'CV Satu Toko', name: 'Pemilik', email: `ct-s-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
+    const reg2 = (await http.post('/api/auth/register').send({ companyName: 'CV Satu Toko', name: 'Pemilik', email: `ct-s-${stamp}@uji.id`, password: 'rahasia123', acceptTerms: true }).expect(201)).body;
+    const t2 = reg2.accessToken;
+    const legal = await db.execute<{ v: string | null }>(sql`SELECT settings->'legal'->>'version' AS v FROM tenants WHERE id = ${reg2.user.tenantId}`);
+    expect(legal.rows[0].v).toBeTruthy(); // persetujuan Syarat Layanan tercatat dengan versinya
     expect((await get(t2, '/api/auth/me').expect(200)).body.multiBranch).toBe(false);
     expect((await get(t2, '/api/auth/me').expect(200)).body.hasBudget).toBe(false); // menu Anggaran tersembunyi sampai ada anggaran
     await put(t2, `/api/budgets/${new Date().getFullYear()}`, { rows: [] }).catch(() => undefined);

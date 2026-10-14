@@ -20,6 +20,7 @@ import { InjectDb } from '../../db/db.module';
 import { authTokens, branches, budgets, tenants, users } from '../../db/schema';
 import { SubscriptionService } from '../../common/billing/subscription.service';
 import { verificationRequired } from '../../common/billing/subscription.guard';
+import { LEGAL_VERSION } from '@sansu/shared';
 import { isPlatformAdmin } from '../../common/auth/platform-admin';
 import { AuditService } from '../../common/audit/audit.service';
 import { appUrl, MailService } from '../../common/mail/mail.service';
@@ -69,7 +70,10 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
     const user = await this.db.transaction(async (tx) => {
-      const [tenant] = await tx.insert(tenants).values({ name: dto.companyName }).returning();
+      const [tenant] = await tx
+        .insert(tenants)
+        .values({ name: dto.companyName, ...(dto.acceptTerms ? { settings: { legal: { acceptedAt: new Date().toISOString(), version: LEGAL_VERSION, by: email } } } : {}) })
+        .returning();
       await this.setup.provision(tx, tenant.id, dto.businessModel ?? 'DAGANG');
       await this.subs.startTrial(tx, tenant.id);
       const [u] = await tx
