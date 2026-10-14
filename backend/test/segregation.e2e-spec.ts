@@ -117,8 +117,8 @@ describe('Pemisahan fungsi (e2e)', () => {
         expect({ r, both: book.length > 0 && money.length > 0 }).toEqual({ r, both: false });
       }
     });
-    it('penggajian: yang memposting jurnal gaji (Akuntan) berbeda dari yang membayar (Keuangan) dan dari penyusun (SDM)', () => {
-      expect(nonOwner(find('POST', '/api/payroll/runs/:id/post'))).toEqual(['ACCOUNTANT']);
+    it('penggajian: yang memposting jurnal gaji (Akuntan/Admin) berbeda dari yang membayar (Keuangan) dan dari penyusun (SDM)', () => {
+      expect(nonOwner(find('POST', '/api/payroll/runs/:id/post')).sort()).toEqual(['ACCOUNTANT', 'ADMIN']);
       expect(nonOwner(find('POST', '/api/payroll/runs/:id/pay'))).toEqual(['FINANCE']);
     });
     it('Akuntan hanya menulis di bidang pembukuan (tidak ada penulisan di penjualan, pembelian, stok, kasir, SDM)', () => {

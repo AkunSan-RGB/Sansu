@@ -84,11 +84,11 @@ export default function UsersPage() {
         below={
           data && data.some((u) => u.isActive && u.role === 'FINANCE') && !data.some((u) => u.isActive && u.role === 'ACCOUNTANT') ? (
             <Alert
-              type="warning"
+              type="info"
               showIcon
               style={{ marginBottom: 12 }}
-              message="Peran Akuntan belum ditetapkan"
-              description="Pemisahan fungsi: Keuangan memegang uang (kas, bank, pembayaran, setor pajak, bayar gaji) dan tidak lagi bisa membukukan. Jurnal manual, kunci periode, tutup buku, dan penyusutan kini hanya bisa dikerjakan Pemilik/Admin, dan posting gaji hanya Pemilik, sampai ada pengguna berperan Akuntan. Klik pengguna yang bertugas membukukan, lalu ubah perannya menjadi Akuntan. Jangan menetapkan orang yang sama memegang uang dan membukukan."
+              message="Belum ada pengguna Akuntan"
+              description="Pemisahan fungsi: Keuangan memegang uang (kas, bank, pembayaran, setor pajak, bayar gaji) dan tidak membukukan. Selama belum ada Akuntan, Pemilik/Admin bertindak sebagai akuntan, dan sistem mengerjakan pembukuan rutin otomatis (penyusutan, jurnal berulang, posting gaji, penilaian ulang valas; kunci periode dan tutup buku dapat dinyalakan di menu Tutup Buku). Tetapkan peran Akuntan bila tim bertambah; jangan menetapkan orang yang sama memegang uang dan membukukan."
             />
           ) : null
         }

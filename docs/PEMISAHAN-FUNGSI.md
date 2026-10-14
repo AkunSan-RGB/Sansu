@@ -29,7 +29,7 @@ Pemilik selalu lolos semua pemeriksaan peran (dan tidak terkena batas persetujua
 | **Stok** | Hitung (Gudang) → **dibukukan (Keuangan/Admin)**; penyesuaian stok bernilai besar menunggu persetujuan |
 | **Kas & bank** | Catat kas & cocokkan rekening koran (Keuangan/Admin) → di atas batas menunggu persetujuan → pembatalan hanya Pemilik/Admin dengan alasan; hitung kas fisik berselisih besar disetujui Pemilik; **rekonsiliasi bulanan disahkan Akuntan/Admin** (bukan pengimpor rekening koran) |
 | **Kas kecil** | Juru kas mencatat bukti → pengisian kembali menunggu persetujuan → pembatalan Pemilik/Admin |
-| **Gaji** | Disusun SDM → **jurnalnya diposting Akuntan** → dibayar Keuangan |
+| **Gaji** | Disusun SDM → **jurnalnya diposting Akuntan/Admin (atau otomatis oleh sistem)** → dibayar Keuangan |
 | **Aset tetap** | Dicatat dan disusutkan oleh Akuntan/Admin → pelepasan di atas batas menunggu persetujuan |
 | **Pembukuan** | Jurnal manual, penyesuaian, kunci periode, tutup buku: Akuntan/Admin (jurnal di atas batas `manualJournal` menunggu persetujuan). Keuangan hanya membaca laporan |
 
@@ -73,7 +73,23 @@ Pengguna Keuangan lama **tidak dipindahkan otomatis** (memindahkan diam-diam jus
 - Halaman **Pengguna** menampilkan peringatan selama ada pengguna Keuangan tetapi belum ada Akuntan, dan **Cek kesehatan** memuat temuan "Pemisahan fungsi: Keuangan dan Akuntan".
 - Memindahkan pengguna antara Keuangan dan Akuntan tercatat di jejak audit beserta peran lamanya dan **ditandai di Cek kesehatan selama 180 hari** ("Tidak ada pengguna berpindah antara Keuangan dan Akuntan"), karena dua peran yang saling mengawasi tidak boleh sekadar dipertukarkan orang yang sama.
 - Pesan penolakan (403) menyebut peran yang berhak, jadi pengguna tahu harus meminta tolong ke siapa.
-- Selama belum ada Akuntan: jurnal manual, kunci periode, tutup buku, dan penyusutan dikerjakan Pemilik/Admin; posting gaji hanya Pemilik.
+- Selama belum ada Akuntan, **Pemilik/Admin dianggap akuntan** (jurnal manual, kunci periode, tutup buku, penyusutan, posting gaji) dan Cek kesehatan hanya memberi informasi. Pekerjaan rutinnya dikerjakan sistem (lihat berikut).
+
+### Pembukuan otomatis (menggantikan Akuntan yang belum ada)
+
+Pekerjaan Akuntan yang berbasis aturan tetap dikerjakan sistem atas nama Pemilik, idempoten, dan tercatat di jejak audit (`AUTO_*`). Pengaturan di **Tutup Buku › Pembukuan otomatis**
+(diubah Admin/Akuntan):
+
+| Otomatis | Bawaan | Aturan |
+|---|---|---|
+| Penyusutan aset, jurnal berulang & jurnal balik terjadwal, aturan bank | menyala | sudah ada di menu masing-masing |
+| Posting jurnal gaji | menyala | draf yang lewat tanggal bayar dan >24 jam (jeda koreksi SDM) diposting; pembayaran tetap oleh Keuangan |
+| Penilaian ulang valas | menyala | akhir bulan lalu, bila ada piutang/utang valas dan semua kurs sudah diisi; dibalik otomatis |
+| Kunci periode | mati | tanggal yang dipilih (bawaan 10) mengunci bulan lalu; hanya maju; ditunda bila ada gaji draf atau persetujuan menunggu |
+| Tutup buku tahunan | mati | setelah Februari, bila periodenya sudah terkunci sampai 31 Desember |
+
+Kunci periode dan tutup buku sengaja tidak menyala sendiri pada perusahaan yang sudah berjalan (mengubah perilaku pencatatan mundur); tombol **Nyalakan semua** menyalakannya sekaligus.
+Kegagalan memberi tahu Pemilik lewat Telegram. Jurnal penutup tahun boleh dibuat sesudah periodenya terkunci (hanya memindahkan saldo pendapatan/beban ke Laba Ditahan).
 
 ### Tampilan mengikuti server
 
