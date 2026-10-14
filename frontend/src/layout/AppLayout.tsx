@@ -33,7 +33,7 @@ type Group = {
   icon: React.ReactNode;
   children?: Sub[];
   to?: string;
-  /** Judul bagian di sidebar (Penjualan, Pembelian, Persediaan, Produksi, Keuangan, SDM, Administrasi) */
+  /** Judul bagian di sidebar (Penjualan, Pembelian, Persediaan, Produksi, Kas & pembayaran, Pembukuan & pajak, SDM, Administrasi) */
   part: string;
   /** Peran yang hanya melihat menu ini (tanpa hak mengubah): diberi keterangan "lihat" pada judul grup */
   readOnlyFor?: string[];
@@ -160,7 +160,7 @@ const MENU: Group[] = [
 
   // ---------- Keuangan ----------
   {
-    part: 'Keuangan',
+    part: 'Kas & pembayaran',
     key: 'cash',
     app: 'cash',
     label: 'Kas & Bank',
@@ -174,7 +174,7 @@ const MENU: Group[] = [
     ],
   },
   {
-    part: 'Keuangan',
+    part: 'Pembukuan & pajak',
     key: 'accounting',
     app: 'accounting',
     label: 'Akuntansi',
@@ -219,7 +219,7 @@ const MENU: Group[] = [
     ],
   },
   {
-    part: 'Keuangan',
+    part: 'Pembukuan & pajak',
     key: 'tax',
     app: 'accounting',
     label: 'Pajak',
