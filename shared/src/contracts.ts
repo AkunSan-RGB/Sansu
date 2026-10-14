@@ -725,6 +725,12 @@ export interface TaxProfile {
   holidays?: string[];
   /** Pembulatan PPN dokumen ke rupiah penuh: NONE = dua desimal apa adanya, DOWN = ke bawah, NEAREST = ke terdekat */
   vatRounding?: VatRounding;
+  /**
+   * Pajak restoran daerah (PB1 / PBJT makanan dan minuman): bila aktif, penjualan kasir dikenai pajak daerah ini (bukan PPN) dan
+   * dicatat di akun Utang Pajak Restoran. Tarif ditetapkan peraturan daerah (maksimal 10%).
+   */
+  localTaxEnabled?: boolean;
+  localTaxRate?: string;
 }
 export const VAT_ROUNDINGS = ['NONE', 'DOWN', 'NEAREST'] as const;
 export type VatRounding = (typeof VAT_ROUNDINGS)[number];
@@ -840,6 +846,8 @@ export interface PosOrder {
   /** Jenis pesanan dan label meja/pemesan (opsional) */
   orderType?: PosOrderType | null;
   tableLabel?: string | null;
+  /** VAT = pajak di struk adalah PPN; LOCAL = pajak restoran daerah (PB1/PBJT) */
+  taxKind?: 'VAT' | 'LOCAL';
   customer: { code?: string; name: string } | null;
   payments: { id: string; method: PosPaymentMethod; amount: string }[];
   lines?: {

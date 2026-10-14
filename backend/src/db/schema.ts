@@ -1305,6 +1305,8 @@ export const posOrders = pgTable(
     pricesIncludeVat: boolean('prices_include_vat').notNull().default(false),
     /** Jenis pesanan (makan di tempat, bawa pulang, antar) dan label meja/nama pemesan; opsional, untuk usaha makanan & minuman */
     orderType: text('order_type').$type<'DINE_IN' | 'TAKEAWAY' | 'DELIVERY'>(),
+    /** Pajak pada transaksi: VAT = PPN keluaran, LOCAL = pajak restoran daerah (PB1/PBJT) */
+    taxKind: text('tax_kind').$type<'VAT' | 'LOCAL'>().notNull().default('VAT'),
     tableLabel: text('table_label'),
     journalId: uuid('journal_id'),
     createdAt: createdAt(),

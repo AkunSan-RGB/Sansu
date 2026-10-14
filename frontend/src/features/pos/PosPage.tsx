@@ -46,7 +46,7 @@ import CashAccountSelect from '@/components/CashAccountSelect';
 import DenominationCounter, { denomTotal, type Denoms } from '@/components/DenominationCounter';
 import { fmtMoney, fmtQty } from '@/lib/format';
 import Receipt, { printReceipt } from './Receipt';
-import { outputVatRate, vatTotals } from '@/lib/vat';
+import { posTax, vatTotals } from '@/lib/vat';
 import { t } from '@/lib/terms';
 
 interface CartLine {
@@ -224,7 +224,7 @@ function Register({ session }: { session: PosSession }) {
     queryKey: ['pos-products', session.warehouse.id],
     queryFn: () => get<PosProduct[]>(`/pos/products${qs({ warehouseId: session.warehouse.id })}`),
   });
-  const ppnRate = outputVatRate(me);
+  const { rate: ppnRate, label: taxLabel } = posTax(me);
   const inclusive = !!me?.taxProfile?.posPricesIncludeVat && ppnRate > 0;
   const categories = ['Semua', ...new Set((products.data ?? []).map((p) => p.category ?? 'Lainnya'))];
   const shown = useMemo(() => {
@@ -374,7 +374,7 @@ function Register({ session }: { session: PosSession }) {
             <span>{inclusive ? 'DPP' : 'Subtotal'}</span>
             <span>{fmtMoney(subtotal)}</span>
             <span>
-              PPN {ppnRate}%{inclusive && ' (sudah termasuk)'}
+              {taxLabel} {ppnRate}%{inclusive && ' (sudah termasuk)'}
             </span>
             <span>{fmtMoney(tax)}</span>
           </>

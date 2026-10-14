@@ -58,6 +58,7 @@ export const SYS = {
   UNBILLED_REVENUE: 'UNBILLED_REVENUE',
   CONTRACT_LIABILITY: 'CONTRACT_LIABILITY',
   WIP: 'WIP',
+  LOCAL_TAX: 'LOCAL_TAX',
   DIRECT_LABOR: 'DIRECT_LABOR',
   FACTORY_OVERHEAD: 'FACTORY_OVERHEAD',
   APPLIED_PRODUCTION_COST: 'APPLIED_PRODUCTION_COST',
@@ -144,6 +145,7 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '2-1150', name: 'Utang Lain-lain', type: 'LIABILITY', parent: '2-1000', key: SYS.OTHER_PAYABLE, group: 'OTHER_PAYABLE' },
   { code: '2-1160', name: 'Barang Diterima Belum Ditagih', type: 'LIABILITY', parent: '2-1000', key: SYS.GRNI, group: 'ACCRUED_EXPENSE' },
   { code: '2-1200', name: 'PPN Keluaran', type: 'LIABILITY', parent: '2-1000', key: SYS.VAT_OUT, group: 'TAX_PAYABLE' },
+  { code: '2-1210', name: 'Utang Pajak Restoran (PB1/PBJT)', type: 'LIABILITY', parent: '2-1000', key: SYS.LOCAL_TAX, group: 'TAX_PAYABLE' },
   { code: '2-1300', name: 'Utang Pajak Lainnya', type: 'LIABILITY', parent: '2-1000', group: 'TAX_PAYABLE' },
   { code: '2-1310', name: 'Utang PPh Pasal 21', type: 'LIABILITY', parent: '2-1000', key: SYS.PPH21_PAYABLE, group: 'TAX_PAYABLE' },
   { code: '2-1320', name: 'Utang PPh Pasal 23', type: 'LIABILITY', parent: '2-1000', key: SYS.PPH23_PAYABLE, group: 'TAX_PAYABLE' },
@@ -293,6 +295,8 @@ export const COA_FAMILIES: { name: string; codes: string[]; relevant: (model: Bu
   // ED SAK EMKM Bab 8: piutang dicatat sebesar jumlah tagihan; tidak ada cadangan kerugian penurunan nilai (kerugian diakui saat dihapus)
   { name: 'Penurunan nilai piutang', codes: ['1-1310', '6-7300'], relevant: (_m, _a, fw) => fw !== 'SAK_EMKM' },
   { name: 'Produksi', codes: ['1-1420', '1-1430', '5-4100', '5-4200', '5-4900'], relevant: (m) => m === 'PRODUKSI' || m === 'MANUFAKTUR' || m === 'FNB' },
+  // Pajak daerah makanan & minuman: hanya relevan untuk usaha F&B; jurnal otomatis kasir tetap bisa memakainya bila fitur dinyalakan
+  { name: 'Pajak restoran daerah', codes: ['2-1210'], relevant: (m) => m === 'FNB' },
   { name: 'Manufaktur', codes: ['5-4950'], relevant: (m) => m === 'MANUFAKTUR' },
   { name: 'Kontrak jasa & proyek', codes: ['4-2100'], relevant: (m, a) => m === 'JASA' || a.has('crm') },
   // Aset/liabilitas kontrak hanya timbul dari pengakuan pendapatan berdasarkan persentase penyelesaian (SAK EP); EMKM mengakui sebesar tagihan (ED 14.5)

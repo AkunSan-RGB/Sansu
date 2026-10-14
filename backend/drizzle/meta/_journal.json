@@ -365,6 +365,13 @@
       "when": 1793634686484,
       "tag": "0051_lot_kedaluwarsa",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1793721086484,
+      "tag": "0052_pajak_daerah",
+      "breakpoints": true
     }
   ]
 }

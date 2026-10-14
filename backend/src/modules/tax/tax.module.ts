@@ -48,6 +48,7 @@ const LIABILITY_KEY: Partial<Record<TaxPaymentType, SystemKey>> = {
   PPH4_2: SYS.PPH4_2_PAYABLE,
   PPH29: SYS.CORPORATE_TAX_PAYABLE,
   BPJS: SYS.BPJS_PAYABLE,
+  PB1: SYS.LOCAL_TAX,
 };
 
 function monthEnd(period: string): DocDate {
@@ -191,13 +192,24 @@ export class TaxService {
           : undefined,
     });
 
-    for (const type of ['PPH21', 'PPH23', 'PPH4_2', 'BPJS'] as TaxPaymentType[]) {
+    // Pajak restoran daerah (PB1/PBJT): hanya muncul bila fitur dinyalakan atau sudah ada saldo/setoran
+    const localOn = !!(await this.settings.taxProfile(db, tenantId)).localTaxEnabled;
+    for (const type of ['PPH21', 'PPH23', 'PPH4_2', 'BPJS', 'PB1'] as TaxPaymentType[]) {
       const accrued = await this.balanceExclPayments(db, tenantId, keys.get(LIABILITY_KEY[type]!), to, 'credit');
       const paidAll = (await this.paidThrough(db, tenantId, type, period)).amount;
       const paid = await this.paidIn(db, tenantId, type, period);
       const outstanding = accrued.minus(paidAll);
+      if (type === 'PB1' && !localOn && accrued.isZero() && paidAll.isZero()) continue;
       const due = this.dueDate(type, period, holidays);
-      result.push({ type, period, outstanding: outstanding.toFixed(2), paid: paid.toFixed(2), dueDate: due, status: this.status(outstanding, paid, due) });
+      result.push({
+        type,
+        period,
+        outstanding: outstanding.toFixed(2),
+        paid: paid.toFixed(2),
+        dueDate: due,
+        status: this.status(outstanding, paid, due),
+        ...(type === 'PB1' ? { note: 'Tenggat dan tata cara setor mengikuti peraturan daerah Anda; tanggal 15 bulan berikutnya adalah perkiraan.' } : {}),
+      });
     }
 
     if (reporting.taxScheme === 'FINAL_UMKM') {
@@ -390,7 +402,11 @@ export class TaxService {
     // lebih bayar PPN dari masa sebelumnya dikompensasikan ke masa berikutnya
     const prevVat = await this.vatPosition(db, tenantId, `${year - 1}-12`);
     let vatCarry = prevVat.payable.lt(0) ? prevVat.payable.negated() : ZERO;
-    const types: TaxPaymentType[] = ['PPN', 'PPH21', 'PPH23', 'PPH4_2', reporting.taxScheme === 'FINAL_UMKM' ? 'PPH_FINAL' : 'PPH25', 'BPJS'];
+    // PB1 ikut rekap bila fitur dinyalakan atau tahun itu punya saldo/setoran pajak daerah
+    const yearSums = await sumByAccount(db, tenantId, { from: `${year}-01-01`, to: `${year}-12-31`, excludeSources: ['TAX_PAYMENT', 'CLOSING'] });
+    const pb1Ledger = yearSums.get(keys.get(SYS.LOCAL_TAX) ?? '');
+    const pb1Used = !!(await this.settings.taxProfile(db, tenantId)).localTaxEnabled || payments.some((p) => p.type === 'PB1') || (!!pb1Ledger && !pb1Ledger.credit.minus(pb1Ledger.debit).isZero());
+    const types: TaxPaymentType[] = ['PPN', 'PPH21', 'PPH23', 'PPH4_2', reporting.taxScheme === 'FINAL_UMKM' ? 'PPH_FINAL' : 'PPH25', 'BPJS', ...(pb1Used ? (['PB1'] as TaxPaymentType[]) : [])];
     type Cell = { period: string; payable: string; paid: string; diff: string; dueDate: string; paidDate: string | null; ntpn: string | null; status: RecapStatus; detail?: Record<string, string> };
     const rows = new Map<TaxPaymentType, Cell[]>(types.map((t) => [t, []]));
 
@@ -568,6 +584,7 @@ export const TAX_LABEL: Record<TaxPaymentType, string> = {
   PPH29: 'PPh 29',
   PPH_FINAL: 'PPh final 0,5%',
   BPJS: 'Iuran BPJS',
+  PB1: 'Pajak restoran (PB1)',
 };
 
 // ---------- Controller ----------

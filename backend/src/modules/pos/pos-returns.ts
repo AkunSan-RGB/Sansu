@@ -151,7 +151,7 @@ export class PosReturnsService {
         createdById: user.sub,
         lines: [
           { key: SYS.SALES_RETURN, debit: subtotal },
-          { key: SYS.VAT_OUT, debit: tax },
+          { key: order.taxKind === 'LOCAL' ? SYS.LOCAL_TAX : SYS.VAT_OUT, debit: tax },
           { accountId: refundAccount, credit: total },
           { key: SYS.INVENTORY, debit: cogs },
           { key: SYS.COGS, credit: cogs },

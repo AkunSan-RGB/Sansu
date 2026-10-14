@@ -170,6 +170,7 @@ export default function CompanySettingsPage() {
   const framework = Form.useWatch('framework', policy);
   const scheme = Form.useWatch('taxScheme', reporting);
   const pkp = Form.useWatch('pkp', tax) ?? true;
+  const localTax = Form.useWatch('localTaxEnabled', tax) ?? false;
   // Wizard bisa dibuka dari panduan mulai lewat ?wizard=1
   const [params, setParams] = useSearchParams();
   const [wizard, setWizard] = useState(params.get('wizard') === '1');
@@ -203,7 +204,7 @@ export default function CompanySettingsPage() {
   });
 
   const saveCompany = useAction(
-    (v: { name?: string; npwp?: string; address?: string; ppnRate?: number; pkp?: boolean; posPricesIncludeVat?: boolean; salesPricesIncludeVat?: boolean; holidays?: string[]; vatRounding?: string }) => patch('/settings/company', { ...v, ...(v.ppnRate !== undefined && { ppnRate: String(v.ppnRate) }) }),
+    (v: { name?: string; npwp?: string; address?: string; ppnRate?: number; pkp?: boolean; posPricesIncludeVat?: boolean; salesPricesIncludeVat?: boolean; holidays?: string[]; vatRounding?: string; localTaxEnabled?: boolean; localTaxRate?: number | string }) => patch('/settings/company', { ...v, ...(v.ppnRate !== undefined && { ppnRate: String(v.ppnRate) }), ...(v.localTaxRate !== undefined && v.localTaxRate !== null && { localTaxRate: String(v.localTaxRate) }) }),
     { success: 'Data perusahaan disimpan', invalidate: ['company', 'me', 'tax-thresholds'] },
   );
   const savePayroll = useAction((v: PayrollSettings) => patch('/settings/payroll', v), { success: 'Pengaturan penggajian disimpan', invalidate: ['company'] });
@@ -300,9 +301,26 @@ export default function CompanySettingsPage() {
                   <Radio.Group options={radioVat} />
                 </Form.Item>
               )}
-              {pkp && can('pos') && (
-                <Form.Item name="posPricesIncludeVat" label="Harga di kasir" extra="Termasuk PPN: harga rak = harga bayar; struk menampilkan DPP dan PPN yang terkandung.">
-                  <Radio.Group options={radioVat} />
+              {can('pos') && (
+                <>
+                  <Form.Item
+                    name="localTaxEnabled"
+                    label="Pajak restoran daerah (PB1/PBJT)"
+                    valuePropName="checked"
+                    extra="Untuk kafe dan restoran: penjualan kasir dikenai pajak daerah atas makanan dan minuman, bukan PPN. Dicatat di Utang Pajak Restoran dan disetor ke pemerintah daerah. Tarif dan tenggat mengikuti peraturan daerah Anda (maksimal 10%); usaha dengan omzet kecil bisa dikecualikan daerahnya."
+                  >
+                    <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
+                  </Form.Item>
+                  {localTax && (
+                    <Form.Item name="localTaxRate" label="Tarif pajak daerah" extra="0–10 persen sesuai peraturan daerah. Berlaku untuk penjualan kasir berikutnya.">
+                      <InputNumber min={0} max={10} step={0.5} suffix="%" style={{ width: 160 }} />
+                    </Form.Item>
+                  )}
+                </>
+              )}
+              {(pkp || localTax) && can('pos') && (
+                <Form.Item name="posPricesIncludeVat" label="Harga di kasir" extra={localTax ? 'Termasuk pajak: harga menu = harga bayar; struk menampilkan pajak yang terkandung. Belum termasuk: pajak ditambahkan di atas harga menu.' : 'Termasuk PPN: harga rak = harga bayar; struk menampilkan DPP dan PPN yang terkandung.'}>
+                  <Radio.Group options={localTax ? [{ value: true, label: 'Sudah termasuk pajak' }, { value: false, label: 'Belum termasuk pajak' }] : radioVat} />
                 </Form.Item>
               )}
               {!!me?.taxFeatures?.reasons.length && (

@@ -83,6 +83,8 @@ export class UpdateCompanyDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { each: true, message: 'Tanggal libur harus berformat YYYY-MM-DD' })
   holidays?: string[];
   @ApiPropertyOptional({ enum: VAT_ROUNDINGS, description: 'Pembulatan PPN dokumen ke rupiah penuh' }) @IsOptional() @IsIn(VAT_ROUNDINGS) vatRounding?: VatRounding;
+  @ApiPropertyOptional({ description: 'Pajak restoran daerah (PB1/PBJT) menggantikan PPN pada penjualan kasir' }) @IsOptional() @IsBoolean() localTaxEnabled?: boolean;
+  @ApiPropertyOptional({ example: '10', description: 'Tarif pajak daerah (%), 0–10 menurut peraturan daerah' }) @IsOptional() @IsNumberString() @Matches(/^(10(\.0+)?|[0-9](\.\d{1,2})?)$/, { message: 'Tarif pajak daerah harus 0–10 persen' }) localTaxRate?: string;
 }
 
 /** Kop surat & dokumen: logo, kontak, rekening pembayaran, catatan di faktur */
@@ -252,16 +254,18 @@ export class PlatformService {
   }
 
   async updateCompany(actor: AuthUser, dto: UpdateCompanyDto) {
-    const { pkp, posPricesIncludeVat, salesPricesIncludeVat, holidays, vatRounding, ...rest } = dto;
+    const { pkp, posPricesIncludeVat, salesPricesIncludeVat, holidays, vatRounding, localTaxEnabled, localTaxRate, ...rest } = dto;
     const company = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
     if (Object.keys(company).length) await this.db.update(tenants).set(company).where(eq(tenants.id, actor.tenantId));
-    if (pkp !== undefined || posPricesIncludeVat !== undefined || salesPricesIncludeVat !== undefined || holidays !== undefined || vatRounding !== undefined) {
+    if (pkp !== undefined || posPricesIncludeVat !== undefined || salesPricesIncludeVat !== undefined || holidays !== undefined || vatRounding !== undefined || localTaxEnabled !== undefined || localTaxRate !== undefined) {
       const patch = {
         pkp,
         posPricesIncludeVat,
         salesPricesIncludeVat,
         holidays: holidays && [...new Set(holidays.filter(isDocDate))].sort(),
         vatRounding,
+        localTaxEnabled,
+        localTaxRate,
       };
       for (const k of Object.keys(patch) as (keyof typeof patch)[]) if (patch[k] === undefined) delete patch[k];
       const before = await this.settings.taxProfile(this.db, actor.tenantId);

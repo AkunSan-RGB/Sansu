@@ -23,7 +23,7 @@ import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { assertWarehouseAccess } from '../../common/auth/warehouse-access';
 import { SequenceService } from '../../common/sequence/sequence.service';
-import { outputVatRate, taxProfileOf } from '../../common/settings.service';
+import { localTaxOf, outputVatRate, taxProfileOf } from '../../common/settings.service';
 import { nowAt, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
@@ -209,7 +209,9 @@ export class PosService {
       }
       // Harga rak termasuk PPN → DPP & PPN dihitung mundur; non-PKP → tanpa PPN
       const inclusive = taxProfileOf(tenant.settings).posPricesIncludeVat;
-      const rate = outputVatRate(tenant);
+      // Pajak daerah (PB1/PBJT) menggantikan PPN pada penjualan kasir bila dinyalakan
+      const local = localTaxOf(tenant.settings);
+      const rate = local.enabled ? local.rate : outputVatRate(tenant);
       const totals = inclusive ? inclusiveTotals(lines, rate) : documentTotals(lines, rate, taxProfileOf(tenant.settings).vatRounding);
 
       // Pembayaran: non-tunai tidak boleh lebih dari tagihan; kelebihan tunai = kembalian
@@ -244,6 +246,7 @@ export class PosService {
           tendered: tendered.toFixed(2),
           change: change.toFixed(2),
           pricesIncludeVat: inclusive,
+          taxKind: local.enabled ? 'LOCAL' : 'VAT',
           orderType: dto.orderType ?? null,
           tableLabel: dto.tableLabel?.trim() || null,
         })
@@ -328,7 +331,7 @@ export class PosService {
           { accountId: session.cashAccountId, debit: cashNet },
           { accountId: session.bankAccountId, debit: nonCash },
           { key: SYS.SALES, credit: totals.subtotal },
-          { key: SYS.VAT_OUT, credit: totals.taxAmount },
+          { key: local.enabled ? SYS.LOCAL_TAX : SYS.VAT_OUT, credit: totals.taxAmount },
           { key: SYS.COGS, debit: cogs },
           ...inventoryLines(issued, await semiSet(tx, user.tenantId, issued.map((i) => i.productId)), 'credit'),
         ],
