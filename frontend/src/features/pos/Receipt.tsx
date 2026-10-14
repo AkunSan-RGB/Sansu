@@ -1,4 +1,4 @@
-import { POS_PAYMENT_LABELS } from '@sansu/shared';
+import { POS_ORDER_TYPE_LABELS, POS_PAYMENT_LABELS } from '@sansu/shared';
 import dayjs from 'dayjs';
 import type { PosOrder } from '@/api/types';
 import { fmtMoney, fmtQty } from '@/lib/format';
@@ -22,6 +22,13 @@ export default function Receipt({ order, company, cashier, warehouse }: { order:
       </div>
       <div>Kasir: {cashier}</div>
       {order.customer && <div>Pelanggan: {order.customer.name}</div>}
+      {(order.orderType || order.tableLabel) && (
+        <div>
+          {order.orderType ? POS_ORDER_TYPE_LABELS[order.orderType] : ''}
+          {order.orderType && order.tableLabel ? ' · ' : ''}
+          {order.tableLabel ?? ''}
+        </div>
+      )}
       <div style={{ borderTop: '1px dashed #999', margin: '6px 0' }} />
       {order.lines?.map((l) => (
         <div key={l.id}>

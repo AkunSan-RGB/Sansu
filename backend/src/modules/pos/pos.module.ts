@@ -16,7 +16,7 @@ import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestj
 import { Type } from 'class-transformer';
 import { ArrayMinSize, IsIn, IsNumberString, IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from 'class-validator';
 import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
-import { POS_PAYMENT_METHODS, type PosPaymentMethod } from '@sansu/shared';
+import { POS_ORDER_TYPES, POS_PAYMENT_METHODS, type PosOrderType, type PosPaymentMethod } from '@sansu/shared';
 import { RequireApp } from '../../common/apps/app.guard';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -68,6 +68,8 @@ export class PosPaymentDto {
 
 export class CreatePosOrderDto {
   @ApiProperty() @IsUUID() sessionId: string;
+  @ApiPropertyOptional({ enum: POS_ORDER_TYPES, description: 'Jenis pesanan (usaha makanan & minuman): makan di tempat, bawa pulang, antar' }) @IsOptional() @IsIn(POS_ORDER_TYPES) orderType?: PosOrderType;
+  @ApiPropertyOptional({ example: 'Meja 5', description: 'Nomor meja atau nama pemesan' }) @IsOptional() @IsString() @MaxLength(40) tableLabel?: string;
   @ApiPropertyOptional({ description: 'Pelanggan terdaftar (opsional)' }) @IsOptional() @IsUUID() customerId?: string;
   @ApiProperty({ type: [PosLineDto] }) @ValidateNested({ each: true }) @Type(() => PosLineDto) @ArrayMinSize(1) lines: PosLineDto[];
   @ApiProperty({ type: [PosPaymentDto] }) @ValidateNested({ each: true }) @Type(() => PosPaymentDto) @ArrayMinSize(1) payments: PosPaymentDto[];
@@ -242,6 +244,8 @@ export class PosService {
           tendered: tendered.toFixed(2),
           change: change.toFixed(2),
           pricesIncludeVat: inclusive,
+          orderType: dto.orderType ?? null,
+          tableLabel: dto.tableLabel?.trim() || null,
         })
         .returning();
 

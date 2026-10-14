@@ -84,6 +84,12 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(s('FNB'), 'boms')).toBeGreaterThan(6);
     expect(Number((await db.execute<{ n: string }>(sql.raw(`SELECT COUNT(*)::text AS n FROM pos_order_lines l JOIN pos_orders o ON o.id = l.order_id WHERE o.tenant_id = '${s('FNB')}' AND l.from_recipe`))).rows[0].n)).toBeGreaterThan(50);
     expect(await count(s('FNB'), 'production_orders')).toBeGreaterThan(1);
+    // F&B: ada lot dengan tanggal kedaluwarsa (satu sudah lewat, beberapa segera); jumlah lot tidak melebihi stok
+    const lotList = (await get(sessions.get('FNB')!.token, '/api/inventory/lots').expect(200)).body;
+    expect(lotList.summary.expired).toBeGreaterThanOrEqual(1);
+    expect(lotList.summary.soon).toBeGreaterThanOrEqual(2);
+    expect(lotList.items.length).toBeGreaterThanOrEqual(4);
+    expect(Number((await db.execute<{ n: string }>(sql.raw(`SELECT COUNT(*)::text AS n FROM (SELECT l.product_id FROM stock_lots l JOIN stock_balances b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id WHERE l.tenant_id = '${s('FNB')}' AND l.qty_remaining > 0 GROUP BY l.product_id, l.warehouse_id, b.qty HAVING SUM(l.qty_remaining) > b.qty) x`))).rows[0].n)).toBe(0);
   });
 
   it('tiap permintaan membuat perusahaan terpisah', async () => {

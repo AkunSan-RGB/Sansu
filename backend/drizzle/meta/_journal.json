@@ -358,6 +358,13 @@
       "when": 1793548286484,
       "tag": "0050_menu_resep",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1793634686484,
+      "tag": "0051_lot_kedaluwarsa",
+      "breakpoints": true
     }
   ]
 }

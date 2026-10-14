@@ -8,7 +8,7 @@ import {
   PrinterOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
-import { BRAND, POS_PAYMENT_LABELS, type PosPaymentMethod } from '@sansu/shared';
+import { BRAND, POS_ORDER_TYPE_LABELS, POS_ORDER_TYPES, POS_PAYMENT_LABELS, type PosOrderType, type PosPaymentMethod } from '@sansu/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -210,6 +210,9 @@ function Register({ session }: { session: PosSession }) {
   const [category, setCategory] = useState<string>('Semua');
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerId, setCustomerId] = useState<string>();
+  const fnb = me?.businessModel === 'FNB';
+  const [orderType, setOrderType] = useState<PosOrderType>('DINE_IN');
+  const [tableLabel, setTableLabel] = useState('');
   const [paying, setPaying] = useState(false);
   const [method, setMethod] = useState<PosPaymentMethod>('CASH');
   const [amount, setAmount] = useState<number | null>(null);
@@ -267,6 +270,7 @@ function Register({ session }: { session: PosSession }) {
       post<PosOrder>('/pos/orders', {
         sessionId: session.id,
         customerId,
+        ...(fnb ? { orderType, tableLabel: tableLabel.trim() || undefined } : {}),
         lines: cart.map((l) => ({ productId: l.product.id, uom: l.uom, qty: String(l.qty), price: String(l.unitPrice), discountPct: String(l.discountPct) })),
         payments: [{ method, amount: (method === 'CASH' ? (amount ?? 0) : total).toFixed(2) }],
       }),
@@ -276,6 +280,7 @@ function Register({ session }: { session: PosSession }) {
         setPaying(false);
         setCart([]);
         setCustomerId(undefined);
+        setTableLabel('');
         setReceipt(o);
         qc.invalidateQueries({ queryKey: ['pos-session'] });
       },
@@ -307,6 +312,12 @@ function Register({ session }: { session: PosSession }) {
       style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
       styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', padding: 12, minHeight: 0 } }}
     >
+      {fnb && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          <Segmented size="small" value={orderType} onChange={(v) => setOrderType(v as PosOrderType)} options={POS_ORDER_TYPES.map((k) => ({ value: k, label: POS_ORDER_TYPE_LABELS[k] }))} />
+          <Input size="small" allowClear maxLength={40} placeholder="Meja / nama pemesan" value={tableLabel} onChange={(e) => setTableLabel(e.target.value)} style={{ flex: 1, minWidth: 130 }} />
+        </div>
+      )}
       <Select
         allowClear
         showSearch

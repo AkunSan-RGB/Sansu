@@ -91,6 +91,13 @@ export class OrderLinePriceDto {
   @ApiProperty({ example: '2150', description: 'Harga per satuan baris, belum PPN, sesuai faktur supplier' }) @Matches(/^\d{1,15}(\.\d{1,4})?$/) price: string;
 }
 
+/** Lot dan tanggal kedaluwarsa per baris pesanan (untuk pesanan yang diterima dan ditagih sekaligus) */
+export class OrderLineLotDto {
+  @ApiProperty() @IsUUID() orderLineId: string;
+  @ApiPropertyOptional({ example: 'LOT-2310A' }) @IsOptional() @IsString() @MaxLength(40) lotNo?: string;
+  @ApiPropertyOptional({ example: '2026-11-30' }) @IsOptional() @IsDateString() expiryDate?: string;
+}
+
 export class CreatePurchaseInvoiceDto {
   @ApiProperty() @IsUUID() purchaseOrderId: string;
   @ApiProperty({ example: 'INV/SPP/2026/0912', description: 'Nomor faktur dari supplier' })
@@ -101,6 +108,12 @@ export class CreatePurchaseInvoiceDto {
   @IsOptional()
   @IsDateString()
   date?: string;
+  @ApiPropertyOptional({ type: () => [OrderLineLotDto], description: 'Lot dan kedaluwarsa per baris; hanya dipakai bila barang diterima bersama faktur ini' })
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => OrderLineLotDto)
+  @ArrayMaxSize(500)
+  lots?: OrderLineLotDto[];
   @ApiPropertyOptional({
     type: () => [OrderLineQtyDto],
     description: 'Jumlah yang ditagih per baris pesanan. Kosong = seluruh barang yang sudah diterima dan belum ditagih (pesanan tanpa penerimaan: diterima dan ditagih sekaligus).',
@@ -138,16 +151,22 @@ export class OrderLineQtyDto {
   @ApiProperty({ example: '6' }) @IsNumberString() qty: string;
 }
 
+/** Baris penerimaan barang: jumlah + (opsional) nomor lot dan tanggal kedaluwarsa */
+export class ReceiveLineDto extends OrderLineQtyDto {
+  @ApiPropertyOptional({ example: 'LOT-2310A', description: 'Nomor lot dari supplier' }) @IsOptional() @IsString() @MaxLength(40) lotNo?: string;
+  @ApiPropertyOptional({ example: '2026-11-30', description: 'Tanggal kedaluwarsa (bahan makanan/minuman); dipantau di Persediaan › Kedaluwarsa' }) @IsOptional() @IsDateString() expiryDate?: string;
+}
+
 export class CreateGoodsReceiptDto {
   @ApiPropertyOptional({ example: '2026-10-03', description: 'Tanggal barang diterima' }) @IsOptional() @IsDateString() date?: string;
   @ApiPropertyOptional({ description: 'Nomor surat jalan dari supplier' }) @IsOptional() @IsString() @MaxLength(60) supplierDeliveryNo?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) notes?: string;
-  @ApiPropertyOptional({ type: () => [OrderLineQtyDto], description: 'Jumlah diterima per baris; kosong = seluruh sisa pesanan' })
+  @ApiPropertyOptional({ type: () => [ReceiveLineDto], description: 'Jumlah diterima per baris; kosong = seluruh sisa pesanan' })
   @IsOptional()
   @ValidateNested({ each: true })
-  @Type(() => OrderLineQtyDto)
+  @Type(() => ReceiveLineDto)
   @ArrayMinSize(1)
-  lines?: OrderLineQtyDto[];
+  lines?: ReceiveLineDto[];
 }
 
 export class CancelGoodsReceiptDto {

@@ -122,6 +122,7 @@ const MENU: Group[] = [
       { key: '/inventory/warehouses', label: t('Persediaan per gudang') },
       { key: '/inventory/transfers', label: t('Transfer gudang') },
       { key: '/inventory/counts', label: 'Stock opname' },
+      { key: '/inventory/expiry', label: 'Kedaluwarsa bahan', hideFor: ['JASA'] },
       { key: '/inventory/movement', label: 'Perputaran persediaan' },
       { key: '/inventory/writedowns', label: 'Penurunan nilai', epOnly: true },
       {

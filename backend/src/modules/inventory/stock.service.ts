@@ -9,6 +9,7 @@ import { Tx } from '../../db/db';
 import { products, StockMoveType, stockLayers, stockMoves, warehouses } from '../../db/schema';
 import { isInventoryMethod, type InventoryMethod } from '@sansu/shared';
 import { consumeLayers, movingAverage } from './costing';
+import { type LotInput, trackLots } from './stock-lots';
 
 export interface MoveInput {
   tenantId: string;
@@ -32,6 +33,10 @@ export interface MoveInput {
    * rata-rata/lapisan dikembalikan, sehingga pembatalan tidak menimbulkan selisih nilai.
    */
   reverseCost?: DecValue;
+  /** Barang masuk (pembelian, penyesuaian +): nomor lot dan tanggal kedaluwarsa, bersifat informatif */
+  lot?: LotInput;
+  /** Barang keluar: kurangi hanya lot ini (membuang lot tertentu); bawaan FEFO */
+  lotId?: string;
 }
 
 export interface MoveResult {
@@ -197,6 +202,20 @@ export class StockService {
       refId: m.refId,
       refNumber: m.refNumber,
       date: m.date,
+    });
+
+    await trackLots(tx, {
+      tenantId: m.tenantId,
+      productId: m.productId,
+      warehouseId: m.warehouseId,
+      type: m.type,
+      qty,
+      refType: m.refType,
+      refId: m.refId,
+      date: m.date,
+      lot: m.lot,
+      lotId: m.lotId,
+      reverseCost: m.reverseCost !== undefined,
     });
 
     return { unitCost, value: fifoValue ?? money(qty.abs().times(unitCost)), balanceAfter, writedownUnit: moveWu };

@@ -301,6 +301,56 @@ export const stockLayers = pgTable(
   (t) => [index('stock_layers_fifo_idx').on(t.productId, t.warehouseId, t.receivedDate, t.id)],
 );
 
+/**
+ * Lot bahan dengan tanggal kedaluwarsa (informatif: tidak mengubah nilai persediaan atau jurnal). Barang masuk bisa membawa lot dan
+ * tanggal kedaluwarsa; barang keluar mengurangi lot yang paling cepat kedaluwarsa lebih dulu (FEFO).
+ */
+export const stockLots = pgTable(
+  'stock_lots',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    warehouseId: uuid('warehouse_id')
+      .notNull()
+      .references(() => warehouses.id),
+    lotNo: text('lot_no'),
+    expiryDate: date('expiry_date'),
+    receivedDate: date('received_date').notNull(),
+    qtyReceived: qty('qty_received').notNull(),
+    qtyRemaining: qty('qty_remaining').notNull(),
+    /** Dokumen asal (mis. GOODS_RECEIPT, STOCK_ADJUSTMENT, STOCK_TRANSFER) dan id-nya */
+    sourceType: text('source_type').notNull(),
+    sourceRef: text('source_ref').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('stock_lots_fefo_idx').on(t.productId, t.warehouseId, t.expiryDate, t.id).where(sql`qty_remaining > 0`),
+    index('stock_lots_tenant_expiry_idx').on(t.tenantId, t.expiryDate).where(sql`qty_remaining > 0`),
+    index('stock_lots_source_idx').on(t.sourceRef),
+  ],
+);
+
+/** Lot yang ikut berpindah saat transfer gudang: dicatat saat barang keluar, dipakai lagi saat barang masuk di gudang tujuan */
+export const stockLotTransit = pgTable(
+  'stock_lot_transit',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    refId: text('ref_id').notNull(),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    lotNo: text('lot_no'),
+    expiryDate: date('expiry_date'),
+    receivedDate: date('received_date').notNull(),
+    qtyLeft: qty('qty_left').notNull(),
+  },
+  (t) => [index('stock_lot_transit_ref_idx').on(t.refId, t.productId)],
+);
+
 /** Kartu stok: setiap perubahan stok tercatat dan tidak pernah diedit */
 export const stockMoves = pgTable(
   'stock_moves',
@@ -1253,6 +1303,9 @@ export const posOrders = pgTable(
     cogsAmount: money('cogs_amount').notNull().default('0'),
     /** Harga kasir sudah termasuk PPN: lineTotal baris = harga bruto, subtotal = DPP */
     pricesIncludeVat: boolean('prices_include_vat').notNull().default(false),
+    /** Jenis pesanan (makan di tempat, bawa pulang, antar) dan label meja/nama pemesan; opsional, untuk usaha makanan & minuman */
+    orderType: text('order_type').$type<'DINE_IN' | 'TAKEAWAY' | 'DELIVERY'>(),
+    tableLabel: text('table_label'),
     journalId: uuid('journal_id'),
     createdAt: createdAt(),
   },

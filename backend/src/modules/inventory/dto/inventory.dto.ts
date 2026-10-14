@@ -23,6 +23,9 @@ export class AdjustmentLineDto {
   @IsOptional()
   @IsNumberString()
   unitCost?: string;
+  @ApiPropertyOptional({ example: 'LOT-2310A', description: 'Barang masuk: nomor lot' }) @IsOptional() @IsString() @MaxLength(40) lotNo?: string;
+  @ApiPropertyOptional({ example: '2026-11-30', description: 'Barang masuk: tanggal kedaluwarsa' }) @IsOptional() @IsDateString() expiryDate?: string;
+  @ApiPropertyOptional({ description: 'Barang keluar: kurangi hanya lot ini (membuang lot tertentu); kosong = lot yang paling cepat kedaluwarsa' }) @IsOptional() @IsUUID() lotId?: string;
 }
 
 export class StockAdjustmentDto {

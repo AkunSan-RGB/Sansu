@@ -496,6 +496,32 @@ async function seedManufaktur(c: Demo) {
   await X.stockOps(c, ids, ['FN-JATI', 'FN-PLY', 'FN-ENGSEL', 'FN-REL', 'FN-POLITUR'], { saleInvoiceId: s3, billId: c.last.bill, supplierId: sup.get('SUP-KAYU') });
 }
 
+/** Pembelian bahan dengan lot dan tanggal kedaluwarsa: PO → penerimaan barang (bawa lot) → faktur dari penerimaan → (opsional) dibayar */
+async function purchaseWithLots(
+  c: Demo,
+  supplierId: string,
+  daysAgo: number,
+  lines: { productId: string; qty: number; price: number; lotNo: string; expiresInDays: number }[],
+  opts: { pay?: boolean; invoiceNo: string },
+) {
+  const po = await c.svc.po.create(c.admin as never, {
+    supplierId,
+    warehouseId: c.wh,
+    date: c.ago(daysAgo),
+    lines: lines.map((l) => ({ productId: l.productId, qty: String(l.qty), price: String(l.price) })),
+  } as never);
+  await c.svc.po.confirm(c.admin as never, po.id);
+  // tanggal kedaluwarsa dihitung dari hari ini (bukan dari tanggal terima), supaya contoh "akan kedaluwarsa" selalu relevan
+  await c.svc.grn.receive(c.admin as never, po.id, {
+    date: c.ago(daysAgo),
+    lines: po.lines.map((pl: { id: string }, i: number) => ({ orderLineId: pl.id, qty: String(lines[i].qty), lotNo: lines[i].lotNo, expiryDate: c.ago(-lines[i].expiresInDays) })),
+  });
+  const bill = await c.svc.pi.createFromOrder(c.admin as never, { purchaseOrderId: po.id, supplierInvoiceNo: opts.invoiceNo, date: c.ago(daysAgo - 1) } as never);
+  if (opts.pay) await payBill(c, bill.id, Math.max(daysAgo - 8, 1));
+  c.last.bill = bill.id;
+  return bill;
+}
+
 // ---------------------------------------------------------------- F&B
 const FNB_BAHAN: Prod[] = [
   { sku: 'BB-KOPI', name: 'Biji Kopi Arabika', cat: 'Bahan minuman', price: 0, cost: 140, qty: 60000, uom: 'GR' },
@@ -581,8 +607,33 @@ async function seedFnb(c: Demo) {
   const menuItems = FNB_MENU.map((m) => ({ id: ids.get(m.sku)!, price: m.price }));
   const extraItems = [{ id: ids.get('FB-AIR')!, price: 6000 }, { id: ids.get('FB-KUE')!, price: 55000 }];
   for (let d = 21; d >= 1; d -= 1) await c.step(`kasir H-${d}`, () => posDay(c, d, [...menuItems, ...menuItems, ...extraItems], c.int(9, 15)));
-  await c.step('beli biji kopi', () => purchase(c, sup.get('SUP-KOPI')!, 30, [{ productId: ids.get('BB-KOPI')!, qty: 20000, price: 142 }], { pay: true, invoiceNo: 'KNR/0925/031' }));
-  await c.step('beli bahan segar', () => purchase(c, sup.get('SUP-PASAR')!, 12, [{ productId: ids.get('BB-AYAM')!, qty: 25000, price: 38 }, { productId: ids.get('BB-TELUR')!, qty: 600, price: 2250 }, { productId: ids.get('BB-SUSU')!, qty: 60000, price: 18 }], { pay: true, invoiceNo: 'SPI-7741' }));
+  await c.step('beli biji kopi', () => purchaseWithLots(c, sup.get('SUP-KOPI')!, 30, [{ productId: ids.get('BB-KOPI')!, qty: 20000, price: 142, lotNo: 'KOPI-SEP', expiresInDays: 150 }], { pay: true, invoiceNo: 'KNR/0925/031' }));
+  // bahan segar: lot dengan kedaluwarsa dekat (susu, ayam, telur), satu lot sudah lewat tanggal (mentega), satu masih lama (tepung)
+  await c.step('beli bahan segar', () =>
+    purchaseWithLots(
+      c,
+      sup.get('SUP-PASAR')!,
+      9,
+      [
+        { productId: ids.get('BB-MENTEGA')!, qty: 4000, price: 46, lotNo: 'MTG-0912', expiresInDays: -1 },
+        { productId: ids.get('BB-TEPUNG')!, qty: 25000, price: 13, lotNo: 'TPG-1008', expiresInDays: 45 },
+      ],
+      { pay: true, invoiceNo: 'SPI-7741' },
+    ),
+  );
+  await c.step('beli bahan segar (kedaluwarsa dekat)', () =>
+    purchaseWithLots(
+      c,
+      sup.get('SUP-PASAR')!,
+      2,
+      [
+        { productId: ids.get('BB-SUSU')!, qty: 60000, price: 18, lotNo: 'SSU-1012', expiresInDays: 5 },
+        { productId: ids.get('BB-AYAM')!, qty: 25000, price: 38, lotNo: 'AYM-1012', expiresInDays: 2 },
+        { productId: ids.get('BB-TELUR')!, qty: 600, price: 2250, lotNo: 'TLR-1012', expiresInDays: 12 },
+      ],
+      { invoiceNo: 'SPI-7790' },
+    ),
+  );
   await c.step('beli kemasan (belum lunas)', () => purchase(c, sup.get('SUP-KEMAS')!, 5, [{ productId: ids.get('KM-CUP')!, qty: 3000, price: 640 }, { productId: ids.get('KM-KOTAK')!, qty: 2000, price: 880 }], { invoiceNo: 'KPI/1025/112' }));
   // pesanan kantor / acara: barang jadi beli putus lewat faktur (menu dijual lewat kasir)
   let fnbUnpaid: string | undefined;
