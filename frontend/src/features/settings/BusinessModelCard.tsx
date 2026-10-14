@@ -1,6 +1,6 @@
 import { APP_BY_KEY, BUSINESS_MODEL_BY_KEY, type BusinessModel } from '@sansu/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Card, Space, Steps, Typography } from 'antd';
+import { Alert, Button, Card, message, Space, Steps, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { put } from '@/api/client';
 import { useAction } from '@/api/queries';
@@ -9,7 +9,8 @@ import BusinessModelPicker from '@/components/BusinessModelPicker';
 
 /** Model bisnis perusahaan: menentukan aplikasi yang disarankan & langkah panduan mulai */
 export default function BusinessModelCard() {
-  const { me } = useAuth();
+  const { me, startDemo } = useAuth();
+  const [reseeding, setReseeding] = useState(false);
   const qc = useQueryClient();
   const [model, setModel] = useState<BusinessModel>(me?.businessModel ?? 'DAGANG');
   useEffect(() => setModel(me?.businessModel ?? 'DAGANG'), [me?.businessModel]);
@@ -32,6 +33,18 @@ export default function BusinessModelCard() {
       },
     },
   );
+  const demo = !!me?.demo;
+  const reseed = async () => {
+    setReseeding(true);
+    try {
+      await startDemo(model);
+      qc.clear();
+      window.location.assign('/dashboard');
+    } catch (e) {
+      message.error((e as Error).message || 'Gagal membuat demo baru');
+      setReseeding(false);
+    }
+  };
   const changed = model !== me?.businessModel;
   return (
     <Card title="Model bisnis">
@@ -49,7 +62,17 @@ export default function BusinessModelCard() {
         items={info.flow.map((f) => ({ title: <span style={{ fontSize: 12 }}>{f}</span> }))}
       />
       {info.note && <Alert type="info" showIcon style={{ marginTop: 12 }} message={info.note} />}
-      {isAdmin && (
+      {demo && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginTop: 12 }}
+          message="Ini perusahaan demo"
+          description="Mengganti jenis usaha tidak mengubah barang, pelanggan, dan transaksi yang sudah ada. Untuk melihat contoh lengkap jenis usaha lain, buat demo baru; demo yang ini akan ditinggalkan dan dihapus otomatis."
+          action={<Button type="primary" disabled={!changed} loading={reseeding} onClick={reseed}>Buat demo baru: {info.name}</Button>}
+        />
+      )}
+      {isAdmin && !demo && (
         <Space wrap style={{ marginTop: 16 }}>
           {missing.length > 0 && (
             <Button type="primary" loading={save.isPending} onClick={() => save.mutate(true)}>
