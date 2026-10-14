@@ -70,6 +70,13 @@ describe('MailService — Brevo lewat API', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('pengirim tampil dari BREVO_SENDER_EMAIL/NAME bila MAIL_FROM kosong', () => {
+    process.env.BREVO_API_KEY = KEY;
+    process.env.BREVO_SENDER_EMAIL = 'no-reply@sansu.id';
+    process.env.BREVO_SENDER_NAME = 'SANSU ERP';
+    expect(new MailService().from).toBe('SANSU ERP <no-reply@sansu.id>');
+  });
+
   it('SMTP dengan pengirim @localhost (MAIL_FROM belum diisi): galat jelas, tidak mencoba menyambung ke server', async () => {
     process.env.SMTP_HOST = 'smtp.contoh.invalid';
     const svc = new MailService();

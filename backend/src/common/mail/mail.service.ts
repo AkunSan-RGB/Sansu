@@ -64,7 +64,11 @@ export class MailService {
   }
 
   get from() {
-    return process.env.MAIL_FROM || `SANSU <${process.env.SMTP_USER || 'no-reply@localhost'}>`;
+    if (process.env.MAIL_FROM) return process.env.MAIL_FROM;
+    // Pemakai Brevo cukup mengisi BREVO_SENDER_EMAIL/NAME; alamat itu juga yang dipakai pemeriksa kesiapan email
+    const brevo = process.env.BREVO_SENDER_EMAIL?.trim();
+    if (this.brevoKey && brevo) return `${process.env.BREVO_SENDER_NAME?.trim() || 'SANSU'} <${brevo}>`;
+    return `SANSU <${process.env.SMTP_USER || 'no-reply@localhost'}>`;
   }
 
   private transport() {
