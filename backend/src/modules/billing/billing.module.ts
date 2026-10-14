@@ -1076,17 +1076,22 @@ export class PlatformAdminController {
   @HttpCode(200)
   @Post('test-email')
   async testEmail(@Body() dto: TestEmailDto) {
-    await this.mail.send(
-      {
-        to: dto.to,
-        subject: 'Email uji dari SANSU',
-        heading: 'Email berhasil terkirim',
-        paragraphs: [
-          'Pengaturan SMTP SANSU sudah benar. Email reset sandi, verifikasi, dan tagihan akan terkirim seperti ini.',
-        ],
-      },
-      true,
-    );
+    try {
+      await this.mail.send(
+        {
+          to: dto.to,
+          subject: 'Email uji dari SANSU',
+          heading: 'Email berhasil terkirim',
+          paragraphs: [
+            'Pengaturan SMTP SANSU sudah benar. Email reset sandi, verifikasi, dan tagihan akan terkirim seperti ini.',
+          ],
+        },
+        true,
+      );
+    } catch (e) {
+      // Tampilkan sebab sebenarnya (bukan "kesalahan server 500") agar pemilik layanan tahu apa yang harus diperbaiki
+      throw new BadRequestException(`Email uji gagal dikirim: ${(e as Error).message}`.slice(0, 400));
+    }
     return { ok: true };
   }
   /** Periksa kesiapan email agar tidak masuk spam: domain pengirim, SPF, DKIM, DMARC, alamat aplikasi */
