@@ -1,14 +1,12 @@
 import { PlusOutlined } from '@ant-design/icons';
-import { QUOTATION_STATUS_LABELS, type QuotationStatus, toOptions } from '@sansu/shared';
+import { QUOTATION_STATUS_LABELS, type QuotationStatus } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Card, Select, Tag } from 'antd';
-import { useState } from 'react';
+import { Button, Tag } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import { get, qs } from '@/api/client';
+import { get } from '@/api/client';
 import type { Quotation } from '@/api/types';
-import PageHeader from '@/layout/PageHeader';
+import ListPage from '@/components/ListPage';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
-import ResponsiveTable from '@/components/ResponsiveTable';
 import { t } from '@/lib/terms';
 
 export const QUOTATION_COLOR: Record<QuotationStatus, string> = { DRAFT: 'default', SENT: 'blue', ACCEPTED: 'green', REJECTED: 'red', CANCELLED: 'default' };
@@ -21,37 +19,46 @@ export const QuotationStatusTag = ({ q }: { q: Pick<Quotation, 'status' | 'valid
 
 export default function QuotationsPage() {
   const navigate = useNavigate();
-  const [status, setStatus] = useState<string>();
-  const { data, isLoading } = useQuery({ queryKey: ['quotations', status], queryFn: () => get<Quotation[]>(`/crm/quotations${qs({ status })}`) });
+  const { data, isLoading } = useQuery({ queryKey: ['quotations', 'all'], queryFn: () => get<Quotation[]>('/crm/quotations') });
+  const expired = (q: Quotation) => (q.status === 'SENT' || q.status === 'DRAFT') && q.validUntil < today();
   return (
-    <>
-      <PageHeader
-        title="Penawaran harga"
-        extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/quotations/new')}>
-            Penawaran baru
-          </Button>
-        }
-      />
-      <Card>
-        <Select allowClear placeholder="Semua status" style={{ width: 200, marginBottom: 12 }} options={toOptions(QUOTATION_STATUS_LABELS)} onChange={setStatus} />
-        <ResponsiveTable
-          rowKey="id"
-          loading={isLoading}
-          dataSource={data}
-          scroll={{ x: 800 }}
-          onRow={(q) => ({ onClick: () => navigate(`/quotations/${q.id}`), style: { cursor: 'pointer' } })}
-          columns={[
-            { title: 'Nomor', dataIndex: 'number' },
-            { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: 'Berlaku s/d', dataIndex: 'validUntil', render: fmtDate },
-            { title: t('Pelanggan'), render: (_, q) => q.customer.name },
-            { title: 'Total', dataIndex: 'total', align: 'right', render: fmtMoney },
-            { title: 'Status', render: (_, q) => <QuotationStatusTag q={q} /> },
-            { title: t('Sales Order'), render: (_, q) => q.salesOrder?.number ?? '-' },
-          ]}
-        />
-      </Card>
-    </>
+    <ListPage<Quotation>
+      title="Penawaran harga"
+      actions={
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/quotations/new')}>
+          Penawaran baru
+        </Button>
+      }
+      rows={data}
+      loading={isLoading}
+      summary={(rows) => {
+        const active = rows.filter((q) => (q.status === 'SENT' || q.status === 'DRAFT') && !expired(q));
+        const won = rows.filter((q) => q.status === 'ACCEPTED');
+        return [
+          { label: 'Penawaran aktif', value: fmtMoney(active.reduce((a, q) => a + Number(q.total), 0)), hint: `${active.length} penawaran menunggu keputusan` },
+          { label: 'Disetujui pelanggan', value: fmtMoney(won.reduce((a, q) => a + Number(q.total), 0)), hint: `${won.length} penawaran`, tone: 'good' },
+          { label: 'Kedaluwarsa', value: String(rows.filter(expired).length), hint: 'perlu ditindaklanjuti', tone: rows.some(expired) ? 'warn' : 'neutral' },
+        ];
+      }}
+      views={[
+        { value: 'ALL', label: 'Semua', test: () => true },
+        { value: 'ACTIVE', label: 'Menunggu', test: (q) => (q.status === 'SENT' || q.status === 'DRAFT') && !expired(q) },
+        { value: 'ACCEPTED', label: 'Disetujui', test: (q) => q.status === 'ACCEPTED' },
+        { value: 'LOST', label: 'Ditolak / batal', test: (q) => q.status === 'REJECTED' || q.status === 'CANCELLED' },
+        { value: 'EXPIRED', label: 'Kedaluwarsa', test: expired },
+      ]}
+      searchText={(q) => `${q.number} ${q.customer.name} ${q.salesOrder?.number ?? ''}`}
+      searchPlaceholder={`Cari ${t('Pelanggan').toLowerCase()} atau nomor`}
+      emptyText="Belum ada penawaran"
+      onRowClick={(q) => navigate(`/quotations/${q.id}`)}
+      columns={[
+        { title: 'Penawaran', dataIndex: 'number', render: (n: string, q) => <div><div>{n}</div><span style={{ fontSize: 12, color: '#64748b' }}>{fmtDate(q.date)}</span></div> },
+        { title: t('Pelanggan'), render: (_: unknown, q) => q.customer.name },
+        { title: 'Berlaku s/d', dataIndex: 'validUntil', render: fmtDate },
+        { title: 'Total', dataIndex: 'total', align: 'right', render: fmtMoney },
+        { title: 'Status', render: (_: unknown, q) => <QuotationStatusTag q={q} /> },
+        { title: t('Sales Order'), render: (_: unknown, q) => q.salesOrder?.number ?? '-' },
+      ]}
+    />
   );
 }

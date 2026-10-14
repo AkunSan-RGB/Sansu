@@ -24,7 +24,7 @@ export interface SummaryItem {
 export default function SummaryCards({ items }: { items: SummaryItem[] }) {
   const span = items.length >= 4 ? 6 : items.length === 3 ? 8 : 12;
   return (
-    <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+    <Row gutter={[12, 12]} className="summary-row" style={{ marginBottom: 16 }}>
       {items.map((it) => {
         const t = TONES[it.tone ?? 'neutral'];
         return (

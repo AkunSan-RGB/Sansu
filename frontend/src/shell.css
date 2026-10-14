@@ -70,3 +70,9 @@
 /* Laporan keuangan: baris pilihan (pembanding, rincian) rapi dan terpisah dari judul */
 .report-options { padding-bottom: 12px; margin-bottom: 4px; border-bottom: 1px solid #EFEDE6; width: 100%; }
 .statement-tabs .ant-tabs-nav { margin-bottom: 12px; }
+
+/* Kotak ringkasan di HP: satu baris yang bisa digeser ke samping, agar tidak memenuhi layar */
+@media (max-width: 575px) {
+  .summary-row { flex-wrap: nowrap !important; overflow-x: auto; margin-inline: 0 !important; padding-bottom: 4px; scroll-snap-type: x proximity; }
+  .summary-row > .ant-col { flex: 0 0 78% !important; max-width: 78% !important; scroll-snap-align: start; }
+}

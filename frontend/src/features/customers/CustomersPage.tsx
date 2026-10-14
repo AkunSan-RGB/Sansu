@@ -1,14 +1,13 @@
 import { useApps } from '@/lib/apps';
 import { useNavigate } from 'react-router-dom';
 import { FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Card, Form, Input, InputNumber, Modal, Space, Tag } from 'antd';
+import { Button, Form, Input, InputNumber, Modal, Space, Tag } from 'antd';
 import { useState } from 'react';
 import { patch, post } from '@/api/client';
 import { useAction, useCustomers } from '@/api/queries';
 import type { Customer } from '@/api/types';
-import PageHeader from '@/layout/PageHeader';
+import ListPage from '@/components/ListPage';
 import { fmtMoney } from '@/lib/format';
-import ResponsiveTable from '@/components/ResponsiveTable';
 import { t } from '@/lib/terms';
 
 interface FormValues {
@@ -25,7 +24,6 @@ export default function CustomersPage() {
   const { isAdmin } = useApps();
   const navigate = useNavigate();
   const { data, isLoading } = useCustomers();
-  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Customer | 'new' | null>(null);
   const [form] = Form.useForm<FormValues>();
 
@@ -51,15 +49,12 @@ export default function CustomersPage() {
     setEditing(c);
   };
 
-  const rows = (data ?? []).filter((c) => `${c.code} ${c.name}`.toLowerCase().includes(search.toLowerCase()));
-
   return (
     <>
-      <PageHeader
+      <ListPage<Customer>
         title={t('Pelanggan')}
-        extra={
-          <Space wrap>
-            <Input.Search placeholder="Cari kode / nama" allowClear onChange={(e) => setSearch(e.target.value)} />
+        actions={
+          <>
             {isAdmin && (
               <Button icon={<FileExcelOutlined />} onClick={() => navigate('/settings/import?kind=customers')}>
                 Impor Excel
@@ -68,30 +63,31 @@ export default function CustomersPage() {
             <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>
               Pelanggan baru
             </Button>
-          </Space>
+          </>
         }
+        rows={data}
+        loading={isLoading}
+        summary={(rows) => [
+          { label: `Jumlah ${t('Pelanggan').toLowerCase()}`, value: String(rows.length) },
+          { label: 'Dengan limit kredit', value: String(rows.filter((c) => Number(c.creditLimit) > 0).length), hint: 'piutang dibatasi' },
+          { label: 'Bayar tunai', value: String(rows.filter((c) => !c.paymentTermDays).length), hint: 'tanpa termin' },
+        ]}
+        views={[
+          { value: 'ALL', label: 'Semua', test: () => true },
+          { value: 'LIMIT', label: 'Ada limit kredit', test: (c) => Number(c.creditLimit) > 0 },
+          { value: 'CASH', label: 'Tunai', test: (c) => !c.paymentTermDays },
+        ]}
+        searchText={(r) => `${r.code} ${r.name} ${r.phone ?? ''}`}
+        searchPlaceholder="Cari nama, kode, atau telepon"
+        emptyText="Belum ada pelanggan. Tambahkan lewat tombol di kanan atas atau impor dari Excel."
+        onRowClick={(r) => open(r)}
+        columns={[
+          { title: 'Pelanggan', dataIndex: 'name', render: (n: string, c: Customer) => <div><div>{n}</div><span style={{ fontSize: 12, color: '#64748b' }}>{c.code}</span></div> },
+          { title: 'Telepon', dataIndex: 'phone', render: (p: string | null) => p || '-' },
+          { title: 'Limit kredit', dataIndex: 'creditLimit', align: 'right' as const, render: (v: string) => (Number(v) === 0 ? <Tag>Tanpa batas</Tag> : fmtMoney(v)) },
+          { title: 'Termin', dataIndex: 'paymentTermDays', align: 'right' as const, render: (d: number) => (d ? `${d} hari` : 'Tunai') },
+        ]}
       />
-      <Card>
-        <ResponsiveTable
-          rowKey="id"
-          loading={isLoading}
-          dataSource={rows}
-          scroll={{ x: 700 }}
-          onRow={(r) => ({ onClick: () => open(r), style: { cursor: 'pointer' } })}
-          columns={[
-            { title: 'Kode', dataIndex: 'code', width: 140 },
-            { title: 'Nama', dataIndex: 'name' },
-            { title: 'Telepon', dataIndex: 'phone' },
-            {
-              title: 'Limit kredit',
-              dataIndex: 'creditLimit',
-              align: 'right',
-              render: (v) => (Number(v) === 0 ? <Tag>Tanpa batas</Tag> : fmtMoney(v)),
-            },
-            { title: 'Termin', dataIndex: 'paymentTermDays', align: 'right', render: (d) => `${d} hari` },
-          ]}
-        />
-      </Card>
 
       <Modal
         title={editing === 'new' ? 'Pelanggan baru' : 'Ubah pelanggan'}
