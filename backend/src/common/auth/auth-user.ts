@@ -14,4 +14,6 @@ export interface AuthUser {
   warehouseIds?: string[] | null;
   /** Cabang yang boleh diakses (diisi guard dari database); kosong = semua */
   branchIds?: string[] | null;
+  /** Peran khusus (diisi guard dari database): hak tulis yang dicabut dari peran dasarnya */
+  customRole?: { id: string; name: string; denied: string[] } | null;
 }

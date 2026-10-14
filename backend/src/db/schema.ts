@@ -106,6 +106,21 @@ export const tenantApps = pgTable(
   (t) => [primaryKey({ columns: [t.tenantId, t.appKey] })],
 );
 
+/** Peran khusus: peran dasar dikurangi daftar hak tulis (kunci rute "POST /purchase-orders") yang dicabut; hanya mempersempit */
+export const customRoles = pgTable(
+  'custom_roles',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    name: text('name').notNull(),
+    baseRole: roleEnum('base_role').notNull(),
+    denied: text('denied').array().notNull().default(sql`'{}'`),
+    createdById: uuid('created_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('custom_roles_name_uq').on(t.tenantId, sql`lower(${t.name})`)],
+);
+
 export const users = pgTable(
   'users',
   {
@@ -115,6 +130,8 @@ export const users = pgTable(
     name: text('name').notNull(),
     passwordHash: text('password_hash').notNull(),
     role: roleEnum('role').notNull().default('ADMIN'),
+    /** Peran khusus (peran dasar dikurangi hak tulis tertentu); null = peran bawaan */
+    customRoleId: uuid('custom_role_id'),
     isActive: boolean('is_active').notNull().default(true),
     /** Naik setiap kali sesi harus dicabut (ganti sandi, nonaktif, ganti peran, keluar dari semua perangkat) */
     tokenVersion: integer('token_version').notNull().default(0),

@@ -15,11 +15,12 @@ export class PermissionsService {
   constructor(private readonly discovery: DiscoveryService) {}
 
   /** Endpoint penulisan (selain GET) yang boleh dipakai peran ini */
-  allowedWrites(role: string): string[] {
+  allowedWrites(role: string, denied: readonly string[] = []): string[] {
     this.matrix ??= buildRouteMatrix(this.discovery);
     return this.matrix
       .filter((r) => r.method !== 'GET' && !r.public && (r.roles === undefined || role === 'OWNER' || r.roles.includes(role)))
       .map(permissionKey)
+      .filter((k) => !denied.includes(k))
       .sort();
   }
 }
@@ -32,9 +33,9 @@ export class PermissionsController {
 
   @Get('permissions')
   permissions(@CurrentUser() u: AuthUser) {
-    return { role: u.role, allow: this.svc.allowedWrites(u.role) };
+    return { role: u.role, allow: this.svc.allowedWrites(u.role, u.customRole?.denied ?? []) };
   }
 }
 
-@Module({ imports: [DiscoveryModule], controllers: [PermissionsController], providers: [PermissionsService] })
+@Module({ imports: [DiscoveryModule], controllers: [PermissionsController], providers: [PermissionsService], exports: [PermissionsService] })
 export class PermissionsModule {}

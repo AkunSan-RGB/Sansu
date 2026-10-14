@@ -35,6 +35,8 @@ export interface Me {
   name: string;
   email: string;
   role: Role;
+  /** Nama peran khusus (peran dasar dikurangi hak tertentu); null = peran bawaan */
+  roleLabel?: string | null;
   tenantId: string;
   tenantName: string;
   ppnRate: string;
@@ -773,6 +775,23 @@ export interface UserRow {
   /** Verifikasi 2 langkah aktif */
   twoFactor: boolean;
   createdAt: string;
+  customRoleId?: string | null;
+  customRoleName?: string | null;
+}
+
+/** Peran khusus: peran dasar dikurangi hak tulis yang dicabut (hanya mempersempit; dikelola Pemilik) */
+export interface CustomRole {
+  id: string;
+  name: string;
+  baseRole: Role;
+  denied: string[];
+  users: number;
+  createdAt: string;
+}
+export interface RolePermissionItem {
+  key: string;
+  group: string;
+  label: string;
 }
 
 // ---------- POS ----------
