@@ -1,8 +1,8 @@
 import { rememberReturnTo } from '@/auth/returnTo';
 import { AppstoreOutlined, AuditOutlined, CrownOutlined, MenuOutlined } from '@ant-design/icons';
-import { localize, type AppKey, type BusinessModel } from '@sansu/shared';
+import { BUSINESS_MODELS, localize, type AppKey, type BusinessModel } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Badge, Button, Drawer, Grid, Layout, Menu, type MenuProps, Spin, Typography } from 'antd';
+import { Alert, Badge, Button, Drawer, Grid, Layout, Menu, type MenuProps, message, Segmented, Spin, Typography } from 'antd';
 import { useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { BRAND } from '@sansu/shared';
@@ -266,7 +266,18 @@ const MENU: Group[] = [
 ];
 
 export default function AppLayout() {
-  const { me, loading, logout } = useAuth();
+  const { me, loading, logout, startDemo } = useAuth();
+  const [switching, setSwitching] = useState(false);
+  const switchDemo = async (model: BusinessModel) => {
+    setSwitching(true);
+    try {
+      await startDemo(model);
+      window.location.assign('/dashboard');
+    } catch (e) {
+      message.error((e as Error).message || 'Gagal membuat demo baru');
+      setSwitching(false);
+    }
+  };
   const navigate = useNavigate();
   const { pathname, search } = useLocation();
   const { can, isAdmin } = useApps();
@@ -451,6 +462,16 @@ export default function AppLayout() {
               description={
                 <div>
                   <div>{`Jangan memasukkan data asli. Perusahaan demo ini dihapus otomatis pada ${new Date(me.demo.expiresAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}.`}</div>
+                  <div style={{ marginTop: 8, maxWidth: '100%', overflowX: 'auto' }}>
+                    <div style={{ fontSize: 12, marginBottom: 4 }}>Lihat contoh jenis usaha lain (produk dan transaksinya berbeda):</div>
+                    <Segmented
+                      size="small"
+                      disabled={switching}
+                      value={me.businessModel}
+                      onChange={(v) => switchDemo(v as BusinessModel)}
+                      options={BUSINESS_MODELS.map((m) => ({ value: m.key, label: m.name }))}
+                    />
+                  </div>
                   <Button size="small" type="primary" style={{ marginTop: 8 }} onClick={() => logout()}>
                     Keluar & daftar sendiri
                   </Button>
