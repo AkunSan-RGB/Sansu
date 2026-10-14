@@ -553,6 +553,59 @@ const FNB_MENU: { sku: string; name: string; price: number; bom: string; use: [s
   { sku: 'MN-MIGOR', name: 'Mi Goreng Spesial', price: 22000, bom: 'Resep Mi Goreng Spesial', use: [['BB-MIE', 120], ['BB-TELUR', 1], ['BB-AYAM', 30], ['BB-MINYAK', 25], ['KM-KOTAK', 1]] },
   { sku: 'MN-DONAT', name: 'Donat Gula Halus', price: 9000, bom: 'Resep Donat', use: [['SF-ADONAN', 1], ['BB-GULA', 10], ['BB-MINYAK', 40]] },
 ];
+/** Meja + pesanan terbuka (sebagian sudah dibayar), pesanan online GoFood/GrabFood dan pencairannya */
+async function fnbTablesAndOnline(c: Demo, ids: Map<string, string>) {
+  const { withSimulatedDay } = await import('../../common/utils/dates');
+  const u = c.admin as never;
+  const tables: { id: string }[] = [];
+  for (const [code, seats] of [['M01', 2], ['M02', 4], ['M03', 4], ['M04', 6]] as const) {
+    tables.push((await c.svc.tabs.createTable(u, { warehouseId: c.wh, code, name: `Meja ${Number(code.slice(1))}`, seats } as never)) as { id: string });
+  }
+  const line = (sku: string, qty: number, notes?: string) => ({ productId: ids.get(sku)!, qty: String(qty), notes });
+  const online: { ago: number; channel: string; ref: string; name: string; items: [string, number][] }[] = [
+    { ago: 6, channel: 'GOFOOD', ref: 'GF-240101', name: 'Budi', items: [['MN-KOPSU', 2], ['MN-DONAT', 3]] },
+    { ago: 6, channel: 'GRABFOOD', ref: 'GR-77120', name: 'Ayu', items: [['MN-NASAY', 1], ['MN-ESTEH', 1]] },
+    { ago: 5, channel: 'GOFOOD', ref: 'GF-240188', name: 'Rina', items: [['MN-LATTE', 2]] },
+    { ago: 3, channel: 'GOFOOD', ref: 'GF-240231', name: 'Dewi', items: [['MN-MIGOR', 2], ['MN-AMER', 1]] },
+    { ago: 2, channel: 'SHOPEEFOOD', ref: 'SF-55120', name: 'Tono', items: [['MN-NASAY', 2]] },
+  ];
+  // H-8: pelanggan makan di tempat, tagihan dipisah dua
+  await withSimulatedDay(c.ago(8), async () => {
+    const s = await c.svc.pos.open(u, { warehouseId: c.wh, openingCash: '300000' } as never);
+    const tab = (await c.svc.tabs.create(u, { warehouseId: c.wh, tableId: tables[1].id, orderType: 'DINE_IN', lines: [line('MN-NASAY', 2), line('MN-ESTEH', 2, 'es sedikit'), line('MN-DONAT', 2)] } as never)) as { id: string };
+    await c.svc.tabs.send(u, tab.id);
+    const d = (await c.svc.tabs.get(u, tab.id)) as unknown as { lines: { id: string; product: { name: string } }[] };
+    for (const l of d.lines) for (const st of ['PREPARING', 'READY', 'SERVED'] as const) await c.svc.tabs.setLineStatus(u, l.id, st);
+    const first = d.lines.filter((l) => /Nasi|Es Teh/.test(l.product.name)).map((l) => l.id);
+    await c.svc.tabs.pay(u, tab.id, { sessionId: s.id, lineIds: first, payments: [{ method: 'CASH', amount: '200000' }] } as never);
+    await c.svc.tabs.pay(u, tab.id, { sessionId: s.id, payments: [{ method: 'CASH', amount: '20000' }] } as never);
+    const cur = (await c.svc.pos.current(u)) as { summary: { expectedCash: string } } | null;
+    await c.svc.pos.close(u, s.id, { countedCash: String(Number(cur?.summary.expectedCash ?? 300000)) } as never);
+  });
+  const ordered: Record<number, string> = {};
+  for (const o of online) {
+    await withSimulatedDay(c.ago(o.ago), async () => {
+      const s = await c.svc.pos.open(u, { warehouseId: c.wh, openingCash: '300000' } as never);
+      const r = (await c.svc.tabs.receiveOnline(u, c.wh, { channel: o.channel as never, externalRef: o.ref, customerName: o.name, items: o.items.map(([sku, q]) => ({ sku, qty: String(q) })) })) as unknown as { tab: { id: string } };
+      const id = r.tab.id;
+      const d = (await c.svc.tabs.get(u, id)) as unknown as { lines: { id: string }[] };
+      for (const l of d.lines) for (const st of ['PREPARING', 'READY', 'SERVED'] as const) await c.svc.tabs.setLineStatus(u, l.id, st);
+      await c.svc.tabs.pay(u, id, { sessionId: s.id } as never);
+      const cur = (await c.svc.pos.current(u)) as { summary: { expectedCash: string } } | null;
+      await c.svc.pos.close(u, s.id, { countedCash: String(Number(cur?.summary.expectedCash ?? 300000)) } as never);
+      ordered[o.ago] = id;
+    });
+  }
+  // pencairan GoFood untuk pesanan H-6 dan H-5 (dana masuk pas dengan seharusnya); sisanya belum cair
+  const un = (await c.svc.settle.unsettled(c.tenantId, 'GOFOOD' as never)) as { items: { id: string; externalRef: string | null; net: string }[] };
+  const mine = un.items.filter((i) => ['GF-240101', 'GF-240188'].includes(i.externalRef ?? ''));
+  if (mine.length) {
+    await c.svc.settle.create(u, { channel: 'GOFOOD', date: c.ago(2), orderIds: mine.map((i) => i.id), received: mine.reduce((a, i) => a + Number(i.net), 0).toFixed(2) } as never);
+  }
+  // satu pesanan makan di tempat masih terbuka & sudah dikirim ke dapur (tampil di layar dapur)
+  const open = (await c.svc.tabs.create(u, { warehouseId: c.wh, tableId: tables[0].id, orderType: 'DINE_IN', lines: [line('MN-LATTE', 1), line('MN-MIGOR', 1, 'pedas')] } as never)) as { id: string };
+  await c.svc.tabs.send(u, open.id);
+}
 async function seedFnb(c: Demo) {
   const { ids, value } = await stockItems(c, FNB_BAHAN);
   await openingBalance(c, { kas: 6_000_000, bank: 140_000_000, stockValue: value });
@@ -607,6 +660,7 @@ async function seedFnb(c: Demo) {
   const menuItems = FNB_MENU.map((m) => ({ id: ids.get(m.sku)!, price: m.price }));
   const extraItems = [{ id: ids.get('FB-AIR')!, price: 6000 }, { id: ids.get('FB-KUE')!, price: 55000 }];
   for (let d = 21; d >= 1; d -= 1) await c.step(`kasir H-${d}`, () => posDay(c, d, [...menuItems, ...menuItems, ...extraItems], c.int(9, 15)));
+  await c.step('meja, dapur, dan pesanan online', () => fnbTablesAndOnline(c, ids));
   await c.step('beli biji kopi', () => purchaseWithLots(c, sup.get('SUP-KOPI')!, 30, [{ productId: ids.get('BB-KOPI')!, qty: 20000, price: 142, lotNo: 'KOPI-SEP', expiresInDays: 150 }], { pay: true, invoiceNo: 'KNR/0925/031' }));
   // bahan segar: lot dengan kedaluwarsa dekat (susu, ayam, telur), satu lot sudah lewat tanggal (mentega), satu masih lama (tepung)
   await c.step('beli bahan segar', () =>

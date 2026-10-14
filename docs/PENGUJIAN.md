@@ -16,6 +16,7 @@ npm run test:e2e                    # e2e api: mereset dan memigrasi database `a
 | Unit | `*.spec.ts` | Aturan murni: PPh 21 TER, PTKP, Pasal 17/31E, penyusutan, tenggat pajak, ukuran usaha UMKM, ambang pajak, NPWP |
 | Alur bisnis e2e | `test/*.e2e-spec.ts` | Siklus penuh jual-beli-stok-kas-pajak-gaji per fitur |
 | **Uji acak invarian** | `integrity-fuzz` | Ratusan operasi campuran; hukum pembukuan tidak pernah dilanggar |
+| **Uji acak F&B** | `fnb-fuzz` | Meja, dapur, pisah bill, pesanan online, pencairan, PB1: jurnal seimbang, stok tidak negatif, piutang platform = pesanan belum cair, persediaan = nilai stok |
 | **Penyisiran rute** | `garbage-input`, `input-bounds` | Masukan sembarang ke semua rute tidak pernah menghasilkan 5xx |
 | **Isolasi & hak akses** | `security`, `role-access` | Perusahaan lain tidak bisa membaca/mengubah data; peran hanya melihat yang perlu |
 | **Konkurensi** | `concurrency` | Permintaan serentak tidak melanggar pembukuan |
@@ -43,6 +44,9 @@ npm run test:e2e                    # e2e api: mereset dan memigrasi database `a
 | Cabang lanjutan | `cabang-terintegrasi` | Beranda per cabang (jumlah cabang + pusat = gabungan), daftar jurnal & kas pengguna terbatas hanya cabangnya, fitur cabang bisa dimatikan untuk perusahaan tanpa cabang |
 | Lihat Demo | `lihat-demo` | PT DEMO per jenis usaha (ritel, dagang, jasa, produksi, manufaktur, F&B) berisi transaksi berbeda; pembukuan seimbang; perusahaan terpisah per pengunjung; pembersihan otomatis |
 | Menu di kasir | `menu-kasir` | Menu dibuat saat dipesan: kasir memotong bahan sesuai resep aktif, HPP dari bahan, porsi tersedia, bahan kurang ditolak, retur tidak mengembalikan bahan, pembukuan seimbang |
+| Pajak restoran daerah (PB1) | `pajak-daerah` | PB1 menggantikan PPN di kasir (tarif 0–10%), jurnal ke 2-1210, retur membalik jenis pajak yang sama, setoran PB1 bertenggat tgl 15, rekap tahunan |
+| Meja, pesanan terbuka, dapur | `meja-dapur` | Satu meja satu pesanan; kirim ke dapur dengan cek stok bahan (termasuk pesanan terbuka lain); status dapur hanya maju; pembatalan terkontrol (supervisor + alasan); pindah meja; bayar sebagian (pisah bill); temuan kontrol |
+| Pesanan online | `pesanan-online` | Kunci API (tampil sekali, dicabut), idempotensi per nomor pesanan platform, bayar platform → piutang platform + komisi, pencairan (selisih wajib beralasan, batal membalik jurnal), tanpa retur kasir, isolasi antar perusahaan |
 | Jenis usaha F&B | `fnb` | Akun dan aplikasi bawaan F&B; barang setengah jadi (adonan) sebagai bahan menu dipotong per akun persediaan; menu tidak dijual lewat sales order; panduan mulai |
 | Kedaluwarsa bahan | `kedaluwarsa` | Lot dari penerimaan, faktur, dan saldo awal; FEFO; transfer membawa lot; pembatalan penerimaan menghapus lotnya; buang lot tertentu; status kedaluwarsa; jenis pesanan dan meja di kasir |
 | Bank otomatis & anti-fraud | `bank-kontrol` | Integritas file mutasi, anti catat ganda per baris, aturan kategori otomatis (batas nilai, hanya pendapatan/beban), staf tak bisa menyembunyikan uang keluar, hapus rekening koran terkontrol, pengesahan rekonsiliasi oleh orang lain, temuan kontrol bank |
