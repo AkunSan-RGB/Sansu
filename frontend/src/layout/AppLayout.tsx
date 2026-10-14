@@ -19,6 +19,8 @@ import { t } from '@/lib/terms';
 
 /** `app`: item hanya tampil bila aplikasi itu aktif (mis. menu pajak yang butuh aplikasi Penjualan) */
 type Item = { key: string; label: string; /** Hanya untuk peran ini (OWNER selalu boleh) */ roles?: string[]; /** Hanya tampil bila fitur langganan dinyalakan di Panel SANSU */ billing?: boolean; /** Hanya untuk SAK EP (tidak diakui SAK EMKM) */ epOnly?: boolean; app?: AppKey; /** Disembunyikan untuk jenis usaha ini (mis. surat jalan untuk usaha jasa murni) */ hideFor?: BusinessModel[]; /** Hanya tampil untuk jenis usaha ini */ models?: BusinessModel[]; /** Hanya tampil bila perusahaan punya cabang usaha */ branch?: boolean; /** Hanya tampil bila perusahaan sudah membuat anggaran */ budget?: boolean; /** Hanya tampil bila fitur pajak ini relevan (lihat taxFeatures di @sansu/shared) */ tax?: 'vat' | 'coretax' | 'withheldByCustomers' | 'fiscalReconciliation' };
+/** Menu pembukuan: Keuangan (pemegang uang) tidak memilikinya; OWNER selalu boleh */
+const BOOKKEEPING = ['ADMIN', 'ACCOUNTANT'];
 /** Submenu boleh dikelompokkan dengan judul kecil (mis. "Akhir periode") */
 type Sub = Item | { section: string; items: Item[] };
 type Group = {
@@ -33,6 +35,8 @@ type Group = {
   to?: string;
   /** Judul bagian di sidebar (Penjualan, Pembelian, Persediaan, Produksi, Keuangan, SDM, Administrasi) */
   part: string;
+  /** Peran yang hanya melihat menu ini (tanpa hak mengubah): diberi keterangan "lihat" pada judul grup */
+  readOnlyFor?: string[];
 };
 const PART_STYLE: React.CSSProperties = {
   fontSize: 11,
@@ -161,6 +165,7 @@ const MENU: Group[] = [
     app: 'cash',
     label: 'Kas & Bank',
     icon: APP_ICONS.cash,
+    readOnlyFor: ['ACCOUNTANT'],
     children: [
       { key: '/cash', label: 'Transaksi kas & bank' },
       { key: '/petty-cash', label: 'Kas kecil' },
@@ -174,36 +179,41 @@ const MENU: Group[] = [
     app: 'accounting',
     label: 'Akuntansi',
     icon: APP_ICONS.accounting,
+    readOnlyFor: ['FINANCE'],
+    // Urut mengikuti alur kerja pembukuan. Yang memegang uang (Keuangan) hanya melihat pencatatan dan laporan,
+    // sedangkan persiapan dan tutup periode khusus yang membukukan (Akuntan/Admin/Pemilik).
     children: [
       {
         section: 'Persiapan',
         items: [
-          { key: '/accounts', label: 'Bagan akun' },
-          { key: '/opening-balance', label: 'Saldo awal' },
+          { key: '/accounts', label: 'Bagan akun', roles: BOOKKEEPING },
+          { key: '/opening-balance', label: 'Saldo awal', roles: BOOKKEEPING },
         ],
       },
       {
-        section: 'Harian',
+        section: 'Pencatatan',
         items: [
           { key: '/journals', label: 'Jurnal umum' },
+          { key: '/adjustments', label: 'Jurnal penyesuaian', roles: BOOKKEEPING },
+          { key: '/fixed-assets', label: 'Aset tetap' },
+          { key: '/fx', label: 'Mata uang asing' },
         ],
       },
       {
-        section: 'Aset & penyusutan',
-        items: [{ key: '/fixed-assets', label: 'Aset tetap' }],
-      },
-      {
-        section: 'Akhir periode',
+        section: 'Laporan',
         items: [
-          { key: '/adjustments', label: 'Jurnal penyesuaian' },
-          { key: '/fx', label: 'Mata uang asing' },
-          { key: '/health', label: 'Cek kesehatan' },
           { key: '/ledger', label: 'Buku besar' },
           { key: '/trial-balance', label: 'Neraca saldo' },
           { key: '/worksheet', label: 'Neraca lajur' },
           { key: '/reports', label: 'Laporan keuangan' },
-          { key: '/closing', label: 'Tutup buku' },
-          { key: '/settings/company?tab=pelaporan', label: 'Pelaporan keuangan', roles: ['ACCOUNTANT'] },
+          { key: '/health', label: 'Cek kesehatan' },
+        ],
+      },
+      {
+        section: 'Akhir periode',
+        items: [
+          { key: '/closing', label: 'Tutup buku', roles: BOOKKEEPING },
+          { key: '/settings/company?tab=pelaporan', label: 'Pelaporan keuangan', roles: BOOKKEEPING },
         ],
       },
     ],
@@ -220,7 +230,7 @@ const MENU: Group[] = [
       { key: '/tax', label: 'Setoran pajak & BPJS' },
       { key: '/tax/recap', label: 'Rekap pajak & BPJS' },
       { key: '/tax/withheld', label: t('PPh dipotong pelanggan'), app: 'sales', tax: 'withheldByCustomers' },
-      { key: '/fiscal', label: 'Rekonsiliasi fiskal', tax: 'fiscalReconciliation' },
+      { key: '/fiscal', label: 'Rekonsiliasi fiskal', tax: 'fiscalReconciliation', roles: BOOKKEEPING },
     ],
   },
 
@@ -309,7 +319,14 @@ export default function AppLayout() {
   const isDesktop = screens.lg !== false && screens.lg !== undefined;
   // Dashboard memuat angka penjualan/keuangan: hanya untuk peran yang berhak melihatnya (sama dengan aturan di server)
   const dashboardRole = ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'].includes(me.role);
-  const visible = MENU.filter(
+  // Akuntan bekerja di pembukuan: Akuntansi dan Pajak lebih dulu, Kas & Bank (hanya lihat) sesudahnya
+  const ordered = (() => {
+    if (me.role !== 'ACCOUNTANT') return MENU;
+    const rest = MENU.filter((g) => g.key !== 'cash');
+    const at = rest.findIndex((g) => g.key === 'tax');
+    return [...rest.slice(0, at + 1), ...MENU.filter((g) => g.key === 'cash'), ...rest.slice(at + 1)];
+  })();
+  const visible = ordered.filter(
     (g) =>
       (!g.models || g.models.includes(me.businessModel)) &&
       (g.admin ? isAdmin : g.app ? can(g.app) : (can('accounting') || can('sales')) && (g.key !== '/dashboard' || dashboardRole)),
@@ -322,9 +339,9 @@ export default function AppLayout() {
       ? {
           key: g.key,
           icon: g.icon,
-          label: L(g.label),
+          label: g.readOnlyFor?.includes(me.role) ? <span>{L(g.label)} <span style={{ fontSize: 11, opacity: 0.6 }}>· lihat</span></span> : L(g.label),
           children: g.children
-            .filter((c) => 'section' in c || ((!c.app || can(c.app)) && taxOk(c)))
+            .filter((c) => ('section' in c ? c.items.some((i) => (!i.app || can(i.app)) && taxOk(i)) : (!c.app || can(c.app)) && taxOk(c)))
             .map((c) =>
               'section' in c
                 ? {
