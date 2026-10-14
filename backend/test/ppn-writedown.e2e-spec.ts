@@ -61,7 +61,7 @@ describe('PPN ritel / non-PKP & penurunan nilai persediaan (e2e)', () => {
 
   it('toko ritel baru: PKP, harga kasir sudah termasuk PPN', async () => {
     const me = (await get('/api/auth/me').expect(200)).body;
-    expect(me.taxProfile).toEqual({ pkp: true, posPricesIncludeVat: true, salesPricesIncludeVat: false, vatRounding: 'NONE' });
+    expect(me.taxProfile).toEqual({ pkp: true, posPricesIncludeVat: true, salesPricesIncludeVat: false, vatRounding: 'NONE', localTaxEnabled: false, localTaxRate: '10' });
     expect((await get('/api/settings/company').expect(200)).body.taxProfile).toEqual(me.taxProfile);
   });
 
