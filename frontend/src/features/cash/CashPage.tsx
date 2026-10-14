@@ -1,7 +1,7 @@
-import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
+import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, FilterOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
 import { BRAND, CASH_TX_TYPE_LABELS, type CashTxType } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, App, Button, Card, Checkbox, Col, Form, Input, InputNumber, Modal, Row, Segmented, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, App, Badge, Button, Card, Checkbox, Col, Collapse, Empty, Form, Input, InputNumber, Modal, Popover, Row, Segmented, Select, Space, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -14,6 +14,7 @@ import { useApps } from '@/lib/apps';
 import CashAccountSelect from '@/components/CashAccountSelect';
 import PageHeader from '@/layout/PageHeader';
 import ExportButtons from '@/components/ExportButtons';
+import ResponsiveTable from '@/components/ResponsiveTable';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { cashListSheet } from '@/lib/xlsx/reports';
 
@@ -54,6 +55,8 @@ export default function CashPage() {
   const projectList = useQuery({ queryKey: ['projects'], queryFn: () => get<Project[]>('/services/projects'), enabled: can('sales') });
   const activeProjects = (projectList.data ?? []).filter((p) => p.status === 'ACTIVE');
 
+  const [periodPreset, setPeriodPreset] = useState<string>('month');
+  const [detail, setDetail] = useState<CashTransaction | null>(null);
   const [typeFilter, setTypeFilter] = useState<'ALL' | CashTxType>('ALL');
   const [search, setSearch] = useState('');
   const [branchFilter, setBranchFilter] = useState<string>();
@@ -165,266 +168,332 @@ export default function CashPage() {
         title="Kas & Bank"
         extra={
           <Space wrap>
-            <Button icon={<ArrowDownOutlined />} onClick={() => openForm('IN')}>
-              Kas masuk
+            <Button type="primary" icon={<ArrowDownOutlined />} onClick={() => openForm('IN')} style={{ background: '#16A37B' }}>
+              Uang masuk
             </Button>
-            <Button icon={<ArrowUpOutlined />} onClick={() => openForm('OUT')}>
-              Kas keluar
+            <Button type="primary" danger icon={<ArrowUpOutlined />} onClick={() => openForm('OUT')}>
+              Uang keluar
             </Button>
             <Button icon={<SwapOutlined />} onClick={() => openForm('TRANSFER')}>
-              Transfer
+              Pindah antar rekening
             </Button>
           </Space>
         }
       />
 
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={24} sm={12} xl={6}>
-          <Card loading={accounts.isLoading} hoverable onClick={() => setFilter(undefined)} style={!filter ? { borderColor: BRAND.colors.primary } : undefined}>
-            <Statistic title="Total kas & bank" value={fmtMoney(total)} />
-            <Typography.Text type="secondary">Semua akun</Typography.Text>
+      {/* Saldo: klik satu rekening untuk melihat transaksinya saja */}
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={24} xl={8}>
+          <Card loading={accounts.isLoading} hoverable onClick={() => setFilter(undefined)} style={{ height: '100%', borderColor: !filter ? BRAND.colors.primary : undefined }}>
+            <Typography.Text type="secondary">Total uang kas & bank</Typography.Text>
+            <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.3 }}>{fmtMoney(total)}</div>
+            <Typography.Text type="secondary">{!filter ? 'Menampilkan transaksi semua rekening' : 'Klik untuk lihat semua rekening'}</Typography.Text>
           </Card>
         </Col>
-        {accounts.data?.map((a) => (
-          <Col xs={24} sm={12} xl={6} key={a.id}>
-            <Card hoverable onClick={() => setFilter(a.id)} style={filter === a.id ? { borderColor: BRAND.colors.primary } : undefined}>
-              <Statistic title={`${a.code} · ${a.name}`} value={fmtMoney(a.balance)} />
-              <Button
-                type="link"
-                size="small"
-                style={{ padding: 0 }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(`/ledger?accountId=${a.id}`);
-                }}
-              >
-                Lihat mutasi lengkap →
-              </Button>
-              {/bank/i.test(a.name) && (
-                <div style={{ marginTop: 4 }}>
-                  <Button
-                    type="link"
-                    size="small"
-                    style={{ padding: 0 }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/bank?account=${a.id}`);
-                    }}
-                  >
-                    Rekonsiliasi bank →
-                  </Button>
-                  {(bankStatus.data?.find((b) => b.id === a.id)?.unmatched ?? 0) > 0 && <Tag color="orange">{bankStatus.data?.find((b) => b.id === a.id)?.unmatched} mutasi belum cocok</Tag>}
-                  {bankStatus.data?.find((b) => b.id === a.id)?.stale && <Tag>mutasi belum diimpor</Tag>}
-                </div>
-              )}
-              {/kecil/i.test(a.name) && (
-                <div style={{ marginTop: 4 }}>
-                  <Button
-                    type="link"
-                    size="small"
-                    style={{ padding: 0 }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate('/petty-cash');
-                    }}
-                  >
-                    Kelola kas kecil (dana tetap) →
-                  </Button>
-                </div>
-              )}
-            </Card>
-          </Col>
-        ))}
+        <Col xs={24} xl={16}>
+          <Row gutter={[12, 12]}>
+            {accounts.data?.map((a) => {
+              const st = bankStatus.data?.find((b) => b.id === a.id);
+              const isBank = /bank/i.test(a.name);
+              const isPetty = /kecil/i.test(a.name);
+              return (
+                <Col xs={24} sm={12} lg={8} key={a.id}>
+                  <Card size="small" hoverable onClick={() => setFilter(a.id)} style={{ height: '100%', borderColor: filter === a.id ? BRAND.colors.primary : undefined }}>
+                    <Typography.Text type="secondary">{a.name}</Typography.Text>
+                    <div style={{ fontSize: 20, fontWeight: 600 }}>{fmtMoney(a.balance)}</div>
+                    <Space size={[8, 4]} wrap style={{ marginTop: 4 }}>
+                      <Typography.Link
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/ledger?accountId=${a.id}`);
+                        }}
+                      >
+                        Buku besar
+                      </Typography.Link>
+                      {isBank && (
+                        <Typography.Link
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/bank?account=${a.id}`);
+                          }}
+                        >
+                          Cocokkan dengan bank
+                        </Typography.Link>
+                      )}
+                      {isPetty && (
+                        <Typography.Link
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate('/petty-cash');
+                          }}
+                        >
+                          Kelola kas kecil
+                        </Typography.Link>
+                      )}
+                    </Space>
+                    {isBank && ((st?.unmatched ?? 0) > 0 || st?.stale) && (
+                      <div style={{ marginTop: 6 }}>
+                        {(st?.unmatched ?? 0) > 0 && <Tag color="orange">{st?.unmatched} mutasi belum cocok</Tag>}
+                        {st?.stale && <Tag>mutasi bank belum diimpor</Tag>}
+                      </div>
+                    )}
+                  </Card>
+                </Col>
+              );
+            })}
+          </Row>
+        </Col>
       </Row>
 
+      {/* Hal yang perlu diperhatikan: ringkas, bisa dibuka */}
       {!!controls.data?.items.length && (
-        <Card size="small" title="Kontrol kas & bank (60 hari terakhir)" style={{ marginBottom: 16 }}>
-          <Space direction="vertical" style={{ width: '100%' }}>
-            {controls.data.items.map((c) => (
-              <Alert
-                key={c.key}
-                type={c.level}
-                showIcon
-                message={c.title}
-                description={c.detail}
-                action={
-                  c.key === 'NO_EVIDENCE' ? (
-                    <Button size="small" onClick={() => setNoProofOnly(true)}>
-                      Tampilkan yang kurang bukti
-                    </Button>
-                  ) : undefined
-                }
-              />
-            ))}
-          </Space>
-        </Card>
+        <Collapse
+          style={{ marginBottom: 16 }}
+          items={[
+            {
+              key: 'c',
+              label: (
+                <Space>
+                  <Badge status={controls.data.items.some((c) => c.level === 'error') ? 'error' : 'warning'} />
+                  <span>Perlu diperhatikan ({controls.data.items.length})</span>
+                  <Typography.Text type="secondary">kas & bank 60 hari terakhir</Typography.Text>
+                </Space>
+              ),
+              children: (
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  {controls.data.items.map((c) => (
+                    <Alert
+                      key={c.key}
+                      type={c.level}
+                      showIcon
+                      message={c.title}
+                      description={c.detail}
+                      action={
+                        c.key === 'NO_EVIDENCE' ? (
+                          <Button size="small" onClick={() => setNoProofOnly(true)}>
+                            Tampilkan yang kurang bukti
+                          </Button>
+                        ) : undefined
+                      }
+                    />
+                  ))}
+                </Space>
+              ),
+            },
+          ]}
+        />
       )}
 
-      <Card title="Transaksi kas & bank">
-        <Space wrap style={{ marginBottom: 12 }}>
-          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          <span>s/d</span>
-          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+      <Card
+        title={
+          <Space wrap>
+            <span>Riwayat uang masuk & keluar</span>
+            {filter && <Tag closable onClose={() => setFilter(undefined)} color="blue">{accounts.data?.find((a) => a.id === filter)?.name}</Tag>}
+          </Space>
+        }
+      >
+        {/* Filter: periode cepat, jenis, cari; sisanya di "Filter lain" */}
+        <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
+          <Segmented
+            value={periodPreset}
+            onChange={(v) => {
+              const p = v as string;
+              setPeriodPreset(p);
+              if (p === 'month') { setFrom(dayjs().startOf('month').format('YYYY-MM-DD')); setTo(today()); }
+              if (p === 'last') { setFrom(dayjs().subtract(1, 'month').startOf('month').format('YYYY-MM-DD')); setTo(dayjs().subtract(1, 'month').endOf('month').format('YYYY-MM-DD')); }
+              if (p === '30') { setFrom(dayjs().subtract(30, 'day').format('YYYY-MM-DD')); setTo(today()); }
+            }}
+            options={[{ value: 'month', label: 'Bulan ini' }, { value: 'last', label: 'Bulan lalu' }, { value: '30', label: '30 hari' }, { value: 'custom', label: 'Pilih tanggal' }]}
+          />
+          {periodPreset === 'custom' && (
+            <>
+              <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 150 }} />
+              <span>s/d</span>
+              <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 150 }} />
+            </>
+          )}
           <Segmented
             value={typeFilter}
             onChange={(v) => setTypeFilter(v as 'ALL' | CashTxType)}
-            options={[{ value: 'ALL', label: 'Semua' }, { value: 'IN', label: 'Masuk' }, { value: 'OUT', label: 'Keluar' }, { value: 'TRANSFER', label: 'Transfer' }]}
+            options={[{ value: 'ALL', label: 'Semua' }, { value: 'IN', label: 'Masuk' }, { value: 'OUT', label: 'Keluar' }, { value: 'TRANSFER', label: 'Pindah' }]}
           />
-          <Input.Search allowClear placeholder="Cari nomor / keterangan / bukti" style={{ width: 250 }} onChange={(e) => setSearch(e.target.value)} />
-          {!!branchOpts.length && (
-            <Select
-              allowClear
-              placeholder="Semua cabang"
-              style={{ width: 200 }}
-              value={branchFilter}
-              onChange={setBranchFilter}
-              options={[...branchOpts.map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` })), { value: 'NONE', label: 'Pusat / tanpa cabang' }]}
-            />
-          )}
-          <Checkbox checked={noProofOnly} onChange={(e) => setNoProofOnly(e.target.checked)}>
-            Hanya yang belum ada bukti
-          </Checkbox>
+          <Input.Search allowClear placeholder="Cari keterangan atau nomor bukti" style={{ width: 240 }} onChange={(e) => setSearch(e.target.value)} />
+          <Popover
+            trigger="click"
+            placement="bottomLeft"
+            content={
+              <Space direction="vertical" style={{ minWidth: 220 }}>
+                {!!branchOpts.length && (
+                  <Select
+                    allowClear
+                    placeholder="Semua cabang"
+                    style={{ width: '100%' }}
+                    value={branchFilter}
+                    onChange={setBranchFilter}
+                    options={[...branchOpts.map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` })), { value: 'NONE', label: 'Pusat / tanpa cabang' }]}
+                  />
+                )}
+                <Checkbox checked={noProofOnly} onChange={(e) => setNoProofOnly(e.target.checked)}>
+                  Hanya yang belum ada bukti
+                </Checkbox>
+              </Space>
+            }
+          >
+            <Badge dot={!!branchFilter || noProofOnly}>
+              <Button icon={<FilterOutlined />}>Filter lain</Button>
+            </Badge>
+          </Popover>
           <ExportButtons filename={`kas-bank-${from}-${to}`} title={`Transaksi kas & bank ${from} s/d ${to}`} sheets={() => (txs.data ? cashListSheet(shown, { from, to }, me?.tenantName) : null)} print={false} />
         </Space>
+
         <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
           <Col xs={24} md={8}>
-            <Statistic title="Uang masuk" value={fmtMoney(flow.inn)} valueStyle={{ color: '#389e0d', fontSize: 20 }} />
+            <Card size="small" style={{ background: '#F1FAF6', borderColor: '#CBEBDD' }}>
+              <Typography.Text type="secondary">Uang masuk</Typography.Text>
+              <div style={{ fontSize: 20, fontWeight: 600, color: '#0E7A5C' }}>{fmtMoney(flow.inn)}</div>
+            </Card>
           </Col>
           <Col xs={24} md={8}>
-            <Statistic title="Uang keluar" value={fmtMoney(flow.out)} valueStyle={{ color: '#cf1322', fontSize: 20 }} />
+            <Card size="small" style={{ background: '#FEF3F2', borderColor: '#FAD4D0' }}>
+              <Typography.Text type="secondary">Uang keluar</Typography.Text>
+              <div style={{ fontSize: 20, fontWeight: 600, color: '#B42318' }}>{fmtMoney(flow.out)}</div>
+            </Card>
           </Col>
           <Col xs={24} md={8}>
-            <Statistic
-              title={flow.net > 0 ? 'Kas bertambah' : flow.net < 0 ? 'Kas berkurang' : 'Perubahan kas'}
-              value={flow.net === 0 ? 'Tidak ada perubahan' : fmtMoney(Math.abs(flow.net))}
-              valueStyle={{ fontSize: 20, color: flow.net > 0 ? '#389e0d' : flow.net < 0 ? '#cf1322' : undefined }}
-              suffix={flow.missing ? <Tag color="orange">{flow.missing} belum ada bukti</Tag> : undefined}
-            />
+            <Card size="small">
+              <Typography.Text type="secondary">{flow.net > 0 ? 'Kas bertambah' : flow.net < 0 ? 'Kas berkurang' : 'Perubahan kas'}</Typography.Text>
+              <div style={{ fontSize: 20, fontWeight: 600, color: flow.net > 0 ? '#0E7A5C' : flow.net < 0 ? '#B42318' : undefined }}>
+                {flow.net === 0 ? 'Tidak ada perubahan' : fmtMoney(Math.abs(flow.net))}
+              </div>
+              {flow.missing > 0 && <Tag color="orange" style={{ marginTop: 4 }}>{flow.missing} belum ada bukti</Tag>}
+            </Card>
           </Col>
         </Row>
-        <Typography.Paragraph type="secondary">
-          Penerimaan dari pelanggan & pembayaran ke supplier dicatat di menu Faktur. Di sini untuk biaya operasional, setoran modal, pinjaman, dan transfer. Pembelian ke akun aset tetap otomatis menjadi kartu aset.
+
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+          Penerimaan dari pelanggan dan pembayaran ke supplier dicatat di menu Faktur. Di sini untuk biaya operasional, setoran modal, pinjaman, dan pindah antar rekening.
         </Typography.Paragraph>
-        <Table
+
+        <ResponsiveTable
           rowKey="id"
           loading={txs.isLoading}
           dataSource={shown}
-          scroll={{ x: 1000 }}
-          expandable={{
-            rowExpandable: (t) => t.lines.length > 0 || !!t.journalNumber,
-            expandedRowRender: (t) => (
-              <>
-                <Space wrap style={{ marginBottom: 8 }}>
-                  {t.journalNumber && <Tag>Jurnal {t.journalNumber}</Tag>}
-                  {t.branchName && <Tag color="purple">Cabang {t.branchName}</Tag>}
-                  {t.assets?.map((a) => (
-                    <Tag key={a.id} color="geekblue" style={{ cursor: 'pointer' }} onClick={() => navigate('/fixed-assets')}>
-                      Aset tetap {a.code} · {a.name}
-                    </Tag>
-                  ))}
+          scroll={{ x: 760 }}
+          locale={{
+            emptyText: (
+              <Empty description="Belum ada transaksi pada periode dan filter ini">
+                <Space>
+                  <Button type="primary" onClick={() => openForm('OUT')}>Catat uang keluar</Button>
+                  <Button onClick={() => openForm('IN')}>Catat uang masuk</Button>
                 </Space>
-              <Table
-                rowKey="id"
-                size="small"
-                pagination={false}
-                dataSource={t.lines}
-                columns={[
-                  { title: 'Akun lawan', render: (_, l) => `${l.account.code} · ${l.account.name}` },
-                  { title: 'Keterangan', dataIndex: 'memo' },
-                  { title: 'Jumlah', dataIndex: 'amount', align: 'right', render: fmtMoney },
-                ]}
-              />
-              </>
+              </Empty>
             ),
           }}
           columns={[
-            { title: 'Nomor', dataIndex: 'number' },
-            { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: 'Jenis', dataIndex: 'type', render: (t: CashTxType) => <Tag color={TYPE_COLOR[t]}>{CASH_TX_TYPE_LABELS[t]}</Tag> },
             {
-              title: 'Kas / bank',
-              render: (_, t) => (t.toCashAccount ? `${t.cashAccount.name} → ${t.toCashAccount.name}` : t.cashAccount.name),
+              title: 'Tanggal',
+              dataIndex: 'date',
+              width: 150,
+              render: (d: string, t: CashTransaction) => (
+                <div>
+                  <div>{fmtDate(d)}</div>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{t.number}</Typography.Text>
+                </div>
+              ),
             },
             {
               title: 'Keterangan',
               dataIndex: 'description',
               render: (d: string, t: CashTransaction) => (
-                <span>
-                  {d}
-                  {t.assets?.length ? (
-                    <Tag color="geekblue" style={{ marginLeft: 6, cursor: 'pointer' }} onClick={() => navigate('/fixed-assets')}>
-                      → Aset tetap {t.assets.map((a) => a.code).join(', ')}
-                    </Tag>
-                  ) : null}
-                </span>
+                <div>
+                  <Space size={6} wrap>
+                    <Tag color={TYPE_COLOR[t.type]} style={{ marginInlineEnd: 0 }}>{CASH_TX_TYPE_LABELS[t.type]}</Tag>
+                    <span>{d}</span>
+                    {t.status === 'VOID' && <Tag title={t.voidReason ?? undefined}>Dibatalkan</Tag>}
+                    {t.assets?.length ? (
+                      <Tag color="geekblue" style={{ cursor: 'pointer' }} onClick={() => navigate('/fixed-assets')}>
+                        → Aset tetap {t.assets.map((a) => a.code).join(', ')}
+                      </Tag>
+                    ) : null}
+                  </Space>
+                  <div>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      {t.toCashAccount ? `${t.cashAccount.name} → ${t.toCashAccount.name}` : t.cashAccount.name}
+                      {t.branchName ? ` · Cabang ${t.branchName}` : ''}
+                    </Typography.Text>
+                  </div>
+                </div>
               ),
             },
-            ...(branchOpts.length ? [{ title: 'Cabang', dataIndex: 'branchName', render: (b: string | null | undefined) => b ?? <Typography.Text type="secondary">Pusat</Typography.Text> }] : []),
             {
-              title: 'Referensi',
+              title: 'Bukti',
               dataIndex: 'reference',
+              width: 130,
               render: (r: string | undefined, t: CashTransaction) =>
-                r || t.status === 'VOID' || t.type === 'IN' || !canEvidence ? (
-                  r
+                r ? (
+                  <Typography.Text type="secondary">{r}</Typography.Text>
+                ) : t.status === 'VOID' || t.type === 'IN' || !canEvidence ? (
+                  '-'
                 ) : (
-                  <Button
-                    size="small"
-                    type="link"
-                    style={{ padding: 0 }}
-                    onClick={() => {
-                      proofForm.resetFields();
-                      setProofing(t);
-                    }}
-                  >
+                  <Button size="small" type="link" style={{ padding: 0 }} onClick={() => { proofForm.resetFields(); setProofing(t); }}>
                     Lengkapi bukti
                   </Button>
-                ),
-            },
-            {
-              title: 'Status',
-              render: (_, t) =>
-                t.status === 'VOID' ? (
-                  <Tag color="default" title={t.voidReason ?? undefined}>
-                    Dibatalkan
-                  </Tag>
-                ) : (
-                  <Tag color="green">Diposting</Tag>
                 ),
             },
             {
               title: 'Jumlah',
               dataIndex: 'amount',
               align: 'right',
-              render: (v, t) => (
-                <Typography.Text type={t.type === 'OUT' ? 'danger' : t.type === 'IN' ? 'success' : undefined}>
+              width: 150,
+              render: (v: string, t: CashTransaction) => (
+                <Typography.Text strong delete={t.status === 'VOID'} type={t.status === 'VOID' ? 'secondary' : t.type === 'OUT' ? 'danger' : t.type === 'IN' ? 'success' : undefined}>
                   {fmtMoney(v)}
                 </Typography.Text>
               ),
             },
-            ...(canVoid
-              ? [
-                  {
-                    title: '',
-                    render: (_: unknown, t: CashTransaction) =>
-                      t.status === 'VOID' ? null : (
-                        <Button
-                          size="small"
-                          danger
-                          type="text"
-                          onClick={() => {
-                            voidForm.resetFields();
-                            setVoiding(t);
-                          }}
-                        >
-                          Batalkan
-                        </Button>
-                      ),
-                  },
-                ]
-              : []),
+            {
+              title: '',
+              width: 150,
+              render: (_: unknown, t: CashTransaction) => (
+                <Space size={0} wrap>
+                  {(t.lines.length > 0 || !!t.journalNumber) && (
+                    <Button size="small" type="link" onClick={() => setDetail(t)}>
+                      Rincian
+                    </Button>
+                  )}
+                  {canVoid && t.status !== 'VOID' && (
+                    <Button size="small" danger type="text" onClick={() => { voidForm.resetFields(); setVoiding(t); }}>
+                      Batalkan
+                    </Button>
+                  )}
+                </Space>
+              ),
+            },
           ]}
         />
       </Card>
+
+      <Modal title={`Rincian ${detail?.number ?? ''}`} open={!!detail} onCancel={() => setDetail(null)} footer={<Button onClick={() => setDetail(null)}>Tutup</Button>} width={640}>
+        {detail && (
+          <>
+            <Space wrap style={{ marginBottom: 8 }}>
+              {detail.journalNumber && <Tag>Jurnal {detail.journalNumber}</Tag>}
+              {detail.branchName && <Tag color="purple">Cabang {detail.branchName}</Tag>}
+            </Space>
+            <Table
+              rowKey="id"
+              size="small"
+              pagination={false}
+              dataSource={detail.lines}
+              columns={[
+                { title: 'Untuk', render: (_, l) => `${l.account.name}` },
+                { title: 'Keterangan', dataIndex: 'memo' },
+                { title: 'Jumlah', dataIndex: 'amount', align: 'right', render: fmtMoney },
+              ]}
+            />
+          </>
+        )}
+      </Modal>
 
       <Modal title={`Nomor bukti ${proofing?.number ?? ''}`} open={!!proofing} onCancel={() => setProofing(null)} onOk={() => proofForm.submit()} confirmLoading={doProof.isPending} okText="Simpan">
         <Typography.Paragraph type="secondary">Isi nomor kuitansi / nota / bukti transfer. Hanya bisa diisi sekali dan tidak mengubah jurnal.</Typography.Paragraph>
