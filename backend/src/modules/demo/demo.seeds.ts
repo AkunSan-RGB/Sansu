@@ -1,4 +1,5 @@
 import { type BusinessModel } from '@sansu/shared';
+import * as X from './demo.extra';
 import { addCustomers, addSuppliers, Demo, expense, openingBalance, payBill, payroll, posDay, purchase, receive, sell } from './demo.kit';
 
 type Prod = { sku: string; name: string; cat: string; price: number; cost: number; qty: number; uom?: string; per?: number };
@@ -19,7 +20,7 @@ async function stockItems(c: Demo, list: Prod[], extra: { uoms?: boolean } = {})
     ids.set(p.sku, r.id);
   }
   const lines = list.map((p) => ({ productId: ids.get(p.sku)!, qty: String(p.qty), unitCost: String(p.cost) }));
-  await c.svc.inventory.adjust(c.admin as never, { warehouseId: c.wh, reason: 'OPENING', date: c.ago(60), notes: 'Saldo awal stok', lines } as never);
+  await c.svc.inventory.adjust(c.admin as never, { warehouseId: c.wh, reason: 'OPENING', date: c.ago(120), notes: 'Saldo awal stok', lines } as never);
   const value = list.reduce((a, p) => a + p.qty * p.cost, 0);
   return { ids, value };
 }
@@ -40,15 +41,20 @@ const RITEL: Prod[] = [
   { sku: 'RT-MINYAK', name: 'Minyak Goreng 1L', cat: 'Sembako', price: 17500, cost: 14800, qty: 150 },
 ];
 async function seedRitel(c: Demo) {
-  const { ids, value } = await stockItems(c, RITEL);
-  await openingBalance(c, { kas: 8_000_000, bank: 120_000_000, stockValue: value });
+  const { ids, value } = await stockItems(c, RITEL.map((p) => ({ ...p, qty: p.qty * 3 })));
+  await openingBalance(c, { kas: 8_000_000, bank: 160_000_000, stockValue: value });
   const sup = await addSuppliers(c, [
     { code: 'SUP-GROSIR', name: 'PT Grosir Makmur Sentosa', term: 14 },
     { code: 'SUP-FMCG', name: 'CV Distributor Harian Jaya', term: 7 },
   ]);
-  await addCustomers(c, [{ code: 'MBR-01', name: 'Member Setia (umum)', address: 'Jakarta', term: 0 }]);
+  const cu = await addCustomers(c, [
+    { code: 'MBR-01', name: 'Member Setia (umum)', address: 'Jakarta', term: 0 },
+    { code: 'KTR-LANGGANAN', name: 'Kantor Notaris Prima (langganan)', address: 'Jl. Pasar Minggu No. 40, Jakarta', term: 14 },
+    { code: 'WRG-MITRA', name: 'Warung Mitra Sekitar', address: 'Gg. Mawar, Pasar Minggu', term: 7 },
+    { code: 'KTRN-CEMPAKA', name: 'Katering Cempaka', address: 'Jl. Cempaka Putih, Jakarta', term: 14 },
+  ]);
   const items = RITEL.map((p) => ({ id: ids.get(p.sku)!, price: p.price }));
-  for (let d = 28; d >= 1; d -= 2) await c.step(`kasir H-${d}`, () => posDay(c, d, items, c.int(5, 9)));
+  for (let d = 28; d >= 1; d -= 1) await c.step(`kasir H-${d}`, () => posDay(c, d, items, c.int(5, 9)));
   await c.step('beli 1', () => purchase(c, sup.get('SUP-GROSIR')!, 26, [{ productId: ids.get('RT-BERAS')!, qty: 40, price: 68500 }, { productId: ids.get('RT-MINYAK')!, qty: 100, price: 14900 }], { pay: true, invoiceNo: 'GRM/0925/118' }));
   await c.step('beli 2', () => purchase(c, sup.get('SUP-FMCG')!, 14, [{ productId: ids.get('RT-MIE')!, qty: 400, price: 2800 }, { productId: ids.get('RT-AIR')!, qty: 300, price: 2900 }, { productId: ids.get('RT-TEH')!, qty: 200, price: 4100 }], { pay: true, invoiceNo: 'DHJ-2231' }));
   await c.step('beli 3 (belum lunas)', () => purchase(c, sup.get('SUP-GROSIR')!, 4, [{ productId: ids.get('RT-DETER')!, qty: 60, price: 16600 }, { productId: ids.get('RT-TISU')!, qty: 80, price: 9500 }], { invoiceNo: 'GRM/1025/044' }));
@@ -59,6 +65,39 @@ async function seedRitel(c: Demo) {
     { code: 'K-001', name: 'Rina Marlina', title: 'Kasir', dept: 'Toko', salary: 3_600_000, allowance: 300_000, ptkp: 'TK/0' },
     { code: 'K-002', name: 'Dedi Kurniawan', title: 'Penjaga Toko', dept: 'Toko', salary: 3_400_000, allowance: 250_000, ptkp: 'TK/0' },
   ]);
+  // penjualan grosir ke langganan (faktur, piutang, retur) selain kasir
+  let ritelUnpaid: string | undefined;
+  const grosir: [string, number, [string, number][], boolean][] = [
+    ['KTR-LANGGANAN', 70, [['RT-BERAS', 6], ['RT-MINYAK', 12], ['RT-KOPI', 40]], true],
+    ['WRG-MITRA', 52, [['RT-MIE', 60], ['RT-AIR', 48]], true],
+    ['KTRN-CEMPAKA', 36, [['RT-BERAS', 8], ['RT-MINYAK', 10]], true],
+    ['KTR-LANGGANAN', 20, [['RT-AIR', 72], ['RT-TEH', 36]], true],
+    ['WRG-MITRA', 9, [['RT-MIE', 40], ['RT-BISK', 20]], false],
+    ['KTRN-CEMPAKA', 4, [['RT-BERAS', 5], ['RT-MINYAK', 8]], false],
+  ];
+  for (const [code, ago, items, paid] of grosir) {
+    const inv = await c.step(`jual grosir ${code}`, () => sell(c, cu.get(code)!, ago, items.map(([k, q]) => ({ productId: ids.get(k)!, qty: q }))));
+    if (inv && paid) await c.step('terima bayar grosir', () => receive(c, inv, Math.max(ago - 6, 2)));
+    else if (inv) ritelUnpaid = inv;
+  }
+  await X.monthlyOps(c, [
+    { code: '6-3000', desc: 'Sewa kios bulanan', amount: 6_500_000, from: 'bank', day: 2 },
+    { code: '6-4000', desc: 'Listrik & air toko', amount: 1_350_000, from: 'bank', day: 12 },
+    { code: '6-6000', desc: 'Kantong plastik & label harga', amount: 420_000, from: 'kas', day: 18 },
+  ]);
+  await X.cashMovements(c);
+  await X.fixedAssets(c, 'SUP-GROSIR', [
+    { cat: 'Peralatan', name: 'Rak display & kulkas minuman', cost: 14_500_000, ago: 100, location: 'Toko' },
+    { cat: 'Inventaris', name: 'Komputer kasir & printer struk', cost: 8_200_000, ago: 75, location: 'Kasir' },
+  ]);
+  await X.journals(c);
+  await X.budget(c, [{ code: '6-3000', monthly: 6_500_000 }, { code: '6-4000', monthly: 1_500_000 }, { code: '6-1000', monthly: 8_000_000 }]);
+  await X.taxes(c);
+  await X.bankStatement(c);
+  await X.pettyCash(c);
+  await X.cashCount(c);
+  await X.attendance(c);
+  await X.stockOps(c, ids, RITEL.map((p) => p.sku), { saleInvoiceId: ritelUnpaid, billId: c.last.bill, supplierId: sup.get('SUP-FMCG') });
 }
 
 // ---------------------------------------------------------------- DAGANG
@@ -100,10 +139,11 @@ async function seedDagang(c: Demo) {
     { cu: 'KTR-BINTANG', ago: 6, lines: [{ productId: id('BB-PIPA'), qty: 50 }, { productId: id('BB-CAT-TEMBOK'), qty: 8 }], pay: -1 },
     { cu: 'TB-SUMBER', ago: 3, lines: [{ productId: id('BB-SEMEN'), qty: 70 }], pay: -1 },
   ];
+  let unpaidInv: string | undefined;
   for (const s of sales) {
     const inv = await c.step(`jual ${s.cu}`, () => sell(c, cu.get(s.cu)!, s.ago, s.lines));
     if (inv && s.pay > 0) await c.step('terima bayar', () => receive(c, inv, s.pay, 'TRANSFER'));
-    else if (inv && s.pay === 0) continue;
+    else if (inv && s.pay === -1) unpaidInv = inv;
   }
   await c.step('beli semen', () => purchase(c, sup.get('SUP-SEMEN')!, 45, [{ productId: id('BB-SEMEN'), qty: 600, price: 59800 }, { productId: id('BB-MORTAR'), qty: 150, price: 78500 }], { pay: true, invoiceNo: 'ISP/09/4471' }));
   await c.step('beli cat', () => purchase(c, sup.get('SUP-CAT')!, 30, [{ productId: id('BB-CAT-TEMBOK'), qty: 40, price: 612000 }, { productId: id('BB-CAT-KAYU'), qty: 120, price: 49800 }], { pay: true, invoiceNo: 'WNC-2209' }));
@@ -117,6 +157,44 @@ async function seedDagang(c: Demo) {
     { code: 'D-002', name: 'Maya Anggraini', title: 'Admin Penjualan', dept: 'Penjualan', salary: 5_100_000, allowance: 400_000, ptkp: 'TK/0' },
     { code: 'D-003', name: 'Joko Susilo', title: 'Sopir', dept: 'Gudang', salary: 4_400_000, allowance: 300_000, ptkp: 'K/2' },
   ]);
+  // penjualan tambahan sepanjang 3 bulan terakhir (sebagian besar sudah dibayar)
+  const bulkPairs: [string, string[]][] = [
+    ['TB-MAJU', ['BB-SEMEN', 'BB-PAKU', 'BB-CAT-KAYU']],
+    ['TB-SUMBER', ['BB-PIPA', 'BB-MORTAR', 'BB-GENTENG']],
+    ['PRM-HARAPAN', ['BB-GENTENG', 'BB-BESI', 'BB-PAKU']],
+    ['KTR-BINTANG', ['BB-BESI', 'BB-SEMEN', 'BB-KERAMIK']],
+  ];
+  for (let i = 0; i < 12; i++) {
+    const [custCode, skus] = bulkPairs[i % bulkPairs.length];
+    const ago = 108 - i * 7 + c.int(0, 3);
+    const inv = await c.step(`jual tambahan ${i + 1}`, () => sell(c, cu.get(custCode)!, ago, skus.slice(0, c.int(1, 3)).map((k) => ({ productId: id(k), qty: c.int(5, 25) }))));
+    if (inv) await c.step('terima bayar tambahan', () => receive(c, inv, Math.max(ago - c.int(6, 14), 2), 'TRANSFER'));
+  }
+  await X.monthlyOps(c, [
+    { code: '6-3000', desc: 'Sewa gudang Cakung', amount: 18_000_000, from: 'bank', day: 2 },
+    { code: '6-2000', desc: 'BBM & tol truk pengiriman', amount: 2_000_000, from: 'kas', day: 9 },
+    { code: '6-4000', desc: 'Listrik & air gudang', amount: 3_400_000, from: 'bank', day: 15 },
+  ]);
+  await X.cashMovements(c);
+  await X.fixedAssets(c, 'SUP-BESI', [
+    { cat: 'Kendaraan', name: 'Truk engkel pengiriman', cost: 215_000_000, ago: 105, location: 'Gudang Cakung' },
+    { cat: 'Inventaris', name: 'Komputer & printer faktur', cost: 12_500_000, ago: 80, location: 'Kantor' },
+  ]);
+  await X.journals(c);
+  await X.budget(c, [{ code: '6-3000', monthly: 18_000_000 }, { code: '6-2000', monthly: 2_500_000 }, { code: '6-4000', monthly: 3_500_000 }]);
+  await X.taxes(c);
+  await X.bankStatement(c);
+  await X.pettyCash(c);
+  await X.cashCount(c);
+  await X.attendance(c);
+  await X.crm(c, cu.get('TB-MAJU')!, id('BB-SEMEN'), [
+    { title: 'Proyek perumahan Cluster Aurora — pasok semen & besi', company: 'PT Graha Properti Mandiri', contact: 'Pak Hendro', value: 180_000_000, source: 'Referensi' },
+    { title: 'Toko Bangunan Baru Makmur — kontrak bulanan', company: 'TB Baru Makmur', contact: 'Bu Lilis', value: 45_000_000, source: 'Kunjungan sales' },
+    { title: 'Renovasi ruko Kelapa Gading', company: 'CV Karya Konstruksi', contact: 'Pak Anton', value: 70_000_000, source: 'Pameran' },
+    { title: 'Pemda — pengadaan paving', company: 'Dinas PU', contact: 'Bu Ratna', value: 120_000_000, source: 'Tender' },
+  ]);
+  await X.deposit(c, cu.get('PROP-GRAHA')!, 33_300_000, 'Uang muka pengadaan keramik tahap 2');
+  await X.stockOps(c, ids, DAGANG.map((p) => p.sku), { saleInvoiceId: unpaidInv, billId: c.last.bill, supplierId: sup.get('SUP-CAT') });
 }
 
 // ---------------------------------------------------------------- JASA
@@ -159,6 +237,46 @@ async function seedJasa(c: Demo) {
     { code: 'J-003', name: 'Bagus Prakoso', title: 'Pengembang', dept: 'Teknologi', salary: 11_000_000, allowance: 1_000_000, ptkp: 'K/1' },
     { code: 'J-004', name: 'Lia Permata', title: 'Manajer Proyek', dept: 'Konsultasi', salary: 12_500_000, allowance: 1_200_000, ptkp: 'K/1' },
   ]);
+  const jasaItems: [string, string, number][] = [
+    ['CL-RETAIL', 'Dukungan & pemeliharaan sistem gudang', 8_500_000],
+    ['CL-EDU', 'Dukungan bulanan sistem akademik', 9_500_000],
+    ['CL-START', 'Konsultasi pengembangan produk digital', 12_000_000],
+    ['CL-RS', 'Pelatihan keamanan informasi staf', 15_000_000],
+    ['CL-BANK', 'Review kode & uji penetrasi aplikasi', 28_000_000],
+    ['CL-EDU', 'Dukungan bulanan sistem akademik', 9_500_000],
+    ['CL-RETAIL', 'Dukungan & pemeliharaan sistem gudang', 8_500_000],
+    ['CL-START', 'Desain ulang antarmuka aplikasi', 18_000_000],
+  ];
+  for (const [i, [cust, desc, price]] of jasaItems.entries()) {
+    const ago = 105 - i * 12 + c.int(0, 4);
+    const inv2 = await inv(cust, ago, desc, 'Paket', [{ description: desc, price: String(price) }]);
+    if (inv2 && i < jasaItems.length - 2) await c.step('terima bayar jasa', () => receive(c, inv2.id, Math.max(ago - c.int(10, 25), 2)));
+  }
+  await X.monthlyOps(c, [
+    { code: '6-3000', desc: 'Sewa kantor Lt. 5', amount: 21_000_000, from: 'bank', day: 2 },
+    { code: '6-4000', desc: 'Internet & listrik kantor', amount: 4_800_000, from: 'bank', day: 10 },
+    { code: '6-6000', desc: 'Langganan perangkat lunak desain & cloud', amount: 5_250_000, from: 'bank', day: 16 },
+  ]);
+  await X.cashMovements(c);
+  await X.fixedAssets(c, 'SUP-CLOUD', [
+    { cat: 'Inventaris', name: 'Laptop kerja tim (4 unit)', cost: 56_000_000, ago: 100, location: 'Kantor' },
+    { cat: 'Inventaris', name: 'Server & perangkat jaringan', cost: 32_000_000, ago: 85, location: 'Ruang server' },
+  ]);
+  await X.journals(c);
+  await X.budget(c, [{ code: '6-3000', monthly: 21_000_000 }, { code: '6-4000', monthly: 5_000_000 }, { code: '6-1000', monthly: 40_000_000 }]);
+  await X.taxes(c);
+  await X.bankStatement(c);
+  await X.pettyCash(c);
+  await X.cashCount(c);
+  await X.attendance(c);
+  await X.crm(c, cu.get('CL-BANK')!, '', [
+    { title: 'Aplikasi mobile — perluasan fitur investasi', company: 'PT Bank Mitra Sejahtera', contact: 'Ibu Dewi', value: 320_000_000, source: 'Klien lama' },
+    { title: 'Audit keamanan sistem rumah sakit', company: 'RS Sehat Bersama', contact: 'Pak Budi', value: 95_000_000, source: 'Referensi' },
+    { title: 'Portal e-learning sekolah', company: 'Yayasan Pendidikan Cerdas', contact: 'Bu Sari', value: 140_000_000, source: 'Webinar' },
+    { title: 'Dashboard analitik penjualan', company: 'PT Ritel Nusantara Prima', contact: 'Pak Rian', value: 85_000_000, source: 'Kunjungan' },
+  ]);
+  const dep = await c.step('uang muka pelanggan', () => c.svc.billing.createDeposit(c.admin as never, { customerId: cu.get('CL-EDU')!, date: c.ago(15), amount: '27750000', method: 'TRANSFER', cashAccountId: c.bank, notes: 'Uang muka portal e-learning' } as never));
+  void dep;
 }
 
 // ---------------------------------------------------------------- PRODUKSI & MANUFAKTUR
@@ -248,7 +366,7 @@ async function seedProduksi(c: Demo) {
   const s3 = await c.step('jual 3', () => sell(c, cu.get('RS-SEKOLAH')!, 12, [{ productId: ids.get('KV-KEMEJA')!, qty: 90 }]));
   await c.step('jual 4', () => sell(c, cu.get('RS-ONLINE')!, 5, [{ productId: ids.get('KV-KAOS')!, qty: 80 }]));
   if (s1) await c.step('bayar 1', () => receive(c, s1, 8));
-  if (s2) await c.step('bayar 2', () => receive(c, s2, 3, 'TRANSFER', 0.6));
+  if (s2) await c.step('bayar 2', () => receive(c, s2, 3));
   void s3;
   await expense(c, 55, 'bank', '6-3000', 'Sewa bengkel jahit', 7_500_000, 'SEWA-BKL');
   await expense(c, 28, 'bank', '5-4500', 'Listrik mesin jahit', 3_200_000);
@@ -259,6 +377,31 @@ async function seedProduksi(c: Demo) {
     { code: 'P-003', name: 'Yati Rohayati', title: 'Penjahit', dept: 'Produksi', salary: 3_900_000, allowance: 300_000, ptkp: 'K/2', production: true },
     { code: 'P-004', name: 'Deni Setiawan', title: 'Admin & Pengiriman', dept: 'Kantor', salary: 4_300_000, allowance: 250_000, ptkp: 'TK/0' },
   ]);
+  for (let i = 0; i < 6; i++) {
+    const ago = 95 - i * 13 + c.int(0, 4);
+    const [custCode, sku] = [['RS-FASHION', 'KV-KAOS'], ['RS-DISTRO', 'KV-KEMEJA'], ['RS-SEKOLAH', 'KV-KEMEJA'], ['RS-ONLINE', 'KV-KAOS'], ['RS-FASHION', 'KV-KEMEJA'], ['RS-DISTRO', 'KV-KAOS']][i];
+    const inv = await c.step(`jual tambahan ${i + 1}`, () => sell(c, cu.get(custCode)!, ago, [{ productId: ids.get(sku)!, qty: c.int(10, 30) }]));
+    if (inv) await c.step('terima bayar tambahan', () => receive(c, inv, Math.max(ago - c.int(5, 12), 2)));
+  }
+  await X.monthlyOps(c, [
+    { code: '6-3000', desc: 'Sewa bengkel jahit', amount: 7_500_000, from: 'bank', day: 2 },
+    { code: '5-4500', desc: 'Listrik mesin jahit', amount: 3_200_000, from: 'bank', day: 12 },
+    { code: '5-4400', desc: 'Servis & suku cadang mesin jahit', amount: 950_000, from: 'kas', day: 20 },
+  ]);
+  await X.cashMovements(c);
+  await X.fixedAssets(c, 'SUP-AKSES', [
+    { cat: 'Mesin', name: 'Mesin jahit industri (10 unit)', cost: 48_000_000, ago: 105, location: 'Bengkel jahit' },
+    { cat: 'Mesin', name: 'Mesin potong kain otomatis', cost: 36_000_000, ago: 90, location: 'Bengkel jahit' },
+  ]);
+  await X.journals(c);
+  await X.budget(c, [{ code: '6-3000', monthly: 7_500_000 }, { code: '5-4500', monthly: 3_300_000 }, { code: '6-1000', monthly: 6_000_000 }]);
+  await X.taxes(c);
+  await X.bankStatement(c);
+  await X.pettyCash(c);
+  await X.cashCount(c);
+  await X.attendance(c);
+  await X.deposit(c, cu.get('RS-FASHION')!, 15_000_000, 'Uang muka pesanan musiman');
+  await X.stockOps(c, ids, ['KV-KAIN-COTTON', 'KV-KAIN-OXFORD', 'KV-BENANG', 'KV-KANCING', 'KV-LABEL'], { saleInvoiceId: s3, billId: c.last.bill, supplierId: sup.get('SUP-TEKSTIL') });
 }
 
 const FURNITUR_RAW: Prod[] = [
@@ -305,7 +448,7 @@ async function seedManufaktur(c: Demo) {
   ]);
   const s1 = await c.step('jual 1', () => sell(c, cu.get('HTL-BINTANG')!, 27, [{ productId: ids.get('FN-MEJA')!, qty: 6 }, { productId: ids.get('FN-LEMARI')!, qty: 4 }]));
   const s2 = await c.step('jual 2', () => sell(c, cu.get('KANTOR-MJU')!, 16, [{ productId: ids.get('FN-KURSI')!, qty: 18 }]));
-  await c.step('jual 3', () => sell(c, cu.get('FNT-SHOWROOM')!, 7, [{ productId: ids.get('FN-MEJA')!, qty: 2 }, { productId: ids.get('FN-LEMARI')!, qty: 2 }]));
+  const s3 = await c.step('jual 3', () => sell(c, cu.get('FNT-SHOWROOM')!, 7, [{ productId: ids.get('FN-MEJA')!, qty: 2 }, { productId: ids.get('FN-LEMARI')!, qty: 2 }]));
   if (s1) await c.step('bayar 1', () => receive(c, s1, 6, 'TRANSFER', 0.5));
   if (s2) await c.step('bayar 2', () => receive(c, s2, 2));
   await expense(c, 54, 'bank', '6-3000', 'Sewa lahan workshop', 12_000_000, 'SEWA-WKS');
@@ -319,6 +462,38 @@ async function seedManufaktur(c: Demo) {
     { code: 'M-004', name: 'Retno Wulandari', title: 'Admin Pabrik', dept: 'Kantor', salary: 5_000_000, allowance: 400_000, ptkp: 'TK/0' },
     { code: 'M-005', name: 'Hari Santoso', title: 'Kepala Produksi', dept: 'Produksi', salary: 8_200_000, allowance: 900_000, ptkp: 'K/3', production: true },
   ]);
+  for (let i = 0; i < 5; i++) {
+    const ago = 98 - i * 15 + c.int(0, 4);
+    const [custCode, sku] = [['KANTOR-MJU', 'FN-MEJA'], ['FNT-SHOWROOM', 'FN-MEJA'], ['HTL-BINTANG', 'FN-LEMARI'], ['KANTOR-MJU', 'FN-LEMARI'], ['FNT-SHOWROOM', 'FN-LEMARI']][i];
+    const inv = await c.step(`jual tambahan ${i + 1}`, () => sell(c, cu.get(custCode)!, ago, [{ productId: ids.get(sku)!, qty: c.int(1, 3) }]));
+    if (inv) await c.step('terima bayar tambahan', () => receive(c, inv, Math.max(ago - c.int(8, 20), 2)));
+  }
+  await X.monthlyOps(c, [
+    { code: '6-3000', desc: 'Sewa lahan workshop', amount: 12_000_000, from: 'bank', day: 2 },
+    { code: '5-4500', desc: 'Listrik mesin & oven pengering', amount: 6_800_000, from: 'bank', day: 12 },
+    { code: '5-4400', desc: 'Pemeliharaan mesin gergaji & ketam', amount: 1_850_000, from: 'kas', day: 19 },
+    { code: '6-2000', desc: 'Pengiriman furnitur ke pelanggan', amount: 3_600_000, from: 'bank', day: 24 },
+  ]);
+  await X.cashMovements(c);
+  await X.fixedAssets(c, 'SUP-HARDWARE', [
+    { cat: 'Mesin', name: 'Mesin gergaji & ketam kayu', cost: 185_000_000, ago: 110, location: 'Workshop' },
+    { cat: 'Kendaraan', name: 'Truk box pengiriman furnitur', cost: 240_000_000, ago: 95, location: 'Workshop' },
+  ]);
+  await X.journals(c);
+  await X.budget(c, [{ code: '6-3000', monthly: 12_000_000 }, { code: '5-4500', monthly: 7_000_000 }, { code: '6-2000', monthly: 4_000_000 }]);
+  await X.taxes(c);
+  await X.bankStatement(c);
+  await X.pettyCash(c);
+  await X.cashCount(c);
+  await X.attendance(c);
+  await X.crm(c, cu.get('HTL-BINTANG')!, ids.get('FN-KURSI')!, [
+    { title: 'Furnitur 120 kamar hotel baru', company: 'PT Hotel Bintang Samudra', contact: 'Pak Wayan', value: 480_000_000, source: 'Referensi' },
+    { title: 'Pengadaan kursi kantor 200 unit', company: 'PT Maju Bersama Kantor', contact: 'Bu Tika', value: 290_000_000, source: 'Pameran' },
+    { title: 'Showroom kedua — lemari & meja', company: 'Galeri Furnitur Nusantara', contact: 'Pak Joko', value: 150_000_000, source: 'Kunjungan' },
+    { title: 'Apartemen tahap 3 — kitchen set', company: 'PT Apartemen Asri Lestari', contact: 'Bu Maya', value: 360_000_000, source: 'Tender' },
+  ]);
+  await X.deposit(c, cu.get('APT-ASRI')!, 90_000_000, 'Uang muka kitchen set tahap 3');
+  await X.stockOps(c, ids, ['FN-JATI', 'FN-PLY', 'FN-ENGSEL', 'FN-REL', 'FN-POLITUR'], { saleInvoiceId: s3, billId: c.last.bill, supplierId: sup.get('SUP-KAYU') });
 }
 
 export const SEEDS: Record<BusinessModel, (c: Demo) => Promise<void>> = {

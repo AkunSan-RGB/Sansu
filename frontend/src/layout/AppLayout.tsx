@@ -449,11 +449,13 @@ export default function AppLayout() {
               showIcon
               style={{ marginBottom: 16 }}
               message="Mode demo — PT DEMO berisi data contoh"
-              description={`Jangan memasukkan data asli. Perusahaan demo ini dihapus otomatis pada ${new Date(me.demo.expiresAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}.`}
-              action={
-                <Button size="small" type="primary" onClick={() => logout()}>
-                  Keluar & daftar sendiri
-                </Button>
+              description={
+                <div>
+                  <div>{`Jangan memasukkan data asli. Perusahaan demo ini dihapus otomatis pada ${new Date(me.demo.expiresAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}.`}</div>
+                  <Button size="small" type="primary" style={{ marginTop: 8 }} onClick={() => logout()}>
+                    Keluar & daftar sendiri
+                  </Button>
+                </div>
               }
             />
           )}

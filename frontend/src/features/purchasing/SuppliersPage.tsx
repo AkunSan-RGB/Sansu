@@ -1,13 +1,12 @@
 import { useApps } from '@/lib/apps';
 import { useNavigate } from 'react-router-dom';
 import { FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
-import { App, Button, Card, Form, Input, InputNumber, Modal, Space, Switch, Tag } from 'antd';
+import { App, Button, Form, Input, InputNumber, Modal, Space, Switch, Tag } from 'antd';
 import { useState } from 'react';
 import { ApiError, patch, post } from '@/api/client';
 import { useAction, useSuppliers } from '@/api/queries';
 import type { Supplier } from '@/api/types';
-import PageHeader from '@/layout/PageHeader';
-import ResponsiveTable from '@/components/ResponsiveTable';
+import ListPage from '@/components/ListPage';
 import { t } from '@/lib/terms';
 
 interface FormValues {
@@ -26,7 +25,6 @@ export default function SuppliersPage() {
   const { isAdmin } = useApps();
   const navigate = useNavigate();
   const { data, isLoading } = useSuppliers();
-  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Supplier | 'new' | null>(null);
   const [form] = Form.useForm<FormValues>();
 
@@ -66,15 +64,12 @@ export default function SuppliersPage() {
     setEditing(s);
   };
 
-  const rows = (data ?? []).filter((s) => `${s.code} ${s.name}`.toLowerCase().includes(search.toLowerCase()));
-
   return (
     <>
-      <PageHeader
+      <ListPage<Supplier>
         title={t('Supplier')}
-        extra={
-          <Space wrap>
-            <Input.Search placeholder="Cari kode / nama" allowClear onChange={(e) => setSearch(e.target.value)} />
+        actions={
+          <>
             {isAdmin && (
               <Button icon={<FileExcelOutlined />} onClick={() => navigate('/settings/import?kind=suppliers')}>
                 Impor Excel
@@ -83,25 +78,32 @@ export default function SuppliersPage() {
             <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>
               Supplier baru
             </Button>
-          </Space>
+          </>
         }
+        rows={data}
+        loading={isLoading}
+        summary={(rows) => [
+          { label: `Jumlah ${t('Supplier').toLowerCase()}`, value: String(rows.length) },
+          { label: 'Favorit', value: String(rows.filter((s) => s.isPreferred).length), hint: 'persetujuan otomatis', tone: 'good' },
+          { label: 'Nonaktif', value: String(rows.filter((s) => !s.isActive).length) },
+        ]}
+        views={[
+          { value: 'ALL', label: 'Semua', test: () => true },
+          { value: 'ACTIVE', label: 'Aktif', test: (s) => s.isActive },
+          { value: 'PREF', label: 'Favorit', test: (s) => !!s.isPreferred },
+          { value: 'OFF', label: 'Nonaktif', test: (s) => !s.isActive },
+        ]}
+        searchText={(r) => `${r.code} ${r.name} ${r.phone ?? ''}`}
+        searchPlaceholder="Cari nama, kode, atau telepon"
+        emptyText="Belum ada supplier. Tambahkan lewat tombol di kanan atas atau impor dari Excel."
+        onRowClick={(r) => open(r)}
+        columns={[
+          { title: 'Supplier', dataIndex: 'name', render: (n: string, s: Supplier) => (<div><div>{n}{s.isPreferred && <Tag color="gold" style={{ marginLeft: 6 }}>Favorit</Tag>}{!s.isActive && <Tag style={{ marginLeft: 6 }}>Nonaktif</Tag>}</div><span style={{ fontSize: 12, color: '#64748b' }}>{s.code}</span></div>) },
+          { title: 'Telepon', dataIndex: 'phone', render: (p: string | null) => p || '-' },
+          { title: 'NPWP', dataIndex: 'npwp', render: (p: string | null) => p || '-' },
+          { title: 'Termin', dataIndex: 'paymentTermDays', align: 'right' as const, render: (d: number) => (d ? `${d} hari` : 'Tunai') },
+        ]}
       />
-      <Card>
-        <ResponsiveTable
-          rowKey="id"
-          loading={isLoading}
-          dataSource={rows}
-          scroll={{ x: 700 }}
-          onRow={(r) => ({ onClick: () => open(r), style: { cursor: 'pointer' } })}
-          columns={[
-            { title: 'Kode', dataIndex: 'code', width: 150 },
-            { title: 'Nama', dataIndex: 'name', render: (n, s) => (<>{n}{s.isPreferred && <Tag color="gold" style={{ marginLeft: 6 }}>Favorit</Tag>}{!s.isActive && <Tag style={{ marginLeft: 6 }}>Nonaktif</Tag>}</>) },
-            { title: 'Telepon', dataIndex: 'phone' },
-            { title: 'NPWP', dataIndex: 'npwp' },
-            { title: 'Termin', dataIndex: 'paymentTermDays', align: 'right', render: (d) => `${d} hari` },
-          ]}
-        />
-      </Card>
 
       <Modal
         title={editing === 'new' ? 'Supplier baru' : 'Ubah supplier'}

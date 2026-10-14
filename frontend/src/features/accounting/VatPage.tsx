@@ -23,6 +23,7 @@ export default function VatPage() {
       to={to}
       onFrom={setFrom}
       onTo={setTo}
+      hint="Ringkasan PPN keluaran (dari penjualan) dan PPN masukan (dari pembelian) pada periode yang dipilih."
       controls={
         <>
           <Button size="small" onClick={() => navigate(`/tax?period=${to.slice(0, 7)}`)}>

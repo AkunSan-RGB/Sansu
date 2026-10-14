@@ -1,16 +1,15 @@
 import { PlusOutlined } from '@ant-design/icons';
 import { isProductionModel, PTKP_STATUSES } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Card, Checkbox, Col, Drawer, Form, Input, InputNumber, Row, Select, Space, Switch, Tag, Typography } from 'antd';
+import { Button, Checkbox, Col, Drawer, Form, Input, InputNumber, Row, Select, Switch, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { get, patch, post } from '@/api/client';
 import { useAction, useBranches } from '@/api/queries';
 import type { Employee, Project } from '@/api/types';
 import { useApps } from '@/lib/apps';
 import { useAuth } from '@/auth/AuthContext';
-import PageHeader from '@/layout/PageHeader';
+import ListPage from '@/components/ListPage';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
-import ResponsiveTable from '@/components/ResponsiveTable';
 
 const PTKP_HELP: Record<string, string> = {
   'TK/0': 'Tidak kawin, tanpa tanggungan',
@@ -26,8 +25,6 @@ const PTKP_HELP: Record<string, string> = {
 const MONEY = ['baseSalary', 'fixedAllowance', 'dailyAllowance'] as const;
 
 export default function EmployeesPage() {
-  const [search, setSearch] = useState('');
-  const [showInactive, setShowInactive] = useState(false);
   const [editing, setEditing] = useState<Employee | 'new' | null>(null);
   const [form] = Form.useForm();
   const { data, isLoading } = useQuery({ queryKey: ['employees'], queryFn: () => get<Employee[]>('/hr/employees') });
@@ -62,46 +59,43 @@ export default function EmployeesPage() {
     setEditing(e);
   };
 
-  const rows = (data ?? []).filter((e) => (showInactive || e.isActive) && `${e.code} ${e.name} ${e.jobTitle ?? ''} ${e.department ?? ''}`.toLowerCase().includes(search.toLowerCase()));
-  const payrollTotal = rows.filter((e) => e.isActive).reduce((a, e) => a + Number(e.baseSalary) + Number(e.fixedAllowance), 0);
-
   return (
     <>
-      <PageHeader
+      <ListPage<Employee>
         title="Karyawan"
-        extra={
-          <Space wrap>
-            <Input.Search placeholder="Cari nama / jabatan" allowClear onChange={(e) => setSearch(e.target.value)} />
-            <Checkbox checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)}>
-              Tampilkan nonaktif
-            </Checkbox>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>
-              Karyawan baru
-            </Button>
-          </Space>
+        actions={
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>
+            Karyawan baru
+          </Button>
         }
+        rows={data}
+        loading={isLoading}
+        summary={(all) => {
+          const active = all.filter((e) => e.isActive);
+          return [
+            { label: 'Karyawan aktif', value: String(active.length), hint: `${all.length - active.length} nonaktif` },
+            { label: 'Gaji per bulan (pokok + tunjangan tetap)', value: fmtMoney(active.reduce((a, e) => a + Number(e.baseSalary) + Number(e.fixedAllowance), 0)) },
+            { label: 'Departemen', value: String(new Set(active.map((e) => e.department).filter(Boolean)).size) },
+          ];
+        }}
+        views={[
+          { value: 'ACTIVE', label: 'Aktif', test: (e) => e.isActive },
+          { value: 'ALL', label: 'Semua', test: () => true },
+          { value: 'OFF', label: 'Nonaktif', test: (e) => !e.isActive },
+        ]}
+        searchText={(e) => `${e.code} ${e.name} ${e.jobTitle ?? ''} ${e.department ?? ''}`}
+        searchPlaceholder="Cari nama, jabatan, atau departemen"
+        emptyText="Belum ada karyawan"
+        onRowClick={(e) => open(e)}
+        scrollX={820}
+        columns={[
+          { title: 'Karyawan', dataIndex: 'name', render: (n: string, e: Employee) => <div><div>{n}{!e.isActive && <Tag style={{ marginLeft: 6 }}>Nonaktif</Tag>}</div><span style={{ fontSize: 12, color: '#64748b' }}>{e.code}</span></div> },
+          { title: 'Jabatan', render: (_: unknown, e: Employee) => <div><div>{e.jobTitle || '-'}</div><span style={{ fontSize: 12, color: '#64748b' }}>{e.department || ''}</span></div> },
+          { title: 'PTKP', dataIndex: 'ptkp' },
+          { title: 'Mulai kerja', dataIndex: 'joinDate', render: fmtDate },
+          { title: 'Gaji pokok', dataIndex: 'baseSalary', align: 'right' as const, render: fmtMoney },
+        ]}
       />
-      <Card>
-        <Typography.Paragraph type="secondary">
-          {rows.filter((e) => e.isActive).length} karyawan aktif · total gaji pokok + tunjangan tetap {fmtMoney(payrollTotal)} / bulan
-        </Typography.Paragraph>
-        <ResponsiveTable
-          rowKey="id"
-          loading={isLoading}
-          dataSource={rows}
-          scroll={{ x: 900 }}
-          onRow={(e) => ({ onClick: () => open(e), style: { cursor: 'pointer' } })}
-          columns={[
-            { title: 'Kode', dataIndex: 'code', width: 110 },
-            { title: 'Nama', dataIndex: 'name', render: (n, e) => (e.isActive ? n : <>{n} <Tag>Nonaktif</Tag></>) },
-            { title: 'Jabatan', dataIndex: 'jobTitle' },
-            { title: 'Departemen', dataIndex: 'department' },
-            { title: 'PTKP', dataIndex: 'ptkp' },
-            { title: 'Mulai kerja', dataIndex: 'joinDate', render: fmtDate },
-            { title: 'Gaji pokok', dataIndex: 'baseSalary', align: 'right', render: fmtMoney },
-          ]}
-        />
-      </Card>
 
       <Drawer
         title={editing === 'new' ? 'Karyawan baru' : editing ? editing.name : ''}

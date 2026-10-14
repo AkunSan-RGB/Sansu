@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
-import { Card, Table, Tag } from 'antd';
+import { Tag } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { get } from '@/api/client';
-import PageHeader from '@/layout/PageHeader';
+import ListPage from '@/components/ListPage';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { t } from '@/lib/terms';
 
@@ -24,27 +24,37 @@ export default function DeliveriesPage() {
   const navigate = useNavigate();
   const q = useQuery({ queryKey: ['deliveries'], queryFn: () => get<Delivery[]>('/deliveries') });
   return (
-    <>
-      <PageHeader title="Surat jalan" />
-      <Card>
-        <Table
-          rowKey="id"
-          size="small"
-          loading={q.isLoading}
-          dataSource={q.data}
-          scroll={{ x: 800 }}
-          onRow={(r) => ({ onClick: () => navigate(`/deliveries/${r.id}`), style: { cursor: 'pointer' } })}
-          columns={[
-            { title: 'Nomor', dataIndex: 'number' },
-            { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: t('Pelanggan'), render: (_, r) => r.customer.name },
-            { title: t('Sales Order'), render: (_, r) => r.salesOrder.number },
-            { title: t('Faktur'), render: (_, r) => r.invoice?.number ?? <Tag>Belum difakturkan</Tag> },
-            { title: 'HPP', dataIndex: 'cogsAmount', align: 'right', render: fmtMoney },
-            { title: 'Status', dataIndex: 'status', render: (s) => (s === 'CANCELLED' ? <Tag color="red">Batal</Tag> : <Tag color="cyan">Terkirim</Tag>) },
-          ]}
-        />
-      </Card>
-    </>
+    <ListPage<Delivery>
+      title="Surat jalan"
+      rows={q.data}
+      loading={q.isLoading}
+      summary={(rows) => {
+        const live = rows.filter((r) => r.status !== 'CANCELLED');
+        const open = live.filter((r) => !r.invoice);
+        return [
+          { label: 'Pengiriman', value: String(live.length), hint: 'tidak termasuk yang batal' },
+          { label: 'Belum difakturkan', value: String(open.length), hint: 'segera tagihkan ke pelanggan', tone: open.length ? 'warn' : 'neutral' },
+          { label: 'Nilai HPP terkirim', value: fmtMoney(live.reduce((a, r) => a + Number(r.cogsAmount), 0)) },
+        ];
+      }}
+      views={[
+        { value: 'ALL', label: 'Semua', test: () => true },
+        { value: 'OPEN', label: 'Belum difakturkan', test: (r) => r.status !== 'CANCELLED' && !r.invoice },
+        { value: 'INVOICED', label: 'Sudah difakturkan', test: (r) => !!r.invoice },
+        { value: 'CANCELLED', label: 'Batal', test: (r) => r.status === 'CANCELLED' },
+      ]}
+      searchText={(r) => `${r.number} ${r.customer.name} ${r.salesOrder.number}`}
+      searchPlaceholder={`Cari ${t('Pelanggan').toLowerCase()} atau nomor`}
+      emptyText="Belum ada surat jalan"
+      onRowClick={(r) => navigate(`/deliveries/${r.id}`)}
+      columns={[
+        { title: 'Surat jalan', dataIndex: 'number', render: (n: string, r) => <div><div>{n}</div><span style={{ fontSize: 12, color: '#64748b' }}>{fmtDate(r.date)}</span></div> },
+        { title: t('Pelanggan'), render: (_: unknown, r) => r.customer.name },
+        { title: t('Sales Order'), render: (_: unknown, r) => r.salesOrder.number },
+        { title: t('Faktur'), render: (_: unknown, r) => r.invoice?.number ?? <Tag>Belum difakturkan</Tag> },
+        { title: 'HPP', dataIndex: 'cogsAmount', align: 'right', render: fmtMoney },
+        { title: 'Status', dataIndex: 'status', render: (s: string) => (s === 'CANCELLED' ? <Tag color="red">Batal</Tag> : <Tag color="cyan">Terkirim</Tag>) },
+      ]}
+    />
   );
 }

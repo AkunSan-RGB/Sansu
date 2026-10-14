@@ -1,11 +1,13 @@
 import { ADJUSTMENT_REASON_LABELS, STOCK_MOVE_LABELS, type StockMoveType, toOptions } from '@sansu/shared';
 import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
+import { Button, Card, Empty, Form, Input, InputNumber, Modal, Segmented, Select, Space, Tabs, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { get, post, qs } from '@/api/client';
 import { useAction, useProducts, useWarehouses } from '@/api/queries';
 import type { StockBalance, StockMove } from '@/api/types';
+import ResponsiveTable from '@/components/ResponsiveTable';
+import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import InventoryMethodBadge from './InventoryMethodBadge';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
@@ -27,6 +29,8 @@ export default function InventoryPage() {
   const [warehouseId, setWarehouseId] = useState<string>();
   const [productId, setProductId] = useState<string>();
   const [adjustOpen, setAdjustOpen] = useState(false);
+  const [view, setView] = useState<'ALL' | 'IN' | 'EMPTY'>('ALL');
+  const [search, setSearch] = useState('');
   const [form] = Form.useForm<AdjustValues>();
 
   const balances = useQuery({
@@ -51,7 +55,14 @@ export default function InventoryPage() {
     },
   );
 
-  const totalValue = (balances.data ?? []).reduce((a, r) => a + Number(r.value), 0);
+  const bal = balances.data ?? [];
+  const totalValue = bal.reduce((a, r) => a + Number(r.value), 0);
+  const inStock = bal.filter((r) => Number(r.qty) > 0);
+  const empty = bal.filter((r) => Number(r.qty) <= 0);
+  const term = search.trim().toLowerCase();
+  const shownBal = bal.filter(
+    (r) => (view === 'ALL' || (view === 'IN' ? Number(r.qty) > 0 : Number(r.qty) <= 0)) && (!term || `${r.sku} ${r.productName}`.toLowerCase().includes(term)),
+  );
   const whOptions = warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }));
   const prodOptions = products?.map((p) => ({ value: p.id, label: `${p.sku} · ${p.name} (${p.baseUom})` }));
 
@@ -84,30 +95,44 @@ export default function InventoryPage() {
               key: 'balance',
               label: 'Saldo stok',
               children: (
-                <Table
-                  rowKey={(r) => `${r.productId}-${r.warehouseId}`}
-                  loading={balances.isLoading}
-                  dataSource={balances.data}
-                  scroll={{ x: 700 }}
-                  columns={[
-                    { title: 'SKU', dataIndex: 'sku' },
-                    { title: t('Produk'), dataIndex: 'productName' },
-                    { title: t('Gudang'), dataIndex: 'warehouseCode' },
-                    { title: 'Qty', dataIndex: 'qty', align: 'right', render: (v, r) => `${fmtQty(v)} ${r.baseUom}` },
-                    { title: 'HPP rata-rata', dataIndex: 'avgCost', align: 'right', render: fmtMoney },
-                    { title: 'Nilai', dataIndex: 'value', align: 'right', render: fmtMoney },
-                  ]}
-                  summary={() => (
-                    <Table.Summary.Row>
-                      <Table.Summary.Cell index={0} colSpan={5}>
-                        <Typography.Text strong>{t('Total nilai persediaan')}</Typography.Text>
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={5} align="right">
-                        <Typography.Text strong>{fmtMoney(totalValue)}</Typography.Text>
-                      </Table.Summary.Cell>
-                    </Table.Summary.Row>
-                  )}
-                />
+                <>
+                  <SummaryCards
+                    items={[
+                      { label: t('Total nilai persediaan'), value: fmtMoney(totalValue), hint: `${bal.length} baris stok` },
+                      { label: 'Barang yang ada stoknya', value: String(inStock.length), hint: 'jumlah lebih dari nol', tone: 'good', onClick: () => setView('IN'), active: view === 'IN' },
+                      { label: 'Stok kosong', value: String(empty.length), hint: 'perlu dibeli atau diproduksi', tone: empty.length ? 'warn' : 'neutral', onClick: () => setView('EMPTY'), active: view === 'EMPTY' },
+                    ]}
+                  />
+                  <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
+                    <div style={{ maxWidth: '100%', overflowX: 'auto' }}>
+                      <Segmented
+                        value={view}
+                        onChange={(v) => setView(v as typeof view)}
+                        options={[
+                          { value: 'ALL', label: `Semua (${bal.length})` },
+                          { value: 'IN', label: `Ada stok (${inStock.length})` },
+                          { value: 'EMPTY', label: `Kosong (${empty.length})` },
+                        ]}
+                      />
+                    </div>
+                    <Input.Search allowClear placeholder="Cari SKU atau nama barang" style={{ width: 260 }} onChange={(e) => setSearch(e.target.value)} />
+                  </Space>
+                  <ResponsiveTable<StockBalance>
+                    rowKey={(r) => `${r.productId}-${r.warehouseId}`}
+                    loading={balances.isLoading}
+                    dataSource={shownBal}
+                    scroll={{ x: 700 }}
+                    locale={{ emptyText: <Empty description={bal.length ? 'Tidak ada barang yang cocok dengan pilihan ini' : 'Belum ada stok. Klik Penyesuaian stok untuk mengisi stok awal.'} /> }}
+                    columns={[
+                      { title: 'SKU', dataIndex: 'sku' },
+                      { title: t('Produk'), dataIndex: 'productName' },
+                      { title: t('Gudang'), dataIndex: 'warehouseCode' },
+                      { title: 'Qty', dataIndex: 'qty', align: 'right', render: (v, r) => `${fmtQty(v)} ${r.baseUom}` },
+                      { title: 'HPP rata-rata', dataIndex: 'avgCost', align: 'right', render: fmtMoney },
+                      { title: 'Nilai', dataIndex: 'value', align: 'right', render: fmtMoney },
+                    ]}
+                  />
+                </>
               ),
             },
             {
@@ -124,12 +149,13 @@ export default function InventoryPage() {
                     options={prodOptions}
                     onChange={setProductId}
                   />
-                  <Table
+                  <ResponsiveTable<StockMove>
                     rowKey="id"
                     size="small"
                     loading={moves.isLoading}
                     dataSource={moves.data}
                     scroll={{ x: 800 }}
+                    locale={{ emptyText: <Empty description="Belum ada pergerakan stok" /> }}
                     columns={[
                       { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
                       { title: 'Dokumen', dataIndex: 'refNumber' },

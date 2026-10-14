@@ -8,6 +8,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Empty,
   Form,
   type FormInstance,
   Input,
@@ -29,6 +30,7 @@ import { LEDGER_KEYS, useAccounts, useAction, useBranches } from '@/api/queries'
 import { withBudgetOverride } from '@/lib/budgetOverride';
 import type { JournalEntry, Project, RecurringJournal } from '@/api/types';
 import { useApps } from '@/lib/apps';
+import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { t } from '@/lib/terms';
@@ -189,8 +191,21 @@ function JournalList() {
   });
   const reversedIds = new Set(journals.data?.map((j) => j.reversalOfId).filter(Boolean));
 
+  const rowsAll = journals.data ?? [];
+  const totalValue = rowsAll.reduce((a, j) => a + j.lines.reduce((b, l) => b + Number(l.debit), 0), 0);
+  const adjCount = rowsAll.filter((j) => j.sourceType === 'ADJUSTMENT').length;
+
   return (
     <>
+      {!journals.isLoading && rowsAll.length > 0 && (
+        <SummaryCards
+          items={[
+            { label: 'Jumlah jurnal', value: rowsAll.length, hint: 'sesuai pencarian di bawah' },
+            { label: 'Total nilai jurnal', value: fmtMoney(totalValue) },
+            { label: 'Jurnal penyesuaian', value: adjCount, tone: adjCount ? 'warn' : 'neutral' },
+          ]}
+        />
+      )}
       <Card>
         <Space wrap style={{ marginBottom: 12 }}>
           <Input.Search placeholder="Cari nomor / keterangan / bukti" allowClear defaultValue={filter.q} onSearch={(q) => setFilter((f) => ({ ...f, q: q || undefined }))} style={{ width: 280 }} />
@@ -221,6 +236,7 @@ function JournalList() {
           loading={journals.isLoading}
           dataSource={journals.data}
           scroll={{ x: 900 }}
+          locale={{ emptyText: <Empty description="Belum ada jurnal untuk pilihan ini" /> }}
           expandable={{
             expandedRowRender: (j) => (
               <Table
@@ -238,14 +254,15 @@ function JournalList() {
           }}
           columns={[
             { title: 'Nomor', dataIndex: 'number', width: 150 },
-            { title: 'Tanggal', dataIndex: 'date', render: fmtDate, width: 110 },
+            { title: 'Tanggal', dataIndex: 'date', render: fmtDate, width: 130 },
             { title: 'Keterangan', dataIndex: 'description' },
             { title: 'No. bukti', dataIndex: 'reference', render: (r) => r ?? <Typography.Text type="secondary">—</Typography.Text> },
             { title: 'Jenis', dataIndex: 'sourceType', render: (s: JournalSource) => <Tag color={SOURCE_COLOR[s]}>{JOURNAL_SOURCE_LABELS[s] ?? s}</Tag> },
             { title: 'Nilai', align: 'right', render: (_, j) => fmtMoney(j.lines.reduce((a, l) => a + Number(l.debit), 0)) },
             {
               title: 'Dokumen asal',
-              render: (_, j) => (j.docRoute ? <Link to={j.docRoute}>Buka dokumen</Link> : <Typography.Text type="secondary">—</Typography.Text>),
+              width: 130,
+              render: (_, j) => (j.docRoute ? <Link to={j.docRoute} style={{ whiteSpace: 'nowrap' }}>Buka dokumen</Link> : <Typography.Text type="secondary">—</Typography.Text>),
             },
             {
               render: (_, j) =>
@@ -374,6 +391,7 @@ function RecurringList() {
         loading={list.isLoading}
         dataSource={list.data}
         scroll={{ x: 900 }}
+        locale={{ emptyText: <Empty description="Belum ada jurnal berulang" /> }}
         expandable={{
           expandedRowRender: (r) => (
             <Table

@@ -1,7 +1,8 @@
 import { isForeignCurrency } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { PlusOutlined } from '@ant-design/icons';
-import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Button, Card, Empty, Form, Input, InputNumber, Modal, Segmented, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
+import dayjs from 'dayjs';
 import { useState } from 'react';
 import { useAuth } from '@/auth/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -13,10 +14,12 @@ import CashAccountSelect from '@/components/CashAccountSelect';
 import FxPaymentFields from '@/components/FxPaymentFields';
 import PageHeader from '@/layout/PageHeader';
 import { fmtCurrency, fmtDate, fmtMoney, today } from '@/lib/format';
-import { INV_STATUS_OPTIONS, InvoiceStatusTag } from '../sales/status';
+import { InvoiceStatusTag } from '../sales/status';
 import BillModal from './BillModal';
 import PriceVarianceReport from './PriceVarianceReport';
 import ResponsiveTable from '@/components/ResponsiveTable';
+import SummaryCards from '@/components/SummaryCards';
+import { DueLabel } from '@/lib/due';
 import { t } from '@/lib/terms';
 
 interface SupplierPayment {
@@ -38,7 +41,8 @@ const apOutstandingForeign = (i: PurchaseInvoice) => Number(i.totalForeign ?? 0)
 
 export default function PurchaseInvoicesPage() {
   const navigate = useNavigate();
-  const [status, setStatus] = useState<string>();
+  const [view, setView] = useState<'OPEN' | 'OVERDUE' | 'PAID' | 'ALL'>('OPEN');
+  const [search, setSearch] = useState('');
   const [paying, setPaying] = useState<PurchaseInvoice | null>(null);
   const [billOpen, setBillOpen] = useState(false);
   const [form] = Form.useForm();
@@ -48,8 +52,8 @@ export default function PurchaseInvoicesPage() {
   const [voidForm] = Form.useForm<{ reason: string }>();
 
   const invoices = useQuery({
-    queryKey: ['purchase-invoices', status],
-    queryFn: () => get<PurchaseInvoice[]>(`/purchase-invoices${qs({ status })}`),
+    queryKey: ['purchase-invoices', 'all'],
+    queryFn: () => get<PurchaseInvoice[]>(`/purchase-invoices${qs({})}`),
   });
   const aging = useQuery({ queryKey: ['purchase-invoices', 'aging'], queryFn: () => get<AgingRow[]>('/purchase-invoices/reports/ap-aging') });
   const payments = useQuery({ queryKey: ['purchase-invoices', 'payments'], queryFn: () => get<SupplierPayment[]>('/purchase-invoices/payments') });
@@ -76,14 +80,24 @@ export default function PurchaseInvoicesPage() {
   });
 
   const isOverdue = (i: PurchaseInvoice) => i.status !== 'PAID' && i.dueDate < today();
+  const all = invoices.data ?? [];
+  const open = all.filter((i) => i.status !== 'PAID');
+  const sum = (xs: PurchaseInvoice[]) => xs.reduce((a, i) => a + apOutstanding(i), 0);
+  const overdue = open.filter(isOverdue);
+  const soon = open.filter((i) => !isOverdue(i) && i.dueDate <= dayjs(today()).add(7, 'day').format('YYYY-MM-DD'));
+  const shown = all.filter((i) => {
+    const q = search.trim().toLowerCase();
+    const okView = view === 'ALL' || (view === 'OPEN' && i.status !== 'PAID') || (view === 'OVERDUE' && isOverdue(i)) || (view === 'PAID' && i.status === 'PAID');
+    return okView && (!q || `${i.number} ${i.supplierInvoiceNo} ${i.supplier.name}`.toLowerCase().includes(q));
+  });
 
   return (
     <>
       <PageHeader
         title={t('Faktur Pembelian & Hutang')}
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setBillOpen(true)}>
-            Tagihan biaya / aset
+          <Button icon={<PlusOutlined />} onClick={() => setBillOpen(true)}>
+            Catat tagihan biaya / aset
           </Button>
         }
       />
@@ -93,67 +107,85 @@ export default function PurchaseInvoicesPage() {
           items={[
             {
               key: 'list',
-              label: t('Daftar faktur'),
+              label: 'Faktur supplier',
               children: (
                 <>
-                  <Select allowClear placeholder="Semua status" style={{ width: 200, marginBottom: 12 }} options={INV_STATUS_OPTIONS} onChange={setStatus} />
+                  <SummaryCards
+                    items={[
+                      { label: 'Total hutang ke supplier', value: fmtMoney(sum(open)), hint: `${open.length} faktur belum lunas`, tone: 'neutral', onClick: () => setView('OPEN'), active: view === 'OPEN' },
+                      { label: 'Sudah lewat jatuh tempo', value: fmtMoney(sum(overdue)), hint: `${overdue.length} faktur`, tone: overdue.length ? 'bad' : 'neutral', onClick: () => setView('OVERDUE'), active: view === 'OVERDUE' },
+                      { label: 'Jatuh tempo 7 hari ke depan', value: fmtMoney(sum(soon)), hint: `${soon.length} faktur — siapkan dana`, tone: soon.length ? 'warn' : 'neutral' },
+                    ]}
+                  />
+                  <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
+                    <Segmented
+                      value={view}
+                      onChange={(v) => setView(v as typeof view)}
+                      options={[{ value: 'OPEN', label: 'Belum lunas' }, { value: 'OVERDUE', label: 'Telat' }, { value: 'PAID', label: 'Lunas' }, { value: 'ALL', label: 'Semua' }]}
+                    />
+                    <Input.Search allowClear placeholder="Cari supplier atau nomor faktur" style={{ width: 260 }} onChange={(e) => setSearch(e.target.value)} />
+                  </Space>
                   <ResponsiveTable
                     rowKey="id"
                     loading={invoices.isLoading}
-                    dataSource={invoices.data}
-                    scroll={{ x: 1250 }}
+                    dataSource={shown}
+                    scroll={{ x: 820 }}
+                    locale={{ emptyText: <Empty description={view === 'OPEN' ? 'Tidak ada hutang yang belum lunas' : 'Tidak ada faktur pada pilihan ini'} /> }}
                     columns={[
-                      { title: 'Nomor', dataIndex: 'number' },
-                      { title: t('No. faktur supplier'), dataIndex: 'supplierInvoiceNo' },
                       {
-                        title: 'Jenis',
-                        dataIndex: 'kind',
-                        render: (k, i) =>
-                          k === 'BILL' ? (
-                            <Tooltip title={i.description}>
-                              <Tag color="purple">Biaya / aset</Tag>
-                            </Tooltip>
-                          ) : k === 'OPENING' ? (
-                            <Tooltip title="Utang dari sistem lama (saldo awal)">
-                              <Tag color="gold">Saldo awal</Tag>
-                            </Tooltip>
-                          ) : Number(i.priceVariance ?? 0) !== 0 ? (
-                            <Tooltip title={`Harga faktur ${Number(i.priceVariance) > 0 ? 'lebih mahal' : 'lebih murah'} ${fmtMoney(Math.abs(Number(i.priceVariance)))} dari PO (sebelum PPN); biaya perolehan stok mengikuti faktur`}>
-                              <Tag color={Number(i.priceVariance) > 0 ? 'orange' : 'green'}>Barang · {Number(i.priceVariance) > 0 ? '+' : '−'}{fmtMoney(Math.abs(Number(i.priceVariance)))}</Tag>
-                            </Tooltip>
-                          ) : (
-                            <Tag>Barang</Tag>
-                          ),
+                        title: 'Faktur',
+                        dataIndex: 'number',
+                        render: (n: string, i: PurchaseInvoice) => (
+                          <div>
+                            <div>{n}</div>
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              {i.supplierInvoiceNo} · {fmtDate(i.date)}
+                            </Typography.Text>
+                          </div>
+                        ),
                       },
-                      { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
                       {
-                        title: 'Jatuh tempo',
-                        dataIndex: 'dueDate',
-                        render: (d, i) => (isOverdue(i) ? <Tag color="red">{fmtDate(d)}</Tag> : fmtDate(d)),
+                        title: t('Supplier'),
+                        render: (_: unknown, i: PurchaseInvoice) => (
+                          <div>
+                            <div>{i.supplier.name}</div>
+                            {i.kind === 'BILL' ? (
+                              <Tooltip title={i.description}><Tag color="purple">Biaya / aset</Tag></Tooltip>
+                            ) : i.kind === 'OPENING' ? (
+                              <Tooltip title="Utang dari sistem lama (saldo awal)"><Tag color="gold">Saldo awal</Tag></Tooltip>
+                            ) : Number(i.priceVariance ?? 0) !== 0 ? (
+                              <Tooltip title={`Harga faktur ${Number(i.priceVariance) > 0 ? 'lebih mahal' : 'lebih murah'} ${fmtMoney(Math.abs(Number(i.priceVariance)))} dari PO (sebelum PPN); biaya perolehan stok mengikuti faktur`}>
+                                <Tag color={Number(i.priceVariance) > 0 ? 'orange' : 'green'}>Harga {Number(i.priceVariance) > 0 ? 'naik' : 'turun'}</Tag>
+                              </Tooltip>
+                            ) : null}
+                          </div>
+                        ),
                       },
-                      { title: t('Supplier'), render: (_, i) => i.supplier.name },
+                      { title: 'Jatuh tempo', dataIndex: 'dueDate', render: (d: string, i: PurchaseInvoice) => <DueLabel dueDate={d} paid={i.status === 'PAID'} /> },
                       {
                         title: 'Total',
                         dataIndex: 'total',
                         align: 'right',
-                        render: (v, i) =>
+                        render: (v: string, i: PurchaseInvoice) =>
                           isForeignCurrency(i.currency) ? (
                             <>
                               {fmtMoney(v)}
                               <div style={{ fontSize: 11, color: '#64748b' }}>{fmtCurrency(i.totalForeign, i.currency)}</div>
                             </>
                           ) : Number(i.withholdingAmount ?? 0) > 0 ? (
-                            <Tooltip title={`Setelah dipotong ${i.withholdingType === 'PPH4_2' ? 'PPh 4(2)' : 'PPh 23'} ${fmtMoney(i.withholdingAmount)}`}>
-                              {fmtMoney(v)}*
-                            </Tooltip>
+                            <Tooltip title={`Setelah dipotong ${i.withholdingType === 'PPH4_2' ? 'PPh 4(2)' : 'PPh 23'} ${fmtMoney(i.withholdingAmount)}`}>{fmtMoney(v)}*</Tooltip>
                           ) : (
                             fmtMoney(v)
                           ),
                       },
-                      { title: 'Sisa hutang', align: 'right', render: (_, i) => fmtMoney(apOutstanding(i)) },
-                      { title: 'Status', dataIndex: 'status', render: (s) => <InvoiceStatusTag status={s} /> },
                       {
-                        render: (_, i) =>
+                        title: 'Sisa hutang',
+                        align: 'right',
+                        render: (_: unknown, i: PurchaseInvoice) => (i.status === 'PAID' ? <InvoiceStatusTag status={i.status} /> : <Typography.Text strong type={isOverdue(i) ? 'danger' : undefined}>{fmtMoney(apOutstanding(i))}</Typography.Text>),
+                      },
+                      {
+                        title: '',
+                        render: (_: unknown, i: PurchaseInvoice) =>
                           i.status !== 'PAID' && (
                             <Space>
                               <Button
@@ -191,7 +223,7 @@ export default function PurchaseInvoicesPage() {
             },
             {
               key: 'payments',
-              label: 'Riwayat pembayaran',
+              label: 'Riwayat bayar',
               children: (
                 <ResponsiveTable
                   rowKey="id"
@@ -236,6 +268,13 @@ export default function PurchaseInvoicesPage() {
         <Typography.Paragraph type="secondary">
           Pembayaran tidak dihapus: SANSU membuat jurnal pembalik, hutang faktur terbuka lagi, dan alasan serta pelakunya tercatat di jejak audit. Tidak bisa dibatalkan bila sudah dicocokkan dengan mutasi bank.
         </Typography.Paragraph>
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="Ini hanya mengoreksi pembukuan, bukan menarik uang kembali"
+          description="Salah catat dan uang belum keluar: batalkan, lalu bayar ulang dengan benar. Kalau uang sudah benar-benar terkirim ke supplier, jangan dibatalkan: minta pengembalian dari supplier, lalu catat sebagai Uang masuk di Kas & Bank. Membatalkan pembayaran yang uangnya sudah keluar membuat saldo di SANSU lebih besar dari saldo bank asli."
+        />
         <Form form={voidForm} layout="vertical" onFinish={(v) => voiding && doVoid.mutate({ id: voiding.id, reason: v.reason })}>
           <Form.Item name="reason" label="Alasan pembatalan" rules={[{ required: true, min: 5, message: 'Isi alasan (min. 5 karakter)' }]}>
             <Input.TextArea rows={3} maxLength={300} />

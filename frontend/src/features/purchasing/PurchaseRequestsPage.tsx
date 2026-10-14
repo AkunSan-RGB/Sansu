@@ -1,12 +1,12 @@
 import { BulbOutlined, PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Modal, Select, Space, Tag } from 'antd';
+import { Alert, Button, Modal, Select, Tag } from 'antd';
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { get, post, qs } from '@/api/client';
 import { useAction, useSuppliers, useWarehouses } from '@/api/queries';
+import ListPage from '@/components/ListPage';
 import ResponsiveTable from '@/components/ResponsiveTable';
-import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { PR_STATUS, type PurchaseRequest, type PurchaseRequestRow, type PurchaseRequestStatus, type Suggestion } from './requestTypes';
 
@@ -112,51 +112,52 @@ function SuggestionsModal({ open, onClose }: { open: boolean; onClose: () => voi
 
 export default function PurchaseRequestsPage() {
   const navigate = useNavigate();
-  const [params, setParams] = useSearchParams();
-  const status = params.get('status') ?? undefined;
   const [sug, setSug] = useState(false);
-  const { data, isLoading } = useQuery({ queryKey: ['purchase-requests', status], queryFn: () => get<PurchaseRequestRow[]>(`/purchase-requests${qs({ status })}`) });
+  const { data, isLoading } = useQuery({ queryKey: ['purchase-requests', 'all'], queryFn: () => get<PurchaseRequestRow[]>('/purchase-requests') });
   return (
     <>
-      <PageHeader
+      <ListPage<PurchaseRequestRow>
         title="Permintaan pembelian"
-        extra={
-          <Space wrap>
+        actions={
+          <>
             <Button icon={<BulbOutlined />} onClick={() => setSug(true)}>
               Usulan dari stok minimum
             </Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/purchase-requests/new')}>
               Permintaan baru
             </Button>
-          </Space>
+          </>
         }
+        rows={data}
+        loading={isLoading}
+        summary={(rows) => {
+          const waiting = rows.filter((r) => r.status === 'SUBMITTED');
+          const approved = rows.filter((r) => r.status === 'APPROVED');
+          return [
+            { label: 'Menunggu persetujuan', value: String(waiting.length), hint: 'perlu diputuskan', tone: waiting.length ? 'warn' : 'neutral' },
+            { label: 'Disetujui, belum jadi PO', value: String(approved.length), hint: 'siap dipesan ke supplier', tone: approved.length ? 'good' : 'neutral' },
+            { label: 'Masih draf', value: String(rows.filter((r) => r.status === 'DRAFT').length), hint: 'belum diajukan' },
+          ];
+        }}
+        views={[
+          { value: 'ALL', label: 'Semua', test: () => true },
+          ...(Object.keys(PR_STATUS) as PurchaseRequestStatus[]).map((k) => ({ value: k, label: PR_STATUS[k].label, test: (r: PurchaseRequestRow) => r.status === k })),
+        ]}
+        searchText={(r) => `${r.number} ${r.warehouse.name} ${r.requestedBy ?? ''}`}
+        searchPlaceholder="Cari nomor atau peminta"
+        emptyText="Belum ada permintaan pembelian"
+        onRowClick={(r) => navigate(`/purchase-requests/${r.id}`)}
+        scrollX={820}
+        columns={[
+          { title: 'Nomor', dataIndex: 'number' },
+          { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
+          { title: 'Gudang', render: (_, r) => r.warehouse.name },
+          { title: 'Peminta', dataIndex: 'requestedBy', render: (v) => v ?? '-' },
+          { title: 'Dibutuhkan', dataIndex: 'neededBy', render: (v) => (v ? fmtDate(v) : '-') },
+          { title: 'Barang', align: 'right', render: (_, r) => (r.orderedCount ? `${r.orderedCount}/${r.lineCount} dipesan` : r.lineCount) },
+          { title: 'Status', render: (_, r) => <PurchaseRequestStatusTag status={r.status} /> },
+        ]}
       />
-      <Card>
-        <Select
-          allowClear
-          placeholder="Semua status"
-          style={{ width: 240, marginBottom: 12 }}
-          value={status}
-          onChange={(v) => setParams(v ? { status: v } : {})}
-          options={Object.entries(PR_STATUS).map(([value, x]) => ({ value, label: x.label }))}
-        />
-        <ResponsiveTable
-          rowKey="id"
-          loading={isLoading}
-          dataSource={data}
-          scroll={{ x: 820 }}
-          onRow={(r) => ({ onClick: () => navigate(`/purchase-requests/${r.id}`), style: { cursor: 'pointer' } })}
-          columns={[
-            { title: 'Nomor', dataIndex: 'number' },
-            { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: 'Gudang', render: (_, r: PurchaseRequestRow) => r.warehouse.name },
-            { title: 'Peminta', dataIndex: 'requestedBy', render: (v) => v ?? '-' },
-            { title: 'Dibutuhkan', dataIndex: 'neededBy', render: (v) => (v ? fmtDate(v) : '-') },
-            { title: 'Barang', align: 'right', render: (_, r: PurchaseRequestRow) => (r.orderedCount ? `${r.orderedCount}/${r.lineCount} dipesan` : r.lineCount) },
-            { title: 'Status', render: (_, r: PurchaseRequestRow) => <PurchaseRequestStatusTag status={r.status} /> },
-          ]}
-        />
-      </Card>
       <SuggestionsModal open={sug} onClose={() => setSug(false)} />
     </>
   );

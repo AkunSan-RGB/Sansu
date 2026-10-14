@@ -9,6 +9,7 @@ import { useAction } from '@/api/queries';
 import type { Account, CompanySettings } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useApps } from '@/lib/apps';
+import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 
 type Node = Account & { children?: Node[] };
@@ -127,6 +128,15 @@ export default function AccountsPage() {
         }
       />
       <ChartProfileBar hiddenCount={unusedCount} />
+      {!isLoading && !!data?.length && (
+        <SummaryCards
+          items={[
+            { label: 'Akun terdaftar', value: data.filter((a) => !isUnused(a)).length, hint: 'sesuai jenis usaha Anda' },
+            { label: 'Akun untuk mencatat transaksi', value: data.filter((a) => !isUnused(a) && a.isPostable).length, hint: 'akun induk hanya pengelompok' },
+            { label: 'Akun tidak dipakai', value: unusedCount, tone: unusedCount ? 'warn' : 'neutral', hint: 'disembunyikan otomatis' },
+          ]}
+        />
+      )}
       <Card>
         {!isLoading && (
           <Table

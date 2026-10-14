@@ -1,12 +1,13 @@
 import { DeleteOutlined, PlusOutlined, ShoppingCartOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, InputNumber, Popconfirm, Select, Space, Statistic, Table, Tag } from 'antd';
+import { Alert, Button, Card, Empty, Input, InputNumber, Popconfirm, Segmented, Select, Space, Table, Tag } from 'antd';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Bom } from '@sansu/shared';
 import { get, post } from '@/api/client';
 import { useAction, useWarehouses } from '@/api/queries';
 import ResponsiveTable from '@/components/ResponsiveTable';
+import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtMoney } from '@/lib/format';
 
@@ -43,6 +44,8 @@ export default function MaterialRequirementsPage() {
   const boms = useQuery({ queryKey: ['production', 'boms'], queryFn: () => get<Bom[]>('/production/boms') });
   const [wh, setWh] = useState<string>();
   const [items, setItems] = useState<{ bomId?: string; batches: number }[]>([{ batches: 1 }]);
+  const [matView, setMatView] = useState<'ALL' | 'SHORT' | 'OK'>('ALL');
+  const [matQ, setMatQ] = useState('');
   const warehouseId = wh ?? warehouses?.[0]?.id;
   const valid = !!warehouseId && items.length > 0 && items.every((i) => i.bomId && i.batches > 0);
 
@@ -111,17 +114,13 @@ export default function MaterialRequirementsPage() {
         </Card>
         {r && (
           <>
-            <Space size={16} wrap>
-              <Card size="small">
-                <Statistic title="Status bahan" value={r.canProduce ? 'Cukup' : `${r.shortageCount} bahan kurang`} valueStyle={{ color: r.canProduce ? '#389e0d' : '#cf1322' }} />
-              </Card>
-              <Card size="small">
-                <Statistic title="Upah langsung standar" value={fmtMoney(r.conversion.labor)} />
-              </Card>
-              <Card size="small">
-                <Statistic title="Overhead standar" value={fmtMoney(r.conversion.overhead)} />
-              </Card>
-            </Space>
+            <SummaryCards
+              items={[
+                { label: 'Status bahan', value: r.canProduce ? 'Cukup' : `${r.shortageCount} bahan kurang`, tone: r.canProduce ? 'good' : 'bad', hint: r.canProduce ? 'siap diproduksi' : 'perlu dibeli dulu' },
+                { label: 'Upah langsung standar', value: fmtMoney(r.conversion.labor), hint: 'menurut resep' },
+                { label: 'Overhead standar', value: fmtMoney(r.conversion.overhead), hint: 'menurut resep' },
+              ]}
+            />
             {r.subAssemblies.length > 0 && (
               <Card title="Barang setengah jadi" size="small">
                 <Table
@@ -150,11 +149,26 @@ export default function MaterialRequirementsPage() {
                 )
               }
             >
+              <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
+                <div style={{ maxWidth: '100%', overflowX: 'auto' }}>
+                  <Segmented
+                    value={matView}
+                    onChange={(v) => setMatView(v as typeof matView)}
+                    options={[
+                      { value: 'ALL', label: `Semua (${r.materials.length})` },
+                      { value: 'SHORT', label: `Kurang (${r.materials.filter((m) => m.shortage > 0).length})` },
+                      { value: 'OK', label: `Cukup (${r.materials.filter((m) => m.shortage <= 0).length})` },
+                    ]}
+                  />
+                </div>
+                <Input.Search allowClear placeholder="Cari bahan" style={{ width: 220 }} onChange={(e) => setMatQ(e.target.value)} />
+              </Space>
               <ResponsiveTable
                 rowKey="productId"
                 size="small"
                 pagination={false}
-                dataSource={r.materials}
+                locale={{ emptyText: <Empty description="Tidak ada bahan pada pilihan ini" /> }}
+                dataSource={r.materials.filter((m) => (matView === 'ALL' || (matView === 'SHORT' ? m.shortage > 0 : m.shortage <= 0)) && (!matQ.trim() || `${m.sku} ${m.name}`.toLowerCase().includes(matQ.trim().toLowerCase())))}
                 scroll={{ x: 820 }}
                 columns={[
                   { title: 'Bahan', render: (_, m: Material) => `${m.sku} · ${m.name}` },

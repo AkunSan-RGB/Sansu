@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { get, post, put } from '@/api/client';
 import { useAction, useProducts, useWarehouses } from '@/api/queries';
+import ListPage from '@/components/ListPage';
 import QueryState from '@/components/QueryState';
 import { cell, DocHeader, head, PrintSheet, Signatures } from '@/components/print/Letterhead';
 import PageHeader from '@/layout/PageHeader';
@@ -68,39 +69,54 @@ export default function CountsPage() {
   const categories = [...new Set((products ?? []).map((p) => p.category).filter(Boolean))] as string[];
   return (
     <>
-      <PageHeader
+      <ListPage<CountRow>
         title="Stock opname"
-        extra={
+        actions={
           <Button type="primary" icon={<AuditOutlined />} onClick={() => setOpen(true)}>
             Mulai stock opname
           </Button>
         }
+        rows={list.data}
+        loading={list.isLoading}
+        summary={(rows) => {
+          const going = rows.filter((r) => r.status === 'DRAFT');
+          const done = rows.filter((r) => r.status === 'POSTED');
+          return [
+            { label: 'Sedang dihitung', value: String(going.length), hint: 'belum dibukukan', tone: going.length ? 'warn' : 'neutral' },
+            { label: 'Selesai', value: String(done.length), hint: 'selisih sudah dibukukan', tone: done.length ? 'good' : 'neutral' },
+            { label: 'Semua opname', value: String(rows.length), hint: 'termasuk yang dibatalkan' },
+          ];
+        }}
+        views={[
+          { value: 'ALL', label: 'Semua', test: () => true },
+          { value: 'DRAFT', label: 'Sedang dihitung', test: (r) => r.status === 'DRAFT' },
+          { value: 'POSTED', label: 'Selesai', test: (r) => r.status === 'POSTED' },
+          { value: 'CANCELLED', label: 'Dibatalkan', test: (r) => r.status === 'CANCELLED' },
+        ]}
+        searchText={(r) => `${r.number} ${r.warehouseCode} ${r.warehouseName} ${r.category ?? ''}`}
+        searchPlaceholder="Cari nomor atau gudang"
+        emptyText="Belum ada stock opname"
+        onRowClick={(r) => navigate(`/inventory/counts/${r.id}`)}
+        scrollX={820}
+        below={
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="Alur stock opname"
+            description={t('1) Mulai & cetak lembar hitung · 2) Hitung barang di gudang · 3) Isi jumlah fisik (bisa bertahap, tersimpan) · 4) Bukukan selisih: SANSU membandingkan dengan stok sistem saat itu, lalu membuat penyesuaian stok & jurnal selisih persediaan otomatis.')}
+          />
+        }
+        columns={[
+          { title: 'Nomor', dataIndex: 'number' },
+          { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
+          { title: t('Gudang'), render: (_, r) => `${r.warehouseCode} · ${r.warehouseName}` },
+          { title: 'Kategori', dataIndex: 'category', render: (v) => v ?? 'Semua' },
+          { title: 'Progres', render: (_, r) => <Progress percent={r.lines ? Math.round((r.counted / r.lines) * 100) : 0} size="small" format={() => `${r.counted}/${r.lines}`} style={{ width: 160 }} /> },
+          { title: 'Status', dataIndex: 'status', render: (s: Status) => <Tag color={STATUS[s][1]}>{STATUS[s][0]}</Tag> },
+          { title: 'Penyesuaian', dataIndex: 'adjustmentNumber', render: (v) => v ?? '-' },
+        ]}
       />
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="Alur stock opname"
-        description={t('1) Mulai & cetak lembar hitung · 2) Hitung barang di gudang · 3) Isi jumlah fisik (bisa bertahap, tersimpan) · 4) Bukukan selisih: SANSU membandingkan dengan stok sistem saat itu, lalu membuat penyesuaian stok & jurnal selisih persediaan otomatis.')}
-      />
-      <Card>
-        <Table
-          rowKey="id"
-          loading={list.isLoading}
-          dataSource={list.data}
-          scroll={{ x: 820 }}
-          onRow={(r) => ({ onClick: () => navigate(`/inventory/counts/${r.id}`), style: { cursor: 'pointer' } })}
-          columns={[
-            { title: 'Nomor', dataIndex: 'number' },
-            { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: t('Gudang'), render: (_, r) => `${r.warehouseCode} · ${r.warehouseName}` },
-            { title: 'Kategori', dataIndex: 'category', render: (v) => v ?? 'Semua' },
-            { title: 'Progres', render: (_, r) => <Progress percent={r.lines ? Math.round((r.counted / r.lines) * 100) : 0} size="small" format={() => `${r.counted}/${r.lines}`} style={{ width: 160 }} /> },
-            { title: 'Status', dataIndex: 'status', render: (s: Status) => <Tag color={STATUS[s][1]}>{STATUS[s][0]}</Tag> },
-            { title: 'Penyesuaian', dataIndex: 'adjustmentNumber', render: (v) => v ?? '-' },
-          ]}
-        />
-      </Card>
       <Modal open={open} title="Mulai stock opname" footer={null} onCancel={() => setOpen(false)} destroyOnHidden>
         <Form layout="vertical" initialValues={{ date: today(), warehouseId: warehouses?.[0]?.id }} onFinish={(v) => create.mutate(v)}>
           <Form.Item name="warehouseId" label={t('Gudang')} rules={[{ required: true }]}>

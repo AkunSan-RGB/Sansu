@@ -3,14 +3,13 @@ import { useAuth } from '@/auth/AuthContext';
 import { useApps } from '@/lib/apps';
 import { useNavigate } from 'react-router-dom';
 import { MinusCircleOutlined, FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Card, Checkbox, Form, Input, InputNumber, Modal, Space, Switch, Tag } from 'antd';
+import { Button, Checkbox, Form, Input, InputNumber, Modal, Space, Switch, Tag } from 'antd';
 import { useState } from 'react';
 import { patch, post } from '@/api/client';
 import { useAction, useProducts } from '@/api/queries';
 import type { Product } from '@/api/types';
-import PageHeader from '@/layout/PageHeader';
+import ListPage from '@/components/ListPage';
 import { fmtMoney, fmtQty } from '@/lib/format';
-import ResponsiveTable from '@/components/ResponsiveTable';
 import { t } from '@/lib/terms';
 
 interface FormValues {
@@ -30,7 +29,6 @@ export default function ProductsPage() {
   const { me } = useAuth();
   const navigate = useNavigate();
   const { data, isLoading } = useProducts();
-  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [form] = Form.useForm<FormValues>();
 
@@ -65,15 +63,12 @@ export default function ProductsPage() {
     setEditing(p);
   };
 
-  const rows = (data ?? []).filter((p) => `${p.sku} ${p.name} ${p.barcode ?? ''}`.toLowerCase().includes(search.toLowerCase()));
-
   return (
     <>
-      <PageHeader
+      <ListPage<Product>
         title={t('Produk')}
-        extra={
-          <Space wrap>
-            <Input.Search placeholder="Cari SKU / nama" allowClear onChange={(e) => setSearch(e.target.value)} />
+        actions={
+          <>
             {isAdmin && (
               <Button icon={<FileExcelOutlined />} onClick={() => navigate('/settings/import?kind=products')}>
                 Impor Excel
@@ -82,38 +77,56 @@ export default function ProductsPage() {
             <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>
               Produk baru
             </Button>
-          </Space>
+          </>
         }
+        rows={data}
+        loading={isLoading}
+        summary={(rows) => [
+          { label: `Jumlah ${t('Produk').toLowerCase()}`, value: String(rows.length), hint: `${rows.filter((p) => p.isActive).length} aktif` },
+          { label: 'Kategori', value: String(new Set(rows.map((p) => p.category).filter(Boolean)).size) },
+          { label: 'Nonaktif', value: String(rows.filter((p) => !p.isActive).length), hint: 'tidak muncul di transaksi baru' },
+        ]}
+        views={[
+          { value: 'ALL', label: 'Semua', test: () => true },
+          { value: 'ACTIVE', label: 'Aktif', test: (p) => p.isActive },
+          { value: 'OFF', label: 'Nonaktif', test: (p) => !p.isActive },
+        ]}
+        searchText={(p) => `${p.sku} ${p.name} ${p.barcode ?? ''} ${p.category ?? ''}`}
+        searchPlaceholder="Cari nama, SKU, barcode, atau kategori"
+        emptyText="Belum ada produk. Tambahkan lewat tombol di kanan atas atau impor dari Excel."
+        onRowClick={(r) => open(r)}
+        scrollX={760}
+        columns={[
+          {
+            title: 'Produk',
+            dataIndex: 'name',
+            render: (n: string, p: Product) => (
+              <div>
+                <div>{n}</div>
+                <span style={{ fontSize: 12, color: '#64748b' }}>
+                  {p.sku}
+                  {p.category ? ` · ${p.category}` : ''}
+                </span>
+              </div>
+            ),
+          },
+          {
+            title: 'Satuan',
+            render: (_: unknown, p: Product) => (
+              <Space size={4} wrap>
+                <Tag>{p.baseUom}</Tag>
+                {p.uoms.map((u) => (
+                  <Tag key={u.id} color="blue">
+                    {u.uom} = {fmtQty(u.factor)} {p.baseUom}
+                  </Tag>
+                ))}
+              </Space>
+            ),
+          },
+          { title: 'Harga jual', dataIndex: 'sellPrice', align: 'right' as const, render: fmtMoney },
+          { title: 'Status', render: (_: unknown, p: Product) => <Space size={4}>{p.isActive ? <Tag color="green">Aktif</Tag> : <Tag>Nonaktif</Tag>}{p.inventoryKind === 'SEMI' && <Tag color="purple">Setengah jadi</Tag>}</Space> },
+        ]}
       />
-      <Card>
-        <ResponsiveTable
-          rowKey="id"
-          loading={isLoading}
-          dataSource={rows}
-          scroll={{ x: 700 }}
-          onRow={(r) => ({ onClick: () => open(r), style: { cursor: 'pointer' } })}
-          columns={[
-            { title: 'SKU', dataIndex: 'sku', width: 140 },
-            { title: 'Nama', dataIndex: 'name' },
-            { title: 'Kategori', dataIndex: 'category' },
-            {
-              title: 'Satuan',
-              render: (_, p) => (
-                <Space size={4} wrap>
-                  <Tag>{p.baseUom}</Tag>
-                  {p.uoms.map((u) => (
-                    <Tag key={u.id} color="blue">
-                      {u.uom} = {fmtQty(u.factor)} {p.baseUom}
-                    </Tag>
-                  ))}
-                </Space>
-              ),
-            },
-            { title: 'Harga jual / satuan dasar', dataIndex: 'sellPrice', align: 'right', render: fmtMoney },
-            { title: 'Status', render: (_, p) => <Space size={4}>{p.isActive ? <Tag color="green">Aktif</Tag> : <Tag>Nonaktif</Tag>}{p.inventoryKind === 'SEMI' && <Tag color="purple">Setengah jadi</Tag>}</Space> },
-          ]}
-        />
-      </Card>
 
       <Modal
         title={editing === 'new' ? 'Produk baru' : 'Ubah produk'}

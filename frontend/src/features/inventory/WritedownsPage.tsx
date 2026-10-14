@@ -10,10 +10,12 @@ import {
   Button,
   Card,
   DatePicker,
+  Empty,
   Form,
   Input,
   InputNumber,
   Modal,
+  Segmented,
   Select,
   Space,
   Table,
@@ -26,6 +28,8 @@ import { get, post, qs } from '@/api/client';
 import { LEDGER_KEYS, useAction, useWarehouses } from '@/api/queries';
 import type { InventoryWritedown, StockBalance, WritedownCandidate, WritedownRecoverable } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
+import ResponsiveTable from '@/components/ResponsiveTable';
+import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
 import { t } from '@/lib/terms';
@@ -63,6 +67,8 @@ export default function WritedownsPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [draft, setDraft] = useState<{ kind: Kind; lines: Line[] } | null>(null);
   const [selectedUp, setSelectedUp] = useState<string[]>([]);
+  const [hView, setHView] = useState<'ALL' | 'WRITEDOWN' | 'REVERSAL'>('ALL');
+  const [hSearch, setHSearch] = useState('');
 
   const wh = warehouseId ?? warehouses?.[0]?.id;
   const candidates = useQuery({
@@ -128,6 +134,11 @@ export default function WritedownsPage() {
     );
   }
 
+  const hist = history.data ?? [];
+  const hTerm = hSearch.trim().toLowerCase();
+  const histShown = hist.filter(
+    (h) => (hView === 'ALL' || (hView === 'REVERSAL' ? h.kind === 'REVERSAL' : h.kind !== 'REVERSAL')) && (!hTerm || `${h.number} ${h.reason ?? ''}`.toLowerCase().includes(hTerm)),
+  );
   const potential = (candidates.data ?? []).reduce((a, r) => a + Number(r.loss), 0);
   return (
     <>
@@ -138,6 +149,13 @@ export default function WritedownsPage() {
         style={{ marginBottom: 16 }}
         message={t('Persediaan dicatat sebesar yang lebih rendah antara harga pokok dan nilai realisasi neto (SAK EP Bab 13)')}
         description={t('Nilai realisasi neto = taksiran harga jual − taksiran biaya untuk menjual. Bila lebih rendah dari harga pokok rata-rata (barang rusak, usang, kedaluwarsa, atau harga pasar turun), turunkan nilainya di sini. Selisihnya dicatat sebagai Kerugian Penurunan Nilai Persediaan (bagian beban pokok penjualan). Lakukan minimal setiap tutup buku akhir tahun.')}
+      />
+      <SummaryCards
+        items={[
+          { label: 'Barang harga jualnya di bawah harga pokok', value: String(candidates.data?.length ?? 0), hint: 'perlu dinilai ulang', tone: candidates.data?.length ? 'warn' : 'good' },
+          { label: 'Taksiran rugi', value: fmtMoney(potential), hint: 'bila nilainya diturunkan', tone: potential > 0 ? 'bad' : 'neutral' },
+          { label: 'Bisa dipulihkan', value: String(recoverable.data?.length ?? 0), hint: 'pernah diturunkan, harga naik lagi', tone: recoverable.data?.length ? 'good' : 'neutral' },
+        ]}
       />
       <Card
         title="Indikasi: harga jual di bawah harga pokok"
@@ -253,11 +271,27 @@ export default function WritedownsPage() {
       )}
 
       <Card title="Riwayat penurunan & pemulihan nilai">
-        <Table<InventoryWritedown>
+        <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
+          <div style={{ maxWidth: '100%', overflowX: 'auto' }}>
+            <Segmented
+              value={hView}
+              onChange={(v) => setHView(v as typeof hView)}
+              options={[
+                { value: 'ALL', label: `Semua (${hist.length})` },
+                { value: 'WRITEDOWN', label: `Penurunan (${hist.filter((h) => h.kind !== 'REVERSAL').length})` },
+                { value: 'REVERSAL', label: `Pemulihan (${hist.filter((h) => h.kind === 'REVERSAL').length})` },
+              ]}
+            />
+          </div>
+          <Input.Search allowClear placeholder="Cari nomor atau alasan" style={{ width: 240 }} onChange={(e) => setHSearch(e.target.value)} />
+        </Space>
+        <ResponsiveTable<InventoryWritedown>
           rowKey="id"
           size="small"
-          dataSource={history.data}
+          dataSource={histShown}
           loading={history.isLoading}
+          scroll={{ x: 820 }}
+          locale={{ emptyText: <Empty description={hist.length ? 'Tidak ada riwayat yang cocok dengan pilihan ini' : 'Belum ada penurunan atau pemulihan nilai'} /> }}
           pagination={{ pageSize: 20, hideOnSinglePage: true }}
           expandable={{
             expandedRowRender: (r) => (

@@ -1,12 +1,14 @@
 /** PPh yang dipotong pelanggan: daftar & pencatatan nomor bukti potong (syarat kredit pajak) */
 import type { WithheldByCustomerReport, WithheldByCustomerRow } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Col, Form, Input, Modal, Row, Select, Space, Statistic, Table, Tag } from 'antd';
+import { Alert, Button, Card, Empty, Form, Input, Modal, Segmented, Select, Space, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, put, qs } from '@/api/client';
 import { useAction } from '@/api/queries';
+import ResponsiveTable from '@/components/ResponsiveTable';
+import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { t } from '@/lib/terms';
@@ -17,6 +19,7 @@ export default function WithheldPage() {
   const navigate = useNavigate();
   const [year, setYear] = useState(dayjs().year());
   const [month, setMonth] = useState<number | null>(null);
+  const [view, setView] = useState<'ALL' | 'MISSING'>('ALL');
   const [slip, setSlip] = useState<WithheldByCustomerRow | null>(null);
   const period = month ? `${year}-${String(month).padStart(2, '0')}` : String(year);
   const q = useQuery({
@@ -64,42 +67,32 @@ export default function WithheldPage() {
         message={t('PPh 23 yang dipotong pelanggan adalah kredit pajak Anda')}
         description={`Nilainya mengurangi PPh Badan terutang di SPT Tahunan (dicatat di akun Pajak Dibayar Dimuka) — syaratnya ada bukti potong dari pelanggan; cocokkan dengan bukti potong di Coretax lalu catat nomornya di sini. PPh 4(2) (jasa konstruksi, sewa) bersifat final: tercatat sebagai beban PPh final dan pendapatannya dikeluarkan dari PPh tarif umum.`}
       />
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col xs={12} md={6}>
-          <Card>
-            <Statistic title="PPh 23 dipotong (kredit pajak)" value={fmtMoney(total('PPH23')?.amount)} />
-          </Card>
-        </Col>
-        <Col xs={12} md={6}>
-          <Card>
-            <Statistic
-              title="Bukti potong PPh 23 belum ada"
-              value={total('PPH23')?.missingSlips ?? 0}
-              valueStyle={{ color: total('PPH23')?.missingSlips ? '#d97706' : undefined }}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} md={6}>
-          <Card>
-            <Statistic title="PPh 4(2) final dipotong" value={fmtMoney(total('PPH4_2')?.amount)} />
-          </Card>
-        </Col>
-        <Col xs={12} md={6}>
-          <Card>
-            <Statistic
-              title="DPP terkait"
-              value={fmtMoney((q.data?.totals ?? []).reduce((a, t) => a + Number(t.base), 0))}
-            />
-          </Card>
-        </Col>
-      </Row>
+      {!q.isLoading && !!q.data?.rows.length && (
+        <SummaryCards
+          items={[
+            { label: 'PPh 23 dipotong (kredit pajak)', value: fmtMoney(total('PPH23')?.amount) },
+            { label: 'Bukti potong PPh 23 belum dicatat', value: String(total('PPH23')?.missingSlips ?? 0), tone: total('PPH23')?.missingSlips ? 'warn' : 'neutral', hint: 'perlu dicocokkan dengan Coretax' },
+            { label: 'PPh 4(2) final dipotong', value: fmtMoney(total('PPH4_2')?.amount), hint: `DPP terkait ${fmtMoney((q.data?.totals ?? []).reduce((a, x) => a + Number(x.base), 0))}` },
+          ]}
+        />
+      )}
       <Card>
-        <Table<WithheldByCustomerRow>
+        <Segmented
+          style={{ marginBottom: 12, maxWidth: '100%' }}
+          value={view}
+          onChange={(v) => setView(v as typeof view)}
+          options={[
+            { value: 'ALL', label: `Semua (${q.data?.rows.length ?? 0})` },
+            { value: 'MISSING', label: `Belum ada bukti potong (${q.data?.rows.filter((r) => !r.slipNo).length ?? 0})` },
+          ]}
+        />
+        <ResponsiveTable<WithheldByCustomerRow>
           rowKey="invoiceId"
           size="small"
           loading={q.isLoading}
-          dataSource={q.data?.rows}
-          locale={{ emptyText: 'Tidak ada faktur yang dipotong PPh pada periode ini' }}
+          dataSource={view === 'MISSING' ? q.data?.rows.filter((r) => !r.slipNo) : q.data?.rows}
+          scroll={{ x: 1000 }}
+          locale={{ emptyText: <Empty description={view === 'MISSING' ? 'Semua bukti potong sudah dicatat' : 'Tidak ada faktur yang dipotong PPh pada periode ini'} /> }}
           columns={[
             {
               title: t('Faktur'),

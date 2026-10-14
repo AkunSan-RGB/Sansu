@@ -1,14 +1,14 @@
 import { PlusOutlined } from '@ant-design/icons';
 import { PAYROLL_STATUS_LABELS, type PayrollStatus } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Form, Input, Modal, Table, Tag } from 'antd';
+import { Alert, Button, Form, Input, Modal, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { useAction } from '@/api/queries';
 import type { PayrollRun } from '@/api/types';
-import PageHeader from '@/layout/PageHeader';
+import ListPage from '@/components/ListPage';
 import { fmtDate, fmtMoney } from '@/lib/format';
 
 export const PAYROLL_COLOR: Record<PayrollStatus, string> = { DRAFT: 'default', POSTED: 'blue', PAID: 'green' };
@@ -26,9 +26,9 @@ export default function PayrollRunsPage() {
 
   return (
     <>
-      <PageHeader
+      <ListPage<PayrollRun>
         title="Penggajian"
-        extra={
+        actions={
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -41,26 +41,39 @@ export default function PayrollRunsPage() {
             Proses gaji bulan ini
           </Button>
         }
+        rows={data}
+        loading={isLoading}
+        summary={(rows) => {
+          const done = rows.filter((r) => r.status !== 'DRAFT');
+          const total = (k: 'totalGross' | 'totalNet') => done.reduce((a, r) => a + Number(r[k] ?? 0), 0);
+          return [
+            { label: 'Total gaji kotor (sudah diproses)', value: fmtMoney(total('totalGross')), hint: `${done.length} penggajian` },
+            { label: 'Total gaji bersih', value: fmtMoney(total('totalNet')), hint: 'yang diterima karyawan' },
+            { label: 'Masih draf', value: String(rows.filter((r) => r.status === 'DRAFT').length), hint: 'belum diproses', tone: rows.some((r) => r.status === 'DRAFT') ? 'warn' : 'neutral' },
+          ];
+        }}
+        views={[
+          { value: 'ALL', label: 'Semua', test: () => true },
+          { value: 'DRAFT', label: 'Draf', test: (r) => r.status === 'DRAFT' },
+          { value: 'POSTED', label: 'Belum dibayar', test: (r) => r.status === 'POSTED' },
+          { value: 'PAID', label: 'Sudah dibayar', test: (r) => r.status === 'PAID' },
+        ]}
+        searchText={(r) => `${r.number} ${r.period}`}
+        searchPlaceholder="Cari nomor atau bulan"
+        emptyText="Belum ada penggajian"
+        onRowClick={(r) => navigate(`/payroll/${r.id}`)}
+        scrollX={800}
+        columns={[
+          { title: 'Nomor', dataIndex: 'number' },
+          { title: 'Periode', dataIndex: 'period', render: (p) => dayjs(`${p}-01`).format('MMMM YYYY') },
+          { title: 'Tanggal bayar', dataIndex: 'payDate', render: fmtDate },
+          { title: 'Karyawan', render: (_, r) => r.payslips?.length ?? 0, align: 'right' },
+          { title: 'Total bruto', dataIndex: 'totalGross', align: 'right', render: (v, r) => (r.status === 'DRAFT' ? '-' : fmtMoney(v)) },
+          { title: 'PPh 21', dataIndex: 'totalPph21', align: 'right', render: (v, r) => (r.status === 'DRAFT' ? '-' : fmtMoney(v)) },
+          { title: 'Gaji bersih', dataIndex: 'totalNet', align: 'right', render: (v, r) => (r.status === 'DRAFT' ? '-' : fmtMoney(v)) },
+          { title: 'Status', dataIndex: 'status', render: (s: PayrollStatus) => <Tag color={PAYROLL_COLOR[s]}>{PAYROLL_STATUS_LABELS[s]}</Tag> },
+        ]}
       />
-      <Card>
-        <Table
-          rowKey="id"
-          loading={isLoading}
-          dataSource={data}
-          scroll={{ x: 800 }}
-          onRow={(r) => ({ onClick: () => navigate(`/payroll/${r.id}`), style: { cursor: 'pointer' } })}
-          columns={[
-            { title: 'Nomor', dataIndex: 'number' },
-            { title: 'Periode', dataIndex: 'period', render: (p) => dayjs(`${p}-01`).format('MMMM YYYY') },
-            { title: 'Tanggal bayar', dataIndex: 'payDate', render: fmtDate },
-            { title: 'Karyawan', render: (_, r) => r.payslips?.length ?? 0, align: 'right' },
-            { title: 'Total bruto', dataIndex: 'totalGross', align: 'right', render: (v, r) => (r.status === 'DRAFT' ? '-' : fmtMoney(v)) },
-            { title: 'PPh 21', dataIndex: 'totalPph21', align: 'right', render: (v, r) => (r.status === 'DRAFT' ? '-' : fmtMoney(v)) },
-            { title: 'Gaji bersih', dataIndex: 'totalNet', align: 'right', render: (v, r) => (r.status === 'DRAFT' ? '-' : fmtMoney(v)) },
-            { title: 'Status', dataIndex: 'status', render: (s: PayrollStatus) => <Tag color={PAYROLL_COLOR[s]}>{PAYROLL_STATUS_LABELS[s]}</Tag> },
-          ]}
-        />
-      </Card>
       <Modal title="Proses gaji" open={open} onCancel={() => setOpen(false)} onOk={() => form.submit()} confirmLoading={create.isPending} okText="Hitung gaji">
         <Alert
           type="info"

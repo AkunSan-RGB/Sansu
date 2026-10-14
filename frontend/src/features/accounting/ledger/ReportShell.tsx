@@ -15,6 +15,7 @@ export default function ReportShell({
   onTo,
   sheets,
   controls,
+  hint,
   children,
 }: {
   title: string;
@@ -24,6 +25,8 @@ export default function ReportShell({
   onTo: (v: string) => void;
   sheets: () => SheetSpec[] | null;
   controls?: ReactNode;
+  /** Teks bantuan singkat di atas laporan */
+  hint?: string;
   children: ReactNode;
 }) {
   const { me } = useAuth();
@@ -41,6 +44,11 @@ export default function ReportShell({
           </Space>
         }
       />
+      {hint && (
+        <Typography.Paragraph type="secondary" className="no-print" style={{ marginTop: -8 }}>
+          {hint}
+        </Typography.Paragraph>
+      )}
       <Card className="print-area">
         {controls && (
           <Space wrap className="no-print" style={{ marginBottom: 8 }}>

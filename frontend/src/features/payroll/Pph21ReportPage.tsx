@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import { useState } from 'react';
 import { get } from '@/api/client';
 import ExportButtons from '@/components/ExportButtons';
+import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtMoney } from '@/lib/format';
 import { pph21Sheets } from '@/lib/xlsx/reports';
@@ -37,6 +38,15 @@ export default function Pph21ReportPage() {
       <Typography.Paragraph type="secondary">
         Bahan pelaporan SPT Masa PPh 21 (per bulan) dan bukti potong 1721-A1 (per pegawai). Hanya penggajian yang sudah diposting.
       </Typography.Paragraph>
+      {!isLoading && !!data?.employees.length && (
+        <SummaryCards
+          items={[
+            { label: `Total PPh 21 tahun ${year}`, value: fmtMoney(data.monthly.reduce((a, m) => a + Number(m.pph21), 0)), hint: 'yang dipotong dari gaji' },
+            { label: 'Total gaji kotor', value: fmtMoney(data.monthly.reduce((a, m) => a + Number(m.gross), 0)), hint: `${data.monthly.length} bulan` },
+            { label: 'Jumlah pegawai', value: String(data.employees.length), hint: 'yang dipotong PPh 21' },
+          ]}
+        />
+      )}
       <Row gutter={[16, 16]} className="print-area">
         <Col xs={24} lg={10}>
           <Card title="Per masa pajak">
