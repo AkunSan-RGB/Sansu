@@ -12,7 +12,7 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import * as bcrypt from 'bcryptjs';
 import {
   ArrayMaxSize,
@@ -32,7 +32,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
-import { APP_KEYS, type AppKey, LEGAL_FORMS, REPORTING_FRAMEWORKS, type ReportingFramework, TAX_SCHEMES, VAT_ROUNDINGS, type VatRounding } from '@sansu/shared';
+import { APP_KEYS, type AppKey, LEGAL_FORMS, RECIPE_TERMS, REPORTING_FRAMEWORKS, type ReportingFramework, TAX_SCHEMES, VAT_ROUNDINGS, type VatRounding } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -118,6 +118,10 @@ export class BrandingDto {
   @IsString()
   @MaxLength(500)
   invoiceNote?: string;
+}
+
+export class TermsSettingsDto {
+  @ApiProperty({ enum: RECIPE_TERMS }) @IsIn(RECIPE_TERMS as unknown as string[]) recipe: string;
 }
 
 export class ReportingSettingsDto {
@@ -289,6 +293,11 @@ export class PlatformService {
     return this.letterhead(actor.tenantId);
   }
 
+  async updateTerms(actor: AuthUser, dto: TermsSettingsDto) {
+    await this.settings.saveSection(this.db, actor.tenantId, 'terms', { recipe: 'Resep' }, { recipe: dto.recipe });
+    return { recipe: dto.recipe };
+  }
+
   async updateReporting(actor: AuthUser, dto: ReportingSettingsDto) {
     await this.settings.saveReporting(this.db, actor.tenantId, dto);
     // Standar pelaporan berubah (SAK EP ↔ EMKM): akun yang tidak relevan (mis. pajak tangguhan) mengikuti otomatis
@@ -358,6 +367,12 @@ export class PlatformController {
   @Patch('settings/branding')
   updateBranding(@CurrentUser() u: AuthUser, @Body() dto: BrandingDto) {
     return this.svc.updateBranding(u, dto);
+  }
+
+  @Roles('ADMIN')
+  @Patch('settings/terms')
+  updateTerms(@CurrentUser() u: AuthUser, @Body() dto: TermsSettingsDto) {
+    return this.svc.updateTerms(u, dto);
   }
 
   @Roles('ADMIN', 'FINANCE')

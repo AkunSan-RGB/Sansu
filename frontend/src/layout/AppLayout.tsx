@@ -146,7 +146,7 @@ const MENU: Group[] = [
       { key: '/production/orders', label: 'Perintah produksi' },
       { key: '/production/report', label: 'Harga pokok produksi' },
       { key: '/production/variance', label: 'Analisis selisih', models: ['MANUFAKTUR'] },
-      { section: 'Data', items: [{ key: '/production/boms', label: 'Resep (BOM)' }] },
+      { section: 'Data', items: [{ key: '/production/boms', label: t('Resep (BOM)') }] },
     ],
   },
 

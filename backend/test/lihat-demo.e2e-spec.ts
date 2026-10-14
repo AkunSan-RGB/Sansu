@@ -104,3 +104,26 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(old, 'journal_entries')).toBe(0);
   });
 });
+
+describe('Sebutan Resep per industri (e2e)', () => {
+  let app: INestApplication;
+  let http: ReturnType<typeof request>;
+  beforeAll(async () => {
+    const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = configureApp(mod.createNestApplication());
+    await app.init();
+    http = request(app.getHttpServer());
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('ADMIN dapat mengganti sebutan Resep; /auth/me ikut berubah; nilai di luar daftar ditolak', async () => {
+    const r = await http.post('/api/demo/start').send({ businessModel: 'MANUFAKTUR' }).expect(200);
+    const auth = { Authorization: `Bearer ${r.body.accessToken}` };
+    expect((await http.get('/api/auth/me').set(auth)).body.recipeTerm).toBe('Resep');
+    await http.patch('/api/settings/terms').set(auth).send({ recipe: 'Bill of Materials' }).expect(200);
+    expect((await http.get('/api/auth/me').set(auth)).body.recipeTerm).toBe('Bill of Materials');
+    await http.patch('/api/settings/terms').set(auth).send({ recipe: 'Ngawur' }).expect(400);
+  });
+});
