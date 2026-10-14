@@ -67,6 +67,44 @@ const FLAVOR: Record<string, {
 };
 const flavorOf = (c: Demo) => FLAVOR[c.model] ?? FLAVOR.DAGANG;
 
+/** Pola operasi persediaan dan kehadiran yang khas tiap jenis usaha (isi, jumlah kejadian, dan jenisnya berbeda) */
+type Ops = {
+  warehouse2: string; transfers: { mode: 'IN_TRANSIT' | 'DIRECT'; qty: string; ago: number; notes: string }[]; countNote: string; shortages: number[];
+  writedown: [number, string] | null; salesReturn: [string, string]; purchaseReturn: [string, string]; poQty: string; poPrice: string; requestNote: string; requestQty: string;
+  sick: number; checkIn: [number, number]; checkOut: [number, number]; overtime: number; days: number; leave: [string, string];
+};
+const OPS: Record<string, Ops> = {
+  RITEL: {
+    warehouse2: 'Rak Display Toko 2',
+    transfers: [{ mode: 'DIRECT', qty: '24', ago: 21, notes: 'Isi ulang rak toko cabang' }, { mode: 'DIRECT', qty: '12', ago: 14, notes: 'Tambahan barang promo akhir pekan' }, { mode: 'DIRECT', qty: '18', ago: 7, notes: 'Pindah barang laris ke rak kasir' }],
+    countNote: 'Opname rak dan gudang belakang (cek harian kasir)', shortages: [3, 1, 2], writedown: [0.8, 'Barang mendekati kedaluwarsa, harga jual diturunkan'],
+    salesReturn: ['Kemasan rusak, pembeli minta tukar', '1'], purchaseReturn: ['Barang mendekati kedaluwarsa saat diterima', '6'], poQty: '48', poPrice: '8000', requestNote: 'Stok rak cepat habis saat akhir pekan', requestQty: '60',
+    sick: 0.03, checkIn: [8, 9], checkOut: [17, 21], overtime: 1, days: 12, leave: ['Libur keluarga', 'Menghadiri acara keluarga'],
+  },
+  DAGANG: {
+    warehouse2: 'Gudang Cabang Proyek',
+    transfers: [{ mode: 'IN_TRANSIT', qty: '40', ago: 20, notes: 'Pasok material ke gudang dekat proyek (dikirim truk)' }, { mode: 'DIRECT', qty: '15', ago: 8, notes: 'Pindah sisa stok untuk pesanan kontraktor' }],
+    countNote: 'Opname gudang menjelang akhir bulan', shortages: [2], writedown: [0.9, 'Stok lama bergeser model, harga pasar turun'],
+    salesReturn: ['Barang salah ukuran, dikembalikan kontraktor', '5'], purchaseReturn: ['Material retak saat bongkar muat', '10'], poQty: '100', poPrice: '55000', requestNote: 'Persediaan menipis, proyek besar bulan depan', requestQty: '120',
+    sick: 0.04, checkIn: [7, 8], checkOut: [16, 17], overtime: 0, days: 10, leave: ['Cuti tahunan', 'Mengurus keperluan keluarga'],
+  },
+  PRODUKSI: {
+    warehouse2: 'Gudang Bahan Cadangan',
+    transfers: [{ mode: 'IN_TRANSIT', qty: '15', ago: 22, notes: 'Pindah kain ke area potong' }, { mode: 'IN_TRANSIT', qty: '8', ago: 12, notes: 'Pindah aksesori ke area jahit' }],
+    countNote: 'Opname bahan baku sebelum produksi besar', shortages: [1, 0, 1], writedown: [0.85, 'Kain sisa model lama, nilai diturunkan'],
+    salesReturn: ['Jahitan tidak rapi, pembeli minta perbaikan', '2'], purchaseReturn: ['Warna kain tidak sesuai contoh', '3'], poQty: '60', poPrice: '35000', requestNote: 'Bahan untuk pesanan seragam bulan depan', requestQty: '80',
+    sick: 0.05, checkIn: [7, 7], checkOut: [16, 18], overtime: 2, days: 12, leave: ['Cuti tahunan', 'Pulang kampung'],
+  },
+  MANUFAKTUR: {
+    warehouse2: 'Gudang Barang Jadi',
+    transfers: [{ mode: 'IN_TRANSIT', qty: '10', ago: 19, notes: 'Pindah bahan ke gudang produksi' }],
+    countNote: 'Opname bahan dan komponen pabrik', shortages: [2, 1], writedown: null,
+    salesReturn: ['Cacat finishing, ditukar baru', '1'], purchaseReturn: ['Kadar air kayu melebihi standar', '4'], poQty: '30', poPrice: '120000', requestNote: 'Bahan untuk pesanan hotel kuartal depan', requestQty: '50',
+    sick: 0.04, checkIn: [7, 8], checkOut: [16, 17], overtime: 3, days: 10, leave: ['Cuti tahunan', 'Keperluan keluarga'],
+  },
+};
+const opsOf = (c: Demo) => OPS[c.model] ?? OPS.DAGANG;
+
 const periodAgo = (c: Demo, monthsBack: number) => {
   const d = new Date(`${c.today.slice(0, 7)}-01T00:00:00Z`);
   d.setUTCMonth(d.getUTCMonth() - monthsBack);
@@ -251,8 +289,9 @@ export async function attendance(c: Demo) {
   const { employees } = await import('../../db/schema');
   const emp = await c.db.select().from(employees).where(eq(employees.tenantId, c.tenantId));
   if (!emp.length) return;
+  const o = opsOf(c);
   let done = 0;
-  for (let n = 1; n <= 16 && done < 10; n++) {
+  for (let n = 1; n <= 20 && done < o.days; n++) {
     const d = c.ago(n);
     const wd = new Date(`${d}T00:00:00Z`).getUTCDay();
     if (wd === 0 || wd === 6) continue;
@@ -262,14 +301,14 @@ export async function attendance(c: Demo) {
         date: d,
         rows: emp.map((e) => {
           const x = c.rnd();
-          const st = x < 0.04 ? 'SAKIT' : 'HADIR';
-          return { employeeId: e.id, status: st, checkIn: st === 'HADIR' ? `0${c.int(7, 8)}:${String(c.int(0, 59)).padStart(2, '0')}` : undefined, checkOut: st === 'HADIR' ? `17:${String(c.int(0, 59)).padStart(2, '0')}` : undefined, overtimeHours: '0' };
+          const st = x < o.sick ? 'SAKIT' : 'HADIR';
+          return { employeeId: e.id, status: st, checkIn: st === 'HADIR' ? `0${c.int(o.checkIn[0], o.checkIn[1])}:${String(c.int(0, 59)).padStart(2, '0')}` : undefined, checkOut: st === 'HADIR' ? `${c.int(o.checkOut[0], o.checkOut[1])}:${String(c.int(0, 59)).padStart(2, '0')}` : undefined, overtimeHours: st === 'HADIR' && o.overtime && c.rnd() < 0.3 ? String(o.overtime) : '0' };
         }),
       } as never),
     );
   }
-  const lv = (await c.step('ajukan cuti', () => c.svc.hr.createLeave(c.admin as never, { employeeId: emp[0].id, type: 'ANNUAL', startDate: c.ago(30), endDate: c.ago(28), reason: 'Cuti tahunan' } as never))) as { id: string } | undefined;
-  await c.step('cuti menunggu persetujuan', () => c.svc.hr.createLeave(c.admin as never, { employeeId: emp[emp.length > 1 ? 1 : 0].id, type: 'ANNUAL', startDate: addDays(c.today, 6), endDate: addDays(c.today, 8), reason: 'Acara keluarga' } as never));
+  const lv = (await c.step('ajukan cuti', () => c.svc.hr.createLeave(c.admin as never, { employeeId: emp[0].id, type: 'ANNUAL', startDate: c.ago(30), endDate: c.ago(28), reason: o.leave[0] } as never))) as { id: string } | undefined;
+  await c.step('cuti menunggu persetujuan', () => c.svc.hr.createLeave(c.admin as never, { employeeId: emp[emp.length > 1 ? 1 : 0].id, type: 'ANNUAL', startDate: addDays(c.today, 6), endDate: addDays(c.today, 8), reason: o.leave[1] } as never));
   if (lv) await c.step('setujui cuti', () => c.svc.hr.decideLeave(c.admin as never, lv.id, { decision: 'APPROVED' } as never));
 }
 
@@ -301,44 +340,47 @@ export async function crm(c: Demo, customerId: string, productId: string, items:
 
 /** Gudang kedua + transfer barang (tiba kemudian), opname stok, retur penjualan & pembelian, penerimaan barang, permintaan beli */
 export async function stockOps(c: Demo, ids: Map<string, string>, skus: string[], opts: { saleInvoiceId?: string; billId?: string; supplierId?: string }) {
-  const [wh2] = await c.db.insert(warehouses).values({ tenantId: c.tenantId, code: 'GD-2', name: 'Gudang Cabang / Toko 2' }).returning();
-  const items = skus.slice(0, 3).map((s) => ({ productId: ids.get(s)!, qty: '10' }));
-  const tr = (await c.step('transfer barang', () => c.svc.ops.createTransfer(c.admin as never, { fromWarehouseId: c.wh, toWarehouseId: wh2.id, date: c.ago(20), mode: 'IN_TRANSIT', notes: 'Pasok stok gudang kedua', lines: items } as never))) as { id: string } | undefined;
-  if (tr) await c.step('terima transfer', () => c.svc.ops.receiveTransfer(c.admin as never, tr.id, { date: c.ago(18) } as never));
-  await c.step('transfer langsung', () => c.svc.ops.createTransfer(c.admin as never, { fromWarehouseId: c.wh, toWarehouseId: wh2.id, date: c.ago(8), mode: 'DIRECT', notes: 'Tambahan stok', lines: skus.slice(3, 5).filter((s) => ids.get(s)).map((s) => ({ productId: ids.get(s)!, qty: '5' })) } as never));
+  const o = opsOf(c);
+  const [wh2] = await c.db.insert(warehouses).values({ tenantId: c.tenantId, code: 'GD-2', name: o.warehouse2 }).returning();
+  for (const [i, t] of o.transfers.entries()) {
+    const lines = skus.slice(i, i + 3).filter((k) => ids.get(k)).map((k) => ({ productId: ids.get(k)!, qty: t.qty }));
+    const tr = (await c.step(`transfer barang ${i + 1}`, () => c.svc.ops.createTransfer(c.admin as never, { fromWarehouseId: c.wh, toWarehouseId: wh2.id, date: c.ago(t.ago), mode: t.mode, notes: t.notes, lines } as never))) as { id: string } | undefined;
+    if (tr && t.mode === 'IN_TRANSIT') await c.step(`terima transfer ${i + 1}`, () => c.svc.ops.receiveTransfer(c.admin as never, tr.id, { date: c.ago(t.ago - 2) } as never));
+  }
   // opname stok di gudang utama: dua barang berselisih
-  const cnt = (await c.step('opname stok', () => c.svc.ops.createCount(c.admin as never, { warehouseId: c.wh, date: c.ago(5), notes: 'Opname bulanan' } as never))) as { id: string; lines?: { productId: string; systemQty: string }[] } | undefined;
+  const cnt = (await c.step('opname stok', () => c.svc.ops.createCount(c.admin as never, { warehouseId: c.wh, date: c.ago(5), notes: o.countNote } as never))) as { id: string; lines?: { productId: string; systemQty: string }[] } | undefined;
   if (cnt) {
     const full = (await c.svc.ops.getCount(c.admin as never, cnt.id)) as { lines: { productId: string; systemQty: string }[] };
-    const lines = full.lines.slice(0, 8).map((l, i) => ({ productId: l.productId, countedQty: String(Math.max(0, Number(l.systemQty) - (i === 1 ? 2 : 0))) }));
+    const lines = full.lines.slice(0, 8).map((l, i) => ({ productId: l.productId, countedQty: String(Math.max(0, Number(l.systemQty) - (o.shortages[i] ?? 0))) }));
     await c.step('isi hasil opname', () => c.svc.ops.updateCount(c.admin as never, cnt.id, { lines } as never));
     await c.step('posting opname', () => c.svc.ops.postCount(c.admin as never, cnt.id));
   }
   // penurunan nilai persediaan: satu barang diturunkan 15% dari biaya rata-rata (harga pasar turun)
   const bal = await c.db.execute<{ product_id: string; avg_cost: string }>(sql`SELECT product_id, avg_cost FROM stock_balances WHERE tenant_id = ${c.tenantId} AND warehouse_id = ${c.wh} AND qty > 0 AND product_id = ${ids.get(skus[0])!} LIMIT 1`);
-  if (bal.rows[0]) {
+  if (bal.rows[0] && o.writedown) {
+    const wd = o.writedown;
     await c.step('penurunan nilai persediaan', () =>
-      c.svc.writedown.create(c.admin as never, { date: c.ago(4), warehouseId: c.wh, reason: 'Harga pasar turun di bawah harga pokok', lines: [{ productId: bal.rows[0].product_id, newCost: String(Math.floor(Number(bal.rows[0].avg_cost) * 0.85)) }] } as never),
+      c.svc.writedown.create(c.admin as never, { date: c.ago(4), warehouseId: c.wh, reason: wd[1], lines: [{ productId: bal.rows[0].product_id, newCost: String(Math.floor(Number(bal.rows[0].avg_cost) * wd[0])) }] } as never),
     );
   }
   if (opts.saleInvoiceId) {
     const inv = (await c.svc.inv.get(c.tenantId, opts.saleInvoiceId)) as { lines: { id: string }[] };
-    if (inv.lines[0]) await c.step('retur penjualan', () => c.svc.returns.createSales(c.admin as never, { invoiceId: opts.saleInvoiceId!, date: c.ago(2), reason: 'Barang rusak saat pengiriman', lines: [{ invoiceLineId: inv.lines[0].id, qty: '1' }] } as never));
+    if (inv.lines[0]) await c.step('retur penjualan', () => c.svc.returns.createSales(c.admin as never, { invoiceId: opts.saleInvoiceId!, date: c.ago(2), reason: o.salesReturn[0], lines: [{ invoiceLineId: inv.lines[0].id, qty: o.salesReturn[1] }] } as never));
   }
   if (opts.billId) {
     const bill = (await c.svc.pi.get(c.tenantId, opts.billId)) as { lines: { id: string }[] };
-    if (bill.lines[0]) await c.step('retur pembelian', () => c.svc.returns.createPurchase(c.admin as never, { invoiceId: opts.billId!, date: c.ago(1), reason: 'Kualitas tidak sesuai pesanan', lines: [{ invoiceLineId: bill.lines[0].id, qty: '1' }] } as never));
+    if (bill.lines[0]) await c.step('retur pembelian', () => c.svc.returns.createPurchase(c.admin as never, { invoiceId: opts.billId!, date: c.ago(1), reason: o.purchaseReturn[0], lines: [{ invoiceLineId: bill.lines[0].id, qty: o.purchaseReturn[1] }] } as never));
   }
   // penerimaan barang dari PO (belum difakturkan) + permintaan beli
   if (opts.supplierId) {
     const po = (await c.step('PO untuk penerimaan', async () => {
-      const r = await c.svc.po.create(c.admin as never, { supplierId: opts.supplierId, warehouseId: c.wh, date: c.ago(6), lines: skus.slice(0, 2).map((s) => ({ productId: ids.get(s)!, qty: '20', price: '10000' })) } as never);
+      const r = await c.svc.po.create(c.admin as never, { supplierId: opts.supplierId, warehouseId: c.wh, date: c.ago(6), lines: skus.slice(0, 2).map((s) => ({ productId: ids.get(s)!, qty: o.poQty, price: o.poPrice })) } as never);
       await c.svc.po.confirm(c.admin as never, r.id);
       return r;
     })) as { id: string } | undefined;
     if (po) await c.step('terima barang', () => c.svc.grn.receive(c.admin as never, po.id, { date: c.ago(4), supplierDeliveryNo: `SJ-${c.int(1000, 9999)}` }));
     const pr = (await c.step('permintaan beli', () =>
-      c.svc.prq.create(c.admin as never, { warehouseId: c.wh, date: c.ago(3), neededBy: addDays(c.today, 7), notes: 'Stok mulai menipis', submit: true, lines: skus.slice(0, 2).map((s) => ({ productId: ids.get(s)!, qty: '30', supplierId: opts.supplierId })) } as never),
+      c.svc.prq.create(c.admin as never, { warehouseId: c.wh, date: c.ago(3), neededBy: addDays(c.today, 7), notes: o.requestNote, submit: true, lines: skus.slice(0, 2).map((s) => ({ productId: ids.get(s)!, qty: o.requestQty, supplierId: opts.supplierId })) } as never),
     )) as { id: string } | undefined;
     void pr;
   }
