@@ -49,7 +49,9 @@ export class PostingService {
   ) {}
 
   async post(tx: Tx, input: PostJournalInput) {
-    await this.period.assertOpen(tx, input.tenantId, input.date);
+    // Jurnal penutup tahun hanya memindahkan saldo pendapatan/beban ke Laba Ditahan (laporan laba rugi mengabaikannya), jadi boleh
+    // dibuat sesudah periodenya dikunci; tanpa pengecualian ini kunci periode otomatis menghalangi tutup buku.
+    if (input.sourceType !== 'CLOSING') await this.period.assertOpen(tx, input.tenantId, input.date);
     const accountIds = await this.resolveAccounts(tx, input.tenantId, input.lines);
 
     let normalized;

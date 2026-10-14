@@ -541,11 +541,25 @@ export class HealthService {
     const nRole = (r: string) => roleRows.find((x) => x.role === r)?.n ?? 0;
     const sod =
       nRole('FINANCE') > 0 && nRole('ACCOUNTANT') === 0
-        ? { status: 'WARN' as const, message: 'Ada pengguna Keuangan tetapi belum ada Akuntan. Jurnal manual, kunci periode, tutup buku, dan penyusutan kini hanya bisa dikerjakan Pemilik/Admin, dan posting gaji hanya Pemilik. Tetapkan peran Akuntan bagi yang bertugas membukukan.' }
+        ? { status: 'INFO' as const, message: 'Belum ada pengguna Akuntan: Pemilik/Admin bertindak sebagai akuntan (jurnal manual, kunci periode, tutup buku, posting gaji) dan sistem mengerjakan pembukuan rutin otomatis. Tetapkan peran Akuntan bila tim bertambah agar pemegang uang dan pembukuan terpisah.' }
         : nRole('FINANCE') > 0
           ? { status: 'OK' as const, message: 'Pemegang uang (Keuangan) dan pembukuan (Akuntan) dipegang orang berbeda' }
-          : { status: 'INFO' as const, message: nRole('ACCOUNTANT') > 0 ? 'Belum ada pengguna Keuangan: uang dipegang Pemilik/Admin, pembukuan oleh Akuntan.' : 'Pemilik/Admin memegang uang sekaligus pembukuan. Wajar untuk usaha kecil; tambahkan peran Keuangan dan Akuntan saat tim bertambah.' };
+          : { status: 'INFO' as const, message: nRole('ACCOUNTANT') > 0 ? 'Belum ada pengguna Keuangan: uang dipegang Pemilik/Admin, pembukuan oleh Akuntan.' : 'Pemilik/Admin memegang uang sekaligus pembukuan. Wajar untuk usaha kecil; sistem mengerjakan pembukuan rutin otomatis. Tambahkan peran Keuangan dan Akuntan saat tim bertambah.' };
     checks.push({ key: 'sod-roles', category: 'Kepatuhan', title: 'Pemisahan fungsi: Keuangan dan Akuntan', ...sod, link: '/settings/users' });
+    // pekerjaan pembukuan rutin yang dikerjakan sistem (Pengaturan › Pembukuan otomatis)
+    const [autoRow] = await q<{ a: Record<string, unknown> | null }>(sql`SELECT settings->'autoBookkeeping' AS a FROM tenants WHERE id = ${tenantId}`);
+    const auto = { payroll: true, fx: true, lock: false, closeYear: false, ...(autoRow?.a ?? {}) } as Record<string, boolean>;
+    const manual = [!auto.lock && 'kunci periode', !auto.closeYear && 'tutup buku'].filter(Boolean) as string[];
+    checks.push({
+      key: 'auto-bookkeeping',
+      category: 'Kepatuhan',
+      title: 'Pembukuan otomatis',
+      status: manual.length && nRole('ACCOUNTANT') === 0 ? 'INFO' : 'OK',
+      message: manual.length
+        ? `Otomatis: penyusutan, jurnal berulang${auto.payroll ? ', posting gaji' : ''}${auto.fx ? ', penilaian ulang valas' : ''}. Belum otomatis: ${manual.join(' dan ')}${nRole('ACCOUNTANT') === 0 ? ' (tanpa Akuntan, sebaiknya dinyalakan di Pengaturan › Pembukuan otomatis)' : ''}.`
+        : 'Penyusutan, jurnal berulang, posting gaji, penilaian ulang valas, kunci periode, dan tutup buku berjalan otomatis',
+      link: '/closing',
+    });
     // peran yang saling mengawasi tidak boleh sekadar dipertukarkan orang yang sama (menutupi penyimpangan)
     const hops = await q<{ name: string; from: string; to: string; at: string }>(sql`
       SELECT u.name, a.data->>'previousRole' AS "from", a.data->>'role' AS "to", to_char(a.created_at AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM-DD') AS at

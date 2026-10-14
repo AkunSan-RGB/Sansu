@@ -489,7 +489,7 @@ export class PayrollController {
   remove(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.deleteRun(u, id);
   }
-  @Roles('ACCOUNTANT')
+  @Roles('ACCOUNTANT', 'ADMIN')
   @Post('runs/:id/post')
   post(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.post(u, id);
@@ -526,5 +526,6 @@ export class PayrollController {
   imports: [AccountingModule],
   controllers: [PayrollController],
   providers: [PayrollService],
+  exports: [PayrollService],
 })
 export class PayrollModule {}

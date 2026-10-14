@@ -188,6 +188,25 @@ export const HELP_ARTICLES: HelpArticle[] = [
     link: { label: 'Buka Pesanan online', to: '/pos/online' },
   },
   {
+    id: 'pembukuan-otomatis',
+    category: 'Akuntansi & Pajak',
+    title: 'Keuangan vs Akuntan, dan pembukuan otomatis',
+    summary: 'Yang memegang uang tidak membukukan, yang membukukan tidak memegang uang. Tanpa Akuntan pun pembukuan rutin dikerjakan sistem.',
+    paths: ['/closing', '/settings/users'],
+    steps: [
+      'Keuangan: kas & bank, pembayaran, setor pajak, bayar gaji. Akuntan: jurnal manual, bagan akun, aset, tutup buku, posting gaji. Pemilik dan Admin memegang keduanya.',
+      'Belum punya Akuntan? Pemilik/Admin dianggap akuntan. Sistem sudah otomatis menyusutkan aset, memposting jurnal berulang dan jurnal gaji, serta menilai ulang valas akhir bulan.',
+      'Buka Tutup Buku › Pembukuan otomatis, klik Nyalakan semua untuk menambah kunci periode otomatis dan tutup buku tahunan.',
+      'Bila tim bertambah, buka Pengaturan › Pengguna dan tetapkan peran Akuntan.',
+    ],
+    tips: [
+      'Jangan menetapkan orang yang sama memegang uang dan membukukan. Perpindahan Keuangan ↔ Akuntan ditandai di Cek kesehatan.',
+      'Semua pekerjaan otomatis tercatat di jejak audit dengan awalan AUTO.',
+    ],
+    keywords: 'akuntan keuangan pemisahan fungsi otomatis kunci periode tutup buku gaji penyusutan valas',
+    link: { label: 'Buka Tutup Buku', to: '/closing' },
+  },
+  {
     id: 'pb1',
     category: 'Pajak',
     title: 'Pajak restoran daerah (PB1/PBJT)',

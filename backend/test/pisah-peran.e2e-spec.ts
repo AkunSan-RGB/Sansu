@@ -41,13 +41,13 @@ describe('Peralihan ke peran Akuntan (e2e)', () => {
 
   let finId: string;
   let finEmail: string;
-  it('ada Keuangan tetapi belum ada Akuntan: Cek kesehatan memberi peringatan dan Keuangan tidak bisa membukukan', async () => {
+  it('ada Keuangan tetapi belum ada Akuntan: Pemilik/Admin dianggap akuntan (informasi) dan Keuangan tidak bisa membukukan', async () => {
     const fin = await addUser('Fina', 'FINANCE');
     finId = fin.id;
     finEmail = fin.email;
     const c = await health('sod-roles');
-    expect(c.status).toBe('WARN');
-    expect(c.message).toMatch(/belum ada Akuntan/);
+    expect(c.status).toBe('INFO');
+    expect(c.message).toMatch(/Belum ada pengguna Akuntan: Pemilik\/Admin bertindak sebagai akuntan/);
     const t = await login(fin.email, 'rahasia123');
     const r = await http.post('/api/accounting/journals').set(as(t)).send({}).expect(403);
     expect(r.body.message).toMatch(/Keuangan/);
