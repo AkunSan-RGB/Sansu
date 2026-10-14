@@ -21,10 +21,10 @@ export default function PurchaseOrdersPage() {
       title={t('Purchase Order')}
       actions={
         <>
-          <Button type={me?.businessModel === 'RITEL' ? 'primary' : 'default'} icon={<ThunderboltOutlined />} onClick={() => navigate('/purchase-orders/quick')}>
+          <Button type={me?.businessModel === 'RITEL' || me?.businessModel === 'FNB' ? 'primary' : 'default'} icon={<ThunderboltOutlined />} onClick={() => navigate('/purchase-orders/quick')}>
             Pembelian cepat
           </Button>
-          <Button type={me?.businessModel === 'RITEL' ? 'default' : 'primary'} icon={<PlusOutlined />} onClick={() => navigate('/purchase-orders/new')}>
+          <Button type={me?.businessModel === 'RITEL' || me?.businessModel === 'FNB' ? 'default' : 'primary'} icon={<PlusOutlined />} onClick={() => navigate('/purchase-orders/new')}>
             PO baru
           </Button>
         </>

@@ -102,6 +102,19 @@ export const REPORT_TERMS: Record<BusinessModel, ReportTerms> = {
     payableNote: PAYABLE('pemasok bahan baku, bahan penolong, dan barang'),
     recognitionPolicy: TRADING_RECOGNITION,
   },
+  FNB: {
+    revenueLabel: 'Pendapatan usaha',
+    cogsLabel: 'Beban pokok penjualan',
+    activity: 'penyediaan makanan dan minuman (kafe, restoran, katering) yang diolah dari bahan dan dijual kepada konsumen',
+    revenueSource: 'penjualan makanan dan minuman',
+    revenueNote: 'Seluruh pendapatan berasal dari penjualan makanan dan minuman kepada konsumen, terutama melalui kasir outlet, di dalam negeri.',
+    receivableNote: 'Piutang usaha seluruhnya dalam Rupiah dan berasal dari penjualan secara kredit (mis. katering) serta pembayaran digital yang belum dicairkan.',
+    inventoryNote: 'Persediaan terdiri dari bahan makanan dan minuman, bahan penolong dan kemasan, serta barang setengah jadi (mis. saus dan adonan).',
+    cogsNote: 'Beban pokok penjualan dihitung dari biaya bahan sesuai resep atas menu yang terjual, ditambah bahan terbuang (basi, kedaluwarsa, tumpah) pada periode terjadinya.',
+    payableNote: PAYABLE('pemasok bahan makanan dan minuman'),
+    recognitionPolicy:
+      'Pendapatan dari penjualan makanan dan minuman diakui pada saat pesanan diserahkan kepada pembeli di kasir dan pembayaran diterima, sebesar nilai wajar imbalan setelah dikurangi retur dan potongan. Bahan terpakai diakui sebagai beban pokok penjualan pada saat menu terjual. Selisih kas kasir diakui sebagai beban pada periode terjadinya. Beban diakui pada saat terjadinya (dasar akrual).',
+  },
 };
 
 /** Teks kegiatan usaha bawaan semua model — dipakai mengenali bahwa pengguna belum mengubahnya */

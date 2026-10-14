@@ -98,7 +98,8 @@ export class OnboardingService {
                 AND (j.source_type = 'OPENING' OR (j.source_type = 'STOCK_ADJUSTMENT' AND j.description LIKE '%(OPENING)%'))) AS opening,
         (SELECT COUNT(*) FROM users x WHERE x.tenant_id = t.id AND x.is_active)::int AS users,
         (EXISTS (SELECT 1 FROM invoices i WHERE i.tenant_id = t.id) OR EXISTS (SELECT 1 FROM pos_orders o WHERE o.tenant_id = t.id)) AS sale,
-        EXISTS (SELECT 1 FROM production_orders po WHERE po.tenant_id = t.id AND po.status = 'COMPLETED') AS production,
+        (EXISTS (SELECT 1 FROM production_orders po WHERE po.tenant_id = t.id AND po.status = 'COMPLETED')
+         OR EXISTS (SELECT 1 FROM pos_orders po2 JOIN pos_order_lines pl ON pl.order_id = po2.id WHERE po2.tenant_id = t.id AND pl.from_recipe)) AS production,
         EXISTS (SELECT 1 FROM users x WHERE x.id = ${u.sub} AND x.totp_enabled_at IS NOT NULL) AS security
       FROM tenants t WHERE t.id = ${u.tenantId}`);
     const s = r.rows[0] ?? {};
@@ -118,6 +119,7 @@ export class OnboardingService {
       ],
       PRODUKSI: ['Masukkan bahan baku & produk jadi', 'Daftarkan bahan yang dibeli dan produk yang dijual.'],
       MANUFAKTUR: ['Masukkan bahan, barang setengah jadi & barang jadi', 'Daftarkan bahan baku, bahan penolong, barang setengah jadi, dan barang jadi — atau impor dari Excel.'],
+      FNB: ['Masukkan bahan & menu', 'Daftarkan bahan (kopi, susu, tepung) dan menu yang dijual. Tandai menu sebagai "dibuat saat dipesan" agar bahan terpotong otomatis di kasir.'],
     };
     const saleStep: Record<BusinessModel, [string, string, string]> = {
       DAGANG: ['Catat penjualan pertama', 'Buat sales order, lalu jadikan faktur.', '/sales-orders/new'],
@@ -129,6 +131,7 @@ export class OnboardingService {
       ],
       PRODUKSI: ['Catat penjualan pertama', 'Buat sales order produk jadi, lalu jadikan faktur.', '/sales-orders/new'],
       MANUFAKTUR: ['Catat penjualan pertama', 'Buat sales order barang jadi, lalu jadikan faktur.', '/sales-orders/new'],
+      FNB: ['Buka kasir & jual menu pertama', 'Buka sesi kasir, pilih menu, terima pembayaran. Bahan sesuai resep terpotong otomatis.', '/pos'],
     };
     const steps: OnboardingStep[] = [
       {
@@ -192,9 +195,11 @@ export class OnboardingService {
               description:
                 model === 'MANUFAKTUR'
                   ? 'Susun resep bertingkat (bahan → barang setengah jadi → barang jadi), cek kebutuhan bahan, lalu jalankan perintah produksi — harga pokok dihitung otomatis.'
-                  : 'Susun resep (bahan per batch), lalu jalankan perintah produksi — harga pokok produk jadi dihitung otomatis.',
+                  : model === 'FNB'
+                    ? 'Susun resep tiap menu (bahan per porsi) di Produksi › Resep. Setelah itu menu yang terjual di kasir otomatis memotong bahan dan menghitung harga pokok.'
+                    : 'Susun resep (bahan per batch), lalu jalankan perintah produksi — harga pokok produk jadi dihitung otomatis.',
               done: !!s.production,
-              link: '/production/orders',
+              link: model === 'FNB' ? '/production/boms' : '/production/orders',
               app: 'inventory' as const,
             },
           ]
@@ -205,7 +210,7 @@ export class OnboardingService {
         description: saleStep[model][1],
         done: !!s.sale,
         link: saleStep[model][2],
-        app: model === 'RITEL' ? 'pos' : model === 'JASA' ? ['crm', 'sales'] : 'sales',
+        app: model === 'RITEL' || model === 'FNB' ? 'pos' : model === 'JASA' ? ['crm', 'sales'] : 'sales',
       },
       {
         key: 'security',

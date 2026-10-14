@@ -54,6 +54,16 @@ const FLAVOR: Record<string, {
     countNote: 'Hitung kas penjualan langsung di workshop',
     denominations: { K100000: 30, K50000: 40, K20000: 30, K10000: 30, K5000: 20, K2000: 10, K1000: 10 },
   },
+  FNB: {
+    capital: [80_000_000, 'Tambahan modal untuk membuka outlet kedua', 'SM-01'],
+    deposit: [3_500_000, 'Setor tunai hasil penjualan kasir kafe ke bank'],
+    prepaid: { amount: 15_000_000, monthly: 1_250_000, label: 'sewa kios kafe (12 bulan)', ref: 'SWA-KAFE', months: 12 },
+    petty: { fund: 1_500_000, max: 250_000, custodian: 'Kepala outlet', payee: 'Pasar dan toko bahan sekitar', items: [['Es batu & daun mint', '6-6000', 95000, 'NT-101'], ['Gas elpiji 3kg', '6-4000', 70000, 'NT-102'], ['Sabun cuci piring & lap dapur', '6-6000', 65000, 'NT-103']] },
+    bankOpening: 140_000_000,
+    bankFee: 15000,
+    countNote: 'Hitung laci kasir akhir shift kafe',
+    denominations: { K100000: 15, K50000: 50, K20000: 60, K10000: 80, K5000: 60, K2000: 80, K1000: 60 },
+  },
   MANUFAKTUR: {
     capital: [150_000_000, 'Setoran modal untuk perluasan lini produksi', 'SM-01'],
     deposit: [5_000_000, 'Setor tunai penjualan eceran showroom ke bank'],
@@ -94,6 +104,13 @@ const OPS: Record<string, Ops> = {
     countNote: 'Opname bahan baku sebelum produksi besar', shortages: [1, 0, 1], writedown: [0.85, 'Kain sisa model lama, nilai diturunkan'],
     salesReturn: ['Jahitan tidak rapi, pembeli minta perbaikan', '2'], purchaseReturn: ['Warna kain tidak sesuai contoh', '3'], poQty: '60', poPrice: '35000', requestNote: 'Bahan untuk pesanan seragam bulan depan', requestQty: '80',
     sick: 0.05, checkIn: [7, 7], checkOut: [16, 18], overtime: 2, days: 12, leave: ['Cuti tahunan', 'Pulang kampung'],
+  },
+  FNB: {
+    warehouse2: 'Outlet Cabang 2 (Dapur Satelit)',
+    transfers: [{ mode: 'IN_TRANSIT', qty: '3000', ago: 20, notes: 'Pasok bahan ke outlet cabang kedua' }, { mode: 'DIRECT', qty: '1500', ago: 9, notes: 'Tambah bahan untuk acara akhir pekan' }],
+    countNote: 'Opname dapur dan gudang bahan (cek mingguan)', shortages: [800, 300, 0], writedown: [0.85, 'Susu cair dan bahan segar mendekati kedaluwarsa, nilai diturunkan'],
+    salesReturn: ['Kemasan bocor saat diantar, diganti baru', '10'], purchaseReturn: ['Bahan tidak segar saat diterima', '500'], poQty: '20000', poPrice: '17', requestNote: 'Bahan cepat habis saat akhir pekan', requestQty: '30000',
+    sick: 0.04, checkIn: [7, 9], checkOut: [17, 22], overtime: 2, days: 12, leave: ['Cuti tahunan', 'Mengurus keperluan keluarga'],
   },
   MANUFAKTUR: {
     warehouse2: 'Gudang Barang Jadi',

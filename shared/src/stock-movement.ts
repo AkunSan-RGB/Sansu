@@ -86,6 +86,19 @@ export const MOVEMENT_PROFILES: Record<BusinessModel, MovementProfile> = {
       OUT: 'Segera beli atau produksi: ada pemakaian/penjualan tetapi stok habis.',
     },
   },
+  FNB: {
+    windowDays: 14,
+    fastCoverDays: 3,
+    normalCoverDays: 7,
+    deadDays: 21,
+    outWord: 'terpakai untuk menu yang terjual',
+    actions: {
+      FAST: 'Bahan ini cepat habis: pesan lebih sering dan jaga stok pengaman satu-dua hari.',
+      SLOW: 'Bahan terlalu banyak untuk penjualan saat ini; kurangi pesanan agar tidak basi atau kedaluwarsa.',
+      DEAD: 'Bahan tidak terpakai: olah jadi menu khusus, retur ke pemasok, atau catat sebagai bahan terbuang sebelum rusak.',
+      OUT: 'Segera beli: menu yang memakai bahan ini tidak bisa dijual selama stok habis.',
+    },
+  },
   JASA: {
     windowDays: 180,
     fastCoverDays: 60,

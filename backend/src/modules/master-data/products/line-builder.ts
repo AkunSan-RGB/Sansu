@@ -35,6 +35,8 @@ export async function buildLines(
   defaultPrice: 'sell' | 'required',
   /** Dokumen valas: harga diketik dalam mata uang dokumen dengan 4 desimal */
   priceDecimals: 2 | 4 = 2,
+  /** Menu (dibuat saat dipesan) hanya dijual lewat kasir, yang memotong bahan sesuai resep */
+  opts: { menuOk?: boolean } = {},
 ): Promise<BuiltLine[]> {
   const prods = await db.query.products.findMany({
     where: and(eq(products.tenantId, tenantId), inArray(products.id, input.map((l) => l.productId))),
@@ -46,6 +48,7 @@ export async function buildLines(
     const p = byId.get(l.productId);
     if (!p || !p.isActive) throw new BadRequestException(`Produk ${l.productId} tidak ditemukan / nonaktif`);
     if (p.inventoryKind === 'SEMI') throw new BadRequestException(`${p.sku} adalah barang setengah jadi: dibuat dan dipakai lewat perintah produksi, tidak dijual atau dibeli lewat dokumen ini`);
+    if (defaultPrice === 'sell' && p.madeToOrder && !opts.menuOk) throw new BadRequestException(`${p.sku} adalah menu yang dibuat saat dipesan: jual lewat Kasir (POS) agar bahan sesuai resep terpotong otomatis`);
     const uom = l.uom ?? p.baseUom;
     const factor = uom === p.baseUom ? '1' : p.uoms.find((u) => u.uom === uom)?.factor;
     if (!factor) throw new BadRequestException(`Satuan ${uom} tidak terdaftar untuk ${p.sku}`);

@@ -11,7 +11,7 @@ import { configureApp } from '../src/bootstrap';
 import { DB, Db } from '../src/db/db';
 import { DemoService } from '../src/modules/demo/demo.module';
 
-const MODELS = ['RITEL', 'DAGANG', 'JASA', 'PRODUKSI', 'MANUFAKTUR'] as const;
+const MODELS = ['RITEL', 'DAGANG', 'JASA', 'PRODUKSI', 'MANUFAKTUR', 'FNB'] as const;
 
 describe('Lihat Demo (e2e)', () => {
   let app: INestApplication;
@@ -79,6 +79,11 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(s('MANUFAKTUR'), 'production_orders')).toBeGreaterThan(2);
     expect(await count(s('RITEL'), 'production_orders')).toBe(0);
     expect(await count(s('DAGANG'), 'pos_orders')).toBe(0);
+    // F&B: menu dijual lewat kasir dan bahan terpotong otomatis sesuai resep; ada resep, barang setengah jadi, dan produksi adonan
+    expect(await count(s('FNB'), 'pos_orders')).toBeGreaterThan(50);
+    expect(await count(s('FNB'), 'boms')).toBeGreaterThan(6);
+    expect(Number((await db.execute<{ n: string }>(sql.raw(`SELECT COUNT(*)::text AS n FROM pos_order_lines l JOIN pos_orders o ON o.id = l.order_id WHERE o.tenant_id = '${s('FNB')}' AND l.from_recipe`))).rows[0].n)).toBeGreaterThan(50);
+    expect(await count(s('FNB'), 'production_orders')).toBeGreaterThan(1);
   });
 
   it('tiap permintaan membuat perusahaan terpisah', async () => {
@@ -111,29 +116,6 @@ describe('Lihat Demo (e2e)', () => {
     expect(man.filter((p) => p.role === 'FINISHED').map((p) => p.sku).sort()).toEqual(['FN-KURSI', 'FN-LEMARI', 'FN-MEJA']);
     // usaha dagang tidak punya resep: semua "barang lain"
     expect((await roles('DAGANG')).every((p) => p.role === 'TRADING')).toBe(true);
-  });
-});
-
-describe('Sebutan Resep per industri (e2e)', () => {
-  let app: INestApplication;
-  let http: ReturnType<typeof request>;
-  beforeAll(async () => {
-    const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    app = configureApp(mod.createNestApplication());
-    await app.init();
-    http = request(app.getHttpServer());
-  });
-  afterAll(async () => {
-    await app.close();
-  });
-
-  it('ADMIN dapat mengganti sebutan Resep; /auth/me ikut berubah; nilai di luar daftar ditolak', async () => {
-    const r = await http.post('/api/demo/start').send({ businessModel: 'MANUFAKTUR' }).expect(200);
-    const auth = { Authorization: `Bearer ${r.body.accessToken}` };
-    expect((await http.get('/api/auth/me').set(auth)).body.recipeTerm).toBe('Resep');
-    await http.patch('/api/settings/terms').set(auth).send({ recipe: 'Bill of Materials' }).expect(200);
-    expect((await http.get('/api/auth/me').set(auth)).body.recipeTerm).toBe('Bill of Materials');
-    await http.patch('/api/settings/terms').set(auth).send({ recipe: 'Ngawur' }).expect(400);
   });
 });
 

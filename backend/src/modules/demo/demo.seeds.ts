@@ -496,11 +496,141 @@ async function seedManufaktur(c: Demo) {
   await X.stockOps(c, ids, ['FN-JATI', 'FN-PLY', 'FN-ENGSEL', 'FN-REL', 'FN-POLITUR'], { saleInvoiceId: s3, billId: c.last.bill, supplierId: sup.get('SUP-KAYU') });
 }
 
+// ---------------------------------------------------------------- F&B
+const FNB_BAHAN: Prod[] = [
+  { sku: 'BB-KOPI', name: 'Biji Kopi Arabika', cat: 'Bahan minuman', price: 0, cost: 140, qty: 60000, uom: 'GR' },
+  { sku: 'BB-SUSU', name: 'Susu Cair Segar', cat: 'Bahan minuman', price: 0, cost: 18, qty: 250000, uom: 'ML' },
+  { sku: 'BB-GULA', name: 'Gula Pasir', cat: 'Bahan umum', price: 0, cost: 16, qty: 80000, uom: 'GR' },
+  { sku: 'BB-MINYAK', name: 'Minyak Goreng', cat: 'Bahan umum', price: 0, cost: 17, qty: 60000, uom: 'ML' },
+  { sku: 'BB-BERAS', name: 'Beras Pulen', cat: 'Bahan makanan', price: 0, cost: 14, qty: 100000, uom: 'GR' },
+  { sku: 'BB-MIE', name: 'Mi Telur Basah', cat: 'Bahan makanan', price: 0, cost: 20, qty: 40000, uom: 'GR' },
+  { sku: 'BB-AYAM', name: 'Daging Ayam Fillet', cat: 'Bahan makanan', price: 0, cost: 38, qty: 60000, uom: 'GR' },
+  { sku: 'BB-TELUR', name: 'Telur Ayam', cat: 'Bahan makanan', price: 0, cost: 2200, qty: 3000, uom: 'BTR' },
+  { sku: 'BB-TEPUNG', name: 'Tepung Terigu Protein Sedang', cat: 'Bahan roti', price: 0, cost: 13, qty: 50000, uom: 'GR' },
+  { sku: 'BB-MENTEGA', name: 'Mentega', cat: 'Bahan roti', price: 0, cost: 45, qty: 15000, uom: 'GR' },
+  { sku: 'BB-COKLAT', name: 'Bubuk Cokelat', cat: 'Bahan minuman', price: 0, cost: 120, qty: 20000, uom: 'GR' },
+  { sku: 'BB-TEH', name: 'Teh Celup', cat: 'Bahan minuman', price: 0, cost: 400, qty: 4000, uom: 'PCS' },
+  { sku: 'KM-CUP', name: 'Cup & Tutup 16oz', cat: 'Kemasan', price: 0, cost: 650, qty: 6000, uom: 'PCS' },
+  { sku: 'KM-KOTAK', name: 'Kotak Makan Kertas', cat: 'Kemasan', price: 0, cost: 900, qty: 3000, uom: 'PCS' },
+  // barang jadi beli putus (dijual apa adanya)
+  { sku: 'FB-AIR', name: 'Air Mineral 600ml', cat: 'Barang jadi', price: 6000, cost: 2900, qty: 1500, uom: 'BTL' },
+  { sku: 'FB-KUE', name: 'Kue Kering Toples', cat: 'Barang jadi', price: 55000, cost: 36000, qty: 300, uom: 'TPL' },
+];
+/** Menu: dibuat saat dipesan, bahan terpotong otomatis di kasir sesuai resep */
+const FNB_MENU: { sku: string; name: string; price: number; bom: string; use: [string, number][] }[] = [
+  { sku: 'MN-KOPSU', name: 'Kopi Susu Gula Aren', price: 24000, bom: 'Resep Kopi Susu', use: [['BB-KOPI', 18], ['BB-SUSU', 150], ['BB-GULA', 15], ['KM-CUP', 1]] },
+  { sku: 'MN-AMER', name: 'Americano', price: 20000, bom: 'Resep Americano', use: [['BB-KOPI', 18], ['KM-CUP', 1]] },
+  { sku: 'MN-LATTE', name: 'Cafe Latte', price: 28000, bom: 'Resep Cafe Latte', use: [['BB-KOPI', 18], ['BB-SUSU', 200], ['KM-CUP', 1]] },
+  { sku: 'MN-ESTEH', name: 'Es Teh Manis', price: 10000, bom: 'Resep Es Teh Manis', use: [['BB-TEH', 2], ['BB-GULA', 20], ['KM-CUP', 1]] },
+  { sku: 'MN-COKLAT', name: 'Cokelat Dingin', price: 26000, bom: 'Resep Cokelat Dingin', use: [['BB-COKLAT', 30], ['BB-SUSU', 150], ['BB-GULA', 10], ['KM-CUP', 1]] },
+  { sku: 'MN-NASAY', name: 'Nasi Ayam Goreng', price: 28000, bom: 'Resep Nasi Ayam Goreng', use: [['BB-BERAS', 150], ['BB-AYAM', 120], ['BB-MINYAK', 30], ['KM-KOTAK', 1]] },
+  { sku: 'MN-MIGOR', name: 'Mi Goreng Spesial', price: 22000, bom: 'Resep Mi Goreng Spesial', use: [['BB-MIE', 120], ['BB-TELUR', 1], ['BB-AYAM', 30], ['BB-MINYAK', 25], ['KM-KOTAK', 1]] },
+  { sku: 'MN-DONAT', name: 'Donat Gula Halus', price: 9000, bom: 'Resep Donat', use: [['SF-ADONAN', 1], ['BB-GULA', 10], ['BB-MINYAK', 40]] },
+];
+async function seedFnb(c: Demo) {
+  const { ids, value } = await stockItems(c, FNB_BAHAN);
+  await openingBalance(c, { kas: 6_000_000, bank: 140_000_000, stockValue: value });
+  // adonan donat = barang setengah jadi, dibuat lewat perintah produksi lalu dipakai resep donat
+  const semi = await c.svc.products.create(c.tenantId, { sku: 'SF-ADONAN', name: 'Adonan Donat', baseUom: 'PCS', sellPrice: '0', category: 'Setengah jadi', inventoryKind: 'SEMI' } as never);
+  ids.set('SF-ADONAN', semi.id);
+  for (const m of FNB_MENU) {
+    const r = await c.svc.products.create(c.tenantId, { sku: m.sku, name: m.name, baseUom: 'PCS', sellPrice: String(m.price), category: m.sku.startsWith('MN-NAS') || m.sku === 'MN-MIGOR' ? 'Makanan' : m.sku === 'MN-DONAT' ? 'Roti & kue' : 'Minuman', madeToOrder: true } as never);
+    ids.set(m.sku, r.id);
+  }
+  const adonanBom = (await c.step('resep adonan', () =>
+    c.svc.production.createBom(c.admin as never, {
+      name: 'Adonan donat (batch 50)',
+      productId: semi.id,
+      outputQty: '50',
+      laborCost: '150000',
+      overheadCost: '50000',
+      lines: [['BB-TEPUNG', 4000], ['BB-TELUR', 8], ['BB-MENTEGA', 400], ['BB-GULA', 500]].map(([k, q]) => ({ productId: ids.get(k as string)!, qty: String(q) })),
+    } as never),
+  )) as { id: string } | undefined;
+  for (const m of FNB_MENU) {
+    await c.step(`resep ${m.name}`, () =>
+      c.svc.production.createBom(c.admin as never, {
+        name: m.bom,
+        productId: ids.get(m.sku)!,
+        outputQty: '1',
+        laborCost: '0',
+        overheadCost: '0',
+        lines: m.use.map(([k, q]) => ({ productId: ids.get(k)!, qty: String(q) })),
+      } as never),
+    );
+  }
+  if (adonanBom) {
+    for (const run of [{ ago: 40, batches: 4 }, { ago: 20, batches: 4 }, { ago: 7, batches: 3 }]) {
+      const o = (await c.step('perintah produksi adonan', () => c.svc.production.createOrder(c.admin as never, { bomId: adonanBom.id, warehouseId: c.wh, batches: String(run.batches), date: c.ago(run.ago) } as never))) as { id: string } | undefined;
+      if (!o) continue;
+      await c.step('mulai adonan', () => c.svc.production.start(c.admin as never, o.id, { date: c.ago(run.ago) } as never));
+      await c.step('selesai adonan', () => c.svc.production.complete(c.admin as never, o.id, { date: c.ago(run.ago - 1), outputQty: String(Math.floor(50 * run.batches * 0.98)) } as never));
+    }
+  }
+  const sup = await addSuppliers(c, [
+    { code: 'SUP-KOPI', name: 'CV Kopi Nusantara Roastery', term: 14 },
+    { code: 'SUP-PASAR', name: 'UD Segar Pasar Induk', term: 3 },
+    { code: 'SUP-KEMAS', name: 'PT Kemasan Praktis Indonesia', term: 30 },
+  ]);
+  const cu = await addCustomers(c, [
+    { code: 'UMUM', name: 'Pelanggan Umum (kasir)', address: 'Bandung', term: 0 },
+    { code: 'KTR-AMANAH', name: 'Kantor Notaris Amanah (pesanan kantor)', address: 'Jl. Asia Afrika, Bandung', term: 14 },
+    { code: 'EVT-CEMERLANG', name: 'Event Organizer Cemerlang', address: 'Jl. Dago, Bandung', term: 7 },
+  ]);
+  // kasir tiap hari: menu dijual, bahan terpotong otomatis sesuai resep
+  const menuItems = FNB_MENU.map((m) => ({ id: ids.get(m.sku)!, price: m.price }));
+  const extraItems = [{ id: ids.get('FB-AIR')!, price: 6000 }, { id: ids.get('FB-KUE')!, price: 55000 }];
+  for (let d = 21; d >= 1; d -= 1) await c.step(`kasir H-${d}`, () => posDay(c, d, [...menuItems, ...menuItems, ...extraItems], c.int(9, 15)));
+  await c.step('beli biji kopi', () => purchase(c, sup.get('SUP-KOPI')!, 30, [{ productId: ids.get('BB-KOPI')!, qty: 20000, price: 142 }], { pay: true, invoiceNo: 'KNR/0925/031' }));
+  await c.step('beli bahan segar', () => purchase(c, sup.get('SUP-PASAR')!, 12, [{ productId: ids.get('BB-AYAM')!, qty: 25000, price: 38 }, { productId: ids.get('BB-TELUR')!, qty: 600, price: 2250 }, { productId: ids.get('BB-SUSU')!, qty: 60000, price: 18 }], { pay: true, invoiceNo: 'SPI-7741' }));
+  await c.step('beli kemasan (belum lunas)', () => purchase(c, sup.get('SUP-KEMAS')!, 5, [{ productId: ids.get('KM-CUP')!, qty: 3000, price: 640 }, { productId: ids.get('KM-KOTAK')!, qty: 2000, price: 880 }], { invoiceNo: 'KPI/1025/112' }));
+  // pesanan kantor / acara: barang jadi beli putus lewat faktur (menu dijual lewat kasir)
+  let fnbUnpaid: string | undefined;
+  const orders: [string, number, [string, number][], boolean][] = [
+    ['KTR-AMANAH', 40, [['FB-AIR', 120], ['FB-KUE', 10]], true],
+    ['EVT-CEMERLANG', 22, [['FB-AIR', 240], ['FB-KUE', 20]], true],
+    ['KTR-AMANAH', 8, [['FB-AIR', 96], ['FB-KUE', 12]], false],
+  ];
+  for (const [code, ago, items, paid] of orders) {
+    const inv = await c.step(`jual pesanan ${code}`, () => sell(c, cu.get(code)!, ago, items.map(([k, q]) => ({ productId: ids.get(k)!, qty: q }))));
+    if (inv && paid) await c.step('terima bayar pesanan', () => receive(c, inv, Math.max(ago - 6, 2)));
+    else if (inv) fnbUnpaid = inv;
+  }
+  await expense(c, 55, 'bank', '6-3000', 'Sewa kios kafe bulan ini', 7_500_000, 'SEWA-KAFE');
+  await expense(c, 25, 'bank', '6-4000', 'Listrik, air, dan gas dapur', 2_650_000);
+  await expense(c, 14, 'kas', '5-1350', 'Sedotan, tisu, dan kantong bawa pulang', 540_000, 'NOTA-0214');
+  await expense(c, 6, 'kas', '5-1450', 'Bahan terbuang (basi dan tumpah) minggu ini', 310_000, 'BT-0606');
+  await payroll(c, [
+    { code: 'F-001', name: 'Rizky Pratama', title: 'Barista', dept: 'Dapur', salary: 3_900_000, allowance: 300_000, ptkp: 'TK/0' },
+    { code: 'F-002', name: 'Sari Wulandari', title: 'Koki', dept: 'Dapur', salary: 4_400_000, allowance: 300_000, ptkp: 'K/1' },
+    { code: 'F-003', name: 'Dina Anggraini', title: 'Kasir', dept: 'Outlet', salary: 3_600_000, allowance: 250_000, ptkp: 'TK/0' },
+    { code: 'F-004', name: 'Fajar Nugroho', title: 'Pelayan', dept: 'Outlet', salary: 3_500_000, allowance: 250_000, ptkp: 'TK/0' },
+  ]);
+  await X.monthlyOps(c, [
+    { code: '6-3000', desc: 'Sewa kios kafe bulanan', amount: 7_500_000, from: 'bank', day: 2 },
+    { code: '6-4000', desc: 'Listrik, air, dan gas dapur', amount: 2_650_000, from: 'bank', day: 12 },
+    { code: '5-1350', desc: 'Sedotan, tisu, dan kantong bawa pulang', amount: 540_000, from: 'kas', day: 18 },
+  ]);
+  await X.cashMovements(c);
+  await X.fixedAssets(c, 'SUP-KEMAS', [
+    { cat: 'Peralatan', name: 'Mesin espresso dan grinder', cost: 42_000_000, ago: 105, location: 'Dapur' },
+    { cat: 'Inventaris', name: 'Kulkas display dan freezer', cost: 16_500_000, ago: 90, location: 'Dapur' },
+  ]);
+  await X.journals(c);
+  await X.taxes(c);
+  await X.bankStatement(c);
+  await X.pettyCash(c);
+  await X.cashCount(c);
+  await X.attendance(c);
+  await X.stockOps(c, ids, ['BB-SUSU', 'BB-GULA', 'BB-MINYAK', 'BB-BERAS', 'BB-MIE'], { saleInvoiceId: fnbUnpaid, billId: c.last.bill, supplierId: sup.get('SUP-PASAR') });
+}
+
 export const SEEDS: Record<BusinessModel, (c: Demo) => Promise<void>> = {
   RITEL: seedRitel,
   DAGANG: seedDagang,
   JASA: seedJasa,
   PRODUKSI: seedProduksi,
   MANUFAKTUR: seedManufaktur,
+  FNB: seedFnb,
 };
 export { payBill };

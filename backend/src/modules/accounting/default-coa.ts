@@ -107,9 +107,9 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '1-1310', name: 'Cadangan Kerugian Penurunan Nilai Piutang', type: 'ASSET', parent: '1-1000', group: 'ALLOWANCE_RECEIVABLE' },
   { code: '1-1350', name: 'Piutang Lain-lain', type: 'ASSET', parent: '1-1000', group: 'OTHER_RECEIVABLE' },
   { code: '1-1360', name: 'Pendapatan Belum Ditagih (Aset Kontrak)', type: 'ASSET', parent: '1-1000', key: SYS.UNBILLED_REVENUE, group: 'OTHER_CURRENT_ASSET' },
-  { code: '1-1130', name: 'Piutang Pembayaran Digital (QRIS & Kartu, Belum Cair)', type: 'ASSET', parent: '1-1000', group: 'OTHER_RECEIVABLE', models: ['RITEL'] },
+  { code: '1-1130', name: 'Piutang Pembayaran Digital (QRIS & Kartu, Belum Cair)', type: 'ASSET', parent: '1-1000', group: 'OTHER_RECEIVABLE', models: ['RITEL', 'FNB'] },
   { code: '1-1380', name: 'Piutang Retensi Proyek', type: 'ASSET', parent: '1-1000', group: 'OTHER_RECEIVABLE', models: ['JASA'] },
-  { code: '1-1400', name: 'Persediaan Barang Dagang', type: 'ASSET', parent: '1-1000', key: SYS.INVENTORY, group: 'INVENTORY', names: { PRODUKSI: 'Persediaan Bahan Baku & Barang Jadi', MANUFAKTUR: 'Persediaan Bahan Baku & Barang Jadi', JASA: 'Persediaan Bahan & Perlengkapan' } },
+  { code: '1-1400', name: 'Persediaan Barang Dagang', type: 'ASSET', parent: '1-1000', key: SYS.INVENTORY, group: 'INVENTORY', names: { PRODUKSI: 'Persediaan Bahan Baku & Barang Jadi', MANUFAKTUR: 'Persediaan Bahan Baku & Barang Jadi', JASA: 'Persediaan Bahan & Perlengkapan', FNB: 'Persediaan Bahan Makanan, Minuman & Kemasan' } },
   { code: '1-1390', name: 'Rekening Antar Cabang', type: 'ASSET', parent: '1-1000', key: SYS.INTERBRANCH, group: 'OTHER_RECEIVABLE' },
   { code: '1-1410', name: 'Persediaan dalam Perjalanan', type: 'ASSET', parent: '1-1000', key: SYS.INVENTORY_TRANSIT, group: 'INVENTORY' },
   { code: '1-1430', name: 'Persediaan Barang Setengah Jadi', type: 'ASSET', parent: '1-1000', key: SYS.INVENTORY_SEMI, group: 'INVENTORY' },
@@ -125,7 +125,7 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '1-2050', name: 'Tanah', type: 'ASSET', parent: '1-2000', group: 'FIXED_ASSET' },
   { code: '1-2060', name: 'Bangunan', type: 'ASSET', parent: '1-2000', group: 'FIXED_ASSET' },
   { code: '1-2100', name: 'Kendaraan', type: 'ASSET', parent: '1-2000', group: 'FIXED_ASSET' },
-  { code: '1-2200', name: 'Peralatan Gudang & Mesin', type: 'ASSET', parent: '1-2000', group: 'FIXED_ASSET', names: { PRODUKSI: 'Mesin & Peralatan Produksi', MANUFAKTUR: 'Mesin & Peralatan Produksi', RITEL: 'Peralatan Toko & Rak', JASA: 'Peralatan & Perkakas Kerja' } },
+  { code: '1-2200', name: 'Peralatan Gudang & Mesin', type: 'ASSET', parent: '1-2000', group: 'FIXED_ASSET', names: { PRODUKSI: 'Mesin & Peralatan Produksi', MANUFAKTUR: 'Mesin & Peralatan Produksi', RITEL: 'Peralatan Toko & Rak', FNB: 'Peralatan Dapur & Outlet', JASA: 'Peralatan & Perkakas Kerja' } },
   { code: '1-2300', name: 'Inventaris Kantor', type: 'ASSET', parent: '1-2000', group: 'FIXED_ASSET' },
   { code: '1-2500', name: 'Aset Takberwujud (Perangkat Lunak)', type: 'ASSET', parent: '1-2000', group: 'INTANGIBLE_ASSET' },
   { code: '1-2600', name: 'Aset Pajak Tangguhan', type: 'ASSET', parent: '1-2000', key: SYS.DEFERRED_TAX_ASSET, group: 'DEFERRED_TAX_ASSET' },
@@ -171,7 +171,7 @@ export const DEFAULT_COA: CoaRow[] = [
 
   // ===== 4 PENDAPATAN =====
   { code: '4-0000', name: 'Pendapatan', type: 'REVENUE', header: true },
-  { code: '4-1000', name: 'Penjualan', type: 'REVENUE', parent: '4-0000', key: SYS.SALES, group: 'SALES_REVENUE', names: { RITEL: 'Penjualan Toko (Kasir)', PRODUKSI: 'Penjualan Hasil Produksi', MANUFAKTUR: 'Penjualan Hasil Produksi', JASA: 'Penjualan Barang & Material' } },
+  { code: '4-1000', name: 'Penjualan', type: 'REVENUE', parent: '4-0000', key: SYS.SALES, group: 'SALES_REVENUE', names: { FNB: 'Penjualan Makanan & Minuman', RITEL: 'Penjualan Toko (Kasir)', PRODUKSI: 'Penjualan Hasil Produksi', MANUFAKTUR: 'Penjualan Hasil Produksi', JASA: 'Penjualan Barang & Material' } },
   { code: '4-1100', name: 'Retur Penjualan', type: 'REVENUE', parent: '4-0000', key: SYS.SALES_RETURN, group: 'SALES_DEDUCTION' },
   { code: '4-1200', name: 'Potongan Penjualan', type: 'REVENUE', parent: '4-0000', group: 'SALES_DEDUCTION' },
   { code: '4-2000', name: 'Pendapatan Jasa', type: 'REVENUE', parent: '4-0000', key: SYS.SERVICE_REVENUE, group: 'SALES_REVENUE' },
@@ -184,7 +184,7 @@ export const DEFAULT_COA: CoaRow[] = [
 
   // ===== 5 BEBAN POKOK =====
   { code: '5-0000', name: 'Beban Pokok', type: 'EXPENSE', header: true },
-  { code: '5-1000', name: 'Harga Pokok Penjualan', type: 'EXPENSE', parent: '5-0000', key: SYS.COGS, group: 'COST_OF_SALES', names: { PRODUKSI: 'Harga Pokok Penjualan (Produk Jadi)', MANUFAKTUR: 'Harga Pokok Penjualan (Produk Jadi)', JASA: 'Beban Pokok Pendapatan (Barang & Material)' } },
+  { code: '5-1000', name: 'Harga Pokok Penjualan', type: 'EXPENSE', parent: '5-0000', key: SYS.COGS, group: 'COST_OF_SALES', names: { FNB: 'Harga Pokok Penjualan (Bahan Menu Terjual)', PRODUKSI: 'Harga Pokok Penjualan (Produk Jadi)', MANUFAKTUR: 'Harga Pokok Penjualan (Produk Jadi)', JASA: 'Beban Pokok Pendapatan (Barang & Material)' } },
   { code: '5-2000', name: 'Selisih Persediaan', type: 'EXPENSE', parent: '5-0000', key: SYS.INVENTORY_ADJ, group: 'COST_OF_SALES' },
   { code: '5-4100', name: 'Upah Langsung Produksi', type: 'EXPENSE', parent: '5-0000', key: SYS.DIRECT_LABOR, group: 'COST_OF_SALES' },
   { code: '5-4200', name: 'Overhead Pabrik (listrik, penyusutan mesin, dll.)', type: 'EXPENSE', parent: '5-0000', key: SYS.FACTORY_OVERHEAD, group: 'COST_OF_SALES' },
@@ -197,6 +197,8 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '5-1100', name: 'Beban Angkut Pembelian', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['DAGANG'] },
   { code: '5-1200', name: 'Potongan & Retur Pembelian', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['DAGANG'] },
   { code: '5-1300', name: 'Kerugian Susut & Barang Rusak Toko', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['RITEL'] },
+  { code: '5-1350', name: 'Beban Kemasan Saji & Bahan Penolong (Sedotan, Tisu, Kantong)', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['FNB'] },
+  { code: '5-1450', name: 'Bahan Terbuang (Basi, Kedaluwarsa, Tumpah)', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['FNB'] },
   { code: '5-1800', name: 'Beban Tenaga Ahli & Konsultan Eksternal', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'] },
   { code: '5-1900', name: 'Beban Sewa Alat & Peralatan Proyek', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'] },
   { code: '5-4500', name: 'Beban Energi Produksi (Listrik, Gas, BBM)', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['PRODUKSI', 'MANUFAKTUR'] },
@@ -223,8 +225,9 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '6-6100', name: 'Beban Peralatan Kecil (di Bawah Batas Kapitalisasi)', type: 'EXPENSE', parent: '6-0000', key: SYS.SMALL_ASSET_EXPENSE, group: 'ADMIN_EXPENSE' },
   // --- Akun khusus jenis usaha ---
   { code: '6-2350', name: 'Beban Bongkar Muat & Pengemasan', type: 'EXPENSE', parent: '6-0000', group: 'SELLING_EXPENSE', models: ['DAGANG'] },
-  { code: '6-2450', name: 'Beban Biaya Pembayaran Digital (MDR QRIS & Kartu)', type: 'EXPENSE', parent: '6-0000', group: 'SELLING_EXPENSE', models: ['RITEL'] },
-  { code: '6-2500', name: 'Beban Kantong & Kemasan Toko', type: 'EXPENSE', parent: '6-0000', group: 'SELLING_EXPENSE', models: ['RITEL'] },
+  { code: '6-2450', name: 'Beban Biaya Pembayaran Digital (MDR QRIS & Kartu)', type: 'EXPENSE', parent: '6-0000', group: 'SELLING_EXPENSE', models: ['RITEL', 'FNB'] },
+  { code: '6-2460', name: 'Beban Komisi Platform Pesan-Antar', type: 'EXPENSE', parent: '6-0000', group: 'SELLING_EXPENSE', models: ['FNB'] },
+  { code: '6-2500', name: 'Beban Kantong & Kemasan Toko', type: 'EXPENSE', parent: '6-0000', group: 'SELLING_EXPENSE', models: ['RITEL', 'FNB'] },
   { code: '6-2600', name: 'Beban Keamanan & Kebersihan Toko', type: 'EXPENSE', parent: '6-0000', group: 'ADMIN_EXPENSE', models: ['RITEL'] },
   { code: '6-2700', name: 'Beban Distribusi Hasil Produksi', type: 'EXPENSE', parent: '6-0000', group: 'SELLING_EXPENSE', models: ['PRODUKSI', 'MANUFAKTUR'] },
   { code: '6-3700', name: 'Beban Lisensi & Langganan Perangkat Lunak', type: 'EXPENSE', parent: '6-0000', group: 'ADMIN_EXPENSE', models: ['JASA'] },
@@ -289,7 +292,7 @@ export const COA_FAMILIES: { name: string; codes: string[]; relevant: (model: Bu
   { name: 'Penurunan nilai persediaan', codes: ['5-3000'], relevant: (m, a, fw) => fw !== 'SAK_EMKM' && (m !== 'JASA' || a.has('inventory')) },
   // ED SAK EMKM Bab 8: piutang dicatat sebesar jumlah tagihan; tidak ada cadangan kerugian penurunan nilai (kerugian diakui saat dihapus)
   { name: 'Penurunan nilai piutang', codes: ['1-1310', '6-7300'], relevant: (_m, _a, fw) => fw !== 'SAK_EMKM' },
-  { name: 'Produksi', codes: ['1-1420', '1-1430', '5-4100', '5-4200', '5-4900'], relevant: (m) => m === 'PRODUKSI' || m === 'MANUFAKTUR' },
+  { name: 'Produksi', codes: ['1-1420', '1-1430', '5-4100', '5-4200', '5-4900'], relevant: (m) => m === 'PRODUKSI' || m === 'MANUFAKTUR' || m === 'FNB' },
   { name: 'Manufaktur', codes: ['5-4950'], relevant: (m) => m === 'MANUFAKTUR' },
   { name: 'Kontrak jasa & proyek', codes: ['4-2100'], relevant: (m, a) => m === 'JASA' || a.has('crm') },
   // Aset/liabilitas kontrak hanya timbul dari pengakuan pendapatan berdasarkan persentase penyelesaian (SAK EP); EMKM mengakui sebesar tagihan (ED 14.5)

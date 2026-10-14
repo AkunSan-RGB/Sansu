@@ -192,7 +192,7 @@ export class PosService {
           .where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, user.tenantId)));
         if (!c) throw new BadRequestException('Pelanggan tidak ditemukan');
       }
-      const lines = await buildLines(tx, user.tenantId, dto.lines, 'sell');
+      const lines = await buildLines(tx, user.tenantId, dto.lines, 'sell', 2, { menuOk: true });
       // Anti-fraud: kasir/sales tidak boleh mengubah harga atau memberi diskon sendiri; hanya supervisor (Pemilik, Admin, Keuangan)
       if (user.role === 'CASHIER' || user.role === 'SALES') {
         const masters = await tx.query.products.findMany({ where: and(eq(products.tenantId, user.tenantId), inArray(products.id, lines.map((l) => l.productId))), columns: { id: true, sellPrice: true } });

@@ -59,6 +59,17 @@ const TERMS: Record<BusinessModel, Terms> = {
     ],
     exact: { Pembelian: 'Pembelian bahan' },
   },
+  FNB: {
+    words: [
+      ['Purchase Order', 'Pesanan bahan'],
+      ['Nilai persediaan', 'Nilai persediaan bahan & menu'],
+      ['Supplier', 'Pemasok bahan'],
+      ['Produk', 'Menu & bahan'],
+      ['Inventori', 'Persediaan bahan'],
+      ['Gudang', 'Gudang & dapur'],
+    ],
+    exact: { Pembelian: 'Pembelian bahan' },
+  },
 };
 
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);

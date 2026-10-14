@@ -107,6 +107,7 @@ const PROFILE: Record<BusinessModel, { activity: string; address: string; city: 
   JASA: { activity: 'jasa konsultasi teknologi informasi dan desain digital', address: 'Gedung Graha Mitra Lt. 5, Jl. Gatot Subroto Kav. 21, Jakarta', city: 'Jakarta' },
   PRODUKSI: { activity: 'konveksi (produksi kaus dan kemeja)', address: 'Jl. Industri Kecil No. 14, Majalaya, Bandung', city: 'Bandung' },
   MANUFAKTUR: { activity: 'manufaktur furnitur kayu (meja, kursi, lemari)', address: 'Kawasan Industri Jepara Blok F-3, Jawa Tengah', city: 'Jepara' },
+  FNB: { activity: 'kafe dan kedai makan (kopi, minuman, nasi, mi, dan roti)', address: 'Jl. Braga No. 88, Bandung', city: 'Bandung' },
 };
 
 const APPS_BY_MODEL: Record<BusinessModel, ('pos' | 'crm' | 'payroll')[]> = {
@@ -115,6 +116,7 @@ const APPS_BY_MODEL: Record<BusinessModel, ('pos' | 'crm' | 'payroll')[]> = {
   JASA: ['payroll', 'crm'],
   PRODUKSI: ['payroll'],
   MANUFAKTUR: ['payroll', 'crm'],
+  FNB: ['pos', 'payroll'],
 };
 
 export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: BusinessModel): Promise<Demo> {

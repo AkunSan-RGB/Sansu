@@ -44,7 +44,7 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
     app = configureApp(mod.createNestApplication());
     await app.init();
     http = request(app.getHttpServer());
-    for (const m of ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR'] as Model[]) {
+    for (const m of ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR', 'FNB'] as Model[]) {
       tokens[m] = (
         await http.post('/api/auth/register').send({ companyName: `Usaha ${m}`, name: 'Pemilik', email: `rep-${m}-${stamp}@uji.id`, password: 'rahasia123', businessModel: m }).expect(201)
       ).body.accessToken;
@@ -53,10 +53,10 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
   afterAll(() => app.close());
 
   describe('bagan akun', () => {
-    const specific = { DAGANG: ['6-2350'], RITEL: ['6-2450', '6-2500'], JASA: ['5-1500', '5-1600', '5-1700', '6-3600'], PRODUKSI: ['5-4300', '5-4400'], MANUFAKTUR: ['5-4300', '5-4400', '5-4950'] } as Record<Model, string[]>;
+    const specific = { DAGANG: ['6-2350'], RITEL: ['6-2450', '6-2500'], JASA: ['5-1500', '5-1600', '5-1700', '6-3600'], PRODUKSI: ['5-4300', '5-4400'], MANUFAKTUR: ['5-4300', '5-4400', '5-4950'], FNB: ['5-1350', '5-1450', '6-2450', '6-2460', '6-2500'] } as Record<Model, string[]>;
     const universal = ['1-1100', '1-1300', '2-1100', '4-1000', '5-1000', '6-7000', '9-1000'];
 
-    it.each(['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR'] as Model[])('%s: akun umum lengkap, akun khusus hanya milik modelnya', async (m) => {
+    it.each(['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR', 'FNB'] as Model[])('%s: akun umum lengkap, akun khusus hanya milik modelnya', async (m) => {
       const c = await codes(m);
       for (const code of universal) expect(c).toContain(code);
       for (const code of specific[m]) expect(c).toContain(code);

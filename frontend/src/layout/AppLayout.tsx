@@ -75,7 +75,7 @@ const MENU: Group[] = [
       { key: '/sales-orders', label: t('Sales Order') },
       { key: '/customer-deposits', label: t('Uang muka pelanggan'), hideFor: ['RITEL'] },
       { key: '/projects', label: 'Proyek & termin', models: ['JASA'] },
-      { key: '/deliveries', label: 'Surat jalan', hideFor: ['JASA', 'RITEL'] },
+      { key: '/deliveries', label: 'Surat jalan', hideFor: ['JASA', 'RITEL', 'FNB'] },
       { key: '/invoices', label: t('Faktur & piutang') },
       { key: '/returns?tab=sales', label: t('Retur penjualan') },
       { key: '/integrations?tab=marketplace', label: 'Marketplace' },
@@ -138,7 +138,7 @@ const MENU: Group[] = [
     part: 'Produksi',
     key: 'production',
     app: 'inventory',
-    models: ['PRODUKSI', 'MANUFAKTUR'],
+    models: ['PRODUKSI', 'MANUFAKTUR', 'FNB'],
     label: 'Produksi',
     icon: APP_ICONS.production,
     children: [
