@@ -1,6 +1,6 @@
 import { REPORTING_FRAMEWORK_LABELS, type ReportingFramework, type StatementKind, statementTitle } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Checkbox, Input, Radio, Segmented, Select, Space, Tabs, Tag, Typography } from 'antd';
+import { Alert, Card, Checkbox, Input, Radio, Segmented, Select, Space, Tabs, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
@@ -153,9 +153,6 @@ export default function ReportsPage() {
         title="Laporan Keuangan"
         extra={
           <Space wrap className="no-print">
-            {!me?.hasBudget && ['OWNER', 'ADMIN', 'FINANCE'].includes(me?.role ?? '') && (
-              <Button size="small" type="link" onClick={() => navigate('/budget')}>Buat anggaran</Button>
-            )}
             <Tag color="blue" style={{ cursor: 'pointer' }} onClick={() => navigate('/settings/company?tab=kebijakan')}>
               {REPORTING_FRAMEWORK_LABELS[framework]}
             </Tag>

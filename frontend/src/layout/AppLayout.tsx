@@ -198,7 +198,6 @@ const MENU: Group[] = [
           { key: '/trial-balance', label: 'Neraca saldo' },
           { key: '/worksheet', label: 'Neraca lajur' },
           { key: '/reports', label: 'Laporan keuangan' },
-          { key: '/budget', label: 'Anggaran vs realisasi', budget: true },
           { key: '/closing', label: 'Tutup buku' },
         ],
       },
