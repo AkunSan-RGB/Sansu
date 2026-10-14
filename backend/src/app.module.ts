@@ -28,6 +28,8 @@ import { MasterDataModule } from './modules/master-data/master-data.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { PosModule } from './modules/pos/pos.module';
+import { PosTabsModule } from './modules/pos/pos-tabs.module';
+import { PosOnlineModule } from './modules/pos/pos-online.module';
 import { CrmModule } from './modules/crm/crm.module';
 import { HrModule } from './modules/hr/hr.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
@@ -79,6 +81,8 @@ import { MailModule } from './mail/mail.module';
     CashModule,
     PlatformModule,
     PosModule,
+    PosTabsModule,
+    PosOnlineModule,
     CrmModule,
     HrModule,
     PayrollModule,

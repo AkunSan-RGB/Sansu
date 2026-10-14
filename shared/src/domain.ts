@@ -208,14 +208,30 @@ export const CASH_TX_TYPE_LABELS: Record<CashTxType, string> = {
 export const POS_ORDER_TYPES = ['DINE_IN', 'TAKEAWAY', 'DELIVERY'] as const;
 export type PosOrderType = (typeof POS_ORDER_TYPES)[number];
 export const POS_ORDER_TYPE_LABELS: Record<PosOrderType, string> = { DINE_IN: 'Makan di tempat', TAKEAWAY: 'Bawa pulang', DELIVERY: 'Antar' };
-export const POS_PAYMENT_METHODS = ['CASH', 'QRIS', 'DEBIT', 'TRANSFER'] as const;
+export const POS_PAYMENT_METHODS = ['CASH', 'QRIS', 'DEBIT', 'TRANSFER', 'PLATFORM'] as const;
 export type PosPaymentMethod = (typeof POS_PAYMENT_METHODS)[number];
 export const POS_PAYMENT_LABELS: Record<PosPaymentMethod, string> = {
   CASH: 'Tunai',
   QRIS: 'QRIS',
   DEBIT: 'Kartu debit',
   TRANSFER: 'Transfer',
+  PLATFORM: 'Dibayar platform (online)',
 };
+/** Metode yang boleh dipilih kasir; PLATFORM hanya otomatis untuk pesanan online */
+export const POS_CASHIER_PAYMENT_METHODS = ['CASH', 'QRIS', 'DEBIT', 'TRANSFER'] as const;
+
+/** Kanal pesanan online (pesan-antar). Komisi platform dicatat otomatis sesuai persentase di pengaturan. */
+export const ONLINE_CHANNELS = ['GOFOOD', 'GRABFOOD', 'SHOPEEFOOD', 'WEBSITE', 'OTHER'] as const;
+export type OnlineChannel = (typeof ONLINE_CHANNELS)[number];
+export const ONLINE_CHANNEL_LABELS: Record<OnlineChannel, string> = {
+  GOFOOD: 'GoFood',
+  GRABFOOD: 'GrabFood',
+  SHOPEEFOOD: 'ShopeeFood',
+  WEBSITE: 'Website / aplikasi sendiri',
+  OTHER: 'Kanal online lain',
+};
+/** Komisi bawaan (% dari harga menu sebelum pajak); ubah sesuai perjanjian dengan platform */
+export const DEFAULT_PLATFORM_COMMISSIONS: Record<OnlineChannel, number> = { GOFOOD: 20, GRABFOOD: 20, SHOPEEFOOD: 20, WEBSITE: 0, OTHER: 0 };
 
 export const POS_SESSION_STATUSES = ['OPEN', 'CLOSED'] as const;
 export type PosSessionStatus = (typeof POS_SESSION_STATUSES)[number];

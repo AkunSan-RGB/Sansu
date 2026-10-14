@@ -84,6 +84,17 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(s('FNB'), 'boms')).toBeGreaterThan(6);
     expect(Number((await db.execute<{ n: string }>(sql.raw(`SELECT COUNT(*)::text AS n FROM pos_order_lines l JOIN pos_orders o ON o.id = l.order_id WHERE o.tenant_id = '${s('FNB')}' AND l.from_recipe`))).rows[0].n)).toBeGreaterThan(50);
     expect(await count(s('FNB'), 'production_orders')).toBeGreaterThan(1);
+    // meja, pesanan terbuka, pesanan online + pencairan, dan pajak restoran daerah (PB1)
+    expect(await count(s('FNB'), 'pos_tables')).toBe(4);
+    expect(await count(s('FNB'), 'pos_platform_settlements')).toBe(1);
+    const one = async (q: string) => Number((await db.execute<{ n: string }>(sql.raw(q))).rows[0].n);
+    expect(await one(`SELECT COUNT(*)::text AS n FROM pos_orders WHERE tenant_id = '${s('FNB')}' AND channel IS NOT NULL`)).toBe(5);
+    expect(await one(`SELECT COUNT(*)::text AS n FROM pos_orders WHERE tenant_id = '${s('FNB')}' AND channel IS NOT NULL AND settlement_id IS NULL`)).toBe(3);
+    expect(await one(`SELECT COUNT(*)::text AS n FROM pos_tabs WHERE tenant_id = '${s('FNB')}' AND status = 'OPEN'`)).toBe(1);
+    expect(await one(`SELECT COUNT(*)::text AS n FROM pos_orders WHERE tenant_id = '${s('FNB')}' AND tax_kind = 'LOCAL'`)).toBeGreaterThan(50);
+    expect(await one(`SELECT COUNT(*)::text AS n FROM pos_orders WHERE tenant_id = '${s('FNB')}' AND tax_kind = 'VAT' AND tax_amount::numeric > 0`)).toBe(0);
+    const kitchen = (await get(sessions.get('FNB')!.token, '/api/pos/kitchen').expect(200)).body;
+    expect(kitchen.tickets.length).toBe(1);
     // F&B: ada lot dengan tanggal kedaluwarsa (satu sudah lewat, beberapa segera); jumlah lot tidak melebihi stok
     const lotList = (await get(sessions.get('FNB')!.token, '/api/inventory/lots').expect(200)).body;
     expect(lotList.summary.expired).toBeGreaterThanOrEqual(1);

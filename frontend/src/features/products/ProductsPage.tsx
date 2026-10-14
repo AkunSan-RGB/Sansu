@@ -23,6 +23,7 @@ interface FormValues {
   isActive?: boolean;
   semi?: boolean;
   madeToOrder?: boolean;
+  shelfLifeDays?: number | null;
 }
 
 export default function ProductsPage() {
@@ -44,6 +45,7 @@ export default function ProductsPage() {
         barcode: v.barcode ?? '',
         inventoryKind: v.semi ? 'SEMI' : 'GOODS',
         madeToOrder: !!v.madeToOrder && !v.semi,
+        shelfLifeDays: v.shelfLifeDays ?? null,
         uoms: (v.uoms ?? []).map((u) => ({ uom: u.uom.toUpperCase(), factor: String(u.factor) })),
       };
       return editing && editing !== 'new' ? patch(`/products/${editing.id}`, body) : post('/products', body);
@@ -61,6 +63,7 @@ export default function ProductsPage() {
         sellPrice: Number(p.sellPrice),
         semi: p.inventoryKind === 'SEMI',
         madeToOrder: !!p.madeToOrder,
+        shelfLifeDays: p.shelfLifeDays ?? undefined,
         uoms: p.uoms.map((u) => ({ uom: u.uom, factor: Number(u.factor) })),
       });
     }
@@ -197,6 +200,11 @@ export default function ProductsPage() {
               )
             }
           </Form.Item>
+          {prod && (
+            <Form.Item name="shelfLifeDays" label="Umur simpan (hari, opsional)" extra="Isi untuk barang yang cepat basi (roti, kue, olahan segar): hasil produksinya otomatis dipantau di Persediaan › Kedaluwarsa bahan, tanggal kedaluwarsa = tanggal selesai + umur simpan.">
+              <InputNumber min={1} max={3650} precision={0} style={{ width: 160 }} />
+            </Form.Item>
+          )}
           <Space wrap>
             <Form.Item name="baseUom" label="Satuan dasar" rules={[{ required: true }]}>
               <Input style={{ width: 120 }} />

@@ -1,3 +1,5 @@
+import { PlatformSettlementsService } from '../pos/pos-online.module';
+import { PosTabsService } from '../pos/pos-tabs.module';
 import { Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { eq } from 'drizzle-orm';
@@ -60,6 +62,8 @@ export interface Demo {
     inv: InvoicesService;
     pay: PaymentsService;
     pos: PosService;
+    tabs: PosTabsService;
+    settle: PlatformSettlementsService;
     cash: CashService;
     hr: HrService;
     payroll: PayrollService;
@@ -164,6 +168,8 @@ export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: 
       inv: get(InvoicesService),
       pay: get(PaymentsService),
       pos: get(PosService),
+      tabs: get(PosTabsService),
+      settle: get(PlatformSettlementsService),
       cash: get(CashService),
       hr: get(HrService),
       payroll: get(PayrollService),

@@ -8,6 +8,12 @@ export function outputVatRate(me?: Pick<Me, 'ppnRate' | 'taxProfile'> | null): n
   return Number(me?.ppnRate ?? 11);
 }
 
+/** Pajak di kasir: pajak restoran daerah (PB1/PBJT) bila dinyalakan, selain itu PPN */
+export function posTax(me?: Pick<Me, 'ppnRate' | 'taxProfile'> | null): { rate: number; label: string; local: boolean } {
+  if (me?.taxProfile?.localTaxEnabled) return { rate: Number(me.taxProfile.localTaxRate ?? 10), label: 'PB1', local: true };
+  return { rate: outputVatRate(me), label: 'PPN', local: false };
+}
+
 /**
  * Total dokumen dari jumlah baris.
  *  - inclusive=false: PPN ditambahkan di atas subtotal

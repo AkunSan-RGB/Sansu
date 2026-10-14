@@ -50,7 +50,7 @@ export default function Receipt({ order, company, cashier, warehouse }: { order:
             <span>{fmtMoney(order.subtotal)}</span>
           </div>
           <div style={row}>
-            <span>PPN</span>
+            <span>{order.taxKind === 'LOCAL' ? 'Pajak restoran (PB1)' : 'PPN'}</span>
             <span>{fmtMoney(order.taxAmount)}</span>
           </div>
         </>
@@ -61,7 +61,7 @@ export default function Receipt({ order, company, cashier, warehouse }: { order:
       </div>
       {Number(order.taxAmount) > 0 && order.pricesIncludeVat && (
         <div style={{ ...row, fontSize: 11 }}>
-          <span>Termasuk PPN (DPP {fmtMoney(order.subtotal)})</span>
+          <span>Termasuk {order.taxKind === 'LOCAL' ? 'pajak restoran' : 'PPN'} (DPP {fmtMoney(order.subtotal)})</span>
           <span>{fmtMoney(order.taxAmount)}</span>
         </div>
       )}

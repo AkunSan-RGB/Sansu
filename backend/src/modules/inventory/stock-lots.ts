@@ -35,7 +35,7 @@ export interface LotMove {
 /** Jenis mutasi keluar yang mengurangi lot (FEFO) */
 const DEPLETING: StockMoveType[] = ['SALE', 'ADJUSTMENT_OUT', 'PRODUCTION_ISSUE', 'PURCHASE_RETURN', 'TRANSFER_OUT'];
 /** Jenis mutasi masuk yang boleh membawa lot baru */
-const RECEIVING: StockMoveType[] = ['PURCHASE', 'ADJUSTMENT_IN'];
+const RECEIVING: StockMoveType[] = ['PURCHASE', 'ADJUSTMENT_IN', 'PRODUCTION_OUTPUT'];
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 

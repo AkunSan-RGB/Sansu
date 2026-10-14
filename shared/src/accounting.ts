@@ -208,7 +208,7 @@ export type RecurringFrequency = (typeof RECURRING_FREQUENCIES)[number];
 export const RECURRING_FREQUENCY_LABELS: Record<RecurringFrequency, string> = { MONTHLY: 'Bulanan', QUARTERLY: 'Triwulanan', YEARLY: 'Tahunan' };
 
 // ---------- Setoran pajak ----------
-export const TAX_PAYMENT_TYPES = ['PPN', 'PPH21', 'PPH23', 'PPH4_2', 'PPH25', 'PPH29', 'PPH_FINAL', 'BPJS'] as const;
+export const TAX_PAYMENT_TYPES = ['PPN', 'PPH21', 'PPH23', 'PPH4_2', 'PPH25', 'PPH29', 'PPH_FINAL', 'BPJS', 'PB1'] as const;
 export type TaxPaymentType = (typeof TAX_PAYMENT_TYPES)[number];
 export const TAX_PAYMENT_LABELS: Record<TaxPaymentType, string> = {
   PPN: 'PPN',
@@ -219,6 +219,7 @@ export const TAX_PAYMENT_LABELS: Record<TaxPaymentType, string> = {
   PPH29: 'PPh Pasal 29 (tahunan)',
   PPH_FINAL: 'PPh final UMKM 0,5%',
   BPJS: 'Iuran BPJS',
+  PB1: 'Pajak restoran daerah (PB1/PBJT)',
 };
 export const WITHHOLDING_TYPES = ['PPH23', 'PPH4_2'] as const;
 export const WITHHOLDING_LABELS: Record<(typeof WITHHOLDING_TYPES)[number], string> = {
@@ -246,7 +247,8 @@ export function taxDueDate(type: TaxPaymentType, period: string): string {
     const last = new Date(Date.UTC(ny, nm, 0)).getUTCDate();
     return `${ym}-${String(last).padStart(2, '0')}`;
   }
-  if (type === 'PPH25' || type === 'PPH_FINAL') return `${ym}-15`;
+  // PB1/PBJT: tenggat ditetapkan peraturan daerah masing-masing; tanggal 15 bulan berikutnya dipakai sebagai perkiraan
+  if (type === 'PPH25' || type === 'PPH_FINAL' || type === 'PB1') return `${ym}-15`;
   return `${ym}-10`;
 }
 

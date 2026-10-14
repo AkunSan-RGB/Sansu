@@ -108,3 +108,58 @@ describe('Jenis usaha F&B (e2e)', () => {
     expect(checks.filter((c) => c.status === 'ERROR')).toEqual([]);
   });
 });
+
+describe('Umur simpan barang hasil produksi (e2e)', () => {
+  let app: INestApplication;
+  let http: ReturnType<typeof request>;
+  let owner: string;
+  let W: string;
+  const stamp = Date.now();
+  const today = todayJakarta();
+  const as = () => ({ Authorization: `Bearer ${owner}` });
+  const get = (u: string) => http.get(u).set(as());
+  const post = (u: string, b: object = {}) => http.post(u).set(as()).send(b);
+  const patch = (u: string, b: object = {}) => http.patch(u).set(as()).send(b);
+
+  beforeAll(async () => {
+    const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = configureApp(mod.createNestApplication());
+    await app.init();
+    http = request(app.getHttpServer());
+    owner = (await http.post('/api/auth/register').send({ companyName: 'PT Roti Umur', name: 'Pemilik', email: `um-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'FNB' }).expect(201)).body.accessToken;
+    W = (await get('/api/warehouses').expect(200)).body[0].id;
+  });
+  afterAll(() => app.close());
+
+  it('hasil produksi barang berumur simpan menjadi lot dengan tanggal kedaluwarsa; tanpa umur simpan tidak dilacak', async () => {
+    const tepung = (await post('/api/products', { sku: 'T-1', name: 'Tepung', baseUom: 'GR', sellPrice: '0' }).expect(201)).body.id;
+    const roti = (await post('/api/products', { sku: 'R-1', name: 'Roti Tawar', baseUom: 'PCS', sellPrice: '15000', shelfLifeDays: 3 }).expect(201)).body;
+    expect(roti.shelfLifeDays).toBe(3);
+    const kue = (await post('/api/products', { sku: 'K-1', name: 'Kue Kering', baseUom: 'PCS', sellPrice: '5000' }).expect(201)).body.id;
+    await post('/api/inventory/adjustments', { warehouseId: W, reason: 'OPENING', date: today, lines: [{ productId: tepung, qty: '100000', unitCost: '13' }] }).expect(201);
+    const run = async (productId: string, qty: string) => {
+      const bom = (await post('/api/production/boms', { name: `Resep ${productId.slice(0, 4)}`, productId, outputQty: '10', laborCost: '0', overheadCost: '0', lines: [{ productId: tepung, qty: '1000' }] }).expect(201)).body;
+      const o = (await post('/api/production/orders', { bomId: bom.id, warehouseId: W, batches: '1', date: today }).expect(201)).body;
+      await post(`/api/production/orders/${o.id}/start`, { date: today }).expect(201);
+      await post(`/api/production/orders/${o.id}/complete`, { date: today, outputQty: qty }).expect(201);
+      return o.number as string;
+    };
+    const number = await run(roti.id, '10');
+    await run(kue, '10');
+    const lots = (await get('/api/inventory/lots').expect(200)).body.items as { productId: string; lotNo: string; expiryDate: string; qtyRemaining: string; status: string; daysLeft: number }[];
+    const l = lots.filter((x) => x.productId === roti.id);
+    expect(l).toHaveLength(1);
+    expect(l[0]).toMatchObject({ lotNo: number, status: 'SOON', daysLeft: 3 });
+    expect(Number(l[0].qtyRemaining)).toBe(10);
+    expect(lots.some((x) => x.productId === kue)).toBe(false);
+  });
+
+  it('umur simpan bisa diubah dan dikosongkan; nilai tidak masuk akal ditolak', async () => {
+    const p = (await post('/api/products', { sku: 'R-2', name: 'Donat', baseUom: 'PCS', sellPrice: '9000', shelfLifeDays: 2 }).expect(201)).body;
+    expect((await patch(`/api/products/${p.id}`, { shelfLifeDays: 5 }).expect(200)).body.shelfLifeDays).toBe(5);
+    expect((await patch(`/api/products/${p.id}`, { shelfLifeDays: null }).expect(200)).body.shelfLifeDays).toBeNull();
+    await patch(`/api/products/${p.id}`, { shelfLifeDays: 0 }).expect(400);
+    await patch(`/api/products/${p.id}`, { shelfLifeDays: 99999 }).expect(400);
+    await patch(`/api/products/${p.id}`, { shelfLifeDays: 1.5 }).expect(400);
+  });
+});

@@ -554,6 +554,8 @@ export class ProductionService {
       const material = D(o.materialCost);
       const total = material.plus(labor).plus(overhead);
       const unitCost = qty4(total.div(out));
+      // Barang dengan umur simpan: hasil produksi menjadi lot dengan tanggal kedaluwarsa = tanggal selesai + umur simpan
+      const [prod] = await tx.select({ shelf: products.shelfLifeDays }).from(products).where(eq(products.id, o.productId));
       const moved = await this.stock.move(tx, {
         tenantId: user.tenantId,
         productId: o.productId,
@@ -565,6 +567,7 @@ export class ProductionService {
         refId: o.id,
         refNumber: o.number,
         date,
+        lot: prod?.shelf ? { lotNo: o.number, expiryDate: addDays(date, prod.shelf) } : undefined,
       });
       const rounding = money(total.minus(moved.value)); // + : nilai stok sedikit di bawah total biaya
       const j = await this.posting.post(tx, {

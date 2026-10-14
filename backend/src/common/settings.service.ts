@@ -31,11 +31,17 @@ export const DEFAULT_REPORTING: ReportingSettings = {
 };
 
 /** Bawaan: PKP, harga kasir belum termasuk PPN (perusahaan lama tetap seperti sebelumnya) */
-export const DEFAULT_TAX_PROFILE: TaxProfile = { pkp: true, posPricesIncludeVat: false, salesPricesIncludeVat: false, vatRounding: 'NONE' };
+export const DEFAULT_TAX_PROFILE: TaxProfile = { pkp: true, posPricesIncludeVat: false, salesPricesIncludeVat: false, vatRounding: 'NONE', localTaxEnabled: false, localTaxRate: '10' };
 
 /** Profil PPN dari kolom tenants.settings (tanpa query tambahan) */
 export function taxProfileOf(settings: Record<string, unknown> | null | undefined): TaxProfile {
   return { ...DEFAULT_TAX_PROFILE, ...((settings?.tax as Partial<TaxProfile>) ?? {}) };
+}
+
+/** Pajak daerah kasir (PB1/PBJT) yang berlaku: bila aktif, penjualan kasir memakai tarif ini sebagai pengganti PPN */
+export function localTaxOf(settings: Record<string, unknown> | null | undefined): { enabled: boolean; rate: string } {
+  const p = taxProfileOf(settings);
+  return { enabled: !!p.localTaxEnabled, rate: p.localTaxRate ?? '10' };
 }
 
 /** Tarif PPN keluaran efektif: 0 bila perusahaan belum PKP */

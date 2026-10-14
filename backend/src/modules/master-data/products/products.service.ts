@@ -78,6 +78,7 @@ export class ProductsService {
           barcode: dto.barcode?.trim() || null,
           inventoryKind: dto.inventoryKind ?? 'GOODS',
           madeToOrder: dto.madeToOrder ?? false,
+          shelfLifeDays: dto.shelfLifeDays ?? null,
         })
         .returning({ id: products.id });
       if (dto.uoms?.length) {
@@ -118,6 +119,7 @@ export class ProductsService {
           barcode: dto.barcode === undefined ? undefined : dto.barcode.trim() || null,
           inventoryKind: dto.inventoryKind,
           madeToOrder: dto.madeToOrder,
+          shelfLifeDays: dto.shelfLifeDays,
           isActive: dto.isActive,
         })
         .where(eq(products.id, id));

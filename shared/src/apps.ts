@@ -214,7 +214,7 @@ export const BUSINESS_MODELS: BusinessModelInfo[] = [
     flow: ['Pembelian bahan', 'Persediaan bahan (pantau kedaluwarsa)', 'Resep menu', 'Kasir (bahan terpotong otomatis)', 'Tutup kasir', 'Laporan & pajak'],
     apps: ['pos', 'purchase', 'inventory', 'accounting', 'cash'],
     ready: true,
-    note: 'Tandai produk sebagai "Menu (dibuat saat dipesan)" dan buat resepnya di Produksi › Resep. Setiap menu terjual di kasir, bahan sesuai resep otomatis terpotong dan HPP dihitung dari bahan. Catatan: pajak restoran daerah (PB1) belum dihitung otomatis; atur dengan konsultan pajak Anda.',
+    note: 'Tandai produk sebagai "Menu (dibuat saat dipesan)" dan buat resepnya di Produksi › Resep. Setiap menu terjual di kasir, bahan sesuai resep otomatis terpotong dan HPP dihitung dari bahan. Nyalakan pajak restoran daerah (PB1) di Pengaturan › Perusahaan bila daerah Anda mengenakannya; tarif dan tenggat tetap perlu dipastikan dengan konsultan pajak.',
   },
 ];
 export const BUSINESS_MODEL_BY_KEY = Object.fromEntries(BUSINESS_MODELS.map((m) => [m.key, m])) as Record<BusinessModel, BusinessModelInfo>;

@@ -21,6 +21,8 @@ export class TenantSetupService {
     await tx.insert(warehouses).values({ tenantId, code: 'GDG-01', name: model === 'RITEL' ? 'Toko Utama' : 'Gudang Utama' });
     // Toko ritel: harga rak/kasir umumnya sudah termasuk PPN
     if (model === 'RITEL') await this.settings.saveTaxProfile(tx, tenantId, { posPricesIncludeVat: true });
+    // Kafe/restoran: penjualan makanan & minuman dikenai pajak restoran daerah (PB1/PBJT, 10%), bukan PPN; tarif bisa diubah sesuai perda
+    if (model === 'FNB') await this.settings.saveTaxProfile(tx, tenantId, { localTaxEnabled: true, localTaxRate: '10' });
     await this.apps.provisionDefaults(tx, tenantId, BUSINESS_MODEL_BY_KEY[model].apps);
   }
 }
