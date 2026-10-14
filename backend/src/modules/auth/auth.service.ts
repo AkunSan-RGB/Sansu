@@ -17,7 +17,7 @@ import { AppsService } from '../../common/apps/apps.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { authTokens, branches, budgets, tenants, users } from '../../db/schema';
+import { authTokens, branches, budgets, customRoles, tenants, users } from '../../db/schema';
 import { SubscriptionService } from '../../common/billing/subscription.service';
 import { verificationRequired } from '../../common/billing/subscription.guard';
 import { LEGAL_VERSION } from '@sansu/shared';
@@ -420,13 +420,17 @@ export class AuthService {
         warehouseIds: users.warehouseIds,
         branchIds: users.branchIds,
         totpEnabledAt: users.totpEnabledAt,
+        customRoleName: customRoles.name,
       })
       .from(users)
       .innerJoin(tenants, eq(tenants.id, users.tenantId))
+      .leftJoin(customRoles, eq(customRoles.id, users.customRoleId))
       .where(eq(users.id, u.sub));
-    const { emailVerifiedAt, totpEnabledAt, ...rest } = row;
+    const { emailVerifiedAt, totpEnabledAt, customRoleName, ...rest } = row;
     return {
       ...rest,
+      /** Sebutan peran untuk tampilan: nama peran khusus bila ada */
+      roleLabel: customRoleName ?? null,
       twoFactor: { enabled: !!totpEnabledAt, required: await this.twoFactor.requiredFor(u.tenantId, row.role) },
       apps: [...(await this.apps.enabled(u.tenantId))],
       businessModel: await this.settings.businessModel(this.db, u.tenantId),
@@ -469,8 +473,11 @@ export class AuthService {
         branchIds: users.branchIds,
         twoFactor: sql<boolean>`${users.totpEnabledAt} IS NOT NULL`,
         createdAt: users.createdAt,
+        customRoleId: users.customRoleId,
+        customRoleName: customRoles.name,
       })
       .from(users)
+      .leftJoin(customRoles, eq(customRoles.id, users.customRoleId))
       .where(eq(users.tenantId, tenantId))
       .orderBy(asc(users.name));
   }
@@ -479,6 +486,12 @@ export class AuthService {
     const role = dto.role ?? 'SALES';
     if (role === 'OWNER' && actor.role !== 'OWNER')
       throw new BadRequestException('Hanya OWNER yang bisa membuat OWNER');
+    if (dto.customRoleId) {
+      if (actor.role !== 'OWNER') throw new ForbiddenException('Hanya Pemilik yang dapat menetapkan peran khusus');
+      const [cr] = await this.db.select({ baseRole: customRoles.baseRole }).from(customRoles).where(and(eq(customRoles.id, dto.customRoleId), eq(customRoles.tenantId, actor.tenantId)));
+      if (!cr) throw new BadRequestException('Peran khusus tidak ditemukan');
+      if (cr.baseRole !== role) throw new BadRequestException('Peran khusus harus turunan dari peran dasar yang dipilih');
+    }
     const email = dto.email.toLowerCase();
     await this.assertEmailFree(email);
     await this.subs.assertCanAdd(actor.tenantId, 'users');
@@ -490,6 +503,7 @@ export class AuthService {
         email,
         name: dto.name,
         role,
+        customRoleId: dto.customRoleId ?? null,
         passwordHash: await bcrypt.hash(dto.password, 10),
         emailVerifiedAt: new Date(),
         warehouseIds: (await normalizeWarehouseIds(this.db, actor.tenantId, dto.warehouseIds)) ?? null,

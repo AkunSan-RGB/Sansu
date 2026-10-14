@@ -1,5 +1,5 @@
 import { PlusOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import { APPS, canUseApp, ROLE_LABELS, type Role, ROLES, toOptions } from '@sansu/shared';
+import { APPS, canUseApp, type CustomRole, ROLE_LABELS, type Role, ROLES, toOptions } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, App, Button, Form, Input, Modal, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd';
 import { useState } from 'react';
@@ -8,6 +8,7 @@ import { useAction, useBranches, useWarehouses } from '@/api/queries';
 import type { UserRow } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import ListPage from '@/components/ListPage';
+import CustomRolesCard from './CustomRolesCard';
 import { fmtDate } from '@/lib/format';
 import { t } from '@/lib/terms';
 
@@ -30,6 +31,7 @@ export default function UsersPage() {
   const { data, isLoading } = useQuery({ queryKey: ['users'], queryFn: () => get<UserRow[]>('/users') });
   const { data: warehouses } = useWarehouses({ all: true });
   const branches = useBranches();
+  const customRoles = useQuery({ queryKey: ['custom-roles'], queryFn: () => get<CustomRole[]>('/settings/roles'), enabled: me?.role === 'OWNER' });
   const brName = new Map((branches.data?.branches ?? []).map((b) => [b.id, b.code]));
   const whName = new Map((warehouses ?? []).map((w) => [w.id, w.code]));
 
@@ -39,11 +41,14 @@ export default function UsersPage() {
       email?: string;
       password?: string;
       role: Role;
+      customRoleId?: string | null;
       isActive?: boolean;
       warehouseIds?: string[];
       branchIds?: string[];
     }) => {
-      const body = { ...v, warehouseIds: v.warehouseIds ?? [], branchIds: v.branchIds ?? [] };
+      // peran khusus hanya ditetapkan Pemilik dan hanya berlaku bila turunan dari peran dasar yang dipilih
+      const cr = (customRoles.data ?? []).find((c) => c.id === v.customRoleId && c.baseRole === v.role);
+      const body = { ...v, customRoleId: undefined, ...(me?.role === 'OWNER' ? { customRoleId: cr?.id ?? null } : {}), warehouseIds: v.warehouseIds ?? [], branchIds: v.branchIds ?? [] };
       return editing === 'new'
         ? post('/users', body)
         : patch(`/users/${(editing as UserRow).id}`, { ...body, email: undefined, password: v.password || undefined });
@@ -137,7 +142,12 @@ export default function UsersPage() {
           {
             title: 'Peran',
             dataIndex: 'role',
-            render: (r: Role) => <Tag color={r === 'OWNER' ? 'gold' : 'volcano'}>{ROLE_LABELS[r]}</Tag>,
+            render: (r: Role, u: UserRow) => (
+              <>
+                <Tag color={r === 'OWNER' ? 'gold' : 'volcano'}>{ROLE_LABELS[r]}</Tag>
+                {u.customRoleName && <Tag color="purple">{u.customRoleName}</Tag>}
+              </>
+            ),
           },
           ...((branches.data?.branches.length ?? 0) > 0
             ? [
@@ -215,6 +225,11 @@ export default function UsersPage() {
           <Form.Item name="role" label="Peran" rules={[{ required: true }]} extra={role && ROLE_HELP[role]}>
             <Select options={toOptions(ROLE_LABELS).filter((o) => roles.includes(o.value))} />
           </Form.Item>
+          {me?.role === 'OWNER' && role && role !== 'OWNER' && (customRoles.data ?? []).some((c) => c.baseRole === role) && (
+            <Form.Item name="customRoleId" label="Peran khusus (opsional)" extra="Membatasi hak peran ini. Kosong = peran bawaan penuh.">
+              <Select allowClear placeholder="Peran bawaan" options={(customRoles.data ?? []).filter((c) => c.baseRole === role).map((c) => ({ value: c.id, label: c.name }))} />
+            </Form.Item>
+          )}
           {editing && editing !== 'new' && role && role !== editing.role && [role, editing.role].every((r) => r === 'FINANCE' || r === 'ACCOUNTANT') && (
             <Alert
               type="warning"
@@ -293,6 +308,7 @@ export default function UsersPage() {
           )}
         </Form>
       </Modal>
+      {me?.role === 'OWNER' && <CustomRolesCard />}
     </>
   );
 }

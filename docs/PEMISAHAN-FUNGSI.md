@@ -91,6 +91,17 @@ Pekerjaan Akuntan yang berbasis aturan tetap dikerjakan sistem atas nama Pemilik
 Kunci periode dan tutup buku sengaja tidak menyala sendiri pada perusahaan yang sudah berjalan (mengubah perilaku pencatatan mundur); tombol **Nyalakan semua** menyalakannya sekaligus.
 Kegagalan memberi tahu Pemilik lewat Telegram. Jurnal penutup tahun boleh dibuat sesudah periodenya terkunci (hanya memindahkan saldo pendapatan/beban ke Laba Ditahan).
 
+### Peran khusus (hanya mempersempit)
+
+Di **Pengaturan › Pengguna › Peran khusus**, Pemilik dapat membuat peran turunan dari peran bawaan dengan **mencabut** hak tulis tertentu
+(mis. "Admin Tanpa Bayar": Admin tanpa hak menerima/membayar dan menjurnal), lalu menetapkannya ke pengguna.
+
+- **Hanya mempersempit**: tidak pernah memberi hak di luar peran dasarnya, sehingga pemisahan fungsi Keuangan/Akuntan tidak bisa dilanggar lewat peran khusus. Pemilik tidak bisa dibatasi dan tidak bisa dijadikan peran dasar.
+- **Hanya Pemilik** yang membuat, mengubah, menghapus, dan menetapkan peran khusus. Admin tidak bisa melepas batas dirinya atau pengguna lain, dan tidak bisa mengubah peran pengguna berperan khusus.
+- **Ditegakkan di server** (satu pemeriksaan di RolesGuard, bukan per tombol); `/auth/permissions` ikut mengurangi hak sehingga tombol tersembunyi. Aksi akun sendiri (`/auth`) tidak bisa dicabut.
+- Mengganti peran dasar pengguna melepas peran khusus lamanya. Sesi pengguna dicabut saat peran khususnya berubah. Semua perubahan tercatat di jejak audit; perpindahan Keuangan ↔ Akuntan tetap terdeteksi memakai peran dasar.
+- Peran khusus yang masih dipakai tidak bisa dihapus.
+
 ### Tampilan mengikuti server
 
 Tombol tulis ditampilkan berdasarkan izin dari server (`GET /auth/permissions`, diturunkan dari `@Roles` tiap endpoint), bukan daftar peran yang

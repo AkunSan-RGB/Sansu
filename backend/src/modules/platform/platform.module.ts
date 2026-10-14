@@ -43,7 +43,7 @@ import { SubscriptionService } from '../../common/billing/subscription.service';
 import { normalizeWarehouseIds } from '../../common/auth/warehouse-ids';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { branches, Role, roleEnum, tenants, users } from '../../db/schema';
+import { branches, customRoles, Role, roleEnum, tenants, users } from '../../db/schema';
 import { IsNpwp } from '../../common/validators/npwp';
 import { isDocDate } from '../../common/utils/dates';
 import { refreshChartRelevance } from '../accounting/coa-sync';
@@ -53,6 +53,7 @@ export class UpdateUserDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(120) name?: string;
   @ApiPropertyOptional({ enum: roleEnum.enumValues }) @IsOptional() @IsIn(roleEnum.enumValues) role?: Role;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() isActive?: boolean;
+  @ApiPropertyOptional({ description: 'Peran khusus (hanya Pemilik); null = kembali ke peran bawaan', nullable: true }) @IsOptional() @IsUUID() customRoleId?: string | null;
   @ApiPropertyOptional({ description: 'Atur ulang kata sandi' }) @IsOptional() @StrongPassword() password?: string;
   @ApiPropertyOptional({ description: 'Matikan verifikasi 2 langkah pengguna ini (mis. HP hilang)' })
   @IsOptional()
@@ -198,22 +199,41 @@ export class PlatformService {
         );
       if (!others.length) throw new BadRequestException('Harus ada minimal satu Pemilik aktif');
     }
+    // Peran khusus membatasi hak: yang membatasi/melonggarkan hanya Pemilik (Admin tidak bisa melepas batas orang lain atau dirinya)
+    const nextRole = dto.role ?? target.role;
+    if (target.customRoleId && actor.role !== 'OWNER' && (dto.customRoleId !== undefined || (dto.role && dto.role !== target.role))) {
+      throw new ForbiddenException('Pengguna ini memakai peran khusus; hanya Pemilik yang dapat mengubah perannya');
+    }
+    let customRoleId: string | null | undefined;
+    if (dto.customRoleId !== undefined) {
+      if (actor.role !== 'OWNER') throw new ForbiddenException('Hanya Pemilik yang dapat menetapkan peran khusus');
+      if (dto.customRoleId !== null) {
+        const [cr] = await this.db.select({ baseRole: customRoles.baseRole }).from(customRoles).where(and(eq(customRoles.id, dto.customRoleId), eq(customRoles.tenantId, actor.tenantId)));
+        if (!cr) throw new BadRequestException('Peran khusus tidak ditemukan');
+        if (cr.baseRole !== nextRole) throw new BadRequestException('Peran khusus harus turunan dari peran dasar pengguna');
+      }
+      customRoleId = dto.customRoleId;
+    } else if (dto.role && dto.role !== target.role && target.customRoleId) {
+      customRoleId = null; // peran dasar berganti: peran khusus lama tidak berlaku lagi
+    }
+    const customRoleChanged = customRoleId !== undefined && customRoleId !== target.customRoleId;
     if (dto.isActive === true && !target.isActive) await this.subs.assertCanAdd(actor.tenantId, 'users');
     const [u] = await this.db
       .update(users)
       .set({
         name: dto.name,
         role: dto.role,
+        customRoleId,
         isActive: dto.isActive,
         warehouseIds: await normalizeWarehouseIds(this.db, actor.tenantId, dto.warehouseIds),
         branchIds: dto.branchIds === undefined ? undefined : await this.normalizeBranchIds(actor.tenantId, dto.branchIds),
         ...(dto.resetTwoFactor ? { totpEnabledAt: null, totpSecret: null, totpBackupCodes: null } : {}),
         // akses/kredensial berubah: putuskan Telegram (tautan persetujuan pribadi tidak boleh tertinggal di chat lama)
-        ...(dto.password || dto.isActive === false || (dto.role && dto.role !== target.role) ? { telegramChatId: null, telegramLinkCode: null, telegramLinkExpires: null } : {}),
+        ...(dto.password || dto.isActive === false || customRoleChanged || (dto.role && dto.role !== target.role) ? { telegramChatId: null, telegramLinkCode: null, telegramLinkExpires: null } : {}),
         passwordHash: dto.password ? await bcrypt.hash(dto.password, 10) : undefined,
         // cabut semua sesi pengguna ini bila akses/kredensialnya berubah
         tokenVersion:
-          dto.password || dto.resetTwoFactor || dto.isActive === false || (dto.role && dto.role !== target.role)
+          dto.password || dto.resetTwoFactor || dto.isActive === false || customRoleChanged || (dto.role && dto.role !== target.role)
             ? sql`${users.tokenVersion} + 1`
             : undefined,
       })
@@ -235,7 +255,7 @@ export class PlatformService {
       entity: 'User',
       entityId: id,
       // peran lama dicatat agar perpindahan peran yang saling mengawasi (Keuangan ↔ Akuntan) bisa dideteksi
-      data: { ...dto, password: dto.password ? '***' : undefined, ...(dto.role && dto.role !== target.role ? { previousRole: target.role } : {}) },
+      data: { ...dto, password: dto.password ? '***' : undefined, ...(dto.role && dto.role !== target.role ? { previousRole: target.role } : {}), ...(customRoleChanged ? { previousCustomRoleId: target.customRoleId, customRoleId } : {}) },
     });
     return u;
   }

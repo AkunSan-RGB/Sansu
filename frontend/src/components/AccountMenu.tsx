@@ -90,7 +90,7 @@ export default function AccountMenu() {
             <>
               {me.name}{' '}
               <Tag color="volcano" style={{ marginInline: 6 }}>
-                {ROLE_LABELS[me.role]}
+                {me.roleLabel ?? ROLE_LABELS[me.role]}
               </Tag>
             </>
           )}

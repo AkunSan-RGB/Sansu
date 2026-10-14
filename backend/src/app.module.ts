@@ -16,6 +16,7 @@ import { DbModule } from './db/db.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { PermissionsModule } from './common/auth/permissions';
+import { CustomRolesModule } from './modules/platform/custom-roles';
 import { AutoBookkeepingModule } from './modules/accounting/auto-bookkeeping';
 import { AuthModule } from './modules/auth/auth.module';
 import { DashboardModule } from './modules/dashboard/dashboard';
@@ -72,6 +73,7 @@ import { MailModule } from './mail/mail.module';
     // Modul domain — batas modul tegas (modular monolith)
     AuthModule,
     PermissionsModule,
+    CustomRolesModule,
     MasterDataModule,
     AccountingModule,
     InventoryModule,

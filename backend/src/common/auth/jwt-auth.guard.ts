@@ -4,7 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { and, eq, inArray } from 'drizzle-orm';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { users, warehouses } from '../../db/schema';
+import { customRoles, users, warehouses } from '../../db/schema';
 import { AuthUser } from './auth-user';
 import { IS_PUBLIC_KEY } from './decorators';
 import { TwoFactorPolicy } from './two-factor-policy';
@@ -49,8 +49,12 @@ export class JwtAuthGuard implements CanActivate {
         warehouseIds: users.warehouseIds,
         branchIds: users.branchIds,
         totpEnabledAt: users.totpEnabledAt,
+        customRoleId: customRoles.id,
+        customRoleName: customRoles.name,
+        customRoleDenied: customRoles.denied,
       })
       .from(users)
+      .leftJoin(customRoles, eq(customRoles.id, users.customRoleId))
       .where(eq(users.id, p.sub));
     if (!u || !u.isActive || u.tenantId !== p.tenantId || u.tokenVersion !== (p.tv ?? 0)) {
       throw new UnauthorizedException('Sesi Anda sudah berakhir. Silakan masuk lagi.');
@@ -68,6 +72,7 @@ export class JwtAuthGuard implements CanActivate {
       emailVerified: !!u.emailVerifiedAt,
       warehouseIds,
       branchIds: u.branchIds?.length ? u.branchIds : null,
+      customRole: u.customRoleId ? { id: u.customRoleId, name: u.customRoleName!, denied: u.customRoleDenied ?? [] } : null,
     };
     // Perusahaan mewajibkan 2FA: sebelum diaktifkan, hanya rute akun (/auth/...) yang boleh dipakai
     if (

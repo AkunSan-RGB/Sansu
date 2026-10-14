@@ -45,6 +45,10 @@ export class CreateUserDto {
   @IsOptional()
   @IsUUID('all', { each: true })
   branchIds?: string[];
+  @ApiPropertyOptional({ description: 'Peran khusus (hanya Pemilik yang boleh menetapkan); harus turunan dari peran dasar yang dipilih' })
+  @IsOptional()
+  @IsUUID()
+  customRoleId?: string;
 }
 
 export class ChangePasswordDto {
