@@ -311,3 +311,14 @@ export const PRODUCTION_STATUS_LABELS: Record<ProductionStatus, string> = {
   COMPLETED: 'Selesai',
   CANCELLED: 'Dibatalkan',
 };
+
+/** Peran produk dalam produksi (otomatis dari resep) */
+export const PRODUCT_ROLES = ['RAW', 'SEMI', 'FINISHED', 'TRADING'] as const;
+export type ProductRole = (typeof PRODUCT_ROLES)[number];
+export const PRODUCT_ROLE_LABELS: Record<ProductRole, string> = {
+  RAW: 'Bahan baku',
+  SEMI: 'Setengah jadi',
+  FINISHED: 'Produk jadi',
+  TRADING: 'Barang lain',
+};
+export const PRODUCT_ROLE_COLORS: Record<ProductRole, string> = { RAW: 'orange', SEMI: 'purple', FINISHED: 'green', TRADING: 'default' };

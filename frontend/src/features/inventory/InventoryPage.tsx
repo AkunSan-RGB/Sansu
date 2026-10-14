@@ -1,8 +1,9 @@
-import { ADJUSTMENT_REASON_LABELS, STOCK_MOVE_LABELS, type StockMoveType, toOptions } from '@sansu/shared';
+import { ADJUSTMENT_REASON_LABELS, isProductionModel, PRODUCT_ROLE_COLORS, PRODUCT_ROLE_LABELS, STOCK_MOVE_LABELS, type StockMoveType, toOptions } from '@sansu/shared';
 import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Card, Empty, Form, Input, InputNumber, Modal, Segmented, Select, Space, Tabs, Tag, Typography } from 'antd';
 import { useState } from 'react';
+import { useAuth } from '@/auth/AuthContext';
 import { get, post, qs } from '@/api/client';
 import { useAction, useProducts, useWarehouses } from '@/api/queries';
 import type { StockBalance, StockMove } from '@/api/types';
@@ -30,6 +31,10 @@ export default function InventoryPage() {
   const [productId, setProductId] = useState<string>();
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [view, setView] = useState<'ALL' | 'IN' | 'EMPTY'>('ALL');
+  const { me } = useAuth();
+  const prod = isProductionModel(me?.businessModel);
+  const [role, setRole] = useState<string>('ALL');
+  const roleOf = new Map((products ?? []).map((p) => [p.id, p.role]));
   const [search, setSearch] = useState('');
   const [form] = Form.useForm<AdjustValues>();
 
@@ -61,7 +66,7 @@ export default function InventoryPage() {
   const empty = bal.filter((r) => Number(r.qty) <= 0);
   const term = search.trim().toLowerCase();
   const shownBal = bal.filter(
-    (r) => (view === 'ALL' || (view === 'IN' ? Number(r.qty) > 0 : Number(r.qty) <= 0)) && (!term || `${r.sku} ${r.productName}`.toLowerCase().includes(term)),
+    (r) => (role === 'ALL' || roleOf.get(r.productId) === role) && (view === 'ALL' || (view === 'IN' ? Number(r.qty) > 0 : Number(r.qty) <= 0)) && (!term || `${r.sku} ${r.productName}`.toLowerCase().includes(term)),
   );
   const whOptions = warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }));
   const prodOptions = products?.map((p) => ({ value: p.id, label: `${p.sku} · ${p.name} (${p.baseUom})` }));
@@ -115,6 +120,20 @@ export default function InventoryPage() {
                         ]}
                       />
                     </div>
+                    {prod && (
+                      <div style={{ maxWidth: '100%', overflowX: 'auto' }}>
+                        <Segmented
+                          value={role}
+                          onChange={(v) => setRole(v as string)}
+                          options={[
+                            { value: 'ALL', label: 'Semua jenis' },
+                            { value: 'RAW', label: PRODUCT_ROLE_LABELS.RAW },
+                            { value: 'SEMI', label: PRODUCT_ROLE_LABELS.SEMI },
+                            { value: 'FINISHED', label: PRODUCT_ROLE_LABELS.FINISHED },
+                          ]}
+                        />
+                      </div>
+                    )}
                     <Input.Search allowClear placeholder="Cari SKU atau nama barang" style={{ width: 260 }} onChange={(e) => setSearch(e.target.value)} />
                   </Space>
                   <ResponsiveTable<StockBalance>
@@ -125,7 +144,19 @@ export default function InventoryPage() {
                     locale={{ emptyText: <Empty description={bal.length ? 'Tidak ada barang yang cocok dengan pilihan ini' : 'Belum ada stok. Klik Penyesuaian stok untuk mengisi stok awal.'} /> }}
                     columns={[
                       { title: 'SKU', dataIndex: 'sku' },
-                      { title: t('Produk'), dataIndex: 'productName' },
+                      {
+                        title: t('Produk'),
+                        dataIndex: 'productName',
+                        render: (n: string, r: StockBalance) => {
+                          const ro = roleOf.get(r.productId);
+                          return (
+                            <span>
+                              {n}
+                              {prod && ro && <Tag color={PRODUCT_ROLE_COLORS[ro]} style={{ marginLeft: 6 }}>{PRODUCT_ROLE_LABELS[ro]}</Tag>}
+                            </span>
+                          );
+                        },
+                      },
                       { title: t('Gudang'), dataIndex: 'warehouseCode' },
                       { title: 'Qty', dataIndex: 'qty', align: 'right', render: (v, r) => `${fmtQty(v)} ${r.baseUom}` },
                       { title: 'HPP rata-rata', dataIndex: 'avgCost', align: 'right', render: fmtMoney },

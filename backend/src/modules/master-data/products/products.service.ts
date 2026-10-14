@@ -21,8 +21,24 @@ export class ProductsService {
     }
   }
 
-  list(tenantId: string, q?: string) {
-    return this.db.query.products.findMany({
+  /**
+   * Peran produk dalam produksi (otomatis dari resep, tanpa input tambahan):
+   * RAW = dipakai sebagai bahan di resep; SEMI = barang setengah jadi; FINISHED = hasil sebuah resep (produk jadi);
+   * TRADING = belum terkait resep (barang dagang / belum dipakai produksi).
+   */
+  private async roles(tenantId: string): Promise<{ material: Set<string>; output: Set<string> }> {
+    const mat = await this.db.execute<{ id: string }>(sql`SELECT DISTINCT l.product_id AS id FROM bom_lines l JOIN boms b ON b.id = l.bom_id WHERE b.tenant_id = ${tenantId}`);
+    const out = await this.db.execute<{ id: string }>(sql`SELECT DISTINCT product_id AS id FROM boms WHERE tenant_id = ${tenantId}`);
+    return { material: new Set(mat.rows.map((r) => r.id)), output: new Set(out.rows.map((r) => r.id)) };
+  }
+
+  private withRole<T extends { id: string; inventoryKind?: string | null }>(p: T, r: { material: Set<string>; output: Set<string> }) {
+    const role = p.inventoryKind === 'SEMI' ? 'SEMI' : r.output.has(p.id) ? 'FINISHED' : r.material.has(p.id) ? 'RAW' : 'TRADING';
+    return { ...p, role } as T & { role: 'RAW' | 'SEMI' | 'FINISHED' | 'TRADING' };
+  }
+
+  async list(tenantId: string, q?: string) {
+    const rows = await this.db.query.products.findMany({
       where: and(
         eq(products.tenantId, tenantId),
         q ? or(ilike(products.sku, `%${q}%`), ilike(products.name, `%${q}%`)) : undefined,
@@ -31,6 +47,8 @@ export class ProductsService {
       orderBy: [asc(products.sku)],
       limit: 500,
     });
+    const r = await this.roles(tenantId);
+    return rows.map((p) => this.withRole(p, r));
   }
 
   async get(tenantId: string, id: string) {

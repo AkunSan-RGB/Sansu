@@ -103,4 +103,13 @@ describe('Lihat Demo (e2e)', () => {
     expect(left).toEqual([keep]);
     expect(await count(old, 'journal_entries')).toBe(0);
   });
+
+  it('produk dikelompokkan otomatis: bahan baku, produk jadi (dari resep), setengah jadi tidak bercampur', async () => {
+    const roles = async (m: string) => ((await get(sessions.get(m)!.token, '/api/products').expect(200)).body as { sku: string; role: string }[]);
+    const man = await roles('MANUFAKTUR');
+    expect(man.filter((p) => p.role === 'RAW').map((p) => p.sku)).toEqual(expect.arrayContaining(['FN-JATI', 'FN-PLY']));
+    expect(man.filter((p) => p.role === 'FINISHED').map((p) => p.sku).sort()).toEqual(['FN-KURSI', 'FN-LEMARI', 'FN-MEJA']);
+    // usaha dagang tidak punya resep: semua "barang lain"
+    expect((await roles('DAGANG')).every((p) => p.role === 'TRADING')).toBe(true);
+  });
 });
