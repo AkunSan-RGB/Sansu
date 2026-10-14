@@ -64,7 +64,11 @@ export class MailService {
   }
 
   get from() {
-    return process.env.MAIL_FROM || `SANSU <${process.env.SMTP_USER || 'no-reply@localhost'}>`;
+    if (process.env.MAIL_FROM) return process.env.MAIL_FROM;
+    // Pemakai Brevo cukup mengisi BREVO_SENDER_EMAIL/NAME; alamat itu juga yang dipakai pemeriksa kesiapan email
+    const brevo = process.env.BREVO_SENDER_EMAIL?.trim();
+    if (this.brevoKey && brevo) return `${process.env.BREVO_SENDER_NAME?.trim() || 'SANSU'} <${brevo}>`;
+    return `SANSU <${process.env.SMTP_USER || 'no-reply@localhost'}>`;
   }
 
   private transport() {
@@ -121,6 +125,7 @@ export class MailService {
       }
       // Message-ID memakai domain pengirim dan Reply-To tetap (MAIL_REPLY_TO) agar konsisten di mata filter spam
       const domain = senderDomain(this.from) ?? 'localhost';
+      if (domain === 'localhost' || domain.endsWith('.localhost')) throw new Error('Pengirim email belum diatur: isi MAIL_FROM di Railway dengan alamat di domain Anda, mis. SANSU <no-reply@perusahaananda.co.id>. Server email menolak pengirim @localhost.');
       await this.transport().sendMail({ from: this.from, replyTo: process.env.MAIL_REPLY_TO || undefined, to: m.to, subject: m.subject, html, text, messageId: `<${randomUUID()}@${domain}>` });
       return true;
     } catch (e) {
