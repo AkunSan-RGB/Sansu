@@ -71,7 +71,7 @@ export default function ProductionOrdersPage() {
         ]}
         searchText={(o) => `${o.number} ${o.product.sku} ${o.product.name} ${o.warehouse.name}`}
         searchPlaceholder="Cari nomor atau produk"
-        emptyText="Belum ada perintah produksi. Buat resep dulu, lalu klik Produksi baru."
+        emptyText={t("Belum ada perintah produksi. Buat resep dulu, lalu klik Produksi baru.")}
         onRowClick={(r) => setOpenId(r.id)}
         scrollX={1000}
         columns={[
@@ -153,7 +153,7 @@ function CreateModal({
       destroyOnHidden
     >
       <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
-        <Form.Item name="bomId" label="Resep" rules={[{ required: true }]}>
+        <Form.Item name="bomId" label={t("Resep")} rules={[{ required: true }]}>
           <Select
             showSearch
             optionFilterProp="label"
@@ -161,7 +161,7 @@ function CreateModal({
             options={(boms.data ?? [])
               .filter((b) => b.isActive)
               .map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))}
-            notFoundContent="Belum ada resep — buat di Produksi › Resep (BOM)"
+            notFoundContent={t("Belum ada resep — buat di Produksi › Resep (BOM)")}
           />
         </Form.Item>
         <Space wrap>
@@ -253,7 +253,7 @@ function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             <Descriptions.Item label="Status">
               <Tag color={COLOR[o.status]}>{PRODUCTION_STATUS_LABELS[o.status]}</Tag>
             </Descriptions.Item>
-            <Descriptions.Item label="Resep">{o.bom.code}</Descriptions.Item>
+            <Descriptions.Item label={t("Resep")}>{o.bom.code}</Descriptions.Item>
             <Descriptions.Item label={t('Gudang')}>{o.warehouse.name}</Descriptions.Item>
             <Descriptions.Item label="Batch">{fmtQty(o.batches)}</Descriptions.Item>
             <Descriptions.Item label="Rencana hasil">
@@ -279,7 +279,7 @@ function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             dataSource={o.lines}
             columns={[
               { title: 'Bahan', render: (_, l) => `${l.sku} · ${l.name}` },
-              { title: 'Sesuai resep', align: 'right', render: (_, l) => `${fmtQty(l.plannedQty)} ${l.unit}` },
+              { title: t('Sesuai resep'), align: 'right', render: (_, l) => `${fmtQty(l.plannedQty)} ${l.unit}` },
               {
                 title: 'Dikeluarkan',
                 align: 'right',
@@ -338,10 +338,10 @@ function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                   >
                     <InputNumber min={0.0001} style={{ width: 160 }} />
                   </Form.Item>
-                  <Form.Item name="laborCost" label="Upah langsung" extra="Kosong = standar resep × batch">
+                  <Form.Item name="laborCost" label="Upah langsung" extra={t("Kosong = standar resep × batch")}>
                     <InputNumber min={0} style={{ width: 170 }} prefix="Rp" />
                   </Form.Item>
-                  <Form.Item name="overheadCost" label="Overhead pabrik" extra="Kosong = standar resep × batch">
+                  <Form.Item name="overheadCost" label="Overhead pabrik" extra={t("Kosong = standar resep × batch")}>
                     <InputNumber min={0} style={{ width: 170 }} prefix="Rp" />
                   </Form.Item>
                   <Form.Item name="date" label="Tanggal selesai">

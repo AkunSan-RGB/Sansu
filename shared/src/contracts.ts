@@ -46,6 +46,8 @@ export interface Me {
   businessModel: BusinessModel;
   /** Perusahaan punya cabang usaha (fitur cabang tampil); mati = menu & isian cabang disembunyikan */
   multiBranch?: boolean;
+  /** Sebutan perusahaan untuk "Resep" (BOM) */
+  recipeTerm?: string;
   /** Perusahaan contoh dari tombol Lihat Demo (dihapus otomatis); null = perusahaan biasa */
   demo?: { expiresAt: string } | null;
   /** Perusahaan sudah membuat anggaran (menu Anggaran vs realisasi tampil) */
@@ -203,6 +205,8 @@ export interface Product {
   barcode: string | null;
   /** SEMI = barang setengah jadi (akun persediaan tersendiri) */
   inventoryKind?: 'GOODS' | 'SEMI';
+  /** Peran dalam produksi (otomatis dari resep): bahan baku, setengah jadi, produk jadi, atau barang dagang */
+  role?: 'RAW' | 'SEMI' | 'FINISHED' | 'TRADING';
   isActive: boolean;
   uoms: ProductUom[];
 }

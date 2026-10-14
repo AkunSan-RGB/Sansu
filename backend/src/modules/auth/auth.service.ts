@@ -431,6 +431,7 @@ export class AuthService {
       apps: [...(await this.apps.enabled(u.tenantId))],
       businessModel: await this.settings.businessModel(this.db, u.tenantId),
       multiBranch: await this.multiBranch(u.tenantId),
+      recipeTerm: (await this.settings.section(this.db, u.tenantId, 'terms', { recipe: 'Resep' })).recipe,
       demo: await this.demoInfo(u.tenantId),
       hasBudget: !!(await this.db.select({ id: budgets.id }).from(budgets).where(eq(budgets.tenantId, u.tenantId)).limit(1))[0],
       framework: (await this.settings.reporting(this.db, u.tenantId)).framework,

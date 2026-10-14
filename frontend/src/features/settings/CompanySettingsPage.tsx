@@ -24,6 +24,7 @@ import PageHeader from '@/layout/PageHeader';
 import { rupiahInput } from '@/lib/format';
 import BrandingCard from './BrandingCard';
 import BranchFeatureCard from './BranchFeatureCard';
+import RecipeTermCard from './RecipeTermCard';
 import BusinessModelCard from './BusinessModelCard';
 import InventoryMethodCard from './InventoryMethodCard';
 import PettyCashPolicyCard from './PettyCashPolicyCard';
@@ -355,6 +356,7 @@ export default function CompanySettingsPage() {
         <div style={wide}>
           <BusinessModelCard />
           <BranchFeatureCard />
+          <RecipeTermCard />
         </div>
       ),
     },

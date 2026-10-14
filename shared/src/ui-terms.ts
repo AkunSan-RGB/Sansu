@@ -42,20 +42,20 @@ const TERMS: Record<BusinessModel, Terms> = {
   PRODUKSI: {
     words: [
       ['Purchase Order', 'Pesanan bahan'],
-      ['Nilai persediaan', 'Nilai stok bahan & produk jadi'],
+      ['Nilai persediaan', 'Nilai persediaan bahan & produk jadi'],
       ['Supplier', 'Pemasok bahan'],
       ['Produk', 'Produk & bahan baku'],
-      ['Inventori', 'Stok bahan & produk jadi'],
+      ['Inventori', 'Persediaan bahan & produk jadi'],
     ],
     exact: { Pembelian: 'Pembelian bahan' },
   },
   MANUFAKTUR: {
     words: [
       ['Purchase Order', 'Pesanan bahan'],
-      ['Nilai persediaan', 'Nilai stok bahan, barang setengah jadi & barang jadi'],
+      ['Nilai persediaan', 'Nilai persediaan bahan, barang setengah jadi & barang jadi'],
       ['Supplier', 'Pemasok bahan'],
       ['Produk', 'Produk & bahan baku'],
-      ['Inventori', 'Stok pabrik'],
+      ['Inventori', 'Persediaan pabrik'],
     ],
     exact: { Pembelian: 'Pembelian bahan' },
   },
@@ -65,8 +65,9 @@ const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Terjemahkan satu teks antarmuka ke istilah jenis usaha (DAGANG bila model tidak dikenal) */
-export function localize(text: string, model: BusinessModel | undefined): string {
-  const t = TERMS[model ?? 'DAGANG'] ?? TERMS.DAGANG;
+export function localize(text: string, model: BusinessModel | undefined, extra: [string, string][] = []): string {
+  const base = TERMS[model ?? 'DAGANG'] ?? TERMS.DAGANG;
+  const t = { exact: base.exact, words: [...base.words, ...extra] };
   if (t.exact[text]) return t.exact[text];
   for (const [k, v] of Object.entries(t.exact)) if (text === k.toUpperCase()) return v.toUpperCase();
   let out = text;
@@ -81,3 +82,14 @@ export function localize(text: string, model: BusinessModel | undefined): string
   }
   return out;
 }
+
+/** Pilihan sebutan untuk "Resep" (BOM) sesuai industri: makanan = Resep, furnitur = Daftar bahan, konveksi = Pola & bahan, dst. */
+export const RECIPE_TERMS = ['Resep', 'Daftar bahan', 'Formula', 'Pola & bahan', 'Bill of Materials'] as const;
+export type RecipeTerm = (typeof RECIPE_TERMS)[number];
+export const RECIPE_TERM_HINTS: Record<RecipeTerm, string> = {
+  Resep: 'Makanan, minuman, kue, katering',
+  'Daftar bahan': 'Furnitur, pabrik rakitan, kerajinan',
+  Formula: 'Kimia, kosmetik, farmasi, cat',
+  'Pola & bahan': 'Konveksi, garmen, sepatu',
+  'Bill of Materials': 'Manufaktur umum (istilah BOM)',
+};

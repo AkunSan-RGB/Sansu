@@ -1,4 +1,5 @@
 import { DeleteOutlined, PlusOutlined, ShoppingCartOutlined } from '@ant-design/icons';
+import { t } from '@/lib/terms';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Empty, Input, InputNumber, Popconfirm, Segmented, Select, Space, Table, Tag } from 'antd';
 import { useState } from 'react';
@@ -77,7 +78,7 @@ export default function MaterialRequirementsPage() {
         <Alert
           type="info"
           showIcon
-          message="Pilih resep dan jumlah batch yang direncanakan. Resep bertingkat (barang setengah jadi) dihitung sampai bahan baku; stok barang setengah jadi dipakai dulu, sisanya dihitung dari resepnya. Stok, pesanan pembelian berjalan, dan permintaan pembelian yang sudah ada ikut dikurangkan."
+          message={t("Pilih resep dan jumlah batch yang direncanakan. Resep bertingkat (barang setengah jadi) dihitung sampai bahan baku; stok barang setengah jadi dipakai dulu, sisanya dihitung dari resepnya. Stok, pesanan pembelian berjalan, dan permintaan pembelian yang sudah ada ikut dikurangkan.")}
         />
         <Card>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -88,7 +89,7 @@ export default function MaterialRequirementsPage() {
                   showSearch
                   optionFilterProp="label"
                   style={{ width: 320 }}
-                  placeholder="Pilih resep"
+                  placeholder={t("Pilih resep")}
                   value={it.bomId}
                   onChange={(v) => setItems(items.map((x, j) => (j === i ? { ...x, bomId: v } : x)))}
                   options={boms.data?.filter((b) => b.isActive).map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))}
@@ -99,7 +100,7 @@ export default function MaterialRequirementsPage() {
             ))}
             <Space wrap>
               <Button icon={<PlusOutlined />} onClick={() => setItems([...items, { batches: 1 }])}>
-                Tambah resep
+                {t('Tambah resep')}
               </Button>
               <Button type="primary" disabled={!valid} loading={calc.isPending} onClick={() => calc.mutate(undefined)}>
                 Hitung kebutuhan
@@ -117,8 +118,8 @@ export default function MaterialRequirementsPage() {
             <SummaryCards
               items={[
                 { label: 'Status bahan', value: r.canProduce ? 'Cukup' : `${r.shortageCount} bahan kurang`, tone: r.canProduce ? 'good' : 'bad', hint: r.canProduce ? 'siap diproduksi' : 'perlu dibeli dulu' },
-                { label: 'Upah langsung standar', value: fmtMoney(r.conversion.labor), hint: 'menurut resep' },
-                { label: 'Overhead standar', value: fmtMoney(r.conversion.overhead), hint: 'menurut resep' },
+                { label: 'Upah langsung standar', value: fmtMoney(r.conversion.labor), hint: t('menurut resep') },
+                { label: 'Overhead standar', value: fmtMoney(r.conversion.overhead), hint: t('menurut resep') },
               ]}
             />
             {r.subAssemblies.length > 0 && (
@@ -130,7 +131,7 @@ export default function MaterialRequirementsPage() {
                   dataSource={r.subAssemblies}
                   columns={[
                     { title: 'Barang', render: (_, s) => `${s.sku} · ${s.name}` },
-                    { title: 'Resep', dataIndex: 'bomCode' },
+                    { title: t('Resep'), dataIndex: 'bomCode' },
                     { title: 'Dibutuhkan', align: 'right', render: (_, s) => `${s.needed} ${s.unit}` },
                     { title: 'Dari stok', align: 'right', render: (_, s) => `${s.fromStock} ${s.unit}` },
                     { title: 'Perlu diproduksi', align: 'right', render: (_, s) => (s.toProduce > 0 ? <Tag color="orange">{`${s.toProduce} ${s.unit} · ${s.batches} batch`}</Tag> : <Tag color="green">Cukup</Tag>) },

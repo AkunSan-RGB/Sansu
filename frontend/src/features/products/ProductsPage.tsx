@@ -1,4 +1,4 @@
-import { isProductionModel } from '@sansu/shared';
+import { isProductionModel, PRODUCT_ROLE_COLORS, PRODUCT_ROLE_LABELS } from '@sansu/shared';
 import { useAuth } from '@/auth/AuthContext';
 import { useApps } from '@/lib/apps';
 import { useNavigate } from 'react-router-dom';
@@ -29,6 +29,7 @@ export default function ProductsPage() {
   const { me } = useAuth();
   const navigate = useNavigate();
   const { data, isLoading } = useProducts();
+  const prod = isProductionModel(me?.businessModel);
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [form] = Form.useForm<FormValues>();
 
@@ -81,16 +82,34 @@ export default function ProductsPage() {
         }
         rows={data}
         loading={isLoading}
-        summary={(rows) => [
-          { label: `Jumlah ${t('Produk').toLowerCase()}`, value: String(rows.length), hint: `${rows.filter((p) => p.isActive).length} aktif` },
-          { label: 'Kategori', value: String(new Set(rows.map((p) => p.category).filter(Boolean)).size) },
-          { label: 'Nonaktif', value: String(rows.filter((p) => !p.isActive).length), hint: 'tidak muncul di transaksi baru' },
-        ]}
-        views={[
-          { value: 'ALL', label: 'Semua', test: () => true },
-          { value: 'ACTIVE', label: 'Aktif', test: (p) => p.isActive },
-          { value: 'OFF', label: 'Nonaktif', test: (p) => !p.isActive },
-        ]}
+        summary={(rows) =>
+          prod
+            ? [
+                { label: 'Bahan baku', value: String(rows.filter((p) => p.role === 'RAW').length), hint: t('dipakai di resep'), tone: 'warn' },
+                { label: 'Setengah jadi', value: String(rows.filter((p) => p.role === 'SEMI').length), hint: 'hasil antara produksi' },
+                { label: 'Produk jadi', value: String(rows.filter((p) => p.role === 'FINISHED').length), hint: t('hasil akhir resep'), tone: 'good' },
+              ]
+            : [
+                { label: `Jumlah ${t('Produk').toLowerCase()}`, value: String(rows.length), hint: `${rows.filter((p) => p.isActive).length} aktif` },
+                { label: 'Kategori', value: String(new Set(rows.map((p) => p.category).filter(Boolean)).size) },
+                { label: 'Nonaktif', value: String(rows.filter((p) => !p.isActive).length), hint: 'tidak muncul di transaksi baru' },
+              ]
+        }
+        views={
+          prod
+            ? [
+                { value: 'ALL', label: 'Semua', test: () => true },
+                { value: 'RAW', label: 'Bahan baku', test: (p) => p.role === 'RAW' },
+                { value: 'SEMI', label: 'Setengah jadi', test: (p) => p.role === 'SEMI' },
+                { value: 'FINISHED', label: 'Produk jadi', test: (p) => p.role === 'FINISHED' },
+                { value: 'TRADING', label: 'Barang lain', test: (p) => p.role === 'TRADING' },
+              ]
+            : [
+                { value: 'ALL', label: 'Semua', test: () => true },
+                { value: 'ACTIVE', label: 'Aktif', test: (p) => p.isActive },
+                { value: 'OFF', label: 'Nonaktif', test: (p) => !p.isActive },
+              ]
+        }
         searchText={(p) => `${p.sku} ${p.name} ${p.barcode ?? ''} ${p.category ?? ''}`}
         searchPlaceholder="Cari nama, SKU, barcode, atau kategori"
         emptyText="Belum ada produk. Tambahkan lewat tombol di kanan atas atau impor dari Excel."
@@ -102,7 +121,10 @@ export default function ProductsPage() {
             dataIndex: 'name',
             render: (n: string, p: Product) => (
               <div>
-                <div>{n}</div>
+                <div>
+                  {n}
+                  {prod && p.role && <Tag color={PRODUCT_ROLE_COLORS[p.role]} style={{ marginLeft: 6 }}>{PRODUCT_ROLE_LABELS[p.role]}</Tag>}
+                </div>
                 <span style={{ fontSize: 12, color: '#64748b' }}>
                   {p.sku}
                   {p.category ? ` · ${p.category}` : ''}

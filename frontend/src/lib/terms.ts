@@ -9,4 +9,9 @@ let current: BusinessModel | undefined;
 export const setUiModel = (m: BusinessModel | undefined) => {
   current = m;
 };
-export const t = (text: string) => (current ? localize(text, current) : text);
+let extra: [string, string][] = [];
+/** Sebutan "Resep" pilihan perusahaan (mis. "Daftar bahan" untuk furnitur): menggantikan kata Resep di seluruh antarmuka */
+export const setRecipeTerm = (term: string | undefined) => {
+  extra = term && term !== 'Resep' ? [['Resep', term]] : [];
+};
+export const t = (text: string) => (current ? localize(text, current, extra) : text);
