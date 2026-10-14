@@ -42,20 +42,20 @@ const TERMS: Record<BusinessModel, Terms> = {
   PRODUKSI: {
     words: [
       ['Purchase Order', 'Pesanan bahan'],
-      ['Nilai persediaan', 'Nilai stok bahan & produk jadi'],
+      ['Nilai persediaan', 'Nilai persediaan bahan & produk jadi'],
       ['Supplier', 'Pemasok bahan'],
       ['Produk', 'Produk & bahan baku'],
-      ['Inventori', 'Stok bahan & produk jadi'],
+      ['Inventori', 'Persediaan bahan & produk jadi'],
     ],
     exact: { Pembelian: 'Pembelian bahan' },
   },
   MANUFAKTUR: {
     words: [
       ['Purchase Order', 'Pesanan bahan'],
-      ['Nilai persediaan', 'Nilai stok bahan, barang setengah jadi & barang jadi'],
+      ['Nilai persediaan', 'Nilai persediaan bahan, barang setengah jadi & barang jadi'],
       ['Supplier', 'Pemasok bahan'],
       ['Produk', 'Produk & bahan baku'],
-      ['Inventori', 'Stok pabrik'],
+      ['Inventori', 'Persediaan pabrik'],
     ],
     exact: { Pembelian: 'Pembelian bahan' },
   },

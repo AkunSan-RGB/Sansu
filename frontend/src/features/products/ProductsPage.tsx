@@ -1,4 +1,4 @@
-import { isProductionModel } from '@sansu/shared';
+import { isProductionModel, PRODUCT_ROLE_COLORS, PRODUCT_ROLE_LABELS } from '@sansu/shared';
 import { useAuth } from '@/auth/AuthContext';
 import { useApps } from '@/lib/apps';
 import { useNavigate } from 'react-router-dom';
@@ -29,6 +29,7 @@ export default function ProductsPage() {
   const { me } = useAuth();
   const navigate = useNavigate();
   const { data, isLoading } = useProducts();
+  const prod = isProductionModel(me?.businessModel);
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [form] = Form.useForm<FormValues>();
 
@@ -120,7 +121,10 @@ export default function ProductsPage() {
             dataIndex: 'name',
             render: (n: string, p: Product) => (
               <div>
-                <div>{n}</div>
+                <div>
+                  {n}
+                  {prod && p.role && <Tag color={PRODUCT_ROLE_COLORS[p.role]} style={{ marginLeft: 6 }}>{PRODUCT_ROLE_LABELS[p.role]}</Tag>}
+                </div>
                 <span style={{ fontSize: 12, color: '#64748b' }}>
                   {p.sku}
                   {p.category ? ` · ${p.category}` : ''}

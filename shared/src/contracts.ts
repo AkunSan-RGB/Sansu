@@ -205,6 +205,8 @@ export interface Product {
   barcode: string | null;
   /** SEMI = barang setengah jadi (akun persediaan tersendiri) */
   inventoryKind?: 'GOODS' | 'SEMI';
+  /** Peran dalam produksi (otomatis dari resep): bahan baku, setengah jadi, produk jadi, atau barang dagang */
+  role?: 'RAW' | 'SEMI' | 'FINISHED' | 'TRADING';
   isActive: boolean;
   uoms: ProductUom[];
 }

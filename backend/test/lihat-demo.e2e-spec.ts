@@ -103,6 +103,38 @@ describe('Lihat Demo (e2e)', () => {
     expect(left).toEqual([keep]);
     expect(await count(old, 'journal_entries')).toBe(0);
   });
+
+  it('produk dikelompokkan otomatis: bahan baku, produk jadi (dari resep), setengah jadi tidak bercampur', async () => {
+    const roles = async (m: string) => ((await get(sessions.get(m)!.token, '/api/products').expect(200)).body as { sku: string; role: string }[]);
+    const man = await roles('MANUFAKTUR');
+    expect(man.filter((p) => p.role === 'RAW').map((p) => p.sku)).toEqual(expect.arrayContaining(['FN-JATI', 'FN-PLY']));
+    expect(man.filter((p) => p.role === 'FINISHED').map((p) => p.sku).sort()).toEqual(['FN-KURSI', 'FN-LEMARI', 'FN-MEJA']);
+    // usaha dagang tidak punya resep: semua "barang lain"
+    expect((await roles('DAGANG')).every((p) => p.role === 'TRADING')).toBe(true);
+  });
+});
+
+describe('Sebutan Resep per industri (e2e)', () => {
+  let app: INestApplication;
+  let http: ReturnType<typeof request>;
+  beforeAll(async () => {
+    const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = configureApp(mod.createNestApplication());
+    await app.init();
+    http = request(app.getHttpServer());
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('ADMIN dapat mengganti sebutan Resep; /auth/me ikut berubah; nilai di luar daftar ditolak', async () => {
+    const r = await http.post('/api/demo/start').send({ businessModel: 'MANUFAKTUR' }).expect(200);
+    const auth = { Authorization: `Bearer ${r.body.accessToken}` };
+    expect((await http.get('/api/auth/me').set(auth)).body.recipeTerm).toBe('Resep');
+    await http.patch('/api/settings/terms').set(auth).send({ recipe: 'Bill of Materials' }).expect(200);
+    expect((await http.get('/api/auth/me').set(auth)).body.recipeTerm).toBe('Bill of Materials');
+    await http.patch('/api/settings/terms').set(auth).send({ recipe: 'Ngawur' }).expect(400);
+  });
 });
 
 describe('Sebutan Resep per industri (e2e)', () => {
