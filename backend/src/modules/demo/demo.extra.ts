@@ -220,9 +220,12 @@ export async function crm(c: Demo, customerId: string, productId: string, items:
       { tenantId: c.tenantId, name: 'Negosiasi', sequence: 4, probability: 75 },
     ])
     .returning();
-  await c.db.insert(leads).values(
+  const created = await c.db.insert(leads).values(
     items.map((it, i) => ({ tenantId: c.tenantId, title: it.title, contactName: it.contact, phone: `0813-${c.int(1000, 9999)}-${c.int(1000, 9999)}`, companyName: it.company, source: it.source, expectedRevenue: String(it.value), stageId: stages[i % 4].id, probability: [10, 25, 50, 75][i % 4], ownerId: c.admin.sub })),
-  );
+  ).returning();
+  // satu prospek menang (jadi pelanggan), satu gagal — supaya angka "menang/gagal" di CRM terisi
+  if (created[0]) await c.step('prospek menang', () => c.svc.crm.mark(c.admin as never, created[0].id, { status: 'WON', createCustomer: false } as never));
+  if (created[1]) await c.step('prospek gagal', () => c.svc.crm.mark(c.admin as never, created[1].id, { status: 'LOST', lostReason: 'Memilih pemasok lain karena harga' } as never));
   if (productId) {
     for (const [i, days] of [20, 8].entries()) {
       await c.step(`penawaran ${i + 1}`, () =>

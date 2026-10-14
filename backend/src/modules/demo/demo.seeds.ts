@@ -47,7 +47,12 @@ async function seedRitel(c: Demo) {
     { code: 'SUP-GROSIR', name: 'PT Grosir Makmur Sentosa', term: 14 },
     { code: 'SUP-FMCG', name: 'CV Distributor Harian Jaya', term: 7 },
   ]);
-  await addCustomers(c, [{ code: 'MBR-01', name: 'Member Setia (umum)', address: 'Jakarta', term: 0 }]);
+  const cu = await addCustomers(c, [
+    { code: 'MBR-01', name: 'Member Setia (umum)', address: 'Jakarta', term: 0 },
+    { code: 'KTR-LANGGANAN', name: 'Kantor Notaris Prima (langganan)', address: 'Jl. Pasar Minggu No. 40, Jakarta', term: 14 },
+    { code: 'WRG-MITRA', name: 'Warung Mitra Sekitar', address: 'Gg. Mawar, Pasar Minggu', term: 7 },
+    { code: 'KTRN-CEMPAKA', name: 'Katering Cempaka', address: 'Jl. Cempaka Putih, Jakarta', term: 14 },
+  ]);
   const items = RITEL.map((p) => ({ id: ids.get(p.sku)!, price: p.price }));
   for (let d = 28; d >= 1; d -= 1) await c.step(`kasir H-${d}`, () => posDay(c, d, items, c.int(5, 9)));
   await c.step('beli 1', () => purchase(c, sup.get('SUP-GROSIR')!, 26, [{ productId: ids.get('RT-BERAS')!, qty: 40, price: 68500 }, { productId: ids.get('RT-MINYAK')!, qty: 100, price: 14900 }], { pay: true, invoiceNo: 'GRM/0925/118' }));
@@ -60,6 +65,21 @@ async function seedRitel(c: Demo) {
     { code: 'K-001', name: 'Rina Marlina', title: 'Kasir', dept: 'Toko', salary: 3_600_000, allowance: 300_000, ptkp: 'TK/0' },
     { code: 'K-002', name: 'Dedi Kurniawan', title: 'Penjaga Toko', dept: 'Toko', salary: 3_400_000, allowance: 250_000, ptkp: 'TK/0' },
   ]);
+  // penjualan grosir ke langganan (faktur, piutang, retur) selain kasir
+  let ritelUnpaid: string | undefined;
+  const grosir: [string, number, [string, number][], boolean][] = [
+    ['KTR-LANGGANAN', 70, [['RT-BERAS', 6], ['RT-MINYAK', 12], ['RT-KOPI', 40]], true],
+    ['WRG-MITRA', 52, [['RT-MIE', 60], ['RT-AIR', 48]], true],
+    ['KTRN-CEMPAKA', 36, [['RT-BERAS', 8], ['RT-MINYAK', 10]], true],
+    ['KTR-LANGGANAN', 20, [['RT-AIR', 72], ['RT-TEH', 36]], true],
+    ['WRG-MITRA', 9, [['RT-MIE', 40], ['RT-BISK', 20]], false],
+    ['KTRN-CEMPAKA', 4, [['RT-BERAS', 5], ['RT-MINYAK', 8]], false],
+  ];
+  for (const [code, ago, items, paid] of grosir) {
+    const inv = await c.step(`jual grosir ${code}`, () => sell(c, cu.get(code)!, ago, items.map(([k, q]) => ({ productId: ids.get(k)!, qty: q }))));
+    if (inv && paid) await c.step('terima bayar grosir', () => receive(c, inv, Math.max(ago - 6, 2)));
+    else if (inv) ritelUnpaid = inv;
+  }
   await X.monthlyOps(c, [
     { code: '6-3000', desc: 'Sewa kios bulanan', amount: 6_500_000, from: 'bank', day: 2 },
     { code: '6-4000', desc: 'Listrik & air toko', amount: 1_350_000, from: 'bank', day: 12 },
@@ -77,7 +97,7 @@ async function seedRitel(c: Demo) {
   await X.pettyCash(c);
   await X.cashCount(c);
   await X.attendance(c);
-  await X.stockOps(c, ids, RITEL.map((p) => p.sku), { billId: c.last.bill, supplierId: sup.get('SUP-FMCG') });
+  await X.stockOps(c, ids, RITEL.map((p) => p.sku), { saleInvoiceId: ritelUnpaid, billId: c.last.bill, supplierId: sup.get('SUP-FMCG') });
 }
 
 // ---------------------------------------------------------------- DAGANG
