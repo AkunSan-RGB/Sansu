@@ -31,7 +31,7 @@ type Group = {
   icon: React.ReactNode;
   children?: Sub[];
   to?: string;
-  /** Judul bagian di sidebar (Penjualan, Pembelian & stok, Keuangan, SDM, Administrasi) */
+  /** Judul bagian di sidebar (Penjualan, Pembelian, Persediaan & produksi, Keuangan, SDM, Administrasi) */
   part: string;
 };
 const PART_STYLE: React.CSSProperties = {
@@ -112,17 +112,17 @@ const MENU: Group[] = [
     ],
   },
   {
-    part: 'Stok & produksi',
+    part: 'Persediaan & produksi',
     key: 'inventory',
     app: 'inventory',
     label: t('Inventori'),
     icon: APP_ICONS.inventory,
     children: [
-      { key: '/inventory', label: 'Stok & mutasi' },
-      { key: '/inventory/warehouses', label: t('Stok per gudang') },
+      { key: '/inventory', label: 'Persediaan & mutasi' },
+      { key: '/inventory/warehouses', label: t('Persediaan per gudang') },
       { key: '/inventory/transfers', label: t('Transfer gudang') },
       { key: '/inventory/counts', label: 'Stock opname' },
-      { key: '/inventory/movement', label: 'Perputaran stok' },
+      { key: '/inventory/movement', label: 'Perputaran persediaan' },
       { key: '/inventory/writedowns', label: 'Penurunan nilai', epOnly: true },
       {
         section: 'Data',
@@ -135,7 +135,7 @@ const MENU: Group[] = [
   },
 
   {
-    part: 'Stok & produksi',
+    part: 'Persediaan & produksi',
     key: 'production',
     app: 'inventory',
     models: ['PRODUKSI', 'MANUFAKTUR'],

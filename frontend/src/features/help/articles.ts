@@ -150,7 +150,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     steps: [
       'Tambah gudang di Inventori › Gudang (khusus Pemilik/Admin; jumlah gudang mengikuti paket langganan).',
       'Atur stok minimum per gudang agar muncul peringatan stok menipis.',
-      'Lihat stok semua gudang sekaligus di Inventori › Stok per gudang (bisa diekspor ke Excel).',
+      'Lihat stok semua gudang sekaligus di Inventori › Persediaan per gudang (bisa diekspor ke Excel).',
       'Batasi pengguna gudang ke lokasi tertentu di Pengaturan › Pengguna › Akses gudang.',
     ],
     keywords: 'gudang warehouse cabang toko lokasi stok minimum',

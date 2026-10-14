@@ -49,14 +49,14 @@ export default function WarehouseStockPage() {
   const tab = params.get('tab') ?? 'matrix';
   return (
     <>
-      <PageHeader title={t('Stok per gudang')} extra={<InventoryMethodBadge />} />
+      <PageHeader title={t('Persediaan per gudang')} extra={<InventoryMethodBadge />} />
       <Tabs
         activeKey={tab}
         onChange={(t) => setParams({ tab: t }, { replace: true })}
         items={[
           { key: 'matrix', label: t('Rekap semua gudang'), children: <MatrixTab /> },
-          { key: 'low', label: 'Stok menipis', children: <LowTab /> },
-          { key: 'min', label: 'Stok minimum', children: <MinTab /> },
+          { key: 'low', label: 'Persediaan menipis', children: <LowTab /> },
+          { key: 'min', label: 'Persediaan minimum', children: <MinTab /> },
         ]}
       />
     </>
@@ -117,7 +117,7 @@ function MatrixTab() {
           items={[
             { label: t('Total nilai persediaan'), value: fmtMoney(m.totals.value), hint: `${m.warehouses.length} gudang` },
             { label: 'Jumlah produk', value: String(allRows.length), hint: includeZero ? 'termasuk yang tanpa stok' : 'yang ada stoknya', onClick: () => setView('ALL'), active: view === 'ALL' },
-            { label: 'Stok di bawah minimum', value: String(lowCount), hint: 'produk perlu ditambah', tone: lowCount ? 'bad' : 'good', onClick: () => setView('LOW'), active: view === 'LOW' },
+            { label: 'Persediaan di bawah minimum', value: String(lowCount), hint: 'produk perlu ditambah', tone: lowCount ? 'bad' : 'good', onClick: () => setView('LOW'), active: view === 'LOW' },
           ]}
         />
       )}
@@ -138,7 +138,7 @@ function MatrixTab() {
         <Button icon={<SwapOutlined />} onClick={() => navigate('/inventory/transfers?new=1')}>
           Transfer antar gudang
         </Button>
-        <ExportButtons filename="rekap-stok-gudang" title={t('Rekap stok per gudang')} sheets={() => (m ? matrixSheet({ ...m, rows }, me?.tenantName) : null)} />
+        <ExportButtons filename="rekap-stok-gudang" title={t('Rekap persediaan per gudang')} sheets={() => (m ? matrixSheet({ ...m, rows }, me?.tenantName) : null)} />
       </Space>
       <div className="print-area">
         <Table

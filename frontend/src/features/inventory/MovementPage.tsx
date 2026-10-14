@@ -55,7 +55,7 @@ export default function MovementPage() {
 
   return (
     <>
-      <PageHeader title="Perputaran stok" />
+      <PageHeader title="Perputaran persediaan" />
       {a && p && (
         <Alert
           type="info"

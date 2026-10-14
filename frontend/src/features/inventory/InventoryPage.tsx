@@ -100,7 +100,7 @@ export default function InventoryPage() {
                     items={[
                       { label: t('Total nilai persediaan'), value: fmtMoney(totalValue), hint: `${bal.length} baris stok` },
                       { label: 'Barang yang ada stoknya', value: String(inStock.length), hint: 'jumlah lebih dari nol', tone: 'good', onClick: () => setView('IN'), active: view === 'IN' },
-                      { label: 'Stok kosong', value: String(empty.length), hint: 'perlu dibeli atau diproduksi', tone: empty.length ? 'warn' : 'neutral', onClick: () => setView('EMPTY'), active: view === 'EMPTY' },
+                      { label: 'Persediaan kosong', value: String(empty.length), hint: 'perlu dibeli atau diproduksi', tone: empty.length ? 'warn' : 'neutral', onClick: () => setView('EMPTY'), active: view === 'EMPTY' },
                     ]}
                   />
                   <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
@@ -180,7 +180,7 @@ export default function InventoryPage() {
       </Card>
 
       <Modal
-        title="Penyesuaian stok"
+        title="Penyesuaian persediaan"
         width={720}
         open={adjustOpen}
         onCancel={() => setAdjustOpen(false)}

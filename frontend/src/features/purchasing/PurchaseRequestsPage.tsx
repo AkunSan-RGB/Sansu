@@ -12,7 +12,7 @@ import { PR_STATUS, type PurchaseRequest, type PurchaseRequestRow, type Purchase
 
 export const PurchaseRequestStatusTag = ({ status }: { status: PurchaseRequestStatus }) => <Tag color={PR_STATUS[status].color}>{PR_STATUS[status].label}</Tag>;
 
-/** Usulan pembelian dari stok minimum: pilih barang, atur jumlah & supplier, lalu ajukan sebagai satu permintaan */
+/** Usulan pembelian dari persediaan minimum: pilih barang, atur jumlah & supplier, lalu ajukan sebagai satu permintaan */
 function SuggestionsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const navigate = useNavigate();
   const { data: warehouses } = useWarehouses();
@@ -56,7 +56,7 @@ function SuggestionsModal({ open, onClose }: { open: boolean; onClose: () => voi
     <Modal
       open={open}
       onCancel={onClose}
-      title="Usulan pembelian dari stok minimum"
+      title="Usulan pembelian dari persediaan minimum"
       width={980}
       okText={`Ajukan ${rows.length || ''} barang`}
       okButtonProps={{ disabled: !rows.length, loading: create.isPending }}

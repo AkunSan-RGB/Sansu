@@ -3,8 +3,8 @@ import { localize } from '@sansu/shared';
 describe('istilah antarmuka per jenis usaha', () => {
   it('dagang membaca barang; ritel juga membaca toko', () => {
     expect(localize('Produk', 'DAGANG')).toBe('Barang');
-    expect(localize('Stok per gudang', 'DAGANG')).toBe('Stok per gudang');
-    expect(localize('Stok per gudang', 'RITEL')).toBe('Stok per toko');
+    expect(localize('Persediaan per gudang', 'DAGANG')).toBe('Persediaan per gudang');
+    expect(localize('Persediaan per gudang', 'RITEL')).toBe('Persediaan per toko');
     expect(localize('Transfer gudang', 'RITEL')).toBe('Transfer toko');
   });
   it('jasa membaca klien, tagihan, dan pendapatan jasa', () => {
@@ -29,7 +29,7 @@ describe('istilah antarmuka per jenis usaha', () => {
   it('produksi membaca pesanan bahan dan stok bahan', () => {
     expect(localize('Purchase Order', 'PRODUKSI')).toBe('Pesanan bahan');
     expect(localize('Pembelian', 'PRODUKSI')).toBe('Pembelian bahan');
-    expect(localize('Inventori', 'PRODUKSI')).toBe('Stok bahan & produk jadi');
+    expect(localize('Inventori', 'PRODUKSI')).toBe('Persediaan bahan & produk jadi');
     expect(localize('Produk', 'PRODUKSI')).toBe('Produk & bahan baku');
   });
   it('kata yang bukan istilah utuh tidak tersentuh dan model tak dikenal jatuh ke dagang', () => {
