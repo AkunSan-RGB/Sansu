@@ -3,6 +3,70 @@ import { addDays } from '../../common/utils/dates';
 import { assetCategories, crmStages, journalEntries, journalLines, leads, suppliers, warehouses } from '../../db/schema';
 import { Demo, receive } from './demo.kit';
 
+/** Isi pelengkap yang khas tiap jenis usaha (supaya contoh tidak seragam) */
+const FLAVOR: Record<string, {
+  capital: [number, string, string];
+  deposit: [number, string];
+  prepaid: { amount: number; monthly: number; label: string; ref: string; months: number };
+  petty: { fund: number; max: number; custodian: string; payee: string; items: [string, string, number, string][] };
+  bankOpening: number;
+  bankFee: number;
+  countNote: string;
+  denominations: Record<string, number>;
+}> = {
+  RITEL: {
+    capital: [75_000_000, 'Tambahan modal untuk membuka cabang rak baru', 'SM-01'],
+    deposit: [4_000_000, 'Setor tunai hasil penjualan kasir ke bank'],
+    prepaid: { amount: 12_000_000, monthly: 1_000_000, label: 'sewa ruko toko (12 bulan)', ref: 'SWA-TOKO', months: 12 },
+    petty: { fund: 1_500_000, max: 250_000, custodian: 'Kepala toko', payee: 'Toko kelontong sekitar', items: [['Plastik belanja & kertas struk', '6-6000', 85000, 'NT-101'], ['Galon air & kebersihan toko', '6-6000', 60000, 'NT-102'], ['Parkir & ongkos antar belanja', '6-2000', 70000, 'NT-103']] },
+    bankOpening: 120_000_000,
+    bankFee: 12000,
+    countNote: 'Hitung laci kasir akhir shift',
+    denominations: { K100000: 20, K50000: 60, K20000: 50, K10000: 80, K5000: 60, K2000: 100, K1000: 80 },
+  },
+  DAGANG: {
+    capital: [100_000_000, 'Setoran modal tambahan untuk stok musim proyek', 'SM-01'],
+    deposit: [10_000_000, 'Setor tunai pelunasan pelanggan ke bank'],
+    prepaid: { amount: 9_000_000, monthly: 750_000, label: 'asuransi gudang & barang dagangan (12 bulan)', ref: 'ASR-GDG', months: 12 },
+    petty: { fund: 3_000_000, max: 500_000, custodian: 'Admin gudang', payee: 'Toko bangunan setempat', items: [['Tali & lakban pengemasan', '6-6000', 140000, 'NT-101'], ['Solar forklift & kuli bongkar', '6-2000', 250000, 'NT-102'], ['Materai & fotokopi surat jalan', '6-6000', 75000, 'NT-103']] },
+    bankOpening: 350_000_000,
+    bankFee: 25000,
+    countNote: 'Hitung kas penagihan sales lapangan',
+    denominations: { K100000: 120, K50000: 60, K20000: 20, K10000: 10, K5000: 0, K2000: 0, K1000: 0 },
+  },
+  JASA: {
+    capital: [40_000_000, 'Tambahan modal kerja untuk proyek baru', 'SM-01'],
+    deposit: [2_000_000, 'Setor tunai pengganti biaya perjalanan klien ke bank'],
+    prepaid: { amount: 18_000_000, monthly: 1_500_000, label: 'langganan lisensi perangkat lunak (12 bulan)', ref: 'LIS-2026', months: 12 },
+    petty: { fund: 1_000_000, max: 200_000, custodian: 'Office manager', payee: 'Kafe & percetakan dekat kantor', items: [['Konsumsi rapat klien', '6-6000', 180000, 'NT-101'], ['Cetak & jilid laporan proyek', '6-6000', 95000, 'NT-102'], ['Transport taksi online ke klien', '6-2000', 120000, 'NT-103']] },
+    bankOpening: 150_000_000,
+    bankFee: 15000,
+    countNote: 'Hitung kas kecil kantor',
+    denominations: { K100000: 6, K50000: 8, K20000: 10, K10000: 10, K5000: 10, K2000: 5, K1000: 0 },
+  },
+  PRODUKSI: {
+    capital: [60_000_000, 'Setoran modal untuk pembelian mesin jahit tambahan', 'SM-01'],
+    deposit: [3_500_000, 'Setor tunai penjualan langsung ke bank'],
+    prepaid: { amount: 4_800_000, monthly: 400_000, label: 'asuransi mesin & bangunan produksi (12 bulan)', ref: 'ASR-MSN', months: 12 },
+    petty: { fund: 2_000_000, max: 300_000, custodian: 'Mandor produksi', payee: 'Toko perlengkapan jahit', items: [['Jarum & minyak mesin', '6-6000', 110000, 'NT-101'], ['Konsumsi lembur penjahit', '6-6000', 200000, 'NT-102'], ['Ongkos kirim sampel ke pembeli', '6-2000', 85000, 'NT-103']] },
+    bankOpening: 180_000_000,
+    bankFee: 15000,
+    countNote: 'Hitung kas penjualan langsung di workshop',
+    denominations: { K100000: 30, K50000: 40, K20000: 30, K10000: 30, K5000: 20, K2000: 10, K1000: 10 },
+  },
+  MANUFAKTUR: {
+    capital: [150_000_000, 'Setoran modal untuk perluasan lini produksi', 'SM-01'],
+    deposit: [5_000_000, 'Setor tunai penjualan eceran showroom ke bank'],
+    prepaid: { amount: 24_000_000, monthly: 2_000_000, label: 'sewa gudang bahan baku (12 bulan)', ref: 'SWA-GDG', months: 12 },
+    petty: { fund: 3_000_000, max: 400_000, custodian: 'Staf umum pabrik', payee: 'Toko teknik & bahan', items: [['Amplas, lem, dan kuas', '6-6000', 160000, 'NT-101'], ['APD sarung tangan & masker', '6-6000', 130000, 'NT-102'], ['Bensin pickup antar bahan', '6-2000', 150000, 'NT-103']] },
+    bankOpening: 500_000_000,
+    bankFee: 30000,
+    countNote: 'Hitung kas showroom dan kas kecil pabrik',
+    denominations: { K100000: 50, K50000: 40, K20000: 40, K10000: 40, K5000: 20, K2000: 10, K1000: 10 },
+  },
+};
+const flavorOf = (c: Demo) => FLAVOR[c.model] ?? FLAVOR.DAGANG;
+
 const periodAgo = (c: Demo, monthsBack: number) => {
   const d = new Date(`${c.today.slice(0, 7)}-01T00:00:00Z`);
   d.setUTCMonth(d.getUTCMonth() - monthsBack);
@@ -35,11 +99,12 @@ export async function monthlyOps(c: Demo, items: { code: string; desc: string; a
 
 /** Setoran modal tambahan, pinjaman, dan setor tunai ke bank */
 export async function cashMovements(c: Demo) {
+  const f = flavorOf(c);
   await c.step('setoran modal', () =>
-    c.svc.cash.create(c.admin as never, { type: 'IN', cashAccountId: c.bank, date: c.ago(100), description: 'Tambahan setoran modal pemegang saham', reference: 'SM-01', lines: [{ accountId: c.acc('3-1000'), amount: '50000000' }] } as never),
+    c.svc.cash.create(c.admin as never, { type: 'IN', cashAccountId: c.bank, date: c.ago(100), description: f.capital[1], reference: f.capital[2], lines: [{ accountId: c.acc('3-1000'), amount: String(f.capital[0]) }] } as never),
   );
   await c.step('setor tunai', () =>
-    c.svc.cash.create(c.admin as never, { type: 'TRANSFER', cashAccountId: c.kas, toCashAccountId: c.bank, amount: '3000000', date: c.ago(40), description: 'Setor tunai hasil penjualan ke bank' } as never),
+    c.svc.cash.create(c.admin as never, { type: 'TRANSFER', cashAccountId: c.kas, toCashAccountId: c.bank, amount: String(f.deposit[0]), date: c.ago(40), description: f.deposit[1] } as never),
   );
 }
 
@@ -69,21 +134,22 @@ export async function journals(c: Demo) {
     { accountId: c.acc(a), debit: String(amount), credit: '0' },
     { accountId: c.acc(b), debit: '0', credit: String(amount) },
   ];
+  const pp = flavorOf(c).prepaid;
   await c.step('jurnal manual', () =>
-    c.svc.accounting.createManualJournal(c.admin as never, { date: c.ago(45), description: 'Pembayaran premi asuransi dibayar dimuka (12 bulan)', reference: 'ASR-2026', lines: lines('1-1700', '1-1200', 6_000_000) } as never),
+    c.svc.accounting.createManualJournal(c.admin as never, { date: c.ago(45), description: `Pembayaran ${pp.label} dibayar dimuka`, reference: pp.ref, lines: lines('1-1700', '1-1200', pp.amount) } as never),
   );
   await c.step('jurnal penyesuaian', () =>
-    c.svc.accounting.createManualJournal(c.admin as never, { date: c.ago(15), description: 'Penyesuaian: amortisasi asuransi dibayar dimuka bulan ini', adjustment: true, lines: lines('6-5100', '1-1700', 500_000) } as never),
+    c.svc.accounting.createManualJournal(c.admin as never, { date: c.ago(15), description: `Penyesuaian: amortisasi ${pp.label.replace(/ \(.*\)/, '')} bulan ini`, adjustment: true, lines: lines('6-5100', '1-1700', pp.monthly) } as never),
   );
   await c.step('jurnal berulang', () =>
     c.svc.accounting.createRecurring(c.admin as never, {
-      name: 'Amortisasi asuransi bulanan',
-      description: 'Amortisasi asuransi dibayar dimuka (1/12)',
+      name: `Amortisasi ${pp.label.replace(/ \(.*\)/, '')} bulanan`,
+      description: `Amortisasi ${pp.label.replace(/ \(.*\)/, '')} dibayar dimuka (1/${pp.months})`,
       frequency: 'MONTHLY',
       nextDate: addDays(c.today, 12),
       remaining: 8,
       isAdjustment: true,
-      lines: lines('6-5100', '1-1700', 500_000),
+      lines: lines('6-5100', '1-1700', pp.monthly),
     } as never),
   );
 }
@@ -134,12 +200,13 @@ export async function bankStatement(c: Demo) {
     .where(and(eq(journalLines.accountId, c.bank), eq(journalEntries.tenantId, c.tenantId), sql`${journalEntries.date} >= ${from}`, sql`${journalEntries.date} <= ${to}`, sql`${journalEntries.sourceType} NOT IN ('OPENING', 'BANK', 'CLOSING')`))
     .orderBy(journalEntries.date);
   if (!rows.length) return;
-  let running = 200_000_000;
+  const f = flavorOf(c);
+  let running = f.bankOpening;
   const label = (s: string, d: string) =>
     s === 'PAYMENT' ? `TRSF E-BANKING CR ${d.toUpperCase().slice(0, 28)}` : s === 'SUPPLIER_PAYMENT' ? `TRSF E-BANKING DB ${d.toUpperCase().slice(0, 28)}` : s === 'PAYROLL_PAYMENT' ? 'PAYROLL GAJI KARYAWAN' : s === 'TRANSFER' ? 'SETORAN TUNAI' : `DB ${d.toUpperCase().slice(0, 36)}`;
   const lines = [
     ...rows.map((r) => ({ date: r.date, description: label(r.source, r.description), amount: Number(r.debit) - Number(r.credit) })),
-    { date: to, description: 'BIAYA ADM BULANAN', amount: -15000 },
+    { date: to, description: 'BIAYA ADM BULANAN', amount: -f.bankFee },
     { date: to, description: 'BUNGA JASA GIRO NETTO', amount: 38000 },
   ].map((l) => {
     running += l.amount;
@@ -154,21 +221,18 @@ export async function bankStatement(c: Demo) {
 
 /** Kas kecil: dana tetap, beberapa bukti, dan pengisian kembali */
 export async function pettyCash(c: Demo) {
+  const pf = flavorOf(c).petty;
   const accId = c.acc('1-1110');
   if (!accId) return;
   const fund = (await c.step('dana kas kecil', () =>
-    c.svc.petty.saveFund(c.admin as never, { accountId: accId, fundingAccountId: c.kas, name: 'Kas Kecil Kantor', custodianName: 'Juru kas', imprestAmount: '2000000', maxVoucher: '300000' } as never),
+    c.svc.petty.saveFund(c.admin as never, { accountId: accId, fundingAccountId: c.kas, name: 'Kas Kecil Kantor', custodianName: pf.custodian, imprestAmount: String(pf.fund), maxVoucher: String(pf.max) } as never),
   )) as { id: string } | undefined;
   if (!fund) return;
   await c.step('isi kas kecil', () => c.svc.petty.topUp(c.admin as never, fund.id, { date: c.ago(30) } as never));
-  const exps = [
-    ['Konsumsi rapat', '6-6000', 120000, 'NT-101'],
-    ['Materai & fotokopi', '6-6000', 65000, 'NT-102'],
-    ['Parkir & bensin kurir', '6-2000', 90000, 'NT-103'],
-  ] as const;
+  const exps = pf.items;
   for (const [i, [d, code, amt, ref]] of exps.entries()) {
     await c.step(`bukti kas kecil ${ref}`, () =>
-      c.svc.petty.createVoucher(c.admin as never, { fundId: fund.id, date: c.ago(25 - i * 4), payee: 'Warung/Toko setempat', description: d, expenseAccountId: c.acc(code), amount: String(amt), receiptRef: ref } as never),
+      c.svc.petty.createVoucher(c.admin as never, { fundId: fund.id, date: c.ago(25 - i * 4), payee: pf.payee, description: d, expenseAccountId: c.acc(code), amount: String(amt), receiptRef: ref } as never),
     );
   }
   await c.step('ganti kas kecil', () => c.svc.petty.replenish(c.admin as never, fund.id, { date: c.ago(6) } as never));
@@ -176,9 +240,9 @@ export async function pettyCash(c: Demo) {
 
 /** Opname kas (hitung fisik uang) */
 export async function cashCount(c: Demo) {
-  const cc = (await c.step('opname kas', () => c.svc.cashCount.create(c.admin as never, { accountId: c.kas, date: c.ago(3), custodianName: 'Juru kas' } as never))) as { id: string } | undefined;
+  const cc = (await c.step('opname kas', () => c.svc.cashCount.create(c.admin as never, { accountId: c.kas, date: c.ago(3), custodianName: flavorOf(c).petty.custodian } as never))) as { id: string } | undefined;
   if (!cc) return;
-  await c.step('isi hitungan', () => c.svc.cashCount.update(c.admin as never, cc.id, { denominations: { K100000: 40, K50000: 40, K20000: 30, K10000: 40, K5000: 20, K2000: 20, K1000: 10 }, reason: 'Selisih kecil karena pembulatan uang kembalian', notes: 'Hitung fisik akhir bulan' } as never));
+  await c.step('isi hitungan', () => c.svc.cashCount.update(c.admin as never, cc.id, { denominations: flavorOf(c).denominations, reason: 'Selisih kecil karena pembulatan uang kembalian', notes: flavorOf(c).countNote } as never));
   await c.step('selesai hitung', () => c.svc.cashCount.finish(c.admin as never, cc.id));
 }
 
