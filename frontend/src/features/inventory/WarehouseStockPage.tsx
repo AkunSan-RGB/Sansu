@@ -7,6 +7,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { get, put, qs } from '@/api/client';
 import { useAction, useProducts, useWarehouses } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
+import { useCan } from '@/auth/useCan';
 import ExportButtons from '@/components/ExportButtons';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import SummaryCards from '@/components/SummaryCards';
@@ -96,6 +97,7 @@ export function matrixSheet(m: Matrix, company?: string): SheetSpec[] {
 
 function MatrixTab() {
   const { me } = useAuth();
+  const can = useCan();
   const navigate = useNavigate();
   const { data: products } = useProducts();
   const [includeZero, setIncludeZero] = useState(false);
@@ -135,9 +137,11 @@ function MatrixTab() {
         <Checkbox checked={includeZero} onChange={(e) => setIncludeZero(e.target.checked)}>
           Tampilkan produk tanpa stok
         </Checkbox>
-        <Button icon={<SwapOutlined />} onClick={() => navigate('/inventory/transfers?new=1')}>
-          Transfer antar gudang
-        </Button>
+        {can('POST', '/inventory/transfers') && (
+          <Button icon={<SwapOutlined />} onClick={() => navigate('/inventory/transfers?new=1')}>
+            Transfer antar gudang
+          </Button>
+        )}
         <ExportButtons filename="rekap-stok-gudang" title={t('Rekap persediaan per gudang')} sheets={() => (m ? matrixSheet({ ...m, rows }, me?.tenantName) : null)} />
       </Space>
       <div className="print-area">
@@ -201,6 +205,7 @@ function MatrixTab() {
 }
 
 function LowTab() {
+  const can = useCan();
   const navigate = useNavigate();
   const { data: warehouses } = useWarehouses();
   const [warehouseId, setWarehouseId] = useState<string>();
@@ -223,12 +228,16 @@ function LowTab() {
       <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
         <Input.Search allowClear placeholder="Cari SKU atau nama barang" style={{ width: 240 }} onChange={(e) => setLowSearch(e.target.value)} />
         <Select allowClear placeholder={t('Semua gudang')} style={{ width: 240 }} value={warehouseId} onChange={setWarehouseId} options={warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
-        <Button icon={<SwapOutlined />} onClick={() => navigate('/inventory/transfers?new=1')}>
-          Transfer dari gudang lain
-        </Button>
-        <Button icon={<ShoppingCartOutlined />} onClick={() => navigate('/purchase-orders/new')}>
-          Buat pesanan pembelian
-        </Button>
+        {can('POST', '/inventory/transfers') && (
+          <Button icon={<SwapOutlined />} onClick={() => navigate('/inventory/transfers?new=1')}>
+            Transfer dari gudang lain
+          </Button>
+        )}
+        {can('POST', '/purchase-orders') && (
+          <Button icon={<ShoppingCartOutlined />} onClick={() => navigate('/purchase-orders/new')}>
+            Buat pesanan pembelian
+          </Button>
+        )}
       </Space>
       <ResponsiveTable<LowRow>
         rowKey={(r) => `${r.productId}-${r.warehouseId}`}
@@ -252,6 +261,8 @@ function LowTab() {
 }
 
 function MinTab() {
+  const can = useCan();
+  const canEditMin = can('PUT', '/inventory/minimums');
   const { data: warehouses } = useWarehouses();
   const [warehouseId, setWarehouseId] = useState<string>();
   const [search, setSearch] = useState('');
@@ -273,9 +284,11 @@ function MinTab() {
       <Space wrap style={{ marginBottom: 12 }}>
         <Select style={{ width: 240 }} value={warehouseId} onChange={setWarehouseId} options={warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
         <Input prefix={<SearchOutlined />} placeholder="Cari SKU / nama" allowClear value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 240 }} />
-        <Button type="primary" icon={<SaveOutlined />} disabled={!changed} loading={save.isPending} onClick={() => save.mutate(undefined)}>
-          Simpan{changed ? ` (${changed})` : ''}
-        </Button>
+        {canEditMin && (
+          <Button type="primary" icon={<SaveOutlined />} disabled={!changed} loading={save.isPending} onClick={() => save.mutate(undefined)}>
+            Simpan{changed ? ` (${changed})` : ''}
+          </Button>
+        )}
       </Space>
       <Table
         rowKey="productId"
@@ -292,7 +305,7 @@ function MinTab() {
           {
             title: 'Stok minimum',
             width: 150,
-            render: (_, r) => (
+            render: (_, r) => !canEditMin ? (r.minQty == null ? '—' : fmtQty(r.minQty)) : (
               <InputNumber
                 min={0}
                 style={{ width: 130 }}

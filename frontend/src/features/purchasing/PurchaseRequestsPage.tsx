@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, post, qs } from '@/api/client';
 import { useAction, useSuppliers, useWarehouses } from '@/api/queries';
+import { useCan } from '@/auth/useCan';
 import ListPage from '@/components/ListPage';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import { fmtDate, fmtMoney } from '@/lib/format';
@@ -112,6 +113,7 @@ function SuggestionsModal({ open, onClose }: { open: boolean; onClose: () => voi
 
 export default function PurchaseRequestsPage() {
   const navigate = useNavigate();
+  const can = useCan();
   const [sug, setSug] = useState(false);
   const { data, isLoading } = useQuery({ queryKey: ['purchase-requests', 'all'], queryFn: () => get<PurchaseRequestRow[]>('/purchase-requests') });
   return (
@@ -120,12 +122,16 @@ export default function PurchaseRequestsPage() {
         title="Permintaan pembelian"
         actions={
           <>
-            <Button icon={<BulbOutlined />} onClick={() => setSug(true)}>
-              Usulan dari stok minimum
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/purchase-requests/new')}>
-              Permintaan baru
-            </Button>
+            {can('POST', '/purchase-requests') && (
+              <>
+                <Button icon={<BulbOutlined />} onClick={() => setSug(true)}>
+                  Usulan dari stok minimum
+                </Button>
+                <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/purchase-requests/new')}>
+                  Permintaan baru
+                </Button>
+              </>
+            )}
           </>
         }
         rows={data}

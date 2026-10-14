@@ -3,7 +3,7 @@
  * Daftar indikasi (harga jual < biaya rata-rata) → pilih barang → isi NRV per satuan → posting.
  * Pemulihan: bila harga naik lagi, nilai dipulihkan paling tinggi sebesar penurunan yang masih melekat.
  */
-import { canBookkeep, canViewFinancials } from '@sansu/shared';
+import { canViewFinancials } from '@sansu/shared';
 import { FallOutlined, PlusOutlined, RiseOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -29,6 +29,7 @@ import { get, post, qs } from '@/api/client';
 import { LEDGER_KEYS, useAction, useWarehouses } from '@/api/queries';
 import type { InventoryWritedown, StockBalance, WritedownCandidate, WritedownRecoverable } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
+import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
@@ -62,7 +63,8 @@ const lineInvalid = (l: Line, kind: Kind) =>
 export default function WritedownsPage() {
   const { me } = useAuth();
   const canView = canViewFinancials(me?.role);
-  const canPost = canBookkeep(me?.role);
+  const can = useCan();
+  const canPost = can('POST', '/inventory/writedowns');
   const { data: warehouses } = useWarehouses();
   const [warehouseId, setWarehouseId] = useState<string>();
   const [pct, setPct] = useState<number>(0);

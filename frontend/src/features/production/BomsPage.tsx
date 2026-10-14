@@ -24,6 +24,7 @@ import {
 import { useState } from 'react';
 import { get, post, put } from '@/api/client';
 import { useAction, useProducts } from '@/api/queries';
+import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
@@ -43,6 +44,7 @@ type FormV = {
 };
 
 export default function BomsPage() {
+  const can = useCan();
   const q = useQuery({ queryKey: ['boms'], queryFn: () => get<Bom[]>('/production/boms') });
   const [editing, setEditing] = useState<Bom | 'new' | null>(null);
   const [view, setView] = useState<'ALL' | 'ACTIVE' | 'OFF'>('ALL');
@@ -61,9 +63,11 @@ export default function BomsPage() {
       <PageHeader
         title={t("Resep produksi (BOM)")}
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing('new')}>
-            {t('Resep baru')}
-          </Button>
+          can('POST', '/production/boms') && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing('new')}>
+              {t('Resep baru')}
+            </Button>
+          )
         }
       />
       {!q.isLoading && all.length > 0 && (
@@ -147,6 +151,8 @@ export default function BomsPage() {
 }
 
 function BomDrawer({ bom, onClose }: { bom: Bom | null; onClose: () => void }) {
+  const can = useCan();
+  const canSave = bom ? can('PUT', '/production/boms/:id') : can('POST', '/production/boms');
   const [form] = Form.useForm<FormV>();
   const { data: products } = useProducts();
   const options = (products ?? [])
@@ -177,9 +183,11 @@ function BomDrawer({ bom, onClose }: { bom: Bom | null; onClose: () => void }) {
       title={bom ? `${t('Resep')} ${bom.code}` : t('Resep baru')}
       onClose={onClose}
       extra={
-        <Button type="primary" loading={save.isPending} onClick={() => form.submit()}>
-          Simpan
-        </Button>
+        canSave && (
+          <Button type="primary" loading={save.isPending} onClick={() => form.submit()}>
+            Simpan
+          </Button>
+        )
       }
     >
       <Form

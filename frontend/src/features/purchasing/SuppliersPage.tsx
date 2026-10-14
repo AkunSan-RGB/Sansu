@@ -5,6 +5,7 @@ import { App, Button, Form, Input, InputNumber, Modal, Space, Switch, Tag } from
 import { useState } from 'react';
 import { ApiError, patch, post } from '@/api/client';
 import { useAction, useSuppliers } from '@/api/queries';
+import { useCan } from '@/auth/useCan';
 import type { Supplier } from '@/api/types';
 import ListPage from '@/components/ListPage';
 import { t } from '@/lib/terms';
@@ -25,7 +26,9 @@ export default function SuppliersPage() {
   const { isAdmin } = useApps();
   const navigate = useNavigate();
   const { data, isLoading } = useSuppliers();
+  const can = useCan();
   const [editing, setEditing] = useState<Supplier | 'new' | null>(null);
+  const canSave = editing === 'new' ? can('POST', '/suppliers') : can('PATCH', '/suppliers/:id');
   const [form] = Form.useForm<FormValues>();
 
   const { modal } = App.useApp();
@@ -75,9 +78,11 @@ export default function SuppliersPage() {
                 Impor Excel
               </Button>
             )}
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>
-              Supplier baru
-            </Button>
+            {can('POST', '/suppliers') && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>
+                Supplier baru
+              </Button>
+            )}
           </>
         }
         rows={data}
@@ -111,6 +116,7 @@ export default function SuppliersPage() {
         onCancel={() => setEditing(null)}
         onOk={() => form.submit()}
         confirmLoading={save.isPending}
+        okButtonProps={{ style: canSave ? undefined : { display: 'none' } }}
         okText="Simpan"
         destroyOnHidden
       >

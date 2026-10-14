@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAction } from '@/api/queries';
+import { useCan } from '@/auth/useCan';
 import type { PurchaseInvoice, PurchaseOrder } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { cell, DocHeader, head, PartyBlock, PrintSheet, Signatures, useLetterhead } from '@/components/print/Letterhead';
@@ -25,6 +26,7 @@ interface LotPayload {
 
 export default function PurchaseOrderDetailPage() {
   const lh = useLetterhead();
+  const can = useCan();
   const { id } = useParams<{ id: string }>();
   /** both = terima dan faktur sekaligus (satu jurnal); receive = terima barang saja; bill = faktur atas barang yang sudah diterima */
   const [mode, setMode] = useState<'both' | 'receive' | 'bill' | null>(null);
@@ -99,12 +101,12 @@ export default function PurchaseOrderDetailPage() {
                   Cetak PO / PDF
                 </Button>
               )}
-              {o.status === 'DRAFT' && (
+              {o.status === 'DRAFT' && can('POST', '/purchase-orders/:id/confirm') && (
                 <Button type="primary" loading={confirm.isPending} onClick={() => confirm.mutate(undefined)}>
                   Konfirmasi
                 </Button>
               )}
-              {canReceive && (
+              {canReceive && can('POST', '/purchase-orders/:id/receipts') && (
                 <Button
                   type="primary"
                   onClick={() => {
@@ -116,7 +118,7 @@ export default function PurchaseOrderDetailPage() {
                   Terima barang
                 </Button>
               )}
-              {canBill && (
+              {canBill && can('POST', '/purchase-invoices') && (
                 <Button
                   type={canReceive ? 'default' : 'primary'}
                   onClick={() => {
@@ -128,7 +130,7 @@ export default function PurchaseOrderDetailPage() {
                   Catat faktur supplier
                 </Button>
               )}
-              {o.status === 'CONFIRMED' && untouched && (
+              {o.status === 'CONFIRMED' && untouched && can('POST', '/purchase-invoices') && (
                 <Button
                   onClick={() => {
                     form.resetFields();
@@ -139,7 +141,7 @@ export default function PurchaseOrderDetailPage() {
                   Terima & faktur sekaligus
                 </Button>
               )}
-              {(o.status === 'DRAFT' || (o.status === 'CONFIRMED' && untouched)) && (
+              {(o.status === 'DRAFT' || (o.status === 'CONFIRMED' && untouched)) && can('POST', '/purchase-orders/:id/cancel') && (
                 <Popconfirm title="Batalkan PO ini?" onConfirm={() => cancel.mutate(undefined)}>
                   <Button danger>Batalkan</Button>
                 </Popconfirm>

@@ -22,6 +22,7 @@ import {
 import { useEffect, useState } from 'react';
 import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAction, useWarehouses } from '@/api/queries';
+import { useCan } from '@/auth/useCan';
 import ListPage from '@/components/ListPage';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
 import { t } from '@/lib/terms';
@@ -35,6 +36,7 @@ const COLOR: Record<ProductionStatus, string> = {
 const INVALIDATE = ['production', 'balances', 'stock-moves', 'inventory', 'boms', ...LEDGER_KEYS];
 
 export default function ProductionOrdersPage() {
+  const can = useCan();
   const q = useQuery({
     queryKey: ['production', 'orders'],
     queryFn: () => get<ProductionOrder[]>('/production/orders'),
@@ -46,9 +48,11 @@ export default function ProductionOrdersPage() {
       <ListPage<ProductionOrder>
         title="Perintah produksi"
         actions={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
-            Produksi baru
-          </Button>
+          can('POST', '/production/orders') && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
+              Produksi baru
+            </Button>
+          )
         }
         rows={q.data}
         loading={q.isLoading}
@@ -192,6 +196,7 @@ function CreateModal({
 }
 
 function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }) {
+  const can = useCan();
   const { modal } = App.useApp();
   const q = useQuery({
     queryKey: ['production', 'order', id],
@@ -306,27 +311,33 @@ function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }) {
 
           {o.status === 'DRAFT' && (
             <Space style={{ marginTop: 16 }} wrap>
-              <Input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                style={{ width: 160 }}
-              />
-              <Button
-                type="primary"
-                icon={<PlayCircleOutlined />}
-                loading={start.isPending}
-                onClick={() => start.mutate(undefined)}
-              >
-                Mulai produksi (keluarkan bahan)
-              </Button>
-              <Button danger icon={<StopOutlined />} onClick={() => cancel.mutate(undefined)}>
-                Batalkan
-              </Button>
+              {can('POST', '/production/orders/:id/start') && (
+                <>
+                  <Input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    style={{ width: 160 }}
+                  />
+                  <Button
+                    type="primary"
+                    icon={<PlayCircleOutlined />}
+                    loading={start.isPending}
+                    onClick={() => start.mutate(undefined)}
+                  >
+                    Mulai produksi (keluarkan bahan)
+                  </Button>
+                </>
+              )}
+              {can('POST', '/production/orders/:id/cancel') && (
+                <Button danger icon={<StopOutlined />} onClick={() => cancel.mutate(undefined)}>
+                  Batalkan
+                </Button>
+              )}
             </Space>
           )}
 
-          {o.status === 'IN_PROGRESS' && (
+          {o.status === 'IN_PROGRESS' && can('POST', '/production/orders/:id/complete') && (
             <Card size="small" title="Selesaikan produksi" style={{ marginTop: 16 }}>
               <Form form={doneForm} layout="vertical" onFinish={(v) => complete.mutate(v)}>
                 <Space wrap align="start">

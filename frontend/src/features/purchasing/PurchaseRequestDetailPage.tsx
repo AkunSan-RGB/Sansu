@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { useAction, useSuppliers } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
+import { useCan } from '@/auth/useCan';
 import QueryState from '@/components/QueryState';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import PageHeader from '@/layout/PageHeader';
@@ -17,6 +18,7 @@ const KEYS = ['purchase-requests', 'purchase-orders', 'reminders'];
 export default function PurchaseRequestDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { me } = useAuth();
+  const can = useCan();
   const { data: suppliers } = useSuppliers();
   const approver = !!me && ['OWNER', 'ADMIN'].includes(me.role);
   const q = useQuery({ queryKey: ['purchase-requests', 'detail', id], queryFn: () => get<PurchaseRequest>(`/purchase-requests/${id}`) });
@@ -45,27 +47,27 @@ export default function PurchaseRequestDetailPage() {
         extra={
           r && (
             <Space wrap>
-              {r.status === 'DRAFT' && (
+              {r.status === 'DRAFT' && can('POST', '/purchase-requests/:id/submit') && (
                 <Button type="primary" loading={submit.isPending} onClick={() => submit.mutate(undefined)}>
                   Ajukan
                 </Button>
               )}
-              {r.status === 'SUBMITTED' && approver && (
-                <>
-                  <Button type="primary" loading={approve.isPending} onClick={() => approve.mutate(undefined)}>
-                    Setujui
-                  </Button>
-                  <Button danger onClick={() => setRejecting(true)}>
-                    Tolak
-                  </Button>
-                </>
+              {r.status === 'SUBMITTED' && approver && can('POST', '/purchase-requests/:id/approve') && (
+                <Button type="primary" loading={approve.isPending} onClick={() => approve.mutate(undefined)}>
+                  Setujui
+                </Button>
               )}
-              {r.status === 'APPROVED' && (
+              {r.status === 'SUBMITTED' && approver && can('POST', '/purchase-requests/:id/reject') && (
+                <Button danger onClick={() => setRejecting(true)}>
+                  Tolak
+                </Button>
+              )}
+              {r.status === 'APPROVED' && can('POST', '/purchase-requests/:id/convert') && (
                 <Button type="primary" onClick={() => setConverting(true)}>
                   Buat PO
                 </Button>
               )}
-              {['DRAFT', 'SUBMITTED', 'APPROVED'].includes(r.status) && !r.lines.some((l) => l.order) && (
+              {['DRAFT', 'SUBMITTED', 'APPROVED'].includes(r.status) && can('POST', '/purchase-requests/:id/cancel') && !r.lines.some((l) => l.order) && (
                 <Popconfirm title="Batalkan permintaan ini?" onConfirm={() => cancel.mutate(undefined)}>
                   <Button>Batalkan</Button>
                 </Popconfirm>

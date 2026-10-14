@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button, Card, Empty, Form, Input, InputNumber, Modal, Segmented, Select, Space, Tabs, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { useAuth } from '@/auth/AuthContext';
+import { useCan } from '@/auth/useCan';
 import { get, post, qs } from '@/api/client';
 import { useAction, useProducts, useWarehouses } from '@/api/queries';
 import type { StockBalance, StockMove } from '@/api/types';
@@ -32,6 +33,7 @@ export default function InventoryPage() {
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [view, setView] = useState<'ALL' | 'IN' | 'EMPTY'>('ALL');
   const { me } = useAuth();
+  const can = useCan();
   const prod = isProductionModel(me?.businessModel);
   const [role, setRole] = useState<string>('ALL');
   const roleOf = new Map((products ?? []).map((p) => [p.id, p.role]));
@@ -79,17 +81,19 @@ export default function InventoryPage() {
           <Space wrap>
             <InventoryMethodBadge />
             <Select allowClear placeholder={t('Semua gudang')} style={{ width: 200 }} options={whOptions} onChange={setWarehouseId} />
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                form.resetFields();
-                form.setFieldsValue({ warehouseId: warehouses?.[0]?.id, reason: 'OPENING', date: today(), lines: [{} as never] });
-                setAdjustOpen(true);
-              }}
-            >
-              Penyesuaian stok
-            </Button>
+            {can('POST', '/inventory/adjustments') && (
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  form.resetFields();
+                  form.setFieldsValue({ warehouseId: warehouses?.[0]?.id, reason: 'OPENING', date: today(), lines: [{} as never] });
+                  setAdjustOpen(true);
+                }}
+              >
+                Penyesuaian stok
+              </Button>
+            )}
           </Space>
         }
       />

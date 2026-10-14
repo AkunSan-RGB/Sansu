@@ -5,6 +5,7 @@ import { Alert, Button, Card, Empty, Form, Input, InputNumber, Modal, Segmented,
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { useAuth } from '@/auth/AuthContext';
+import { useCan } from '@/auth/useCan';
 import { useNavigate } from 'react-router-dom';
 import { get, post, qs } from '@/api/client';
 import { LEDGER_KEYS, useAction } from '@/api/queries';
@@ -47,7 +48,8 @@ export default function PurchaseInvoicesPage() {
   const [billOpen, setBillOpen] = useState(false);
   const [form] = Form.useForm();
   const { me } = useAuth();
-  const canVoid = me?.role === 'OWNER' || me?.role === 'ADMIN';
+  const can = useCan();
+  const canVoid = (me?.role === 'OWNER' || me?.role === 'ADMIN') && can('POST', '/purchase-invoices/payments/:id/void');
   const [voiding, setVoiding] = useState<SupplierPayment | null>(null);
   const [voidForm] = Form.useForm<{ reason: string }>();
 
@@ -96,7 +98,7 @@ export default function PurchaseInvoicesPage() {
       <PageHeader
         title={t('Faktur Pembelian & Hutang')}
         extra={
-          canHandleMoney(me?.role) && (
+          canHandleMoney(me?.role) && can('POST', '/purchase-invoices/bills') && (
             <Button icon={<PlusOutlined />} onClick={() => setBillOpen(true)}>
               Catat tagihan biaya / aset
             </Button>
@@ -190,7 +192,7 @@ export default function PurchaseInvoicesPage() {
                         render: (_: unknown, i: PurchaseInvoice) =>
                           i.status !== 'PAID' && (
                             <Space>
-                              {canHandleMoney(me?.role) && (
+                              {canHandleMoney(me?.role) && can('POST', '/purchase-invoices/payments') && (
                               <Button
                                 size="small"
                                 type="primary"
@@ -202,7 +204,7 @@ export default function PurchaseInvoicesPage() {
                                 Bayar
                               </Button>
                               )}
-                              {i.kind === 'GOODS' && (
+                              {i.kind === 'GOODS' && can('POST', '/purchase-returns') && (
                                 <Button size="small" onClick={() => navigate(`/returns?tab=purchase&invoice=${i.id}`)}>
                                   Retur
                                 </Button>

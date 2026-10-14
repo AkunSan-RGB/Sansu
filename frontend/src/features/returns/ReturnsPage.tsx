@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAction } from '@/api/queries';
+import { useCan } from '@/auth/useCan';
 import type { Invoice, InvoiceDetail, PurchaseInvoice, PurchaseInvoiceDetail, ReturnDoc } from '@/api/types';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import SummaryCards from '@/components/SummaryCards';
@@ -252,6 +253,7 @@ function ReturnList({ kind }: { kind: Kind }) {
 
 export default function ReturnsPage() {
   const [params, setParams] = useSearchParams();
+  const can = useCan();
   const tab: Kind = params.get('tab') === 'purchase' ? 'purchase' : 'sales';
   const invoiceParam = params.get('invoice') ?? undefined;
   const [open, setOpen] = useState(!!invoiceParam);
@@ -266,9 +268,11 @@ export default function ReturnsPage() {
       <PageHeader
         title="Retur"
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
-            {CFG[tab].label} baru
-          </Button>
+          (tab === 'sales' ? can('POST', '/sales-returns') : can('POST', '/purchase-returns')) && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
+              {CFG[tab].label} baru
+            </Button>
+          )
         }
       />
       <Card>

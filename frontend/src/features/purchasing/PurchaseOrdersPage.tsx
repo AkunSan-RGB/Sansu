@@ -4,6 +4,7 @@ import { Button, Space, Tag } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { get } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
+import { useCan } from '@/auth/useCan';
 import type { PurchaseOrder } from '@/api/types';
 import ListPage from '@/components/ListPage';
 import { fmtDate, fmtMoney } from '@/lib/format';
@@ -15,18 +16,19 @@ const sum = (xs: PurchaseOrder[]) => xs.reduce((a, o) => a + Number(o.total), 0)
 export default function PurchaseOrdersPage() {
   const navigate = useNavigate();
   const { me } = useAuth();
+  const can = useCan();
   const { data, isLoading } = useQuery({ queryKey: ['purchase-orders', 'all'], queryFn: () => get<PurchaseOrder[]>('/purchase-orders') });
   return (
     <ListPage<PurchaseOrder>
       title={t('Purchase Order')}
       actions={
         <>
-          <Button type={me?.businessModel === 'RITEL' || me?.businessModel === 'FNB' ? 'primary' : 'default'} icon={<ThunderboltOutlined />} onClick={() => navigate('/purchase-orders/quick')}>
+          {can('POST', '/purchase-orders/quick') && <Button type={me?.businessModel === 'RITEL' || me?.businessModel === 'FNB' ? 'primary' : 'default'} icon={<ThunderboltOutlined />} onClick={() => navigate('/purchase-orders/quick')}>
             Pembelian cepat
-          </Button>
-          <Button type={me?.businessModel === 'RITEL' || me?.businessModel === 'FNB' ? 'default' : 'primary'} icon={<PlusOutlined />} onClick={() => navigate('/purchase-orders/new')}>
+          </Button>}
+          {can('POST', '/purchase-orders') && <Button type={me?.businessModel === 'RITEL' || me?.businessModel === 'FNB' ? 'default' : 'primary'} icon={<PlusOutlined />} onClick={() => navigate('/purchase-orders/new')}>
             PO baru
-          </Button>
+          </Button>}
         </>
       }
       rows={data}
