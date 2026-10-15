@@ -64,7 +64,7 @@ export const APPS: AppInfo[] = [
     description: 'Purchase order, faktur supplier, hutang, retur pembelian',
     color: '#7C3AED',
     depends: ['inventory', 'accounting'],
-    roles: ['FINANCE', 'ACCOUNTANT', 'WAREHOUSE'],
+    roles: ['FINANCE', 'ACCOUNTANT', 'WAREHOUSE', 'PURCHASING'],
     home: '/purchase-orders',
   },
   {
@@ -73,7 +73,7 @@ export const APPS: AppInfo[] = [
     category: 'Supply Chain',
     description: 'Produk, multi satuan, stok per gudang, kartu stok, opname',
     color: '#2563EB',
-    roles: ['WAREHOUSE', 'SALES', 'FINANCE', 'ACCOUNTANT'],
+    roles: ['WAREHOUSE', 'SALES', 'FINANCE', 'ACCOUNTANT', 'PURCHASING'],
     home: '/inventory',
   },
   {

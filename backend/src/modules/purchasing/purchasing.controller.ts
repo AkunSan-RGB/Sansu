@@ -35,19 +35,19 @@ export class SuppliersController {
   constructor(private readonly svc: SuppliersService) {}
 
   @Get()
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
   list(@CurrentUser() u: AuthUser, @Query() q: ListQueryDto) {
     return this.svc.list(u.tenantId, q.q);
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
 
   @Post()
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'PURCHASING')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreateSupplierDto) {
     this.svc.assertCanSetPreferred(u, dto);
     return this.svc.create(u, dto);
@@ -72,27 +72,27 @@ export class PurchaseOrdersController {
   ) {}
 
   @Get()
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
   list(@CurrentUser() u: AuthUser, @Query() q: PurchaseOrderQueryDto) {
     return this.svc.list(u.tenantId, q);
   }
 
   /** Riwayat harga beli aktual per produk (untuk menilai penawaran supplier) */
   @Get('price-history')
-  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING')
   priceHistory(@CurrentUser() u: AuthUser, @Query() q: PriceHistoryQueryDto) {
     return this.svc.priceHistory(u.tenantId, q.productIds.split(','));
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
 
   /** Pembelian cepat atas penawaran supplier: buat + konfirmasi (+ terima barang bila sudah tiba) dalam satu langkah */
   @Post('quick')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'PURCHASING')
   async quick(@CurrentUser() u: AuthUser, @Body() dto: QuickPurchaseDto) {
     const { receiveNow, ...po } = dto;
     // Pemisahan fungsi: yang memesan/menagih (Keuangan) tidak menerima barang sendiri
@@ -108,19 +108,19 @@ export class PurchaseOrdersController {
   }
 
   @Post()
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'PURCHASING')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreatePurchaseOrderDto) {
     return this.svc.create(u, dto);
   }
 
   @Post(':id/confirm')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'PURCHASING')
   confirm(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.confirm(u, id);
   }
 
   @Post(':id/cancel')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'PURCHASING')
   cancel(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.cancel(u, id);
   }
@@ -141,13 +141,13 @@ export class GoodsReceiptsController {
   constructor(private readonly svc: GoodsReceiptsService) {}
 
   @Get()
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
   list(@CurrentUser() u: AuthUser, @Query('from') from?: string, @Query('to') to?: string, @Query('purchaseOrderId') purchaseOrderId?: string) {
     return this.svc.list(u.tenantId, { from, to, purchaseOrderId });
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
@@ -167,7 +167,7 @@ export class PurchaseInvoicesController {
   constructor(private readonly svc: PurchaseInvoicesService) {}
 
   @Get()
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
   list(@CurrentUser() u: AuthUser, @Query() q: PurchaseInvoiceQueryDto) {
     return this.svc.list(u.tenantId, q);
   }
@@ -211,7 +211,7 @@ export class PurchaseInvoicesController {
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
@@ -231,32 +231,32 @@ export class PurchaseRequestsController {
   constructor(private readonly svc: PurchaseRequestsService) {}
 
   @Get()
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
   list(@CurrentUser() u: AuthUser, @Query() q: PurchaseRequestQueryDto) {
     return this.svc.list(u.tenantId, q.status);
   }
 
   /** Usulan dari stok minimum (produk yang perlu dipesan) */
   @Get('suggestions')
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
   suggestions(@CurrentUser() u: AuthUser, @Query() q: SuggestionQueryDto) {
     return this.svc.suggestions(u.tenantId, q.warehouseId);
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT')
+  @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
 
   @Post()
-  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE', 'PURCHASING')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreatePurchaseRequestDto) {
     return this.svc.create(u, dto);
   }
 
   @Post(':id/submit')
-  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE', 'PURCHASING')
   submit(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.submit(u, id);
   }
@@ -274,14 +274,14 @@ export class PurchaseRequestsController {
   }
 
   @Post(':id/cancel')
-  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE', 'PURCHASING')
   cancel(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.cancel(u, id);
   }
 
   /** Jadikan PO draft per supplier */
   @Post(':id/convert')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('ADMIN', 'FINANCE', 'PURCHASING')
   convert(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ConvertPurchaseRequestDto) {
     return this.svc.convert(u, id, dto);
   }
