@@ -9,6 +9,7 @@ import { patch, post } from '@/api/client';
 import { useAction, useProducts } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
 import type { Product } from '@/api/types';
+import CategoryField from '@/components/CategoryField';
 import ListPage from '@/components/ListPage';
 import { fmtMoney, fmtQty } from '@/lib/format';
 import { t } from '@/lib/terms';
@@ -43,6 +44,7 @@ export default function ProductsPage() {
       const body = {
         ...v,
         sku: v.sku,
+        category: v.category?.trim() ?? '',
         baseUom: v.baseUom.toUpperCase(),
         sellPrice: String(v.sellPrice),
         barcode: v.barcode ?? '',
@@ -181,8 +183,8 @@ export default function ProductsPage() {
           <Form.Item name="barcode" label="Barcode (untuk scan di kasir)">
             <Input placeholder="8991234567890" />
           </Form.Item>
-          <Form.Item name="category" label="Kategori">
-            <Input />
+          <Form.Item name="category" label="Kategori" extra="Pilih dari kategori yang sudah ada, atau ketik sendiri bila belum ada. Kategori dipakai di kasir, filter stok, dan stock opname.">
+            <CategoryField options={(data ?? []).map((p) => p.category).filter((c): c is string => !!c)} />
           </Form.Item>
           {isProductionModel(me?.businessModel) && (
             <Form.Item

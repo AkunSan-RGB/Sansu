@@ -22,7 +22,7 @@ export class ProductUomDto {
 export class CreateProductDto {
   @ApiProperty({ example: 'IDM-GRG-85' }) @IsString() @MaxLength(40) sku: string;
   @ApiProperty({ example: 'Mi Goreng 85g' }) @IsString() @MaxLength(160) name: string;
-  @ApiPropertyOptional({ example: 'Makanan' }) @IsOptional() @IsString() category?: string;
+  @ApiPropertyOptional({ example: 'Makanan' }) @IsOptional() @IsString() @MaxLength(60) category?: string;
   @ApiPropertyOptional({ example: 'PCS', default: 'PCS' })
   @IsOptional()
   @IsString()

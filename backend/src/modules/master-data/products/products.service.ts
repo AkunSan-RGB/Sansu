@@ -6,6 +6,7 @@ import { D } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
 import { products, productUoms } from '../../../db/schema';
+import { canonicalCategory } from './category';
 import { CreateProductDto, ProductUomDto, UpdateProductDto } from './products.dto';
 
 @Injectable()
@@ -72,7 +73,7 @@ export class ProductsService {
           tenantId,
           sku: dto.sku.trim().toUpperCase(),
           name: dto.name.trim(),
-          category: dto.category,
+          category: await canonicalCategory(tx, tenantId, dto.category),
           baseUom,
           sellPrice: dto.sellPrice,
           barcode: dto.barcode?.trim() || null,
@@ -113,7 +114,7 @@ export class ProductsService {
         .set({
           sku: dto.sku?.trim().toUpperCase(),
           name: dto.name?.trim(),
-          category: dto.category,
+          category: dto.category === undefined ? undefined : await canonicalCategory(tx, tenantId, dto.category),
           baseUom: dto.baseUom,
           sellPrice: dto.sellPrice,
           barcode: dto.barcode === undefined ? undefined : dto.barcode.trim() || null,

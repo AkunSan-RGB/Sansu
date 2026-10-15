@@ -8,6 +8,7 @@
  * Jenis: produk, pelanggan, supplier (tambah / perbarui berdasarkan kode), stok awal, piutang awal per faktur,
  * utang awal per faktur, saldo awal akun, aset tetap lama (tanpa jurnal). Semua saldo awal berlawanan dengan akun Ekuitas Saldo Awal.
  */
+import { categorySpellings, cleanCategory } from '../master-data/products/category';
 import { BadRequestException, Body, Controller, HttpCode, Injectable, Module, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsIn, IsObject, IsOptional, IsUUID } from 'class-validator';
@@ -187,7 +188,7 @@ export class ImportsService {
     const seenSku = new Set<string>();
     const seenBarcode = new Map<string, string>();
     const results: RowResult[] = [];
-    type W = { id?: string; sku: string; name?: string; category?: string; baseUom?: string; sellPrice?: string; barcode?: string | null; uoms?: { uom: string; factor: string }[] };
+    type W = { id?: string; sku: string; name?: string; category?: string | null; baseUom?: string; sellPrice?: string; barcode?: string | null; uoms?: { uom: string; factor: string }[] };
     const writes: W[] = [];
 
     rows.forEach((row, i) => {
@@ -246,6 +247,13 @@ export class ImportsService {
     return {
       results,
       write: async (tx) => {
+        // kategori disamakan dengan ejaan baku yang sudah ada (dan antar baris file ini)
+        const spell = await categorySpellings(tx, user.tenantId);
+        for (const w of writes) {
+          const c = cleanCategory(w.category);
+          if (!c) w.category = null;
+          else w.category = spell.get(c.toLowerCase()) ?? (spell.set(c.toLowerCase(), c), c);
+        }
         // produk baru: sisipkan bertumpuk (500 per kueri) — cepat untuk ribuan baris
         const creates = writes.filter((w) => !w.id);
         const idBySku = new Map<string, string>();
