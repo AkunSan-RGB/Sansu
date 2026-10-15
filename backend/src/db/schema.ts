@@ -194,6 +194,10 @@ export const warehouses = pgTable(
     isActive: boolean('is_active').notNull().default(true),
     /** Cabang pemilik gudang/toko; transaksi di gudang ini otomatis berlabel cabang tersebut */
     branchId: uuid('branch_id').references((): AnyPgColumn => branches.id),
+    /** MAIN = gudang biasa; CONSIGNMENT = stok titipan di outlet (milik kita sampai dilaporkan terjual); VAN = stok mobil sales kanvas */
+    kind: text('kind').$type<'MAIN' | 'CONSIGNMENT' | 'VAN'>().notNull().default('MAIN'),
+    consigneeCustomerId: uuid('consignee_customer_id'),
+    vanUserId: uuid('van_user_id'),
   },
   (t) => [uniqueIndex('warehouses_code_uq').on(t.tenantId, t.code)],
 );
@@ -484,6 +488,88 @@ export const salesCommissions = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('sales_commissions_uq').on(t.tenantId, t.userId, t.period).where(sql`status <> 'VOID'`), uniqueIndex('sales_commissions_number_uq').on(t.tenantId, t.number)],
+);
+
+/** Tukar-guling: barang rusak/kedaluwarsa/ditarik dari outlet ditukar barang yang sama dengan jumlah yang sama; baru berlaku setelah disetujui */
+export const goodsSwaps = pgTable(
+  'goods_swaps',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    date: date('date').notNull(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => invoices.id),
+    warehouseId: uuid('warehouse_id')
+      .notNull()
+      .references(() => warehouses.id),
+    reason: text('reason').$type<'EXPIRED' | 'DAMAGED' | 'RECALL'>().notNull(),
+    notes: text('notes'),
+    status: text('status').$type<'PENDING' | 'APPROVED' | 'REJECTED'>().notNull().default('PENDING'),
+    createdById: uuid('created_by_id'),
+    decidedById: uuid('decided_by_id'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    rejectReason: text('reject_reason'),
+    journalId: uuid('journal_id'),
+    costAmount: money('cost_amount').notNull().default('0'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('goods_swaps_number_uq').on(t.tenantId, t.number), index('goods_swaps_invoice_idx').on(t.invoiceId)],
+);
+export const goodsSwapLines = pgTable('goods_swap_lines', {
+  id: id(),
+  swapId: uuid('swap_id')
+    .notNull()
+    .references(() => goodsSwaps.id, { onDelete: 'cascade' }),
+  invoiceLineId: uuid('invoice_line_id').notNull(),
+  productId: uuid('product_id')
+    .notNull()
+    .references(() => products.id),
+  uom: text('uom').notNull(),
+  uomFactor: qty('uom_factor').notNull(),
+  /** Jumlah barang yang ditarik = jumlah penggantinya (satuan baris faktur) */
+  qty: qty('qty').notNull(),
+  lotNo: text('lot_no'),
+});
+
+/** Dokumen konsinyasi: kirim titipan ke outlet, laporan penjualan outlet (ditagih setelah diperiksa), tarik sisa */
+export const consignmentDocs = pgTable(
+  'consignment_docs',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    kind: text('kind').$type<'SHIP' | 'REPORT' | 'RETURN'>().notNull(),
+    date: date('date').notNull(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    /** Gudang konsinyasi outlet */
+    warehouseId: uuid('warehouse_id')
+      .notNull()
+      .references(() => warehouses.id),
+    /** REPORT: nomor laporan penjualan dari outlet (unik per outlet agar tidak ditagih dua kali) */
+    reference: text('reference'),
+    /** REPORT: REPORTED → INVOICED / REJECTED; SHIP & RETURN langsung DONE */
+    status: text('status').$type<'DONE' | 'REPORTED' | 'INVOICED' | 'REJECTED'>().notNull().default('DONE'),
+    lines: jsonb('lines').$type<{ productId: string; uom: string; qty: string }[]>().notNull(),
+    transferId: uuid('transfer_id'),
+    salesOrderId: uuid('sales_order_id'),
+    invoiceId: uuid('invoice_id'),
+    notes: text('notes'),
+    rejectReason: text('reject_reason'),
+    createdById: uuid('created_by_id'),
+    decidedById: uuid('decided_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('consignment_docs_number_uq').on(t.tenantId, t.number),
+    uniqueIndex('consignment_docs_ref_uq').on(t.tenantId, t.customerId, t.reference).where(sql`kind = 'REPORT' AND status <> 'REJECTED'`),
+  ],
 );
 
 /** Lot yang ikut berpindah saat transfer gudang: dicatat saat barang keluar, dipakai lagi saat barang masuk di gudang tujuan */

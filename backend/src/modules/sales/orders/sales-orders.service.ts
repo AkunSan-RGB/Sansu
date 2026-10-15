@@ -54,7 +54,7 @@ export class SalesOrdersService {
     return o;
   }
 
-  async create(user: AuthUser, dto: CreateSalesOrderDto) {
+  async create(user: AuthUser, dto: CreateSalesOrderDto, opts: { consignment?: boolean } = {}) {
     const date = toDocDate(dto.date);
     const id = await this.db.transaction(async (tx) => {
       const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
@@ -68,6 +68,9 @@ export class SalesOrdersService {
         .from(warehouses)
         .where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
+      // Gudang titipan hanya dipakai lewat alur konsinyasi (laporan outlet → ditagih); gudang mobil hanya oleh sales pemiliknya atau Admin
+      if (wh.kind === 'CONSIGNMENT' && !opts.consignment) throw new BadRequestException(`${wh.name} adalah gudang konsinyasi: jual lewat Penjualan › Konsinyasi (laporan penjualan outlet)`);
+      if (wh.kind === 'VAN' && wh.vanUserId !== user.sub && !['OWNER', 'ADMIN'].includes(user.role)) throw new BadRequestException(`${wh.name} adalah stok mobil sales lain`);
 
       const prods = await tx.query.products.findMany({
         where: and(eq(products.tenantId, user.tenantId), inArray(products.id, dto.lines.map((l) => l.productId))),

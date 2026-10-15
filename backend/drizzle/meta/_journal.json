@@ -442,6 +442,13 @@
       "when": 1794158086484,
       "tag": "0062_komisi_lot_estimasi",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1794159086484,
+      "tag": "0063_tukar_guling_konsinyasi",
+      "breakpoints": true
     }
   ]
 }

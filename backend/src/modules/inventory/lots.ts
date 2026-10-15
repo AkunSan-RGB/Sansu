@@ -141,7 +141,7 @@ export class LotsService {
     if (!lots.rows.length) throw new NotFoundException('Lot tidak ditemukan');
     const issues = await this.db.execute<{ qty: string; move_type: string; ref_type: string; ref_id: string; date: string; doc_number: string | null; cancelled: boolean; is_estimate: boolean; customer_id: string | null; customer_code: string | null; customer_name: string | null; customer_phone: string | null; customer_address: string | null }>(sql`
       SELECT i.qty, i.move_type, i.ref_type, i.ref_id, i.date, i.is_estimate,
-             COALESCE(d.number, v.number, po.number) AS doc_number,
+             COALESCE(d.number, v.number, po.number, gs.number) AS doc_number,
              COALESCE(d.status = 'CANCELLED', false) AS cancelled,
              c.id AS customer_id, c.code AS customer_code, c.name AS customer_name, c.phone AS customer_phone, c.address AS customer_address
       FROM stock_lot_issues i
@@ -149,7 +149,8 @@ export class LotsService {
       LEFT JOIN delivery_orders d ON i.ref_type = 'DELIVERY' AND d.id::text = i.ref_id
       LEFT JOIN invoices v ON i.ref_type = 'INVOICE' AND v.id::text = i.ref_id
       LEFT JOIN pos_orders po ON i.ref_type = 'POS_ORDER' AND po.id::text = i.ref_id
-      LEFT JOIN customers c ON c.id = COALESCE(d.customer_id, v.customer_id, po.customer_id)
+      LEFT JOIN goods_swaps gs ON i.ref_type = 'GOODS_SWAP' AND gs.id::text = i.ref_id
+      LEFT JOIN customers c ON c.id = COALESCE(d.customer_id, v.customer_id, po.customer_id, gs.customer_id)
       WHERE l.tenant_id = ${u.tenantId} AND l.product_id = ${q.productId} AND l.lot_no = ${q.lotNo}
       ORDER BY i.date, i.created_at`);
 

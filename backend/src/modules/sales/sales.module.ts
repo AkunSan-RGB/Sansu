@@ -6,6 +6,7 @@ import { DeliveriesController } from './deliveries/deliveries.controller';
 import { DeliveriesService } from './deliveries/deliveries.service';
 import { InvoicesController } from './invoices/invoices.controller';
 import { InvoicesService } from './invoices/invoices.service';
+import { ConsignmentsController, ConsignmentsService } from './consignment/consignments';
 import { CreditService } from './orders/credit.service';
 import { SalesOrdersController } from './orders/sales-orders.controller';
 import { SalesOrdersService } from './orders/sales-orders.service';
@@ -18,8 +19,8 @@ import { ServiceBillingController, ServiceBillingService } from './services/serv
 
 @Module({
   imports: [AccountingModule, InventoryModule, FxModule],
-  controllers: [SalesOrdersController, DeliveriesController, InvoicesController, PaymentsController, ServiceBillingController, PricingController, SalesTargetsController, SalesCommissionsController],
-  providers: [PricingService, SalesTargetsService, SalesCommissionsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService],
+  controllers: [SalesOrdersController, DeliveriesController, InvoicesController, PaymentsController, ServiceBillingController, PricingController, SalesTargetsController, SalesCommissionsController, ConsignmentsController],
+  providers: [ConsignmentsService, PricingService, SalesTargetsService, SalesCommissionsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService],
   exports: [SalesOrdersService, InvoicesService, PricingService],
 })
 export class SalesModule {}

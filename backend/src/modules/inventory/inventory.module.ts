@@ -13,6 +13,6 @@ import { WritedownController, WritedownService } from './writedown';
   imports: [AccountingModule],
   controllers: [InventoryController, InventoryMethodController, WarehouseOpsController, WritedownController, MovementAnalysisController, LotsController],
   providers: [InventoryService, InventoryMethodService, StockService, WarehouseOpsService, WritedownService, MovementAnalysisService, LotsService],
-  exports: [StockService, InventoryService],
+  exports: [StockService, InventoryService, WarehouseOpsService],
 })
 export class InventoryModule {}
