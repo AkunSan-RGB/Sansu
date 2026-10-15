@@ -692,7 +692,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     paths: ['/settings/users'],
     steps: [
       'Pengaturan › Pengguna › Pengguna baru. Isi nama, email, kata sandi awal, dan peran.',
-      'Peran menentukan aplikasi yang bisa dibuka: Admin, Keuangan, Sales, Gudang, Kasir, HR.',
+      'Peran menentukan aplikasi yang bisa dibuka: Admin, Keuangan, Akuntan, Sales, Pembelian, Gudang, Kasir, SDM.',
       'Batasi akses gudang bila pengguna hanya boleh mengelola lokasi tertentu.',
       'Nonaktifkan pengguna yang keluar — riwayat transaksinya tetap tersimpan.',
     ],

@@ -120,7 +120,7 @@ const MENU: Group[] = [
       { key: '/purchase-orders', label: t('Purchase Order') },
       { key: '/goods-receipts', label: 'Penerimaan barang', hideFor: ['JASA'] },
       { key: '/purchase-invoices', label: t('Faktur & hutang') },
-      { key: '/returns?tab=purchase', label: t('Retur pembelian') },
+      { key: '/returns?tab=purchase', label: t('Retur pembelian'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE'] },
       { key: '/purchase-controls', label: 'Kontrol pembelian', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA'] },
       { section: 'Data', items: [{ key: '/suppliers', label: t('Supplier') }] },
     ],

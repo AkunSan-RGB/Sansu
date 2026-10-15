@@ -18,6 +18,7 @@ const ROLE_HELP: Record<Role, string> = {
   FINANCE: 'Kas & bank, pembayaran, faktur, setor pajak, bayar gaji (tidak membukukan jurnal)',
   ACCOUNTANT: 'Jurnal, bagan akun, tutup buku, aset tetap, laporan & pajak (tidak memegang uang)',
   SALES: 'CRM, penawaran, sales order, pelanggan',
+  PURCHASING: 'Permintaan beli, pesanan pembelian, pemasok baru (tidak menerima barang, tidak membayar, tidak memasukkan tagihan)',
   WAREHOUSE: 'Stok, produk, penerimaan barang',
   CASHIER: 'Layar kasir saja',
   HR: 'Karyawan, absensi, cuti, penggajian',
