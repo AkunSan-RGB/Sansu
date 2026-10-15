@@ -9,7 +9,7 @@ import { patch, post } from '@/api/client';
 import { useAction, useProducts } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
 import type { Product } from '@/api/types';
-import CategoryField from '@/components/CategoryField';
+import CategoryField, { categoryUsage } from '@/components/CategoryField';
 import CategoriesModal from './CategoriesModal';
 import ListPage from '@/components/ListPage';
 import { fmtMoney, fmtQty } from '@/lib/format';
@@ -30,7 +30,7 @@ interface FormValues {
 }
 
 export default function ProductsPage() {
-  const { isAdmin } = useApps();
+  const { isAdmin, can: hasApp } = useApps();
   const { me } = useAuth();
   const can = useCan();
   const navigate = useNavigate();
@@ -191,7 +191,7 @@ export default function ProductsPage() {
               <Input placeholder="8991234567890" />
             </Form.Item>
           )}
-          <Form.Item name="category" label="Kategori" extra="Pilih dari kategori yang sudah ada, atau ketik sendiri bila belum ada. Kategori dipakai di kasir, filter stok, dan stock opname.">
+          <Form.Item name="category" label="Kategori" extra={`Pilih dari kategori yang sudah ada, atau ketik sendiri bila belum ada. Kategori dipakai di ${categoryUsage(hasApp)}.`}>
             <CategoryField options={(data ?? []).map((p) => p.category).filter((c): c is string => !!c)} />
           </Form.Item>
           {isProductionModel(me?.businessModel) && (

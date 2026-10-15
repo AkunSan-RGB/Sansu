@@ -3,6 +3,13 @@ import { useState } from 'react';
 
 const NEW = '__baru__';
 
+/** Di mana kategori dipakai, sesuai aplikasi yang aktif (usaha jasa tanpa kasir tidak disebut kasir) */
+export const categoryUsage = (has: (app: 'pos' | 'inventory') => boolean) => {
+  const where = [has('pos') && 'tab kasir', 'filter daftar', has('inventory') && 'stock opname'].filter(Boolean) as string[];
+  if (where.length < 3) return where.join(' dan ');
+  return `${where.slice(0, -1).join(', ')}, dan ${where[where.length - 1]}`;
+};
+
 interface Props {
   value?: string | null;
   onChange?: (v: string | undefined) => void;

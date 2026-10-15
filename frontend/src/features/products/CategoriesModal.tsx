@@ -5,7 +5,9 @@ import { useState } from 'react';
 import { get, post } from '@/api/client';
 import { useAction } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
-import CategoryField from '@/components/CategoryField';
+import CategoryField, { categoryUsage } from '@/components/CategoryField';
+import { useApps } from '@/lib/apps';
+import { t } from '@/lib/terms';
 
 interface Cats {
   items: { name: string; count: number }[];
@@ -16,13 +18,15 @@ type MergeResult = { updated: number; to: string | null };
 /** Kelola kategori produk: satukan ejaan ganda, ganti nama, gabungkan ke kategori lain, atau hapus kategori */
 export default function CategoriesModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const can = useCan();
+  const { can: hasApp } = useApps();
+  const noun = t('produk');
   const canMerge = can('POST', '/products/categories/merge');
   const q = useQuery({ queryKey: ['products', 'categories'], queryFn: () => get<Cats>('/products/categories'), enabled: open });
   const [moving, setMoving] = useState<{ name: string; count: number } | null>(null);
   const [target, setTarget] = useState<string | undefined>();
   const merge = useAction((v: { from: string[]; to: string | null }) => post<MergeResult>('/products/categories/merge', v), {
     invalidate: ['products'],
-    success: (r) => `${r.updated} produk dipindahkan${r.to ? ` ke "${r.to}"` : ' (tanpa kategori)'}`,
+    success: (r) => `${r.updated} ${noun} dipindahkan${r.to ? ` ke "${r.to}"` : ' (tanpa kategori)'}`,
     onSuccess: () => setMoving(null),
   });
   const d = q.data;
@@ -30,7 +34,7 @@ export default function CategoriesModal({ open, onClose }: { open: boolean; onCl
   return (
     <Modal title="Kelola kategori" open={open} onCancel={onClose} footer={<Button onClick={onClose}>Tutup</Button>} width={680} destroyOnHidden>
       <Typography.Paragraph type="secondary">
-        Kategori dipakai di tab kasir, filter stok, dan stock opname. Satukan kategori yang ejaannya terpecah, ganti nama, atau gabungkan ke kategori lain; semua produk terkait ikut berpindah.
+        Kategori dipakai di {categoryUsage(hasApp)}. Satukan kategori yang ejaannya terpecah, ganti nama, atau gabungkan ke kategori lain; semua {noun} terkait ikut berpindah.
       </Typography.Paragraph>
       {d?.duplicates.length ? (
         <Alert
@@ -69,7 +73,7 @@ export default function CategoriesModal({ open, onClose }: { open: boolean; onCl
         locale={{ emptyText: 'Belum ada kategori.' }}
         columns={[
           { title: 'Kategori', dataIndex: 'name' },
-          { title: 'Produk', dataIndex: 'count', align: 'right' },
+          { title: t('Produk'), dataIndex: 'count', align: 'right' },
           {
             title: '',
             render: (_: unknown, r) =>
@@ -78,7 +82,7 @@ export default function CategoriesModal({ open, onClose }: { open: boolean; onCl
                   <Button size="small" type="text" icon={<EditOutlined />} onClick={() => (setTarget(undefined), setMoving(r))}>
                     Ganti nama / gabung
                   </Button>
-                  <Popconfirm title={`Hapus kategori "${r.name}"?`} description={`${r.count} produk menjadi tanpa kategori.`} okText="Hapus" cancelText="Batal" onConfirm={() => merge.mutate({ from: [r.name], to: null })}>
+                  <Popconfirm title={`Hapus kategori "${r.name}"?`} description={`${r.count} ${noun} menjadi tanpa kategori.`} okText="Hapus" cancelText="Batal" onConfirm={() => merge.mutate({ from: [r.name], to: null })}>
                     <Button size="small" type="text" danger icon={<DeleteOutlined />}>
                       Hapus
                     </Button>
@@ -100,7 +104,7 @@ export default function CategoriesModal({ open, onClose }: { open: boolean; onCl
         destroyOnHidden
       >
         <Form layout="vertical">
-          <Form.Item label="Menjadi kategori" extra={`${moving?.count ?? 0} produk akan dipindahkan. Pilih kategori lain untuk menggabungkan, atau ketik nama baru untuk mengganti nama.`}>
+          <Form.Item label="Menjadi kategori" extra={`${moving?.count ?? 0} ${noun} akan dipindahkan. Pilih kategori lain untuk menggabungkan, atau ketik nama baru untuk mengganti nama.`}>
             <CategoryField value={target} onChange={setTarget} options={(d?.items ?? []).map((i) => i.name).filter((n) => n !== moving?.name)} />
           </Form.Item>
         </Form>
