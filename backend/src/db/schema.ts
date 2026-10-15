@@ -2200,6 +2200,8 @@ export const payslips = pgTable(
     dailyAllowance: money('daily_allowance').notNull(),
     overtimePay: money('overtime_pay').notNull(),
     otherIncome: money('other_income').notNull().default('0'),
+    /** Upah jasa (jam, sesi, borongan, komisi faktur) dari catatan kerja yang sudah disetujui; sudah termasuk di gross_pay */
+    serviceIncome: money('service_income').notNull().default('0'),
     absenceDeduction: money('absence_deduction').notNull().default('0'),
     /** Penghasilan tunai sebelum potongan */
     grossPay: money('gross_pay').notNull(),
@@ -2223,6 +2225,65 @@ export const payslips = pgTable(
     projectId: uuid('project_id'),
   },
   (t) => [uniqueIndex('payslips_run_emp_uq').on(t.runId, t.employeeId)],
+);
+
+
+/** Kartu tarif usaha jasa: tarif per jam / sesi / borongan, atau persen komisi faktur. Yang mengisi catatan kerja tidak bisa mengubah tarif. */
+export const serviceRates = pgTable(
+  'service_rates',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    name: text('name').notNull(),
+    /** HOUR = per jam · SESSION = per sesi · JOB = borongan per pekerjaan · PERCENT = persen dari nilai faktur jasa */
+    unit: text('unit').$type<'HOUR' | 'SESSION' | 'JOB' | 'PERCENT'>().notNull(),
+    rate: numeric('rate', { precision: 18, scale: 2 }).notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    createdById: uuid('created_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('service_rates_name_uq').on(t.tenantId, t.name)],
+);
+
+/** Catatan kerja pegawai jasa → upah variabel di slip gaji. Dibuat HR, disetujui orang lain; angka dihitung server dari tarif (disalin saat dibuat). */
+export const serviceWorkEntries = pgTable(
+  'service_work_entries',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => employees.id),
+    rateId: uuid('rate_id')
+      .notNull()
+      .references(() => serviceRates.id),
+    unit: text('unit').$type<'HOUR' | 'SESSION' | 'JOB' | 'PERCENT'>().notNull(),
+    workDate: date('work_date').notNull(),
+    projectId: uuid('project_id'),
+    /** Hanya untuk komisi: faktur jasa yang dikomisikan */
+    invoiceId: uuid('invoice_id').references(() => invoices.id),
+    /** Jam / sesi / pekerjaan; untuk komisi = persen */
+    quantity: numeric('quantity', { precision: 12, scale: 2 }).notNull(),
+    rate: numeric('rate', { precision: 18, scale: 2 }).notNull(),
+    /** Dasar komisi (nilai faktur sebelum PPN) — kosong untuk jam/sesi/borongan */
+    baseAmount: money('base_amount'),
+    amount: money('amount').notNull(),
+    description: text('description'),
+    /** PENDING → APPROVED | REJECTED; APPROVED → VOID (sebelum dibayar) */
+    status: text('status').$type<'PENDING' | 'APPROVED' | 'REJECTED' | 'VOID'>().notNull().default('PENDING'),
+    createdById: uuid('created_by_id').notNull(),
+    decidedById: uuid('decided_by_id'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
+    /** Penggajian yang memuat catatan ini (kosong = belum digaji) */
+    runId: uuid('run_id').references(() => payrollRuns.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('service_work_emp_date_idx').on(t.tenantId, t.employeeId, t.workDate),
+    index('service_work_status_idx').on(t.tenantId, t.status, t.runId),
+    uniqueIndex('service_work_commission_uq').on(t.tenantId, t.invoiceId, t.employeeId).where(sql`invoice_id IS NOT NULL AND status IN ('PENDING','APPROVED')`),
+  ],
 );
 
 // ---------- Aset tetap ----------

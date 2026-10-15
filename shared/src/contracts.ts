@@ -1172,6 +1172,8 @@ export interface Payslip {
   dailyAllowance: string;
   overtimePay: string;
   otherIncome: string;
+  /** Upah jasa (jam, sesi, borongan, komisi faktur) dari catatan kerja yang disetujui — khusus usaha jasa */
+  serviceIncome: string;
   absenceDeduction: string;
   grossPay: string;
   bpjsKesEmployee: string;

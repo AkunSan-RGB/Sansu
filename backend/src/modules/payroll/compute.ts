@@ -42,6 +42,8 @@ export interface YearToDate {
 export interface Adjustments {
   otherIncome?: string;
   otherDeduction?: string;
+  /** Upah jasa dari catatan kerja yang disetujui (jam, sesi, borongan, komisi faktur); bukan dasar BPJS */
+  serviceIncome?: string;
 }
 
 const pct = (base: Dec, rate: number) => money(base.times(rate).div(100));
@@ -66,8 +68,9 @@ export function computePayslip(emp: EmployeeInput, att: AttendanceInput, s: Payr
   const absenceDeduction = att.workDays > 0 ? money(base.div(att.workDays).times(att.unpaidDays)) : ZERO;
   const otherIncome = money(D(adj.otherIncome));
   const otherDeduction = money(D(adj.otherDeduction));
+  const serviceIncome = money(D(adj.serviceIncome));
 
-  const grossPay = base.plus(fixed).plus(dailyAllowance).plus(overtime).plus(otherIncome).minus(absenceDeduction);
+  const grossPay = base.plus(fixed).plus(dailyAllowance).plus(overtime).plus(otherIncome).plus(serviceIncome).minus(absenceDeduction);
 
   const kesBase = Decimal.min(wage, D(s.bpjsKesCap));
   const jpBase = Decimal.min(wage, D(s.jpCap));
@@ -118,6 +121,7 @@ export function computePayslip(emp: EmployeeInput, att: AttendanceInput, s: Payr
     dailyAllowance,
     overtimePay: overtime,
     otherIncome,
+    serviceIncome,
     absenceDeduction,
     grossPay: money(grossPay),
     bpjsKesEmployee,

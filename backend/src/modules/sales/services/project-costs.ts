@@ -28,13 +28,21 @@ export function projectCostsSql(tenantId: string, from?: string, to?: string): S
     WHERE j.tenant_id = ${tenantId} AND ja.type = 'EXPENSE' AND j.source_type IN ('MANUAL', 'ADJUSTMENT', 'RECURRING') AND l.project_id IS NOT NULL ${range(sql`j.date`)}
       AND ${notReversed(sql`j.id`)}    UNION ALL
     SELECT ps.project_id, 'PAYROLL', r.id, r.number, r.pay_date, 'Gaji ' || e.name || ' (' || r.period || ')', a.id,
-           CASE WHEN a.system_key = 'SALARY_EXPENSE' THEN ps.gross_pay
+           CASE WHEN a.system_key = 'SALARY_EXPENSE' THEN ps.gross_pay - ps.service_income
                 ELSE ps.bpjs_kes_company + ps.jht_company + ps.jp_company + ps.jkk_company + ps.jkm_company END
     FROM payslips ps
     JOIN payroll_runs r ON r.id = ps.run_id
     JOIN employees e ON e.id = ps.employee_id
     JOIN accounts a ON a.tenant_id = r.tenant_id AND a.system_key IN ('SALARY_EXPENSE', 'BPJS_EXPENSE')
     WHERE r.tenant_id = ${tenantId} AND r.status IN ('POSTED', 'PAID') AND ps.project_id IS NOT NULL ${range(sql`r.pay_date`)}
+      AND ${notReversed(sql`r.journal_id`)}
+    UNION ALL
+    SELECT w.project_id, 'PAYROLL', r.id, r.number, r.pay_date, 'Upah jasa ' || e.name || ' (' || r.period || ')', a.id, w.amount
+    FROM service_work_entries w
+    JOIN payroll_runs r ON r.id = w.run_id
+    JOIN employees e ON e.id = w.employee_id
+    JOIN accounts a ON a.tenant_id = r.tenant_id AND a.system_key = 'SALARY_EXPENSE'
+    WHERE r.tenant_id = ${tenantId} AND r.status IN ('POSTED', 'PAID') AND w.status = 'APPROVED' AND w.project_id IS NOT NULL ${range(sql`r.pay_date`)}
       AND ${notReversed(sql`r.journal_id`)}
   )`;
 }
