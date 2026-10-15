@@ -37,7 +37,24 @@ const TERMS: Record<BusinessModel, Terms> = {
       ['Gudang', 'Lokasi bahan'],
       ['Inventori', 'Bahan kerja'],
     ],
-    exact: { Penjualan: 'Pendapatan jasa', 'Retur penjualan': 'Koreksi tagihan', Faktur: 'Tagihan' },
+    // Faktur jasa tidak bisa diretur (koreksinya lewat jurnal penyesuaian); halaman Retur hanya untuk bahan/barang yang dijual ke klien
+    exact: {
+      Penjualan: 'Pendapatan jasa',
+      Faktur: 'Tagihan',
+      Retur: 'Retur bahan',
+      'Retur penjualan': 'Retur bahan dari klien',
+      'Retur Penjualan': 'Retur bahan dari klien',
+      'Retur pembelian': 'Retur bahan ke pemasok',
+      'Retur Pembelian': 'Retur bahan ke pemasok',
+      'Persediaan & mutasi': 'Bahan & mutasi',
+      'Perputaran persediaan': 'Pemakaian bahan',
+      'Laku cepat & normal': 'Sering dipakai',
+      Lambat: 'Jarang dipakai',
+      'Tidak bergerak & habis': 'Tidak terpakai & habis',
+      'Cepat keluar': 'Cepat terpakai',
+      'Tidak bergerak': 'Tidak terpakai',
+      'Habis padahal laku': 'Habis padahal dibutuhkan',
+    },
   },
   PRODUKSI: {
     words: [

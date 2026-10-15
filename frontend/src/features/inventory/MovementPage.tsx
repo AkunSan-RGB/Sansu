@@ -11,6 +11,7 @@ import ResponsiveTable from '@/components/ResponsiveTable';
 import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, fmtQty } from '@/lib/format';
+import { t } from '@/lib/terms';
 
 interface Item {
   productId: string;
@@ -55,7 +56,7 @@ export default function MovementPage() {
 
   return (
     <>
-      <PageHeader title="Perputaran persediaan" />
+      <PageHeader title={t('Perputaran persediaan')} />
       {a && p && (
         <Alert
           type="info"
@@ -68,9 +69,9 @@ export default function MovementPage() {
       {a && (
         <SummaryCards
           items={[
-            { label: 'Laku cepat & normal', value: `${cnt('FAST') + cnt('NORMAL')} barang`, hint: `nilai stok ${fmtMoney(val('FAST', 'NORMAL'))}`, tone: 'good' },
-            { label: 'Lambat', value: `${cnt('SLOW')} barang`, hint: `nilai stok ${fmtMoney(val('SLOW'))}`, tone: cnt('SLOW') ? 'warn' : 'neutral', onClick: () => setFilter(filter === 'SLOW' ? undefined : 'SLOW'), active: filter === 'SLOW' },
-            { label: 'Tidak bergerak & habis', value: `${cnt('DEAD') + cnt('OUT')} barang`, hint: `nilai stok ${fmtMoney(val('DEAD', 'OUT'))}`, tone: cnt('DEAD') + cnt('OUT') ? 'bad' : 'neutral', onClick: () => setFilter(filter === 'DEAD' ? undefined : 'DEAD'), active: filter === 'DEAD' },
+            { label: t('Laku cepat & normal'), value: `${cnt('FAST') + cnt('NORMAL')} barang`, hint: `nilai stok ${fmtMoney(val('FAST', 'NORMAL'))}`, tone: 'good' },
+            { label: t('Lambat'), value: `${cnt('SLOW')} barang`, hint: `nilai stok ${fmtMoney(val('SLOW'))}`, tone: cnt('SLOW') ? 'warn' : 'neutral', onClick: () => setFilter(filter === 'SLOW' ? undefined : 'SLOW'), active: filter === 'SLOW' },
+            { label: t('Tidak bergerak & habis'), value: `${cnt('DEAD') + cnt('OUT')} barang`, hint: `nilai stok ${fmtMoney(val('DEAD', 'OUT'))}`, tone: cnt('DEAD') + cnt('OUT') ? 'bad' : 'neutral', onClick: () => setFilter(filter === 'DEAD' ? undefined : 'DEAD'), active: filter === 'DEAD' },
           ]}
         />
       )}
@@ -81,7 +82,7 @@ export default function MovementPage() {
             <Segmented
               value={filter ?? 'ALL'}
               onChange={(v) => setFilter(v === 'ALL' ? undefined : (v as MovementClass))}
-              options={[{ value: 'ALL', label: `Semua (${total})` }, ...SHOWN.map((c) => ({ value: c, label: `${MOVEMENT_LABELS[c]} (${cnt(c)})` }))]}
+              options={[{ value: 'ALL', label: `Semua (${total})` }, ...SHOWN.map((c) => ({ value: c, label: `${t(MOVEMENT_LABELS[c])} (${cnt(c)})` }))]}
             />
           </div>
           <Input.Search allowClear placeholder="Cari SKU atau nama barang" style={{ width: 260 }} onChange={(e) => setSearch(e.target.value)} />
@@ -95,7 +96,7 @@ export default function MovementPage() {
           columns={[
             { title: 'SKU', dataIndex: 'sku' },
             { title: 'Barang', dataIndex: 'name' },
-            { title: 'Status', dataIndex: 'cls', render: (c: MovementClass) => <Tag color={COLOR[c]}>{MOVEMENT_LABELS[c]}</Tag> },
+            { title: 'Status', dataIndex: 'cls', render: (c: MovementClass) => <Tag color={COLOR[c]}>{t(MOVEMENT_LABELS[c])}</Tag> },
             { title: 'Stok', dataIndex: 'onHand', align: 'right', render: (v: number, r: Item) => `${fmtQty(v)} ${r.uom}` },
             { title: 'Nilai stok', dataIndex: 'value', align: 'right', render: fmtMoney },
             { title: `Keluar ${p?.windowDays ?? ''} hari`, dataIndex: 'soldInWindow', align: 'right', render: (v: number) => fmtQty(v) },
