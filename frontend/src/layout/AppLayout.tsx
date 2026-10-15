@@ -125,13 +125,13 @@ const MENU: Group[] = [
     label: t('Inventori'),
     icon: APP_ICONS.inventory,
     children: [
-      { key: '/inventory', label: 'Persediaan & mutasi' },
+      { key: '/inventory', label: t('Persediaan & mutasi') },
       { key: '/inventory/warehouses', label: t('Persediaan per gudang') },
       { key: '/inventory/transfers', label: t('Transfer gudang') },
       { key: '/inventory/counts', label: 'Stock opname' },
       { key: '/inventory/expiry', label: 'Kedaluwarsa bahan', hideFor: ['JASA'] },
-      { key: '/inventory/movement', label: 'Perputaran persediaan' },
-      { key: '/inventory/writedowns', label: 'Penurunan nilai', epOnly: true },
+      { key: '/inventory/movement', label: t('Perputaran persediaan') },
+      { key: '/inventory/writedowns', label: 'Penurunan nilai', epOnly: true, hideFor: ['JASA'] },
       {
         section: 'Data',
         items: [

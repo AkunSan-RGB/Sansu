@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAction } from '@/api/queries';
+import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
 import type { Invoice, InvoiceDetail, PurchaseInvoice, PurchaseInvoiceDetail, ReturnDoc } from '@/api/types';
 import ResponsiveTable from '@/components/ResponsiveTable';
@@ -17,15 +18,21 @@ type Kind = 'sales' | 'purchase';
 
 const CFG = {
   sales: {
-    label: t('Retur Penjualan'),
-    party: 'Pelanggan',
+    get label() {
+      return t('Retur Penjualan');
+    },
+    get party() {
+      return t('Pelanggan');
+    },
     list: '/sales-returns',
     invoices: '/invoices',
     detail: (id: string) => `/invoices/${id}`,
     help: 'Barang kembali dari pelanggan: stok bertambah (nilai HPP asal), piutang berkurang. Jurnal: Retur Penjualan + PPN Keluaran (debit) / Piutang (kredit); Persediaan (debit) / HPP (kredit).',
   },
   purchase: {
-    label: t('Retur Pembelian'),
+    get label() {
+      return t('Retur Pembelian');
+    },
     party: 'Supplier',
     list: '/purchase-returns',
     invoices: '/purchase-invoices',
@@ -200,7 +207,7 @@ function ReturnList({ kind }: { kind: Kind }) {
           items={[
             { label: `Total ${cfg.label.toLowerCase()}`, value: fmtMoney(sum(all)), hint: `${all.length} retur` },
             { label: 'Retur bulan ini', value: fmtMoney(sum(thisMonth)), hint: `${thisMonth.length} retur`, tone: thisMonth.length ? 'warn' : 'neutral' },
-            { label: 'Jumlah retur', value: String(all.length), hint: kind === 'sales' ? 'barang kembali dari pelanggan' : 'barang kembali ke supplier' },
+            { label: 'Jumlah retur', value: String(all.length), hint: kind === 'sales' ? `barang kembali dari ${t('pelanggan')}` : 'barang kembali ke supplier' },
           ]}
         />
       )}
@@ -254,6 +261,7 @@ function ReturnList({ kind }: { kind: Kind }) {
 export default function ReturnsPage() {
   const [params, setParams] = useSearchParams();
   const can = useCan();
+  const { me } = useAuth();
   const tab: Kind = params.get('tab') === 'purchase' ? 'purchase' : 'sales';
   const invoiceParam = params.get('invoice') ?? undefined;
   const [open, setOpen] = useState(!!invoiceParam);
@@ -266,7 +274,7 @@ export default function ReturnsPage() {
   return (
     <>
       <PageHeader
-        title="Retur"
+        title={t('Retur')}
         extra={
           (tab === 'sales' ? can('POST', '/sales-returns') : can('POST', '/purchase-returns')) && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
@@ -275,6 +283,14 @@ export default function ReturnsPage() {
           )
         }
       />
+      {me?.businessModel === 'JASA' && tab === 'sales' && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="Halaman ini untuk bahan yang dikembalikan klien. Untuk mengurangi atau membatalkan tagihan jasa, catat nota kredit lewat Jurnal penyesuaian (Akuntansi › Jurnal penyesuaian)."
+        />
+      )}
       <Card>
         <Tabs
           activeKey={tab}
