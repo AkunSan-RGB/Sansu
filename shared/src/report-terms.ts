@@ -76,17 +76,17 @@ export const REPORT_TERMS: Record<BusinessModel, ReportTerms> = {
     recognitionPolicy:
       'Pendapatan jasa diakui berdasarkan tahap penyelesaian pekerjaan (persentase kemajuan) dan ditagih per termin. Selisih antara pendapatan yang telah diakui dan yang telah ditagih disajikan sebagai pendapatan belum ditagih (aset kontrak) atau pendapatan diterima dimuka (liabilitas kontrak). Uang muka pelanggan disajikan sebagai liabilitas sampai dipakai melunasi tagihan. Beban diakui pada saat terjadinya (dasar akrual).',
   },
-  PRODUKSI: {
-    revenueLabel: 'Pendapatan usaha',
-    cogsLabel: 'Beban pokok produksi dan penjualan',
-    activity: 'industri pengolahan (produksi) dan penjualan barang jadi',
-    revenueSource: 'penjualan barang hasil produksi',
-    revenueNote: 'Seluruh pendapatan berasal dari penjualan barang hasil produksi Perusahaan di dalam negeri.',
-    receivableNote: 'Piutang usaha seluruhnya dalam Rupiah dan berasal dari penjualan barang hasil produksi kepada pihak ketiga.',
-    inventoryNote: 'Persediaan terdiri dari bahan baku, barang dalam proses, dan barang jadi.',
+  FMCG: {
+    revenueLabel: 'Penjualan neto',
+    cogsLabel: 'Harga pokok penjualan',
+    activity: 'distribusi dan penjualan barang konsumen cepat laku kepada toko dan outlet',
+    revenueSource: 'penjualan barang konsumen kepada outlet dan pelanggan usaha',
+    revenueNote: 'Seluruh pendapatan berasal dari penjualan barang konsumen kepada toko, outlet, dan pelanggan usaha di dalam negeri, disajikan neto setelah potongan penjualan dan retur.',
+    receivableNote: 'Piutang usaha seluruhnya dalam Rupiah dan berasal dari penjualan barang kepada outlet dan pelanggan usaha pihak ketiga.',
+    inventoryNote: 'Persediaan terdiri dari barang jadi konsumen yang dibeli untuk dijual kembali, dinilai per lot dan ditelaah masa kedaluwarsanya.',
     cogsNote:
-      'Beban pokok produksi dan penjualan terdiri dari bahan baku, upah langsung, dan overhead produksi atas barang jadi yang terjual, dihitung dengan biaya rata-rata tertimbang.',
-    payableNote: PAYABLE('pemasok bahan baku dan barang'),
+      'Harga pokok penjualan terdiri dari harga perolehan barang yang terjual, termasuk barang bonus yang diberikan sebagai bagian dari promosi penjualan, dihitung dengan biaya rata-rata tertimbang atau FIFO sesuai kebijakan Perusahaan.',
+    payableNote: PAYABLE('prinsipal dan pemasok barang'),
     recognitionPolicy: TRADING_RECOGNITION,
   },
   MANUFAKTUR: {

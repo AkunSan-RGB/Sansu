@@ -44,15 +44,15 @@ const FLAVOR: Record<string, {
     countNote: 'Hitung kas kecil kantor',
     denominations: { K100000: 6, K50000: 8, K20000: 10, K10000: 10, K5000: 10, K2000: 5, K1000: 0 },
   },
-  PRODUKSI: {
-    capital: [60_000_000, 'Setoran modal untuk pembelian mesin jahit tambahan', 'SM-01'],
-    deposit: [3_500_000, 'Setor tunai penjualan langsung ke bank'],
-    prepaid: { amount: 4_800_000, monthly: 400_000, label: 'asuransi mesin & bangunan produksi (12 bulan)', ref: 'ASR-MSN', months: 12 },
-    petty: { fund: 2_000_000, max: 300_000, custodian: 'Mandor produksi', payee: 'Toko perlengkapan jahit', items: [['Jarum & minyak mesin', '6-6000', 110000, 'NT-101'], ['Konsumsi lembur penjahit', '6-6000', 200000, 'NT-102'], ['Ongkos kirim sampel ke pembeli', '6-2000', 85000, 'NT-103']] },
-    bankOpening: 180_000_000,
-    bankFee: 15000,
-    countNote: 'Hitung kas penjualan langsung di workshop',
-    denominations: { K100000: 30, K50000: 40, K20000: 30, K10000: 30, K5000: 20, K2000: 10, K1000: 10 },
+  FMCG: {
+    capital: [150_000_000, 'Setoran modal tambahan untuk stok menjelang musim lebaran', 'SM-01'],
+    deposit: [8_000_000, 'Setor tunai hasil tagihan sales lapangan ke bank'],
+    prepaid: { amount: 12_000_000, monthly: 1_000_000, label: 'asuransi gudang, armada & barang dagangan (12 bulan)', ref: 'ASR-FMCG', months: 12 },
+    petty: { fund: 3_000_000, max: 500_000, custodian: 'Admin gudang', payee: 'Toko perlengkapan gudang', items: [['Lakban, tali & stretch film', '6-6000', 160000, 'NT-101'], ['Solar forklift & kuli bongkar muat', '6-2700', 280000, 'NT-102'], ['Parkir & tol sales kanvas', '6-2000', 90000, 'NT-103']] },
+    bankOpening: 300_000_000,
+    bankFee: 25000,
+    countNote: 'Hitung setoran tagihan sales lapangan',
+    denominations: { K100000: 90, K50000: 80, K20000: 40, K10000: 30, K5000: 10, K2000: 0, K1000: 0 },
   },
   FNB: {
     capital: [80_000_000, 'Tambahan modal untuk membuka outlet kedua', 'SM-01'],
@@ -98,12 +98,12 @@ const OPS: Record<string, Ops> = {
     salesReturn: ['Barang salah ukuran, dikembalikan kontraktor', '5'], purchaseReturn: ['Material retak saat bongkar muat', '10'], poQty: '100', poPrice: '55000', requestNote: 'Persediaan menipis, proyek besar bulan depan', requestQty: '120',
     sick: 0.04, checkIn: [7, 8], checkOut: [16, 17], overtime: 0, days: 10, leave: ['Cuti tahunan', 'Mengurus keperluan keluarga'],
   },
-  PRODUKSI: {
-    warehouse2: 'Gudang Bahan Cadangan',
-    transfers: [{ mode: 'IN_TRANSIT', qty: '15', ago: 22, notes: 'Pindah kain ke area potong' }, { mode: 'IN_TRANSIT', qty: '8', ago: 12, notes: 'Pindah aksesori ke area jahit' }],
-    countNote: 'Opname bahan baku sebelum produksi besar', shortages: [1, 0, 1], writedown: [0.85, 'Kain sisa model lama, nilai diturunkan'],
-    salesReturn: ['Jahitan tidak rapi, pembeli minta perbaikan', '2'], purchaseReturn: ['Warna kain tidak sesuai contoh', '3'], poQty: '60', poPrice: '35000', requestNote: 'Bahan untuk pesanan seragam bulan depan', requestQty: '80',
-    sick: 0.05, checkIn: [7, 7], checkOut: [16, 18], overtime: 2, days: 12, leave: ['Cuti tahunan', 'Pulang kampung'],
+  FMCG: {
+    warehouse2: 'Gudang Satelit (Mobil Kanvas)',
+    transfers: [{ mode: 'IN_TRANSIT', qty: '12', ago: 20, notes: 'Isi mobil kanvas untuk rute pagi' }, { mode: 'DIRECT', qty: '6', ago: 9, notes: 'Tambah stok mobil kanvas rute Depok' }],
+    countNote: 'Opname gudang distribusi (cek barang mendekati kedaluwarsa)', shortages: [2, 1, 0], writedown: [0.8, 'Barang mendekati kedaluwarsa, nilai diturunkan ke nilai jual bersih'],
+    salesReturn: ['Kemasan penyok saat pengiriman, outlet minta tukar', '3'], purchaseReturn: ['Barang mendekati kedaluwarsa dikembalikan ke prinsipal', '6'], poQty: '100', poPrice: '41500', requestNote: 'Stok menipis menjelang musim lebaran', requestQty: '200',
+    sick: 0.04, checkIn: [7, 8], checkOut: [16, 18], overtime: 2, days: 11, leave: ['Cuti tahunan', 'Keperluan keluarga'],
   },
   FNB: {
     warehouse2: 'Outlet Cabang 2 (Dapur Satelit)',

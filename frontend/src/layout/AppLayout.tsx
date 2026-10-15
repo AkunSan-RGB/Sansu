@@ -146,7 +146,7 @@ const MENU: Group[] = [
     part: 'Produksi',
     key: 'production',
     app: 'inventory',
-    models: ['PRODUKSI', 'MANUFAKTUR', 'FNB'],
+    models: ['MANUFAKTUR', 'FNB'],
     label: 'Produksi',
     icon: APP_ICONS.production,
     children: [

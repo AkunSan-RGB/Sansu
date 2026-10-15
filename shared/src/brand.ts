@@ -5,7 +5,7 @@ export const BRAND = {
   company: 'PT SANSU GLOBAL INTI',
   tagline: 'Alur Bisnis Terhubung dalam Satu Sistem',
   /** Posisi produk (meta, dokumentasi API, materi pemasaran) */
-  positioning: 'Sistem bisnis terpadu untuk UKM dagang, ritel, jasa, produksi, dan manufaktur',
+  positioning: 'Sistem bisnis terpadu untuk UKM dagang, ritel, jasa, FMCG, manufaktur, dan F&B',
   /** Nilai di balik nama SANSU — ditampilkan di halaman awal */
   values: [
     { letter: 'S', word: 'Synergy', text: 'Mengintegrasikan seluruh proses bisnis dalam satu platform.' },

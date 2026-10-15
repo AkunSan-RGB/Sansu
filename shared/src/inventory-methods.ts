@@ -40,7 +40,8 @@ export function inventoryMethodGuide(model: BusinessModel, framework: ReportingF
       return { recommended: 'AVERAGE', notes: ['Toko dengan banyak SKU dan transaksi harian lebih praktis memakai rata-rata bergerak. Pilih FIFO untuk barang cepat kedaluwarsa atau harga beli sering berubah.', ...base] };
     case 'FNB':
       return { recommended: 'AVERAGE', notes: ['Bahan makanan dan minuman dengan banyak resep lebih praktis memakai rata-rata bergerak. Pilih FIFO bila harga bahan sering berubah dan bahan cepat basi, agar biaya mengikuti urutan pembelian.', ...base] };
-    case 'PRODUKSI':
+    case 'FMCG':
+      return { recommended: 'AVERAGE', notes: ['Distribusi barang konsumen dengan ribuan transaksi kecil lebih praktis memakai rata-rata bergerak. Pilih FIFO bila harga beli dari prinsipal sering berubah; urutan pengeluaran fisik per lot/kedaluwarsa (FEFO) dipantau terpisah di Persediaan › Lot & kedaluwarsa.', ...base] };
     case 'MANUFAKTUR':
       return { recommended: 'AVERAGE', notes: ['Bahan baku yang dicampur dalam satu gudang lazim memakai rata-rata bergerak. FIFO cocok untuk bahan bermasa simpan terbatas.', ...base] };
     default:

@@ -46,7 +46,7 @@ export interface Me {
   apps: AppKey[];
   /** Fitur pajak yang relevan menurut jenis usaha, status PKP, dan skema PPh (menu pajak mengikuti ini) */
   taxFeatures: TaxFeatures;
-  /** Model bisnis perusahaan (Dagang, Ritel, Jasa, Produksi, Manufaktur) */
+  /** Model bisnis perusahaan (Dagang, Ritel, Jasa, FMCG, Manufaktur, F&B) */
   businessModel: BusinessModel;
   /** Perusahaan punya cabang usaha (fitur cabang tampil); mati = menu & isian cabang disembunyikan */
   multiBranch?: boolean;

@@ -43,7 +43,7 @@ describe('Produksi: BOM, perintah produksi, HPP produksi (e2e)', () => {
           name: 'Pemilik',
           email: `prd-${stamp}@uji.id`,
           password: 'rahasia123',
-          businessModel: 'PRODUKSI',
+          businessModel: 'MANUFAKTUR',
         })
         .expect(201)
     ).body.accessToken;

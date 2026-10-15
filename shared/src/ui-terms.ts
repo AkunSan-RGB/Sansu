@@ -56,15 +56,14 @@ const TERMS: Record<BusinessModel, Terms> = {
       'Habis padahal laku': 'Habis padahal dibutuhkan',
     },
   },
-  PRODUKSI: {
+  FMCG: {
     words: [
-      ['Purchase Order', 'Pesanan bahan'],
-      ['Nilai persediaan', 'Nilai persediaan bahan & produk jadi'],
-      ['Supplier', 'Pemasok bahan'],
-      ['Produk', 'Produk & bahan baku'],
-      ['Inventori', 'Persediaan bahan & produk jadi'],
+      ['Pelanggan', 'Outlet'],
+      ['Produk', 'Produk (SKU)'],
+      ['Supplier', 'Prinsipal / pemasok'],
+      ['Inventori', 'Persediaan & lot'],
     ],
-    exact: { Pembelian: 'Pembelian bahan' },
+    exact: { Pembelian: 'Pembelian dari prinsipal' },
   },
   MANUFAKTUR: {
     words: [

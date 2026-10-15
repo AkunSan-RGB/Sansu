@@ -65,7 +65,7 @@ describe('Cabang terintegrasi (e2e)', () => {
     await app.init();
     db = app.get<Db>(DB);
     http = request(app.getHttpServer());
-    const reg = (await http.post('/api/auth/register').send({ companyName: 'PT Cabang Terpadu', name: 'Pemilik', email: `ct-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'PRODUKSI' }).expect(201)).body;
+    const reg = (await http.post('/api/auth/register').send({ companyName: 'PT Cabang Terpadu', name: 'Pemilik', email: `ct-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'MANUFAKTUR' }).expect(201)).body;
     owner = reg.accessToken;
     tenantId = reg.user.tenantId;
     W1 = (await get(owner, '/api/warehouses').expect(200)).body[0].id;

@@ -12,7 +12,7 @@ describe('Metode biaya persediaan (e2e)', () => {
   let app: INestApplication;
   let http: ReturnType<typeof request>;
   const stamp = Date.now();
-  const MODELS = ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR', 'FNB'] as const;
+  const MODELS = ['DAGANG', 'RITEL', 'JASA', 'FMCG', 'MANUFAKTUR', 'FNB'] as const;
   const tokens: Record<string, string> = {};
   const as = (t: string) => ({ Authorization: `Bearer ${t}` });
 

@@ -60,17 +60,17 @@ export const MOVEMENT_PROFILES: Record<BusinessModel, MovementProfile> = {
       OUT: 'Segera buat Purchase Order: barang laku tetapi stok habis.',
     },
   },
-  PRODUKSI: {
-    windowDays: 90,
-    fastCoverDays: 30,
-    normalCoverDays: 90,
-    deadDays: 150,
-    outWord: 'terjual atau dipakai produksi',
+  FMCG: {
+    windowDays: 60,
+    fastCoverDays: 14,
+    normalCoverDays: 45,
+    deadDays: 90,
+    outWord: 'terjual ke outlet',
     actions: {
-      FAST: 'Pastikan pasokan bahan/produk ini tidak terputus; jadwalkan produksi lebih rutin.',
-      SLOW: 'Kurangi produksi atau belanja bahan ini; sesuaikan resep & jadwal.',
-      DEAD: 'Hentikan pembelian/produksi; jual sisa, ganti pemakaian, atau nilai ulang persediaan.',
-      OUT: 'Segera beli bahan atau jadwalkan produksi: barang dipakai/dijual tetapi stok habis.',
+      FAST: 'Jaga stok pengaman dan jadwalkan pembelian rutin ke prinsipal; barang ini perputarannya tinggi.',
+      SLOW: 'Beri promo atau bonus barang ke outlet; tahan pembelian berikutnya agar tidak mendekati kedaluwarsa.',
+      DEAD: 'Berisiko kedaluwarsa: obral cepat, tukar ke prinsipal (retur), atau hapus bukukan bila sudah tidak layak jual.',
+      OUT: 'Segera pesan ke prinsipal: barang laku tetapi stok habis (outlet bisa pindah ke merek lain).',
     },
   },
   MANUFAKTUR: {

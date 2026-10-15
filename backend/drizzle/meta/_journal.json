@@ -407,6 +407,13 @@
       "when": 1794153086484,
       "tag": "0057_peran_khusus",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1794154086484,
+      "tag": "0058_model_fmcg",
+      "breakpoints": true
     }
   ]
 }

@@ -29,7 +29,7 @@ describe('Jenis usaha Manufaktur (e2e)', () => {
     http = request(app.getHttpServer());
     const reg = async (model: string) => (await http.post('/api/auth/register').send({ companyName: `Pabrik ${model}`, name: 'Pemilik', email: `mf-${model}-${stamp}@uji.id`, password: 'rahasia123', businessModel: model }).expect(201)).body.accessToken as string;
     t = await reg('MANUFAKTUR');
-    produksi = await reg('PRODUKSI');
+    produksi = await reg('FMCG');
     wh = (await get('/api/warehouses').expect(200)).body[0].id;
     sup = (await post('/api/suppliers', { code: 'S1', name: 'PT Bahan Baku' }).expect(201)).body.id;
     for (const s of ['TEPUNG', 'GULA', 'ADONAN', 'ROTI', 'KEMASAN']) await product(s);

@@ -16,11 +16,12 @@ describe('istilah laporan per jenis usaha', () => {
     expect(t.payableNote).toBe('Utang usaha merupakan utang kepada pemasok barang dagang, tanpa jaminan dan tanpa bunga, dengan jangka waktu kredit 14–60 hari.');
   });
 
-  it('jasa & produksi memakai istilah sendiri, bukan "barang dagang"', () => {
+  it('jasa & FMCG memakai istilah sendiri, bukan "barang dagang"', () => {
     expect(REPORT_TERMS.JASA.cogsLabel).toBe('Beban pokok pendapatan');
     expect(REPORT_TERMS.JASA.revenueLabel).toBe('Pendapatan jasa');
-    expect(REPORT_TERMS.PRODUKSI.cogsLabel).toBe('Beban pokok produksi dan penjualan');
-    for (const m of ['JASA', 'PRODUKSI'] as const) {
+    expect(REPORT_TERMS.FMCG.cogsLabel).toBe('Harga pokok penjualan');
+    expect(REPORT_TERMS.MANUFAKTUR.cogsLabel).toBe('Beban pokok produksi dan penjualan');
+    for (const m of ['JASA', 'FMCG'] as const) {
       const t = REPORT_TERMS[m];
       expect(`${t.revenueNote} ${t.receivableNote} ${t.cogsNote}`).not.toMatch(/barang dagang/);
     }
@@ -31,7 +32,7 @@ describe('istilah laporan per jenis usaha', () => {
     expect(activityFor('JASA', '')).toBe(REPORT_TERMS.JASA.activity);
     expect(activityFor('JASA', null)).toBe(REPORT_TERMS.JASA.activity);
     // teks bawaan model lain (mis. bawaan lama "perdagangan besar") ikut model yang berlaku sekarang
-    for (const d of DEFAULT_ACTIVITIES) expect(activityFor('PRODUKSI', d)).toBe(REPORT_TERMS.PRODUKSI.activity);
+    for (const d of DEFAULT_ACTIVITIES) expect(activityFor('FMCG', d)).toBe(REPORT_TERMS.FMCG.activity);
     expect(DEFAULT_ACTIVITIES).toHaveLength(new Set(DEFAULT_ACTIVITIES).size);
   });
 });

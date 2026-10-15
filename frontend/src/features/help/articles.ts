@@ -33,7 +33,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     summary: 'Urutan yang disarankan agar data dan laporan benar sejak hari pertama.',
     paths: ['/'],
     steps: [
-      'Pilih model bisnis saat mendaftar (Dagang, Ritel, Jasa, Produksi, atau Manufaktur) — SANSU menyiapkan aplikasi yang sesuai. Bisa diubah di Pengaturan › Perusahaan.',
+      'Pilih model bisnis saat mendaftar (Dagang, Ritel, Jasa, FMCG, Manufaktur, atau F&B) — SANSU menyiapkan aplikasi yang sesuai. Bisa diubah di Pengaturan › Perusahaan.',
       'Lengkapi profil perusahaan: nama, NPWP, alamat, dan tarif PPN di Pengaturan › Perusahaan. Pasang juga logo dan info rekening agar tampil di faktur.',
       'Tambahkan gudang/toko bila punya lebih dari satu lokasi (Inventori › Gudang).',
       'Masukkan produk, pelanggan, dan supplier — satu per satu atau impor dari Excel (Pengaturan › Impor data).',
