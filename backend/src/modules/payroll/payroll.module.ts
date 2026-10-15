@@ -30,6 +30,7 @@ import { AccountingModule } from '../accounting/accounting.module';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { monthRange, workDaysBetween } from '../hr/hr.module';
+import { EmploymentService, isPerJob } from '../hr/employment';
 import { computePayslip, PayslipCalc } from './compute';
 import { assertServiceEntriesMatch, attachServiceEntries, ServiceWorkController, ServiceWorkService } from './service-work';
 import { yearQuery } from '../../common/pipes/year.pipe';
@@ -368,13 +369,21 @@ export class PayrollService {
     const year = Number(period.slice(0, 4));
     const month = Number(period.slice(5, 7));
 
-    const emps = (await tx.select().from(employees).where(eq(employees.tenantId, tenantId)).orderBy(asc(employees.code))).filter(
-      (e) =>
+    // masa kerja efektif: keluar atau kontrak berakhir (mana lebih dulu); karyawan jasa baru ikut setelah diverifikasi
+    const eligible = (await tx.select().from(employees).where(eq(employees.tenantId, tenantId)).orderBy(asc(employees.code))).filter((e) => {
+      const stop = EmploymentService.endOf(e);
+      return (
         (!onlyEmployeeId || e.id === onlyEmployeeId) &&
+        e.verified &&
         e.joinDate <= to &&
-        (!e.resignDate || e.resignDate >= from) &&
-        (e.isActive || (e.resignDate && e.resignDate >= from)),
-    );
+        (!stop || stop >= from) &&
+        (e.isActive || (e.resignDate && e.resignDate >= from))
+      );
+    });
+    // Upah jasa: catatan kerja yang disetujui (jam, sesi, borongan, komisi faktur) otomatis masuk slip
+    const serviceBy = await attachServiceEntries(tx, tenantId, runId, period, onlyEmployeeId ? null : new Set(eligible.map((e) => e.id)), onlyEmployeeId);
+    // tenaga lepas / mitra hanya punya slip bila ada upah jasa bulan itu
+    const emps = eligible.filter((e) => !isPerJob(e.employmentType) || (serviceBy.get(e.id)?.gt(0) ?? false));
     const existing = await tx.select().from(payslips).where(eq(payslips.runId, runId));
     const existingByEmp = new Map(existing.map((p) => [p.employeeId, p]));
     if (!onlyEmployeeId) {
@@ -382,9 +391,6 @@ export class PayrollService {
       const keep = new Set(emps.map((e) => e.id));
       for (const p of existing) if (!keep.has(p.employeeId)) await tx.delete(payslips).where(eq(payslips.id, p.id));
     }
-
-    // Upah jasa: catatan kerja yang disetujui (jam, sesi, borongan, komisi faktur) otomatis masuk slip
-    const serviceBy = await attachServiceEntries(tx, tenantId, runId, period, onlyEmployeeId ? null : new Set(emps.map((e) => e.id)), onlyEmployeeId);
 
     const att = await tx
       .select()
@@ -402,27 +408,42 @@ export class PayrollService {
 
     for (const e of emps) {
       const start = e.joinDate > from ? e.joinDate : from;
-      const end = e.resignDate && e.resignDate < to ? e.resignDate : to;
+      const stop = EmploymentService.endOf(e);
+      const end = stop && stop < to ? stop : to;
       const employedDays = allDays.filter((d) => d >= start && d <= end);
       const ratio = allDays.length ? employedDays.length / allDays.length : 1;
       // Absensi berbasis pengecualian: hari kerja tanpa catatan dianggap hadir
       const workSet = new Set(employedDays);
       const mine = att.filter((a) => a.employeeId === e.id && workSet.has(a.date));
       const notPresent = mine.filter((a) => a.status !== 'HADIR').length;
-      const attendance = {
+      let attendance = {
         workDays: employedDays.length,
         presentDays: employedDays.length - notPresent,
         unpaidDays: mine.filter((a) => a.status === 'ALPA' || a.status === 'IZIN').length,
         overtimeByDay: mine.filter((a) => a.status === 'HADIR').map((a) => Number(a.overtimeHours)),
       };
+      let baseSalary = money(D(e.baseSalary).times(ratio)).toFixed(2);
+      let fixedAllowance = money(D(e.fixedAllowance).times(ratio)).toFixed(2);
+      let hourlyRate: string | undefined;
+      if (e.employmentType === 'HARIAN') {
+        // upah harian: hanya hari yang DICATAT hadir dibayar (tidak "dianggap hadir")
+        const present = mine.filter((a) => a.status === 'HADIR').length;
+        attendance = { ...attendance, presentDays: present, unpaidDays: 0 };
+        baseSalary = money(D(e.dailyWage).times(present)).toFixed(2);
+        fixedAllowance = '0.00';
+        hourlyRate = D(e.dailyWage).div(7).toFixed(4);
+      } else if (isPerJob(e.employmentType)) {
+        attendance = { workDays: 0, presentDays: 0, unpaidDays: 0, overtimeByDay: [] };
+      }
       const prev = existingByEmp.get(e.id);
       const y = ytdBy.get(e.id);
       const calc = computePayslip(
         {
           ptkp: e.ptkp,
-          // karyawan baru / keluar di tengah bulan: gaji pokok & tunjangan tetap prorata hari kerja
-          baseSalary: money(D(e.baseSalary).times(ratio)).toFixed(2),
-          fixedAllowance: money(D(e.fixedAllowance).times(ratio)).toFixed(2),
+          // karyawan baru / keluar / kontrak berakhir di tengah bulan: gaji pokok & tunjangan tetap prorata hari kerja
+          baseSalary,
+          fixedAllowance,
+          hourlyRate,
           dailyAllowance: e.dailyAllowance,
           bpjsKes: e.bpjsKes,
           bpjsTk: e.bpjsTk,
@@ -432,7 +453,7 @@ export class PayrollService {
         settings,
         {
           month,
-          isFinalPeriod: month === 12 || (!!e.resignDate && e.resignDate <= to),
+          isFinalPeriod: month === 12 || (!!stop && stop <= to),
           prevGross: D(y?.gross),
           prevPension: D(y?.pension),
           prevWithheld: D(y?.pph),

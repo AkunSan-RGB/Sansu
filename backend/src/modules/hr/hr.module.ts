@@ -51,6 +51,7 @@ import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { attendances, employees, leaveRequests, projects } from '../../db/schema';
 import { IsNik, IsNpwp } from '../../common/validators/npwp';
+import { applyEmploymentRules, EMPLOYMENT_TYPES, EmploymentController, EmploymentService, type EmploymentType, type EmpShape, isPerJob } from './employment';
 
 // ---------- Kalender kerja ----------
 const dow = (d: DocDate) => new Date(`${d}T00:00:00Z`).getUTCDay(); // 0 = Minggu
@@ -95,6 +96,10 @@ export class CreateEmployeeDto {
   @IsUUID()
   projectId?: string | null;
   @ApiPropertyOptional({ description: 'Tenaga kerja langsung produksi (gaji masuk harga pokok produksi)' }) @IsOptional() @IsBoolean() isProduction?: boolean;
+  @ApiPropertyOptional({ enum: EMPLOYMENT_TYPES, description: 'Status kepegawaian; selain TETAP khusus usaha jasa' }) @IsOptional() @IsIn(EMPLOYMENT_TYPES as unknown as string[]) employmentType?: EmploymentType;
+  @ApiPropertyOptional() @IsOptional() @ValidateIf((_, v) => v !== null) @IsDateString() contractStart?: string | null;
+  @ApiPropertyOptional({ description: 'Akhir kontrak / magang; gaji berhenti otomatis di tanggal ini' }) @IsOptional() @ValidateIf((_, v) => v !== null) @IsDateString() contractEnd?: string | null;
+  @ApiPropertyOptional({ example: '150000', description: 'Upah per hari hadir (status harian)' }) @IsOptional() @IsNumberString() dailyWage?: string;
   @ApiPropertyOptional({ description: 'Cabang tempat bekerja: gaji & BPJS otomatis masuk laporan cabang itu; null = pusat' })
   @IsOptional()
   @ValidateIf((_, v) => v !== null)
@@ -102,6 +107,7 @@ export class CreateEmployeeDto {
   branchId?: string | null;
 }
 export class UpdateEmployeeDto extends PartialType(CreateEmployeeDto) {
+  @ApiPropertyOptional({ description: 'Usaha jasa: alasan perubahan data sensitif (tampil bagi penyetuju)' }) @IsOptional() @IsString() @MaxLength(255) reason?: string;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() isActive?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsDateString() resignDate?: string;
 }
@@ -141,6 +147,7 @@ export class HrService {
     @InjectDb() private readonly db: Db,
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
+    private readonly employment: EmploymentService,
   ) {}
 
   listEmployees(tenantId: string, activeOnly = false) {
@@ -169,14 +176,50 @@ export class HrService {
     if (!r.rows.length) throw new BadRequestException('Cabang tidak ditemukan atau nonaktif');
   }
 
+  private shapeOf(e: Partial<typeof employees.$inferSelect> & { joinDate: string }): EmpShape {
+    return {
+      joinDate: e.joinDate,
+      employmentType: (e.employmentType ?? 'TETAP') as EmploymentType,
+      contractStart: e.contractStart ?? null,
+      contractEnd: e.contractEnd ?? null,
+      baseSalary: e.baseSalary ?? '0',
+      fixedAllowance: e.fixedAllowance ?? '0',
+      dailyAllowance: e.dailyAllowance ?? '0',
+      dailyWage: e.dailyWage ?? '0',
+      bpjsKes: e.bpjsKes ?? true,
+      bpjsTk: e.bpjsTk ?? true,
+      bpjsJp: e.bpjsJp ?? true,
+    };
+  }
+
   async createEmployee(user: AuthUser, dto: CreateEmployeeDto) {
     await this.assertProject(user.tenantId, dto.projectId);
     await this.assertBranch(user.tenantId, dto.branchId);
+    const model = await this.settings.businessModel(this.db, user.tenantId);
+    const joinDate = toDocDate(dto.joinDate);
+    const norm = applyEmploymentRules(model, this.shapeOf({ ...dto, joinDate } as never));
+    const jasa = model === 'JASA';
+    if (jasa) await this.employment.assertNoDuplicates(this.db, user.tenantId, null, dto);
     const [e] = await this.db
       .insert(employees)
-      .values({ ...dto, tenantId: user.tenantId, code: dto.code.trim().toUpperCase(), joinDate: toDocDate(dto.joinDate) })
+      .values({
+        ...dto,
+        tenantId: user.tenantId,
+        code: dto.code.trim().toUpperCase(),
+        joinDate,
+        employmentType: norm.employmentType,
+        contractStart: norm.contractStart,
+        contractEnd: norm.contractEnd,
+        bpjsKes: norm.bpjsKes,
+        bpjsTk: norm.bpjsTk,
+        bpjsJp: norm.bpjsJp,
+        createdById: user.sub,
+        // usaha jasa: karyawan baru diverifikasi orang lain dulu (Pemilik langsung sah)
+        verified: !jasa || user.role === 'OWNER',
+        ...(!jasa || user.role === 'OWNER' ? { verifiedById: user.sub, verifiedAt: new Date() } : {}),
+      })
       .returning();
-    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'Employee', entityId: e.id });
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'Employee', entityId: e.id, data: { type: e.employmentType, verified: e.verified } });
     return e;
   }
 
@@ -184,18 +227,32 @@ export class HrService {
     await this.getEmployee(user.tenantId, id);
     await this.assertProject(user.tenantId, dto.projectId);
     await this.assertBranch(user.tenantId, dto.branchId);
-    const [e] = await this.db
-      .update(employees)
-      .set({ ...dto, code: dto.code?.trim().toUpperCase() })
-      .where(eq(employees.id, id))
-      .returning();
-    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'Employee', entityId: id, data: dto });
-    return e;
+    const { reason, ...body } = dto;
+    const [emp] = await this.db.select().from(employees).where(eq(employees.id, id));
+    const model = await this.settings.businessModel(this.db, user.tenantId);
+    const jasa = model === 'JASA';
+    let direct: Record<string, unknown> = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined));
+    let request: { id: string; fields: string[] } | null = null;
+    if (jasa) {
+      ({ direct, request } = await this.employment.splitUpdate(user, emp, direct, reason));
+    }
+    // aturan status berlaku pada hasil akhir (data lama + perubahan yang langsung berlaku)
+    const merged = { ...emp, ...direct, joinDate: toDocDate((direct.joinDate as string) ?? emp.joinDate) } as typeof emp;
+    const norm = applyEmploymentRules(model, this.shapeOf(merged));
+    if (jasa) {
+      await this.employment.assertNoDuplicates(this.db, user.tenantId, id, { nik: merged.nik, npwp: merged.npwp, bankAccount: merged.bankAccount });
+      for (const k of ['bpjsKes', 'bpjsTk', 'bpjsJp'] as const) if (norm[k] !== merged[k]) direct[k] = norm[k];
+    }
+    const [e] = Object.keys(direct).length
+      ? await this.db.update(employees).set({ ...direct, code: (direct.code as string | undefined)?.trim().toUpperCase() }).where(eq(employees.id, id)).returning()
+      : [emp];
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'Employee', entityId: id, data: { applied: direct, requested: request?.fields } });
+    return { ...e, pendingChange: request };
   }
 
   /** Absensi satu tanggal: semua karyawan aktif + catatan yang sudah ada */
   async attendanceDay(tenantId: string, date: DocDate) {
-    const emps = await this.listEmployees(tenantId, true);
+    const emps = (await this.listEmployees(tenantId, true)).filter((e) => !isPerJob(e.employmentType));
     const rows = await this.db.select().from(attendances).where(and(eq(attendances.tenantId, tenantId), eq(attendances.date, date)));
     const byEmp = new Map(rows.map((r) => [r.employeeId, r]));
     const s = await this.settings.payroll(this.db, tenantId);
@@ -210,10 +267,11 @@ export class HrService {
     const date = toDocDate(dto.date);
     const ids = [...new Set(dto.rows.map((r) => r.employeeId))];
     const found = await this.db
-      .select({ id: employees.id })
+      .select({ id: employees.id, type: employees.employmentType })
       .from(employees)
       .where(and(eq(employees.tenantId, user.tenantId), inArray(employees.id, ids)));
     if (found.length !== ids.length) throw new BadRequestException('Ada karyawan yang tidak ditemukan');
+    if (found.some((f) => isPerJob(f.type))) throw new BadRequestException('Tenaga lepas / mitra tidak diabsen; upahnya dari catatan kerja');
     await this.db.transaction(async (tx) => {
       for (const r of dto.rows) {
         const values = {
@@ -242,7 +300,7 @@ export class HrService {
       SELECT employee_id, status, COUNT(*)::int AS n, COALESCE(SUM(overtime_hours), 0) AS ot
       FROM attendances WHERE tenant_id = ${tenantId} AND date BETWEEN ${from} AND ${to}
       GROUP BY employee_id, status`);
-    const emps = await this.listEmployees(tenantId, true);
+    const emps = (await this.listEmployees(tenantId, true)).filter((e) => !isPerJob(e.employmentType));
     const s = await this.settings.payroll(this.db, tenantId);
     const workDays = workDaysBetween(from, to, s.workDaysPerWeek).length;
     return {
@@ -286,6 +344,7 @@ export class HrService {
 
   async createLeave(user: AuthUser, dto: CreateLeaveDto) {
     const emp = await this.getEmployee(user.tenantId, dto.employeeId);
+    if (isPerJob(emp.employmentType)) throw new BadRequestException('Tenaga lepas / mitra tidak punya cuti');
     const start = toDocDate(dto.startDate);
     const end = toDocDate(dto.endDate);
     if (end < start) throw new BadRequestException('Tanggal selesai sebelum tanggal mulai');
@@ -409,8 +468,8 @@ export class HrController {
 }
 
 @Module({
-  controllers: [HrController],
-  providers: [HrService],
-  exports: [HrService],
+  controllers: [HrController, EmploymentController],
+  providers: [HrService, EmploymentService],
+  exports: [HrService, EmploymentService],
 })
 export class HrModule {}

@@ -748,6 +748,22 @@ export const HELP_ARTICLES: HelpArticle[] = [
     link: { label: 'Buka Upah jasa', to: '/payroll/jasa' },
   },
   {
+    id: 'status-karyawan-jasa',
+    category: 'Akuntansi & Pajak',
+    title: 'Status karyawan usaha jasa: tetap, kontrak, harian, tenaga lepas',
+    summary: 'Pilih status yang tepat; gaji, BPJS, dan batas waktu mengikuti statusnya.',
+    paths: ['/employees', '/employees/controls'],
+    steps: [
+      'Di Data karyawan pilih Status kepegawaian: Tetap, Kontrak, Harian, Tenaga lepas, Magang, atau Mitra.',
+      'Kontrak / magang wajib tanggal berakhir — gaji dan catatan kerja otomatis berhenti di tanggal itu. Perpanjang lewat perubahan data (perlu persetujuan).',
+      'Harian dibayar per hari yang dicatat HADIR di Absensi. Tenaga lepas dan mitra dibayar dari Upah jasa (tanpa gaji tetap, BPJS, absensi).',
+      'Karyawan baru dari HR diverifikasi Keuangan/Admin dulu di Persetujuan & peringatan sebelum ikut gaji.',
+    ],
+    tips: ['Perubahan gaji, rekening, status, kontrak, BPJS, PTKP, NIK/NPWP oleh HR perlu persetujuan orang lain.', 'NIK atau rekening yang sama dengan karyawan aktif lain ditolak.'],
+    keywords: 'karyawan status kontrak pkwt harian tenaga lepas magang mitra freelance verifikasi rekening persetujuan jasa',
+    link: { label: 'Buka Persetujuan & peringatan', to: '/employees/controls' },
+  },
+  {
     id: 'lupa-sandi',
     category: 'Pengaturan & Keamanan',
     title: 'Lupa kata sandi',

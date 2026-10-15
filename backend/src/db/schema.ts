@@ -2118,6 +2118,18 @@ export const employees = pgTable(
     isProduction: boolean('is_production').notNull().default(false),
     isActive: boolean('is_active').notNull().default(true),
     resignDate: date('resign_date'),
+    /** Status kepegawaian: TETAP · KONTRAK (PKWT) · HARIAN · TENAGA_LEPAS (dibayar per catatan kerja) · MAGANG · MITRA. Selain TETAP hanya untuk usaha jasa. */
+    employmentType: text('employment_type').$type<'TETAP' | 'KONTRAK' | 'HARIAN' | 'TENAGA_LEPAS' | 'MAGANG' | 'MITRA'>().notNull().default('TETAP'),
+    contractStart: date('contract_start'),
+    /** Akhir kontrak / magang: gaji otomatis berhenti di tanggal ini kecuali diperpanjang lewat persetujuan */
+    contractEnd: date('contract_end'),
+    /** Upah per hari hadir (status HARIAN) */
+    dailyWage: money('daily_wage').notNull().default('0'),
+    /** Usaha jasa: karyawan baru baru ikut penggajian setelah diverifikasi orang lain (cegah karyawan fiktif) */
+    verified: boolean('verified').notNull().default(true),
+    createdById: uuid('created_by_id'),
+    verifiedById: uuid('verified_by_id'),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
     createdAt: createdAt(),
     /** Cabang tempat karyawan bekerja: gaji & BPJS otomatis berlabel cabang ini */
     branchId: uuid('branch_id').references((): AnyPgColumn => branches.id),
@@ -2227,6 +2239,28 @@ export const payslips = pgTable(
   (t) => [uniqueIndex('payslips_run_emp_uq').on(t.runId, t.employeeId)],
 );
 
+
+/** Usaha jasa: perubahan data sensitif karyawan (gaji, rekening, status, kontrak, pajak) oleh HR baru berlaku setelah disetujui orang lain */
+export const employeeChangeRequests = pgTable(
+  'employee_change_requests',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => employees.id),
+    /** { kolom: { from, to } } */
+    changes: jsonb('changes').$type<Record<string, { from: unknown; to: unknown }>>().notNull(),
+    reason: text('reason'),
+    status: text('status').$type<'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'>().notNull().default('PENDING'),
+    requestedById: uuid('requested_by_id').notNull(),
+    decidedById: uuid('decided_by_id'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('employee_change_pending_uq').on(t.employeeId).where(sql`status = 'PENDING'`)],
+);
 
 /** Kartu tarif usaha jasa: tarif per jam / sesi / borongan, atau persen komisi faktur. Yang mengisi catatan kerja tidak bisa mengubah tarif. */
 export const serviceRates = pgTable(

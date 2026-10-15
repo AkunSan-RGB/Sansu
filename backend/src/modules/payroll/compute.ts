@@ -16,6 +16,8 @@ export interface EmployeeInput {
   bpjsKes: boolean;
   bpjsTk: boolean;
   bpjsJp: boolean;
+  /** Upah per jam bila bukan gaji bulanan (status harian); kosong = (gaji pokok + tunjangan tetap) / pembagi lembur */
+  hourlyRate?: string;
 }
 
 export interface AttendanceInput {
@@ -63,7 +65,7 @@ export function computePayslip(emp: EmployeeInput, att: AttendanceInput, s: Payr
   const fixed = D(emp.fixedAllowance);
   const wage = base.plus(fixed); // upah untuk BPJS & lembur
   const dailyAllowance = money(D(emp.dailyAllowance).times(att.presentDays));
-  const hourly = wage.div(s.overtimeDivisor);
+  const hourly = emp.hourlyRate !== undefined ? D(emp.hourlyRate) : wage.div(s.overtimeDivisor);
   const overtime = overtimePay(hourly, att.overtimeByDay);
   const absenceDeduction = att.workDays > 0 ? money(base.div(att.workDays).times(att.unpaidDays)) : ZERO;
   const otherIncome = money(D(adj.otherIncome));

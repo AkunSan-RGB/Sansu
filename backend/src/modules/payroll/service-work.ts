@@ -66,6 +66,8 @@ export class EntryQueryDto {
 }
 
 /** Faktur jasa yang boleh dikomisikan: lunas, tidak dibatalkan (jurnal tidak dibalik), tanpa retur */
+const employeeOk = sql`EXISTS (SELECT 1 FROM employees em WHERE em.id = w.employee_id AND em.verified
+  AND (em.contract_end IS NULL OR em.contract_end >= w.work_date) AND (em.resign_date IS NULL OR em.resign_date >= w.work_date))`;
 const invoiceUsable = sql`i.kind = 'SERVICE' AND i.status = 'PAID' AND i.returned_amount = 0 AND i.is_opening = false
   AND i.journal_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM journal_entries rv WHERE rv.reversal_of_id = i.journal_id)`;
 
@@ -80,7 +82,7 @@ export async function attachServiceEntries(tx: Tx, tenantId: string, runId: stri
   await tx.execute(sql`
     UPDATE service_work_entries w SET run_id = NULL
     WHERE w.tenant_id = ${tenantId} AND w.run_id = ${runId} ${onlyEmployeeId ? sql`AND w.employee_id = ${onlyEmployeeId}` : sql``}
-      AND (w.status <> 'APPROVED'
+      AND (w.status <> 'APPROVED' OR NOT ${employeeOk}
         ${keepEmployeeIds ? sql`OR w.employee_id NOT IN (${keepEmployeeIds.size ? sql.join([...keepEmployeeIds].map((x) => sql`${x}::uuid`), sql`, `) : sql`NULL::uuid`})` : sql``}
         OR (w.unit = 'PERCENT' AND NOT EXISTS (SELECT 1 FROM invoices i WHERE i.id = w.invoice_id AND ${invoiceUsable})))`);
   // kaitkan yang baru layak
@@ -89,6 +91,7 @@ export async function attachServiceEntries(tx: Tx, tenantId: string, runId: stri
     WHERE w.tenant_id = ${tenantId} AND w.run_id IS NULL AND w.status = 'APPROVED' AND w.work_date <= ${to}
       ${onlyEmployeeId ? sql`AND w.employee_id = ${onlyEmployeeId}` : sql``}
       ${keepEmployeeIds ? sql`AND w.employee_id IN (${keepEmployeeIds.size ? sql.join([...keepEmployeeIds].map((x) => sql`${x}::uuid`), sql`, `) : sql`NULL::uuid`})` : sql``}
+      AND ${employeeOk}
       AND (w.unit <> 'PERCENT' OR EXISTS (SELECT 1 FROM invoices i WHERE i.id = w.invoice_id AND ${invoiceUsable}))`);
   const sums = await tx.execute<{ employee_id: string; total: string }>(sql`
     SELECT employee_id, SUM(amount) AS total FROM service_work_entries WHERE tenant_id = ${tenantId} AND run_id = ${runId} AND status = 'APPROVED' GROUP BY employee_id`);
@@ -210,8 +213,11 @@ export class ServiceWorkService {
       const [emp] = await tx.select().from(employees).where(eq(employees.id, dto.employeeId));
       if (!emp.isActive && !emp.resignDate) throw new BadRequestException('Pegawai tidak aktif');
       if (emp.userId && emp.userId === u.sub) throw new ForbiddenException('Anda tidak dapat mencatat upah jasa untuk diri sendiri');
+      if (!emp.verified) throw new BadRequestException('Karyawan ini belum diverifikasi; belum bisa dicatat upahnya');
       if (workDate < emp.joinDate) throw new BadRequestException('Tanggal kerja sebelum pegawai bergabung');
       if (emp.resignDate && workDate > emp.resignDate) throw new BadRequestException('Tanggal kerja setelah pegawai keluar');
+      if (emp.contractEnd && workDate > emp.contractEnd) throw new BadRequestException(`Kontrak pegawai berakhir ${emp.contractEnd}; perpanjang kontrak (dengan persetujuan) sebelum mencatat kerja sesudahnya`);
+      if (emp.contractStart && workDate < emp.contractStart) throw new BadRequestException('Tanggal kerja sebelum kontrak dimulai');
 
       const [rate] = await tx.select().from(serviceRates).where(and(eq(serviceRates.id, dto.rateId), eq(serviceRates.tenantId, u.tenantId)));
       if (!rate) throw new NotFoundException('Tarif tidak ditemukan');
