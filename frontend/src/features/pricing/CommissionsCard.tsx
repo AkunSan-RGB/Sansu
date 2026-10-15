@@ -1,5 +1,6 @@
+import ResponsiveTable from '@/components/ResponsiveTable';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Space, Table, Tag } from 'antd';
+import { Alert, Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Space, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { get, post } from '@/api/client';
@@ -57,7 +58,7 @@ export default function CommissionsCard() {
           </Space>
         )}>
         <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Yang menutup (pembukuan) dan yang membayar (Keuangan) harus orang berbeda. Komisi pegawai tetap adalah penghasilan kena PPh 21: isi PPh 21 yang dipotong saat membayar, atau masukkan komisi ke penggajian." />
-        <Table<Commission> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={{ pageSize: 10 }} scroll={{ x: 760 }} locale={{ emptyText: 'Belum ada komisi yang ditutup' }}
+        <ResponsiveTable<Commission> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={{ pageSize: 10 }} scroll={{ x: 760 }} locale={{ emptyText: 'Belum ada komisi yang ditutup' }}
           columns={[
             { title: 'Nomor', dataIndex: 'number' },
             { title: 'Sales', dataIndex: 'userName' },

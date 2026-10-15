@@ -1,3 +1,4 @@
+import ResponsiveTable from '@/components/ResponsiveTable';
 import { PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, Typography } from 'antd';
@@ -90,7 +91,7 @@ export default function ConsignmentsPage() {
           ]} />
       </Card>
       <Card title="Dokumen konsinyasi">
-        <Table<Doc> rowKey="id" size="small" loading={isLoading} dataSource={docs} pagination={{ pageSize: 10 }} scroll={{ x: 760 }}
+        <ResponsiveTable<Doc> rowKey="id" size="small" loading={isLoading} dataSource={docs} pagination={{ pageSize: 10 }} scroll={{ x: 760 }}
           columns={[
             { title: 'Nomor', dataIndex: 'number' },
             { title: 'Jenis', render: (_: unknown, d: Doc) => KIND[d.kind] },

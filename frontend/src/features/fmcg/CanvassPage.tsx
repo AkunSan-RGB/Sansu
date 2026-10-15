@@ -1,6 +1,7 @@
+import ResponsiveTable from '@/components/ResponsiveTable';
 import { EnvironmentOutlined, PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Tabs, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { get, post, put } from '@/api/client';
 import { useAction, useCustomers, useProducts, useWarehouses } from '@/api/queries';
@@ -47,7 +48,7 @@ export default function CanvassPage() {
 
 function SummaryTab({ rows }: { rows: SummaryRow[] }) {
   return (
-    <Table<SummaryRow> rowKey="userId" size="small" dataSource={rows} pagination={false} scroll={{ x: 900 }} locale={{ emptyText: 'Belum ada sales' }}
+    <ResponsiveTable<SummaryRow> rowKey="userId" size="small" dataSource={rows} pagination={false} scroll={{ x: 900 }} locale={{ emptyText: 'Belum ada sales' }}
       columns={[
         { title: 'Sales', dataIndex: 'name' },
         { title: 'Kunjungan', render: (_: unknown, r: SummaryRow) => `${r.visits} / ${r.plannedStops} jadwal` },
@@ -112,7 +113,7 @@ function CollectionsTab() {
   const reject = useAction((v: { id: string; reason: string }) => post(`/canvass/collections/${v.id}/reject`, { reason: v.reason }), { success: 'Setoran ditolak', invalidate: inv, onSuccess: () => setRejecting(null) });
   return (
     <>
-      <Table<Collection> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={{ pageSize: 10 }} scroll={{ x: 820 }} locale={{ emptyText: 'Belum ada setoran' }}
+      <ResponsiveTable<Collection> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={{ pageSize: 10 }} scroll={{ x: 820 }} locale={{ emptyText: 'Belum ada setoran' }}
         columns={[
           { title: 'Nomor', dataIndex: 'number', render: (n: string, c: Collection) => <div>{n}<div style={{ fontSize: 12, color: '#64748b' }}>{fmtDate(c.date)}</div></div> },
           { title: 'Sales', dataIndex: 'salesName' },
@@ -157,7 +158,7 @@ function VansTab() {
   return (
     <>
       <Space style={{ marginBottom: 8 }}>{can('POST', '/canvass/vans') && <Button type="primary" icon={<PlusOutlined />} onClick={() => { cf.resetFields(); setCreating(true); }}>Mobil baru</Button>}</Space>
-      <Table<Van> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={false} scroll={{ x: 640 }} locale={{ emptyText: 'Belum ada mobil kanvas' }}
+      <ResponsiveTable<Van> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={false} scroll={{ x: 640 }} locale={{ emptyText: 'Belum ada mobil kanvas' }}
         columns={[
           { title: 'Mobil', render: (_: unknown, v: Van) => <div>{v.name}<div style={{ fontSize: 12, color: '#64748b' }}>{v.code}</div></div> },
           { title: 'Sales', dataIndex: 'userName' },
@@ -217,14 +218,14 @@ function RoutesTab({ isSales }: { isSales: boolean }) {
         {can('POST', '/canvass/routes') && <Button icon={<PlusOutlined />} onClick={() => { rf.resetFields(); setEditing('new'); }}>Rute baru</Button>}
         {isSales && <Button type="primary" icon={<EnvironmentOutlined />} onClick={() => { vf.resetFields(); setVisiting(true); }}>Check-in kunjungan</Button>}
       </Space>
-      <Table<RouteRow> rowKey="id" size="small" dataSource={routes} pagination={false} scroll={{ x: 640 }} locale={{ emptyText: 'Belum ada rute' }}
+      <ResponsiveTable<RouteRow> rowKey="id" size="small" dataSource={routes} pagination={false} scroll={{ x: 640 }} locale={{ emptyText: 'Belum ada rute' }}
         columns={[
           { title: 'Rute', render: (_: unknown, r: RouteRow) => <div>{r.name} {!r.isActive && <Tag>Nonaktif</Tag>}<div style={{ fontSize: 12, color: '#64748b' }}>{r.salesName} · {r.weekday ? DAYS[r.weekday] : 'tiap hari'}</div></div> },
           { title: 'Outlet (urutan)', render: (_: unknown, r: RouteRow) => r.stops.map((s) => s.name).join(' → ') || '-' },
           { title: '', render: (_: unknown, r: RouteRow) => can('PUT', '/canvass/routes/:id') && <Button size="small" onClick={() => { rf.setFieldsValue({ name: r.name, salespersonId: r.salespersonId, weekday: r.weekday ?? undefined, customerIds: r.stops.map((s) => s.customerId) }); setEditing(r); }}>Ubah</Button> },
         ]} />
       <Card title="Kunjungan hari ini" size="small" style={{ marginTop: 12 }}>
-        <Table<Visit> rowKey="id" size="small" dataSource={visits} pagination={false} scroll={{ x: 600 }} locale={{ emptyText: 'Belum ada kunjungan' }}
+        <ResponsiveTable<Visit> rowKey="id" size="small" dataSource={visits} pagination={false} scroll={{ x: 600 }} locale={{ emptyText: 'Belum ada kunjungan' }}
           columns={[
             { title: 'Sales', dataIndex: 'salesName' },
             { title: 'Outlet', dataIndex: 'customerName' },
