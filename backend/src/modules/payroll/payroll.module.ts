@@ -31,6 +31,7 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { monthRange, workDaysBetween } from '../hr/hr.module';
 import { computePayslip, PayslipCalc } from './compute';
+import { assertServiceEntriesMatch, attachServiceEntries, ServiceWorkController, ServiceWorkService } from './service-work';
 import { yearQuery } from '../../common/pipes/year.pipe';
 
 // ---------- DTO ----------
@@ -54,6 +55,7 @@ const MONEY_FIELDS = [
   'dailyAllowance',
   'overtimePay',
   'otherIncome',
+  'serviceIncome',
   'absenceDeduction',
   'grossPay',
   'bpjsKesEmployee',
@@ -182,6 +184,7 @@ export class PayrollService {
       const run = await this.lockRun(tx, user.tenantId, id, 'DRAFT');
       const slips = await tx.select().from(payslips).where(eq(payslips.runId, id));
       if (!slips.length) throw new BadRequestException('Tidak ada slip gaji untuk diposting');
+      await assertServiceEntriesMatch(tx, user.tenantId, run.id, slips);
       const emps = await tx.select({ id: employees.id, isProduction: employees.isProduction, branchId: employees.branchId }).from(employees).where(eq(employees.tenantId, user.tenantId));
       const empById = new Map(emps.map((e) => [e.id, e]));
       const sumOf = (list: typeof slips, f: keyof (typeof slips)[number]) => list.reduce<Dec>((a, p) => a.plus(D(p[f] as string)), ZERO);
@@ -380,6 +383,9 @@ export class PayrollService {
       for (const p of existing) if (!keep.has(p.employeeId)) await tx.delete(payslips).where(eq(payslips.id, p.id));
     }
 
+    // Upah jasa: catatan kerja yang disetujui (jam, sesi, borongan, komisi faktur) otomatis masuk slip
+    const serviceBy = await attachServiceEntries(tx, tenantId, runId, period, onlyEmployeeId ? null : new Set(emps.map((e) => e.id)), onlyEmployeeId);
+
     const att = await tx
       .select()
       .from(attendances)
@@ -432,7 +438,7 @@ export class PayrollService {
           prevWithheld: D(y?.pph),
           prevMonths: y?.n ?? 0,
         },
-        { otherIncome: prev?.otherIncome, otherDeduction: prev?.otherDeduction },
+        { otherIncome: prev?.otherIncome, otherDeduction: prev?.otherDeduction, serviceIncome: serviceBy.get(e.id)?.toFixed(2) },
       );
       const row = { ...toRow(calc), projectId: e.projectId ?? null };
       if (prev) await tx.update(payslips).set(row).where(eq(payslips.id, prev.id));
@@ -524,8 +530,8 @@ export class PayrollController {
 
 @Module({
   imports: [AccountingModule],
-  controllers: [PayrollController],
-  providers: [PayrollService],
+  controllers: [PayrollController, ServiceWorkController],
+  providers: [PayrollService, ServiceWorkService],
   exports: [PayrollService],
 })
 export class PayrollModule {}

@@ -732,6 +732,22 @@ export const HELP_ARTICLES: HelpArticle[] = [
     link: { label: 'Buka Langganan', to: '/billing' },
   },
   {
+    id: 'upah-jasa',
+    category: 'Akuntansi & Pajak',
+    title: 'Upah jasa: jam, sesi, borongan, komisi (usaha jasa)',
+    summary: 'Catat pekerjaan pegawai jasa, setujui, lalu otomatis masuk slip gaji.',
+    paths: ['/payroll/jasa'],
+    steps: [
+      'Keuangan/Admin mengisi Tarif (per jam, per sesi, borongan, atau komisi %).',
+      'HR mencatat pekerjaan: pilih pegawai, tarif, tanggal, jumlah. Untuk komisi, pilih faktur jasa yang sudah lunas. Nominal dihitung otomatis.',
+      'Keuangan/Admin (orang lain dari pencatat) menyetujui atau menolak dengan alasan.',
+      'Saat Proses gaji dibuat atau dihitung ulang, catatan yang disetujui otomatis masuk kolom Upah jasa di slip. Bila dikaitkan ke proyek, menjadi biaya proyek.',
+    ],
+    tips: ['Cek tab Peringatan sebelum memposting gaji: jam berlebih, bentrok absensi, dan komisi yang tertahan.', 'Setelah gaji diposting, catatan terkunci.'],
+    keywords: 'upah jasa jam sesi borongan komisi freelance tenaga lepas konsultan gaji proyek',
+    link: { label: 'Buka Upah jasa', to: '/payroll/jasa' },
+  },
+  {
     id: 'lupa-sandi',
     category: 'Pengaturan & Keamanan',
     title: 'Lupa kata sandi',

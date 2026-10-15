@@ -18,6 +18,7 @@ import AttendancePage from './features/hr/AttendancePage';
 import EmployeesPage from './features/hr/EmployeesPage';
 import LeavesPage from './features/hr/LeavesPage';
 import PayrollRunPage from './features/payroll/PayrollRunPage';
+import ServiceWorkPage from './features/payroll/ServiceWorkPage';
 import PayrollRunsPage from './features/payroll/PayrollRunsPage';
 import Pph21ReportPage from './features/payroll/Pph21ReportPage';
 import PosPage from './features/pos/PosPage';
@@ -240,6 +241,7 @@ export default function App() {
         <Route element={<AppGate app="payroll" />}>
           <Route path="payroll" element={<PayrollRunsPage />} />
           <Route path="payroll/pph21" element={<Pph21ReportPage />} />
+          <Route path="payroll/jasa" element={<ServiceWorkPage />} />
           <Route
             path="payroll/bpjs"
             element={

@@ -79,6 +79,7 @@ export default function PayslipView({ p }: { p: Payslip }) {
             <Line label={`Uang makan/transport (${p.presentDays} hari)`} value={p.dailyAllowance} />
             <Line label="Lembur" value={p.overtimePay} />
             <Line label="Bonus / lain-lain" value={p.otherIncome} />
+            {Number(p.serviceIncome) > 0 && <Line label="Upah jasa (jam / sesi / borongan / komisi)" value={p.serviceIncome} />}
             <Line label={`Potongan tidak hadir (${p.absentDays} hari)`} value={p.absenceDeduction} neg />
             <tr style={{ fontWeight: 700, borderTop: '1px solid #ddd' }}>
               <td style={cell}>Total penghasilan</td>

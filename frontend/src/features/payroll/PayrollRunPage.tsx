@@ -144,6 +144,7 @@ export default function PayrollRunPage() {
             { title: 'Uang makan', dataIndex: 'dailyAllowance', align: 'right', render: fmtMoney },
             { title: 'Lembur', dataIndex: 'overtimePay', align: 'right', render: fmtMoney },
             { title: 'Bonus', dataIndex: 'otherIncome', align: 'right', render: fmtMoney },
+            ...(slips.some((p) => n(p.serviceIncome) > 0) ? [{ title: 'Upah jasa', dataIndex: 'serviceIncome', align: 'right' as const, render: fmtMoney }] : []),
             { title: 'Pot. absen', dataIndex: 'absenceDeduction', align: 'right', render: fmtMoney },
             { title: 'Bruto', dataIndex: 'grossPay', align: 'right', render: (v) => <strong>{fmtMoney(v)}</strong> },
             { title: 'BPJS pegawai', align: 'right', render: (_, p) => fmtMoney(n(p.bpjsKesEmployee) + n(p.jhtEmployee) + n(p.jpEmployee)) },
