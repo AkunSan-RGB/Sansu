@@ -123,7 +123,7 @@ describe('Pemisahan fungsi (e2e)', () => {
     });
     it('Akuntan hanya menulis di bidang pembukuan (tidak ada penulisan di penjualan, pembelian, stok, kasir, SDM)', () => {
       const writes = matrix.filter((r) => r.method !== 'GET' && !r.public && allowed(r).has('ACCOUNTANT') && !/^\/api\/(auth|platform|billing|platform-admin|reminders)/.test(r.path) && r.path !== '/api/approvals/:id/cancel');
-      const outside = writes.filter((r) => !/^\/api\/(accounting|assets|budgets|fx|settings\/reporting|inventory\/writedowns|payroll\/runs\/:id\/post|bank\/signoffs|imports)/.test(r.path));
+      const outside = writes.filter((r) => !/^\/api\/(accounting|assets|budgets|fx|settings\/reporting|inventory\/writedowns|payroll\/runs\/:id\/post|bank\/signoffs|imports|sales-commissions\/close|trade-accruals\/accrue|principal-claims\/(generate|:id\/submit|:id\/decide))/.test(r.path));
       expect(outside.map((r) => `${r.method} ${r.path}`)).toEqual([]);
     });
 

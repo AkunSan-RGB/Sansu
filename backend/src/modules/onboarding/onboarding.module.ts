@@ -117,7 +117,7 @@ export class OnboardingService {
         'Daftar layanan / jasa',
         'Masukkan jenis pekerjaan beserta tarifnya agar penawaran dan faktur cepat dibuat.',
       ],
-      PRODUKSI: ['Masukkan bahan baku & produk jadi', 'Daftarkan bahan yang dibeli dan produk yang dijual.'],
+      FMCG: ['Masukkan produk (SKU) & satuan dus/pak', 'Isi harga jual per satuan, barcode, dan satuan dus/pak. Tandai masa simpan agar kedaluwarsa dipantau. Bisa impor dari Excel.'],
       MANUFAKTUR: ['Masukkan bahan, barang setengah jadi & barang jadi', 'Daftarkan bahan baku, bahan penolong, barang setengah jadi, dan barang jadi — atau impor dari Excel.'],
       FNB: ['Masukkan bahan & menu', 'Daftarkan bahan (kopi, susu, tepung) dan menu yang dijual. Tandai menu sebagai "dibuat saat dipesan" agar bahan terpotong otomatis di kasir.'],
     };
@@ -129,7 +129,7 @@ export class OnboardingService {
         'Buat faktur jasa (bisa per termin proyek). PPh 23 / PPh 4(2) yang dipotong pelanggan dihitung otomatis.',
         '/invoices/services/new',
       ],
-      PRODUKSI: ['Catat penjualan pertama', 'Buat sales order produk jadi, lalu jadikan faktur.', '/sales-orders/new'],
+      FMCG: ['Catat pesanan outlet pertama', 'Buat sales order untuk outlet (daftar harga dan promo mengikuti segmen pelanggan), lalu jadikan faktur.', '/sales-orders/new'],
       MANUFAKTUR: ['Catat penjualan pertama', 'Buat sales order barang jadi, lalu jadikan faktur.', '/sales-orders/new'],
       FNB: ['Buka kasir & jual menu pertama', 'Buka sesi kasir, pilih menu, terima pembayaran. Bahan sesuai resep terpotong otomatis.', '/pos'],
     };

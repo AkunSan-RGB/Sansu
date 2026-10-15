@@ -8,11 +8,12 @@ import { toDocDate } from '../../../common/utils/dates';
 import { D, money } from '../../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, products, salesOrderLines, salesOrders, tenants, warehouses } from '../../../db/schema';
+import { customers, products, promos, salesOrderLines, salesOrders, tenants, users, warehouses } from '../../../db/schema';
 import { foreignTotals } from '../../../common/utils/fx';
 import { FxService } from '../../fx/fx.service';
 import { documentTotals, inclusiveDocument, lineTotal } from '../pricing';
-import { CreateSalesOrderDto, SalesOrderQueryDto } from '../sales.dto';
+import { PricingService } from '../pricing/price-lists';
+import { CreateSalesOrderDto, SalesOrderLineDto, SalesOrderQueryDto } from '../sales.dto';
 import { CreditService } from './credit.service';
 
 @Injectable()
@@ -23,6 +24,7 @@ export class SalesOrdersService {
     private readonly credit: CreditService,
     private readonly audit: AuditService,
     private readonly fx: FxService,
+    private readonly pricing: PricingService,
   ) {}
 
   list(tenantId: string, q: SalesOrderQueryDto) {
@@ -52,7 +54,7 @@ export class SalesOrdersService {
     return o;
   }
 
-  async create(user: AuthUser, dto: CreateSalesOrderDto) {
+  async create(user: AuthUser, dto: CreateSalesOrderDto, opts: { consignment?: boolean } = {}) {
     const date = toDocDate(dto.date);
     const id = await this.db.transaction(async (tx) => {
       const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
@@ -61,11 +63,23 @@ export class SalesOrdersService {
         .from(customers)
         .where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, user.tenantId)));
       if (!customer || !customer.isActive) throw new BadRequestException('Pelanggan tidak ditemukan / nonaktif');
+      const poNo = dto.customerPoNo?.trim() || null;
+      if (customer.requirePo && !poNo && !opts.consignment) throw new BadRequestException(`${customer.name} mewajibkan nomor PO outlet pada setiap pesanan`);
+      if (poNo) {
+        const [dup] = await tx.select({ number: salesOrders.number }).from(salesOrders).where(and(eq(salesOrders.tenantId, user.tenantId), eq(salesOrders.customerId, customer.id), eq(salesOrders.customerPoNo, poNo), sql`${salesOrders.status} <> 'CANCELLED'`));
+        if (dup) throw new BadRequestException(`Nomor PO ${poNo} sudah dipakai pada pesanan ${dup.number} (satu PO tidak boleh ditagih dua kali)`);
+      }
       const [wh] = await tx
         .select()
         .from(warehouses)
         .where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
+      // Gudang titipan hanya dipakai lewat alur konsinyasi (laporan outlet → ditagih); gudang mobil hanya oleh sales pemiliknya atau Admin
+      if (wh.kind === 'CONSIGNMENT' && !opts.consignment) throw new BadRequestException(`${wh.name} adalah gudang konsinyasi: jual lewat Penjualan › Konsinyasi (laporan penjualan outlet)`);
+      if (wh.kind === 'VAN' && wh.vanUserId !== user.sub && !['OWNER', 'ADMIN'].includes(user.role)) throw new BadRequestException(`${wh.name} adalah stok mobil sales lain`);
+      // Penjualan dari mobil oleh Sales hanya lewat Kanvas (harga & potongan dikunci server); pesanan biasa dengan harga/potongan bebas ditolak
+      if (wh.kind === 'VAN' && user.role === 'SALES' && !opts.consignment && dto.lines.some((l) => l.price !== undefined || D(l.discountPct).gt(0)))
+        throw new BadRequestException('Penjualan dari mobil dilakukan lewat Penjualan › Kanvas; harga dan potongan tidak dapat diisi sendiri');
 
       const prods = await tx.query.products.findMany({
         where: and(eq(products.tenantId, user.tenantId), inArray(products.id, dto.lines.map((l) => l.productId))),
@@ -73,11 +87,39 @@ export class SalesOrdersService {
       });
       const byId = new Map(prods.map((p) => [p.id, p]));
 
+      // sales pemegang pesanan: dipilih eksplisit (harus berperan Sales di perusahaan ini) atau pembuat pesanan bila ia Sales
+      let salespersonId: string | null = null;
+      // Sales tidak boleh mengalihkan pesanan (dan komisinya) ke sales lain; hanya Admin/Pemilik yang menunjuk
+      if (dto.salespersonId && user.role === 'SALES' && dto.salespersonId !== user.sub) throw new BadRequestException('Sales hanya dapat mencatat pesanan atas namanya sendiri');
+      if (dto.salespersonId) {
+        const [sp] = await tx.select({ id: users.id }).from(users).where(and(eq(users.id, dto.salespersonId), eq(users.tenantId, user.tenantId), eq(users.role, 'SALES'), eq(users.isActive, true)));
+        if (!sp) throw new BadRequestException('Sales tidak ditemukan / nonaktif');
+        salespersonId = sp.id;
+      } else if (user.role === 'SALES') {
+        salespersonId = user.sub;
+      }
+
       const { currency, rate: fxRate } = await this.fx.resolve(tx, user.tenantId, dto.currency, date, dto.fxRate);
       const foreign = currency !== 'IDR';
       if (foreign && dto.pricesIncludeVat) throw new BadRequestException('Pesanan valas memakai harga belum termasuk PPN');
 
-      const lines = dto.lines.map((l) => {
+      // Daftar harga pelanggan + promo: hanya mengisi harga/potongan yang kosong, dan menambah baris bonus (harga 0). Valas diisi manual.
+      type PromoLine = SalesOrderLineDto & { promoId?: string; isBonus?: boolean };
+      let rawLines: PromoLine[] = dto.lines;
+      if (!foreign) {
+        const r = await this.pricing.apply(tx, user.tenantId, customer, date, dto.lines, byId, dto.applyPromos ?? true);
+        rawLines = [
+          ...r.lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: l.qty, price: l.price, discountPct: l.discountPct, promoId: (l as { promoId?: string }).promoId })),
+          ...r.bonus.map((b) => ({ productId: b.productId, uom: b.uom, qty: b.qty, price: '0', discountPct: '0', promoId: b.promoId, isBonus: true })),
+        ];
+      }
+      const promoIds = [...new Set(rawLines.map((l) => l.promoId).filter((x): x is string => !!x))];
+      const funded = new Map<string, { s: string | null; p: string }>();
+      if (promoIds.length) {
+        const pr = await tx.select({ id: promos.id, s: promos.fundedSupplierId, p: promos.fundedPct }).from(promos).where(and(eq(promos.tenantId, user.tenantId), inArray(promos.id, promoIds)));
+        for (const r of pr) funded.set(r.id, { s: r.s, p: r.p });
+      }
+      const lines = rawLines.map((l) => {
         const p = byId.get(l.productId);
         if (!p || !p.isActive) throw new BadRequestException(`Produk ${l.productId} tidak ditemukan / nonaktif`);
         if (p.inventoryKind === 'SEMI') throw new BadRequestException(`${p.sku} adalah barang setengah jadi: dibuat dan dipakai lewat perintah produksi, tidak dijual`);
@@ -94,6 +136,10 @@ export class SalesOrdersService {
         if (priceForeign?.isNegative()) throw new BadRequestException(`Harga ${p.sku} tidak boleh negatif`);
         const price = priceForeign ? money(priceForeign.times(fxRate)) : l.price !== undefined ? money(l.price) : money(D(p.sellPrice).times(factor));
         return {
+          promoId: l.promoId ?? null,
+          isBonus: !!l.isBonus,
+          fundedSupplierId: l.promoId ? (funded.get(l.promoId)?.s ?? null) : null,
+          fundedPct: l.promoId ? (funded.get(l.promoId)?.p ?? '0') : '0',
           priceForeign,
           productId: p.id,
           uom,
@@ -127,6 +173,8 @@ export class SalesOrdersService {
           warehouseId: wh.id,
           notes: dto.notes,
           createdById: user.sub,
+          salespersonId,
+          customerPoNo: poNo,
           subtotal: totals.subtotal.toFixed(2),
           taxAmount: totals.taxAmount.toFixed(2),
           total: totals.total.toFixed(2),
@@ -148,10 +196,19 @@ export class SalesOrdersService {
           lineTotal: l.lineTotal.toFixed(2),
           priceInclVat: l.priceInclVat ? l.priceInclVat.toFixed(2) : null,
           priceForeign: l.priceForeign ? l.priceForeign.toFixed(4) : null,
+          promoId: l.promoId ?? null,
+          isBonus: l.isBonus ?? false,
+          promoFundedSupplierId: l.fundedSupplierId ?? null,
+          promoFundedPct: l.fundedPct ?? '0',
         })),
       );
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'SalesOrder', entityId: order.id });
       return order.id;
+    }).catch((e) => {
+      // dua pesanan bersamaan dengan nomor PO outlet yang sama: yang kedua ditolak indeks unik
+      const err = e as { code?: string; constraint?: string; cause?: { code?: string; constraint?: string } };
+      if ((err.code ?? err.cause?.code) === '23505' && `${err.constraint ?? err.cause?.constraint}`.includes('customer_po')) throw new BadRequestException('Nomor PO outlet ini sudah dipakai pada pesanan lain (satu PO tidak boleh ditagih dua kali)');
+      throw e;
     });
     return this.get(user.tenantId, id);
   }

@@ -27,7 +27,7 @@ describe('Keterpaduan modul per jenis usaha (e2e)', () => {
   afterAll(() => app.close());
 
   type Co = Awaited<ReturnType<typeof company>>;
-  async function company(model: 'DAGANG' | 'RITEL' | 'JASA' | 'PRODUKSI' | 'MANUFAKTUR') {
+  async function company(model: 'DAGANG' | 'RITEL' | 'JASA' | 'FMCG' | 'MANUFAKTUR') {
     const token = (await http.post('/api/auth/register').send({ companyName: `Siklus ${model}`, name: 'Pemilik', email: `cyc-${model}-${stamp}@uji.id`, password: 'rahasia123', businessModel: model }).expect(201)).body.accessToken;
     const as = () => ({ Authorization: `Bearer ${token}` });
     const get = (u: string) => http.get(u).set(as());
@@ -132,7 +132,7 @@ describe('Keterpaduan modul per jenis usaha (e2e)', () => {
     expect(r.bal('1-1400')).toBe(0); // usaha jasa tidak punya persediaan
   });
 
-  it.each(['PRODUKSI', 'MANUFAKTUR'] as const)('%s: bahan → resep → produksi → jual hasil → laporan cocok', async (model) => {
+  it.each(['MANUFAKTUR'] as const)('%s: bahan → resep → produksi → jual hasil → laporan cocok', async (model) => {
     const c = await company(model);
     const sup = (await c.post('/api/suppliers', { code: 'S-PR', name: 'Toko Bahan' }).expect(201)).body.id;
     const bahan = (await c.post('/api/products', { sku: 'BHN', name: 'Bahan', baseUom: 'M', sellPrice: '0' }).expect(201)).body.id;

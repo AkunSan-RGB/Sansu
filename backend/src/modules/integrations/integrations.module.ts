@@ -445,6 +445,8 @@ export class IntegrationsService {
           warehouseId: wh.id,
           date,
           notes: `${channel} #${orderNo}`,
+          // harga sudah final di platform: tanpa promo/bonus tambahan
+          applyPromos: false,
           lines: o.lines.map((l) => ({
             productId: bySku.get(l.sku.trim().toUpperCase())!.id,
             qty: l.qty,

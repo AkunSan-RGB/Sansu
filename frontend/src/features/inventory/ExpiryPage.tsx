@@ -1,7 +1,8 @@
-import { DeleteOutlined } from '@ant-design/icons';
+import { DeleteOutlined, NodeIndexOutlined } from '@ant-design/icons';
 import type { StockLotRow, StockLotList } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Popconfirm, Tag, Typography } from 'antd';
+import { Alert, Button, Popconfirm, Space, Tag, Typography } from 'antd';
+import { useNavigate } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { useAction } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
@@ -22,6 +23,8 @@ const STATUS: Record<StockLotRow['status'], { color: string; text: (l: StockLotR
 export default function ExpiryPage() {
   const { me } = useAuth();
   const can = useCan();
+  const navigate = useNavigate();
+  const canTrace = me?.businessModel === 'FMCG' && ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE', 'SALES', 'ACCOUNTANT'].includes(me?.role ?? '');
   const canDiscard = ['OWNER', 'ADMIN', 'WAREHOUSE'].includes(me?.role ?? '') && can('POST', '/inventory/lots/:id/discard');
   const { data, isLoading } = useQuery({ queryKey: ['stock-lots'], queryFn: () => get<StockLotList>('/inventory/lots') });
   const discard = useAction((id: string) => post(`/inventory/lots/${id}/discard`, {}), {
@@ -64,14 +67,19 @@ export default function ExpiryPage() {
         { title: 'Kedaluwarsa', render: (_: unknown, l: StockLotRow) => (l.expiryDate ? fmtDate(l.expiryDate) : '-') },
         { title: 'Status', render: (_: unknown, l: StockLotRow) => <Tag color={STATUS[l.status].color}>{STATUS[l.status].text(l)}</Tag> },
         { title: 'Perkiraan nilai', align: 'right', render: (_: unknown, l: StockLotRow) => fmtMoney(l.value) },
-        ...(canDiscard
+        ...(canDiscard || canTrace
           ? [
               {
                 title: '',
                 render: (_: unknown, l: StockLotRow) => (
-                  <Popconfirm title="Buang seluruh sisa lot ini?" description="Stok berkurang dan dicatat sebagai bahan rusak/kedaluwarsa (beban)." okText="Buang" cancelText="Batal" onConfirm={() => discard.mutate(l.id)}>
-                    <Button size="small" danger icon={<DeleteOutlined />} loading={discard.isPending}>Buang</Button>
-                  </Popconfirm>
+                  <Space>
+                    {canTrace && l.lotNo && <Button size="small" icon={<NodeIndexOutlined />} onClick={() => navigate(`/inventory/lot-trace?productId=${l.productId}&lotNo=${encodeURIComponent(l.lotNo!)}`)}>Telusuri</Button>}
+                    {canDiscard && (
+                      <Popconfirm title="Buang seluruh sisa lot ini?" description="Stok berkurang dan dicatat sebagai bahan rusak/kedaluwarsa (beban)." okText="Buang" cancelText="Batal" onConfirm={() => discard.mutate(l.id)}>
+                        <Button size="small" danger icon={<DeleteOutlined />} loading={discard.isPending}>Buang</Button>
+                      </Popconfirm>
+                    )}
+                  </Space>
                 ),
               },
             ]

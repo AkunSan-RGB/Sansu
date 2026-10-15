@@ -1,8 +1,9 @@
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Card, Checkbox, Col, Descriptions, Form, Input, InputNumber, Row, Select, Space, Table } from 'antd';
-import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Alert, Button, Card, Checkbox, Col, Descriptions, Form, Input, InputNumber, Row, Select, Space, Table } from 'antd';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { post } from '@/api/client';
+import { get, post } from '@/api/client';
 import { useAction, useCustomers, useProducts, useWarehouses } from '@/api/queries';
 import type { Product, SalesOrder } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
@@ -19,12 +20,20 @@ interface Line {
   qty?: number;
   price?: number;
   discountPct?: number;
+  /** Baris bonus barang dari promo (harga 0) */
+  isBonus?: boolean;
+}
+interface QuoteResult {
+  lines: { productId: string; uom: string; qty: string; price: string; discountPct: string; source: 'LIST' | 'MASTER' | 'EXPLICIT'; promoName: string | null }[];
+  bonus: { productId: string; uom: string; qty: string; promoName: string }[];
 }
 interface FormValues {
   customerId: string;
   warehouseId: string;
   date: string;
   notes?: string;
+  salespersonId?: string;
+  customerPoNo?: string;
   /** Harga yang diketik sudah termasuk PPN */
   pricesIncludeVat?: boolean;
   currency?: string;
@@ -47,9 +56,18 @@ export default function SalesOrderFormPage() {
   const [form] = Form.useForm<FormValues>();
   const lines: Line[] = Form.useWatch('lines', form) ?? [];
   const productById = new Map(products?.map((p) => [p.id, p]));
+  const customerId = Form.useWatch('customerId', form);
   const currency = Form.useWatch('currency', form) ?? 'IDR';
   const foreign = isForeignCurrency(currency);
   const fxRate = Form.useWatch('fxRate', form) ?? 0;
+  // FMCG: harga daftar pelanggan + promo (potongan, bonus barang) dihitung server lewat tombol; sales pemegang pesanan dipilih Pemilik/Admin
+  const isFmcg = me?.businessModel === 'FMCG';
+  const [applied, setApplied] = useState<string[] | null>(null);
+  const { data: salespeople } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => get<{ id: string; name: string; role: string; isActive: boolean }[]>('/users'),
+    enabled: isFmcg && ['OWNER', 'ADMIN'].includes(me?.role ?? ''),
+  });
   const money = (v: number) => (foreign ? fmtCurrency(v, currency) : fmtMoney(v));
 
   // Gudang dimuat setelah form dibuat: isi gudang pertama sebagai default
@@ -59,6 +77,8 @@ export default function SalesOrderFormPage() {
 
   const create = useAction((v: FormValues) => post<SalesOrder>('/sales-orders', {
     ...v,
+    // harga & promo sudah diterapkan di formulir: server tidak menambah bonus lagi
+    applyPromos: applied ? false : undefined,
     currency: isForeignCurrency(v.currency) ? v.currency : undefined,
     fxRate: isForeignCurrency(v.currency) && v.fxRate ? String(v.fxRate) : undefined,
     pricesIncludeVat: isForeignCurrency(v.currency) ? false : v.pricesIncludeVat,
@@ -92,6 +112,26 @@ export default function SalesOrderFormPage() {
     else setLine(index, { uom });
   };
 
+  const applyPricing = useAction(
+    async () => {
+      const v = form.getFieldsValue();
+      const base = (v.lines ?? []).filter((l) => !l.isBonus && l.productId);
+      if (!v.customerId || !base.length) throw new Error('Pilih pelanggan dan produk dulu');
+      const r = await post<QuoteResult>('/pricing/quote', { customerId: v.customerId, date: v.date, lines: base.map((l) => ({ productId: l.productId, uom: l.uom, qty: String(l.qty ?? 1) })) });
+      return { r, base };
+    },
+    {
+      success: 'Harga & promo diterapkan',
+      onSuccess: ({ r, base }) => {
+        const out: Line[] = base.map((l, i) => ({ ...l, price: Number(r.lines[i].price), discountPct: Number(r.lines[i].discountPct) }));
+        for (const b of r.bonus) out.push({ productId: b.productId, uom: b.uom, qty: Number(b.qty), price: 0, discountPct: 0, isBonus: true });
+        form.setFieldValue('lines', out);
+        const notes = [...new Set([...r.lines.filter((l) => l.source === 'LIST').map(() => 'Harga daftar pelanggan'), ...r.lines.map((l) => l.promoName).filter(Boolean), ...r.bonus.map((b) => `Bonus: ${b.promoName}`)] as string[])];
+        setApplied(notes.length ? notes : ['Tidak ada harga daftar atau promo yang berlaku; harga jual master dipakai']);
+      },
+    },
+  );
+
   const ppnRate = outputVatRate(me);
   const inclusive = (Form.useWatch('pricesIncludeVat', form) ?? false) && ppnRate > 0 && !foreign;
   const { subtotal, tax, total } = vatTotals(lines.reduce((a, l) => a + previewLine(l), 0), ppnRate, inclusive);
@@ -118,7 +158,7 @@ export default function SalesOrderFormPage() {
             </Col>
             <Col xs={24} md={8}>
               <Form.Item name="warehouseId" label={t('Gudang')} rules={[{ required: true }]}>
-                <Select options={warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
+                <Select options={warehouses?.filter((w) => !w.kind || w.kind === 'MAIN' || (w.kind === 'VAN' && w.vanUserId === me?.id)).map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
               </Form.Item>
             </Col>
             <Col xs={24} md={6}>
@@ -126,8 +166,20 @@ export default function SalesOrderFormPage() {
                 <Input type="date" />
               </Form.Item>
             </Col>
+            {isFmcg && (
+              <Col xs={24} md={8}>
+                <Form.Item name="customerPoNo" label="Nomor PO outlet" rules={[{ required: !!customers?.find((c) => c.id === customerId)?.requirePo, message: 'Outlet ini mewajibkan nomor PO' }]}>
+                  <Input maxLength={60} placeholder="mis. PO-ALFA-77231" />
+                </Form.Item>
+              </Col>
+            )}
           </Row>
 
+          {isFmcg && !!salespeople?.some((u) => u.role === 'SALES' && u.isActive) && (
+            <Form.Item name="salespersonId" label="Sales pemegang pesanan" extra="Dasar target & komisi sales. Kosong = tidak dikaitkan ke sales.">
+              <Select allowClear style={{ maxWidth: 320 }} options={salespeople?.filter((u) => u.role === 'SALES' && u.isActive).map((u) => ({ value: u.id, label: u.name }))} />
+            </Form.Item>
+          )}
           <CurrencyFields form={form} />
 
           <Form.List name="lines">
@@ -206,6 +258,14 @@ export default function SalesOrderFormPage() {
                 <Button type="dashed" block icon={<PlusOutlined />} style={{ marginTop: 8 }} onClick={() => add({ qty: 1, discountPct: 0 })}>
                   Tambah baris
                 </Button>
+                {isFmcg && !foreign && (
+                  <>
+                    <Button block style={{ marginTop: 8 }} loading={applyPricing.isPending} onClick={() => applyPricing.mutate(undefined)}>
+                      Terapkan harga daftar & promo pelanggan
+                    </Button>
+                    {applied && <Alert type="success" showIcon style={{ marginTop: 8 }} message={applied.join(' · ')} description="Mengisi ulang harga dan potongan semua baris (baris bonus ditambahkan otomatis). Klik lagi bila Anda mengubah pelanggan atau jumlah." />}
+                  </>
+                )}
               </>
             )}
           </Form.List>

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../../common/auth/decorators';
@@ -27,6 +27,10 @@ export class CustomersController {
   @Post()
   @Roles('ADMIN', 'SALES', 'FINANCE')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreateCustomerDto) {
+    // Sales boleh mendaftarkan outlet baru, tetapi syarat komersialnya (limit kredit, termin, daftar harga, wajib PO) diatur Admin/Keuangan lewat ubah pelanggan
+    if (u.role === 'SALES' && (dto.creditLimit !== undefined || dto.paymentTermDays !== undefined || dto.priceListId !== undefined || dto.requirePo !== undefined)) {
+      throw new ForbiddenException('Limit kredit, termin, daftar harga, dan wajib PO outlet diatur oleh Admin/Keuangan');
+    }
     return this.svc.create(u.tenantId, dto);
   }
 

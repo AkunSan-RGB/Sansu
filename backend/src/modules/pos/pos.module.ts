@@ -152,6 +152,7 @@ export class PosService {
         .from(warehouses)
         .where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
       if (!wh) throw new BadRequestException('Gudang / toko tidak ditemukan');
+      if (wh.kind !== 'MAIN') throw new BadRequestException('Gudang konsinyasi/mobil hanya dipakai lewat menu Konsinyasi / Kanvas');
       // kasir yang dibatasi ke toko tertentu tidak bisa membuka sesi di toko lain
       assertWarehouseAccess(user, wh.id);
       const cash = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'CASH');

@@ -138,10 +138,10 @@ export function withDependencies(key: AppKey): AppKey[] {
 export const canUseApp = (role: Role, app: AppKey) => role === 'OWNER' || role === 'ADMIN' || APP_BY_KEY[app].roles.includes(role);
 
 // ---------- Model bisnis ----------
-export const BUSINESS_MODEL_KEYS = ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR', 'FNB'] as const;
+export const BUSINESS_MODEL_KEYS = ['DAGANG', 'RITEL', 'JASA', 'FMCG', 'MANUFAKTUR', 'FNB'] as const;
 export type BusinessModel = (typeof BUSINESS_MODEL_KEYS)[number];
 /** Model yang mengolah bahan menjadi barang jadi atau menu (resep, perintah produksi, biaya pabrik/dapur) */
-export const isProductionModel = (m: BusinessModel | string | null | undefined): boolean => m === 'PRODUKSI' || m === 'MANUFAKTUR' || m === 'FNB';
+export const isProductionModel = (m: BusinessModel | string | null | undefined): boolean => m === 'MANUFAKTUR' || m === 'FNB';
 export interface BusinessModelInfo {
   key: BusinessModel;
   name: string;
@@ -189,13 +189,14 @@ export const BUSINESS_MODELS: BusinessModelInfo[] = [
     ready: true,
   },
   {
-    key: 'PRODUKSI',
-    name: 'Produksi',
-    summary: 'Mengolah bahan baku menjadi produk lalu menjualnya',
-    examples: 'Konveksi, makanan & minuman kemasan, percetakan, mebel, kerajinan',
-    flow: ['Pembelian bahan', 'Produksi', 'Stok produk jadi', 'Penjualan', 'Laporan & pajak'],
+    key: 'FMCG',
+    name: 'FMCG (barang konsumen)',
+    summary: 'Menyalurkan barang konsumen bermasa simpan terbatas ke toko dan outlet lewat sales lapangan, dengan daftar harga bertingkat dan promo',
+    examples: 'Distributor makanan & minuman kemasan, produsen/distributor sabun & kosmetik, produk rumah tangga, rokok, obat bebas',
+    flow: ['Pembelian dari prinsipal/pabrik', 'Stok per lot & kedaluwarsa', 'Daftar harga & promo', 'Pesanan sales → faktur', 'Piutang outlet & penagihan', 'Penelusuran lot (recall) & laporan'],
     apps: ['sales', 'purchase', 'inventory', 'accounting', 'cash'],
     ready: true,
+    note: 'Atur daftar harga per segmen outlet di Penjualan › Daftar harga dan promo/bonus barang di Penjualan › Promo. Barang bermasa simpan ditandai "lacak lot" agar kedaluwarsa dipantau dan, bila ada penarikan produk, lot bisa ditelusuri sampai ke pelanggan penerimanya.',
   },
   {
     key: 'MANUFAKTUR',

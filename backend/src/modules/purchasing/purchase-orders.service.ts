@@ -91,6 +91,7 @@ export class PurchaseOrdersService {
         .from(warehouses)
         .where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
+      if (wh.kind !== 'MAIN') throw new BadRequestException('Gudang konsinyasi/mobil hanya dipakai lewat menu Konsinyasi / Kanvas');
 
       const { currency, rate } = await this.fx.resolve(tx, user.tenantId, dto.currency, date, dto.fxRate);
       const foreign = currency !== 'IDR';

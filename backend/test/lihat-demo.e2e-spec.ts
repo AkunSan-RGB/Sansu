@@ -11,7 +11,7 @@ import { configureApp } from '../src/bootstrap';
 import { DB, Db } from '../src/db/db';
 import { DemoService } from '../src/modules/demo/demo.module';
 
-const MODELS = ['RITEL', 'DAGANG', 'JASA', 'PRODUKSI', 'MANUFAKTUR', 'FNB'] as const;
+const MODELS = ['RITEL', 'DAGANG', 'JASA', 'FMCG', 'MANUFAKTUR', 'FNB'] as const;
 
 describe('Lihat Demo (e2e)', () => {
   let app: INestApplication;
@@ -75,7 +75,16 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(s('DAGANG'), 'invoices')).toBeGreaterThan(5);
     expect(await count(s('JASA'), 'projects')).toBeGreaterThan(0);
     expect(await count(s('JASA'), 'products')).toBe(0);
-    expect(await count(s('PRODUKSI'), 'production_orders')).toBeGreaterThan(2);
+    // FMCG: distribusi barang konsumen — tanpa produksi, tetapi ber-lot dengan tanggal kedaluwarsa
+    expect(await count(s('FMCG'), 'production_orders')).toBe(0);
+    expect(await count(s('FMCG'), 'invoices')).toBeGreaterThan(10);
+    expect(await count(s('FMCG'), 'stock_lots')).toBeGreaterThan(3);
+    // daftar harga per segmen, promo, dan jejak lot ke pelanggan (bahan penelusuran recall)
+    expect(await count(s('FMCG'), 'price_lists')).toBe(2);
+    expect(await count(s('FMCG'), 'promos')).toBe(2);
+    expect(await count(s('FMCG'), 'trade_terms')).toBe(3);
+    expect(await count(s('FMCG'), 'stock_lot_issues')).toBeGreaterThan(5);
+    expect(await count(s('RITEL'), 'price_lists')).toBe(0);
     expect(await count(s('MANUFAKTUR'), 'production_orders')).toBeGreaterThan(2);
     expect(await count(s('RITEL'), 'production_orders')).toBe(0);
     expect(await count(s('DAGANG'), 'pos_orders')).toBe(0);

@@ -41,6 +41,9 @@ export class CreateSalesOrderDto {
   @IsOptional()
   @IsNumberString()
   fxRate?: string;
+  @ApiPropertyOptional({ example: 'PO-ALFA-77231', description: 'Nomor PO dari outlet (wajib bila outlet ditandai peritel modern); unik per outlet' }) @IsOptional() @IsString() @MaxLength(60) customerPoNo?: string;
+  @ApiPropertyOptional({ description: 'Sales pemegang pesanan (dasar target & komisi). Kosong = pembuat pesanan bila perannya Sales' }) @IsOptional() @IsUUID() salespersonId?: string;
+  @ApiPropertyOptional({ description: 'Terapkan promo aktif (potongan bertingkat, bonus barang). Bawaan: ya' }) @IsOptional() @IsBoolean() applyPromos?: boolean;
   @ApiProperty({ type: [SalesOrderLineDto] })
   @ValidateNested({ each: true })
   @Type(() => SalesOrderLineDto)

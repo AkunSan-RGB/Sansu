@@ -141,7 +141,7 @@ describe('Manufaktur: perintah berjenjang & persediaan setengah jadi (e2e)', () 
     expect((await post('/api/production/plan', { warehouseId: wh, items: [{ bomId: bomRoti, batches: '0' }] })).status).toBe(400);
     expect((await post('/api/production/plan', { warehouseId: wh, items: [] })).status).toBe(400);
     expect((await post('/api/production/plan', { warehouseId: '00000000-0000-4000-8000-000000000000', items: [{ bomId: bomRoti, batches: '1' }] })).status).toBe(400);
-    const produksi = (await http.post('/api/auth/register').send({ companyName: 'Produksi', name: 'P', email: `mc-p-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'PRODUKSI' }).expect(201)).body.accessToken as string;
+    const produksi = (await http.post('/api/auth/register').send({ companyName: 'Produksi', name: 'P', email: `mc-p-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'FMCG' }).expect(201)).body.accessToken as string;
     const w = (await get('/api/warehouses', produksi).expect(200)).body[0].id;
     expect((await post('/api/production/plan', { warehouseId: w, items: [{ bomId: bomRoti, batches: '1' }] }, produksi)).status).toBe(403);
   });

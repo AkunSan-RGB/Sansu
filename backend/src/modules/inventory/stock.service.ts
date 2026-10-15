@@ -26,6 +26,8 @@ export interface MoveInput {
   date: DocDate;
   /** Lewati cek hak akses gudang pengguna (mis. sisi penerima transfer) */
   skipAccessCheck?: boolean;
+  /** Barang keluar: jangan ambil dari lot dengan nomor ini (penarikan produk — pengganti tidak boleh dari lot yang ditarik) */
+  excludeLotNos?: string[];
   /** Barang masuk: penurunan nilai per satuan yang ikut terbawa (transfer, retur jual). Bawaan 0. */
   writedownUnit?: DecValue;
   /**
@@ -215,6 +217,7 @@ export class StockService {
       date: m.date,
       lot: m.lot,
       lotId: m.lotId,
+      excludeLotNos: m.excludeLotNos,
       reverseCost: m.reverseCost !== undefined,
     });
 

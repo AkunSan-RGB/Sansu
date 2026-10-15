@@ -35,7 +35,7 @@ async function bootstrap() {
   const swagger = process.env.NODE_ENV !== 'production' || process.env.SWAGGER === 'true';
   const config = new DocumentBuilder()
     .setTitle('SANSU API')
-    .setDescription('SANSU — sistem bisnis terpadu untuk UKM dagang, ritel, jasa, produksi, dan manufaktur: penjualan, pembelian, inventori, kasir, akuntansi, pajak, SDM')
+    .setDescription('SANSU — sistem bisnis terpadu untuk UKM dagang, ritel, jasa, FMCG, manufaktur, dan F&B: penjualan, pembelian, inventori, kasir, akuntansi, pajak, SDM')
     .setVersion('0.1.0')
     .addBearerAuth()
     .build();

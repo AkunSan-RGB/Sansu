@@ -407,6 +407,69 @@
       "when": 1794153086484,
       "tag": "0057_peran_khusus",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1794154086484,
+      "tag": "0058_model_fmcg",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794155086484,
+      "tag": "0059_daftar_harga_promo",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1794156086484,
+      "tag": "0060_jejak_lot",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1794157086484,
+      "tag": "0061_target_sales",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1794158086484,
+      "tag": "0062_komisi_lot_estimasi",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1794159086484,
+      "tag": "0063_tukar_guling_konsinyasi",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1794160086484,
+      "tag": "0064_kanvas",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1794161086484,
+      "tag": "0065_modern_trade_klaim",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1794162086484,
+      "tag": "0066_perketat_fmcg",
+      "breakpoints": true
     }
   ]
 }

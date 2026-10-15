@@ -9,7 +9,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 
 type Acc = { id: string; code: string; name: string; systemKey: string | null; isActive: boolean; description: string | null };
-const MODELS = ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR', 'FNB'] as const;
+const MODELS = ['DAGANG', 'RITEL', 'JASA', 'FMCG', 'MANUFAKTUR', 'FNB'] as const;
 
 describe('Bagan akun per jenis usaha (e2e)', () => {
   let app: INestApplication;
@@ -41,8 +41,12 @@ describe('Bagan akun per jenis usaha (e2e)', () => {
     expect(has('RITEL', '1-1130')).toBe(true);
     expect(has('JASA', '1-1380')).toBe(true);
     expect(has('JASA', '2-1760')).toBe(true);
-    expect(has('PRODUKSI', '5-4500')).toBe(true);
-    expect(has('PRODUKSI', '5-4800')).toBe(true);
+    expect(has('MANUFAKTUR', '5-4500')).toBe(true);
+    expect(has('MANUFAKTUR', '5-4800')).toBe(true);
+    // FMCG: trade promo, barang kedaluwarsa & distribusi; tanpa akun pabrik
+    for (const code of ['6-2150', '6-2160', '6-2700', '5-1100', '5-1200']) expect(has('FMCG', code)).toBe(true);
+    for (const code of ['6-2150', '6-2160']) expect(has('DAGANG', code)).toBe(false);
+    expect(has('FMCG', '5-4500')).toBe(false);
     expect(has('DAGANG', '5-4500')).toBe(false);
     // F&B: bahan terbuang, kemasan saji, komisi pesan-antar; pembayaran digital dipakai bersama ritel
     for (const code of ['5-1350', '5-1450', '6-2460', '1-1130', '6-2450']) expect(has('FNB', code)).toBe(true);
@@ -52,10 +56,12 @@ describe('Bagan akun per jenis usaha (e2e)', () => {
 
   it('nama akun inti mengikuti jenis usaha', () => {
     expect(name('DAGANG', '1-1400')).toBe('Persediaan Barang Dagang');
-    expect(name('PRODUKSI', '1-1400')).toBe('Persediaan Bahan Baku & Barang Jadi');
+    expect(name('MANUFAKTUR', '1-1400')).toBe('Persediaan Bahan Baku & Barang Jadi');
+    expect(name('FMCG', '1-1400')).toBe('Persediaan Barang Jadi (Produk Konsumen)');
     expect(name('JASA', '5-1000')).toBe('Beban Pokok Pendapatan (Barang & Material)');
     expect(name('RITEL', '4-1000')).toBe('Penjualan Toko (Kasir)');
-    expect(name('PRODUKSI', '1-2200')).toBe('Mesin & Peralatan Produksi');
+    expect(name('MANUFAKTUR', '1-2200')).toBe('Mesin & Peralatan Produksi');
+    expect(name('FMCG', '4-1000')).toBe('Penjualan Produk Konsumen (Distribusi)');
     expect(name('FNB', '4-1000')).toBe('Penjualan Makanan & Minuman');
     expect(name('FNB', '1-1400')).toBe('Persediaan Bahan Makanan, Minuman & Kemasan');
     expect(name('FNB', '1-2200')).toBe('Peralatan Dapur & Outlet');
@@ -82,7 +88,7 @@ describe('Bagan akun per jenis usaha (e2e)', () => {
     const inv = chart.JASA.find((a) => a.code === '1-1400')!;
     const sales = chart.JASA.find((a) => a.code === '4-1000')!;
     await http.patch(`/api/accounting/accounts/${sales.id}`).set(auth).send({ name: 'Omzet Khusus Saya' }).expect(200);
-    await http.put('/api/settings/business').set(auth).send({ model: 'PRODUKSI', applyApps: false }).expect(200);
+    await http.put('/api/settings/business').set(auth).send({ model: 'MANUFAKTUR', applyApps: false }).expect(200);
     const after = await accounts('JASA');
     expect(after.find((a) => a.code === '1-1400')!.name).toBe('Persediaan Bahan Baku & Barang Jadi'); // bawaan → ikut
     expect(after.find((a) => a.code === '4-1000')!.name).toBe('Omzet Khusus Saya'); // buatan pengguna → tetap
@@ -98,9 +104,11 @@ describe('Bagan akun per jenis usaha (e2e)', () => {
       expect(active('JASA', '1-1420')).toBe(false);
       expect(active('JASA', '5-4100')).toBe(false);
       expect(chart.JASA.find((a) => a.code === '1-1400')!.description).toMatch(/^Tidak dipakai/);
-      expect(active('PRODUKSI', '1-1400')).toBe(true);
-      expect(active('PRODUKSI', '1-1420')).toBe(true);
-      expect(active('PRODUKSI', '4-2100')).toBe(false); // konstruksi tidak relevan untuk produksi
+      expect(active('MANUFAKTUR', '1-1400')).toBe(true);
+      expect(active('MANUFAKTUR', '1-1420')).toBe(true);
+      expect(active('MANUFAKTUR', '4-2100')).toBe(false); // konstruksi tidak relevan untuk produksi
+      expect(active('FMCG', '1-1400')).toBe(true);
+      expect(active('FMCG', '1-1420')).toBe(false); // FMCG menyalurkan barang jadi: tanpa barang dalam proses
       expect(active('FNB', '1-1400')).toBe(true);
       expect(active('FNB', '1-1430')).toBe(true); // barang setengah jadi (saus, adonan)
       expect(active('FNB', '6-9100')).toBe(true); // selisih kas kasir
@@ -138,13 +146,13 @@ describe('Bagan akun per jenis usaha (e2e)', () => {
   describe('standar pelaporan: SAK EMKM tidak mengenal pajak tangguhan', () => {
     const DEFERRED = ['1-2600', '2-2300', '9-1100', '2-2200']; // pajak tangguhan dan liabilitas imbalan kerja aktuaria
     it('bawaan (SAK EP) pajak tangguhan aktif; pindah ke SAK EMKM menyembunyikannya; kembali ke SAK EP mengaktifkannya lagi', async () => {
-      const t = tokens.PRODUKSI;
+      const t = tokens.FMCG;
       const auth = { Authorization: `Bearer ${t}` };
-      const state = async () => Object.fromEntries((await accounts('PRODUKSI')).filter((a) => DEFERRED.includes(a.code)).map((a) => [a.code, a.isActive]));
+      const state = async () => Object.fromEntries((await accounts('FMCG')).filter((a) => DEFERRED.includes(a.code)).map((a) => [a.code, a.isActive]));
       expect(await state()).toEqual({ '1-2600': true, '2-2300': true, '9-1100': true, '2-2200': true });
       await http.patch('/api/settings/reporting').set(auth).send({ framework: 'SAK_EMKM' }).expect(200);
       expect(await state()).toEqual({ '1-2600': false, '2-2300': false, '9-1100': false, '2-2200': false });
-      const hidden = (await accounts('PRODUKSI')).find((a) => a.code === '1-2600')!;
+      const hidden = (await accounts('FMCG')).find((a) => a.code === '1-2600')!;
       expect(hidden.description).toMatch(/^Tidak dipakai/);
       await http.patch('/api/settings/reporting').set(auth).send({ framework: 'SAK_EP' }).expect(200);
       expect(await state()).toEqual({ '1-2600': true, '2-2300': true, '9-1100': true, '2-2200': true });

@@ -9,7 +9,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 import { todayJakarta } from '../src/common/utils/dates';
 
-type Model = 'DAGANG' | 'RITEL' | 'JASA' | 'PRODUKSI' | 'MANUFAKTUR';
+type Model = 'DAGANG' | 'RITEL' | 'JASA' | 'FMCG' | 'MANUFAKTUR';
 type Line = { key: string; label: string };
 type Section = { key: string; paragraphs: string[]; subsections?: { title: string; paragraphs: string[] }[] };
 
@@ -44,7 +44,7 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
     app = configureApp(mod.createNestApplication());
     await app.init();
     http = request(app.getHttpServer());
-    for (const m of ['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR', 'FNB'] as Model[]) {
+    for (const m of ['DAGANG', 'RITEL', 'JASA', 'FMCG', 'MANUFAKTUR', 'FNB'] as Model[]) {
       tokens[m] = (
         await http.post('/api/auth/register').send({ companyName: `Usaha ${m}`, name: 'Pemilik', email: `rep-${m}-${stamp}@uji.id`, password: 'rahasia123', businessModel: m }).expect(201)
       ).body.accessToken;
@@ -53,15 +53,15 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
   afterAll(() => app.close());
 
   describe('bagan akun', () => {
-    const specific = { DAGANG: ['6-2350'], RITEL: ['6-2450', '6-2500'], JASA: ['5-1500', '5-1600', '5-1700', '6-3600'], PRODUKSI: ['5-4300', '5-4400'], MANUFAKTUR: ['5-4300', '5-4400', '5-4950'], FNB: ['5-1350', '5-1450', '6-2450', '6-2460', '6-2500'] } as Record<Model, string[]>;
+    const specific = { DAGANG: ['6-2350'], RITEL: ['6-2450', '6-2500'], JASA: ['5-1500', '5-1600', '5-1700', '6-3600'], FMCG: ['6-2150', '6-2160'], MANUFAKTUR: ['5-4300', '5-4400', '5-4950'], FNB: ['5-1350', '5-1450', '6-2450', '6-2460', '6-2500'] } as Record<Model, string[]>;
     const universal = ['1-1100', '1-1300', '2-1100', '4-1000', '5-1000', '6-7000', '9-1000'];
 
-    it.each(['DAGANG', 'RITEL', 'JASA', 'PRODUKSI', 'MANUFAKTUR', 'FNB'] as Model[])('%s: akun umum lengkap, akun khusus hanya milik modelnya', async (m) => {
+    it.each(['DAGANG', 'RITEL', 'JASA', 'FMCG', 'MANUFAKTUR', 'FNB'] as Model[])('%s: akun umum lengkap, akun khusus hanya milik modelnya', async (m) => {
       const c = await codes(m);
       for (const code of universal) expect(c).toContain(code);
       for (const code of specific[m]) expect(c).toContain(code);
-      // Manufaktur memuat semua akun khusus Produksi; selain itu akun khusus model lain tidak boleh ada
-      for (const [other, list] of Object.entries(specific)) if (other !== m) for (const code of list) if (!(m === 'MANUFAKTUR' && other === 'PRODUKSI') && !specific[m].includes(code)) expect(c).not.toContain(code);
+      // akun khusus model lain tidak boleh ada
+      for (const [other, list] of Object.entries(specific)) if (other !== m) for (const code of list) if (!specific[m].includes(code)) expect(c).not.toContain(code);
       expect(new Set(c).size).toBe(c.length); // tanpa kode ganda
     });
 
@@ -96,7 +96,7 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
       ['DAGANG', 'Pendapatan usaha', 'Beban pokok penjualan'],
       ['RITEL', 'Pendapatan usaha', 'Beban pokok penjualan'],
       ['JASA', 'Pendapatan jasa', 'Beban pokok pendapatan'],
-      ['PRODUKSI', 'Pendapatan usaha', 'Beban pokok produksi dan penjualan'],
+      ['FMCG', 'Penjualan neto', 'Harga pokok penjualan'],
       ['MANUFAKTUR', 'Pendapatan usaha', 'Beban pokok produksi dan penjualan'],
     ] as [Model, string, string][])('%s memakai istilah sendiri di SAK EP', async (m, revenue, cogs) => {
       const lines = await income(m, 'SAK_EP');
@@ -106,7 +106,7 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
 
     it.each([
       ['JASA', 'Pendapatan jasa', 'Beban pokok pendapatan'],
-      ['PRODUKSI', 'Pendapatan usaha', 'Beban pokok produksi dan penjualan'],
+      ['FMCG', 'Penjualan neto', 'Harga pokok penjualan'],
       ['MANUFAKTUR', 'Pendapatan usaha', 'Beban pokok produksi dan penjualan'],
     ] as [Model, string, string][])('%s memakai istilah sendiri di SAK EMKM', async (m, revenue, cogs) => {
       const lines = await income(m, 'SAK_EMKM');
@@ -116,7 +116,7 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
 
     it('angka tidak berubah oleh istilah: kunci baris dan jumlah sama di semua model', async () => {
       const a = await income('DAGANG', 'SAK_EP');
-      const b = await income('PRODUKSI', 'SAK_EP');
+      const b = await income('FMCG', 'SAK_EP');
       expect(a.map((l) => l.key)).toEqual(b.map((l) => l.key));
     });
   });
@@ -142,15 +142,15 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
       expect(text(sec(s, 'payables')) + text(sec(s, 'receivables'))).not.toMatch(/barang dagang/);
     });
 
-    it('produksi: beban pokok produksi, persediaan bahan baku–barang jadi', async () => {
-      await journal('PRODUKSI', '1-1100', '4-1000', '9000000');
-      await journal('PRODUKSI', '5-1000', '1-1100', '3000000');
-      await journal('PRODUKSI', '1-1400', '1-1100', '2000000');
-      const s = await notes('PRODUKSI');
-      expect(text(sec(s, 'general'))).toContain('industri pengolahan (produksi)');
-      expect(text(sec(s, 'revenue'))).toContain('barang hasil produksi');
-      expect(text(sec(s, 'cogs'))).toContain('bahan baku, upah langsung, dan overhead produksi');
-      expect(text(sec(s, 'inventory'))).toContain('bahan baku, barang dalam proses, dan barang jadi');
+    it('FMCG: distribusi barang konsumen, persediaan dinilai per lot dan ditelaah kedaluwarsanya', async () => {
+      await journal('FMCG', '1-1100', '4-1000', '9000000');
+      await journal('FMCG', '5-1000', '1-1100', '3000000');
+      await journal('FMCG', '1-1400', '1-1100', '2000000');
+      const s = await notes('FMCG');
+      expect(text(sec(s, 'general'))).toContain('distribusi dan penjualan barang konsumen cepat laku');
+      expect(text(sec(s, 'revenue'))).toContain('toko, outlet, dan pelanggan usaha');
+      expect(text(sec(s, 'cogs'))).toContain('barang bonus');
+      expect(text(sec(s, 'inventory'))).toContain('masa kedaluwarsanya');
     });
 
     it('ritel: eceran lewat kasir; selisih kas kasir disebut di kebijakan', async () => {
@@ -172,8 +172,8 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
     it('ganti model mengubah teks CALK tanpa mengubah angka', async () => {
       const total = async () => (await get('JASA', `/api/accounting/notes/${year}`)).body.totals;
       const before = await total();
-      await http.put('/api/settings/business').set(as('JASA')).send({ model: 'PRODUKSI', applyApps: false }).expect(200);
-      expect(text(sec(await notes('JASA'), 'revenue'))).toContain('barang hasil produksi');
+      await http.put('/api/settings/business').set(as('JASA')).send({ model: 'FMCG', applyApps: false }).expect(200);
+      expect(text(sec(await notes('JASA'), 'revenue'))).toContain('barang konsumen');
       expect(await total()).toEqual(before);
     });
   });

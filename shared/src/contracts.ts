@@ -46,7 +46,7 @@ export interface Me {
   apps: AppKey[];
   /** Fitur pajak yang relevan menurut jenis usaha, status PKP, dan skema PPh (menu pajak mengikuti ini) */
   taxFeatures: TaxFeatures;
-  /** Model bisnis perusahaan (Dagang, Ritel, Jasa, Produksi, Manufaktur) */
+  /** Model bisnis perusahaan (Dagang, Ritel, Jasa, FMCG, Manufaktur, F&B) */
   businessModel: BusinessModel;
   /** Perusahaan punya cabang usaha (fitur cabang tampil); mati = menu & isian cabang disembunyikan */
   multiBranch?: boolean;
@@ -191,6 +191,9 @@ export interface Warehouse {
   name: string;
   address?: string | null;
   isActive?: boolean;
+  /** MAIN = gudang biasa; CONSIGNMENT = titipan di outlet; VAN = stok mobil sales kanvas */
+  kind?: 'MAIN' | 'CONSIGNMENT' | 'VAN';
+  vanUserId?: string | null;
 }
 
 export interface ProductUom {
@@ -230,6 +233,11 @@ export interface Customer {
   creditLimit: string;
   paymentTermDays: number;
   isActive: boolean;
+  /** Daftar harga pelanggan (segmen); kosong = harga jual master */
+  priceListId?: string | null;
+  requirePo?: boolean;
+  geoLat?: string | null;
+  geoLng?: string | null;
   outstanding?: string;
 }
 

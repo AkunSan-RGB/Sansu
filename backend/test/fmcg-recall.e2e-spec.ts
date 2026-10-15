@@ -1,0 +1,168 @@
+/**
+ * FMCG: penelusuran lot untuk penarikan produk (recall) — satu nomor lot ditelusuri ke asal penerimaan dan seluruh
+ * pelanggan penerimanya (surat jalan & faktur langsung), transfer, serta pembuangan; lot lain tidak ikut terbawa.
+ */
+import { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { sql } from 'drizzle-orm';
+import request from 'supertest';
+import { AppModule } from '../src/app.module';
+import { configureApp } from '../src/bootstrap';
+import { DB, Db } from '../src/db/db';
+
+describe('FMCG: penelusuran lot / recall (e2e)', () => {
+  let app: INestApplication;
+  let http: ReturnType<typeof request>;
+  const stamp = Date.now();
+  let owner: string;
+  let db: Db;
+  let tenantId: string;
+  let wh: string;
+  let P: string;
+  let c1: string;
+  let c2: string;
+  let c3: string;
+  const as = (t: string) => ({ Authorization: `Bearer ${t}` });
+  const post = (url: string, body: object = {}, t = owner) => http.post(url).set(as(t)).send(body);
+  const get = (url: string, t = owner) => http.get(url).set(as(t));
+  const today = new Date().toISOString().slice(0, 10);
+  const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+
+  beforeAll(async () => {
+    const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = configureApp(mod.createNestApplication());
+    await app.init();
+    http = request(app.getHttpServer());
+    db = app.get<Db>(DB);
+    const reg = (await http.post('/api/auth/register').send({ companyName: 'PT Recall Uji', name: 'Pemilik', email: `rc-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'FMCG' }).expect(201)).body;
+    owner = reg.accessToken;
+    tenantId = reg.user.tenantId;
+    wh = (await get('/api/warehouses').expect(200)).body[0].id;
+    P = (await post('/api/products', { sku: 'BSK', name: 'Biskuit Kelapa', baseUom: 'PCS', sellPrice: '9500' }).expect(201)).body.id;
+    const sup = (await post('/api/suppliers', { code: 'PRI', name: 'PT Prinsipal Pangan' }).expect(201)).body.id;
+    const po = (await post('/api/purchase-orders', { supplierId: sup, warehouseId: wh, lines: [{ productId: P, qty: '100', price: '7000' }, { productId: P, qty: '60', price: '7100' }] }).expect(201)).body;
+    await post(`/api/purchase-orders/${po.id}/confirm`).expect(201);
+    await post(`/api/purchase-orders/${po.id}/receipts`, { date: today, lines: [
+      { orderLineId: po.lines[0].id, qty: '100', lotNo: 'BSK-A', expiryDate: inDays(90) },
+      { orderLineId: po.lines[1].id, qty: '60', lotNo: 'BSK-B', expiryDate: inDays(200) },
+    ] }).expect(201);
+    c1 = (await post('/api/customers', { code: 'OTL-1', name: 'Minimarket Berkah', phone: '0812', address: 'Bekasi' }).expect(201)).body.id;
+    c2 = (await post('/api/customers', { code: 'OTL-2', name: 'Warung Bu Sari' }).expect(201)).body.id;
+    c3 = (await post('/api/customers', { code: 'OTL-3', name: 'Grosir Rezeki' }).expect(201)).body.id;
+  });
+  afterAll(() => app.close());
+
+  const sell = async (customerId: string, qty: string, mode: 'DELIVER' | 'INVOICE') => {
+    const so = (await post('/api/sales-orders', { customerId, warehouseId: wh, lines: [{ productId: P, qty }] }).expect(201)).body;
+    await post(`/api/sales-orders/${so.id}/confirm`).expect(201);
+    if (mode === 'DELIVER') return (await post(`/api/sales-orders/${so.id}/deliver`).expect(201)).body;
+    return (await post('/api/invoices', { salesOrderId: so.id }).expect(201)).body;
+  };
+  const trace = (lotNo: string, t = owner) => get(`/api/inventory/lots/trace?productId=${P}&lotNo=${lotNo}`, t);
+
+  it('FEFO: penjualan mengambil lot yang lebih cepat kedaluwarsa (A) dulu; penelusuran A menemukan semua pelanggannya', async () => {
+    await sell(c1, '40', 'DELIVER');
+    await sell(c2, '35', 'INVOICE');
+    const t = (await trace('BSK-A').expect(200)).body;
+    expect(t.product.sku).toBe('BSK');
+    expect(t.lots).toHaveLength(1);
+    expect(t.lots[0].source).toMatchObject({ type: 'Penerimaan barang', supplier: 'PT Prinsipal Pangan' });
+    expect(t.lots[0].source.number).toMatch(/^GR/);
+    expect(t.customers.map((c: { code: string; qty: string }) => [c.code, Number(c.qty)])).toEqual([['OTL-1', 40], ['OTL-2', 35]]);
+    expect(t.customers[0]).toMatchObject({ name: 'Minimarket Berkah', phone: '0812', address: 'Bekasi' });
+    expect(t.customers[0].docs[0].number).toMatch(/^(DO|SJ|DLV)/);
+    expect(Number(t.summary.received)).toBe(100);
+    expect(Number(t.summary.toCustomers)).toBe(75);
+    expect(Number(t.summary.remaining)).toBe(25);
+    expect(Number(t.summary.untraced)).toBe(0);
+    // lot B belum disentuh: tidak ada pelanggan yang terkait
+    const b = (await trace('BSK-B').expect(200)).body;
+    expect(b.customers).toEqual([]);
+    expect(Number(b.summary.remaining)).toBe(60);
+  });
+
+  it('pengeluaran lain (pembuangan) dan penjualan berikutnya yang melewati batas lot tercatat per lot', async () => {
+    await sell(c3, '30', 'INVOICE'); // 25 dari A (habis) + 5 dari B
+    const a = (await trace('BSK-A').expect(200)).body;
+    expect(a.customers.map((c: { code: string }) => c.code).sort()).toEqual(['OTL-1', 'OTL-2', 'OTL-3']);
+    expect(Number(a.customers.find((c: { code: string }) => c.code === 'OTL-3').qty)).toBe(25);
+    expect(Number(a.summary.remaining)).toBe(0);
+    const b = (await trace('BSK-B').expect(200)).body;
+    expect(b.customers.map((c: { code: string; qty: string }) => [c.code, Number(c.qty)])).toEqual([['OTL-3', 5]]);
+    // buang sisa lot B → muncul di "lainnya", bukan di pelanggan
+    const lots = (await get('/api/inventory/lots').expect(200)).body.items as { id: string; lotNo: string }[];
+    await post(`/api/inventory/lots/${lots.find((l) => l.lotNo === 'BSK-B')!.id}/discard`, { notes: 'Uji' }).expect(201);
+    const b2 = (await trace('BSK-B').expect(200)).body;
+    expect(b2.other.map((o: { type: string; qty: string }) => [o.type, Number(o.qty)])).toEqual([['ADJUSTMENT_OUT', 55]]);
+    expect(Number(b2.summary.untraced)).toBe(0);
+  });
+
+  it('pengiriman yang dibatalkan ditandai dan tidak dihitung ke pelanggan', async () => {
+    const p2 = (await post('/api/products', { sku: 'TEH', name: 'Teh Kotak', baseUom: 'PCS', sellPrice: '5000' }).expect(201)).body.id;
+    const sup = (await post('/api/suppliers', { code: 'PRI2', name: 'PT Minuman' }).expect(201)).body.id;
+    const po = (await post('/api/purchase-orders', { supplierId: sup, warehouseId: wh, lines: [{ productId: p2, qty: '50', price: '3000' }] }).expect(201)).body;
+    await post(`/api/purchase-orders/${po.id}/confirm`).expect(201);
+    await post(`/api/purchase-orders/${po.id}/receipts`, { date: today, lines: [{ orderLineId: po.lines[0].id, qty: '50', lotNo: 'TEH-1', expiryDate: inDays(30) }] }).expect(201);
+    const so = (await post('/api/sales-orders', { customerId: c1, warehouseId: wh, lines: [{ productId: p2, qty: '20' }] }).expect(201)).body;
+    await post(`/api/sales-orders/${so.id}/confirm`).expect(201);
+    const dl = (await post(`/api/sales-orders/${so.id}/deliver`).expect(201)).body;
+    await post(`/api/deliveries/${dl.id}/cancel`, {}).expect(201);
+    const t = (await get(`/api/inventory/lots/trace?productId=${p2}&lotNo=TEH-1`).expect(200)).body;
+    expect(Number(t.summary.toCustomers)).toBe(0);
+    expect(t.customers[0].docs[0].cancelled).toBe(true);
+    expect(Number(t.summary.untraced)).toBe(0);
+  });
+
+  it('lot tidak ada = 404; peran tanpa hak tidak boleh; perusahaan lain tidak melihat lot ini', async () => {
+    expect((await trace('TIDAK-ADA')).status).toBe(404);
+    const other = (await http.post('/api/auth/register').send({ companyName: 'PT Lain', name: 'P', email: `rc-o-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'FMCG' }).expect(201)).body.accessToken;
+    expect((await trace('BSK-A', other)).status).toBe(404);
+    await post('/api/users', { name: 'Kasir', email: `rc-k-${stamp}@uji.id`, password: 'kasir12345', role: 'CASHIER' }).expect(201);
+    const k = (await http.post('/api/auth/login').send({ email: `rc-k-${stamp}@uji.id`, password: 'kasir12345' }).expect(200)).body.accessToken;
+    expect((await trace('BSK-A', k)).status).toBe(403);
+  });
+
+  it('rekonstruksi: pengeluaran lama (tanpa jejak lot) dialokasikan FEFO dan ditandai perkiraan; aman diulang; tidak menimpa jejak asli', async () => {
+    const before = (await trace('BSK-A').expect(200)).body;
+    // meniru stok dari sebelum fitur jejak lot: hapus seluruh jejak
+    await db.execute(sql`DELETE FROM stock_lot_issues WHERE tenant_id = ${tenantId}`);
+    const lost = (await trace('BSK-A').expect(200)).body;
+    expect(lost.customers).toEqual([]);
+    expect(Number(lost.summary.untraced)).toBe(100); // seluruh lot A (100) tidak terjelaskan
+    expect((await post('/api/inventory/lots/rebuild-trace', {}, await asRole('WAREHOUSE'))).status).toBe(403); // hanya Admin
+    const r = (await post('/api/inventory/lots/rebuild-trace').expect(201)).body;
+    expect(r.allocated).toBeGreaterThan(0);
+    const after = (await trace('BSK-A').expect(200)).body;
+    expect(after.customers.map((c: { code: string; qty: string }) => [c.code, Number(c.qty)])).toEqual(before.customers.map((c: { code: string; qty: string }) => [c.code, Number(c.qty)]));
+    expect(Number(after.summary.untraced)).toBe(0);
+    expect(Number(after.summary.estimated)).toBe(100);
+    expect(after.customers[0].docs.every((d: { estimate: boolean }) => d.estimate)).toBe(true);
+    // diulang: tidak menambah apa pun
+    const again = (await post('/api/inventory/lots/rebuild-trace').expect(201)).body;
+    expect(again.allocated).toBe(0);
+  });
+
+  it('tukar-guling karena penarikan produk: pengganti tidak diambil dari lot yang ditarik', async () => {
+    const p3 = (await post('/api/products', { sku: 'SBN', name: 'Sabun', baseUom: 'PCS', sellPrice: '4000' }).expect(201)).body.id;
+    const sup = (await post('/api/suppliers', { code: 'PRI3', name: 'PT Sabun' }).expect(201)).body.id;
+    const po = (await post('/api/purchase-orders', { supplierId: sup, warehouseId: wh, lines: [{ productId: p3, qty: '50', price: '2000' }, { productId: p3, qty: '50', price: '2000' }] }).expect(201)).body;
+    await post(`/api/purchase-orders/${po.id}/confirm`).expect(201);
+    await post(`/api/purchase-orders/${po.id}/receipts`, { date: today, lines: [{ orderLineId: po.lines[0].id, qty: '50', lotNo: 'SBN-OLD', expiryDate: inDays(30) }, { orderLineId: po.lines[1].id, qty: '50', lotNo: 'SBN-NEW', expiryDate: inDays(90) }] }).expect(201);
+    const so = (await post('/api/sales-orders', { customerId: c1, warehouseId: wh, lines: [{ productId: p3, qty: '10' }] }).expect(201)).body;
+    await post(`/api/sales-orders/${so.id}/confirm`).expect(201);
+    const inv = (await post('/api/invoices', { salesOrderId: so.id }).expect(201)).body;
+    const lineId = (await get(`/api/invoices/${inv.id}`).expect(200)).body.lines[0].id;
+    const sw = (await post('/api/goods-swaps', { invoiceId: inv.id, reason: 'RECALL', lines: [{ invoiceLineId: lineId, qty: '5', lotNo: 'SBN-OLD' }] }).expect(201)).body;
+    await post(`/api/goods-swaps/${sw.id}/approve`, {}, await asRole('FINANCE')).expect(201);
+    const old = (await get(`/api/inventory/lots/trace?productId=${p3}&lotNo=SBN-OLD`).expect(200)).body;
+    const neu = (await get(`/api/inventory/lots/trace?productId=${p3}&lotNo=SBN-NEW`).expect(200)).body;
+    expect(Number(old.summary.remaining)).toBe(40); // 50 − 10 dijual; pengganti TIDAK dari lot ini
+    expect(Number(neu.summary.remaining)).toBe(45); // pengganti 5 diambil dari lot baru
+    expect(neu.customers.map((c: { code: string }) => c.code)).toEqual(['OTL-1']); // lot baru tercatat ke outlet lewat tukar-guling
+  });
+
+  const asRole = async (role: string) => {
+    await post('/api/users', { name: role, email: `rc-${role}-${stamp}@uji.id`, password: 'rahasia12345', role }).expect(201);
+    return (await http.post('/api/auth/login').send({ email: `rc-${role}-${stamp}@uji.id`, password: 'rahasia12345' }).expect(200)).body.accessToken as string;
+  };
+});

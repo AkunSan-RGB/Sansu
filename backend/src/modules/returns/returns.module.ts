@@ -7,6 +7,7 @@ import { AccountingModule } from '../accounting/accounting.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { CreateReturnDto } from './returns.dto';
 import { ReturnsService } from './returns.service';
+import { SwapsController, SwapsService } from './swaps';
 
 @ApiTags('Retur')
 @ApiBearerAuth()
@@ -46,7 +47,7 @@ export class ReturnsController {
 
 @Module({
   imports: [AccountingModule, InventoryModule],
-  controllers: [ReturnsController],
-  providers: [ReturnsService],
+  controllers: [ReturnsController, SwapsController],
+  providers: [ReturnsService, SwapsService],
 })
 export class ReturnsModule {}

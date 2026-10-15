@@ -25,7 +25,7 @@ describe('istilah antarmuka per jenis usaha', () => {
     expect(localize('Perputaran persediaan', 'JASA')).toBe('Pemakaian bahan');
     expect(localize('Persediaan & mutasi', 'JASA')).toBe('Bahan & mutasi');
     expect(localize('Tidak bergerak', 'JASA')).toBe('Tidak terpakai');
-    for (const m of ['DAGANG', 'RITEL', 'PRODUKSI', 'MANUFAKTUR', 'FNB'] as const) {
+    for (const m of ['DAGANG', 'RITEL', 'FMCG', 'MANUFAKTUR', 'FNB'] as const) {
       expect(localize('Retur penjualan', m)).toBe('Retur penjualan');
       expect(localize('Retur', m)).toBe('Retur');
       expect(localize('Perputaran persediaan', m)).toBe('Perputaran persediaan');
@@ -41,11 +41,12 @@ describe('istilah antarmuka per jenis usaha', () => {
   it('kata penjualan di dalam kalimat lain tidak ikut berubah untuk jasa', () => {
     expect(localize('Laporan penjualan harian', 'JASA')).toBe('Laporan penjualan harian');
   });
-  it('produksi membaca pesanan bahan dan stok bahan', () => {
-    expect(localize('Purchase Order', 'PRODUKSI')).toBe('Pesanan bahan');
-    expect(localize('Pembelian', 'PRODUKSI')).toBe('Pembelian bahan');
-    expect(localize('Inventori', 'PRODUKSI')).toBe('Persediaan bahan & produk jadi');
-    expect(localize('Produk', 'PRODUKSI')).toBe('Produk & bahan baku');
+  it('FMCG membaca prinsipal, outlet, dan SKU; manufaktur tetap membaca bahan', () => {
+    expect(localize('Pembelian', 'FMCG')).toBe('Pembelian dari prinsipal');
+    expect(localize('Supplier', 'FMCG')).toBe('Prinsipal / pemasok');
+    expect(localize('Pelanggan', 'FMCG')).toBe('Outlet');
+    expect(localize('Produk', 'FMCG')).toBe('Produk (SKU)');
+    expect(localize('Pembelian', 'MANUFAKTUR')).toBe('Pembelian bahan');
   });
   it('kata yang bukan istilah utuh tidak tersentuh dan model tak dikenal jatuh ke dagang', () => {
     expect(localize('Produksi', 'DAGANG')).toBe('Produksi');

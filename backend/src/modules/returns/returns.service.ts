@@ -123,6 +123,17 @@ export class ReturnsService {
       if (!order) throw new BadRequestException('Gudang asal faktur tidak diketahui');
       const [customer] = await tx.select().from(customers).where(eq(customers.id, inv.customerId));
 
+      // Barang yang sudah/sedang ditukar-guling tidak boleh diretur lagi (outlet tidak boleh dapat pengganti sekaligus nota kredit)
+      for (const l of dto.lines) {
+        if (D(l.qty).lte(0)) continue;
+        const sw = await tx.execute<{ q: string }>(sql`
+          SELECT COALESCE(SUM(sl.qty), 0)::text AS q FROM goods_swap_lines sl JOIN goods_swaps s ON s.id = sl.swap_id
+          WHERE sl.invoice_line_id = ${l.invoiceLineId} AND s.status IN ('PENDING', 'APPROVED')`);
+        const src = inv.lines.find((x) => x.id === l.invoiceLineId);
+        if (src && D(sw.rows[0].q).gt(0) && D(l.qty).gt(D(src.qty).minus(src.returnedQty).minus(sw.rows[0].q))) {
+          throw new BadRequestException(`Sebagian barang pada baris ini sudah/sedang ditukar-guling (${D(sw.rows[0].q).toFixed(0)} ${src.uom}); jumlah retur melebihi sisa yang boleh diretur`);
+        }
+      }
       const { lines, subtotal, isFinal } = buildReturnLines(inv.lines, dto);
       const prevTax = await this.sumTax(tx, 'sales_returns', 'invoice_id', inv.id);
       const tax = returnTax(subtotal, inv, prevTax, isFinal);
