@@ -76,7 +76,7 @@ export default function SwapsPage() {
           <Form.Item name="reason" label="Alasan"><Select options={Object.entries(REASON).map(([value, label]) => ({ value, label }))} /></Form.Item>
           {detail?.lines.map((l) => (
             <Space key={l.id} align="baseline" wrap style={{ display: 'flex' }}>
-              <span style={{ width: 230, display: 'inline-block' }}>{l.product?.sku} · {l.product?.name}<br /><span style={{ fontSize: 12, color: '#64748b' }}>dijual {fmtQty(l.qty)} {l.uom}</span></span>
+              <span style={{ minWidth: 200, display: "inline-block" }}>{l.product?.sku} · {l.product?.name}<br /><span style={{ fontSize: 12, color: '#64748b' }}>dijual {fmtQty(l.qty)} {l.uom}</span></span>
               <Form.Item name={['qty', l.id]} label="Jumlah ditukar"><InputNumber min={0} max={Number(l.qty)} style={{ width: 120 }} /></Form.Item>
               <Form.Item name={['lot', l.id]} label="Lot lama"><Input style={{ width: 130 }} /></Form.Item>
             </Space>

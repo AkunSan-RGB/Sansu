@@ -76,3 +76,22 @@
   .summary-row { flex-wrap: nowrap !important; overflow-x: auto; margin-inline: 0 !important; padding-bottom: 4px; scroll-snap-type: x proximity; }
   .summary-row > .ant-col { flex: 0 0 78% !important; max-width: 78% !important; scroll-snap-align: start; }
 }
+
+/* HP: form di dalam jendela/laci tidak boleh melebihi layar; kolom bersusun rapi, lebar penuh */
+@media (max-width: 575px) {
+  .ant-drawer .ant-drawer-content-wrapper { width: 100vw !important; max-width: 100vw; }
+  .ant-modal .ant-modal-body { max-height: calc(100vh - 180px); overflow-y: auto; overflow-x: hidden; }
+  .ant-modal .ant-select, .ant-modal .ant-input-number, .ant-modal .ant-input-affix-wrapper,
+  .ant-modal .ant-input:not(.ant-input-number-input), .ant-modal .ant-picker,
+  .ant-drawer .ant-select, .ant-drawer .ant-input-number { width: 100% !important; max-width: 100% !important; }
+  .ant-modal .ant-space, .ant-drawer .ant-space { flex-wrap: wrap; width: 100%; }
+  .ant-modal .ant-space-item, .ant-drawer .ant-space-item { max-width: 100%; }
+  .ant-modal .ant-space-item:has(> .ant-form-item), .ant-modal .ant-space-item:has(> .ant-select) { flex: 1 1 100%; }
+  .ant-modal-footer { display: flex; gap: 8px; }
+  .ant-modal-footer .ant-btn { flex: 1; margin: 0 !important; }
+  .ant-tabs-nav-list .ant-tabs-tab { padding: 8px 4px; margin: 0 14px 0 0; }
+  .ant-table-wrapper .ant-table-pagination { flex-wrap: wrap; justify-content: center; }
+  .ant-table-small .ant-table-cell { padding: 8px 6px; }
+  .ant-form-inline { flex-direction: column; align-items: stretch; }
+  .ant-form-inline .ant-form-item { margin-inline-end: 0; width: 100%; }
+}

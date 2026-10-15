@@ -1,6 +1,7 @@
+import ResponsiveTable from '@/components/ResponsiveTable';
 import { PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tabs, Tag } from 'antd';
+import { Alert, Button, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Tabs, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { get, post, put } from '@/api/client';
@@ -53,7 +54,7 @@ function TermsTab() {
     <>
       <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Peritel modern biasanya meminta rebate (persen dari penjualan neto) dan biaya tetap bulanan (listing fee, merchandising). Syarat dagang dihitung tiap akhir bulan menjadi utang rebate, lalu dilunasi dengan memotong tagihan atau dibayar. Hanya Pemilik/Admin yang mengubah syarat." />
       {can('POST', '/trade-terms') && <Button type="primary" icon={<PlusOutlined />} style={{ marginBottom: 8 }} onClick={() => open('new')}>Syarat dagang baru</Button>}
-      <Table<Term> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={{ pageSize: 10 }} scroll={{ x: 640 }} locale={{ emptyText: 'Belum ada syarat dagang' }}
+      <ResponsiveTable<Term> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={{ pageSize: 10 }} scroll={{ x: 640 }} locale={{ emptyText: 'Belum ada syarat dagang' }}
         columns={[
           { title: 'Outlet', dataIndex: 'customerName' },
           { title: 'Syarat', render: (_: unknown, t: Term) => <span>{t.name} {!t.isActive && <Tag>Nonaktif</Tag>}</span> },
@@ -94,7 +95,7 @@ function AccrualsTab() {
           <Popconfirm title={`Hitung syarat dagang ${month}?`} description="Dijurnal Dr Beban Trade Promo | Cr Utang Rebate. Satu syarat hanya sekali per bulan." okText="Hitung" cancelText="Batal" onConfirm={() => accrue.mutate(undefined)}><Button type="primary" loading={accrue.isPending}>Hitung syarat dagang bulan</Button></Popconfirm>
         </Space>
       )}
-      <Table<Accrual> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={{ pageSize: 10 }} scroll={{ x: 760 }} locale={{ emptyText: 'Belum ada utang rebate' }}
+      <ResponsiveTable<Accrual> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={{ pageSize: 10 }} scroll={{ x: 760 }} locale={{ emptyText: 'Belum ada utang rebate' }}
         columns={[
           { title: 'Nomor', dataIndex: 'number' },
           { title: 'Bulan', dataIndex: 'period' },
@@ -133,7 +134,7 @@ function ClaimsTab() {
     <>
       <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Isi “Prinsipal penanggung” dan persennya di promo. Setelah bulan berakhir, klaim dikumpulkan dari baris pesanan berpromo (potongan dan biaya bonus); tiap baris hanya bisa diklaim sekali. Disetujui prinsipal → piutang klaim; diterima → kas." />
       {can('POST', '/principal-claims/generate') && <Button type="primary" icon={<PlusOutlined />} style={{ marginBottom: 8 }} onClick={() => { cf.resetFields(); cf.setFieldsValue({ month: prevMonth().format('YYYY-MM') }); setCreating(true); }}>Buat klaim bulanan</Button>}
-      <Table<Claim> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={{ pageSize: 10 }} scroll={{ x: 760 }} locale={{ emptyText: 'Belum ada klaim' }}
+      <ResponsiveTable<Claim> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={{ pageSize: 10 }} scroll={{ x: 760 }} locale={{ emptyText: 'Belum ada klaim' }}
         columns={[
           { title: 'Nomor', dataIndex: 'number' },
           { title: 'Prinsipal', dataIndex: 'supplierName' },
