@@ -82,6 +82,13 @@ describe('FMCG: tukar-guling & konsinyasi (e2e)', () => {
       expect((await post('/api/goods-swaps', { invoiceId, reason: 'DAMAGED', lines: [{ invoiceLineId: lineId, qty: '0' }] }, tok.sls.token)).status).toBe(400);
     });
 
+    it('retur penjualan tidak bisa melebihi sisa setelah tukar-guling (tidak ada kompensasi ganda)', async () => {
+      // baris faktur 100: tukar-guling 10 menunggu → retur 95 ditolak; retur 90 masih diperbolehkan oleh batas itu
+      const over = await post('/api/sales-returns', { invoiceId, lines: [{ invoiceLineId: lineId, qty: '95' }] });
+      expect(over.status).toBe(400);
+      expect(JSON.stringify(over.body)).toMatch(/ditukar-guling/);
+    });
+
     it('faktur terlalu lama (> 180 hari) ditolak', async () => {
       const old = await invoiceFor((await post('/api/customers', { code: 'LAMA', name: 'Outlet Lama' }).expect(201)).body.id, '5', daysAgo(200));
       const lid = (await get(`/api/invoices/${old}`).expect(200)).body.lines[0].id;
@@ -136,6 +143,24 @@ describe('FMCG: tukar-guling & konsinyasi (e2e)', () => {
       expect(Number(mine.costValue)).toBe(60000);
       expect(mine.stale).toBe(false);
       expect(await qtyAt(cw)).toBe(100);
+    });
+
+    it('titipan tidak bisa dipindah lewat transfer biasa atau dikoreksi lewat penyesuaian stok (hanya konsinyasi / opname)', async () => {
+      const t = await post('/api/inventory/transfers', { fromWarehouseId: cw, toWarehouseId: wh, mode: 'DIRECT', lines: [{ productId: P, qty: '1' }] });
+      expect(t.status).toBe(400);
+      expect(JSON.stringify(t.body)).toMatch(/Konsinyasi/);
+      expect((await post('/api/inventory/adjustments', { warehouseId: cw, reason: 'DAMAGED', lines: [{ productId: P, qty: '-1' }] })).status).toBe(400);
+    });
+
+    it('outlet peritel modern (wajib PO) tetap bisa ditagih lewat laporan konsinyasi; promo bonus tidak menambah baris', async () => {
+      await post('/api/promos', { name: 'Bonus uji', kind: 'BONUS', productId: P, minQty: '1', bonusProductId: P, bonusQty: '1' }).expect(201);
+      const po = (await post('/api/customers', { code: 'RTL', name: 'Peritel Modern', requirePo: true }).expect(201)).body.id;
+      await post('/api/consignments/ship', { customerId: po, fromWarehouseId: wh, lines: [{ productId: P, qty: '20' }] }, tok.gdg.token).expect(201);
+      const rep = (await post('/api/consignments/reports', { customerId: po, reference: 'LP-RTL-1', lines: [{ productId: P, qty: '10' }] }, tok.sls.token).expect(201)).body.id;
+      const r = (await post(`/api/consignments/reports/${rep}/invoice`, {}, tok.fin.token).expect(201)).body;
+      const inv = (await get(`/api/invoices/${r.invoiceId}`).expect(200)).body;
+      expect(inv.lines).toHaveLength(1); // tanpa baris bonus
+      expect(Number(inv.lines[0].qty)).toBe(10);
     });
 
     it('titipan tidak bisa dijual lewat pesanan biasa (harus lewat laporan outlet)', async () => {

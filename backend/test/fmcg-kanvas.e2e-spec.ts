@@ -31,6 +31,7 @@ describe('FMCG: kanvas (e2e)', () => {
     const r = (await http.post('/api/auth/login').send({ email: `kv-${n}-${stamp}@uji.id`, password: 'rahasia12345' }).expect(200)).body;
     tok[n] = { token: r.accessToken, id: r.user.id };
   };
+  const bal = async (code: string) => Number((await db.execute<{ b: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0)::text AS b FROM journal_lines l JOIN accounts a ON a.id = l.account_id JOIN journal_entries j ON j.id = l.journal_id WHERE j.tenant_id = ${tenantId} AND a.code = ${code}`)).rows[0].b);
   const qtyAt = async (w: string) => Number((await db.execute<{ q: string }>(sql`SELECT COALESCE(SUM(qty), 0)::text AS q FROM stock_balances WHERE tenant_id = ${tenantId} AND warehouse_id = ${w}`)).rows[0].q);
 
   beforeAll(async () => {
@@ -110,16 +111,49 @@ describe('FMCG: kanvas (e2e)', () => {
     expect((await post(`/api/canvass/collections/${colId}/verify`, { receivedAmount: '6000' }, tok.fin.token)).status).toBe(400); // lebih dari klaim
     const v = (await post(`/api/canvass/collections/${colId}/verify`, { receivedAmount: '4000' }, tok.fin.token).expect(201)).body;
     expect(Number(v.shortage)).toBe(1000);
-    expect(Number((await get(`/api/invoices/${invoiceId}`).expect(200)).body.paidAmount)).toBe(4000);
+    // outlet memang sudah membayar Rp 5.000 ke sales → faktur lunas sebesar itu; kurang setor Rp 1.000 menjadi piutang karyawan (tercatat di pembukuan)
+    expect(Number((await get(`/api/invoices/${invoiceId}`).expect(200)).body.paidAmount)).toBe(5000);
+    expect(await bal('1-1600')).toBe(1000);
     expect((await post(`/api/canvass/collections/${colId}/verify`, { receivedAmount: '4000' }, tok.fin.token)).status).toBe(400); // tidak dobel
   });
 
   it('setoran yang ditolak dicatat sebagai kekurangan penuh dan tidak melunasi faktur', async () => {
     const c = (await post('/api/canvass/collections', { invoiceId, amount: '2000' }, tok.sls.token).expect(201)).body;
     await post(`/api/canvass/collections/${c.id}/reject`, { reason: 'Uang tidak disetor' }, tok.fin.token).expect(201);
-    expect(Number((await get(`/api/invoices/${invoiceId}`).expect(200)).body.paidAmount)).toBe(4000);
+    expect(Number((await get(`/api/invoices/${invoiceId}`).expect(200)).body.paidAmount)).toBe(5000);
     const rej = (await get('/api/canvass/collections?status=REJECTED').expect(200)).body;
     expect(Number(rej[0].shortage)).toBe(2000);
+  });
+
+  it('penjualan dari mobil lewat pesanan biasa dengan harga/potongan sendiri ditolak; Sales tidak bisa mengalihkan pesanan atau memberi syarat komersial outlet', async () => {
+    const free = await post('/api/sales-orders', { customerId: cust, warehouseId: van, lines: [{ productId: P, qty: '1', price: '1' }] }, tok.sls.token);
+    expect(free.status).toBe(400);
+    expect(JSON.stringify(free.body)).toMatch(/Kanvas/);
+    const alih = await post('/api/sales-orders', { customerId: cust, warehouseId: wh, salespersonId: tok.sls2.id, lines: [{ productId: P, qty: '1' }] }, tok.sls.token);
+    expect(alih.status).toBe(400);
+    expect((await post('/api/customers', { code: 'BARU', name: 'Outlet Baru', priceListId: (await get('/api/price-lists').expect(200)).body[0].id }, tok.sls.token)).status).toBe(403);
+    expect((await post('/api/customers', { code: 'BARU2', name: 'Outlet Baru 2', creditLimit: '99999999' }, tok.sls.token)).status).toBe(403);
+    await post('/api/customers', { code: 'BARU3', name: 'Outlet Baru 3' }, tok.sls.token).expect(201); // tanpa syarat komersial: boleh
+  });
+
+  it('pemisahan fungsi setoran: Admin yang membuat setoran atas nama sales tidak dapat memverifikasinya sendiri; HPP mobil tidak terlihat Sales', async () => {
+    const r = await post('/api/canvass/sales', { customerId: cust, vanId: van, lines: [{ productId: P, qty: '1' }], collect: { amount: '500' } }, tok.adm.token);
+    expect(r.status).toBe(201);
+    const col = (await get('/api/canvass/collections?status=PENDING', tok.fin.token).expect(200)).body.find((c: { amount: string }) => Number(c.amount) === 500);
+    expect((await post(`/api/canvass/collections/${col.id}/verify`, { receivedAmount: '500' }, tok.adm.token)).status).toBe(403);
+    await post(`/api/canvass/collections/${col.id}/verify`, { receivedAmount: '500' }, tok.fin.token).expect(201);
+    const vans = (await get('/api/canvass/vans', tok.sls.token).expect(200)).body;
+    expect(Number(vans[0].value)).toBe(0);
+    expect(Number((await get('/api/canvass/vans').expect(200)).body[0].value)).toBeGreaterThan(0);
+  });
+
+  it('gudang mobil tidak dapat dipakai lewat jalur lain (transfer biasa, kasir, pembelian, penyesuaian stok)', async () => {
+    expect((await post('/api/inventory/transfers', { fromWarehouseId: van, toWarehouseId: wh, mode: 'DIRECT', lines: [{ productId: P, qty: '1' }] })).status).toBe(400);
+    await post('/api/apps/pos/install', {}).expect(201);
+    expect((await post('/api/pos/sessions', { warehouseId: van, openingCash: '0' })).status).toBe(400);
+    expect((await post('/api/inventory/adjustments', { warehouseId: van, reason: 'DAMAGED', lines: [{ productId: P, qty: '-1' }] })).status).toBe(400);
+    const sup = (await post('/api/suppliers', { code: 'S1', name: 'Pemasok' }).expect(201)).body.id;
+    expect((await post('/api/purchase-orders', { supplierId: sup, warehouseId: van, lines: [{ productId: P, qty: '1', price: '100' }] })).status).toBe(400);
   });
 
   it('rute & kunjungan: jadwal hari ini, kunjungan sekali per outlet per hari, jarak dari koordinat outlet menandai kunjungan jauh', async () => {

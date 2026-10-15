@@ -63,6 +63,11 @@ describe('FMCG: target & komisi sales (e2e)', () => {
     expect((await post('/api/sales-orders', { customerId: cust, warehouseId: wh, salespersonId: ownerId, lines: [{ productId: P, qty: '1' }] })).status).toBe(400);
   });
 
+  it('Sales tidak bisa mengalihkan pesanan (dan komisi) ke sales lain', async () => {
+    const r = await post('/api/sales-orders', { customerId: cust, warehouseId: wh, salespersonId: andiId, lines: [{ productId: P, qty: '1' }] }, rina);
+    expect(r.status).toBe(400);
+  });
+
   it('target & komisi: omzet neto, ambang pencapaian, komisi dibulatkan; angka bulan lain kosong', async () => {
     await http.put('/api/sales-targets').set(as(owner)).send({ period: month, items: [
       { userId: rinaId, targetAmount: '10000000', commissionPct: '2', minAchievementPct: '80' },

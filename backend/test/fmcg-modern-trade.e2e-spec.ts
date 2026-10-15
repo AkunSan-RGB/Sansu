@@ -125,17 +125,22 @@ describe('FMCG: modern trade (e2e)', () => {
     let claimId: string;
     it('promo didanai prinsipal 50%: klaim dikumpulkan dari baris berpromo (potongan + biaya bonus), tidak bisa digandakan', async () => {
       supplier = (await post('/api/suppliers', { code: 'PRI', name: 'PT Prinsipal' }).expect(201)).body.id;
-      await post('/api/promos', { name: 'Diskon 10% min 100', kind: 'DISCOUNT', productId: A, minQty: '100', discountPct: '10', fundedSupplierId: supplier, fundedPct: '50' }).expect(201);
+      const discPromo = (await post('/api/promos', { name: 'Diskon 10% min 100', kind: 'DISCOUNT', productId: A, minQty: '100', discountPct: '10', fundedSupplierId: supplier, fundedPct: '50' }).expect(201)).body.id;
       await post('/api/promos', { name: 'Beli 50 mi gratis 5 kopi', kind: 'BONUS', productId: A, minQty: '50', bonusProductId: B, bonusQty: '5', fundedSupplierId: supplier, fundedPct: '50' }).expect(201);
       expect((await post('/api/promos', { name: 'x', kind: 'DISCOUNT', minQty: '1', discountPct: '5', fundedPct: '50' })).status).toBe(400); // tanpa prinsipal
       const c = (await post('/api/customers', { code: 'KLM', name: 'Outlet Klaim' }).expect(201)).body.id;
-      await sell(c, [{ productId: A, qty: '100' }]);
+      const sold = await sell(c, [{ productId: A, qty: '100' }]);
+      // pelanggan meretur separuh barang berpromo: bagian itu tidak ditagihkan ke prinsipal
+      const invLine = (await get(`/api/invoices/${sold.inv.id}`).expect(200)).body.lines.find((l: { product: { sku: string } }) => l.product.sku === 'MIE');
+      await post('/api/sales-returns', { invoiceId: sold.inv.id, date: prevDate, lines: [{ invoiceLineId: invLine.id, qty: '50' }] }).expect(201);
+      // mengubah promo setelah pesanan terjadi (persen tanggungan prinsipal) tidak mengubah klaim pesanan lama
+      await http.put(`/api/promos/${discPromo}`).set(as(owner)).send({ name: 'Diskon 10% min 100', kind: 'DISCOUNT', productId: A, minQty: '100', discountPct: '10', fundedSupplierId: supplier, fundedPct: '10' }).expect(200);
       expect((await post('/api/principal-claims/generate', { supplierId: supplier, period }, tok.fin.token)).status).toBe(403);
       const g = (await post('/api/principal-claims/generate', { supplierId: supplier, period }, tok.akn.token).expect(201)).body;
       claimId = g.id;
       expect(g.lineCount).toBe(2);
-      // diskon: 100 × 1000 × 10% = 10.000 → 50% = 5.000; bonus: 10 kopi × 400 = 4.000 → 50% = 2.000
-      expect(Number(g.claimedAmount)).toBe(7_000);
+      // diskon: 100 × 1000 × 10% = 10.000, separuh diretur → 5.000 × 50% (snapshot) = 2.500; bonus: 10 kopi × 400 = 4.000 × 50% = 2.000
+      expect(Number(g.claimedAmount)).toBe(4_500);
       const again = await post('/api/principal-claims/generate', { supplierId: supplier, period }, tok.akn.token);
       expect(again.status).toBe(400);
       expect(JSON.stringify(again.body)).toMatch(/sudah diklaim/);
@@ -143,12 +148,12 @@ describe('FMCG: modern trade (e2e)', () => {
 
     it('alur: ajukan → disetujui prinsipal (bukan pembuat klaim) → diterima Keuangan; jurnal piutang klaim lalu kas', async () => {
       await post(`/api/principal-claims/${claimId}/submit`, {}, tok.akn.token).expect(201);
-      expect((await post(`/api/principal-claims/${claimId}/decide`, { approvedAmount: '6000' }, tok.akn.token)).status).toBe(403); // pembuat klaim
+      expect((await post(`/api/principal-claims/${claimId}/decide`, { approvedAmount: '4000' }, tok.akn.token)).status).toBe(403); // pembuat klaim
       expect((await post(`/api/principal-claims/${claimId}/decide`, { approvedAmount: '9000' }, tok.adm.token)).status).toBe(400); // > klaim
       const before = await bal('6-2150');
-      await post(`/api/principal-claims/${claimId}/decide`, { approvedAmount: '6000', principalRef: 'NK-991' }, tok.adm.token).expect(201);
-      expect(await bal('1-1370')).toBe(6_000);
-      expect(await bal('6-2150')).toBe(before - 6_000);
+      await post(`/api/principal-claims/${claimId}/decide`, { approvedAmount: '4000', principalRef: 'NK-991' }, tok.adm.token).expect(201);
+      expect(await bal('1-1370')).toBe(4_000);
+      expect(await bal('6-2150')).toBe(before - 4_000);
       expect((await post(`/api/principal-claims/${claimId}/receive`, {}, tok.akn.token)).status).toBe(403);
       await post(`/api/principal-claims/${claimId}/receive`, {}, tok.fin.token).expect(201);
       expect(await bal('1-1370')).toBe(0);

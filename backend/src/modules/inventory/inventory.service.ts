@@ -76,7 +76,7 @@ export class InventoryService {
    * Penyesuaian stok (saldo awal, hasil stock opname, barang rusak).
    * Membuat mutasi stok + jurnal persediaan dalam satu transaksi.
    */
-  async adjust(user: AuthUser, dto: StockAdjustmentDto, outerTx?: Tx, opts: { approved?: boolean } = {}) {
+  async adjust(user: AuthUser, dto: StockAdjustmentDto, outerTx?: Tx, opts: { approved?: boolean; special?: boolean } = {}) {
     const date = toDocDate(dto.date);
     let gate: { limit: number; total: number } | null = null;
     const run = async (tx: Tx) => {
@@ -85,6 +85,7 @@ export class InventoryService {
         .from(warehouses)
         .where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
+      if (wh.kind !== 'MAIN' && !opts.special) throw new BadRequestException('Gudang konsinyasi/mobil hanya dipakai lewat menu Konsinyasi / Kanvas; koreksi stoknya lewat stock opname gudang itu');
 
       const productIds = [...new Set(dto.lines.map((l) => l.productId))];
       const found = await tx

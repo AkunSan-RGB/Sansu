@@ -29,6 +29,7 @@ export interface LotMove {
   lot?: LotInput;
   /** Kurangi hanya lot ini (pembuangan lot tertentu) */
   lotId?: string;
+  excludeLotNos?: string[];
   reverseCost?: boolean;
 }
 
@@ -95,7 +96,8 @@ export async function trackLots(tx: Tx, m: LotMove): Promise<void> {
     return;
   }
   if (!DEPLETING.includes(m.type)) return;
-  await deplete(tx, m, out, sql``, m.type === 'TRANSFER_OUT');
+  const exclude = m.excludeLotNos?.length ? sql`AND (lot_no IS NULL OR lot_no NOT IN (${sql.join(m.excludeLotNos.map((n) => sql`${n}`), sql`, `)}))` : sql``;
+  await deplete(tx, m, out, exclude, m.type === 'TRANSFER_OUT');
 }
 
 async function deplete(tx: Tx, m: LotMove, out: Dec, extra: ReturnType<typeof sql>, toTransit: boolean) {

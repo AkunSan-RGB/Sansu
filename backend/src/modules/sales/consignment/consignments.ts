@@ -22,6 +22,7 @@ import { D } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
 import { consignmentDocs, customers, products, users, warehouses } from '../../../db/schema';
+import { SubscriptionService } from '../../../common/billing/subscription.service';
 import { WarehouseOpsService } from '../../inventory/warehouse-ops';
 import { InvoicesService } from '../invoices/invoices.service';
 import { SalesOrdersService } from '../orders/sales-orders.service';
@@ -74,6 +75,7 @@ export class ConsignmentsService {
     private readonly orders: SalesOrdersService,
     private readonly invoices: InvoicesService,
     private readonly audit: AuditService,
+    private readonly subs: SubscriptionService,
   ) {}
 
   private async customer(tenantId: string, id: string) {
@@ -93,6 +95,7 @@ export class ConsignmentsService {
     const [w] = await this.db.select().from(warehouses).where(and(eq(warehouses.tenantId, tenantId), eq(warehouses.kind, 'CONSIGNMENT'), eq(warehouses.consigneeCustomerId, customer.id)));
     if (w) return w;
     if (!create) throw new BadRequestException('Outlet ini belum memiliki stok konsinyasi');
+    await this.subs.assertCanAdd(tenantId, 'warehouses');
     const [row] = await this.db.insert(warehouses).values({ tenantId, code: `KSG-${customer.code}`.slice(0, 30), name: `Konsinyasi ${customer.name}`.slice(0, 120), kind: 'CONSIGNMENT', consigneeCustomerId: customer.id }).returning();
     return row;
   }
@@ -112,7 +115,7 @@ export class ConsignmentsService {
     return out;
   }
 
-  async stockReport(tenantId: string) {
+  async stockReport(tenantId: string, role?: string) {
     const rows = await this.db.execute<{ wid: string; wcode: string; cid: string; ccode: string; cname: string; credit: string; pid: string; sku: string; pname: string; uom: string; qty: string; cost: string; sell: string }>(sql`
       SELECT w.id AS wid, w.code AS wcode, c.id AS cid, c.code AS ccode, c.name AS cname, c.credit_limit AS credit,
              p.id AS pid, p.sku, p.name AS pname, p.base_uom AS uom, b.qty, (b.qty * b.avg_cost) AS cost, (b.qty * p.sell_price) AS sell
@@ -136,12 +139,13 @@ export class ConsignmentsService {
       map.set(r.wid, e);
     }
     return [...map.values()].map((e) => {
+      const hideCost = role === 'SALES'; // harga pokok tidak ditampilkan ke Sales
       const mine = docs.rows.filter((d) => d.wid === e.warehouseId);
       const last = (k: string) => mine.find((d) => d.kind === k)?.last ?? null;
       const lastActivity = [last('SHIP'), last('REPORT'), last('RETURN')].filter(Boolean).sort().pop() ?? null;
       const reportBase = last('REPORT') ?? last('SHIP');
       const days = reportBase ? Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${reportBase}T00:00:00Z`)) / 86_400_000) : null;
-      return { ...e, costValue: e.costValue.toFixed(2), sellValue: e.sellValue.toFixed(2), lastShip: last('SHIP'), lastReport: last('REPORT'), lastActivity, pendingReports: Number(mine.find((d) => d.kind === 'REPORT')?.pending ?? 0), daysSinceReport: days, stale: e.items.length > 0 && days !== null && days > STALE_DAYS, staleDays: STALE_DAYS };
+      return { ...e, items: hideCost ? e.items.map((i) => ({ ...i, cost: '0.00' })) : e.items, costValue: hideCost ? '0.00' : e.costValue.toFixed(2), sellValue: e.sellValue.toFixed(2), lastShip: last('SHIP'), lastReport: last('REPORT'), lastActivity, pendingReports: Number(mine.find((d) => d.kind === 'REPORT')?.pending ?? 0), daysSinceReport: days, stale: e.items.length > 0 && days !== null && days > STALE_DAYS, staleDays: STALE_DAYS };
     });
   }
 
@@ -170,7 +174,7 @@ export class ConsignmentsService {
       if (D(cur.rows[0].v).plus(addValue).gt(cust.creditLimit)) throw new BadRequestException(`Nilai titipan di ${cust.name} akan melebihi limit kredit outlet (${D(cust.creditLimit).toFixed(0)}); naikkan limit atau tarik sebagian titipan dulu`);
     }
     const date = toDocDate(dto.date);
-    const transfer = (await this.ops.createTransfer(u, { fromWarehouseId: from.id, toWarehouseId: cw.id, date, mode: 'DIRECT', notes: `Titipan konsinyasi ke ${cust.name}${dto.notes ? ` — ${dto.notes}` : ''}`.slice(0, 255), lines: [...merged].map(([productId, q]) => ({ productId, qty: q.toFixed(4) })) } as never)) as { id: string };
+    const transfer = (await this.ops.createTransfer(u, { fromWarehouseId: from.id, toWarehouseId: cw.id, date, mode: 'DIRECT', notes: `Titipan konsinyasi ke ${cust.name}${dto.notes ? ` — ${dto.notes}` : ''}`.slice(0, 255), lines: [...merged].map(([productId, q]) => ({ productId, qty: q.toFixed(4) })) } as never, { special: true })) as { id: string };
     return this.insertDoc(u, 'SHIP', { customerId: cust.id, warehouseId: cw.id, date, transferId: transfer.id, notes: dto.notes, lines: [...merged].map(([productId, q]) => ({ productId, uom: '', qty: q.toFixed(4) })) });
   }
 
@@ -225,6 +229,7 @@ export class ConsignmentsService {
     const claimed = await this.db.update(consignmentDocs).set({ status: 'INVOICED', decidedById: u.sub }).where(and(eq(consignmentDocs.id, id), eq(consignmentDocs.status, 'REPORTED'))).returning({ id: consignmentDocs.id });
     if (!claimed.length) throw new BadRequestException('Laporan ini sedang/sudah ditagih');
     let soId: string | undefined;
+    let inv: { id: string; number: string };
     try {
       const [reporter] = doc.createdById ? await this.db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, doc.createdById)) : [];
       const so = await this.orders.create(u, {
@@ -232,21 +237,30 @@ export class ConsignmentsService {
         warehouseId: doc.warehouseId,
         date: doc.date,
         notes: `Konsinyasi — laporan outlet ${doc.reference} (${doc.number})`,
+        // nomor laporan outlet dipakai sebagai acuan PO: unik per outlet, dan menggantikan kewajiban nomor PO peritel modern
+        customerPoNo: `KSG-${doc.reference}`,
+        // hanya yang dilaporkan outlet yang ditagih: tanpa promo/bonus tambahan; daftar harga outlet tetap berlaku
+        applyPromos: false,
         salespersonId: reporter?.role === 'SALES' ? reporter.id : undefined,
         lines: doc.lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: l.qty })),
       } as never, { consignment: true });
       soId = so.id;
       await this.orders.confirm(u, so.id);
-      const inv = await this.invoices.createFromOrder(u, { salesOrderId: so.id, date: doc.date } as never);
-      await this.db.update(consignmentDocs).set({ salesOrderId: so.id, invoiceId: inv.id }).where(eq(consignmentDocs.id, id));
-      await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'INVOICE', entity: 'ConsignmentDoc', entityId: id, data: { number: doc.number, reference: doc.reference, invoice: inv.number } });
-      return { id, status: 'INVOICED', invoiceId: inv.id, invoiceNumber: inv.number };
+      inv = await this.invoices.createFromOrder(u, { salesOrderId: so.id, date: doc.date } as never);
     } catch (e) {
-      // gagal di tengah jalan: kembalikan laporan agar bisa diproses ulang, batalkan pesanan yang terlanjur dibuat
+      // gagal SEBELUM faktur terbit: kembalikan laporan agar bisa diproses ulang dan batalkan pesanan yang terlanjur dibuat
       await this.db.update(consignmentDocs).set({ status: 'REPORTED', decidedById: null }).where(eq(consignmentDocs.id, id));
       if (soId) await this.orders.cancel(u, soId).catch(() => undefined);
       throw e;
     }
+    // faktur sudah terbit: laporan tetap INVOICED walau pencatatan tautan/audit di bawah gagal (mencegah penagihan ganda)
+    try {
+      await this.db.update(consignmentDocs).set({ salesOrderId: soId, invoiceId: inv.id }).where(eq(consignmentDocs.id, id));
+      await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'INVOICE', entity: 'ConsignmentDoc', entityId: id, data: { number: doc.number, reference: doc.reference, invoice: inv.number } });
+    } catch {
+      /* tidak dibatalkan: status INVOICED sudah benar */
+    }
+    return { id, status: 'INVOICED', invoiceId: inv.id, invoiceNumber: inv.number };
   }
 
   async reject(u: AuthUser, id: string, reason: string) {
@@ -270,7 +284,7 @@ export class ConsignmentsService {
       if (q.gt(avail.get(pid) ?? D(0))) throw new BadRequestException('Jumlah tarik melebihi sisa titipan di outlet (sudah dikurangi laporan yang belum ditagih)');
     }
     const date = toDocDate(dto.date);
-    const transfer = (await this.ops.createTransfer(u, { fromWarehouseId: cw.id, toWarehouseId: to.id, date, mode: 'DIRECT', notes: `Tarik titipan dari ${cust.name}${dto.notes ? ` — ${dto.notes}` : ''}`.slice(0, 255), lines: [...merged].map(([productId, q]) => ({ productId, qty: q.toFixed(4) })) } as never)) as { id: string };
+    const transfer = (await this.ops.createTransfer(u, { fromWarehouseId: cw.id, toWarehouseId: to.id, date, mode: 'DIRECT', notes: `Tarik titipan dari ${cust.name}${dto.notes ? ` — ${dto.notes}` : ''}`.slice(0, 255), lines: [...merged].map(([productId, q]) => ({ productId, qty: q.toFixed(4) })) } as never, { special: true })) as { id: string };
     return this.insertDoc(u, 'RETURN', { customerId: cust.id, warehouseId: cw.id, date, transferId: transfer.id, notes: dto.notes, lines: [...merged].map(([productId, q]) => ({ productId, uom: '', qty: q.toFixed(4) })) });
   }
 }
@@ -285,7 +299,7 @@ export class ConsignmentsController {
   @Get('stock')
   @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT')
   stock(@CurrentUser() u: AuthUser) {
-    return this.svc.stockReport(u.tenantId);
+    return this.svc.stockReport(u.tenantId, u.role);
   }
   @Get('docs')
   @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT')

@@ -66,17 +66,18 @@ function SaleTab({ isSales }: { isSales: boolean }) {
   const { data: products } = useProducts();
   const { data: warehouses } = useWarehouses({ all: true });
   const vans = (warehouses ?? []).filter((w) => w.kind === 'VAN');
-  const [form] = Form.useForm<{ customerId: string; vanId?: string; lines: { productId?: string; qty?: number }[]; collect?: number }>();
+  const [form] = Form.useForm<{ customerId: string; vanId?: string; customerPoNo?: string; lines: { productId?: string; qty?: number }[]; collect?: number }>();
   const sale = useAction(
-    (v: { customerId: string; vanId?: string; lines: { productId?: string; qty?: number }[]; collect?: number }) =>
-      post<{ invoiceNumber: string; total: string }>('/canvass/sales', { customerId: v.customerId, vanId: v.vanId, lines: v.lines.filter((l) => l.productId && l.qty).map((l) => ({ productId: l.productId, qty: String(l.qty) })), collect: v.collect ? { amount: String(v.collect), method: 'CASH' } : undefined }),
-    { success: (r) => `Faktur ${r.invoiceNumber} dibuat (${fmtMoney(r.total)})`, invalidate: ['canvass-summary', 'canvass-vans', 'canvass-collections', 'invoices', 'stock'], onSuccess: () => form.resetFields() },
+    (v: { customerId: string; vanId?: string; customerPoNo?: string; lines: { productId?: string; qty?: number }[]; collect?: number }) =>
+      post<{ invoiceNumber: string; total: string; collectionError?: string }>('/canvass/sales', { customerId: v.customerId, vanId: v.vanId, customerPoNo: v.customerPoNo, lines: v.lines.filter((l) => l.productId && l.qty).map((l) => ({ productId: l.productId, qty: String(l.qty) })), collect: v.collect ? { amount: String(v.collect), method: 'CASH' } : undefined }),
+    { success: (r) => (r.collectionError ? r.collectionError : `Faktur ${r.invoiceNumber} dibuat (${fmtMoney(r.total)})`), invalidate: ['canvass-summary', 'canvass-vans', 'canvass-collections', 'invoices', 'stock'], onSuccess: () => form.resetFields() },
   );
   return (
     <Card>
       <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Harga dan potongan otomatis dari daftar harga outlet dan promo yang berlaku — sales tidak dapat mengubahnya. Uang yang diterima di tempat dicatat sebagai setoran dan baru menjadi pelunasan setelah Keuangan menerimanya." />
       <Form form={form} layout="vertical" initialValues={{ lines: [{}] }} onFinish={(v) => sale.mutate(v)}>
         <Form.Item name="customerId" label="Outlet" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={(customers ?? []).filter((c) => c.isActive).map((c) => ({ value: c.id, label: `${c.code} · ${c.name}` }))} /></Form.Item>
+        <Form.Item name="customerPoNo" label="Nomor PO outlet (bila outlet mewajibkan)"><Input maxLength={60} style={{ maxWidth: 260 }} /></Form.Item>
         {!isSales && <Form.Item name="vanId" label="Mobil" rules={[{ required: true }]}><Select options={vans.map((v) => ({ value: v.id, label: `${v.code} · ${v.name}` }))} /></Form.Item>}
         <Form.List name="lines">
           {(fields, { add, remove }) => (

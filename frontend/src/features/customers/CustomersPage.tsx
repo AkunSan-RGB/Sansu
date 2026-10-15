@@ -40,7 +40,9 @@ export default function CustomersPage() {
 
   const save = useAction(
     (v: FormValues) => {
-      const body = { ...v, creditLimit: String(v.creditLimit ?? 0), priceListId: v.priceListId ?? null, geoLat: v.geoLat ?? undefined, geoLng: v.geoLng ?? undefined };
+      const body: Record<string, unknown> = { ...v, creditLimit: String(v.creditLimit ?? 0), priceListId: v.priceListId ?? null, geoLat: v.geoLat ?? undefined, geoLng: v.geoLng ?? undefined };
+      // Sales hanya mendaftarkan outlet; syarat komersial (limit kredit, termin, daftar harga, wajib PO) diatur Admin/Keuangan
+      if (me?.role === 'SALES' && editing === 'new') for (const k of ['creditLimit', 'paymentTermDays', 'priceListId', 'requirePo']) delete body[k];
       return editing && editing !== 'new' ? patch(`/customers/${editing.id}`, body) : post('/customers', body);
     },
     { success: 'Pelanggan disimpan', invalidate: ['customers'], onSuccess: () => setEditing(null) },

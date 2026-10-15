@@ -199,7 +199,11 @@ export const warehouses = pgTable(
     consigneeCustomerId: uuid('consignee_customer_id'),
     vanUserId: uuid('van_user_id'),
   },
-  (t) => [uniqueIndex('warehouses_code_uq').on(t.tenantId, t.code)],
+  (t) => [
+    uniqueIndex('warehouses_code_uq').on(t.tenantId, t.code),
+    uniqueIndex('warehouses_consignee_uq').on(t.tenantId, t.consigneeCustomerId).where(sql`kind = 'CONSIGNMENT'`),
+    uniqueIndex('warehouses_van_user_uq').on(t.tenantId, t.vanUserId).where(sql`kind = 'VAN'`),
+  ],
 );
 
 /** Cabang / unit usaha dalam satu perusahaan (satu pembukuan; label cabang pada baris jurnal) */
@@ -664,6 +668,7 @@ export const canvassCollections = pgTable(
     verifiedById: uuid('verified_by_id'),
     verifiedAt: timestamp('verified_at', { withTimezone: true }),
     rejectReason: text('reject_reason'),
+    createdById: uuid('created_by_id'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('canvass_collections_number_uq').on(t.tenantId, t.number), index('canvass_collections_invoice_idx').on(t.invoiceId)],
@@ -837,7 +842,12 @@ export const salesOrders = pgTable(
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex('sales_orders_number_uq').on(t.tenantId, t.number), index('sales_orders_date_idx').on(t.tenantId, t.date)],
+  (t) => [
+    uniqueIndex('sales_orders_number_uq').on(t.tenantId, t.number),
+    index('sales_orders_date_idx').on(t.tenantId, t.date),
+    index('sales_orders_salesperson_idx').on(t.salespersonId),
+    uniqueIndex('sales_orders_customer_po_uq').on(t.tenantId, t.customerId, t.customerPoNo).where(sql`customer_po_no IS NOT NULL AND status <> 'CANCELLED'`),
+  ],
 );
 
 export const salesOrderLines = pgTable('sales_order_lines', {
@@ -863,6 +873,9 @@ export const salesOrderLines = pgTable('sales_order_lines', {
   /** Promo yang menghasilkan potongan/bonus pada baris ini (dasar klaim ke prinsipal) */
   promoId: uuid('promo_id'),
   isBonus: boolean('is_bonus').notNull().default(false),
+  /** Prinsipal penanggung & persennya saat pesanan dibuat (snapshot: mengubah promo kemudian tidak mengubah klaim pesanan lama) */
+  promoFundedSupplierId: uuid('promo_funded_supplier_id'),
+  promoFundedPct: numeric('promo_funded_pct', { precision: 5, scale: 2 }).notNull().default('0'),
 });
 
 /** Permintaan persetujuan atas transaksi bernilai besar (pesanan pembelian, jurnal manual) dari peran yang tidak berwenang */

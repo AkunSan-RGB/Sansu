@@ -19,11 +19,13 @@ import { toDocDate, todayJakarta } from '../../../common/utils/dates';
 import { D } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { canvassCollections, customers, invoices, salesRouteStops, salesRoutes, salesVisits, users, warehouses } from '../../../db/schema';
+import { canvassCollections, customers, invoices, payments, salesRouteStops, salesRoutes, salesVisits, users, warehouses } from '../../../db/schema';
+import { SubscriptionService } from '../../../common/billing/subscription.service';
 import { WarehouseOpsService } from '../../inventory/warehouse-ops';
 import { InvoicesService } from '../invoices/invoices.service';
 import { SalesOrdersService } from '../orders/sales-orders.service';
-import { PaymentsService } from '../payments/payments.service';
+import { SYS } from '../../accounting/default-coa';
+import { PostingService } from '../../accounting/posting.service';
 
 /** Jarak maksimum kunjungan dari titik outlet sebelum ditandai mencurigakan */
 const FAR_METERS = 300;
@@ -61,6 +63,7 @@ export class CollectDto {
 export class CanvassSaleDto {
   @ApiProperty() @IsUUID() customerId: string;
   @ApiPropertyOptional({ description: 'Mobil (hanya Admin; Sales memakai mobilnya sendiri)' }) @IsOptional() @IsUUID() vanId?: string;
+  @ApiPropertyOptional({ description: 'Nomor PO outlet (wajib untuk outlet peritel modern)' }) @IsOptional() @IsString() @MaxLength(60) customerPoNo?: string;
   @ApiProperty({ type: [CanvassLineDto] }) @ValidateNested({ each: true }) @Type(() => CanvassLineDto) @ArrayMinSize(1) @ArrayMaxSize(200) lines: CanvassLineDto[];
   @ApiPropertyOptional({ description: 'Uang yang diterima di tempat (menunggu verifikasi Keuangan)' }) @IsOptional() @ValidateNested() @Type(() => CollectDto) collect?: CollectDto;
 }
@@ -105,18 +108,20 @@ export class CanvassService {
     private readonly ops: WarehouseOpsService,
     private readonly orders: SalesOrdersService,
     private readonly invoicesSvc: InvoicesService,
-    private readonly payments: PaymentsService,
+    private readonly posting: PostingService,
     private readonly audit: AuditService,
+    private readonly subs: SubscriptionService,
   ) {}
 
   // ---------------- mobil ----------------
-  async vans(tenantId: string) {
+  async vans(tenantId: string, role?: string) {
     const rows = await this.db.execute<{ id: string; code: string; name: string; user_id: string; user_name: string; is_active: boolean; qty: string; value: string; skus: string }>(sql`
       SELECT w.id, w.code, w.name, w.van_user_id AS user_id, u.name AS user_name, w.is_active,
              COALESCE(SUM(b.qty), 0)::text AS qty, COALESCE(SUM(b.qty * b.avg_cost), 0)::text AS value, COUNT(b.product_id) FILTER (WHERE b.qty > 0)::text AS skus
       FROM warehouses w LEFT JOIN users u ON u.id = w.van_user_id LEFT JOIN stock_balances b ON b.warehouse_id = w.id AND b.qty > 0
       WHERE w.tenant_id = ${tenantId} AND w.kind = 'VAN' GROUP BY w.id, u.name ORDER BY w.code`);
-    return rows.rows.map((r) => ({ id: r.id, code: r.code, name: r.name, userId: r.user_id, userName: r.user_name, isActive: r.is_active, qty: r.qty, value: D(r.value).toFixed(2), skus: Number(r.skus) }));
+    return rows.rows.map((r) => ({ id: r.id, code: r.code, name: r.name, userId: r.user_id, userName: r.user_name, isActive: r.is_active, qty: r.qty, // harga pokok tidak ditampilkan ke Sales
+      value: role === 'SALES' ? '0.00' : D(r.value).toFixed(2), skus: Number(r.skus) }));
   }
 
   async createVan(u: AuthUser, dto: VanDto) {
@@ -124,6 +129,7 @@ export class CanvassService {
     if (!sp) throw new BadRequestException('Mobil hanya untuk pengguna berperan Sales yang aktif');
     const [exist] = await this.db.select({ id: warehouses.id }).from(warehouses).where(and(eq(warehouses.tenantId, u.tenantId), eq(warehouses.kind, 'VAN'), eq(warehouses.vanUserId, sp.id)));
     if (exist) throw new BadRequestException(`${sp.name} sudah punya mobil`);
+    await this.subs.assertCanAdd(u.tenantId, 'warehouses');
     const n = await this.db.execute<{ n: string }>(sql`SELECT COUNT(*)::text AS n FROM warehouses WHERE tenant_id = ${u.tenantId} AND kind = 'VAN'`);
     const [row] = await this.db.insert(warehouses).values({ tenantId: u.tenantId, code: `VAN-${String(Number(n.rows[0].n) + 1).padStart(2, '0')}`, name: `Mobil ${sp.name}`, kind: 'VAN', vanUserId: sp.id }).returning();
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'Van', entityId: row.id, data: { code: row.code, sales: sp.name } });
@@ -153,7 +159,7 @@ export class CanvassService {
       mode: 'DIRECT',
       notes: `${dir === 'LOAD' ? 'Muat' : 'Bongkar'} ${van.name}${dto.notes ? ` — ${dto.notes}` : ''}`.slice(0, 255),
       lines: [...merged].map(([productId, q]) => ({ productId, qty: q.toFixed(4) })),
-    } as never);
+    } as never, { special: true });
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: dir, entity: 'Van', entityId: van.id, data: { lines: merged.size, transfer: (t as { number?: string }).number } });
     return t;
   }
@@ -173,18 +179,28 @@ export class CanvassService {
     if (!cust || !cust.isActive) throw new BadRequestException('Pelanggan tidak ditemukan / nonaktif');
     const date = toDocDate(undefined);
     // harga & potongan tidak bisa diisi sales: server memakai daftar harga outlet dan promo yang berlaku
-    const so = await this.orders.create(u, { customerId: cust.id, warehouseId: van.id, date, notes: `Penjualan kanvas ${van.name}`, salespersonId: van.vanUserId ?? undefined, lines: dto.lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: l.qty })) } as never);
+    const so = await this.orders.create(u, { customerId: cust.id, warehouseId: van.id, date, notes: `Penjualan kanvas ${van.name}`, customerPoNo: dto.customerPoNo, salespersonId: van.vanUserId ?? undefined, lines: dto.lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: l.qty })) } as never);
+    let inv: Awaited<ReturnType<InvoicesService['createFromOrder']>>;
     try {
       await this.orders.confirm(u, so.id);
+      inv = await this.invoicesSvc.createFromOrder(u, { salesOrderId: so.id, date } as never);
     } catch (e) {
+      // gagal sebelum faktur terbit: batalkan pesanan agar tidak menggantung
       await this.orders.cancel(u, so.id).catch(() => undefined);
       throw e;
     }
-    const inv = await this.invoicesSvc.createFromOrder(u, { salesOrderId: so.id, date } as never);
+    // faktur sudah terbit: kegagalan mencatat setoran tidak boleh membuat klien mengulang penjualan (faktur ganda)
     let collection: { id: string; number: string } | undefined;
-    if (dto.collect) collection = await this.collect(u, { invoiceId: inv.id, amount: dto.collect.amount, method: dto.collect.method }, van.vanUserId ?? u.sub);
+    let collectionError: string | undefined;
+    if (dto.collect) {
+      try {
+        collection = await this.collect(u, { invoiceId: inv.id, amount: dto.collect.amount, method: dto.collect.method }, van.vanUserId ?? u.sub);
+      } catch (e) {
+        collectionError = `Faktur ${inv.number} sudah terbit, tetapi setoran gagal dicatat: ${(e as Error).message}. Catat setoran dari menu Setoran tagihan (jangan ulangi penjualan).`;
+      }
+    }
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CANVASS_SALE', entity: 'Invoice', entityId: inv.id, data: { van: van.code, customer: cust.name, invoice: inv.number, total: inv.total } });
-    return { salesOrderId: so.id, invoiceId: inv.id, invoiceNumber: inv.number, total: inv.total, collection };
+    return { salesOrderId: so.id, invoiceId: inv.id, invoiceNumber: inv.number, total: inv.total, collection, collectionError };
   }
 
   // ---------------- setoran tagihan ----------------
@@ -205,7 +221,7 @@ export class CanvassService {
       const room = D(inv.total).minus(inv.paidAmount).minus(inv.returnedAmount).minus(pending.rows[0].s);
       if (amount.gt(room)) throw new BadRequestException(`Jumlah melebihi sisa tagihan yang belum disetor (${room.toFixed(2)})`);
       const number = await this.seq.next(tx, u.tenantId, 'CANVASS_REMITTANCE', date);
-      const [row] = await tx.insert(canvassCollections).values({ tenantId: u.tenantId, number, userId: collectorId, invoiceId: inv.id, customerId: inv.customerId, date, method: dto.method ?? 'CASH', amount: amount.toFixed(2) }).returning();
+      const [row] = await tx.insert(canvassCollections).values({ tenantId: u.tenantId, number, userId: collectorId, invoiceId: inv.id, customerId: inv.customerId, date, method: dto.method ?? 'CASH', amount: amount.toFixed(2), createdById: u.sub }).returning();
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'CanvassCollection', entityId: row.id, data: { number, invoice: inv.number, amount: amount.toFixed(2) } });
       return row;
     });
@@ -225,30 +241,52 @@ export class CanvassService {
     return rows.map((r) => ({ ...r.c, salesName: r.sales, customerName: r.cust, invoiceNumber: r.inv, overdue: r.c.status === 'PENDING' && Date.parse(`${today}T00:00:00Z`) - Date.parse(`${r.c.date}T00:00:00Z`) > STALE_DAYS * 86_400_000 }));
   }
 
+  /**
+   * Keuangan menerima uang setoran. Faktur dilunasi sebesar yang DICATAT sales (outlet memang sudah membayar ke sales); bila uang yang
+   * diterima Keuangan lebih kecil, selisihnya menjadi Piutang Karyawan (Dr Piutang Karyawan | Cr Piutang Usaha) atas nama sales —
+   * jadi kekurangan tercatat di pembukuan, bukan hanya angka laporan. Setoran yang ditolak tidak melunasi faktur.
+   */
   async verify(u: AuthUser, id: string, dto: VerifyDto) {
     const received = D(dto.receivedAmount);
     if (received.lt(0)) throw new BadRequestException('Jumlah diterima tidak valid');
-    const [c] = await this.db.select().from(canvassCollections).where(and(eq(canvassCollections.id, id), eq(canvassCollections.tenantId, u.tenantId)));
-    if (!c) throw new NotFoundException('Setoran tidak ditemukan');
-    if (c.status !== 'PENDING') throw new BadRequestException('Setoran ini sudah diputuskan');
-    if (c.userId === u.sub) throw new ForbiddenException('Setoran tidak dapat diverifikasi oleh sales yang menyetornya');
-    if (received.gt(c.amount)) throw new BadRequestException('Uang yang diterima tidak boleh melebihi yang dicatat sales; catat kelebihan sebagai penerimaan terpisah');
-    const claimed = await this.db.update(canvassCollections).set({ status: 'VERIFIED', verifiedById: u.sub, verifiedAt: new Date() }).where(and(eq(canvassCollections.id, id), eq(canvassCollections.status, 'PENDING'))).returning({ id: canvassCollections.id });
-    if (!claimed.length) throw new BadRequestException('Setoran ini sedang/sudah diputuskan');
-    try {
-      let paymentId: string | null = null;
-      if (received.gt(0)) {
-        const pay = await this.payments.create(u, { invoiceId: c.invoiceId, amount: received.toFixed(2), method: c.method as 'CASH', cashAccountId: dto.cashAccountId, date: dto.date, notes: `Setoran kanvas ${c.number}` } as never);
-        paymentId = (pay as { id: string }).id;
-      }
+    const date = toDocDate(dto.date);
+    return this.db.transaction(async (tx) => {
+      const [c] = await tx.select().from(canvassCollections).where(and(eq(canvassCollections.id, id), eq(canvassCollections.tenantId, u.tenantId))).for('update');
+      if (!c) throw new NotFoundException('Setoran tidak ditemukan');
+      if (c.status !== 'PENDING') throw new BadRequestException('Setoran ini sudah diputuskan');
+      // pemisahan fungsi: bukan sales yang menyetor dan bukan orang yang mencatat setoran itu (Pemilik dikecualikan)
+      if (c.userId === u.sub) throw new ForbiddenException('Setoran tidak dapat diverifikasi oleh sales yang menyetornya');
+      if (c.createdById === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Setoran diverifikasi oleh orang lain dari yang mencatatnya (pemisahan fungsi)');
+      if (received.gt(c.amount)) throw new BadRequestException('Uang yang diterima tidak boleh melebihi yang dicatat sales; catat kelebihan sebagai penerimaan terpisah');
+      await tx.execute(sql`SELECT id FROM invoices WHERE id = ${c.invoiceId} AND tenant_id = ${u.tenantId} FOR UPDATE`);
+      const [inv] = await tx.select().from(invoices).where(eq(invoices.id, c.invoiceId));
+      const [customer] = await tx.select({ name: customers.name }).from(customers).where(eq(customers.id, inv.customerId));
+      const outstanding = D(inv.total).minus(inv.paidAmount).minus(inv.returnedAmount);
+      if (D(c.amount).gt(outstanding)) throw new BadRequestException(`Setoran melebihi sisa tagihan faktur (${outstanding.toFixed(2)}); faktur sudah dilunasi/diretur sejak dicatat`);
       const shortage = D(c.amount).minus(received);
-      await this.db.update(canvassCollections).set({ receivedAmount: received.toFixed(2), shortage: shortage.toFixed(2), paymentId }).where(eq(canvassCollections.id, id));
-      await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'VERIFY', entity: 'CanvassCollection', entityId: id, data: { number: c.number, claimed: c.amount, received: received.toFixed(2), shortage: shortage.toFixed(2) } });
+      const cash = received.gt(0) ? await this.posting.resolveCashAccount(tx, u.tenantId, dto.cashAccountId, c.method === 'CASH' ? 'CASH' : 'BANK') : null;
+      const number = await this.seq.next(tx, u.tenantId, 'PAYMENT', date);
+      const [pay] = await tx.insert(payments).values({ tenantId: u.tenantId, number, date, customerId: inv.customerId, invoiceId: inv.id, amount: D(c.amount).toFixed(2), method: c.method, cashAccountId: cash?.id ?? null, notes: `Setoran kanvas ${c.number}${shortage.gt(0) ? ` (kurang setor ${shortage.toFixed(2)})` : ''}` }).returning();
+      const journal = await this.posting.post(tx, {
+        tenantId: u.tenantId,
+        date,
+        description: `Pelunasan ${inv.number} - ${customer.name} via setoran kanvas ${c.number} (${number})`,
+        sourceType: 'PAYMENT',
+        sourceId: pay.id,
+        createdById: u.sub,
+        lines: [
+          ...(cash ? [{ accountId: cash.id, debit: received, ...(cash.branchId ? { branchId: cash.branchId } : {}) }] : []),
+          { key: SYS.EMPLOYEE_RECEIVABLE, debit: shortage, memo: shortage.gt(0) ? `Kurang setor ${c.number}` : undefined },
+          { key: SYS.AR, credit: c.amount },
+        ],
+      });
+      await tx.update(payments).set({ journalId: journal.id }).where(eq(payments.id, pay.id));
+      const paid = D(inv.paidAmount).plus(c.amount);
+      await tx.update(invoices).set({ paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' }).where(eq(invoices.id, inv.id));
+      await tx.update(canvassCollections).set({ status: 'VERIFIED', verifiedById: u.sub, verifiedAt: new Date(), receivedAmount: received.toFixed(2), shortage: shortage.toFixed(2), paymentId: pay.id }).where(eq(canvassCollections.id, id));
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'VERIFY', entity: 'CanvassCollection', entityId: id, data: { number: c.number, claimed: c.amount, received: received.toFixed(2), shortage: shortage.toFixed(2), journal: journal.number } });
       return { id, status: 'VERIFIED', received: received.toFixed(2), shortage: shortage.toFixed(2) };
-    } catch (e) {
-      await this.db.update(canvassCollections).set({ status: 'PENDING', verifiedById: null, verifiedAt: null }).where(eq(canvassCollections.id, id));
-      throw e;
-    }
+    });
   }
 
   async rejectCollection(u: AuthUser, id: string, reason: string) {
@@ -352,7 +390,7 @@ export class CanvassService {
         shortage: D(pick(col, s.id)?.shortage).toFixed(2),
         staleCollections: Number(pick(col, s.id)?.stale ?? 0),
         vanQty: D(pick(van, s.id)?.qty).toFixed(4),
-        vanValue: D(pick(van, s.id)?.value).toFixed(2),
+        vanValue: u.role === 'SALES' ? '0.00' : D(pick(van, s.id)?.value).toFixed(2),
       })),
     };
   }
@@ -380,7 +418,7 @@ export class CanvassController {
   @Get('vans')
   @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'SALES')
   vans(@CurrentUser() u: AuthUser) {
-    return this.svc.vans(u.tenantId);
+    return this.svc.vans(u.tenantId, u.role);
   }
   @Post('vans')
   @Roles('ADMIN')

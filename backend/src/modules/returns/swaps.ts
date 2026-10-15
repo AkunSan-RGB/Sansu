@@ -140,6 +140,8 @@ export class SwapsService {
           refId: swap.id,
           refNumber: swap.number,
           date: swap.date,
+          // penarikan produk / kedaluwarsa: pengganti tidak boleh diambil dari lot yang sama dengan yang ditarik
+          excludeLotNos: l.lotNo ? [l.lotNo] : undefined,
         });
         items.push({ productId: l.productId, value: out.value });
         cost = cost.plus(out.value);

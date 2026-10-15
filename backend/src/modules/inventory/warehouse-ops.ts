@@ -250,7 +250,7 @@ export class WarehouseOpsService {
    * - DIRECT: stok keluar dari asal (HPP rata-rata asal) & langsung masuk ke tujuan dengan HPP yang sama — tanpa jurnal (akun persediaan sama).
    * - IN_TRANSIT: stok keluar dari asal; nilainya pindah ke akun "Persediaan dalam Perjalanan" sampai gudang tujuan menerima.
    */
-  async createTransfer(u: AuthUser, dto: CreateTransferDto) {
+  async createTransfer(u: AuthUser, dto: CreateTransferDto, opts: { special?: boolean } = {}) {
     if (dto.fromWarehouseId === dto.toWarehouseId)
       throw new BadRequestException('Gudang asal dan tujuan harus berbeda');
     const date = toDocDate(dto.date);
@@ -267,6 +267,8 @@ export class WarehouseOpsService {
       const to = await this.warehouse(tx, u.tenantId, dto.toWarehouseId);
       assertWarehouseAccess(u, from.id);
       if (!to.isActive) throw new BadRequestException(`Gudang tujuan ${to.name} nonaktif`);
+      // stok titipan outlet / mobil sales hanya berpindah lewat menu Konsinyasi / Kanvas (dokumen, pemisahan fungsi, batas nilai)
+      if (!opts.special && (from.kind !== 'MAIN' || to.kind !== 'MAIN')) throw new BadRequestException('Gudang konsinyasi/mobil dipindah lewat menu Konsinyasi / Kanvas');
       const ids = [...merged.keys()];
       const found = await tx
         .select({ id: products.id })
@@ -754,6 +756,7 @@ export class WarehouseOpsService {
             lines: adj,
           },
           tx,
+          { special: true }, // opname boleh di gudang konsinyasi/mobil: satu-satunya cara resmi mengoreksi stoknya
         );
         adjustmentNumber = r.number;
         valueIn = r.valueIn;

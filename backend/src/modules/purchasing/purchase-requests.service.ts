@@ -107,6 +107,7 @@ export class PurchaseRequestsService {
     const id = await this.db.transaction(async (tx) => {
       const [wh] = await tx.select().from(warehouses).where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
+      if (wh.kind !== 'MAIN') throw new BadRequestException('Gudang konsinyasi/mobil hanya dipakai lewat menu Konsinyasi / Kanvas');
       const supIds = [...new Set(dto.lines.map((l) => l.supplierId).filter((x): x is string => !!x))];
       if (supIds.length) {
         const found = await tx.select({ id: suppliers.id }).from(suppliers).where(and(eq(suppliers.tenantId, user.tenantId), inArray(suppliers.id, supIds)));

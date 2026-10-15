@@ -261,15 +261,16 @@ export class TradeService {
     const from = firstDay(dto.period);
     const to = lastDay(dto.period);
     return this.db.transaction(async (tx) => {
-      const rows = await tx.execute<{ line_id: string; promo_id: string; promo_name: string; kind: string; funded: string; qty: string; factor: string; price: string; line_total: string; is_bonus: boolean; inv_no: string; sku: string; cost: string | null }>(sql`
-        SELECT l.id AS line_id, p.id AS promo_id, p.name AS promo_name, p.kind, p.funded_pct AS funded, l.qty, l.uom_factor AS factor, l.price, l.line_total, l.is_bonus, i.number AS inv_no, pr.sku,
+      const rows = await tx.execute<{ line_id: string; promo_id: string; promo_name: string; kind: string; funded: string; ret_ratio: string; qty: string; factor: string; price: string; line_total: string; is_bonus: boolean; inv_no: string; sku: string; cost: string | null }>(sql`
+        SELECT l.id AS line_id, p.id AS promo_id, p.name AS promo_name, p.kind, l.promo_funded_pct AS funded,
+               COALESCE((SELECT 1 - SUM(il.returned_qty) / NULLIF(SUM(il.qty), 0) FROM invoice_lines il WHERE il.invoice_id = i.id AND il.product_id = l.product_id AND il.uom = l.uom AND il.price = l.price AND il.discount_pct = l.discount_pct), 1)::text AS ret_ratio, l.qty, l.uom_factor AS factor, l.price, l.line_total, l.is_bonus, i.number AS inv_no, pr.sku,
                (SELECT AVG(m.unit_cost) FROM stock_moves m WHERE m.tenant_id = ${u.tenantId}::uuid AND m.product_id = l.product_id AND m.type = 'SALE' AND (m.ref_id = i.id::text OR m.ref_id = i.delivery_order_id::text)) AS cost
         FROM sales_order_lines l
         JOIN promos p ON p.id = l.promo_id
         JOIN sales_orders o ON o.id = l.order_id
         JOIN invoices i ON i.sales_order_id = o.id
         JOIN products pr ON pr.id = l.product_id
-        WHERE o.tenant_id = ${u.tenantId} AND p.funded_supplier_id = ${sup.id} AND p.funded_pct > 0 AND i.date >= ${from} AND i.date <= ${to}
+        WHERE o.tenant_id = ${u.tenantId} AND l.promo_funded_supplier_id = ${sup.id} AND l.promo_funded_pct > 0 AND i.date >= ${from} AND i.date <= ${to}
           AND NOT EXISTS (SELECT 1 FROM principal_claim_lines x WHERE x.order_line_id = l.id)`);
       const items: { orderLineId: string; promoId: string; kind: 'DISCOUNT' | 'BONUS'; invoiceNumber: string; description: string; base: ReturnType<typeof D>; pct: string; amount: ReturnType<typeof D> }[] = [];
       for (const r of rows.rows) {
@@ -281,7 +282,8 @@ export class TradeService {
         } else {
           base = D(r.qty).times(r.price).minus(r.line_total);
         }
-        base = money(base);
+        // barang yang sudah diretur pelanggan tidak ditagihkan ke prinsipal
+        base = money(base.times(r.ret_ratio));
         if (base.lte(0)) continue;
         items.push({ orderLineId: r.line_id, promoId: r.promo_id, kind: isBonus ? 'BONUS' : 'DISCOUNT', invoiceNumber: r.inv_no, description: `${r.promo_name} — ${isBonus ? 'bonus' : 'potongan'} ${r.sku}`, base, pct: r.funded, amount: money(base.times(r.funded).div(100)) });
       }

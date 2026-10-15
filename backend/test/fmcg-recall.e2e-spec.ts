@@ -142,6 +142,25 @@ describe('FMCG: penelusuran lot / recall (e2e)', () => {
     expect(again.allocated).toBe(0);
   });
 
+  it('tukar-guling karena penarikan produk: pengganti tidak diambil dari lot yang ditarik', async () => {
+    const p3 = (await post('/api/products', { sku: 'SBN', name: 'Sabun', baseUom: 'PCS', sellPrice: '4000' }).expect(201)).body.id;
+    const sup = (await post('/api/suppliers', { code: 'PRI3', name: 'PT Sabun' }).expect(201)).body.id;
+    const po = (await post('/api/purchase-orders', { supplierId: sup, warehouseId: wh, lines: [{ productId: p3, qty: '50', price: '2000' }, { productId: p3, qty: '50', price: '2000' }] }).expect(201)).body;
+    await post(`/api/purchase-orders/${po.id}/confirm`).expect(201);
+    await post(`/api/purchase-orders/${po.id}/receipts`, { date: today, lines: [{ orderLineId: po.lines[0].id, qty: '50', lotNo: 'SBN-OLD', expiryDate: inDays(30) }, { orderLineId: po.lines[1].id, qty: '50', lotNo: 'SBN-NEW', expiryDate: inDays(90) }] }).expect(201);
+    const so = (await post('/api/sales-orders', { customerId: c1, warehouseId: wh, lines: [{ productId: p3, qty: '10' }] }).expect(201)).body;
+    await post(`/api/sales-orders/${so.id}/confirm`).expect(201);
+    const inv = (await post('/api/invoices', { salesOrderId: so.id }).expect(201)).body;
+    const lineId = (await get(`/api/invoices/${inv.id}`).expect(200)).body.lines[0].id;
+    const sw = (await post('/api/goods-swaps', { invoiceId: inv.id, reason: 'RECALL', lines: [{ invoiceLineId: lineId, qty: '5', lotNo: 'SBN-OLD' }] }).expect(201)).body;
+    await post(`/api/goods-swaps/${sw.id}/approve`, {}, await asRole('FINANCE')).expect(201);
+    const old = (await get(`/api/inventory/lots/trace?productId=${p3}&lotNo=SBN-OLD`).expect(200)).body;
+    const neu = (await get(`/api/inventory/lots/trace?productId=${p3}&lotNo=SBN-NEW`).expect(200)).body;
+    expect(Number(old.summary.remaining)).toBe(40); // 50 − 10 dijual; pengganti TIDAK dari lot ini
+    expect(Number(neu.summary.remaining)).toBe(45); // pengganti 5 diambil dari lot baru
+    expect(neu.customers.map((c: { code: string }) => c.code)).toEqual(['OTL-1']); // lot baru tercatat ke outlet lewat tukar-guling
+  });
+
   const asRole = async (role: string) => {
     await post('/api/users', { name: role, email: `rc-${role}-${stamp}@uji.id`, password: 'rahasia12345', role }).expect(201);
     return (await http.post('/api/auth/login').send({ email: `rc-${role}-${stamp}@uji.id`, password: 'rahasia12345' }).expect(200)).body.accessToken as string;
