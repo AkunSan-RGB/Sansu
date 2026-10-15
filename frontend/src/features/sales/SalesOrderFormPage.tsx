@@ -33,6 +33,7 @@ interface FormValues {
   date: string;
   notes?: string;
   salespersonId?: string;
+  customerPoNo?: string;
   /** Harga yang diketik sudah termasuk PPN */
   pricesIncludeVat?: boolean;
   currency?: string;
@@ -55,6 +56,7 @@ export default function SalesOrderFormPage() {
   const [form] = Form.useForm<FormValues>();
   const lines: Line[] = Form.useWatch('lines', form) ?? [];
   const productById = new Map(products?.map((p) => [p.id, p]));
+  const customerId = Form.useWatch('customerId', form);
   const currency = Form.useWatch('currency', form) ?? 'IDR';
   const foreign = isForeignCurrency(currency);
   const fxRate = Form.useWatch('fxRate', form) ?? 0;
@@ -156,7 +158,7 @@ export default function SalesOrderFormPage() {
             </Col>
             <Col xs={24} md={8}>
               <Form.Item name="warehouseId" label={t('Gudang')} rules={[{ required: true }]}>
-                <Select options={warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
+                <Select options={warehouses?.filter((w) => !w.kind || w.kind === 'MAIN' || (w.kind === 'VAN' && w.vanUserId === me?.id)).map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
               </Form.Item>
             </Col>
             <Col xs={24} md={6}>
@@ -164,6 +166,13 @@ export default function SalesOrderFormPage() {
                 <Input type="date" />
               </Form.Item>
             </Col>
+            {isFmcg && (
+              <Col xs={24} md={8}>
+                <Form.Item name="customerPoNo" label="Nomor PO outlet" rules={[{ required: !!customers?.find((c) => c.id === customerId)?.requirePo, message: 'Outlet ini mewajibkan nomor PO' }]}>
+                  <Input maxLength={60} placeholder="mis. PO-ALFA-77231" />
+                </Form.Item>
+              </Col>
+            )}
           </Row>
 
           {isFmcg && !!salespeople?.some((u) => u.role === 'SALES' && u.isActive) && (

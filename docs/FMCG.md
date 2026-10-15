@@ -29,9 +29,22 @@ istilah menu dan nama akun bawaan ikut Manufaktur. Pemilik dapat mengganti jenis
 Daftar harga, promo, dan target hanya dapat diubah **Pemilik/Admin** (Sales dan Keuangan hanya melihat); semua perubahan tercatat di jejak audit.
 Sales hanya melihat angkanya sendiri di Target & komisi.
 
+## Fitur lanjutan (alur dan pencegahan kecurangan)
+| Fitur | Alur | Kontrol anti-kecurangan |
+|---|---|---|
+| **Jurnal komisi** (`/sales-commissions`) | Tutup bulan (Akuntan/Admin) membekukan angka dan menjurnal Dr Beban Komisi \| Cr Utang Komisi; dibayar Keuangan/Admin (Dr Utang Komisi \| Cr Kas, PPh 21 opsional) | Penutup ≠ pembayar (Pemilik dikecualikan); angka tidak bisa diedit; target bulan lewat/ditutup terkunci; 1 komisi/sales/bulan; batal hanya sebelum dibayar dengan jurnal balik + alasan; penanda pesanan "diinput orang lain" |
+| **Rekonstruksi jejak lot lama** (`POST /inventory/lots/rebuild-trace`) | Admin mengalokasikan pengeluaran lama ke lot (FEFO, hanya sisa yang belum terjelaskan) | Hasil ditandai *perkiraan*, tak menimpa jejak asli, aman diulang, tercatat di audit |
+| **Tukar-guling** (`/goods-swaps`) | Usulan (Sales/Gudang/Admin) → disetujui Keuangan/Admin: stok pengganti keluar, Dr Beban Barang Kedaluwarsa & Retur Rusak \| Cr Persediaan; piutang tetap | Wajib acuan faktur outlet ≤ 180 hari; pengganti produk & jumlah sama; batas kumulatif per baris faktur (termasuk usulan menunggu); penyetuju ≠ pembuat |
+| **Konsinyasi** (`/consignments`) | Kirim titipan ke gudang konsinyasi outlet → outlet lapor → diperiksa & ditagih (faktur dari gudang itu) → tarik sisa | Pelapor ≠ penagih; nomor laporan outlet unik; laporan ≤ sisa titipan (dikurangi laporan belum ditagih); nilai titipan ≤ limit kredit; titipan macet ditandai; tidak bisa dijual lewat pesanan biasa |
+| **Kanvas / van sales** (`/canvass`) | Mobil per sales (muat/bongkar oleh gudang) → jual dari mobil → setoran tagihan → Keuangan menerima uang | Harga/potongan dikunci server (sales tak bisa mengubah); mobil milik sendiri; setoran = klaim sampai Keuangan memverifikasi, kekurangan tercatat atas nama sales; kunjungan 1/outlet/hari dengan jarak dari koordinat outlet; setoran > 2 hari ditandai |
+| **Modern trade** (`/trade`, `/trade-terms`) | PO outlet wajib & unik; syarat dagang (rebate %, biaya tetap) diakru bulanan Dr Beban Trade Promo \| Cr Utang Rebate; dilunasi potong tagihan (Dr Utang Rebate \| Cr Piutang) atau dibayar | Syarat hanya diubah Admin; akru ≠ pelunasan; 1 syarat 1× per bulan; potongan ≤ sisa utang & sisa tagihan; batal hanya bila belum dilunasi |
+| **Klaim ke prinsipal** (`/principal-claims`) | Promo dicatat prinsipal penanggung & persennya → klaim bulanan dari baris pesanan berpromo (potongan + biaya bonus) → diajukan → persetujuan prinsipal (Dr Piutang Klaim \| Cr Beban Trade Promo) → diterima (Dr Kas \| Cr Piutang Klaim) | Tiap baris pesanan hanya bisa diklaim sekali; pencatat persetujuan ≠ pembuat klaim; yang menerima uang = Keuangan; ditolak seluruhnya → baris dilepas |
+
 ## Batasan yang jujur
-- **Belum ada**: konsinyasi, retur tukar-guling, kanvas/van sales dengan rute & stok mobil sebagai alur sendiri (stok mobil dapat dipakai lewat gudang satelit dan transfer), integrasi modern trade (EDI/portal peritel), dan trade promo berbasis klaim ke prinsipal. Itu pekerjaan lanjutan.
-- Jejak lot hanya mencatat pengeluaran sejak fitur ini aktif; stok lama tidak terlacak (muncul sebagai "tidak terlacak"). Retur pelanggan belum dikembalikan ke lot asal.
-- Komisi sales hanya perhitungan; tidak ada jurnal komisi otomatis. Pembayarannya lewat penggajian/insentif manual.
-- Perlakuan PPN atas barang bonus dan potongan harus dipastikan dengan konsultan pajak.
-- Daftar harga/promo hanya berlaku pada pesanan penjualan Rupiah (pesanan valas diisi manual); kasir (POS) belum memakainya.
+- Konsinyasi hanya arah **keluar** (kita menitipkan ke outlet). Konsinyasi masuk (prinsipal menitipkan ke kita) belum ada.
+- Tukar-guling hanya untuk barang **tidak layak jual** (rusak/kedaluwarsa/ditarik) dengan pengganti identik; barang lama tidak masuk stok. Retur dengan uang kembali/nota kredit memakai Retur penjualan biasa.
+- Kanvas: kunjungan memakai koordinat dari perangkat (GPS ponsel) yang dapat dimanipulasi; jarak hanya penanda untuk ditinjau. Tidak ada mode offline. Optimasi rute belum ada (urutan manual).
+- Modern trade: tidak ada integrasi EDI/portal peritel; nomor PO diisi manual. Perlakuan PPN atas rebate, potongan, dan barang bonus harus dipastikan dengan konsultan pajak.
+- Rekonstruksi jejak lot adalah **perkiraan** (alokasi FEFO), bukan catatan asli saat barang keluar; pembuangan lot tertentu di masa lalu mungkin teralokasi ke lot lain. Retur pelanggan belum dikembalikan ke lot asal.
+- Komisi: PPh 21 atas komisi pegawai tetap harus diisi saat bayar atau dimasukkan ke penggajian; SANSU tidak menghitungnya otomatis.
+- Daftar harga/promo berlaku pada pesanan penjualan Rupiah (termasuk kanvas dan konsinyasi); kasir (POS) dan pesanan valas belum memakainya.

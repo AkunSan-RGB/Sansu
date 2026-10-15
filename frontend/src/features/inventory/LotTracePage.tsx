@@ -3,29 +3,33 @@ import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Descriptions, Empty, Form, Input, Select, Space, Table, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { get } from '@/api/client';
+import { get, post } from '@/api/client';
+import { useAction } from '@/api/queries';
+import { useCan } from '@/auth/useCan';
 import { useProducts } from '@/api/queries';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtQty } from '@/lib/format';
 import { t } from '@/lib/terms';
 
-interface Doc { type: string; number: string | null; date: string; qty: string; cancelled: boolean }
+interface Doc { type: string; number: string | null; date: string; qty: string; cancelled: boolean; estimate?: boolean }
 interface Trace {
   product: { sku: string; name: string; baseUom: string };
   lotNo: string;
   lots: { id: string; warehouse: string; receivedDate: string; expiryDate: string | null; qtyReceived: string; qtyRemaining: string; source: { type: string; number: string | null; supplier: string | null } }[];
-  summary: { received: string; remaining: string; toCustomers: string; walkIn: string; other: string; untraced: string };
+  summary: { received: string; remaining: string; toCustomers: string; walkIn: string; other: string; untraced: string; estimated: string };
   customers: { customerId: string; code: string; name: string; phone: string | null; address: string | null; qty: string; docs: Doc[] }[];
   walkIn: { qty: string; docs: Doc[] };
   other: { type: string; label: string; qty: string; docs: Doc[] }[];
 }
 
-const docLabel: Record<string, string> = { DELIVERY: 'Surat jalan', INVOICE: 'Faktur', POS_ORDER: 'Kasir' };
-const docList = (docs: Doc[]) => docs.map((d, i) => <div key={i} style={{ fontSize: 12 }}>{docLabel[d.type] ?? d.type} {d.number ?? ''} · {fmtDate(d.date)} · {fmtQty(d.qty)}{d.cancelled && <Tag color="default" style={{ marginLeft: 4 }}>dibatalkan</Tag>}</div>);
+const docLabel: Record<string, string> = { DELIVERY: 'Surat jalan', INVOICE: 'Faktur', POS_ORDER: 'Kasir', GOODS_SWAP: 'Tukar-guling' };
+const docList = (docs: Doc[]) => docs.map((d, i) => <div key={i} style={{ fontSize: 12 }}>{docLabel[d.type] ?? d.type} {d.number ?? ''} · {fmtDate(d.date)} · {fmtQty(d.qty)}{d.cancelled && <Tag color="default" style={{ marginLeft: 4 }}>dibatalkan</Tag>}{d.estimate && <Tag color="orange" style={{ marginLeft: 4 }}>perkiraan</Tag>}</div>);
 
 /** Penelusuran lot untuk penarikan produk (recall): satu nomor lot → asal penerimaan → semua pelanggan penerimanya */
 export default function LotTracePage() {
   const [params, setParams] = useSearchParams();
+  const can = useCan();
+  const rebuild = useAction(() => post<{ allocated: number; quantity: string }>('/inventory/lots/rebuild-trace'), { success: (r) => (r.allocated ? `${r.allocated} jejak lama direkonstruksi (ditandai perkiraan)` : 'Tidak ada jejak lama yang perlu direkonstruksi'), invalidate: ['lot-trace'] });
   const { data: products } = useProducts();
   const productId = params.get('productId') ?? undefined;
   const lotNo = params.get('lotNo') ?? undefined;
@@ -39,7 +43,7 @@ export default function LotTracePage() {
   });
   return (
     <>
-      <PageHeader title="Telusuri lot (recall)" />
+      <PageHeader title="Telusuri lot (recall)" extra={can('POST', '/inventory/lots/rebuild-trace') && <Button loading={rebuild.isPending} onClick={() => rebuild.mutate(undefined)}>Rekonstruksi jejak stok lama</Button>} />
       <Card style={{ marginBottom: 12 }}>
         <Form layout="inline" onFinish={() => pid && lotInput.trim() && setParams({ productId: pid, lotNo: lotInput.trim() })}>
           <Form.Item label={t('Produk')}><Select showSearch style={{ width: 280 }} optionFilterProp="label" value={pid} onChange={setPid} options={(products ?? []).map((p) => ({ value: p.id, label: `${p.sku} · ${p.name}` }))} /></Form.Item>
@@ -47,7 +51,7 @@ export default function LotTracePage() {
           <Button type="primary" htmlType="submit" icon={<SearchOutlined />} disabled={!pid || !lotInput.trim()} loading={isFetching}>Telusuri</Button>
         </Form>
       </Card>
-      <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Menampilkan asal penerimaan lot dan ke mana barangnya keluar: pelanggan (per surat jalan/faktur), kasir, transfer, pembuangan, atau produksi. Hanya pengeluaran sejak jejak lot dicatat yang terlacak; selisihnya ditampilkan sebagai “tidak terlacak”." />
+      <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Menampilkan asal penerimaan lot dan ke mana barangnya keluar: pelanggan (per surat jalan/faktur), kasir, transfer, pembuangan, atau produksi. Hanya pengeluaran sejak jejak lot dicatat yang terlacak; selisihnya ditampilkan sebagai “tidak terlacak”. Tombol “Rekonstruksi jejak stok lama” (Admin) mengalokasikan pengeluaran lama ke lot secara FEFO; hasilnya ditandai “perkiraan”, bukan catatan asli." />
       {error && <Alert type="warning" showIcon message={(error as Error).message} />}
       {!data && !error && <Empty description="Pilih produk dan isi nomor lot, atau klik “Telusuri” pada daftar Kedaluwarsa." />}
       {data && (
@@ -59,6 +63,7 @@ export default function LotTracePage() {
               <Descriptions.Item label="Kasir (pembeli umum)">{fmtQty(data.summary.walkIn)}</Descriptions.Item>
               <Descriptions.Item label="Keluar lain (transfer/buang/produksi)">{fmtQty(data.summary.other)}</Descriptions.Item>
               <Descriptions.Item label="Masih di gudang">{fmtQty(data.summary.remaining)}</Descriptions.Item>
+              <Descriptions.Item label="Perkiraan (direkonstruksi)">{Number(data.summary.estimated) !== 0 ? <Tag color="orange">{fmtQty(data.summary.estimated)}</Tag> : '0'}</Descriptions.Item>
               <Descriptions.Item label="Tidak terlacak">{Number(data.summary.untraced) !== 0 ? <Tag color="orange">{fmtQty(data.summary.untraced)}</Tag> : '0'}</Descriptions.Item>
             </Descriptions>
             <Table size="small" style={{ marginTop: 8 }} rowKey="id" pagination={false} dataSource={data.lots} scroll={{ x: 600 }}

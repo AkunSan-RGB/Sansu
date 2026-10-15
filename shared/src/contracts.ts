@@ -191,6 +191,9 @@ export interface Warehouse {
   name: string;
   address?: string | null;
   isActive?: boolean;
+  /** MAIN = gudang biasa; CONSIGNMENT = titipan di outlet; VAN = stok mobil sales kanvas */
+  kind?: 'MAIN' | 'CONSIGNMENT' | 'VAN';
+  vanUserId?: string | null;
 }
 
 export interface ProductUom {
@@ -232,6 +235,9 @@ export interface Customer {
   isActive: boolean;
   /** Daftar harga pelanggan (segmen); kosong = harga jual master */
   priceListId?: string | null;
+  requirePo?: boolean;
+  geoLat?: string | null;
+  geoLng?: string | null;
   outstanding?: string;
 }
 

@@ -1,4 +1,5 @@
 import { type BusinessModel } from '@sansu/shared';
+import { tradeTerms } from '../../db/schema';
 import * as X from './demo.extra';
 import { addCustomers, addSuppliers, Demo, expense, openingBalance, payBill, payroll, posDay, purchase, receive, sell } from './demo.kit';
 
@@ -369,6 +370,15 @@ async function seedFmcg(c: Demo) {
   await c.step('pasang daftar harga', async () => {
     for (const [code, list] of [['OTL-GROSIR', grosir], ['OTL-ALFA', minimarket], ['OTL-SUPER', minimarket]] as const)
       if (list) await c.svc.customers.update(c.tenantId, cu.get(code)!, { priceListId: list } as never);
+  });
+  // syarat dagang peritel modern (diakru tiap akhir bulan lewat Modern trade)
+  await c.step('syarat dagang', async () => {
+    const rows = [
+      { customerId: cu.get('OTL-ALFA')!, name: 'Rebate pencapaian 1,5%', kind: 'PCT_SALES' as const, value: '1.5' },
+      { customerId: cu.get('OTL-ALFA')!, name: 'Listing fee bulanan', kind: 'FIXED_MONTHLY' as const, value: '1500000' },
+      { customerId: cu.get('OTL-SUPER')!, name: 'Rebate pencapaian 2%', kind: 'PCT_SALES' as const, value: '2' },
+    ];
+    for (const r of rows) await c.db.insert(tradeTerms).values({ tenantId: c.tenantId, ...r });
   });
   await c.step('promo potongan', () => c.svc.pricing.createPromo(c.admin as never, { name: 'Diskon 3% mi instan min 60 dus', kind: 'DISCOUNT', productId: id('FM-MIE'), minQty: '60', discountPct: '3' }));
   await c.step('promo bonus', () => c.svc.pricing.createPromo(c.admin as never, { name: 'Beli 20 dus air mineral gratis 2 renceng kopi', kind: 'BONUS', productId: id('FM-AIR'), minQty: '20', bonusProductId: id('FM-KOPI'), bonusQty: '2' }));

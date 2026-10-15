@@ -82,6 +82,7 @@ describe('Lihat Demo (e2e)', () => {
     // daftar harga per segmen, promo, dan jejak lot ke pelanggan (bahan penelusuran recall)
     expect(await count(s('FMCG'), 'price_lists')).toBe(2);
     expect(await count(s('FMCG'), 'promos')).toBe(2);
+    expect(await count(s('FMCG'), 'trade_terms')).toBe(3);
     expect(await count(s('FMCG'), 'stock_lot_issues')).toBeGreaterThan(5);
     expect(await count(s('RITEL'), 'price_lists')).toBe(0);
     expect(await count(s('MANUFAKTUR'), 'production_orders')).toBeGreaterThan(2);

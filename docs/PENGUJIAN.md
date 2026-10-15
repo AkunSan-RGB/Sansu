@@ -55,6 +55,10 @@ npm run test:e2e                    # e2e api: mereset dan memigrasi database `a
 | FMCG: recall lot | `fmcg-recall` | Penelusuran lot → asal penerimaan → pelanggan (surat jalan/faktur), FEFO antar lot, pembuangan, pengiriman dibatalkan, isolasi antar perusahaan |
 | FMCG: target & komisi sales | `fmcg-target-sales` | Pesanan dikaitkan ke sales, omzet neto setelah retur, komisi dengan ambang, Sales hanya melihat dirinya, validasi |
 | Migrasi Produksi → Manufaktur | `fmcg-migrasi` | Hanya perusahaan bermodel PRODUKSI yang pindah ke MANUFAKTUR; pengaturan lain utuh |
+| FMCG: jurnal komisi & rekonstruksi lot | `fmcg-komisi`, `fmcg-recall` | Tutup/bayar/batal komisi (jurnal, SoD, target terkunci); rekonstruksi jejak lot lama = perkiraan, idempoten |
+| FMCG: tukar-guling & konsinyasi | `fmcg-tukar-konsinyasi` | Usulan→persetujuan, batas per baris faktur, umur faktur; titipan, laporan outlet unik, penagihan oleh orang lain, tarik sisa, limit nilai |
+| FMCG: kanvas | `fmcg-kanvas` | Mobil, harga terkunci server, setoran menunggu/verifikasi/kekurangan, rute & kunjungan berkoordinat, ringkasan |
+| FMCG: modern trade & klaim prinsipal | `fmcg-modern-trade` | PO wajib/unik, akru syarat dagang & pelunasan (potong tagihan/bayar), klaim promo→persetujuan→penerimaan |
 | Kedaluwarsa bahan | `kedaluwarsa` | Lot dari penerimaan, faktur, dan saldo awal; FEFO; transfer membawa lot; pembatalan penerimaan menghapus lotnya; buang lot tertentu; status kedaluwarsa; jenis pesanan dan meja di kasir |
 | Bank otomatis & anti-fraud | `bank-kontrol` | Integritas file mutasi, anti catat ganda per baris, aturan kategori otomatis (batas nilai, hanya pendapatan/beban), staf tak bisa menyembunyikan uang keluar, hapus rekening koran terkontrol, pengesahan rekonsiliasi oleh orang lain, temuan kontrol bank |
 | Kasir ↔ stok ↔ buku besar | `kasir-retur` | Retur/pembatalan kasir oleh supervisor (stok kembali pada HPP, jurnal dibalik, uang laci berkurang, total retur = total jual), kasir tak bisa ubah harga/diskon atau batalkan sendiri, pembatasan toko, temuan kontrol kasir |

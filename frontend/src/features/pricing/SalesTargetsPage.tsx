@@ -7,12 +7,14 @@ import { useAction } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
 import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
+import CommissionsCard from './CommissionsCard';
 import { fmtMoney } from '@/lib/format';
 
 interface Row {
   userId: string;
   name: string;
   invoices: number;
+  enteredByOthers: number;
   gross: string;
   returns: string;
   net: string;
@@ -54,7 +56,7 @@ export default function SalesTargetsPage() {
   return (
     <>
       <PageHeader title="Target & komisi sales" extra={<Space><DatePicker picker="month" allowClear={false} value={month} onChange={(v) => v && setMonth(v)} />{canEdit && <Button type="primary" loading={save.isPending} onClick={() => save.mutate(undefined)}>Simpan target</Button>}</Space>} />
-      <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Omzet sales = DPP faktur dari pesanan yang dipegang sales itu, dikurangi retur penjualan di bulan yang sama. Komisi hanya perhitungan sebagai bahan penggajian/insentif; sistem tidak membuat jurnal komisi otomatis. Pilih sales di pesanan penjualan agar tercatat atas namanya." />
+      <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Omzet sales = DPP faktur dari pesanan yang dipegang sales itu, dikurangi retur penjualan di bulan yang sama. Bulan yang sudah berakhir dapat ditutup di “Jurnal komisi” di bawah: komisi dijurnal sebagai utang lalu dibayar. Target bulan yang sudah lewat tidak dapat diubah. Pilih sales di pesanan penjualan agar tercatat atas namanya." />
       <SummaryCards items={[
         { label: 'Omzet neto', value: fmtMoney(data?.totals.net) },
         { label: 'Target', value: fmtMoney(data?.totals.target), hint: Number(data?.totals.target) > 0 ? `${((Number(data?.totals.net) / Number(data?.totals.target)) * 100).toFixed(0)}% tercapai` : undefined },
@@ -64,13 +66,14 @@ export default function SalesTargetsPage() {
         locale={{ emptyText: 'Belum ada pengguna berperan Sales. Tambahkan di Pengaturan › Pengguna.' }}
         columns={[
           { title: 'Sales', dataIndex: 'name' },
-          { title: 'Omzet neto', align: 'right' as const, render: (_: unknown, r: Row) => <div>{fmtMoney(r.net)}<div style={{ fontSize: 12, color: '#64748b' }}>{r.invoices} faktur · retur {fmtMoney(r.returns)}</div></div> },
+          { title: 'Omzet neto', align: 'right' as const, render: (_: unknown, r: Row) => <div>{fmtMoney(r.net)}<div style={{ fontSize: 12, color: '#64748b' }}>{r.invoices} faktur · retur {fmtMoney(r.returns)}{r.enteredByOthers > 0 ? ` · ${r.enteredByOthers} diinput orang lain` : ''}</div></div> },
           { title: 'Target', width: 170, render: (_: unknown, r: Row) => canEdit ? <InputNumber min={0} prefix="Rp" style={{ width: 150 }} value={edit[r.userId]?.target} onChange={(v) => set(r.userId, { target: v ?? 0 })} /> : fmtMoney(r.target) },
           { title: 'Pencapaian', width: 160, render: (_: unknown, r: Row) => r.achievementPct === null ? <Tag>Belum ada target</Tag> : <Progress percent={Math.min(100, Number(r.achievementPct))} format={() => `${r.achievementPct}%`} status={Number(r.achievementPct) >= 100 ? 'success' : 'active'} size="small" /> },
           { title: 'Komisi %', width: 110, render: (_: unknown, r: Row) => canEdit ? <InputNumber min={0} max={100} step={0.1} suffix="%" style={{ width: 90 }} value={edit[r.userId]?.commissionPct} onChange={(v) => set(r.userId, { commissionPct: v ?? 0 })} /> : `${r.commissionPct}%` },
           { title: 'Min. capaian', width: 110, render: (_: unknown, r: Row) => canEdit ? <InputNumber min={0} max={100} suffix="%" style={{ width: 90 }} value={edit[r.userId]?.minAchievementPct} onChange={(v) => set(r.userId, { minAchievementPct: v ?? 0 })} /> : `${r.minAchievementPct}%` },
           { title: 'Komisi', align: 'right' as const, render: (_: unknown, r: Row) => <div>{fmtMoney(r.commission)}{r.commissionNote && <div style={{ fontSize: 12, color: '#64748b' }}>{r.commissionNote}</div>}</div> },
         ]} />
+      <CommissionsCard />
     </>
   );
 }

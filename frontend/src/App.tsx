@@ -74,6 +74,10 @@ import TablesPage from './features/pos/TablesPage';
 import ExpiryPage from './features/inventory/ExpiryPage';
 import LotTracePage from './features/inventory/LotTracePage';
 import PriceListsPage from './features/pricing/PriceListsPage';
+import CanvassPage from './features/fmcg/CanvassPage';
+import ConsignmentsPage from './features/fmcg/ConsignmentsPage';
+import SwapsPage from './features/fmcg/SwapsPage';
+import TradePage from './features/fmcg/TradePage';
 import PromosPage from './features/pricing/PromosPage';
 import SalesTargetsPage from './features/pricing/SalesTargetsPage';
 import MovementPage from './features/inventory/MovementPage';
@@ -188,6 +192,10 @@ export default function App() {
           <Route path="inventory/lot-trace" element={<LotTracePage />} />
           <Route path="price-lists" element={<PriceListsPage />} />
           <Route path="promos" element={<PromosPage />} />
+          <Route path="consignments" element={<ConsignmentsPage />} />
+          <Route path="goods-swaps" element={<SwapsPage />} />
+          <Route path="canvass" element={<CanvassPage />} />
+          <Route path="trade" element={<TradePage />} />
           <Route path="sales-targets" element={<SalesTargetsPage />} />
           <Route path="production/boms" element={<BomsPage />} />
           <Route path="production/orders" element={<ProductionOrdersPage />} />

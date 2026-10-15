@@ -30,6 +30,8 @@ Pemilik selalu lolos semua pemeriksaan peran (dan tidak terkena batas persetujua
 | **Kas & bank** | Catat kas & cocokkan rekening koran (Keuangan/Admin) → di atas batas menunggu persetujuan → pembatalan hanya Pemilik/Admin dengan alasan; hitung kas fisik berselisih besar disetujui Pemilik; **rekonsiliasi bulanan disahkan Akuntan/Admin** (bukan pengimpor rekening koran) |
 | **Kas kecil** | Juru kas mencatat bukti → pengisian kembali menunggu persetujuan → pembatalan Pemilik/Admin |
 | **Gaji** | Disusun SDM → **jurnalnya diposting Akuntan/Admin (atau otomatis oleh sistem)** → dibayar Keuangan |
+| **Komisi sales (FMCG)** | Target diatur Admin (terkunci setelah bulan lewat) → komisi ditutup/dijurnal Akuntan/Admin → dibayar Keuangan/Admin (orang berbeda dari penutup) |
+| **Konsinyasi / tukar-guling / setoran kanvas (FMCG)** | Dicatat Sales/Gudang → diperiksa dan disahkan Keuangan/Admin (orang berbeda dari pencatat) sebelum menjadi faktur, stok keluar, atau pelunasan |
 | **Aset tetap** | Dicatat dan disusutkan oleh Akuntan/Admin → pelepasan di atas batas menunggu persetujuan |
 | **Pembukuan** | Jurnal manual, penyesuaian, kunci periode, tutup buku: Akuntan/Admin (jurnal di atas batas `manualJournal` menunggu persetujuan). Keuangan hanya membaca laporan |
 

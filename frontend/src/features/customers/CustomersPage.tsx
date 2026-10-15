@@ -2,7 +2,7 @@ import { useApps } from '@/lib/apps';
 import { useNavigate } from 'react-router-dom';
 import { FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Form, Input, InputNumber, Modal, Select, Space, Tag } from 'antd';
+import { Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Tag } from 'antd';
 import { useState } from 'react';
 import { get, patch, post } from '@/api/client';
 import { useAction, useCustomers } from '@/api/queries';
@@ -22,6 +22,9 @@ interface FormValues {
   creditLimit: number;
   paymentTermDays: number;
   priceListId?: string | null;
+  requirePo?: boolean;
+  geoLat?: number;
+  geoLng?: number;
 }
 
 export default function CustomersPage() {
@@ -37,7 +40,7 @@ export default function CustomersPage() {
 
   const save = useAction(
     (v: FormValues) => {
-      const body = { ...v, creditLimit: String(v.creditLimit ?? 0), priceListId: v.priceListId ?? null };
+      const body = { ...v, creditLimit: String(v.creditLimit ?? 0), priceListId: v.priceListId ?? null, geoLat: v.geoLat ?? undefined, geoLng: v.geoLng ?? undefined };
       return editing && editing !== 'new' ? patch(`/customers/${editing.id}`, body) : post('/customers', body);
     },
     { success: 'Pelanggan disimpan', invalidate: ['customers'], onSuccess: () => setEditing(null) },
@@ -53,6 +56,9 @@ export default function CustomersPage() {
         address: c.address ?? undefined,
         creditLimit: Number(c.creditLimit),
         priceListId: c.priceListId ?? undefined,
+        requirePo: c.requirePo ?? false,
+        geoLat: c.geoLat != null ? Number(c.geoLat) : undefined,
+        geoLng: c.geoLng != null ? Number(c.geoLng) : undefined,
       });
     }
     setEditing(c);
@@ -132,6 +138,17 @@ export default function CustomersPage() {
             <Form.Item name="priceListId" label="Daftar harga (segmen)" extra="Harga di pesanan penjualan mengikuti daftar ini. Kosong = harga jual master.">
               <Select allowClear options={(priceLists ?? []).filter((l) => l.isActive).map((l) => ({ value: l.id, label: l.name }))} placeholder="Tanpa daftar harga" />
             </Form.Item>
+          )}
+          {isFmcg && (
+            <>
+              <Form.Item name="requirePo" label="Peritel modern (wajib nomor PO outlet)" valuePropName="checked" extra="Setiap pesanan harus membawa nomor PO outlet yang unik; mencegah satu PO ditagih dua kali.">
+                <Switch />
+              </Form.Item>
+              <Space wrap>
+                <Form.Item name="geoLat" label="Lintang outlet" extra="Untuk memeriksa kunjungan kanvas"><InputNumber min={-90} max={90} step={0.000001} style={{ width: 160 }} placeholder="-6.200000" /></Form.Item>
+                <Form.Item name="geoLng" label="Bujur outlet"><InputNumber min={-180} max={180} step={0.000001} style={{ width: 160 }} placeholder="106.800000" /></Form.Item>
+              </Space>
+            </>
           )}
           <Space wrap>
             <Form.Item name="creditLimit" label="Limit kredit (0 = tanpa batas)">

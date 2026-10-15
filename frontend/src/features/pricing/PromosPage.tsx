@@ -26,6 +26,8 @@ interface PromoRow {
   validTo: string | null;
   priceListId: string | null;
   priceListName: string | null;
+  fundedSupplierId: string | null;
+  fundedPct: string;
   isActive: boolean;
 }
 interface FormValues {
@@ -38,6 +40,8 @@ interface FormValues {
   bonusQty?: number;
   period?: [dayjs.Dayjs, dayjs.Dayjs];
   priceListId?: string;
+  fundedSupplierId?: string;
+  fundedPct?: number;
   isActive: boolean;
 }
 
@@ -48,6 +52,7 @@ export default function PromosPage() {
   const { data, isLoading } = useQuery({ queryKey: ['promos'], queryFn: () => get<PromoRow[]>('/promos') });
   const { data: lists } = useQuery({ queryKey: ['price-lists'], queryFn: () => get<{ id: string; name: string }[]>('/price-lists') });
   const { data: products } = useProducts();
+  const { data: suppliers } = useQuery({ queryKey: ['suppliers'], queryFn: () => get<{ id: string; code: string; name: string }[]>('/suppliers') });
   const [editing, setEditing] = useState<PromoRow | 'new' | null>(null);
   const [form] = Form.useForm<FormValues>();
   const kind = Form.useWatch('kind', form);
@@ -59,7 +64,7 @@ export default function PromosPage() {
         bonusProductId: v.kind === 'BONUS' ? v.bonusProductId : undefined,
         bonusQty: v.kind === 'BONUS' ? String(v.bonusQty ?? 0) : undefined,
         validFrom: v.period?.[0]?.format('YYYY-MM-DD'), validTo: v.period?.[1]?.format('YYYY-MM-DD'),
-        priceListId: v.priceListId, isActive: v.isActive,
+        priceListId: v.priceListId, fundedSupplierId: v.fundedSupplierId, fundedPct: v.fundedSupplierId ? String(v.fundedPct ?? 0) : undefined, isActive: v.isActive,
       };
       return editing && editing !== 'new' ? put(`/promos/${editing.id}`, body) : post('/promos', body);
     },
@@ -68,7 +73,7 @@ export default function PromosPage() {
   const open = (p: PromoRow | 'new') => {
     form.resetFields();
     if (p === 'new') form.setFieldsValue({ kind: 'DISCOUNT', minQty: 1, isActive: true });
-    else form.setFieldsValue({ name: p.name, kind: p.kind, productId: p.productId ?? undefined, minQty: Number(p.minQty), discountPct: Number(p.discountPct), bonusProductId: p.bonusProductId ?? undefined, bonusQty: Number(p.bonusQty), period: p.validFrom && p.validTo ? [dayjs(p.validFrom), dayjs(p.validTo)] : undefined, priceListId: p.priceListId ?? undefined, isActive: p.isActive });
+    else form.setFieldsValue({ name: p.name, kind: p.kind, productId: p.productId ?? undefined, minQty: Number(p.minQty), discountPct: Number(p.discountPct), bonusProductId: p.bonusProductId ?? undefined, bonusQty: Number(p.bonusQty), period: p.validFrom && p.validTo ? [dayjs(p.validFrom), dayjs(p.validTo)] : undefined, priceListId: p.priceListId ?? undefined, fundedSupplierId: p.fundedSupplierId ?? undefined, fundedPct: Number(p.fundedPct) || undefined, isActive: p.isActive });
     setEditing(p);
   };
   const prodOpts = (products ?? []).filter((p) => p.isActive).map((p) => ({ value: p.id, label: `${p.sku} · ${p.name}` }));
@@ -93,6 +98,7 @@ export default function PromosPage() {
           { title: 'Jenis', dataIndex: 'kind', render: (k: string) => <Tag color={k === 'BONUS' ? 'purple' : 'blue'}>{k === 'BONUS' ? 'Bonus barang' : 'Potongan'}</Tag> },
           { title: 'Periode', render: (_: unknown, p: PromoRow) => (p.validFrom || p.validTo ? `${fmtDate(p.validFrom)} – ${fmtDate(p.validTo)}` : 'Tanpa batas') },
           { title: 'Segmen', dataIndex: 'priceListName', render: (v: string | null) => v ?? 'Semua pelanggan' },
+          { title: 'Ditanggung prinsipal', render: (_: unknown, p: PromoRow) => (p.fundedSupplierId ? <Tag color="purple">{Number(p.fundedPct)}%</Tag> : '-') },
         ]}
       />
       <Modal title={editing === 'new' ? 'Promo baru' : 'Ubah promo'} open={!!editing} onCancel={() => setEditing(null)} onOk={() => form.submit()} confirmLoading={save.isPending} okText="Simpan" destroyOnHidden>
@@ -111,6 +117,10 @@ export default function PromosPage() {
           )}
           <Form.Item name="period" label="Periode (kosong = tanpa batas)"><DatePicker.RangePicker /></Form.Item>
           <Form.Item name="priceListId" label="Hanya untuk segmen (kosong = semua pelanggan)"><Select allowClear options={(lists ?? []).map((l) => ({ value: l.id, label: l.name }))} /></Form.Item>
+          <Form.Item name="fundedSupplierId" label="Prinsipal penanggung biaya promo (opsional)" extra="Biaya promo yang ditanggung prinsipal dapat diklaim bulanan di Modern trade › Klaim ke prinsipal"><Select allowClear showSearch optionFilterProp="label" options={(suppliers ?? []).map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))} /></Form.Item>
+          <Form.Item noStyle shouldUpdate={(a, b) => a.fundedSupplierId !== b.fundedSupplierId}>
+            {({ getFieldValue }) => getFieldValue('fundedSupplierId') && <Form.Item name="fundedPct" label="Persen ditanggung prinsipal" rules={[{ required: true }]}><InputNumber min={1} max={100} suffix="%" style={{ width: 160 }} /></Form.Item>}
+          </Form.Item>
           <Form.Item name="isActive" label="Aktif" valuePropName="checked"><Switch /></Form.Item>
         </Form>
       </Modal>
