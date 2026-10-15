@@ -282,6 +282,8 @@ export const customers = pgTable(
     /** Koordinat outlet (untuk memeriksa kunjungan sales kanvas) */
     geoLat: numeric('geo_lat', { precision: 9, scale: 6 }),
     geoLng: numeric('geo_lng', { precision: 9, scale: 6 }),
+    /** Peritel modern: setiap pesanan wajib membawa nomor PO outlet (unik per outlet) */
+    requirePo: boolean('require_po').notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('customers_code_uq').on(t.tenantId, t.code)],
@@ -339,6 +341,9 @@ export const promos = pgTable('promos', {
   validTo: date('valid_to'),
   /** Batasi ke pelanggan pada daftar harga ini; kosong = semua pelanggan */
   priceListId: uuid('price_list_id').references(() => priceLists.id),
+  /** Prinsipal yang ikut menanggung biaya promo ini (dasar klaim) dan persentase tanggungannya */
+  fundedSupplierId: uuid('funded_supplier_id'),
+  fundedPct: numeric('funded_pct', { precision: 5, scale: 2 }).notNull().default('0'),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: createdAt(),
 });
@@ -664,6 +669,90 @@ export const canvassCollections = pgTable(
   (t) => [uniqueIndex('canvass_collections_number_uq').on(t.tenantId, t.number), index('canvass_collections_invoice_idx').on(t.invoiceId)],
 );
 
+/** Syarat dagang dengan peritel modern: rebate/back margin (% penjualan neto) atau biaya tetap bulanan (listing/merchandising) */
+export const tradeTerms = pgTable('trade_terms', {
+  id: id(),
+  tenantId: tenantId(),
+  customerId: uuid('customer_id')
+    .notNull()
+    .references(() => customers.id),
+  name: text('name').notNull(),
+  kind: text('kind').$type<'PCT_SALES' | 'FIXED_MONTHLY'>().notNull(),
+  /** PCT_SALES: persen (0–100); FIXED_MONTHLY: rupiah per bulan */
+  value: numeric('value', { precision: 18, scale: 4 }).notNull(),
+  validFrom: date('valid_from'),
+  validTo: date('valid_to'),
+  isActive: boolean('is_active').notNull().default(true),
+  createdById: uuid('created_by_id'),
+  createdAt: createdAt(),
+});
+export const tradeAccruals = pgTable(
+  'trade_accruals',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    termId: uuid('term_id')
+      .notNull()
+      .references(() => tradeTerms.id),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    period: text('period').notNull(),
+    baseAmount: money('base_amount').notNull(),
+    amount: money('amount').notNull(),
+    settledAmount: money('settled_amount').notNull().default('0'),
+    status: text('status').$type<'ACCRUED' | 'SETTLED' | 'VOID'>().notNull().default('ACCRUED'),
+    accrualJournalId: uuid('accrual_journal_id'),
+    accruedById: uuid('accrued_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('trade_accruals_uq').on(t.termId, t.period).where(sql`status <> 'VOID'`), uniqueIndex('trade_accruals_number_uq').on(t.tenantId, t.number)],
+);
+/** Klaim biaya promo ke prinsipal: dikumpulkan dari baris pesanan berpromo yang didanai prinsipal; tiap baris hanya bisa diklaim sekali */
+export const principalClaims = pgTable(
+  'principal_claims',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    supplierId: uuid('supplier_id')
+      .notNull()
+      .references(() => suppliers.id),
+    period: text('period').notNull(),
+    claimedAmount: money('claimed_amount').notNull(),
+    approvedAmount: money('approved_amount').notNull().default('0'),
+    status: text('status').$type<'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'PAID' | 'REJECTED'>().notNull().default('DRAFT'),
+    principalRef: text('principal_ref'),
+    approvalJournalId: uuid('approval_journal_id'),
+    paymentJournalId: uuid('payment_journal_id'),
+    cashAccountId: uuid('cash_account_id'),
+    createdById: uuid('created_by_id'),
+    decidedById: uuid('decided_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('principal_claims_number_uq').on(t.tenantId, t.number)],
+);
+export const principalClaimLines = pgTable(
+  'principal_claim_lines',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    claimId: uuid('claim_id')
+      .notNull()
+      .references(() => principalClaims.id, { onDelete: 'cascade' }),
+    orderLineId: uuid('order_line_id').notNull(),
+    promoId: uuid('promo_id'),
+    kind: text('kind').$type<'DISCOUNT' | 'BONUS'>().notNull(),
+    invoiceNumber: text('invoice_number'),
+    description: text('description').notNull(),
+    baseValue: money('base_value').notNull(),
+    fundedPct: numeric('funded_pct', { precision: 5, scale: 2 }).notNull(),
+    amount: money('amount').notNull(),
+  },
+  (t) => [uniqueIndex('principal_claim_lines_uq').on(t.orderLineId)],
+);
+
 /** Lot yang ikut berpindah saat transfer gudang: dicatat saat barang keluar, dipakai lagi saat barang masuk di gudang tujuan */
 export const stockLotTransit = pgTable(
   'stock_lot_transit',
@@ -743,6 +832,8 @@ export const salesOrders = pgTable(
     notes: text('notes'),
     /** Sales yang memegang pesanan ini (dasar target & komisi); kosong = tidak dikaitkan ke sales */
     salespersonId: uuid('salesperson_id'),
+    /** Nomor PO dari outlet (peritel modern); satu nomor tidak boleh ditagih dua kali */
+    customerPoNo: text('customer_po_no'),
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
   },
@@ -769,6 +860,9 @@ export const salesOrderLines = pgTable('sales_order_lines', {
   priceInclVat: money('price_incl_vat'),
   /** Harga per `uom` dalam mata uang dokumen (dokumen valas); `price` tetap Rupiah */
   priceForeign: numeric('price_foreign', { precision: 18, scale: 4 }),
+  /** Promo yang menghasilkan potongan/bonus pada baris ini (dasar klaim ke prinsipal) */
+  promoId: uuid('promo_id'),
+  isBonus: boolean('is_bonus').notNull().default(false),
 });
 
 /** Permintaan persetujuan atas transaksi bernilai besar (pesanan pembelian, jurnal manual) dari peran yang tidak berwenang */

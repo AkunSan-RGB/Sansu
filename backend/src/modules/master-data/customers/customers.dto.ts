@@ -16,6 +16,7 @@ export class CreateCustomerDto {
   @ApiPropertyOptional({ example: 30 }) @IsOptional() @IsInt() @Min(0) @Max(365) paymentTermDays?: number;
   @ApiPropertyOptional({ example: -6.2, description: 'Koordinat outlet (untuk memeriksa kunjungan sales kanvas)' }) @IsOptional() @IsLatitude() geoLat?: number;
   @ApiPropertyOptional({ example: 106.8 }) @IsOptional() @IsLongitude() geoLng?: number;
+  @ApiPropertyOptional({ description: 'Peritel modern: pesanan wajib membawa nomor PO outlet' }) @IsOptional() @IsBoolean() requirePo?: boolean;
   @ApiPropertyOptional({ description: 'Daftar harga pelanggan (segmen); kosong = harga jual master' }) @IsOptional() @IsUUID() priceListId?: string;
 }
 

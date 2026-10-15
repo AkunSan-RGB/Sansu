@@ -63,6 +63,12 @@ export class SalesOrdersService {
         .from(customers)
         .where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, user.tenantId)));
       if (!customer || !customer.isActive) throw new BadRequestException('Pelanggan tidak ditemukan / nonaktif');
+      const poNo = dto.customerPoNo?.trim() || null;
+      if (customer.requirePo && !poNo) throw new BadRequestException(`${customer.name} mewajibkan nomor PO outlet pada setiap pesanan`);
+      if (poNo) {
+        const [dup] = await tx.select({ number: salesOrders.number }).from(salesOrders).where(and(eq(salesOrders.tenantId, user.tenantId), eq(salesOrders.customerId, customer.id), eq(salesOrders.customerPoNo, poNo), sql`${salesOrders.status} <> 'CANCELLED'`));
+        if (dup) throw new BadRequestException(`Nomor PO ${poNo} sudah dipakai pada pesanan ${dup.number} (satu PO tidak boleh ditagih dua kali)`);
+      }
       const [wh] = await tx
         .select()
         .from(warehouses)
@@ -93,12 +99,13 @@ export class SalesOrdersService {
       if (foreign && dto.pricesIncludeVat) throw new BadRequestException('Pesanan valas memakai harga belum termasuk PPN');
 
       // Daftar harga pelanggan + promo: hanya mengisi harga/potongan yang kosong, dan menambah baris bonus (harga 0). Valas diisi manual.
-      let rawLines: SalesOrderLineDto[] = dto.lines;
+      type PromoLine = SalesOrderLineDto & { promoId?: string; isBonus?: boolean };
+      let rawLines: PromoLine[] = dto.lines;
       if (!foreign) {
         const r = await this.pricing.apply(tx, user.tenantId, customer, date, dto.lines, byId, dto.applyPromos ?? true);
         rawLines = [
-          ...r.lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: l.qty, price: l.price, discountPct: l.discountPct })),
-          ...r.bonus.map((b) => ({ productId: b.productId, uom: b.uom, qty: b.qty, price: '0', discountPct: '0' })),
+          ...r.lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: l.qty, price: l.price, discountPct: l.discountPct, promoId: (l as { promoId?: string }).promoId })),
+          ...r.bonus.map((b) => ({ productId: b.productId, uom: b.uom, qty: b.qty, price: '0', discountPct: '0', promoId: b.promoId, isBonus: true })),
         ];
       }
       const lines = rawLines.map((l) => {
@@ -118,6 +125,8 @@ export class SalesOrdersService {
         if (priceForeign?.isNegative()) throw new BadRequestException(`Harga ${p.sku} tidak boleh negatif`);
         const price = priceForeign ? money(priceForeign.times(fxRate)) : l.price !== undefined ? money(l.price) : money(D(p.sellPrice).times(factor));
         return {
+          promoId: l.promoId ?? null,
+          isBonus: !!l.isBonus,
           priceForeign,
           productId: p.id,
           uom,
@@ -152,6 +161,7 @@ export class SalesOrdersService {
           notes: dto.notes,
           createdById: user.sub,
           salespersonId,
+          customerPoNo: poNo,
           subtotal: totals.subtotal.toFixed(2),
           taxAmount: totals.taxAmount.toFixed(2),
           total: totals.total.toFixed(2),
@@ -173,6 +183,8 @@ export class SalesOrdersService {
           lineTotal: l.lineTotal.toFixed(2),
           priceInclVat: l.priceInclVat ? l.priceInclVat.toFixed(2) : null,
           priceForeign: l.priceForeign ? l.priceForeign.toFixed(4) : null,
+          promoId: l.promoId ?? null,
+          isBonus: l.isBonus ?? false,
         })),
       );
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'SalesOrder', entityId: order.id });

@@ -14,7 +14,7 @@ import { toDocDate } from '../../../common/utils/dates';
 import { D } from '../../../common/utils/money';
 import { Db, DbOrTx } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, priceListItems, priceLists, products, promos } from '../../../db/schema';
+import { customers, priceListItems, priceLists, products, promos, suppliers } from '../../../db/schema';
 import { BonusLine, PriceTier, PromoRule, quote } from './pricing-engine';
 
 type ProductWithUoms = { id: string; sku: string; name: string; baseUom: string; sellPrice: string; uoms: { uom: string; factor: string }[] };
@@ -154,7 +154,7 @@ export class PricingService {
     const rows = await this.db.execute<Record<string, string | boolean | null>>(sql`
       SELECT p.id, p.name, p.kind, p.product_id AS "productId", pr.sku AS "productSku", pr.name AS "productName", p.min_qty AS "minQty", p.discount_pct AS "discountPct",
              p.bonus_product_id AS "bonusProductId", b.sku AS "bonusSku", b.name AS "bonusName", p.bonus_qty AS "bonusQty",
-             p.valid_from AS "validFrom", p.valid_to AS "validTo", p.price_list_id AS "priceListId", l.name AS "priceListName", p.is_active AS "isActive"
+             p.valid_from AS "validFrom", p.valid_to AS "validTo", p.price_list_id AS "priceListId", l.name AS "priceListName", p.funded_supplier_id AS "fundedSupplierId", p.funded_pct AS "fundedPct", p.is_active AS "isActive"
       FROM promos p LEFT JOIN products pr ON pr.id = p.product_id LEFT JOIN products b ON b.id = p.bonus_product_id LEFT JOIN price_lists l ON l.id = p.price_list_id
       WHERE p.tenant_id = ${tenantId} ORDER BY p.is_active DESC, p.created_at DESC`);
     return rows.rows;
@@ -175,6 +175,12 @@ export class PricingService {
       const found = await this.db.select({ id: products.id }).from(products).where(and(eq(products.tenantId, tenantId), inArray(products.id, [...new Set(ids)])));
       if (found.length !== new Set(ids).size) throw new BadRequestException('Produk tidak ditemukan');
     }
+    if (d.fundedSupplierId) {
+      const pct = D(d.fundedPct ?? 0);
+      if (pct.lte(0) || pct.gt(100)) throw new BadRequestException('Persen tanggungan prinsipal harus lebih dari 0 dan paling banyak 100');
+      const [s] = await this.db.select({ id: suppliers.id }).from(suppliers).where(and(eq(suppliers.id, d.fundedSupplierId), eq(suppliers.tenantId, tenantId)));
+      if (!s) throw new BadRequestException('Prinsipal tidak ditemukan');
+    } else if (D(d.fundedPct ?? 0).gt(0)) throw new BadRequestException('Pilih prinsipal yang menanggung biaya promo');
     if (d.priceListId) {
       const [l] = await this.db.select({ id: priceLists.id }).from(priceLists).where(and(eq(priceLists.id, d.priceListId), eq(priceLists.tenantId, tenantId)));
       if (!l) throw new BadRequestException('Daftar harga tidak ditemukan');
@@ -193,6 +199,8 @@ export class PricingService {
       validFrom: d.validFrom ? toDocDate(d.validFrom) : null,
       validTo: d.validTo ? toDocDate(d.validTo) : null,
       priceListId: d.priceListId ?? null,
+      fundedSupplierId: d.fundedSupplierId ?? null,
+      fundedPct: d.fundedSupplierId ? D(d.fundedPct ?? 0).toFixed(2) : '0',
       isActive: d.isActive ?? true,
     };
   }
@@ -261,6 +269,8 @@ export class PromoDto {
   @ApiPropertyOptional() @IsOptional() @IsDateString() validFrom?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() validTo?: string;
   @ApiPropertyOptional() @IsOptional() @IsUUID() priceListId?: string;
+  @ApiPropertyOptional({ description: 'Prinsipal yang ikut menanggung biaya promo (dasar klaim)' }) @IsOptional() @IsUUID() fundedSupplierId?: string;
+  @ApiPropertyOptional({ example: '50', description: 'Persen biaya promo yang ditanggung prinsipal' }) @IsOptional() @IsNumberString() fundedPct?: string;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() isActive?: boolean;
 }
 export class QuoteLineDto {
