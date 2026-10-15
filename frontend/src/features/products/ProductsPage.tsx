@@ -35,6 +35,8 @@ export default function ProductsPage() {
   const navigate = useNavigate();
   const { data, isLoading } = useProducts();
   const prod = isProductionModel(me?.businessModel);
+  /** Usaha jasa: tarif per satuan layanan; tanpa kasir (barcode) dan tanpa menu */
+  const jasa = me?.businessModel === 'JASA';
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const canSave = editing === 'new' ? can('POST', '/products') : can('PATCH', '/products/:id');
   const [form] = Form.useForm<FormValues>();
@@ -88,7 +90,7 @@ export default function ProductsPage() {
             )}
             {can('POST', '/products') && (
               <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>
-                Produk baru
+                {jasa ? t('Produk baru') : 'Produk baru'}
               </Button>
             )}
           </>
@@ -124,13 +126,13 @@ export default function ProductsPage() {
               ]
         }
         searchText={(p) => `${p.sku} ${p.name} ${p.barcode ?? ''} ${p.category ?? ''}`}
-        searchPlaceholder="Cari nama, SKU, barcode, atau kategori"
-        emptyText="Belum ada produk. Tambahkan lewat tombol di kanan atas atau impor dari Excel."
+        searchPlaceholder={jasa ? 'Cari nama, SKU, atau kategori' : 'Cari nama, SKU, barcode, atau kategori'}
+        emptyText={`Belum ada ${jasa ? t('produk') : 'produk'}. Tambahkan lewat tombol di kanan atas atau impor dari Excel.`}
         onRowClick={(r) => open(r)}
         scrollX={760}
         columns={[
           {
-            title: 'Produk',
+            title: jasa ? t('Produk') : 'Produk',
             dataIndex: 'name',
             render: (n: string, p: Product) => (
               <div>
@@ -158,13 +160,13 @@ export default function ProductsPage() {
               </Space>
             ),
           },
-          { title: 'Harga jual', dataIndex: 'sellPrice', align: 'right' as const, render: fmtMoney },
+          { title: jasa ? 'Tarif / harga' : 'Harga jual', dataIndex: 'sellPrice', align: 'right' as const, render: fmtMoney },
           { title: 'Status', render: (_: unknown, p: Product) => <Space size={4}>{p.isActive ? <Tag color="green">Aktif</Tag> : <Tag>Nonaktif</Tag>}{p.inventoryKind === 'SEMI' && <Tag color="purple">Setengah jadi</Tag>}{p.madeToOrder && <Tag color="orange">Menu</Tag>}</Space> },
         ]}
       />
 
       <Modal
-        title={editing === 'new' ? 'Produk baru' : 'Ubah produk'}
+        title={editing === 'new' ? (jasa ? t('Produk baru') : 'Produk baru') : jasa ? `Ubah ${t('produk')}` : 'Ubah produk'}
         open={!!editing}
         onCancel={() => setEditing(null)}
         onOk={() => form.submit()}
@@ -173,16 +175,18 @@ export default function ProductsPage() {
         okText="Simpan"
         destroyOnHidden
       >
-        <Form form={form} layout="vertical" initialValues={{ baseUom: 'PCS' }} onFinish={(v) => save.mutate(v)}>
+        <Form form={form} layout="vertical" initialValues={{ baseUom: jasa ? 'JAM' : 'PCS' }} onFinish={(v) => save.mutate(v)}>
           <Form.Item name="sku" label="SKU" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
           <Form.Item name="name" label={t('Nama produk')} rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="barcode" label="Barcode (untuk scan di kasir)">
-            <Input placeholder="8991234567890" />
-          </Form.Item>
+          {!jasa && (
+            <Form.Item name="barcode" label="Barcode (untuk scan di kasir)">
+              <Input placeholder="8991234567890" />
+            </Form.Item>
+          )}
           <Form.Item name="category" label="Kategori" extra="Pilih dari kategori yang sudah ada, atau ketik sendiri bila belum ada. Kategori dipakai di kasir, filter stok, dan stock opname.">
             <CategoryField options={(data ?? []).map((p) => p.category).filter((c): c is string => !!c)} />
           </Form.Item>
@@ -197,6 +201,7 @@ export default function ProductsPage() {
           )}
           <Form.Item noStyle shouldUpdate={(a, b) => a.semi !== b.semi}>
             {({ getFieldValue }) =>
+              !jasa &&
               !getFieldValue('semi') && (
                 <Form.Item
                   name="madeToOrder"
@@ -214,10 +219,10 @@ export default function ProductsPage() {
             </Form.Item>
           )}
           <Space wrap>
-            <Form.Item name="baseUom" label="Satuan dasar" rules={[{ required: true }]}>
-              <Input style={{ width: 120 }} />
+            <Form.Item name="baseUom" label={jasa ? 'Satuan (jam, hari, paket, buah)' : 'Satuan dasar'} rules={[{ required: true }]}>
+              <Input style={{ width: jasa ? 200 : 120 }} placeholder={jasa ? 'JAM' : undefined} />
             </Form.Item>
-            <Form.Item name="sellPrice" label="Harga jual / satuan dasar (belum PPN)" rules={[{ required: true }]}>
+            <Form.Item name="sellPrice" label={jasa ? 'Tarif / harga per satuan (belum PPN)' : 'Harga jual / satuan dasar (belum PPN)'} rules={[{ required: true }]}>
               <InputNumber min={0} style={{ width: 220 }} prefix="Rp" />
             </Form.Item>
           </Space>
@@ -238,7 +243,7 @@ export default function ProductsPage() {
                   </Space>
                 ))}
                 <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />} block>
-                  Tambah satuan (DUS, PAK, ...)
+                  {jasa ? 'Tambah satuan lain (mis. HARI = 8 JAM)' : 'Tambah satuan (DUS, PAK, ...)'}
                 </Button>
               </>
             )}
