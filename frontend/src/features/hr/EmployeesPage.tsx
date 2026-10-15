@@ -1,13 +1,14 @@
 import { PlusOutlined } from '@ant-design/icons';
 import { isProductionModel, PTKP_STATUSES } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Checkbox, Col, Drawer, Form, Input, InputNumber, Row, Select, Switch, Tag, Typography } from 'antd';
+import { Alert, Button, Checkbox, Col, Drawer, Form, Input, InputNumber, Popconfirm, Row, Select, Switch, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { get, patch, post } from '@/api/client';
 import { useAction, useBranches } from '@/api/queries';
 import type { Employee, Project } from '@/api/types';
 import { useApps } from '@/lib/apps';
 import { useAuth } from '@/auth/AuthContext';
+import { useCan } from '@/auth/useCan';
 import ListPage from '@/components/ListPage';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 
@@ -22,7 +23,15 @@ const PTKP_HELP: Record<string, string> = {
   'K/3': 'Kawin, 3 tanggungan',
 };
 
-const MONEY = ['baseSalary', 'fixedAllowance', 'dailyAllowance'] as const;
+const MONEY = ['baseSalary', 'fixedAllowance', 'dailyAllowance', 'dailyWage'] as const;
+export const EMP_TYPES: Record<string, { label: string; color: string; hint: string }> = {
+  TETAP: { label: 'Tetap', color: 'green', hint: 'Gaji bulanan tetap, BPJS, absensi.' },
+  KONTRAK: { label: 'Kontrak', color: 'blue', hint: 'Gaji bulanan sampai tanggal akhir kontrak; setelah itu gaji berhenti otomatis kecuali diperpanjang (dengan persetujuan).' },
+  HARIAN: { label: 'Harian', color: 'gold', hint: 'Dibayar per hari yang dicatat HADIR di absensi (tidak dianggap hadir otomatis).' },
+  TENAGA_LEPAS: { label: 'Tenaga lepas', color: 'purple', hint: 'Tanpa gaji tetap & absensi; dibayar dari catatan kerja (jam / sesi / borongan / komisi) di menu Upah jasa.' },
+  MAGANG: { label: 'Magang', color: 'cyan', hint: 'Uang saku bulanan sampai tanggal akhir magang.' },
+  MITRA: { label: 'Mitra / konsultan', color: 'magenta', hint: 'Dibayar dari catatan kerja; bukan karyawan tetap.' },
+};
 
 export default function EmployeesPage() {
   const [editing, setEditing] = useState<Employee | 'new' | null>(null);
@@ -38,6 +47,10 @@ export default function EmployeesPage() {
   const activeBranches = (branchList.data?.branches ?? []).filter((b) => b.isActive);
   const { can } = useApps();
   const { me } = useAuth();
+  const canDo = useCan();
+  const isJasa = me?.businessModel === 'JASA';
+  const empType = Form.useWatch('employmentType', form) as string | undefined;
+  const perJob = empType === 'TENAGA_LEPAS' || empType === 'MITRA';
   const projectList = useQuery({ queryKey: ['projects'], queryFn: () => get<Project[]>('/services/projects'), enabled: can('sales') });
   const activeProjects = (projectList.data ?? []).filter((p) => p.status === 'ACTIVE');
 
@@ -47,14 +60,21 @@ export default function EmployeesPage() {
       MONEY.forEach((k) => (body[k] = String(v[k] ?? 0)));
       Object.keys(body).forEach((k) => body[k] === '' && delete body[k]);
       if (activeProjects.length) body.projectId = v.projectId ?? null;
-      return editing === 'new' ? post('/hr/employees', body) : patch(`/hr/employees/${(editing as Employee).id}`, body);
+      if (!isJasa) {
+        ['employmentType', 'contractStart', 'contractEnd', 'dailyWage'].forEach((k) => delete body[k]);
+      } else {
+        if (body.contractStart === undefined || body.contractStart === '') body.contractStart = null;
+        if (body.contractEnd === undefined || body.contractEnd === '') body.contractEnd = null;
+        if (['TETAP', 'HARIAN', 'TENAGA_LEPAS', 'MITRA'].includes(String(body.employmentType))) body.contractEnd = null;
+      }
+      return editing === 'new' ? post<Employee>('/hr/employees', body) : patch<Employee>(`/hr/employees/${(editing as Employee).id}`, body);
     },
-    { success: 'Data karyawan disimpan', invalidate: ['employees', 'payroll'], onSuccess: () => setEditing(null) },
+    { success: (r: Employee) => (r?.pendingChange ? 'Disimpan. Perubahan gaji / rekening / status menunggu persetujuan Keuangan atau Admin.' : editing === 'new' && isJasa && r && r.verified === false ? 'Karyawan disimpan, menunggu verifikasi Keuangan / Admin sebelum ikut penggajian.' : 'Data karyawan disimpan'), invalidate: ['employees', 'payroll'], onSuccess: () => setEditing(null) },
   );
 
   const open = (e: Employee | 'new') => {
     form.resetFields();
-    if (e === 'new') form.setFieldsValue({ ptkp: 'TK/0', joinDate: today(), bpjsKes: true, bpjsTk: true, bpjsJp: true, annualLeave: 12, fixedAllowance: 0, dailyAllowance: 0 });
+    if (e === 'new') form.setFieldsValue({ employmentType: 'TETAP', ptkp: 'TK/0', joinDate: today(), bpjsKes: true, bpjsTk: true, bpjsJp: true, annualLeave: 12, fixedAllowance: 0, dailyAllowance: 0 });
     else form.setFieldsValue({ ...e, ...Object.fromEntries(MONEY.map((k) => [k, Number(e[k])])) });
     setEditing(e);
   };
@@ -75,7 +95,9 @@ export default function EmployeesPage() {
           return [
             { label: 'Karyawan aktif', value: String(active.length), hint: `${all.length - active.length} nonaktif` },
             { label: 'Gaji per bulan (pokok + tunjangan tetap)', value: fmtMoney(active.reduce((a, e) => a + Number(e.baseSalary) + Number(e.fixedAllowance), 0)) },
-            { label: 'Departemen', value: String(new Set(active.map((e) => e.department).filter(Boolean)).size) },
+            isJasa
+              ? { label: 'Menunggu verifikasi', value: String(active.filter((e) => e.verified === false).length), hint: 'belum ikut penggajian' }
+              : { label: 'Departemen', value: String(new Set(active.map((e) => e.department).filter(Boolean)).size) },
           ];
         }}
         views={[
@@ -91,9 +113,10 @@ export default function EmployeesPage() {
         columns={[
           { title: 'Karyawan', dataIndex: 'name', render: (n: string, e: Employee) => <div><div>{n}{!e.isActive && <Tag style={{ marginLeft: 6 }}>Nonaktif</Tag>}</div><span style={{ fontSize: 12, color: '#64748b' }}>{e.code}</span></div> },
           { title: 'Jabatan', render: (_: unknown, e: Employee) => <div><div>{e.jobTitle || '-'}</div><span style={{ fontSize: 12, color: '#64748b' }}>{e.department || ''}</span></div> },
+          ...(isJasa ? [{ title: 'Status', render: (_: unknown, e: Employee) => <span><Tag color={EMP_TYPES[e.employmentType ?? 'TETAP']?.color}>{EMP_TYPES[e.employmentType ?? 'TETAP']?.label}</Tag>{e.verified === false && <Tag color="orange">Belum diverifikasi</Tag>}{e.contractEnd && <div style={{ fontSize: 12, color: '#64748b' }}>s/d {fmtDate(e.contractEnd)}</div>}</span> }] : []),
           { title: 'PTKP', dataIndex: 'ptkp' },
           { title: 'Mulai kerja', dataIndex: 'joinDate', render: fmtDate },
-          { title: 'Gaji pokok', dataIndex: 'baseSalary', align: 'right' as const, render: fmtMoney },
+          { title: isJasa ? 'Gaji / upah' : 'Gaji pokok', dataIndex: 'baseSalary', align: 'right' as const, render: (v: string, e: Employee) => (e.employmentType === 'HARIAN' ? `${fmtMoney(e.dailyWage ?? 0)} / hari` : e.employmentType === 'TENAGA_LEPAS' || e.employmentType === 'MITRA' ? 'per catatan kerja' : fmtMoney(v)) },
         ]}
       />
 
@@ -159,7 +182,33 @@ export default function EmployeesPage() {
             </Col>
           </Row>
           <Typography.Title level={5}>Pekerjaan</Typography.Title>
+          {isJasa && editing !== 'new' && editing && editing.verified === false && (
+            <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="Karyawan ini belum diverifikasi, jadi belum ikut penggajian dan belum bisa dicatat upah jasanya."
+              action={canDo('POST', '/hr/employment/employees/:id/verify') ? <VerifyButton id={editing.id} onDone={() => setEditing(null)} /> : undefined} />
+          )}
+          {isJasa && editing !== 'new' && (
+            <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Mengubah gaji, tunjangan, rekening, status, kontrak, BPJS, PTKP, NIK/NPWP perlu persetujuan Keuangan atau Admin (orang lain dari Anda). Perubahan lainnya langsung berlaku." />
+          )}
           <Row gutter={12}>
+            {isJasa && (
+              <>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="employmentType" label="Status kepegawaian" rules={[{ required: true }]} extra={EMP_TYPES[empType ?? 'TETAP']?.hint}>
+                    <Select options={Object.entries(EMP_TYPES).map(([value, t]) => ({ value, label: t.label }))} />
+                  </Form.Item>
+                </Col>
+                {(empType === 'KONTRAK' || empType === 'MAGANG') && (
+                  <>
+                    <Col xs={12} sm={6}>
+                      <Form.Item name="contractStart" label="Kontrak mulai"><Input type="date" /></Form.Item>
+                    </Col>
+                    <Col xs={12} sm={6}>
+                      <Form.Item name="contractEnd" label="Kontrak berakhir" rules={[{ required: true, message: 'Wajib untuk kontrak / magang' }]}><Input type="date" /></Form.Item>
+                    </Col>
+                  </>
+                )}
+              </>
+            )}
             <Col xs={24} sm={8}>
               <Form.Item name="jobTitle" label="Jabatan">
                 <Input />
@@ -224,34 +273,52 @@ export default function EmployeesPage() {
           )}
           <Typography.Title level={5}>Gaji & BPJS</Typography.Title>
           <Row gutter={12}>
-            <Col xs={24} sm={8}>
-              <Form.Item name="baseSalary" label="Gaji pokok / bulan" rules={[{ required: true }]}>
-                <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={8}>
-              <Form.Item name="fixedAllowance" label="Tunjangan tetap / bulan">
-                <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={8}>
-              <Form.Item name="dailyAllowance" label="Uang makan/transport per hari hadir">
-                <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
-              </Form.Item>
-            </Col>
+            {isJasa && empType === 'HARIAN' ? (
+              <Col xs={24} sm={8}>
+                <Form.Item name="dailyWage" label="Upah per hari hadir" rules={[{ required: true }]}>
+                  <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
+                </Form.Item>
+              </Col>
+            ) : null}
+            {!(isJasa && (perJob || empType === 'HARIAN')) && (
+              <>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="baseSalary" label={empType === 'MAGANG' ? 'Uang saku / bulan' : 'Gaji pokok / bulan'} rules={[{ required: true }]}>
+                    <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="fixedAllowance" label="Tunjangan tetap / bulan">
+                    <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
+                  </Form.Item>
+                </Col>
+              </>
+            )}
+            {!(isJasa && perJob) && (
+              <Col xs={24} sm={8}>
+                <Form.Item name="dailyAllowance" label="Uang makan/transport per hari hadir">
+                  <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
+                </Form.Item>
+              </Col>
+            )}
+            {isJasa && perJob && (
+              <Col span={24}>
+                <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Tenaga lepas / mitra tidak punya gaji tetap, BPJS, absensi, atau cuti. Upahnya dari menu Penggajian → Upah jasa. Perlakuan PPh 21 tenaga lepas berbeda dari pegawai tetap — konsultasikan dengan konsultan pajak." />
+              </Col>
+            )}
             <Col xs={8}>
               <Form.Item name="bpjsKes" valuePropName="checked">
-                <Checkbox>BPJS Kesehatan</Checkbox>
+                <Checkbox disabled={isJasa && perJob}>BPJS Kesehatan</Checkbox>
               </Form.Item>
             </Col>
             <Col xs={8}>
               <Form.Item name="bpjsTk" valuePropName="checked">
-                <Checkbox>BPJS TK (JHT, JKK, JKM)</Checkbox>
+                <Checkbox disabled={isJasa && perJob}>BPJS TK (JHT, JKK, JKM)</Checkbox>
               </Form.Item>
             </Col>
             <Col xs={8}>
               <Form.Item name="bpjsJp" valuePropName="checked">
-                <Checkbox>Jaminan Pensiun</Checkbox>
+                <Checkbox disabled={isJasa && perJob}>Jaminan Pensiun</Checkbox>
               </Form.Item>
             </Col>
             <Col xs={12} sm={8}>
@@ -268,5 +335,14 @@ export default function EmployeesPage() {
         </Form>
       </Drawer>
     </>
+  );
+}
+
+function VerifyButton({ id, onDone }: { id: string; onDone: () => void }) {
+  const verify = useAction(() => post(`/hr/employment/employees/${id}/verify`, {}), { success: 'Karyawan diverifikasi — ikut penggajian', invalidate: ['employees', 'payroll'], onSuccess: onDone });
+  return (
+    <Popconfirm title="Verifikasi karyawan ini? Periksa nama, status, gaji, dan rekening dulu." onConfirm={() => verify.mutate(undefined)}>
+      <Button size="small" type="primary" loading={verify.isPending}>Verifikasi</Button>
+    </Popconfirm>
   );
 }

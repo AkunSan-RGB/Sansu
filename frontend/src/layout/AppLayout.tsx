@@ -251,6 +251,7 @@ const MENU: Group[] = [
     icon: APP_ICONS.hr,
     children: [
       { key: '/employees', label: 'Data karyawan' },
+      { key: '/employees/controls', label: 'Persetujuan & peringatan', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'HR', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/attendance', label: 'Absensi' },
       { key: '/leaves', label: 'Cuti' },
     ],

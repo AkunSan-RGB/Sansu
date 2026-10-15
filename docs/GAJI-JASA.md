@@ -31,3 +31,31 @@ Usaha jasa dibayar dengan banyak cara: per jam (konsultan, tutor), per sesi (ter
 - Pembagian komisi antar-pegawai dilakukan dengan beberapa catatan (total ≤ 100%).
 - Tidak ada pencatatan jam otomatis (timer) atau aplikasi pegawai; HR memasukkan catatan.
 - Jam yang bisa ditagihkan ke klien belum otomatis masuk faktur.
+
+## Karyawan usaha jasa (status kepegawaian)
+Usaha jasa mempekerjakan orang dengan status berbeda. Status dipilih di Data karyawan dan menentukan cara bayar:
+
+| Status | Cara bayar | Aturan |
+|---|---|---|
+| Tetap | Gaji pokok + tunjangan bulanan, absensi, BPJS | Gaji pokok > 0; tanpa tanggal akhir |
+| Kontrak (PKWT) | Seperti tetap sampai tanggal berakhir | Tanggal akhir wajib, maks. 5 tahun; gaji **prorata dan berhenti otomatis** di tanggal akhir; perpanjangan lewat persetujuan |
+| Harian | Upah harian × hari yang **dicatat HADIR** | Hari tanpa catatan absen **tidak** dibayar (berbeda dari karyawan bulanan) |
+| Tenaga lepas / Mitra | Hanya dari catatan kerja (menu Upah jasa) | Gaji/tunjangan/upah harian harus 0; BPJS dimatikan; tidak diabsen, tidak cuti; slip hanya muncul bila ada upah jasa bulan itu |
+| Magang | Uang saku bulanan | Tanggal akhir wajib |
+
+Status selain Tetap hanya untuk jenis usaha Jasa; usaha lain tidak berubah.
+
+### Pencegahan kecurangan data karyawan
+| Risiko | Pencegahan |
+|---|---|
+| Karyawan fiktif | Karyawan baru dari HR **belum ikut penggajian dan belum bisa dicatat upahnya** sampai diverifikasi Keuangan/Admin (orang lain; Pemilik langsung sah) |
+| Rekening dialihkan / gaji dinaikkan diam-diam | Perubahan gaji, tunjangan, rekening, status, kontrak, BPJS, PTKP, NIK/NPWP oleh HR menjadi **permintaan** yang disetujui orang lain; nilai lama→baru tersimpan; permintaan basi (data sudah berubah) ditolak; satu permintaan tertunda per karyawan |
+| Karyawan/rekening ganda | NIK, NPWP, nomor rekening yang sama dengan karyawan aktif lain ditolak; tab Peringatan menandai data lama yang ganda |
+| Kontrak habis tetap digaji | Gaji dan catatan kerja otomatis berhenti di akhir kontrak; peringatan 30 hari sebelum berakhir |
+| Mengaktifkan kembali karyawan keluar | Dianggap perubahan sensitif (perlu persetujuan) |
+| Menyetujui data sendiri | Akun yang tertaut ke karyawan tidak memverifikasi/menyetujui datanya sendiri |
+
+### Batasan
+- Perlakuan PPh 21 tenaga lepas/mitra berbeda dari pegawai tetap; sistem tetap memakai tarif bulanan (TER) — tinjau dengan konsultan pajak.
+- Aturan lama kontrak (maks. 5 tahun) mengikuti ketentuan PKWT umum; hubungan kerja khusus perlu ditinjau ahli ketenagakerjaan.
+- Karyawan lama di usaha jasa otomatis berstatus Tetap dan terverifikasi (tidak ada yang berubah sampai diedit).

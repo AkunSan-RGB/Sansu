@@ -69,8 +69,8 @@ describe('Gaji usaha jasa (e2e)', () => {
     fin = (await mkUser('FINANCE', 'keuangan')).token;
     acct = (await mkUser('ACCOUNTANT', 'akuntan')).token;
     await post('/api/apps/payroll/install').expect(201);
-    const e = async (code: string, salary: string) => (await post('/api/hr/employees', { code, name: `Pegawai ${code}`, ptkp: 'TK/0', joinDate: `${today.slice(0, 4)}-01-02`, baseSalary: salary, bpjsKes: false, bpjsTk: false, bpjsJp: false }).expect(201)).body.id as string;
-    empA = await e('J-1', '0'); // tenaga lepas: tanpa gaji pokok
+    const e = async (code: string, salary: string, employmentType = 'TETAP') => (await post('/api/hr/employees', { code, name: `Pegawai ${code}`, ptkp: 'TK/0', joinDate: `${today.slice(0, 4)}-01-02`, baseSalary: salary, employmentType, bpjsKes: false, bpjsTk: false, bpjsJp: false }).expect(201)).body.id as string;
+    empA = await e('J-1', '0', 'TENAGA_LEPAS'); // tenaga lepas: tanpa gaji pokok
     empB = await e('J-2', '3000000');
     cust = (await post('/api/customers', { code: 'KLN', name: 'Klien' }).expect(201)).body.id;
     projectId = (await post('/api/services/projects', { name: 'Proyek Audit', customerId: cust, contractValue: '50000000' }).expect(201)).body.id;

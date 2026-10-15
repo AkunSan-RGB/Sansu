@@ -1112,6 +1112,15 @@ export interface Employee {
   annualLeave: number;
   isActive: boolean;
   resignDate: string | null;
+  /** Usaha jasa: TETAP · KONTRAK · HARIAN · TENAGA_LEPAS · MAGANG · MITRA */
+  employmentType?: 'TETAP' | 'KONTRAK' | 'HARIAN' | 'TENAGA_LEPAS' | 'MAGANG' | 'MITRA';
+  contractStart?: string | null;
+  contractEnd?: string | null;
+  dailyWage?: string;
+  /** Usaha jasa: karyawan baru ikut penggajian setelah diverifikasi orang lain */
+  verified?: boolean;
+  /** Ada bila perubahan data sensitif menunggu persetujuan (respons simpan) */
+  pendingChange?: { id: string; fields: string[] } | null;
   leave?: { year: number; quota: number; used: number; remaining: number };
 }
 

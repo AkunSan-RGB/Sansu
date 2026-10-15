@@ -18,7 +18,7 @@ interface Entry {
   quantity: string; rate: string; amount: string; description: string | null; status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'VOID';
   createdByName: string | null; decidedByName: string | null; decisionNote: string | null; runNumber: string | null; runStatus: string | null;
 }
-interface Employee { id: string; code: string; name: string; isActive: boolean }
+interface Employee { id: string; code: string; name: string; isActive: boolean; verified?: boolean }
 interface Project { id: string; code: string; name: string }
 interface CommInvoice { id: string; number: string; date: string; subtotal: string; customerName: string; allocatedPct: string }
 interface Warn { kind: string; severity: 'warn' | 'info'; message: string }
@@ -92,7 +92,7 @@ function EntriesTab() {
       />
       <Modal title="Catatan kerja baru" open={creating} onCancel={() => setCreating(false)} onOk={() => form.submit()} confirmLoading={create.isPending} okText="Kirim" destroyOnHidden>
         <Form form={form} layout="vertical" onFinish={(v) => create.mutate(v)}>
-          <Form.Item name="employeeId" label="Pegawai" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={(employees ?? []).filter((e) => e.isActive).map((e) => ({ value: e.id, label: `${e.code} · ${e.name}` }))} /></Form.Item>
+          <Form.Item name="employeeId" label="Pegawai" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={(employees ?? []).filter((e) => e.isActive && e.verified !== false).map((e) => ({ value: e.id, label: `${e.code} · ${e.name}` }))} /></Form.Item>
           <Form.Item name="rateId" label="Tarif" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={(rates ?? []).filter((r) => r.isActive).map((r) => ({ value: r.id, label: `${r.name} — ${r.unit === 'PERCENT' ? `${Number(r.rate)}%` : fmtMoney(r.rate)} ${UNIT[r.unit]}` }))} /></Form.Item>
           <Form.Item name="workDate" label="Tanggal kerja" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} disabledDate={(d) => d.isAfter(dayjs(), 'day') || d.isBefore(dayjs().subtract(62, 'day'), 'day')} /></Form.Item>
           {rate && rate.unit !== 'PERCENT' && <Form.Item name="quantity" label={rate.unit === 'HOUR' ? 'Jumlah jam (maks. 16 per hari)' : rate.unit === 'SESSION' ? 'Jumlah sesi' : 'Jumlah pekerjaan'} rules={[{ required: true }]}><InputNumber min={0.01} step={rate.unit === 'HOUR' ? 0.5 : 1} style={{ width: 200 }} /></Form.Item>}

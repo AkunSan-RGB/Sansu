@@ -16,6 +16,7 @@ import QuotationsPage from './features/crm/QuotationsPage';
 import HomePage from './features/home/HomePage';
 import AttendancePage from './features/hr/AttendancePage';
 import EmployeesPage from './features/hr/EmployeesPage';
+import EmploymentControlPage from './features/hr/EmploymentControlPage';
 import LeavesPage from './features/hr/LeavesPage';
 import PayrollRunPage from './features/payroll/PayrollRunPage';
 import ServiceWorkPage from './features/payroll/ServiceWorkPage';
@@ -235,6 +236,7 @@ export default function App() {
         </Route>
         <Route element={<AppGate app="hr" />}>
           <Route path="employees" element={<EmployeesPage />} />
+          <Route path="employees/controls" element={<EmploymentControlPage />} />
           <Route path="attendance" element={<AttendancePage />} />
           <Route path="leaves" element={<LeavesPage />} />
         </Route>
