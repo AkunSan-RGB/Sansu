@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { del, get, patch, post } from '@/api/client';
 import { useAction } from '@/api/queries';
 
-const BASE_ROLES: Role[] = ['ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'WAREHOUSE', 'CASHIER', 'HR'];
+const BASE_ROLES: Role[] = ['ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'PURCHASING', 'WAREHOUSE', 'CASHIER', 'HR'];
 
 /** Peran khusus (hanya Pemilik): peran dasar dikurangi hak tulis tertentu. Tidak pernah menambah hak di luar peran dasar. */
 export default function CustomRolesCard() {

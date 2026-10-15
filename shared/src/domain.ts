@@ -3,7 +3,7 @@
  * dan frontend (pilihan dropdown, label status).
  */
 
-export const ROLES = ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'WAREHOUSE', 'CASHIER', 'HR'] as const;
+export const ROLES = ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'PURCHASING', 'WAREHOUSE', 'CASHIER', 'HR'] as const;
 export type Role = (typeof ROLES)[number];
 export const ROLE_LABELS: Record<Role, string> = {
   OWNER: 'Pemilik',
@@ -11,6 +11,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   FINANCE: 'Keuangan',
   ACCOUNTANT: 'Akuntan',
   SALES: 'Sales',
+  PURCHASING: 'Pembelian',
   WAREHOUSE: 'Gudang',
   CASHIER: 'Kasir',
   HR: 'SDM / HRD',
