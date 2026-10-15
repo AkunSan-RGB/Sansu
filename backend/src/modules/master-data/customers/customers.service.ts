@@ -48,7 +48,7 @@ export class CustomersService {
     await this.checkPriceList(tenantId, dto.priceListId);
     const [row] = await this.db
       .insert(customers)
-      .values({ ...dto, code: dto.code.trim().toUpperCase(), tenantId })
+      .values({ ...dto, geoLat: dto.geoLat?.toFixed(6), geoLng: dto.geoLng?.toFixed(6), code: dto.code.trim().toUpperCase(), tenantId })
       .returning();
     return row;
   }
@@ -58,7 +58,7 @@ export class CustomersService {
     await this.checkPriceList(tenantId, dto.priceListId);
     const [row] = await this.db
       .update(customers)
-      .set({ ...dto, code: dto.code?.trim().toUpperCase() })
+      .set({ ...dto, geoLat: dto.geoLat?.toFixed(6), geoLng: dto.geoLng?.toFixed(6), code: dto.code?.trim().toUpperCase() })
       .where(eq(customers.id, id))
       .returning();
     return row;

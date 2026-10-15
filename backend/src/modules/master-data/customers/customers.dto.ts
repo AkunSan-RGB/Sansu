@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsBoolean, IsEmail, IsInt, IsNumberString, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsEmail, IsInt, IsLatitude, IsLongitude, IsNumberString, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { IsNpwp } from '../../../common/validators/npwp';
 
 export class CreateCustomerDto {
@@ -14,6 +14,8 @@ export class CreateCustomerDto {
   @IsNumberString()
   creditLimit?: string;
   @ApiPropertyOptional({ example: 30 }) @IsOptional() @IsInt() @Min(0) @Max(365) paymentTermDays?: number;
+  @ApiPropertyOptional({ example: -6.2, description: 'Koordinat outlet (untuk memeriksa kunjungan sales kanvas)' }) @IsOptional() @IsLatitude() geoLat?: number;
+  @ApiPropertyOptional({ example: 106.8 }) @IsOptional() @IsLongitude() geoLng?: number;
   @ApiPropertyOptional({ description: 'Daftar harga pelanggan (segmen); kosong = harga jual master' }) @IsOptional() @IsUUID() priceListId?: string;
 }
 

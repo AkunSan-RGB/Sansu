@@ -279,6 +279,9 @@ export const customers = pgTable(
     isActive: boolean('is_active').notNull().default(true),
     /** Daftar harga yang berlaku untuk pelanggan ini (segmen: grosir, minimarket, warung, ...); kosong = harga jual master */
     priceListId: uuid('price_list_id').references((): AnyPgColumn => priceLists.id),
+    /** Koordinat outlet (untuk memeriksa kunjungan sales kanvas) */
+    geoLat: numeric('geo_lat', { precision: 9, scale: 6 }),
+    geoLng: numeric('geo_lng', { precision: 9, scale: 6 }),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('customers_code_uq').on(t.tenantId, t.code)],
@@ -570,6 +573,95 @@ export const consignmentDocs = pgTable(
     uniqueIndex('consignment_docs_number_uq').on(t.tenantId, t.number),
     uniqueIndex('consignment_docs_ref_uq').on(t.tenantId, t.customerId, t.reference).where(sql`kind = 'REPORT' AND status <> 'REJECTED'`),
   ],
+);
+
+/** Rute kunjungan sales lapangan: urutan outlet yang dikunjungi pada hari tertentu */
+export const salesRoutes = pgTable(
+  'sales_routes',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    name: text('name').notNull(),
+    salespersonId: uuid('salesperson_id')
+      .notNull()
+      .references(() => users.id),
+    /** 1 = Senin … 7 = Minggu; kosong = tidak terjadwal pada hari tertentu */
+    weekday: integer('weekday'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('sales_routes_name_uq').on(t.tenantId, sql`lower(${t.name})`)],
+);
+export const salesRouteStops = pgTable(
+  'sales_route_stops',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    routeId: uuid('route_id')
+      .notNull()
+      .references(() => salesRoutes.id, { onDelete: 'cascade' }),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    seq: integer('seq').notNull(),
+  },
+  (t) => [uniqueIndex('sales_route_stops_uq').on(t.routeId, t.customerId)],
+);
+/** Kunjungan sales ke outlet (satu per sales-outlet-hari), dengan koordinat saat check-in */
+export const salesVisits = pgTable(
+  'sales_visits',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    routeId: uuid('route_id'),
+    date: date('date').notNull(),
+    checkedInAt: timestamp('checked_in_at', { withTimezone: true }).notNull().defaultNow(),
+    lat: numeric('lat', { precision: 9, scale: 6 }),
+    lng: numeric('lng', { precision: 9, scale: 6 }),
+    /** Jarak (meter) dari koordinat outlet tersimpan; kosong bila koordinat tidak ada */
+    distanceM: integer('distance_m'),
+    result: text('result').$type<'ORDER' | 'NO_ORDER' | 'CLOSED'>().notNull(),
+    note: text('note'),
+    salesOrderId: uuid('sales_order_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('sales_visits_uq').on(t.userId, t.customerId, t.date)],
+);
+/** Uang tagihan yang diterima sales di lapangan: baru menjadi pelunasan setelah Keuangan menerima uangnya (selisih tercatat) */
+export const canvassCollections = pgTable(
+  'canvass_collections',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => invoices.id),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    date: date('date').notNull(),
+    method: text('method').notNull().default('CASH'),
+    amount: money('amount').notNull(),
+    status: text('status').$type<'PENDING' | 'VERIFIED' | 'REJECTED'>().notNull().default('PENDING'),
+    receivedAmount: money('received_amount'),
+    shortage: money('shortage').notNull().default('0'),
+    paymentId: uuid('payment_id'),
+    verifiedById: uuid('verified_by_id'),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    rejectReason: text('reject_reason'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('canvass_collections_number_uq').on(t.tenantId, t.number), index('canvass_collections_invoice_idx').on(t.invoiceId)],
 );
 
 /** Lot yang ikut berpindah saat transfer gudang: dicatat saat barang keluar, dipakai lagi saat barang masuk di gudang tujuan */
