@@ -6,7 +6,8 @@ import { D } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
 import { products, productUoms } from '../../../db/schema';
-import { CreateProductDto, ProductUomDto, UpdateProductDto } from './products.dto';
+import { canonicalCategory, categorySpellings, cleanCategory, isPlain } from './category';
+import { CreateProductDto, MergeCategoriesDto, ProductUomDto, UpdateProductDto } from './products.dto';
 
 @Injectable()
 export class ProductsService {
@@ -14,6 +15,47 @@ export class ProductsService {
     @InjectDb() private readonly db: Db,
     private readonly settings: SettingsService,
   ) {}
+
+  /** Daftar kategori beserta jumlah produknya, dan kelompok ejaan ganda (beda huruf besar/kecil atau spasi) yang bisa disatukan */
+  async categories(tenantId: string) {
+    const r = await this.db.execute<{ name: string; count: number }>(sql`
+      SELECT category AS name, COUNT(*)::int AS count FROM products
+      WHERE tenant_id = ${tenantId} AND category IS NOT NULL AND btrim(category) <> '' GROUP BY category ORDER BY category`);
+    const items = r.rows;
+    const groups = new Map<string, { name: string; count: number }[]>();
+    for (const it of items) {
+      const k = cleanCategory(it.name)!.toLowerCase();
+      groups.set(k, [...(groups.get(k) ?? []), it]);
+    }
+    const duplicates = [...groups.values()]
+      .filter((g) => g.length > 1 || cleanCategory(g[0].name) !== g[0].name)
+      .map((variants) => {
+        const best = [...variants].sort((a, b) => b.count - a.count || Number(isPlain(a.name)) - Number(isPlain(b.name)) || a.name.localeCompare(b.name))[0];
+        return { suggested: cleanCategory(best.name)!, variants };
+      });
+    return { items, duplicates };
+  }
+
+  /** Gabungkan/ganti nama kategori: semua produk dengan kategori di `from` dipindah ke `to` (kosong = tanpa kategori) */
+  async mergeCategories(tenantId: string, dto: MergeCategoriesDto) {
+    const from = [...new Set(dto.from)];
+    let to = cleanCategory(dto.to);
+    if (to) {
+      // sama (tanpa membedakan huruf) dengan kategori lain yang tetap ada: pakai ejaan yang ada
+      const spell = await categorySpellings(this.db, tenantId);
+      for (const f of from) if (cleanCategory(f)?.toLowerCase() === to.toLowerCase()) spell.delete(to.toLowerCase());
+      const existing = [...spell.entries()].find(([k]) => k === to!.toLowerCase());
+      if (existing && !from.includes(existing[1])) to = existing[1];
+    }
+    const list = sql.join(from.map((f) => sql`${f}`), sql`, `);
+    const cond = sql`tenant_id = ${tenantId} AND category IN (${list}) AND category IS DISTINCT FROM ${to}::text`;
+    if (dto.dryRun) {
+      const c = await this.db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM products WHERE ${cond}`);
+      return { updated: c.rows[0].n, to, dryRun: true };
+    }
+    const u = await this.db.execute<{ id: string }>(sql`UPDATE products SET category = ${to}::text WHERE ${cond} RETURNING id`);
+    return { updated: u.rows.length, to, dryRun: false };
+  }
 
   private async assertSemiAllowed(tenantId: string) {
     if (!isProductionModel(await this.settings.businessModel(this.db, tenantId))) {
@@ -72,7 +114,7 @@ export class ProductsService {
           tenantId,
           sku: dto.sku.trim().toUpperCase(),
           name: dto.name.trim(),
-          category: dto.category,
+          category: await canonicalCategory(tx, tenantId, dto.category),
           baseUom,
           sellPrice: dto.sellPrice,
           barcode: dto.barcode?.trim() || null,
@@ -113,7 +155,7 @@ export class ProductsService {
         .set({
           sku: dto.sku?.trim().toUpperCase(),
           name: dto.name?.trim(),
-          category: dto.category,
+          category: dto.category === undefined ? undefined : await canonicalCategory(tx, tenantId, dto.category),
           baseUom: dto.baseUom,
           sellPrice: dto.sellPrice,
           barcode: dto.barcode === undefined ? undefined : dto.barcode.trim() || null,

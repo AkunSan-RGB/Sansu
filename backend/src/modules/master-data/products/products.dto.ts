@@ -1,6 +1,9 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsIn,
   IsInt,
@@ -22,7 +25,7 @@ export class ProductUomDto {
 export class CreateProductDto {
   @ApiProperty({ example: 'IDM-GRG-85' }) @IsString() @MaxLength(40) sku: string;
   @ApiProperty({ example: 'Mi Goreng 85g' }) @IsString() @MaxLength(160) name: string;
-  @ApiPropertyOptional({ example: 'Makanan' }) @IsOptional() @IsString() category?: string;
+  @ApiPropertyOptional({ example: 'Makanan' }) @IsOptional() @IsString() @MaxLength(60) category?: string;
   @ApiPropertyOptional({ example: 'PCS', default: 'PCS' })
   @IsOptional()
   @IsString()
@@ -59,6 +62,25 @@ export class CreateProductDto {
 
 export class UpdateProductDto extends PartialType(CreateProductDto) {
   @ApiPropertyOptional() @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+export class MergeCategoriesDto {
+  @ApiProperty({ type: [String], description: 'Kategori yang digabung (ejaan persis seperti di data)' })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(60, { each: true })
+  from: string[];
+  @ApiPropertyOptional({ description: 'Kategori tujuan; kosong = hapus kategori (produk menjadi tanpa kategori)', nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  to?: string | null;
+  @ApiPropertyOptional({ description: 'Hanya hitung produk yang terdampak (pratinjau)', default: false })
+  @IsOptional()
+  @IsBoolean()
+  dryRun?: boolean;
 }
 
 export class ListQueryDto {

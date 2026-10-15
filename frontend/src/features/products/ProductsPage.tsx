@@ -9,6 +9,8 @@ import { patch, post } from '@/api/client';
 import { useAction, useProducts } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
 import type { Product } from '@/api/types';
+import CategoryField, { categoryUsage } from '@/components/CategoryField';
+import CategoriesModal from './CategoriesModal';
 import ListPage from '@/components/ListPage';
 import { fmtMoney, fmtQty } from '@/lib/format';
 import { t } from '@/lib/terms';
@@ -28,7 +30,7 @@ interface FormValues {
 }
 
 export default function ProductsPage() {
-  const { isAdmin } = useApps();
+  const { isAdmin, can: hasApp } = useApps();
   const { me } = useAuth();
   const can = useCan();
   const navigate = useNavigate();
@@ -37,6 +39,7 @@ export default function ProductsPage() {
   /** Usaha jasa: tarif per satuan layanan; tanpa kasir (barcode) dan tanpa menu */
   const jasa = me?.businessModel === 'JASA';
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
+  const [catsOpen, setCatsOpen] = useState(false);
   const canSave = editing === 'new' ? can('POST', '/products') : can('PATCH', '/products/:id');
   const [form] = Form.useForm<FormValues>();
 
@@ -45,6 +48,7 @@ export default function ProductsPage() {
       const body = {
         ...v,
         sku: v.sku,
+        category: v.category?.trim() ?? '',
         baseUom: v.baseUom.toUpperCase(),
         sellPrice: String(v.sellPrice),
         barcode: v.barcode ?? '',
@@ -86,6 +90,7 @@ export default function ProductsPage() {
                 Impor Excel
               </Button>
             )}
+            {can('POST', '/products/categories/merge') && <Button onClick={() => setCatsOpen(true)}>Kelola kategori</Button>}
             {can('POST', '/products') && (
               <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>
                 {jasa ? t('Produk baru') : 'Produk baru'}
@@ -163,6 +168,7 @@ export default function ProductsPage() {
         ]}
       />
 
+      <CategoriesModal open={catsOpen} onClose={() => setCatsOpen(false)} />
       <Modal
         title={editing === 'new' ? (jasa ? t('Produk baru') : 'Produk baru') : jasa ? `Ubah ${t('produk')}` : 'Ubah produk'}
         open={!!editing}
@@ -185,8 +191,8 @@ export default function ProductsPage() {
               <Input placeholder="8991234567890" />
             </Form.Item>
           )}
-          <Form.Item name="category" label="Kategori">
-            <Input />
+          <Form.Item name="category" label="Kategori" extra={`Pilih dari kategori yang sudah ada, atau ketik sendiri bila belum ada. Kategori dipakai di ${categoryUsage(hasApp)}.`}>
+            <CategoryField options={(data ?? []).map((p) => p.category).filter((c): c is string => !!c)} />
           </Form.Item>
           {isProductionModel(me?.businessModel) && (
             <Form.Item
