@@ -167,7 +167,7 @@ async function seedDagang(c: Demo) {
   for (let i = 0; i < 12; i++) {
     const [custCode, skus] = bulkPairs[i % bulkPairs.length];
     const ago = 108 - i * 7 + c.int(0, 3);
-    const inv = await c.step(`jual tambahan ${i + 1}`, () => sell(c, cu.get(custCode)!, ago, skus.slice(0, c.int(1, 3)).map((k) => ({ productId: id(k), qty: c.int(5, 25) }))));
+    const inv = await c.step(`jual tambahan ${i + 1}`, () => sell(c, cu.get(custCode)!, ago, skus.slice(0, c.int(1, 3)).map((k) => ({ productId: id(k), qty: c.int(3, 12) }))));
     if (inv) await c.step('terima bayar tambahan', () => receive(c, inv, Math.max(ago - c.int(6, 14), 2), 'TRANSFER'));
   }
   await X.monthlyOps(c, [
