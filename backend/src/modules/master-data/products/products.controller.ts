@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from 
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../../common/auth/decorators';
-import { CreateProductDto, ListQueryDto, UpdateProductDto } from './products.dto';
+import { CreateProductDto, ListQueryDto, MergeCategoriesDto, UpdateProductDto } from './products.dto';
 import { ProductsService } from './products.service';
 
 @ApiTags('Master Data')
@@ -14,6 +14,18 @@ export class ProductsController {
   @Get()
   list(@CurrentUser() u: AuthUser, @Query() q: ListQueryDto) {
     return this.svc.list(u.tenantId, q.q);
+  }
+
+  /** Kategori produk + usulan penyatuan ejaan ganda (harus di atas rute :id) */
+  @Get('categories')
+  categories(@CurrentUser() u: AuthUser) {
+    return this.svc.categories(u.tenantId);
+  }
+
+  @Post('categories/merge')
+  @Roles('ADMIN')
+  mergeCategories(@CurrentUser() u: AuthUser, @Body() dto: MergeCategoriesDto) {
+    return this.svc.mergeCategories(u.tenantId, dto);
   }
 
   @Get(':id')

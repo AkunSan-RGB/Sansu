@@ -7,6 +7,9 @@ export const cleanCategory = (v?: string | null): string | null => {
   return s || null;
 };
 
+/** Semua huruf kecil atau semua huruf besar (bukan ejaan campuran seperti "Minuman") */
+export const isPlain = (v: string) => v === v.toLowerCase() || v === v.toUpperCase();
+
 /**
  * Ejaan baku tiap kategori di satu perusahaan (huruf besar/kecil diabaikan; yang paling banyak dipakai menang),
  * agar "minuman" dan "Minuman" tidak terpecah jadi dua kategori di kasir, filter, stok opname, dan laporan.
@@ -16,7 +19,9 @@ export async function categorySpellings(db: DbOrTx, tenantId: string): Promise<M
     SELECT category, COUNT(*)::int AS n FROM products WHERE tenant_id = ${tenantId} AND category IS NOT NULL AND btrim(category) <> ''
     GROUP BY category ORDER BY COUNT(*) DESC, category`);
   const m = new Map<string, string>();
-  for (const row of r.rows) {
+  // paling banyak dipakai menang; bila seri, ejaan campuran ("Minuman") didahulukan dari semua kecil/besar
+  const rows = [...r.rows].sort((a, b) => b.n - a.n || Number(isPlain(a.category)) - Number(isPlain(b.category)) || a.category.localeCompare(b.category));
+  for (const row of rows) {
     const clean = cleanCategory(row.category)!;
     if (!m.has(clean.toLowerCase())) m.set(clean.toLowerCase(), clean);
   }

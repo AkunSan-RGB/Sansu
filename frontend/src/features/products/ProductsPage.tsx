@@ -10,6 +10,7 @@ import { useAction, useProducts } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
 import type { Product } from '@/api/types';
 import CategoryField from '@/components/CategoryField';
+import CategoriesModal from './CategoriesModal';
 import ListPage from '@/components/ListPage';
 import { fmtMoney, fmtQty } from '@/lib/format';
 import { t } from '@/lib/terms';
@@ -38,6 +39,7 @@ export default function ProductsPage() {
   /** Usaha jasa: tarif per satuan layanan; tanpa kasir (barcode) dan tanpa menu */
   const jasa = me?.businessModel === 'JASA';
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
+  const [catsOpen, setCatsOpen] = useState(false);
   const canSave = editing === 'new' ? can('POST', '/products') : can('PATCH', '/products/:id');
   const [form] = Form.useForm<FormValues>();
 
@@ -88,6 +90,7 @@ export default function ProductsPage() {
                 Impor Excel
               </Button>
             )}
+            {can('POST', '/products/categories/merge') && <Button onClick={() => setCatsOpen(true)}>Kelola kategori</Button>}
             {can('POST', '/products') && (
               <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>
                 {jasa ? t('Produk baru') : 'Produk baru'}
@@ -165,6 +168,7 @@ export default function ProductsPage() {
         ]}
       />
 
+      <CategoriesModal open={catsOpen} onClose={() => setCatsOpen(false)} />
       <Modal
         title={editing === 'new' ? (jasa ? t('Produk baru') : 'Produk baru') : jasa ? `Ubah ${t('produk')}` : 'Ubah produk'}
         open={!!editing}

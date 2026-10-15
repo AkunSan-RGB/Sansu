@@ -71,3 +71,76 @@ describe('Kategori produk (e2e)', () => {
     expect((await cats(t2)).B1).toBe('minuman');
   });
 });
+
+describe('Kelola kategori produk (e2e)', () => {
+  let app: INestApplication;
+  let http: ReturnType<typeof request>;
+  let t: string;
+  let cashier: string;
+  const stamp = Date.now();
+  const as = (tok = t) => ({ Authorization: `Bearer ${tok}` });
+  const cats = async () => ((await http.get('/api/products').set(as()).expect(200)).body as { sku: string; category: string | null }[]).reduce<Record<string, string | null>>((a, p) => ({ ...a, [p.sku]: p.category }), {});
+  const sql = (q: string, p: unknown[] = []) => pool.query(q, p);
+  let pool: import('pg').Pool;
+
+  beforeAll(async () => {
+    const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = configureApp(mod.createNestApplication());
+    await app.init();
+    http = request(app.getHttpServer());
+    const { Pool } = await import('pg');
+    pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    t = (await http.post('/api/auth/register').send({ companyName: 'PT Gabung Kategori', name: 'Pemilik', email: `gk-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'DAGANG' }).expect(201)).body.accessToken;
+    await http.post('/api/users').set(as()).send({ name: 'Kasir', email: `gk-k-${stamp}@uji.id`, password: 'kasir12345', role: 'CASHIER' }).expect(201);
+    cashier = (await http.post('/api/auth/login').send({ email: `gk-k-${stamp}@uji.id`, password: 'kasir12345' }).expect(200)).body.accessToken;
+    // data lama yang terlanjur terpecah (ditulis langsung ke database)
+    const tid = (await http.get('/api/auth/me').set(as())).body.tenantId;
+    for (const [sku, c] of [['G1', 'Minuman'], ['G2', 'minuman'], ['G3', 'MINUMAN'], ['G4', 'Minuman'], ['G5', 'Snack'], ['G6', ' snack ']]) {
+      await sql(`INSERT INTO products (tenant_id, sku, name, category, base_uom, sell_price) VALUES ($1, $2, $2, $3, 'PCS', 1000)`, [tid, sku, c]);
+    }
+  });
+  afterAll(async () => {
+    await pool.end();
+    await app.close();
+  });
+
+  it('daftar kategori dan usulan penyatuan ejaan ganda', async () => {
+    const r = (await http.get('/api/products/categories').set(as()).expect(200)).body as { items: { name: string; count: number }[]; duplicates: { suggested: string; variants: { name: string; count: number }[] }[] };
+    expect(r.items.find((i) => i.name === 'Minuman')?.count).toBe(2);
+    const min = r.duplicates.find((d) => d.suggested === 'Minuman')!;
+    expect(min.variants.map((v) => v.name).sort()).toEqual(['MINUMAN', 'Minuman', 'minuman']);
+    expect(r.duplicates.find((d) => d.suggested === 'Snack')).toBeTruthy(); // 'Snack' dan ' snack ' satu kelompok; ejaan campuran didahulukan
+  });
+
+  it('hanya Admin/Pemilik yang menggabungkan; kasir ditolak', async () => {
+    await http.post('/api/products/categories/merge').set(as(cashier)).send({ from: ['minuman'], to: 'Minuman' }).expect(403);
+    await http.get('/api/products/categories').set(as(cashier)).expect(200);
+  });
+
+  it('pratinjau tidak mengubah data; penyatuan memindahkan semua varian', async () => {
+    const pre = (await http.post('/api/products/categories/merge').set(as()).send({ from: ['minuman', 'MINUMAN'], to: 'Minuman', dryRun: true }).expect(201)).body;
+    expect(pre).toMatchObject({ updated: 2, dryRun: true });
+    expect((await cats()).G2).toBe('minuman');
+    const done = (await http.post('/api/products/categories/merge').set(as()).send({ from: ['minuman', 'MINUMAN'], to: 'Minuman' }).expect(201)).body;
+    expect(done).toMatchObject({ updated: 2, to: 'Minuman' });
+    expect(await cats()).toMatchObject({ G1: 'Minuman', G2: 'Minuman', G3: 'Minuman', G4: 'Minuman' });
+  });
+
+  it('ganti nama: tujuan baru dipakai; tujuan yang sama dengan kategori lain memakai ejaan yang ada; kosong = hapus kategori', async () => {
+    await http.post('/api/products/categories/merge').set(as()).send({ from: ['Snack', ' snack '], to: 'Camilan' }).expect(201);
+    expect(await cats()).toMatchObject({ G5: 'Camilan', G6: 'Camilan' });
+    await http.post('/api/products/categories/merge').set(as()).send({ from: ['Camilan'], to: 'minuman' }).expect(201); // sudah ada "Minuman"
+    expect(await cats()).toMatchObject({ G5: 'Minuman', G6: 'Minuman' });
+    await http.post('/api/products/categories/merge').set(as()).send({ from: ['Minuman'], to: null }).expect(201);
+    expect(Object.values(await cats()).every((c) => c === null)).toBe(true);
+    await http.post('/api/products/categories/merge').set(as()).send({ from: [] }).expect(400);
+  });
+
+  it('tidak menyentuh perusahaan lain', async () => {
+    const t2 = (await http.post('/api/auth/register').send({ companyName: 'PT Lain Kat', name: 'Pemilik', email: `gk2-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'DAGANG' }).expect(201)).body.accessToken;
+    await http.post('/api/products').set(as(t2)).send({ sku: 'Z1', name: 'Z1', sellPrice: '1000', category: 'Minuman' }).expect(201);
+    await http.post('/api/products/categories/merge').set(as()).send({ from: ['Minuman'], to: 'Lain' }).expect(201);
+    const z = (await http.get('/api/products').set(as(t2)).expect(200)).body.find((p: { sku: string }) => p.sku === 'Z1');
+    expect(z.category).toBe('Minuman');
+  });
+});
