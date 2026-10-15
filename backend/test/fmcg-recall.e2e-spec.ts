@@ -4,15 +4,19 @@
  */
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { sql } from 'drizzle-orm';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
+import { DB, Db } from '../src/db/db';
 
 describe('FMCG: penelusuran lot / recall (e2e)', () => {
   let app: INestApplication;
   let http: ReturnType<typeof request>;
   const stamp = Date.now();
   let owner: string;
+  let db: Db;
+  let tenantId: string;
   let wh: string;
   let P: string;
   let c1: string;
@@ -29,7 +33,10 @@ describe('FMCG: penelusuran lot / recall (e2e)', () => {
     app = configureApp(mod.createNestApplication());
     await app.init();
     http = request(app.getHttpServer());
-    owner = (await http.post('/api/auth/register').send({ companyName: 'PT Recall Uji', name: 'Pemilik', email: `rc-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'FMCG' }).expect(201)).body.accessToken;
+    db = app.get<Db>(DB);
+    const reg = (await http.post('/api/auth/register').send({ companyName: 'PT Recall Uji', name: 'Pemilik', email: `rc-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'FMCG' }).expect(201)).body;
+    owner = reg.accessToken;
+    tenantId = reg.user.tenantId;
     wh = (await get('/api/warehouses').expect(200)).body[0].id;
     P = (await post('/api/products', { sku: 'BSK', name: 'Biskuit Kelapa', baseUom: 'PCS', sellPrice: '9500' }).expect(201)).body.id;
     const sup = (await post('/api/suppliers', { code: 'PRI', name: 'PT Prinsipal Pangan' }).expect(201)).body.id;
@@ -114,4 +121,29 @@ describe('FMCG: penelusuran lot / recall (e2e)', () => {
     const k = (await http.post('/api/auth/login').send({ email: `rc-k-${stamp}@uji.id`, password: 'kasir12345' }).expect(200)).body.accessToken;
     expect((await trace('BSK-A', k)).status).toBe(403);
   });
+
+  it('rekonstruksi: pengeluaran lama (tanpa jejak lot) dialokasikan FEFO dan ditandai perkiraan; aman diulang; tidak menimpa jejak asli', async () => {
+    const before = (await trace('BSK-A').expect(200)).body;
+    // meniru stok dari sebelum fitur jejak lot: hapus seluruh jejak
+    await db.execute(sql`DELETE FROM stock_lot_issues WHERE tenant_id = ${tenantId}`);
+    const lost = (await trace('BSK-A').expect(200)).body;
+    expect(lost.customers).toEqual([]);
+    expect(Number(lost.summary.untraced)).toBe(100); // seluruh lot A (100) tidak terjelaskan
+    expect((await post('/api/inventory/lots/rebuild-trace', {}, await asRole('WAREHOUSE'))).status).toBe(403); // hanya Admin
+    const r = (await post('/api/inventory/lots/rebuild-trace').expect(201)).body;
+    expect(r.allocated).toBeGreaterThan(0);
+    const after = (await trace('BSK-A').expect(200)).body;
+    expect(after.customers.map((c: { code: string; qty: string }) => [c.code, Number(c.qty)])).toEqual(before.customers.map((c: { code: string; qty: string }) => [c.code, Number(c.qty)]));
+    expect(Number(after.summary.untraced)).toBe(0);
+    expect(Number(after.summary.estimated)).toBe(100);
+    expect(after.customers[0].docs.every((d: { estimate: boolean }) => d.estimate)).toBe(true);
+    // diulang: tidak menambah apa pun
+    const again = (await post('/api/inventory/lots/rebuild-trace').expect(201)).body;
+    expect(again.allocated).toBe(0);
+  });
+
+  const asRole = async (role: string) => {
+    await post('/api/users', { name: role, email: `rc-${role}-${stamp}@uji.id`, password: 'rahasia12345', role }).expect(201);
+    return (await http.post('/api/auth/login').send({ email: `rc-${role}-${stamp}@uji.id`, password: 'rahasia12345' }).expect(200)).body.accessToken as string;
+  };
 });

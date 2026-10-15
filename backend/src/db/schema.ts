@@ -429,6 +429,8 @@ export const stockLotIssues = pgTable(
     refType: text('ref_type').notNull(),
     refId: text('ref_id').notNull(),
     date: date('date').notNull(),
+    /** true = direkonstruksi sistem dari mutasi lama (perkiraan alokasi FEFO), bukan dicatat saat barang keluar */
+    isEstimate: boolean('is_estimate').notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [index('stock_lot_issues_lot_idx').on(t.lotId), index('stock_lot_issues_ref_idx').on(t.refType, t.refId)],
@@ -452,6 +454,36 @@ export const salesTargets = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('sales_targets_uq').on(t.tenantId, t.userId, t.period)],
+);
+
+/** Komisi sales yang sudah ditutup per bulan: angka dibekukan saat ditutup (tidak bisa diubah), dijurnal sebagai utang komisi lalu dibayar */
+export const salesCommissions = pgTable(
+  'sales_commissions',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    period: text('period').notNull(),
+    netSales: money('net_sales').notNull(),
+    targetAmount: money('target_amount').notNull(),
+    commissionPct: numeric('commission_pct', { precision: 5, scale: 2 }).notNull(),
+    amount: money('amount').notNull(),
+    /** ACCRUED = sudah dijurnal sebagai utang komisi; PAID = sudah dibayar; VOID = dibatalkan sebelum dibayar */
+    status: text('status').$type<'ACCRUED' | 'PAID' | 'VOID'>().notNull().default('ACCRUED'),
+    accrualJournalId: uuid('accrual_journal_id'),
+    paymentJournalId: uuid('payment_journal_id'),
+    pph21Withheld: money('pph21_withheld').notNull().default('0'),
+    cashAccountId: uuid('cash_account_id'),
+    accruedById: uuid('accrued_by_id'),
+    paidById: uuid('paid_by_id'),
+    paidAt: date('paid_at'),
+    voidReason: text('void_reason'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('sales_commissions_uq').on(t.tenantId, t.userId, t.period).where(sql`status <> 'VOID'`), uniqueIndex('sales_commissions_number_uq').on(t.tenantId, t.number)],
 );
 
 /** Lot yang ikut berpindah saat transfer gudang: dicatat saat barang keluar, dipakai lagi saat barang masuk di gudang tujuan */

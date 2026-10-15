@@ -54,8 +54,9 @@ export class SalesTargetsService {
       .from(users)
       .where(and(eq(users.tenantId, u.tenantId), eq(users.role, 'SALES'), eq(users.isActive, true)));
     const targets = await this.db.select().from(salesTargets).where(and(eq(salesTargets.tenantId, u.tenantId), eq(salesTargets.period, period)));
-    const sold = await this.db.execute<{ sp: string; v: string; n: string }>(sql`
-      SELECT o.salesperson_id AS sp, COALESCE(SUM(i.subtotal), 0) AS v, COUNT(*)::text AS n
+    const sold = await this.db.execute<{ sp: string; v: string; n: string; proxy: string }>(sql`
+      SELECT o.salesperson_id AS sp, COALESCE(SUM(i.subtotal), 0) AS v, COUNT(*)::text AS n,
+             COUNT(*) FILTER (WHERE o.created_by_id IS DISTINCT FROM o.salesperson_id)::text AS proxy
       FROM invoices i JOIN sales_orders o ON o.id = i.sales_order_id
       WHERE i.tenant_id = ${u.tenantId} AND o.salesperson_id IS NOT NULL AND i.date >= ${from} AND i.date < ${to}
       GROUP BY o.salesperson_id`);
@@ -83,6 +84,8 @@ export class SalesTargetsService {
         userId: p.id,
         name: p.name,
         invoices: Number(soldBy.get(p.id)?.n ?? 0),
+        /** faktur dari pesanan yang diinput orang lain atas nama sales ini (perlu diperhatikan sebelum komisi dibayar) */
+        enteredByOthers: Number(soldBy.get(p.id)?.proxy ?? 0),
         gross: gross.toFixed(2),
         returns: ret.toFixed(2),
         net: net.toFixed(2),
@@ -103,6 +106,10 @@ export class SalesTargetsService {
   }
 
   async save(u: AuthUser, dto: SaveTargetsDto) {
+    // Target bulan yang sudah lewat atau sudah dikomisikan tidak boleh diubah (mencegah target/komisi diubah setelah hasil diketahui)
+    if (dto.period < todayJakarta().slice(0, 7)) throw new BadRequestException('Target bulan yang sudah lewat tidak dapat diubah');
+    const closed = await this.db.execute(sql`SELECT 1 FROM sales_commissions WHERE tenant_id = ${u.tenantId} AND period = ${dto.period} AND status <> 'VOID' LIMIT 1`);
+    if (closed.rows.length) throw new BadRequestException('Komisi bulan ini sudah ditutup; target tidak dapat diubah');
     const ids = [...new Set(dto.items.map((i) => i.userId))];
     if (ids.length !== dto.items.length) throw new BadRequestException('Satu sales tidak boleh muncul dua kali');
     if (ids.length) {
