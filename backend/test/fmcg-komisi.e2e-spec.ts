@@ -93,7 +93,7 @@ describe('FMCG: jurnal komisi & rekonstruksi lot (e2e)', () => {
     expect(Number(list[0].netSales)).toBe(10_000_000);
     commissionId = list[0].id;
     const bal = async (code: string) => Number((await db.execute<{ b: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0)::text AS b FROM journal_lines l JOIN accounts a ON a.id = l.account_id JOIN journal_entries j ON j.id = l.journal_id WHERE j.tenant_id = ${tenantId} AND a.code = ${code}`)).rows[0].b);
-    expect(await bal('6-2200')).toBe(200_000);
+    expect(await bal('6-2250')).toBe(200_000);
     expect(await bal('2-1450')).toBe(-200_000);
     // target bulan itu kini terkunci walau orang berusaha menggesernya
     expect((await http.put('/api/sales-targets').set(as(owner)).send({ period, items: [] })).status).toBe(400);
