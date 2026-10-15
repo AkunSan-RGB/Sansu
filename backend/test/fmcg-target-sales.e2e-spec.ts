@@ -18,6 +18,7 @@ describe('FMCG: target & komisi sales (e2e)', () => {
   let rinaId: string;
   let andiId: string;
   let wh: string;
+  let ownerId: string;
   let P: string;
   let cust: string;
   const as = (t: string) => ({ Authorization: `Bearer ${t}` });
@@ -30,7 +31,9 @@ describe('FMCG: target & komisi sales (e2e)', () => {
     app = configureApp(mod.createNestApplication());
     await app.init();
     http = request(app.getHttpServer());
-    owner = (await http.post('/api/auth/register').send({ companyName: 'PT Target Uji', name: 'Pemilik', email: `tg-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'FMCG' }).expect(201)).body.accessToken;
+    const reg = (await http.post('/api/auth/register').send({ companyName: 'PT Target Uji', name: 'Pemilik', email: `tg-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'FMCG' }).expect(201)).body;
+    owner = reg.accessToken;
+    ownerId = reg.user.id;
     for (const n of ['rina', 'andi']) await post('/api/users', { name: n, email: `tg-${n}-${stamp}@uji.id`, password: 'sales12345', role: 'SALES' }).expect(201);
     const login = async (n: string) => (await http.post('/api/auth/login').send({ email: `tg-${n}-${stamp}@uji.id`, password: 'sales12345' }).expect(200)).body;
     const r = await login('rina');
@@ -57,7 +60,7 @@ describe('FMCG: target & komisi sales (e2e)', () => {
     await sellAs(andi, '4000'); // 4.000.000
     await sellAs(owner, '1000', { salespersonId: andiId }); // pemilik menunjuk Andi: +1.000.000
     await sellAs(owner, '500'); // tanpa sales: tidak dihitung ke siapa pun
-    expect((await post('/api/sales-orders', { customerId: cust, warehouseId: wh, salespersonId: (await get('/api/users')).body[0].id, lines: [{ productId: P, qty: '1' }] })).status).toBe(400);
+    expect((await post('/api/sales-orders', { customerId: cust, warehouseId: wh, salespersonId: ownerId, lines: [{ productId: P, qty: '1' }] })).status).toBe(400);
   });
 
   it('target & komisi: omzet neto, ambang pencapaian, komisi dibulatkan; angka bulan lain kosong', async () => {
@@ -100,7 +103,7 @@ describe('FMCG: target & komisi sales (e2e)', () => {
     expect((await put([{ userId: rinaId, targetAmount: '-1', commissionPct: '1' }])).status).toBe(400);
     expect((await put([{ userId: rinaId, targetAmount: '1', commissionPct: '150' }])).status).toBe(400);
     expect((await put([{ userId: rinaId, targetAmount: '1', commissionPct: '1' }, { userId: rinaId, targetAmount: '2', commissionPct: '1' }])).status).toBe(400);
-    expect((await put([{ userId: (await get('/api/users')).body[0].id, targetAmount: '1', commissionPct: '1' }])).status).toBe(400); // bukan Sales
+    expect((await put([{ userId: ownerId, targetAmount: '1', commissionPct: '1' }])).status).toBe(400); // bukan Sales
     expect((await http.put('/api/sales-targets').set(as(owner)).send({ period: '2026-13', items: [] })).status).toBe(400);
   });
 });
