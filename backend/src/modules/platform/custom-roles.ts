@@ -25,6 +25,7 @@ const GROUPS: Record<string, string> = {
   'sales-returns': 'Retur penjualan', services: 'Jasa & proyek', customers: 'Pelanggan', crm: 'CRM', pos: 'Kasir (POS)', 'purchase-requests': 'Permintaan pembelian',
   'purchase-orders': 'Pesanan pembelian', 'goods-receipts': 'Penerimaan barang', 'purchase-invoices': 'Faktur & pembayaran pemasok', 'purchase-returns': 'Retur pembelian',
   suppliers: 'Pemasok', inventory: 'Persediaan', products: 'Produk', warehouses: 'Gudang', production: 'Produksi', payroll: 'Penggajian', hr: 'Karyawan (SDM)',
+  'price-lists': 'Daftar harga', promos: 'Promo & bonus barang', pricing: 'Harga & promo', 'sales-targets': 'Target & komisi sales',
   integrations: 'Integrasi & marketplace', branches: 'Cabang', imports: 'Impor data', approvals: 'Persetujuan', reminders: 'Pengingat', users: 'Pengguna', settings: 'Pengaturan', apps: 'Aplikasi',
 };
 const LABELS: Record<string, string> = {

@@ -38,6 +38,7 @@ import { SalesOrdersService } from '../sales/orders/sales-orders.service';
 import { PaymentsService } from '../sales/payments/payments.service';
 import { documentTotals } from '../sales/pricing';
 import { ServiceBillingService } from '../sales/services/service-billing';
+import { PricingService } from '../sales/pricing/price-lists';
 
 /** Alat bantu bersama untuk semua data contoh: semua transaksi lewat service aplikasi (bukan insert mentah) agar jurnal & laporan konsisten */
 export interface Demo {
@@ -69,6 +70,7 @@ export interface Demo {
     payroll: PayrollService;
     production: ProductionService;
     billing: ServiceBillingService;
+    pricing: PricingService;
     assets: AssetsService;
     bank: BankService;
     budget: BudgetService;
@@ -175,6 +177,7 @@ export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: 
       payroll: get(PayrollService),
       production: get(ProductionService),
       billing: get(ServiceBillingService),
+      pricing: get(PricingService),
       assets: get(AssetsService),
       bank: get(BankService),
       budget: get(BudgetService),

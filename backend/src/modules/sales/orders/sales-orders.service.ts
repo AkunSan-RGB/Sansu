@@ -8,11 +8,12 @@ import { toDocDate } from '../../../common/utils/dates';
 import { D, money } from '../../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, products, salesOrderLines, salesOrders, tenants, warehouses } from '../../../db/schema';
+import { customers, products, salesOrderLines, salesOrders, tenants, users, warehouses } from '../../../db/schema';
 import { foreignTotals } from '../../../common/utils/fx';
 import { FxService } from '../../fx/fx.service';
 import { documentTotals, inclusiveDocument, lineTotal } from '../pricing';
-import { CreateSalesOrderDto, SalesOrderQueryDto } from '../sales.dto';
+import { PricingService } from '../pricing/price-lists';
+import { CreateSalesOrderDto, SalesOrderLineDto, SalesOrderQueryDto } from '../sales.dto';
 import { CreditService } from './credit.service';
 
 @Injectable()
@@ -23,6 +24,7 @@ export class SalesOrdersService {
     private readonly credit: CreditService,
     private readonly audit: AuditService,
     private readonly fx: FxService,
+    private readonly pricing: PricingService,
   ) {}
 
   list(tenantId: string, q: SalesOrderQueryDto) {
@@ -73,11 +75,30 @@ export class SalesOrdersService {
       });
       const byId = new Map(prods.map((p) => [p.id, p]));
 
+      // sales pemegang pesanan: dipilih eksplisit (harus berperan Sales di perusahaan ini) atau pembuat pesanan bila ia Sales
+      let salespersonId: string | null = null;
+      if (dto.salespersonId) {
+        const [sp] = await tx.select({ id: users.id }).from(users).where(and(eq(users.id, dto.salespersonId), eq(users.tenantId, user.tenantId), eq(users.role, 'SALES'), eq(users.isActive, true)));
+        if (!sp) throw new BadRequestException('Sales tidak ditemukan / nonaktif');
+        salespersonId = sp.id;
+      } else if (user.role === 'SALES') {
+        salespersonId = user.sub;
+      }
+
       const { currency, rate: fxRate } = await this.fx.resolve(tx, user.tenantId, dto.currency, date, dto.fxRate);
       const foreign = currency !== 'IDR';
       if (foreign && dto.pricesIncludeVat) throw new BadRequestException('Pesanan valas memakai harga belum termasuk PPN');
 
-      const lines = dto.lines.map((l) => {
+      // Daftar harga pelanggan + promo: hanya mengisi harga/potongan yang kosong, dan menambah baris bonus (harga 0). Valas diisi manual.
+      let rawLines: SalesOrderLineDto[] = dto.lines;
+      if (!foreign) {
+        const r = await this.pricing.apply(tx, user.tenantId, customer, date, dto.lines, byId, dto.applyPromos ?? true);
+        rawLines = [
+          ...r.lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: l.qty, price: l.price, discountPct: l.discountPct })),
+          ...r.bonus.map((b) => ({ productId: b.productId, uom: b.uom, qty: b.qty, price: '0', discountPct: '0' })),
+        ];
+      }
+      const lines = rawLines.map((l) => {
         const p = byId.get(l.productId);
         if (!p || !p.isActive) throw new BadRequestException(`Produk ${l.productId} tidak ditemukan / nonaktif`);
         if (p.inventoryKind === 'SEMI') throw new BadRequestException(`${p.sku} adalah barang setengah jadi: dibuat dan dipakai lewat perintah produksi, tidak dijual`);
@@ -127,6 +148,7 @@ export class SalesOrdersService {
           warehouseId: wh.id,
           notes: dto.notes,
           createdById: user.sub,
+          salespersonId,
           subtotal: totals.subtotal.toFixed(2),
           taxAmount: totals.taxAmount.toFixed(2),
           total: totals.total.toFixed(2),

@@ -11,12 +11,14 @@ import { SalesOrdersController } from './orders/sales-orders.controller';
 import { SalesOrdersService } from './orders/sales-orders.service';
 import { PaymentsController } from './payments/payments.controller';
 import { PaymentsService } from './payments/payments.service';
+import { PricingController, PricingService } from './pricing/price-lists';
+import { SalesTargetsController, SalesTargetsService } from './targets/sales-targets';
 import { ServiceBillingController, ServiceBillingService } from './services/service-billing';
 
 @Module({
   imports: [AccountingModule, InventoryModule, FxModule],
-  controllers: [SalesOrdersController, DeliveriesController, InvoicesController, PaymentsController, ServiceBillingController],
-  providers: [SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService],
-  exports: [SalesOrdersService, InvoicesService],
+  controllers: [SalesOrdersController, DeliveriesController, InvoicesController, PaymentsController, ServiceBillingController, PricingController, SalesTargetsController],
+  providers: [PricingService, SalesTargetsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService],
+  exports: [SalesOrdersService, InvoicesService, PricingService],
 })
 export class SalesModule {}

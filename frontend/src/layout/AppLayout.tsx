@@ -82,6 +82,9 @@ const MENU: Group[] = [
       { key: '/deliveries', label: 'Surat jalan', hideFor: ['JASA', 'RITEL', 'FNB'] },
       { key: '/invoices', label: t('Faktur & piutang') },
       { key: '/returns?tab=sales', label: t('Retur penjualan') },
+      { key: '/price-lists', label: 'Daftar harga', models: ['FMCG'] },
+      { key: '/promos', label: 'Promo & bonus barang', models: ['FMCG'] },
+      { key: '/sales-targets', label: 'Target & komisi sales', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
       { key: '/integrations?tab=marketplace', label: 'Marketplace' },
       { section: 'Data', items: [{ key: '/customers', label: t('Pelanggan') }] },
     ],
@@ -130,6 +133,7 @@ const MENU: Group[] = [
       { key: '/inventory/transfers', label: t('Transfer gudang') },
       { key: '/inventory/counts', label: 'Stock opname' },
       { key: '/inventory/expiry', label: 'Kedaluwarsa bahan', hideFor: ['JASA'] },
+      { key: '/inventory/lot-trace', label: 'Telusuri lot (recall)', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE', 'SALES', 'ACCOUNTANT'] },
       { key: '/inventory/movement', label: t('Perputaran persediaan') },
       { key: '/inventory/writedowns', label: 'Penurunan nilai', epOnly: true, hideFor: ['JASA'] },
       {

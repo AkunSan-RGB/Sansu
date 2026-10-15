@@ -72,6 +72,10 @@ import KitchenPage from './features/pos/KitchenPage';
 import OnlineOrdersPage from './features/pos/OnlineOrdersPage';
 import TablesPage from './features/pos/TablesPage';
 import ExpiryPage from './features/inventory/ExpiryPage';
+import LotTracePage from './features/inventory/LotTracePage';
+import PriceListsPage from './features/pricing/PriceListsPage';
+import PromosPage from './features/pricing/PromosPage';
+import SalesTargetsPage from './features/pricing/SalesTargetsPage';
 import MovementPage from './features/inventory/MovementPage';
 import BomsPage from './features/production/BomsPage';
 import MaterialRequirementsPage from './features/production/MaterialRequirementsPage';
@@ -181,6 +185,10 @@ export default function App() {
           <Route path="branches" element={<Navigate to="/reports?tab=branches" replace />} />
           <Route path="inventory/movement" element={<MovementPage />} />
           <Route path="inventory/expiry" element={<ExpiryPage />} />
+          <Route path="inventory/lot-trace" element={<LotTracePage />} />
+          <Route path="price-lists" element={<PriceListsPage />} />
+          <Route path="promos" element={<PromosPage />} />
+          <Route path="sales-targets" element={<SalesTargetsPage />} />
           <Route path="production/boms" element={<BomsPage />} />
           <Route path="production/orders" element={<ProductionOrdersPage />} />
           <Route path="production/report" element={<ProductionReportPage />} />

@@ -230,6 +230,8 @@ export interface Customer {
   creditLimit: string;
   paymentTermDays: number;
   isActive: boolean;
+  /** Daftar harga pelanggan (segmen); kosong = harga jual master */
+  priceListId?: string | null;
   outstanding?: string;
 }
 

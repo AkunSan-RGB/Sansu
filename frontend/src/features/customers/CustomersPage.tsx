@@ -1,10 +1,12 @@
 import { useApps } from '@/lib/apps';
 import { useNavigate } from 'react-router-dom';
 import { FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Form, Input, InputNumber, Modal, Space, Tag } from 'antd';
+import { useQuery } from '@tanstack/react-query';
+import { Button, Form, Input, InputNumber, Modal, Select, Space, Tag } from 'antd';
 import { useState } from 'react';
-import { patch, post } from '@/api/client';
+import { get, patch, post } from '@/api/client';
 import { useAction, useCustomers } from '@/api/queries';
+import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
 import type { Customer } from '@/api/types';
 import ListPage from '@/components/ListPage';
@@ -19,19 +21,23 @@ interface FormValues {
   address?: string;
   creditLimit: number;
   paymentTermDays: number;
+  priceListId?: string | null;
 }
 
 export default function CustomersPage() {
   const { isAdmin } = useApps();
   const navigate = useNavigate();
   const can = useCan();
+  const { me } = useAuth();
+  const isFmcg = me?.businessModel === 'FMCG';
+  const { data: priceLists } = useQuery({ queryKey: ['price-lists'], queryFn: () => get<{ id: string; name: string; isActive: boolean }[]>('/price-lists'), enabled: isFmcg });
   const { data, isLoading } = useCustomers();
   const [editing, setEditing] = useState<Customer | 'new' | null>(null);
   const [form] = Form.useForm<FormValues>();
 
   const save = useAction(
     (v: FormValues) => {
-      const body = { ...v, creditLimit: String(v.creditLimit ?? 0) };
+      const body = { ...v, creditLimit: String(v.creditLimit ?? 0), priceListId: v.priceListId ?? null };
       return editing && editing !== 'new' ? patch(`/customers/${editing.id}`, body) : post('/customers', body);
     },
     { success: 'Pelanggan disimpan', invalidate: ['customers'], onSuccess: () => setEditing(null) },
@@ -46,6 +52,7 @@ export default function CustomersPage() {
         email: c.email ?? undefined,
         address: c.address ?? undefined,
         creditLimit: Number(c.creditLimit),
+        priceListId: c.priceListId ?? undefined,
       });
     }
     setEditing(c);
@@ -121,6 +128,11 @@ export default function CustomersPage() {
           <Form.Item name="address" label="Alamat">
             <Input.TextArea rows={2} />
           </Form.Item>
+          {isFmcg && (
+            <Form.Item name="priceListId" label="Daftar harga (segmen)" extra="Harga di pesanan penjualan mengikuti daftar ini. Kosong = harga jual master.">
+              <Select allowClear options={(priceLists ?? []).filter((l) => l.isActive).map((l) => ({ value: l.id, label: l.name }))} placeholder="Tanpa daftar harga" />
+            </Form.Item>
+          )}
           <Space wrap>
             <Form.Item name="creditLimit" label="Limit kredit (0 = tanpa batas)">
               <InputNumber min={0} style={{ width: 220 }} prefix="Rp" />

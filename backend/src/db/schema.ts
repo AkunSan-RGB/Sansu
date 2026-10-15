@@ -273,10 +273,68 @@ export const customers = pgTable(
     creditLimit: money('credit_limit').notNull().default('0'),
     paymentTermDays: integer('payment_term_days').notNull().default(30),
     isActive: boolean('is_active').notNull().default(true),
+    /** Daftar harga yang berlaku untuk pelanggan ini (segmen: grosir, minimarket, warung, ...); kosong = harga jual master */
+    priceListId: uuid('price_list_id').references((): AnyPgColumn => priceLists.id),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('customers_code_uq').on(t.tenantId, t.code)],
 );
+
+// ---------- Daftar harga & promo (FMCG) ----------
+/** Daftar harga per segmen pelanggan. Harga per satuan dasar; bisa bertingkat menurut jumlah beli (min_qty satuan dasar). */
+export const priceLists = pgTable(
+  'price_lists',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    name: text('name').notNull(),
+    description: text('description'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('price_lists_name_uq').on(t.tenantId, sql`lower(${t.name})`)],
+);
+
+export const priceListItems = pgTable(
+  'price_list_items',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    priceListId: uuid('price_list_id')
+      .notNull()
+      .references(() => priceLists.id, { onDelete: 'cascade' }),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    /** Berlaku mulai jumlah beli ini (satuan dasar); 1 = harga dasar daftar */
+    minQty: qty('min_qty').notNull().default('1'),
+    /** Harga per satuan dasar */
+    price: qty('price').notNull(),
+  },
+  (t) => [uniqueIndex('price_list_items_uq').on(t.priceListId, t.productId, t.minQty), index('price_list_items_product_idx').on(t.productId)],
+);
+
+/** Promo penjualan: potongan harga bertingkat atau bonus barang. Diterapkan otomatis pada pesanan penjualan. */
+export const promos = pgTable('promos', {
+  id: id(),
+  tenantId: tenantId(),
+  name: text('name').notNull(),
+  /** DISCOUNT = potongan % bila beli >= min_qty; BONUS = gratis bonus_qty barang bonus untuk tiap kelipatan min_qty */
+  kind: text('kind').notNull(),
+  /** Produk pemicu; kosong = semua produk (hanya untuk DISCOUNT) */
+  productId: uuid('product_id').references(() => products.id),
+  /** Jumlah beli minimum (satuan dasar) */
+  minQty: qty('min_qty').notNull().default('1'),
+  discountPct: numeric('discount_pct', { precision: 5, scale: 2 }).notNull().default('0'),
+  bonusProductId: uuid('bonus_product_id').references(() => products.id),
+  bonusQty: qty('bonus_qty').notNull().default('0'),
+  validFrom: date('valid_from'),
+  validTo: date('valid_to'),
+  /** Batasi ke pelanggan pada daftar harga ini; kosong = semua pelanggan */
+  priceListId: uuid('price_list_id').references(() => priceLists.id),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: createdAt(),
+});
 
 // ---------- Inventori ----------
 export const stockBalances = pgTable(
@@ -350,6 +408,50 @@ export const stockLots = pgTable(
     index('stock_lots_tenant_expiry_idx').on(t.tenantId, t.expiryDate).where(sql`qty_remaining > 0`),
     index('stock_lots_source_idx').on(t.sourceRef),
   ],
+);
+
+/**
+ * Riwayat keluar tiap lot: dokumen apa (penjualan, transfer, penyesuaian, ...) mengambil berapa dari lot mana.
+ * Dasar penelusuran penarikan produk (recall): dari satu nomor lot ke seluruh pelanggan penerimanya.
+ */
+export const stockLotIssues = pgTable(
+  'stock_lot_issues',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    lotId: uuid('lot_id')
+      .notNull()
+      .references(() => stockLots.id),
+    productId: uuid('product_id').notNull(),
+    warehouseId: uuid('warehouse_id').notNull(),
+    qty: qty('qty').notNull(),
+    moveType: text('move_type').notNull(),
+    refType: text('ref_type').notNull(),
+    refId: text('ref_id').notNull(),
+    date: date('date').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('stock_lot_issues_lot_idx').on(t.lotId), index('stock_lot_issues_ref_idx').on(t.refType, t.refId)],
+);
+
+/** Target omzet bulanan per sales dan aturan komisinya (komisi dihitung dari omzet neto setelah retur, tanpa PPN) */
+export const salesTargets = pgTable(
+  'sales_targets',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    /** YYYY-MM */
+    period: text('period').notNull(),
+    targetAmount: money('target_amount').notNull(),
+    commissionPct: numeric('commission_pct', { precision: 5, scale: 2 }).notNull().default('0'),
+    /** Komisi hanya berlaku bila pencapaian ≥ persen ini dari target (0 = selalu) */
+    minAchievementPct: numeric('min_achievement_pct', { precision: 5, scale: 2 }).notNull().default('0'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('sales_targets_uq').on(t.tenantId, t.userId, t.period)],
 );
 
 /** Lot yang ikut berpindah saat transfer gudang: dicatat saat barang keluar, dipakai lagi saat barang masuk di gudang tujuan */
@@ -429,6 +531,8 @@ export const salesOrders = pgTable(
     fxRate: numeric('fx_rate', { precision: 18, scale: 6 }).notNull().default('1'),
     totalForeign: money('total_foreign'),
     notes: text('notes'),
+    /** Sales yang memegang pesanan ini (dasar target & komisi); kosong = tidak dikaitkan ke sales */
+    salespersonId: uuid('salesperson_id'),
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
   },

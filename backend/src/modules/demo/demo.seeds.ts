@@ -350,23 +350,28 @@ async function seedFmcg(c: Demo) {
     { code: 'OTL-SUPER', name: 'Supermarket Maju Bersama', address: 'Jl. Margonda Raya, Depok', term: 45, limit: '300000000' },
   ]);
   const id = (k: string) => ids.get(k)!;
-  const sales: { cu: string; ago: number; lines: { productId: string; qty: number }[]; pay: number }[] = [
-    { cu: 'OTL-ALFA', ago: 58, lines: [{ productId: id('FM-MIE'), qty: 80 }, { productId: id('FM-AIR'), qty: 120 }, { productId: id('FM-KOPI'), qty: 200 }], pay: 24 },
-    { cu: 'OTL-GROSIR', ago: 52, lines: [{ productId: id('FM-BISK'), qty: 50 }, { productId: id('FM-TEH'), qty: 70 }], pay: 30 },
-    { cu: 'OTL-WARUNG1', ago: 47, lines: [{ productId: id('FM-MIE'), qty: 6 }, { productId: id('FM-SABUN'), qty: 2 }], pay: 40 },
-    { cu: 'OTL-SUPER', ago: 40, lines: [{ productId: id('FM-DETER'), qty: 25 }, { productId: id('FM-SHAMP'), qty: 150 }, { productId: id('FM-SABUN'), qty: 20 }], pay: 0 }, // belum dibayar: jatuh tempo
-    { cu: 'OTL-WARUNG2', ago: 33, lines: [{ productId: id('FM-AIR'), qty: 8 }, { productId: id('FM-KOPI'), qty: 20 }], pay: 25 },
-    { cu: 'OTL-KOP', ago: 26, lines: [{ productId: id('FM-MIE'), qty: 30 }, { productId: id('FM-TEH'), qty: 18 }], pay: 5 },
-    { cu: 'OTL-ALFA', ago: 19, lines: [{ productId: id('FM-BISK'), qty: 40 }, { productId: id('FM-DETER'), qty: 15 }], pay: -1 },
-    { cu: 'OTL-GROSIR', ago: 10, lines: [{ productId: id('FM-MIE'), qty: 90 }, { productId: id('FM-SHAMP'), qty: 100 }], pay: -1 },
-    { cu: 'OTL-WARUNG1', ago: 4, lines: [{ productId: id('FM-KOPI'), qty: 12 }, { productId: id('FM-TEH'), qty: 4 }], pay: -1 },
-  ];
-  let unpaidInv: string | undefined;
-  for (const s of sales) {
-    const inv = await c.step(`jual ${s.cu}`, () => sell(c, cu.get(s.cu)!, s.ago, s.lines));
-    if (inv && s.pay > 0) await c.step('terima bayar', () => receive(c, inv, s.pay, 'TRANSFER'));
-    else if (inv && s.pay === -1) unpaidInv = inv;
-  }
+  // daftar harga per segmen + promo (potongan bertingkat, bonus barang); penjualan di bawah otomatis memakainya
+  const mk = (name: string, description: string, pct: number, bulkPct: number, bulkQty: number) =>
+    c.step(`daftar harga ${name}`, async () => {
+      const list = await c.svc.pricing.createPriceList(c.admin as never, { name, description });
+      await c.svc.pricing.replaceItems(
+        c.admin as never,
+        list.id,
+        FMCG.flatMap((p) => [
+          { productId: ids.get(p.sku)!, minQty: '1', price: String(Math.round(p.price * pct)) },
+          { productId: ids.get(p.sku)!, minQty: String(bulkQty), price: String(Math.round(p.price * bulkPct)) },
+        ]),
+      );
+      return list.id as string;
+    });
+  const grosir = await mk('Grosir', 'Pedagang grosir & pasar induk', 0.96, 0.93, 50);
+  const minimarket = await mk('Minimarket', 'Minimarket & supermarket jaringan', 0.98, 0.96, 100);
+  await c.step('pasang daftar harga', async () => {
+    for (const [code, list] of [['OTL-GROSIR', grosir], ['OTL-ALFA', minimarket], ['OTL-SUPER', minimarket]] as const)
+      if (list) await c.svc.customers.update(c.tenantId, cu.get(code)!, { priceListId: list } as never);
+  });
+  await c.step('promo potongan', () => c.svc.pricing.createPromo(c.admin as never, { name: 'Diskon 3% mi instan min 60 dus', kind: 'DISCOUNT', productId: id('FM-MIE'), minQty: '60', discountPct: '3' }));
+  await c.step('promo bonus', () => c.svc.pricing.createPromo(c.admin as never, { name: 'Beli 20 dus air mineral gratis 2 renceng kopi', kind: 'BONUS', productId: id('FM-AIR'), minQty: '20', bonusProductId: id('FM-KOPI'), bonusQty: '2' }));
   // pembelian ke prinsipal dengan nomor lot & tanggal kedaluwarsa (dasar penelusuran bila ada penarikan produk)
   await c.step('beli makanan', () =>
     purchaseWithLots(c, sup.get('PRI-PANGAN')!, 45, [
@@ -386,6 +391,23 @@ async function seedFmcg(c: Demo) {
       { productId: id('FM-DETER'), qty: 70, price: 192500, lotNo: 'DTR-2411C', expiresInDays: 600 },
     ], { invoiceNo: 'PRS/11/0452' }),
   );
+  const sales: { cu: string; ago: number; lines: { productId: string; qty: number }[]; pay: number }[] = [
+    { cu: 'OTL-ALFA', ago: 58, lines: [{ productId: id('FM-MIE'), qty: 80 }, { productId: id('FM-AIR'), qty: 120 }, { productId: id('FM-KOPI'), qty: 200 }], pay: 24 },
+    { cu: 'OTL-GROSIR', ago: 52, lines: [{ productId: id('FM-BISK'), qty: 50 }, { productId: id('FM-TEH'), qty: 70 }], pay: 30 },
+    { cu: 'OTL-WARUNG1', ago: 47, lines: [{ productId: id('FM-MIE'), qty: 6 }, { productId: id('FM-SABUN'), qty: 2 }], pay: 40 },
+    { cu: 'OTL-SUPER', ago: 40, lines: [{ productId: id('FM-DETER'), qty: 25 }, { productId: id('FM-SHAMP'), qty: 150 }, { productId: id('FM-SABUN'), qty: 20 }], pay: 0 }, // belum dibayar: jatuh tempo
+    { cu: 'OTL-WARUNG2', ago: 33, lines: [{ productId: id('FM-AIR'), qty: 8 }, { productId: id('FM-KOPI'), qty: 20 }], pay: 25 },
+    { cu: 'OTL-KOP', ago: 26, lines: [{ productId: id('FM-MIE'), qty: 30 }, { productId: id('FM-TEH'), qty: 18 }], pay: 5 },
+    { cu: 'OTL-ALFA', ago: 19, lines: [{ productId: id('FM-BISK'), qty: 40 }, { productId: id('FM-DETER'), qty: 15 }], pay: -1 },
+    { cu: 'OTL-GROSIR', ago: 10, lines: [{ productId: id('FM-MIE'), qty: 90 }, { productId: id('FM-SHAMP'), qty: 100 }], pay: -1 },
+    { cu: 'OTL-WARUNG1', ago: 4, lines: [{ productId: id('FM-KOPI'), qty: 12 }, { productId: id('FM-TEH'), qty: 4 }], pay: -1 },
+  ];
+  let unpaidInv: string | undefined;
+  for (const s of sales) {
+    const inv = await c.step(`jual ${s.cu}`, () => sell(c, cu.get(s.cu)!, s.ago, s.lines));
+    if (inv && s.pay > 0) await c.step('terima bayar', () => receive(c, inv, s.pay, 'TRANSFER'));
+    else if (inv && s.pay === -1) unpaidInv = inv;
+  }
   await expense(c, 58, 'bank', '6-3000', 'Sewa gudang distribusi', 16_000_000, 'SEWA-GDG');
   await expense(c, 35, 'kas', '6-2700', 'BBM & tol armada pengiriman ke outlet', 3_450_000, 'SPBU-0412');
   await expense(c, 24, 'bank', '6-2150', 'Trade promo & listing fee minimarket', 6_000_000, 'TP-0924');

@@ -109,6 +109,12 @@ async function deplete(tx: Tx, m: LotMove, out: Dec, extra: ReturnType<typeof sq
     const have = D(l.qty_remaining);
     const take = have.lt(need) ? have : need;
     await tx.execute(sql`UPDATE stock_lots SET qty_remaining = ${qty4(have.minus(take)).toFixed(4)} WHERE id = ${l.id}`);
+    // jejak keluar per lot (dasar penelusuran penarikan produk); pembatalan penerimaan bukan pengeluaran ke pihak lain
+    if (m.refType !== 'GOODS_RECEIPT_CANCEL') {
+      await tx.execute(sql`
+        INSERT INTO stock_lot_issues (tenant_id, lot_id, product_id, warehouse_id, qty, move_type, ref_type, ref_id, date)
+        VALUES (${m.tenantId}, ${l.id}, ${m.productId}, ${m.warehouseId}, ${take.toFixed(4)}, ${m.type}, ${m.refType}, ${m.refId}, ${m.date})`);
+    }
     if (toTransit) {
       await tx.execute(sql`
         INSERT INTO stock_lot_transit (tenant_id, ref_id, product_id, lot_no, expiry_date, received_date, qty_left)
