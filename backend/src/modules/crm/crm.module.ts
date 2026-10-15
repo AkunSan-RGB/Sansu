@@ -455,6 +455,8 @@ export class CrmService {
       warehouseId: q.warehouseId,
       notes: `Dari penawaran ${q.number}${q.notes ? ` — ${q.notes}` : ''}`,
       pricesIncludeVat: q.pricesIncludeVat,
+      // harga & potongan penawaran dipakai persis seperti disetujui pelanggan: promo/daftar harga tidak boleh mengubahnya
+      applyPromos: false,
       lines: q.lines.map((l) => ({
         productId: l.productId,
         uom: l.uom,

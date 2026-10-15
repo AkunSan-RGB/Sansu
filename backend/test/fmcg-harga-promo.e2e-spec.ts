@@ -137,6 +137,16 @@ describe('FMCG: daftar harga & promo (e2e)', () => {
     expect(Number(stock.find((s) => s.productId === B)!.qty)).toBe(494);
   });
 
+  it('penawaran yang dikonversi menjadi pesanan tidak diubah promo/daftar harga (harga & potongan persis penawaran)', async () => {
+    await post('/api/apps/crm/install', {}).expect(201);
+    const q = (await post('/api/crm/quotations', { customerId: cWarung, warehouseId: wh, lines: [{ productId: A, qty: '300', price: '3500' }] }).expect(201)).body;
+    const so = (await post(`/api/crm/quotations/${q.id}/convert`, {}).expect(201)).body.salesOrder;
+    const full = (await get(`/api/sales-orders/${so.id}`).expect(200)).body;
+    expect(full.lines).toHaveLength(1); // tanpa baris bonus
+    expect(Number(full.lines[0].discountPct)).toBe(0); // promo potongan tidak menambah
+    expect(Number(full.lines[0].price)).toBe(3500);
+  });
+
   it('validasi promo: potongan di luar 0–100%, bonus tanpa produk, tanggal terbalik ditolak', async () => {
     expect((await post('/api/promos', { name: 'x', kind: 'DISCOUNT', minQty: '1', discountPct: '120' })).status).toBe(400);
     expect((await post('/api/promos', { name: 'x', kind: 'BONUS', minQty: '1' })).status).toBe(400);
