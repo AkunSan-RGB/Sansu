@@ -3,17 +3,27 @@ import { useAuth } from '@/auth/AuthContext';
 import { useApps } from '@/lib/apps';
 import { useNavigate } from 'react-router-dom';
 import { MinusCircleOutlined, FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Checkbox, Form, Input, InputNumber, Modal, Space, Switch, Tag } from 'antd';
+import { Alert, Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Switch, Tag } from 'antd';
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { patch, post } from '@/api/client';
+import { get, patch, post } from '@/api/client';
 import { useAction, useProducts } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
 import type { Product } from '@/api/types';
-import CategoryField, { categoryUsage } from '@/components/CategoryField';
+import { categoryUsage } from '@/components/CategoryField';
 import CategoriesModal from './CategoriesModal';
 import ListPage from '@/components/ListPage';
 import { fmtMoney, fmtQty } from '@/lib/format';
 import { t } from '@/lib/terms';
+
+interface Opt { value: string; label: string }
+interface ProductOptions {
+  model: string;
+  form: { barcode: boolean; packs: boolean; menu: boolean; semi: boolean; shelfLife: boolean; skuLabel: string; nameLabel: string; baseUomLabel: string; priceLabel: string; note: string | null };
+  categories: { value: string; source: 'PRESET' | 'CUSTOM' | 'USED' }[];
+  baseUoms: Opt[];
+  packUoms: Opt[];
+}
 
 interface FormValues {
   sku: string;
@@ -42,6 +52,10 @@ export default function ProductsPage() {
   const [catsOpen, setCatsOpen] = useState(false);
   const canSave = editing === 'new' ? can('POST', '/products') : can('PATCH', '/products/:id');
   const [form] = Form.useForm<FormValues>();
+  const optsQ = useQuery({ queryKey: ['products', 'options'], queryFn: () => get<ProductOptions>('/products/options') });
+  const opts = optsQ.data;
+  const f = opts?.form;
+  const baseUomNow = Form.useWatch('baseUom', form);
 
   const save = useAction(
     (v: FormValues) => {
@@ -179,22 +193,30 @@ export default function ProductsPage() {
         okText="Simpan"
         destroyOnHidden
       >
-        <Form form={form} layout="vertical" initialValues={{ baseUom: jasa ? 'JAM' : 'PCS' }} onFinish={(v) => save.mutate(v)}>
-          <Form.Item name="sku" label="SKU" rules={[{ required: true }]}>
-            <Input />
+        {f?.note && <Alert type="info" showIcon style={{ marginBottom: 12 }} message={f.note} />}
+        <Form form={form} layout="vertical" initialValues={{ baseUom: opts?.baseUoms[0]?.value ?? (jasa ? 'JAM' : 'PCS') }} onFinish={(v) => save.mutate(v)}>
+          <Form.Item name="sku" label={f?.skuLabel ?? 'SKU'} rules={[{ required: true }]}>
+            <Input maxLength={40} />
           </Form.Item>
-          <Form.Item name="name" label={t('Nama produk')} rules={[{ required: true }]}>
-            <Input />
+          <Form.Item name="name" label={f?.nameLabel ?? t('Nama produk')} rules={[{ required: true }]}>
+            <Input maxLength={160} />
           </Form.Item>
-          {!jasa && (
+          {f?.barcode && (
             <Form.Item name="barcode" label="Barcode (untuk scan di kasir)">
-              <Input placeholder="8991234567890" />
+              <Input placeholder="8991234567890" inputMode="numeric" maxLength={40} />
             </Form.Item>
           )}
-          <Form.Item name="category" label="Kategori" extra={`Pilih dari kategori yang sudah ada, atau ketik sendiri bila belum ada. Kategori dipakai di ${categoryUsage(hasApp)}.`}>
-            <CategoryField options={(data ?? []).map((p) => p.category).filter((c): c is string => !!c)} />
+          <Form.Item name="category" label="Kategori" extra={`Pilih dari daftar. Kategori dipakai di ${categoryUsage(hasApp)}. Perlu kategori baru? Admin menambahkannya di Kelola kategori.`}>
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="Pilih kategori"
+              loading={optsQ.isLoading}
+              options={(opts?.categories ?? []).map((c) => ({ value: c.value, label: c.value }))}
+            />
           </Form.Item>
-          {isProductionModel(me?.businessModel) && (
+          {f?.semi && (
             <Form.Item
               name="semi"
               valuePropName="checked"
@@ -205,7 +227,7 @@ export default function ProductsPage() {
           )}
           <Form.Item noStyle shouldUpdate={(a, b) => a.semi !== b.semi}>
             {({ getFieldValue }) =>
-              !jasa &&
+              f?.menu &&
               !getFieldValue('semi') && (
                 <Form.Item
                   name="madeToOrder"
@@ -217,41 +239,45 @@ export default function ProductsPage() {
               )
             }
           </Form.Item>
-          {prod && (
+          {f?.shelfLife && (
             <Form.Item name="shelfLifeDays" label="Umur simpan (hari, opsional)" extra="Isi untuk barang yang cepat basi (roti, kue, olahan segar): hasil produksinya otomatis dipantau di Persediaan › Kedaluwarsa bahan, tanggal kedaluwarsa = tanggal selesai + umur simpan.">
               <InputNumber min={1} max={3650} precision={0} style={{ width: 160 }} />
             </Form.Item>
           )}
-          <Space wrap>
-            <Form.Item name="baseUom" label={jasa ? 'Satuan (jam, hari, paket, buah)' : 'Satuan dasar'} rules={[{ required: true }]}>
-              <Input style={{ width: jasa ? 200 : 120 }} placeholder={jasa ? 'JAM' : undefined} />
+          <Space wrap align="start">
+            <Form.Item name="baseUom" label={f?.baseUomLabel ?? 'Satuan dasar'} rules={[{ required: true, message: 'Pilih satuan' }]}>
+              <Select showSearch optionFilterProp="label" style={{ width: 200 }} placeholder="Pilih satuan" options={opts?.baseUoms ?? []} />
             </Form.Item>
-            <Form.Item name="sellPrice" label={jasa ? 'Tarif / harga per satuan (belum PPN)' : 'Harga jual / satuan dasar (belum PPN)'} rules={[{ required: true }]}>
-              <InputNumber min={0} style={{ width: 220 }} prefix="Rp" />
+            <Form.Item name="sellPrice" label={f?.priceLabel ?? 'Harga jual / satuan dasar (belum PPN)'} rules={[{ required: true }]}>
+              <InputNumber min={0} style={{ width: 240 }} prefix="Rp" />
             </Form.Item>
           </Space>
-          <Form.List name="uoms">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map((f) => (
-                  <Space key={f.key} align="baseline">
-                    <Form.Item name={[f.name, 'uom']} rules={[{ required: true }]}>
-                      <Input placeholder="DUS" style={{ width: 100 }} />
-                    </Form.Item>
-                    <span>=</span>
-                    <Form.Item name={[f.name, 'factor']} rules={[{ required: true }]}>
-                      <InputNumber min={0.0001} placeholder="24" />
-                    </Form.Item>
-                    <span>satuan dasar</span>
-                    <MinusCircleOutlined onClick={() => remove(f.name)} />
-                  </Space>
-                ))}
-                <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />} block>
-                  {jasa ? 'Tambah satuan lain (mis. HARI = 8 JAM)' : 'Tambah satuan (DUS, PAK, ...)'}
-                </Button>
-              </>
-            )}
-          </Form.List>
+          {f?.packs && (
+            <Form.List name="uoms">
+              {(fields, { add, remove }) => (
+                <>
+                  {fields.length > 0 && <div style={{ marginBottom: 6, color: '#64748b', fontSize: 12 }}>Satuan lebih besar: pilih satuannya, isi berapa {baseUomNow ?? 'satuan dasar'} dalam satu satuan itu.</div>}
+                  {fields.map((u) => (
+                    <Space key={u.key} align="baseline" wrap>
+                      <span>1</span>
+                      <Form.Item name={[u.name, 'uom']} rules={[{ required: true, message: 'Pilih satuan' }]}>
+                        <Select showSearch optionFilterProp="label" placeholder="Satuan" style={{ width: 170 }} options={(opts?.packUoms ?? []).filter((o) => o.value !== baseUomNow && !(form.getFieldValue('uoms') ?? []).some((x: { uom?: string }, i: number) => i !== u.name && x?.uom === o.value))} />
+                      </Form.Item>
+                      <span>=</span>
+                      <Form.Item name={[u.name, 'factor']} rules={[{ required: true, message: 'Isi jumlah' }]}>
+                        <InputNumber min={0.0001} placeholder="24" style={{ width: 110 }} />
+                      </Form.Item>
+                      <span>{baseUomNow ?? 'satuan dasar'}</span>
+                      <MinusCircleOutlined onClick={() => remove(u.name)} />
+                    </Space>
+                  ))}
+                  <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />} block>
+                    {jasa ? 'Tambah satuan lain (mis. 1 HARI = 8 JAM)' : 'Tambah satuan besar (dus, karton, ...)'}
+                  </Button>
+                </>
+              )}
+            </Form.List>
+          )}
           {editing !== 'new' && (
             <Form.Item name="isActive" label="Aktif" valuePropName="checked" style={{ marginTop: 16 }}>
               <Switch />

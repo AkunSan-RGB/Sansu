@@ -47,8 +47,8 @@ describe('Jenis usaha F&B (e2e)', () => {
 
   it('barang setengah jadi boleh dipakai di F&B; bahan, adonan, dan menu dibuat', async () => {
     const mk = async (sku: string, body: object) => (ids[sku] = (await post('/api/products', { sku, sellPrice: '0', ...body }).expect(201)).body.id);
-    await mk('BB-TEPUNG', { name: 'Tepung', baseUom: 'GR' });
-    await mk('BB-GULA', { name: 'Gula', baseUom: 'GR' });
+    await mk('BB-TEPUNG', { name: 'Tepung', baseUom: 'GRAM' });
+    await mk('BB-GULA', { name: 'Gula', baseUom: 'GRAM' });
     await mk('BB-MINYAK', { name: 'Minyak', baseUom: 'ML' });
     await mk('SF-ADONAN', { name: 'Adonan Donat', baseUom: 'PCS', inventoryKind: 'SEMI' });
     await mk('MN-DONAT', { name: 'Donat Gula', baseUom: 'PCS', sellPrice: '9000', madeToOrder: true });
@@ -132,7 +132,7 @@ describe('Umur simpan barang hasil produksi (e2e)', () => {
   afterAll(() => app.close());
 
   it('hasil produksi barang berumur simpan menjadi lot dengan tanggal kedaluwarsa; tanpa umur simpan tidak dilacak', async () => {
-    const tepung = (await post('/api/products', { sku: 'T-1', name: 'Tepung', baseUom: 'GR', sellPrice: '0' }).expect(201)).body.id;
+    const tepung = (await post('/api/products', { sku: 'T-1', name: 'Tepung', baseUom: 'GRAM', sellPrice: '0' }).expect(201)).body.id;
     const roti = (await post('/api/products', { sku: 'R-1', name: 'Roti Tawar', baseUom: 'PCS', sellPrice: '15000', shelfLifeDays: 3 }).expect(201)).body;
     expect(roti.shelfLifeDays).toBe(3);
     const kue = (await post('/api/products', { sku: 'K-1', name: 'Kue Kering', baseUom: 'PCS', sellPrice: '5000' }).expect(201)).body.id;

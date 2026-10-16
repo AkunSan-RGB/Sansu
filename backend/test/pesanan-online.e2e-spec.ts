@@ -46,7 +46,7 @@ describe('Pesanan online (e2e)', () => {
     await post(owner, '/api/users', { name: 'Kasir', email: `on-k-${stamp}@uji.id`, password: 'kasir12345', role: 'CASHIER' }).expect(201);
     cashier = await login(`on-k-${stamp}@uji.id`, 'kasir12345');
     const mk = async (sku: string, body: object) => (await post(owner, '/api/products', { sku, sellPrice: '0', ...body }).expect(201)).body.id as string;
-    kopi = await mk('BB-KOPI', { name: 'Biji Kopi', baseUom: 'GR' });
+    kopi = await mk('BB-KOPI', { name: 'Biji Kopi', baseUom: 'GRAM' });
     const susu = await mk('BB-SUSU', { name: 'Susu', baseUom: 'ML' });
     menu = await mk('MN-KOPSU', { name: 'Kopi Susu', baseUom: 'PCS', sellPrice: '24000', madeToOrder: true });
     await post(owner, '/api/production/boms', { name: 'Resep Kopi Susu', productId: menu, outputQty: '1', laborCost: '0', overheadCost: '0', lines: [{ productId: kopi, qty: '18' }, { productId: susu, qty: '150' }] }).expect(201);

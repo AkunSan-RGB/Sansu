@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { isProductionModel } from '@sansu/shared';
+import { isKnownUom, isProductionModel, PRODUCT_FORM, uomLabel, type BusinessModel } from '@sansu/shared';
 import { SettingsService } from '../../../common/settings.service';
 import { and, asc, eq, ilike, or, sql } from 'drizzle-orm';
 import { D } from '../../../common/utils/money';
@@ -7,7 +7,7 @@ import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
 import { products, productUoms } from '../../../db/schema';
 import { canonicalCategory, categorySpellings, cleanCategory, isPlain } from './category';
-import { CreateProductDto, MergeCategoriesDto, ProductUomDto, UpdateProductDto } from './products.dto';
+import { AddCategoryDto, CreateProductDto, MergeCategoriesDto, ProductUomDto, UpdateProductDto } from './products.dto';
 
 @Injectable()
 export class ProductsService {
@@ -15,6 +15,80 @@ export class ProductsService {
     @InjectDb() private readonly db: Db,
     private readonly settings: SettingsService,
   ) {}
+
+  /** Kategori tambahan yang didaftarkan Admin (di luar daftar bawaan jenis usaha) */
+  private async customCategories(tenantId: string): Promise<string[]> {
+    return (await this.settings.section(this.db, tenantId, 'productCatalog', { list: [] as string[] })).list;
+  }
+
+  /**
+   * Pilihan form produk untuk perusahaan ini: kategori (bawaan jenis usaha + tambahan Admin + yang sudah dipakai produk),
+   * satuan dasar dan satuan bertingkat. Semua isian form produk dipilih dari daftar ini — tidak ada ketik bebas.
+   */
+  async options(tenantId: string) {
+    const model: BusinessModel = await this.settings.businessModel(this.db, tenantId);
+    const profile = PRODUCT_FORM[model];
+    const used = await this.db.execute<{ category: string | null; uom: string }>(sql`
+      SELECT DISTINCT category, NULL AS uom FROM products WHERE tenant_id = ${tenantId} AND category IS NOT NULL AND btrim(category) <> ''
+      UNION ALL SELECT NULL, base_uom FROM products WHERE tenant_id = ${tenantId}
+      UNION ALL SELECT NULL, u.uom FROM product_uoms u JOIN products p ON p.id = u.product_id WHERE p.tenant_id = ${tenantId}`);
+    const seen = new Set<string>();
+    const categories: { value: string; source: 'PRESET' | 'CUSTOM' | 'USED' }[] = [];
+    const add = (v: string | null, source: 'PRESET' | 'CUSTOM' | 'USED') => {
+      const c = cleanCategory(v);
+      if (c && !seen.has(c.toLowerCase())) {
+        seen.add(c.toLowerCase());
+        categories.push({ value: c, source });
+      }
+    };
+    profile.categories.forEach((c) => add(c, 'PRESET'));
+    (await this.customCategories(tenantId)).forEach((c) => add(c, 'CUSTOM'));
+    used.rows.forEach((r) => add(r.category, 'USED'));
+    const legacyUoms = [...new Set(used.rows.map((r) => r.uom).filter((u): u is string => !!u && !isKnownUom(u)))];
+    return {
+      model,
+      form: { barcode: profile.barcode, packs: profile.packs, menu: profile.menu, semi: profile.semi, shelfLife: profile.shelfLife, skuLabel: profile.skuLabel, nameLabel: profile.nameLabel, baseUomLabel: profile.baseUomLabel, priceLabel: profile.priceLabel, note: profile.note },
+      categories,
+      baseUoms: [...profile.baseUoms, ...legacyUoms].map((u) => ({ value: u, label: u === uomLabel(u) ? u : `${u} — ${uomLabel(u)}` })),
+      packUoms: [...profile.packUoms, ...legacyUoms].map((u) => ({ value: u, label: u === uomLabel(u) ? u : `${u} — ${uomLabel(u)}` })),
+    };
+  }
+
+  /** Tambah kategori baru ke daftar pilihan (Admin) */
+  async addCategory(tenantId: string, dto: AddCategoryDto) {
+    const name = cleanCategory(dto.name);
+    if (!name) throw new BadRequestException('Nama kategori kosong');
+    const opts = await this.options(tenantId);
+    const same = opts.categories.find((c) => c.value.toLowerCase() === name.toLowerCase());
+    if (same) throw new BadRequestException(`Kategori "${same.value}" sudah ada`);
+    const list = await this.customCategories(tenantId);
+    await this.settings.saveSection(this.db, tenantId, 'productCatalog', { list: [] as string[] }, { list: [...list, name] });
+    return { name };
+  }
+
+  /** Semua pilihan form harus dari daftar: kategori, satuan dasar, satuan bertingkat, serta bidang yang sesuai jenis usaha */
+  private async assertChoices(tenantId: string, dto: Partial<CreateProductDto>, current?: { category: string | null; baseUom: string; uoms: { uom: string }[]; madeToOrder: boolean; shelfLifeDays: number | null }) {
+    const opts = await this.options(tenantId);
+    const profile = PRODUCT_FORM[opts.model];
+    if (dto.category !== undefined) {
+      const c = cleanCategory(dto.category);
+      if (c && c.toLowerCase() !== (current?.category ?? '').toLowerCase() && !opts.categories.some((o) => o.value.toLowerCase() === c.toLowerCase())) {
+        throw new BadRequestException(`Kategori "${c}" tidak ada di daftar. Pilih kategori yang tersedia, atau minta Admin menambahkannya di Kelola kategori.`);
+      }
+      // ejaan baku dari daftar pilihan
+      const listed = c ? opts.categories.find((o) => o.value.toLowerCase() === c.toLowerCase()) : undefined;
+      if (listed) dto.category = listed.value;
+    }
+    const okUom = (u: string, was?: string[]) => isKnownUom(u) || (was ?? []).includes(u) || opts.baseUoms.some((o) => o.value === u);
+    if (dto.baseUom !== undefined && dto.baseUom !== current?.baseUom && !okUom(dto.baseUom)) throw new BadRequestException(`Satuan "${dto.baseUom}" tidak ada di daftar satuan. Pilih dari daftar.`);
+    for (const u of dto.uoms ?? []) {
+      if (!okUom(u.uom, (current?.uoms ?? []).map((x) => x.uom))) throw new BadRequestException(`Satuan "${u.uom}" tidak ada di daftar satuan. Pilih dari daftar.`);
+    }
+    if (dto.uoms?.length && !profile.packs) throw new BadRequestException('Jenis usaha ini tidak memakai satuan bertingkat');
+    if (dto.madeToOrder && !current?.madeToOrder && !profile.menu) throw new BadRequestException('Menu (dibuat saat dipesan) hanya untuk jenis usaha F&B');
+    if (dto.shelfLifeDays != null && dto.shelfLifeDays !== current?.shelfLifeDays && !profile.shelfLife) throw new BadRequestException('Umur simpan hanya untuk jenis usaha yang memproduksi (Manufaktur, F&B)');
+    if (dto.barcode && !profile.barcode) throw new BadRequestException('Jenis usaha ini tidak memakai barcode');
+  }
 
   /** Daftar kategori beserta jumlah produknya, dan kelompok ejaan ganda (beda huruf besar/kecil atau spasi) yang bisa disatukan */
   async categories(tenantId: string) {
@@ -54,6 +128,10 @@ export class ProductsService {
       return { updated: c.rows[0].n, to, dryRun: true };
     }
     const u = await this.db.execute<{ id: string }>(sql`UPDATE products SET category = ${to}::text WHERE ${cond} RETURNING id`);
+    if (to) {
+      const opts = await this.options(tenantId);
+      if (!opts.categories.some((c) => c.value.toLowerCase() === to!.toLowerCase())) await this.addCategory(tenantId, { name: to });
+    }
     return { updated: u.rows.length, to, dryRun: false };
   }
 
@@ -102,7 +180,8 @@ export class ProductsService {
     return p;
   }
 
-  async create(tenantId: string, dto: CreateProductDto) {
+  async create(tenantId: string, dto: CreateProductDto, strict = false) {
+    if (strict) await this.assertChoices(tenantId, dto);
     const baseUom = dto.baseUom ?? 'PCS';
     this.validateUoms(baseUom, dto.uoms);
     if (dto.madeToOrder && dto.inventoryKind === 'SEMI') throw new BadRequestException('Barang setengah jadi tidak bisa menjadi menu yang dijual di kasir');
@@ -131,8 +210,9 @@ export class ProductsService {
     return this.get(tenantId, id);
   }
 
-  async update(tenantId: string, id: string, dto: UpdateProductDto) {
+  async update(tenantId: string, id: string, dto: UpdateProductDto, strict = false) {
     const current = await this.get(tenantId, id);
+    if (strict) await this.assertChoices(tenantId, dto, current);
     const baseUom = dto.baseUom ?? current.baseUom;
     if (dto.uoms) this.validateUoms(baseUom, dto.uoms);
     if ((dto.madeToOrder ?? current.madeToOrder) && (dto.inventoryKind ?? current.inventoryKind) === 'SEMI') throw new BadRequestException('Barang setengah jadi tidak bisa menjadi menu yang dijual di kasir');

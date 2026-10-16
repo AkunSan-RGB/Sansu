@@ -20,6 +20,8 @@ describe('Kategori produk (e2e)', () => {
     await app.init();
     http = request(app.getHttpServer());
     t = (await http.post('/api/auth/register').send({ companyName: 'PT Kategori', name: 'Pemilik', email: `kt-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'DAGANG' }).expect(201)).body.accessToken;
+    // form produk hanya menerima kategori dari daftar: daftarkan dulu yang dipakai tes
+    for (const name of ['Minuman', 'Makanan Ringan', 'Camilan']) await http.post('/api/products/categories').set(as()).send({ name }).expect(201);
   });
   afterAll(() => app.close());
 
@@ -67,6 +69,7 @@ describe('Kategori produk (e2e)', () => {
 
   it('antar perusahaan terpisah: ejaan satu perusahaan tidak memengaruhi yang lain', async () => {
     const t2 = (await http.post('/api/auth/register').send({ companyName: 'PT Lain', name: 'Pemilik', email: `kt2-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'DAGANG' }).expect(201)).body.accessToken;
+    await http.post('/api/products/categories').set(as(t2)).send({ name: 'minuman' }).expect(201);
     await mk('B1', 'minuman', t2).expect(201);
     expect((await cats(t2)).B1).toBe('minuman');
   });
@@ -138,6 +141,7 @@ describe('Kelola kategori produk (e2e)', () => {
 
   it('tidak menyentuh perusahaan lain', async () => {
     const t2 = (await http.post('/api/auth/register').send({ companyName: 'PT Lain Kat', name: 'Pemilik', email: `gk2-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'DAGANG' }).expect(201)).body.accessToken;
+    await http.post('/api/products/categories').set(as(t2)).send({ name: 'Minuman' }).expect(201);
     await http.post('/api/products').set(as(t2)).send({ sku: 'Z1', name: 'Z1', sellPrice: '1000', category: 'Minuman' }).expect(201);
     await http.post('/api/products/categories/merge').set(as()).send({ from: ['Minuman'], to: 'Lain' }).expect(201);
     const z = (await http.get('/api/products').set(as(t2)).expect(200)).body.find((p: { sku: string }) => p.sku === 'Z1');

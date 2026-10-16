@@ -34,10 +34,10 @@ describe('Kasir: menu dibuat saat dipesan (e2e)', () => {
     app = configureApp(mod.createNestApplication());
     await app.init();
     http = request(app.getHttpServer());
-    owner = (await http.post('/api/auth/register').send({ companyName: 'PT Kopi Menu', name: 'Pemilik', email: `mk-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
+    owner = (await http.post('/api/auth/register').send({ companyName: 'PT Kopi Menu', name: 'Pemilik', email: `mk-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'FNB' }).expect(201)).body.accessToken;
     await post('/api/apps/pos/install').expect(201);
     W = (await get('/api/warehouses').expect(200)).body[0].id;
-    kopi = (await post('/api/products', { sku: 'BB-KOPI', name: 'Biji Kopi', baseUom: 'GR', sellPrice: '0' }).expect(201)).body.id;
+    kopi = (await post('/api/products', { sku: 'BB-KOPI', name: 'Biji Kopi', baseUom: 'GRAM', sellPrice: '0' }).expect(201)).body.id;
     susu = (await post('/api/products', { sku: 'BB-SUSU', name: 'Susu Cair', baseUom: 'ML', sellPrice: '0' }).expect(201)).body.id;
     menu = (await post('/api/products', { sku: 'MN-KOPSU', name: 'Kopi Susu', baseUom: 'PCS', sellPrice: '25000', madeToOrder: true }).expect(201)).body.id;
     await post('/api/inventory/adjustments', {

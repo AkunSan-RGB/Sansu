@@ -1,6 +1,6 @@
 import { DeleteOutlined, EditOutlined, MergeCellsOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Form, Modal, Popconfirm, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Form, Input, Modal, Popconfirm, Space, Table, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { get, post } from '@/api/client';
 import { useAction } from '@/api/queries';
@@ -30,12 +30,20 @@ export default function CategoriesModal({ open, onClose }: { open: boolean; onCl
     onSuccess: () => setMoving(null),
   });
   const d = q.data;
+  const [newName, setNewName] = useState('');
+  const add = useAction((name: string) => post<{ name: string }>('/products/categories', { name }), { success: (r) => `Kategori "${r.name}" ditambahkan ke daftar pilihan`, invalidate: ['products'], onSuccess: () => setNewName('') });
 
   return (
     <Modal title="Kelola kategori" open={open} onCancel={onClose} footer={<Button onClick={onClose}>Tutup</Button>} width={680} destroyOnHidden>
       <Typography.Paragraph type="secondary">
-        Kategori dipakai di {categoryUsage(hasApp)}. Satukan kategori yang ejaannya terpecah, ganti nama, atau gabungkan ke kategori lain; semua {noun} terkait ikut berpindah.
+        Kategori dipakai di {categoryUsage(hasApp)}. Di form produk kategori hanya bisa dipilih dari daftar; tambahkan kategori baru di sini. Satukan kategori yang ejaannya terpecah, ganti nama, atau gabungkan ke kategori lain; semua {noun} terkait ikut berpindah.
       </Typography.Paragraph>
+      {canMerge && (
+        <Space.Compact style={{ width: '100%', marginBottom: 12 }}>
+          <Input placeholder="Nama kategori baru (muncul sebagai pilihan di form produk)" maxLength={60} value={newName} onChange={(e) => setNewName(e.target.value)} onPressEnter={() => newName.trim() && add.mutate(newName)} />
+          <Button type="primary" loading={add.isPending} disabled={!newName.trim()} onClick={() => add.mutate(newName)}>Tambah kategori</Button>
+        </Space.Compact>
+      )}
       {d?.duplicates.length ? (
         <Alert
           type="warning"

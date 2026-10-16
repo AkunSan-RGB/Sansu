@@ -764,6 +764,21 @@ export const HELP_ARTICLES: HelpArticle[] = [
     link: { label: 'Buka Persetujuan & peringatan', to: '/employees/controls' },
   },
   {
+    id: 'form-produk',
+    category: 'Pembelian & Stok',
+    title: 'Mengisi produk: semua pilihan dari daftar',
+    summary: 'Kategori dan satuan dipilih dari daftar sesuai jenis usaha Anda.',
+    paths: ['/products'],
+    steps: [
+      'Isi SKU, nama, dan barcode (bila ada). Pilih Kategori dan Satuan dasar dari daftar.',
+      'Untuk satuan besar (dus, karton, renteng) klik "Tambah satuan besar", pilih satuannya, lalu isi berapa satuan dasar di dalamnya.',
+      'Butuh kategori yang belum ada? Admin menambahkannya di tombol Kelola kategori → Tambah kategori.',
+    ],
+    tips: ['Bidang yang tampil menyesuaikan jenis usaha (mis. FMCG: barcode + satuan besar; F&B: menu dan umur simpan; Jasa: satuan tarif).'],
+    keywords: 'produk barang sku kategori satuan uom dus karton barcode menu fmcg pilihan',
+    link: { label: 'Buka daftar produk', to: '/products' },
+  },
+  {
     id: 'lupa-sandi',
     category: 'Pengaturan & Keamanan',
     title: 'Lupa kata sandi',

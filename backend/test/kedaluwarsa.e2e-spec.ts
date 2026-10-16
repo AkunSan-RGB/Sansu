@@ -48,8 +48,8 @@ describe('Kedaluwarsa bahan: lot, FEFO, transfer, pembuangan (e2e)', () => {
     owner = (await http.post('/api/auth/register').send({ companyName: 'PT Kafe Lot', name: 'Pemilik', email: `lot-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'FNB' }).expect(201)).body.accessToken;
     W1 = (await get('/api/warehouses').expect(200)).body[0].id;
     W2 = (await post('/api/warehouses', { code: 'DPR-2', name: 'Dapur 2' }).expect(201)).body.id;
-    P = (await post('/api/products', { sku: 'BB-SUSU', name: 'Susu Segar', baseUom: 'LTR', sellPrice: '0' }).expect(201)).body.id;
-    Q = (await post('/api/products', { sku: 'BB-KRIM', name: 'Krim', baseUom: 'LTR', sellPrice: '0' }).expect(201)).body.id;
+    P = (await post('/api/products', { sku: 'BB-SUSU', name: 'Susu Segar', baseUom: 'LITER', sellPrice: '0' }).expect(201)).body.id;
+    Q = (await post('/api/products', { sku: 'BB-KRIM', name: 'Krim', baseUom: 'LITER', sellPrice: '0' }).expect(201)).body.id;
     sup = (await post('/api/suppliers', { code: 'S-LOT', name: 'Pemasok Susu' }).expect(201)).body.id;
   });
   afterAll(() => app.close());

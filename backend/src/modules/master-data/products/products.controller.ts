@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from 
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../../common/auth/decorators';
-import { CreateProductDto, ListQueryDto, MergeCategoriesDto, UpdateProductDto } from './products.dto';
+import { AddCategoryDto, CreateProductDto, ListQueryDto, MergeCategoriesDto, UpdateProductDto } from './products.dto';
 import { ProductsService } from './products.service';
 
 @ApiTags('Master Data')
@@ -14,6 +14,18 @@ export class ProductsController {
   @Get()
   list(@CurrentUser() u: AuthUser, @Query() q: ListQueryDto) {
     return this.svc.list(u.tenantId, q.q);
+  }
+
+  /** Pilihan form produk sesuai jenis usaha: kategori, satuan, bidang yang tampil (harus di atas rute :id) */
+  @Get('options')
+  options(@CurrentUser() u: AuthUser) {
+    return this.svc.options(u.tenantId);
+  }
+
+  @Post('categories')
+  @Roles('ADMIN')
+  addCategory(@CurrentUser() u: AuthUser, @Body() dto: AddCategoryDto) {
+    return this.svc.addCategory(u.tenantId, dto);
   }
 
   /** Kategori produk + usulan penyatuan ejaan ganda (harus di atas rute :id) */
@@ -36,12 +48,12 @@ export class ProductsController {
   @Post()
   @Roles('ADMIN')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreateProductDto) {
-    return this.svc.create(u.tenantId, dto);
+    return this.svc.create(u.tenantId, dto, true);
   }
 
   @Patch(':id')
   @Roles('ADMIN')
   update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateProductDto) {
-    return this.svc.update(u.tenantId, id, dto);
+    return this.svc.update(u.tenantId, id, dto, true);
   }
 }

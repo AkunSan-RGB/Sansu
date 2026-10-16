@@ -50,7 +50,7 @@ describe('Produksi: BOM, perintah produksi, HPP produksi (e2e)', () => {
     warehouseId = (await get('/api/warehouses')).body[0].id;
     kain = (await post('/api/products', { sku: 'KAIN', name: 'Kain katun', baseUom: 'M', sellPrice: '0' }).expect(201))
       .body.id;
-    benang = (await post('/api/products', { sku: 'BNG', name: 'Benang', baseUom: 'GLN', sellPrice: '0' }).expect(201))
+    benang = (await post('/api/products', { sku: 'BNG', name: 'Benang', baseUom: 'ROLL', sellPrice: '0' }).expect(201))
       .body.id;
     kemeja = (await post('/api/products', { sku: 'KMJ-L', name: 'Kemeja L', sellPrice: '90000' }).expect(201)).body.id;
     const sup = (await post('/api/suppliers', { code: 'S1', name: 'Toko Kain' }).expect(201)).body.id;
