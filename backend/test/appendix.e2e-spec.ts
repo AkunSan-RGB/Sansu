@@ -37,7 +37,7 @@ describe('Lampiran laporan keuangan & tambahan CALK (e2e)', () => {
         .expect(201)
     ).body.accessToken;
     warehouseId = (await get('/api/warehouses')).body[0].id;
-    productId = (await post('/api/products', { sku: 'LMP-1', name: 'Produk Lampiran', sellPrice: '100000', category: 'Minuman' }).expect(201)).body.id;
+    productId = (await post('/api/products', { sku: 'LMP-1', name: 'Produk Lampiran', sellPrice: '100000', category: 'Makanan & Minuman' }).expect(201)).body.id;
     categoryId = ((await get('/api/assets/categories').expect(200)).body as { id: string; name: string }[]).find((c) => c.name === 'Inventaris Kantor')!.id;
 
     // stok awal 10 @ 5.000 → jual 2 → sisa 8 (nilai 40.000)
@@ -113,7 +113,7 @@ describe('Lampiran laporan keuangan & tambahan CALK (e2e)', () => {
     expect(fa.rows[0].slice(1, 3)).toEqual(['Laptop kantor', 'Inventaris Kantor']);
     expect(fa.rows[0].slice(4)).toEqual([12000000, 0, 12000000]);
     const inv = section(sections, 'inventory-list').tables[0];
-    expect(inv.rows).toEqual([['LMP-1', 'Produk Lampiran', 'Minuman', 8, 40000]]);
+    expect(inv.rows).toEqual([['LMP-1', 'Produk Lampiran', 'Makanan & Minuman', 8, 40000]]);
     expect(inv.total).toEqual(['Jumlah', '', '', '', 40000]);
   });
 

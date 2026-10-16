@@ -31,8 +31,8 @@ describe('Operasi gudang (e2e)', () => {
     token = (await http.post('/api/auth/register').send({ companyName: 'PT Gudang Banyak', name: 'Pemilik', email: `gdg-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
     A = (await http.get('/api/warehouses').set(as())).body[0].id;
     B = (await http.post('/api/warehouses').set(as()).send({ code: 'GDG-CB', name: 'Gudang Cabang' }).expect(201)).body.id;
-    P1 = (await http.post('/api/products').set(as()).send({ sku: 'MIE-1', name: 'Mie', sellPrice: '3500', category: 'Makanan' }).expect(201)).body.id;
-    P2 = (await http.post('/api/products').set(as()).send({ sku: 'GULA-1', name: 'Gula', sellPrice: '18000', category: 'Sembako' }).expect(201)).body.id;
+    P1 = (await http.post('/api/products').set(as()).send({ sku: 'MIE-1', name: 'Mie', sellPrice: '3500', category: 'Makanan & Minuman' }).expect(201)).body.id;
+    P2 = (await http.post('/api/products').set(as()).send({ sku: 'GULA-1', name: 'Gula', sellPrice: '18000', category: 'Lain-lain' }).expect(201)).body.id;
     await http
       .post('/api/inventory/adjustments')
       .set(as())

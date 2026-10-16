@@ -29,7 +29,7 @@ describe('Kontrol stok (e2e)', () => {
     http = request(app.getHttpServer());
     token = (await http.post('/api/auth/register').send({ companyName: 'PT Kontrol Stok', name: 'Pemilik', email: `ks-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
     W = (await http.get('/api/warehouses').set(as())).body[0].id;
-    P = (await http.post('/api/products').set(as()).send({ sku: 'KS-1', name: 'Barang uji', sellPrice: '5000', category: 'Uji' }).expect(201)).body.id;
+    P = (await http.post('/api/products').set(as()).send({ sku: 'KS-1', name: 'Barang uji', sellPrice: '5000', category: 'Lain-lain' }).expect(201)).body.id;
     await http.post('/api/inventory/adjustments').set(as()).send({ warehouseId: W, reason: 'OPENING', date: addDays(todayJakarta(), -3), lines: [{ productId: P, qty: '100', unitCost: '2000' }] }).expect(201);
   });
   afterAll(() => app.close());

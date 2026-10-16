@@ -69,9 +69,9 @@ describe('Uji acak F&B (e2e)', () => {
     };
     const W = (await call('get', '/warehouses')).body[0].id as string;
     const mk = async (sku: string, body: object) => (await call('post', '/products', { sku, sellPrice: '0', ...body })).body.id as string;
-    const kopi = await mk('BB-KOPI', { name: 'Biji Kopi', baseUom: 'GR' });
+    const kopi = await mk('BB-KOPI', { name: 'Biji Kopi', baseUom: 'GRAM' });
     const susu = await mk('BB-SUSU', { name: 'Susu', baseUom: 'ML' });
-    const air = await mk('FB-AIR', { name: 'Air Mineral', baseUom: 'BTL', sellPrice: '6000' });
+    const air = await mk('FB-AIR', { name: 'Air Mineral', baseUom: 'BOTOL', sellPrice: '6000' });
     const menus: { id: string; sku: string }[] = [];
     for (const [sku, price, k, s] of [['MN-A', 24000, 18, 150], ['MN-B', 20000, 18, 0], ['MN-C', 28000, 18, 200]] as const) {
       const id = await mk(sku, { name: `Menu ${sku}`, baseUom: 'PCS', sellPrice: String(price), madeToOrder: true });
