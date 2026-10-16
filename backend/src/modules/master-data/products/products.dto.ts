@@ -83,6 +83,10 @@ export class MergeCategoriesDto {
   dryRun?: boolean;
 }
 
+export class AddCategoryDto {
+  @ApiProperty({ example: 'Makanan Beku', description: 'Kategori baru untuk daftar pilihan form produk' }) @IsString() @MaxLength(60) name: string;
+}
+
 export class ListQueryDto {
   @ApiPropertyOptional({ description: 'Cari kode/nama' }) @IsOptional() @IsString() q?: string;
 }

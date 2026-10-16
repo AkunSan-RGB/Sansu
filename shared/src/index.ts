@@ -14,3 +14,4 @@ export * from './currency.js';
 export * from './stock-movement.js';
 export * from './control-profiles.js';
 export * from './legal.js';
+export * from './product-form.js';
