@@ -18,3 +18,4 @@ export * from './product-form.js';
 export * from './workflow.js';
 export * from './work-units.js';
 export * from './crm-profile.js';
+export * from './tax-focus.js';

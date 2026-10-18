@@ -14,6 +14,7 @@ import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { taxPaymentsSheet } from '@/lib/xlsx/reports';
 import { useAuth } from '@/auth/AuthContext';
+import TaxFocusCard from './TaxFocusCard';
 
 const STATUS: Record<TaxObligation['status'], { color: string; label: string }> = {
   NIHIL: { color: 'default', label: 'Nihil' },
@@ -73,6 +74,7 @@ export default function TaxPage() {
         title="Setoran Pajak & BPJS"
         extra={<Select value={period} onChange={setPeriod} options={periodOptions()} style={{ width: 200 }} prefix="Masa" />}
       />
+      <TaxFocusCard />
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} md={8}>
           <Card size="small">
