@@ -234,6 +234,8 @@ export const products = pgTable(
     sellPrice: money('sell_price').notNull().default('0'),
     /** Barcode / EAN untuk scan di kasir */
     barcode: text('barcode'),
+    /** GENERATED = dibuat sistem (tidak bisa diubah); MANUFACTURER = barcode pabrikan hasil scan */
+    barcodeSource: text('barcode_source').$type<'GENERATED' | 'MANUFACTURER'>(),
     /** GOODS = bahan / barang dagang / barang jadi; SEMI = barang setengah jadi (akun persediaan tersendiri, hanya lewat produksi) */
     inventoryKind: text('inventory_kind').$type<'GOODS' | 'SEMI'>().notNull().default('GOODS'),
     /** Menu: dibuat saat dipesan. Kasir memotong bahan sesuai resep aktif (bukan stok produk ini) dan HPP dihitung dari bahan */

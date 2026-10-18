@@ -1,9 +1,9 @@
-import { isProductionModel, PRODUCT_ROLE_COLORS, PRODUCT_ROLE_LABELS } from '@sansu/shared';
+import { INTERNAL_BARCODE_PREFIX, isProductionModel, isValidBarcode, PRODUCT_ROLE_COLORS, PRODUCT_ROLE_LABELS } from '@sansu/shared';
 import { useAuth } from '@/auth/AuthContext';
 import { useApps } from '@/lib/apps';
 import { useNavigate } from 'react-router-dom';
 import { MinusCircleOutlined, FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
-import { Alert, Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Switch, Tag } from 'antd';
+import { Alert, Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Switch, Tag, Typography } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { get, patch, post } from '@/api/client';
@@ -50,6 +50,7 @@ export default function ProductsPage() {
   const jasa = me?.businessModel === 'JASA';
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [catsOpen, setCatsOpen] = useState(false);
+  const [useMfr, setUseMfr] = useState(false);
   const canSave = editing === 'new' ? can('POST', '/products') : can('PATCH', '/products/:id');
   const [form] = Form.useForm<FormValues>();
   const optsQ = useQuery({ queryKey: ['products', 'options'], queryFn: () => get<ProductOptions>('/products/options') });
@@ -65,7 +66,7 @@ export default function ProductsPage() {
         category: v.category?.trim() ?? '',
         baseUom: v.baseUom.toUpperCase(),
         sellPrice: String(v.sellPrice),
-        barcode: v.barcode ?? '',
+        barcode: useMfr && v.barcode ? v.barcode : undefined,
         inventoryKind: v.semi ? 'SEMI' : 'GOODS',
         madeToOrder: !!v.madeToOrder && !v.semi,
         shelfLifeDays: v.shelfLifeDays ?? null,
@@ -76,8 +77,10 @@ export default function ProductsPage() {
     { success: 'Produk disimpan', invalidate: ['products'], onSuccess: () => setEditing(null) },
   );
 
+  const genBarcodes = useAction(() => post<{ generated: number }>('/products/generate-barcodes', {}), { success: (r) => `${(r as { generated: number }).generated} produk dibuatkan barcode`, invalidate: ['products'] });
   const open = (p: Product | 'new') => {
     form.resetFields();
+    setUseMfr(p !== 'new' && p.barcodeSource === 'MANUFACTURER');
     if (p !== 'new') {
       form.setFieldsValue({
         ...p,
@@ -104,6 +107,7 @@ export default function ProductsPage() {
                 Impor Excel
               </Button>
             )}
+            {f?.barcode && can('POST', '/products/generate-barcodes') && <Button onClick={() => genBarcodes.mutate(undefined)} loading={genBarcodes.isPending}>Buat barcode otomatis</Button>}
             {can('POST', '/products/categories/merge') && <Button onClick={() => setCatsOpen(true)}>Kelola kategori</Button>}
             {can('POST', '/products') && (
               <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>
@@ -202,8 +206,21 @@ export default function ProductsPage() {
             <Input maxLength={160} />
           </Form.Item>
           {f?.barcode && (
-            <Form.Item name="barcode" label="Barcode (untuk scan di kasir)">
-              <Input placeholder="8991234567890" inputMode="numeric" maxLength={40} />
+            <Form.Item label="Barcode (untuk scan di kasir)" extra="Barcode dibuat otomatis oleh sistem (tidak diketik). Hanya bila produk sudah berbarcode pabrikan, nyalakan pilihan di bawah lalu scan barcode pada kemasannya.">
+              {editing !== 'new' && editing?.barcodeSource === 'GENERATED' ? (
+                <Space><Typography.Text code>{editing.barcode}</Typography.Text><Tag color="blue">otomatis · tidak bisa diubah</Tag></Space>
+              ) : (
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  <Space><Switch checked={useMfr} onChange={setUseMfr} /> Pakai barcode pabrikan (scan)</Space>
+                  {useMfr ? (
+                    <Form.Item name="barcode" noStyle rules={[{ validator: (_, v) => (!v || (isValidBarcode(String(v)) && !String(v).startsWith(INTERNAL_BARCODE_PREFIX)) ? Promise.resolve() : Promise.reject(new Error('Barcode tidak valid — arahkan pemindai ke kemasan (EAN-13/EAN-8/UPC-A)'))) }, { required: true, message: 'Scan barcode kemasan' }]}>
+                      <Input autoFocus placeholder="Arahkan pemindai ke barcode…" inputMode="numeric" maxLength={14} />
+                    </Form.Item>
+                  ) : (
+                    <Typography.Text type="secondary">{editing !== 'new' && editing?.barcode ? `Barcode saat ini: ${editing.barcode}` : 'Akan dibuatkan otomatis saat disimpan.'}</Typography.Text>
+                  )}
+                </Space>
+              )}
             </Form.Item>
           )}
           <Form.Item name="category" label="Kategori" extra={`Pilih dari daftar. Kategori dipakai di ${categoryUsage(hasApp)}. Perlu kategori baru? Admin menambahkannya di Kelola kategori.`}>

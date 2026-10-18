@@ -210,6 +210,8 @@ export interface Product {
   baseUom: string;
   sellPrice: string;
   barcode: string | null;
+  /** GENERATED = dibuat sistem (tetap); MANUFACTURER = barcode pabrikan hasil scan */
+  barcodeSource?: 'GENERATED' | 'MANUFACTURER' | null;
   /** SEMI = barang setengah jadi (akun persediaan tersendiri) */
   inventoryKind?: 'GOODS' | 'SEMI';
   /** Menu dibuat saat dipesan: kasir memotong bahan sesuai resep (stok = porsi yang bisa dibuat) */

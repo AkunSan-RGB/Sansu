@@ -533,6 +533,13 @@
       "when": 1794854286484,
       "tag": "0075_penyetuju_dipilih",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1794940686484,
+      "tag": "0076_barcode_otomatis",
+      "breakpoints": true
     }
   ]
 }

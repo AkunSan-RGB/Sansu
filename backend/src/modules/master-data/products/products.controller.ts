@@ -45,6 +45,12 @@ export class ProductsController {
     return this.svc.get(u.tenantId, id);
   }
 
+  @Post('generate-barcodes')
+  @Roles('ADMIN')
+  generateBarcodes(@CurrentUser() u: AuthUser) {
+    return this.svc.generateMissingBarcodes(u.tenantId);
+  }
+
   @Post()
   @Roles('ADMIN')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreateProductDto) {

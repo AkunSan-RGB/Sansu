@@ -8,6 +8,7 @@
  * Jenis: produk, pelanggan, supplier (tambah / perbarui berdasarkan kode), stok awal, piutang awal per faktur,
  * utang awal per faktur, saldo awal akun, aset tetap lama (tanpa jurnal). Semua saldo awal berlawanan dengan akun Ekuitas Saldo Awal.
  */
+import { INTERNAL_BARCODE_PREFIX, isValidBarcode } from '@sansu/shared';
 import { categorySpellings, cleanCategory } from '../master-data/products/category';
 import { BadRequestException, Body, Controller, HttpCode, Injectable, Module, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
@@ -211,6 +212,8 @@ export class ImportsService {
       const barcode = text(row.barcode);
       if (barcode) {
         max(barcode, 40, 'Barcode');
+        if (!isValidBarcode(barcode)) r.errors.push('Barcode pabrikan tidak valid (harus EAN-13/EAN-8/UPC-A dengan angka pemeriksa benar). Kosongkan kolom untuk dibuatkan otomatis di menu Produk');
+        else if (barcode.startsWith(INTERNAL_BARCODE_PREFIX)) r.errors.push('Barcode berawalan 2 dicadangkan untuk barcode otomatis sistem');
         const owner = barcodeOwner.get(barcode);
         if (owner && owner !== sku) r.errors.push(`Barcode sudah dipakai produk ${owner}`);
         const inFile = seenBarcode.get(barcode);
@@ -260,14 +263,14 @@ export class ImportsService {
         for (const chunk of chunks(creates, 500)) {
           const ins = await tx
             .insert(products)
-            .values(chunk.map((w) => ({ tenantId: user.tenantId, sku: w.sku, name: w.name!, category: w.category, baseUom: w.baseUom ?? 'PCS', sellPrice: w.sellPrice ?? '0', barcode: w.barcode ?? null })))
+            .values(chunk.map((w) => ({ tenantId: user.tenantId, sku: w.sku, name: w.name!, category: w.category, baseUom: w.baseUom ?? 'PCS', sellPrice: w.sellPrice ?? '0', barcode: w.barcode ?? null, barcodeSource: w.barcode ? ('MANUFACTURER' as const) : null })))
             .returning({ id: products.id, sku: products.sku });
           for (const r of ins) idBySku.set(r.sku, r.id);
         }
         for (const w of writes.filter((x) => x.id)) {
           await tx
             .update(products)
-            .set({ name: w.name, category: w.category, baseUom: w.baseUom, sellPrice: w.sellPrice, barcode: w.barcode })
+            .set({ name: w.name, category: w.category, baseUom: w.baseUom, sellPrice: w.sellPrice, barcode: w.barcode, ...(w.barcode ? { barcodeSource: 'MANUFACTURER' as const } : {}) })
             .where(and(eq(products.id, w.id!), eq(products.tenantId, user.tenantId)));
         }
         // satuan bertingkat

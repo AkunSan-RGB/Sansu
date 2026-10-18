@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { isKnownUom, isProductionModel, PRODUCT_FORM, uomLabel, type BusinessModel } from '@sansu/shared';
+import { INTERNAL_BARCODE_PREFIX, internalBarcode, isKnownUom, isProductionModel, isValidBarcode, PRODUCT_FORM, uomLabel, type BusinessModel } from '@sansu/shared';
 import { SettingsService } from '../../../common/settings.service';
 import { and, asc, eq, ilike, or, sql } from 'drizzle-orm';
 import { D } from '../../../common/utils/money';
-import { Db } from '../../../db/db';
+import { Db, DbOrTx } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
 import { products, productUoms } from '../../../db/schema';
 import { canonicalCategory, categorySpellings, cleanCategory, isPlain } from './category';
@@ -88,6 +88,52 @@ export class ProductsService {
     if (dto.madeToOrder && !current?.madeToOrder && !profile.menu) throw new BadRequestException('Menu (dibuat saat dipesan) hanya untuk jenis usaha F&B');
     if (dto.shelfLifeDays != null && dto.shelfLifeDays !== current?.shelfLifeDays && !profile.shelfLife) throw new BadRequestException('Umur simpan hanya untuk jenis usaha yang memproduksi (Manufaktur, F&B)');
     if (dto.barcode && !profile.barcode) throw new BadRequestException('Jenis usaha ini tidak memakai barcode');
+    if (dto.barcode) {
+      const code = dto.barcode.trim();
+      if (!isValidBarcode(code)) throw new BadRequestException('Barcode pabrikan tidak valid: harus hasil scan (EAN-13, EAN-8, atau UPC-A dengan angka pemeriksa benar). Kosongkan untuk dibuatkan otomatis.');
+      if (code.startsWith(INTERNAL_BARCODE_PREFIX)) throw new BadRequestException('Barcode berawalan 2 dicadangkan untuk barcode otomatis sistem');
+    }
+  }
+
+  /** Nomor urut barcode internal berikutnya untuk perusahaan ini (aman dari balapan dua pembuatan sekaligus) */
+  private async nextInternalBarcode(tx: DbOrTx, tenantId: string) {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${tenantId}:barcode`}))`);
+    const r = await tx.execute<{ n: string }>(sql`SELECT COALESCE(MAX(substr(barcode, 2, 11)::bigint), 0) + 1 AS n FROM products WHERE tenant_id = ${tenantId} AND barcode_source = 'GENERATED'`);
+    return internalBarcode(Number(r.rows[0].n));
+  }
+
+  /**
+   * Barcode final sebuah produk: dibuat otomatis bila jenis usaha memakai barcode dan belum ada; barcode pabrikan (hasil scan)
+   * hanya bila diberikan. Barcode otomatis tidak bisa diubah; menggantinya dengan barcode pabrikan hanya sebelum ada mutasi stok.
+   */
+  private async resolveBarcode(tx: DbOrTx, tenantId: string, given: string | undefined, current?: { id: string; barcode: string | null; barcodeSource: 'GENERATED' | 'MANUFACTURER' | null }): Promise<{ barcode: string | null; barcodeSource: 'GENERATED' | 'MANUFACTURER' | null }> {
+    const model = await this.settings.businessModel(tx, tenantId);
+    if (!PRODUCT_FORM[model].barcode) return { barcode: null, barcodeSource: null };
+    const code = given?.trim();
+    if (current?.barcode && (code === undefined || code === current.barcode)) return { barcode: current.barcode, barcodeSource: current.barcodeSource };
+    if (code) {
+      if (current?.barcodeSource === 'GENERATED') {
+        const moves = await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM stock_moves WHERE tenant_id = ${tenantId} AND product_id = ${current.id}`);
+        if (moves.rows[0].n > 0) throw new BadRequestException('Barcode otomatis tidak bisa diganti karena produk sudah punya mutasi stok');
+      }
+      return { barcode: code, barcodeSource: 'MANUFACTURER' };
+    }
+    if (current?.barcodeSource === 'GENERATED') return { barcode: current.barcode, barcodeSource: 'GENERATED' };
+    return { barcode: await this.nextInternalBarcode(tx, tenantId), barcodeSource: 'GENERATED' };
+  }
+
+  /** Buatkan barcode otomatis untuk semua produk aktif yang belum punya (Admin) */
+  async generateMissingBarcodes(tenantId: string) {
+    return this.db.transaction(async (tx) => {
+      const model = await this.settings.businessModel(tx, tenantId);
+      if (!PRODUCT_FORM[model].barcode) throw new BadRequestException('Jenis usaha ini tidak memakai barcode');
+      const rows = await tx.execute<{ id: string }>(sql`SELECT id FROM products WHERE tenant_id = ${tenantId} AND is_active AND barcode IS NULL ORDER BY sku`);
+      for (const r of rows.rows) {
+        const barcode = await this.nextInternalBarcode(tx, tenantId);
+        await tx.execute(sql`UPDATE products SET barcode = ${barcode}, barcode_source = 'GENERATED' WHERE id = ${r.id}`);
+      }
+      return { generated: rows.rows.length };
+    });
   }
 
   /** Daftar kategori beserta jumlah produknya, dan kelompok ejaan ganda (beda huruf besar/kecil atau spasi) yang bisa disatukan */
@@ -196,7 +242,7 @@ export class ProductsService {
           category: await canonicalCategory(tx, tenantId, dto.category),
           baseUom,
           sellPrice: dto.sellPrice,
-          barcode: dto.barcode?.trim() || null,
+          ...(await this.resolveBarcode(tx, tenantId, dto.barcode)),
           inventoryKind: dto.inventoryKind ?? 'GOODS',
           madeToOrder: dto.madeToOrder ?? false,
           shelfLifeDays: dto.shelfLifeDays ?? null,
@@ -238,7 +284,7 @@ export class ProductsService {
           category: dto.category === undefined ? undefined : await canonicalCategory(tx, tenantId, dto.category),
           baseUom: dto.baseUom,
           sellPrice: dto.sellPrice,
-          barcode: dto.barcode === undefined ? undefined : dto.barcode.trim() || null,
+          ...(dto.barcode === undefined ? {} : await this.resolveBarcode(tx, tenantId, dto.barcode.trim() || undefined, { id, barcode: current.barcode, barcodeSource: current.barcodeSource })),
           inventoryKind: dto.inventoryKind,
           madeToOrder: dto.madeToOrder,
           shelfLifeDays: dto.shelfLifeDays,
