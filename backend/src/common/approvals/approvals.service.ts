@@ -9,7 +9,7 @@ import { BadRequestException, ConflictException, Injectable, Logger } from '@nes
 import { and, eq, inArray, ne } from 'drizzle-orm';
 import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { approvalRequests, users, type Role } from '../../db/schema';
+import { approvalRequests, auditLogs, users, type Role } from '../../db/schema';
 import { appUrl, MailService } from '../mail/mail.service';
 import { signApprovalLink } from './approval-link';
 import { AuditService } from '../audit/audit.service';
@@ -18,7 +18,7 @@ import { SettingsService } from '../settings.service';
 import { TelegramService } from '../telegram/telegram.service';
 
 export const APPROVER_ROLES: readonly Role[] = ['OWNER', 'ADMIN'];
-export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS';
+export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS' | 'CUSTOMER_PAYMENT';
 
 export interface ApprovalPolicy {
   /** Pesanan pembelian dengan total ≥ nilai ini perlu persetujuan (0 = nonaktif) */
@@ -58,12 +58,14 @@ export interface ApprovalPolicy {
   salesReturn: number;
   /** Pesanan dengan harga jual (setelah diskon) di bawah harga pokok rata-rata gudang perlu persetujuan saat dikonfirmasi staf */
   salesBelowCost: boolean;
+  /** Pemisahan fungsi: pembayaran pelanggan dan retur atas faktur oleh pembuat fakturnya sendiri (selain Pemilik/Admin) perlu persetujuan */
+  salesSeparateDuties: boolean;
   /** Pembayaran ke supplier yang rekeningnya diubah dalam sekian hari terakhir wajib disetujui (0 = nonaktif) */
   bankChangeHoldDays: number;
   /** Masa berlaku tautan persetujuan yang dikirim lewat Telegram (jam, 1–72); email tetap 72 jam */
   telegramLinkHours: number;
 }
-export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, blindReceiving: false, blindDelivery: false, salesOrder: 0, salesDiscountMaxPct: 0, salesReturn: 0, salesBelowCost: false, bankChangeHoldDays: 7, budgetControl: 'OFF', telegramLinkHours: 72 };
+export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, blindReceiving: false, blindDelivery: false, salesOrder: 0, salesDiscountMaxPct: 0, salesReturn: 0, salesBelowCost: false, salesSeparateDuties: false, bankChangeHoldDays: 7, budgetControl: 'OFF', telegramLinkHours: 72 };
 
 export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PURCHASE_ORDER: 'Pesanan pembelian',
@@ -79,6 +81,7 @@ export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   SALES_ORDER: 'Pesanan penjualan',
   SALES_RETURN: 'Retur penjualan',
   CUSTOMER_TERMS: 'Perubahan syarat pelanggan (limit kredit / termin)',
+  CUSTOMER_PAYMENT: 'Pembayaran pelanggan oleh pembuat fakturnya sendiri',
 };
 
 @Injectable()
@@ -216,6 +219,16 @@ export class ApprovalsService {
   }
 
   /** Buat permintaan baru dan catat di jejak audit */
+  /** Pembuat faktur penjualan (dari jejak audit); null bila tidak tercatat */
+  async invoiceCreator(db: DbOrTx, tenantId: string, invoiceId: string): Promise<string | null> {
+    const [r] = await db
+      .select({ u: auditLogs.userId })
+      .from(auditLogs)
+      .where(and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.entity, 'Invoice'), eq(auditLogs.entityId, invoiceId), eq(auditLogs.action, 'CREATE')))
+      .limit(1);
+    return r?.u ?? null;
+  }
+
   async create(db: DbOrTx, user: AuthUser, p: { kind: ApprovalKind; refId: string | null; title: string; amount: number; payload: Record<string, unknown> | null; approverId?: string }) {
     if (p.approverId && !(await this.eligibleApprovers(db, user.tenantId, user.sub)).some((a) => a.id === p.approverId)) throw new BadRequestException('Penyetuju yang dipilih tidak berwenang');
     const [row] = await db

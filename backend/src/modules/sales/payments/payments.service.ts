@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { AuthUser } from '../../../common/auth/auth-user';
+import { ApprovalsService } from '../../../common/approvals/approvals.service';
 import { AuditService } from '../../../common/audit/audit.service';
 import { SequenceService } from '../../../common/sequence/sequence.service';
 import { toDocDate } from '../../../common/utils/dates';
@@ -22,6 +23,7 @@ export class PaymentsService {
     private readonly posting: PostingService,
     private readonly audit: AuditService,
     private readonly fx: FxService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   list(tenantId: string) {
@@ -34,10 +36,19 @@ export class PaymentsService {
   }
 
   /** Pelunasan piutang: Dr Kas/Bank | Cr Piutang Usaha */
-  async create(user: AuthUser, dto: CreatePaymentDto) {
+  async create(user: AuthUser, dto: CreatePaymentDto, opts: { approved?: boolean } = {}) {
     const date = toDocDate(dto.date);
     const amount = money(dto.amount);
     if (amount.lte(0)) throw new BadRequestException('Jumlah pembayaran harus > 0');
+    // Pemisahan fungsi (bila dinyalakan): pembayaran atas faktur yang dibuat orang yang sama menunggu persetujuan Pemilik/Admin
+    if (!opts.approved && !this.approvals.isApprover(user.role) && (await this.approvals.policy(this.db, user.tenantId)).salesSeparateDuties) {
+      const creator = await this.approvals.invoiceCreator(this.db, user.tenantId, dto.invoiceId);
+      if (creator && creator === user.sub) {
+        const [inv] = await this.db.select({ n: invoices.number }).from(invoices).where(and(eq(invoices.id, dto.invoiceId), eq(invoices.tenantId, user.tenantId)));
+        const req = await this.approvals.create(this.db, user, { kind: 'CUSTOMER_PAYMENT', refId: null, title: `Pembayaran faktur ${inv?.n ?? ''} oleh pembuat fakturnya`, amount: Number(dto.amount), payload: JSON.parse(JSON.stringify(dto)) });
+        throw this.approvals.required(req.id, 'Pembayaran atas faktur yang Anda buat sendiri menunggu persetujuan pemilik atau admin (pemisahan fungsi); permintaan dikirim dan pembayaran dicatat setelah disetujui.');
+      }
+    }
 
     return this.db.transaction(async (tx) => {
       // Kunci faktur agar dua pembayaran bersamaan tidak melebihi sisa tagihan

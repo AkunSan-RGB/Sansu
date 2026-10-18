@@ -63,7 +63,7 @@ function CashControlCard() {
 
 /** Batas nilai yang memerlukan persetujuan pemilik / admin (0 = nonaktif) */
 function ApprovalPolicyCard() {
-  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; blindReceiving: boolean; blindDelivery: boolean; salesOrder: number; salesDiscountMaxPct: number; salesReturn: number; salesBelowCost: boolean; bankChangeHoldDays: number; budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK'; telegramLinkHours: number };
+  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; blindReceiving: boolean; blindDelivery: boolean; salesOrder: number; salesDiscountMaxPct: number; salesReturn: number; salesBelowCost: boolean; salesSeparateDuties: boolean; bankChangeHoldDays: number; budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK'; telegramLinkHours: number };
   const [form] = Form.useForm<Policy>();
   const policy = useQuery({ queryKey: ['approvals', 'policy'], queryFn: () => get<Policy>('/approvals/policy') });
   useEffect(() => {
@@ -117,6 +117,9 @@ function ApprovalPolicyCard() {
           <InputNumber min={0} step={1_000_000} style={{ width: '100%' }} prefix="Rp" />
         </Form.Item>
         <Form.Item name="salesBelowCost" label="Penjualan di bawah harga pokok butuh persetujuan" valuePropName="checked" extra="Pesanan dengan harga jual (setelah diskon) di bawah harga pokok rata-rata gudang, saat dikonfirmasi staf, menunggu persetujuan Pemilik/Admin. Menutup celah menembus batas diskon lewat harga yang diketik langsung.">
+          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
+        </Form.Item>
+        <Form.Item name="salesSeparateDuties" label="Pemisahan fungsi penjualan (pembuat faktur ≠ pencatat pembayaran/retur)" valuePropName="checked" extra="Bila menyala, pembayaran pelanggan atau retur atas faktur oleh orang yang membuat faktur itu sendiri (selain Pemilik/Admin) menunggu persetujuan. Cocok bila ada lebih dari satu Keuangan; bila hanya satu Keuangan, semua pembayaran akan menunggu persetujuan.">
           <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
         </Form.Item>
         <Form.Item name="blindDelivery" label="Pengiriman buta (Gudang mengisi jumlah kemas sendiri)" valuePropName="checked" extra="Gudang tidak melihat jumlah pesanan dan wajib mengisi jumlah yang dikemas. Bila tidak sama dengan pesanan, pengiriman ditahan dan Penjualan, Admin, dan Pemilik diberi tahu.">
