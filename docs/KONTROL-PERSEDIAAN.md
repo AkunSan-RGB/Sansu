@@ -20,7 +20,6 @@ Stok tidak boleh negatif; alasan wajib saat penyesuaian; tanggal masa depan dito
 - Persetujuan penyesuaian/opname dan opname buta mati secara bawaan; hanya pemberitahuan Pemilik (Rp5 juta) yang menyala.
 - Opname buta menyembunyikan stok sistem di respons API untuk peran Gudang pada opname yang berjalan, tetapi Gudang masih bisa melihat stok di halaman Persediaan.
 - Nilai selisih memakai HPP rata-rata saat ini, bukan biaya per lot.
-- Jadwal opname per kategori/barang bernilai tinggi (opname siklus) belum ada; saat ini per gudang, 35 hari.
 
 Migrasi `0083` menambah kolom pencatat jumlah fisik opname; dijalankan otomatis saat start.
 
@@ -37,4 +36,3 @@ Migrasi `0083` menambah kolom pencatat jumlah fisik opname; dijalankan otomatis 
 - **Selisih opname besar** (≥ batas pemberitahuan) wajib diisi catatan alasan (minimal 5 huruf) sebelum diposting.
 - **Banner "Pengaman belum aktif"** di Kontrol persediaan dan Kontrol penjualan, dengan tombol *Terapkan rekomendasi*.
 
-Belum dikerjakan: opname siklus terjadwal dan rekonsiliasi stok vs buku besar.
