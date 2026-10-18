@@ -575,6 +575,13 @@
       "when": 1795372686484,
       "tag": "0081_kontrol_pembelian",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1795459086484,
+      "tag": "0082_kontrol_penjualan",
+      "breakpoints": true
     }
   ]
 }

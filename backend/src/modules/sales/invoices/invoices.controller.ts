@@ -33,7 +33,9 @@ export class InvoicesController {
 
   @Post()
   @Roles('ADMIN', 'FINANCE')
-  create(@CurrentUser() u: AuthUser, @Body() dto: CreateInvoiceDto) {
+  async create(@CurrentUser() u: AuthUser, @Body() dto: CreateInvoiceDto) {
+    // Pencocokan tiga arah: faktur hanya atas barang yang sudah dikirim Gudang; jalur "kirim sekaligus faktur" hanya Pemilik/Admin
+    await this.svc.assertDeliveredBeforeInvoice(u, dto.salesOrderId);
     return this.svc.createFromOrder(u, dto);
   }
 }

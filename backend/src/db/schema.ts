@@ -841,6 +841,8 @@ export const salesOrders = pgTable(
     salespersonId: uuid('salesperson_id'),
     /** Nomor PO dari outlet (peritel modern); satu nomor tidak boleh ditagih dua kali */
     customerPoNo: text('customer_po_no'),
+    cancelReason: text('cancel_reason'),
+    cancelledById: uuid('cancelled_by_id'),
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
   },
@@ -933,6 +935,8 @@ export const deliveryOrders = pgTable(
     journalId: uuid('journal_id'),
     invoiceId: uuid('invoice_id'),
     notes: text('notes'),
+    cancelReason: text('cancel_reason'),
+    cancelledById: uuid('cancelled_by_id'),
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
   },

@@ -3,7 +3,7 @@ import { RequireApp } from '../../../common/apps/app.guard';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../../common/auth/decorators';
-import { CreateSalesOrderDto, SalesOrderQueryDto } from '../sales.dto';
+import { CancelOrderDto, CreateSalesOrderDto, SalesOrderQueryDto } from '../sales.dto';
 import { SalesOrdersService } from './sales-orders.service';
 
 @ApiTags('Penjualan')
@@ -22,7 +22,7 @@ export class SalesOrdersController {
   @Get(':id')
   @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.get(u.tenantId, id);
+    return this.svc.get(u.tenantId, id).then((o) => this.svc.forViewer(u, o as never));
   }
 
   @Post()
@@ -39,7 +39,7 @@ export class SalesOrdersController {
 
   @Post(':id/cancel')
   @Roles('ADMIN', 'FINANCE')
-  cancel(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.cancel(u, id);
+  cancel(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CancelOrderDto) {
+    return this.svc.cancel(u, id, dto?.reason);
   }
 }

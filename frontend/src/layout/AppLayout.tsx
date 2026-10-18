@@ -147,7 +147,7 @@ const MENU: Group[] = [
       { key: '/price-agreements', label: 'Kontrak harga prinsipal', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING'] },
       { key: '/price-agreements', label: 'Harga pemasok bahan', models: ['FNB'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING'] },
       { key: '/price-agreements', label: 'Kontrak harga pemasok', models: ['DAGANG', 'RITEL', 'MANUFAKTUR', 'UTILITAS'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING'] },
-      { key: '/purchase-controls', label: 'Kontrol pembelian', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA'] },
+      { key: '/purchase-controls', label: 'Kontrol pembelian & penjualan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA'] },
       { section: 'Data', items: [{ key: '/suppliers', label: t('Supplier') }] },
     ],
   },

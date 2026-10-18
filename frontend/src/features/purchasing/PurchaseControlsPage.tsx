@@ -17,10 +17,10 @@ export default function PurchaseControlsPage() {
   const q = useQuery({ queryKey: ['purchase-controls'], queryFn: () => get<{ asOf: string; since: string; items: Finding[] }>('/purchase-controls') });
   return (
     <>
-      <PageHeader title="Kontrol pembelian" />
+      <PageHeader title="Kontrol pembelian & penjualan" />
       <Card loading={q.isLoading}>
         <Typography.Paragraph type="secondary">
-          Pola yang patut diperiksa pada pembelian, pembayaran supplier, dan stok sejak {q.data ? fmtDate(q.data.since) : '…'}. Temuan bukan berarti kecurangan, tetapi layak dikonfirmasi.
+          Pola yang patut diperiksa pada pembelian, penjualan, pembayaran supplier, dan stok sejak {q.data ? fmtDate(q.data.since) : '…'}. Temuan bukan berarti kecurangan, tetapi layak dikonfirmasi.
         </Typography.Paragraph>
         {q.data && !q.data.items.length && <Empty description="Tidak ada temuan. Bagus!" />}
         <Space direction="vertical" style={{ width: '100%' }}>
