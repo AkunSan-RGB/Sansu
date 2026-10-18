@@ -23,6 +23,11 @@ Semua ambang diatur di **Pengaturan › Perusahaan › Kebijakan** dan bernilai 
 | **Pembayaran dicatat terlambat** | Temuan: pembayaran pelanggan dicatat ≥ 3 hari setelah tanggal terima (tanda uang tertahan atau dipakai menutup piutang pelanggan lain). |
 | **Komisi** | Temuan: retur terjadi setelah komisi periodenya ditutup (komisi sudah dihitung sebelum retur). Pemotongan komisi tetap manual. |
 
+## Penguatan: harga di bawah pokok, Pemilik diberi tahu, status aktif
+- **Harga di bawah harga pokok** (`salesBelowCost`, mati bawaan): pesanan dengan harga jual (setelah diskon) di bawah HPP rata-rata gudang butuh persetujuan saat dikonfirmasi staf. Menutup celah menembus batas diskon lewat harga yang diketik langsung dengan diskon 0%. Baris bonus (harga 0) dan gudang tanpa HPP tidak dihitung.
+- **Pemilik diberi tahu (Telegram/email) saat Admin melewati batas:** konfirmasi pesanan besar/diskon besar/di bawah pokok oleh Admin tetap jalan, tetapi tercatat (`CONFIRM_RISKY`) dan Pemilik dikabari; begitu juga retur besar yang dicatat Admin.
+- **Banner "Persetujuan penjualan belum aktif"** di halaman Kontrol penjualan bila semua ambang masih 0, dengan tombol **Terapkan rekomendasi** (pesanan ≥ Rp50 juta, diskon > 15%, retur ≥ Rp5 juta, harga di bawah pokok) untuk Pemilik/Admin. Nilainya bisa diubah di Pengaturan › Perusahaan › Kebijakan.
+
 ## Yang belum dibuat
 - **Pengiriman parsial** (kirim sebagian lalu sisanya menyusul): butuh perubahan besar pada faktur, surat jalan, dan jurnal; dikerjakan terpisah bila diperlukan.
 - **Penghapusan piutang (write-off)**: belum ada fiturnya di SANSU (hanya penyisihan lewat jurnal penyesuaian). Bila fitur dibuat, harus butuh persetujuan Pemilik.

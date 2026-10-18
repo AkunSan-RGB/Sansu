@@ -5,6 +5,9 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 import { ReminderMailer } from '../src/modules/reminders/reminder-mailer.service';
+import { eq } from 'drizzle-orm';
+import { DB, Db } from '../src/db/db';
+import { auditLogs } from '../src/db/schema';
 import { TelegramService } from '../src/common/telegram/telegram.service';
 
 describe('Telegram uang masuk non-penjualan (e2e)', () => {
@@ -86,8 +89,8 @@ describe('Telegram uang masuk non-penjualan (e2e)', () => {
     expect((await other('12345', 'Komisi supplier')).status).toBe(201);
     // pemilik boleh, tetapi ditandai di jejak audit
     expect((await other(total, 'Terima uang', owner)).status).toBe(201);
-    const audit = (await get('/api/audit?action=CASH_IN_LOOKALIKE_RECEIVABLE').then((r) => JSON.stringify(r.body)));
-    expect(audit).toContain('CASH_IN_LOOKALIKE_RECEIVABLE');
+    const rows = await app.get<Db>(DB).select({ id: auditLogs.id }).from(auditLogs).where(eq(auditLogs.action, 'CASH_IN_LOOKALIKE_RECEIVABLE'));
+    expect(rows.length).toBeGreaterThan(0);
   });
 
   it('eskalasi: uang masuk rekening >1 hari belum dijelaskan dikabarkan ke Pemilik sekali per hari', async () => {

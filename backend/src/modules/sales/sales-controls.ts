@@ -105,7 +105,7 @@ export class SalesControlsService {
 
     const rank = { error: 0, warning: 1, info: 2 } as const;
     out.sort((a, b) => rank[a.level] - rank[b.level]);
-    return { asOf: today, since, items: out };
+    return { asOf: today, since, items: out, policy: { salesOrder: pol.salesOrder, salesDiscountMaxPct: pol.salesDiscountMaxPct, salesReturn: pol.salesReturn, salesBelowCost: pol.salesBelowCost, blindDelivery: pol.blindDelivery } };
   }
 }
 
