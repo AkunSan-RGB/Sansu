@@ -1,5 +1,5 @@
 import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, FilterOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
-import { BRAND, CASH_IN_SOURCES, CASH_TX_TYPE_LABELS, canHandleMoney, type CashTxType } from '@sansu/shared';
+import { BRAND, CASH_IN_SOURCES, CASH_OUT_SOURCES, CASH_TX_TYPE_LABELS, canHandleMoney, type CashTxType } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, App, Badge, Button, Card, Checkbox, Col, Collapse, Empty, Form, Input, InputNumber, Modal, Popover, Row, Segmented, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
@@ -134,7 +134,7 @@ export default function CashPage() {
           ? { toCashAccountId: v.toCashAccountId, amount: String(v.amount) }
           : {
               lines: (v.lines ?? []).map((l) => ({
-                // kas masuk: pilihan berawalan "src:" = sumber uang (sistem menentukan akun)
+                // kas masuk/keluar: pilihan berawalan "src:" = sumber uang (sistem menentukan akun)
                 accountId: l.accountId?.startsWith('src:') ? undefined : l.accountId,
                 source: l.accountId?.startsWith('src:') ? l.accountId.slice(4) : undefined,
                 amount: String(l.amount),
@@ -155,7 +155,13 @@ export default function CashPage() {
 
   /** Kas masuk: Keuangan memilih sumber uang; akun pembukuan hanya untuk Pemilik/Admin */
   const accountOptions = (m: CashTxType | null) => {
-    const accs = counter.data?.map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` })) ?? [];
+    const isFin = me?.role === 'FINANCE';
+    // Keuangan hanya mengeluarkan uang untuk biaya atau aset; akun modal/utang/pajak tidak ditawarkan
+    const accs = counter.data?.filter((a) => m !== 'OUT' || !isFin || a.type === 'EXPENSE' || assetCatsByAccount.has(a.id)).map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` })) ?? [];
+    if (m === 'OUT') {
+      const outs = CASH_OUT_SOURCES.map((s) => ({ value: `src:${s.key}`, label: `${s.label} — ${s.hint}` }));
+      return [{ label: 'Jenis biaya (disarankan; sistem menentukan akun)', options: outs }, { label: isFin ? 'Akun biaya / aset' : 'Akun pembukuan', options: accs }];
+    }
     if (m !== 'IN') return accs;
     const sources = CASH_IN_SOURCES.map((s) => ({ value: `src:${s.key}`, label: `${s.label} — ${s.hint}` }));
     return me && ['OWNER', 'ADMIN'].includes(me.role) ? [{ label: 'Sumber uang (disarankan)', options: sources }, { label: 'Akun pembukuan (khusus Pemilik/Admin)', options: accs }] : sources;

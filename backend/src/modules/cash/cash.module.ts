@@ -20,7 +20,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { and, asc, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
-import { CASH_TX_TYPES, CashTxType, CASH_IN_SOURCE_KEYS, CASH_IN_SOURCES_TO_VERIFY, cashInSource, type CashInSourceKey } from '@sansu/shared';
+import { CASH_TX_TYPES, CashTxType, CASH_SOURCE_KEYS, CASH_IN_SOURCES_TO_VERIFY, cashInSource, cashOutSource, type CashInSourceKey, type CashOutSourceKey } from '@sansu/shared';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
@@ -42,7 +42,7 @@ import { PettyCashController, PettyCashService } from './petty-cash';
 // ---------- DTO ----------
 export class CashLineDto {
   @ApiPropertyOptional({ description: 'Akun lawan, mis. Beban Listrik atau Modal Pemilik (khusus pembukuan; kosong bila memakai sumber)' }) @IsOptional() @IsUUID() accountId?: string;
-  @ApiPropertyOptional({ enum: CASH_IN_SOURCE_KEYS, description: 'Kas masuk: sumber uang (sistem menentukan akun). Keuangan wajib memakai ini' }) @IsOptional() @IsIn(CASH_IN_SOURCE_KEYS as unknown as string[]) source?: CashInSourceKey;
+  @ApiPropertyOptional({ enum: CASH_SOURCE_KEYS, description: 'Kas masuk: sumber uang (Keuangan wajib). Kas keluar: jenis biaya. Sistem menentukan akun' }) @IsOptional() @IsIn(CASH_SOURCE_KEYS as unknown as string[]) source?: CashInSourceKey | CashOutSourceKey;
   @ApiProperty({ example: '350000' }) @IsNumberString() amount: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) memo?: string;
   @ApiPropertyOptional({ description: 'Kas keluar: biaya langsung proyek (usaha jasa)' }) @IsOptional() @IsUUID() projectId?: string;
@@ -177,15 +177,21 @@ export class CashService {
 
   private async resolveSources(user: AuthUser, dto: CreateCashTxDto): Promise<CreateCashTxDto> {
     const lines = dto.lines ?? [];
-    if (dto.type !== 'IN') {
-      if (lines.some((l) => l.source)) throw new BadRequestException('Sumber uang hanya untuk kas masuk');
+    if (dto.type === 'TRANSFER') {
+      if (lines.some((l) => l.source)) throw new BadRequestException('Sumber uang tidak dipakai untuk transfer');
       return dto;
     }
-    if (user.role === 'FINANCE' && lines.some((l) => !l.source)) {
+    const lookup = (k: string | undefined) => (dto.type === 'IN' ? cashInSource(k) : cashOutSource(k));
+    if (lines.some((l) => l.source && !lookup(l.source))) throw new BadRequestException(dto.type === 'IN' ? 'Sumber uang ini hanya untuk kas keluar' : 'Sumber uang ini hanya untuk kas masuk');
+    if (dto.type === 'OUT') {
+      // Kas keluar: sumber (jenis biaya) disarankan untuk semua; akun yang dipilih langsung dibatasi pada Keuangan (lihat create)
+      if (!lines.some((l) => l.source)) return dto;
+    }
+    if (dto.type === 'IN' && user.role === 'FINANCE' && lines.some((l) => !l.source)) {
       throw new BadRequestException('Pilih sumber uang untuk setiap baris (mis. Modal dari pemilik, Bunga bank). Pencatatan akunnya dilakukan sistem. Pembayaran pelanggan dicatat lewat Faktur & piutang.');
     }
     if (!lines.some((l) => l.source)) return dto;
-    const keys = [...new Set(lines.filter((l) => l.source).map((l) => cashInSource(l.source)!))];
+    const keys = [...new Set(lines.filter((l) => l.source).map((l) => lookup(l.source)!))];
     if (lines.some((l) => l.source && l.accountId)) throw new BadRequestException('Isi sumber uang ATAU akun, bukan keduanya');
     if (keys.some((k) => k.needsRef) && !dto.reference?.trim()) {
       throw new BadRequestException(`Isi nomor bukti/referensi untuk ${keys.filter((k) => k.needsRef).map((k) => `"${k.label}"`).join(', ')} (mis. bukti setor, perjanjian pinjaman, nota)`);
@@ -194,7 +200,7 @@ export class CashService {
     const byCode = new Map(found.rows.map((r) => [r.code, r.id]));
     const out = lines.map((l) => {
       if (!l.source) return l;
-      const k = cashInSource(l.source)!;
+      const k = lookup(l.source)!;
       const accountId = byCode.get(k.code);
       if (!accountId) throw new BadRequestException(`Akun untuk "${k.label}" (${k.code}) belum tersedia di Bagan Akun. Hubungi Admin/Akuntan.`);
       return { ...l, accountId, source: undefined, sourceKey: l.source };
@@ -266,6 +272,10 @@ export class CashService {
         }
         // Akun aset tetap: pembelian tunai harus menjadi kartu aset (agar daftar aset = buku besar); penjualan lewat menu Aset Tetap
         assetCats = await this.assets.categoriesByAssetAccount(tx, user.tenantId, ids);
+        // Keuangan hanya mengeluarkan uang untuk biaya (atau membeli aset); prive, modal, utang, dan pajak bukan keputusan Keuangan
+        if (dto.type === 'OUT' && user.role === 'FINANCE' && !opts.petty && accs.some((a) => a.type !== 'EXPENSE' && !assetCats.has(a.id))) {
+          throw new BadRequestException('Keuangan hanya dapat mencatat uang keluar untuk biaya operasional atau pembelian aset. Prive, pembayaran utang/pajak, dan modal dicatat oleh Pemilik/Admin atau lewat dokumennya.');
+        }
         if (dto.type === 'IN' && lines.some((l) => assetCats.has(l.accountId))) {
           throw new BadRequestException('Akun aset tetap tidak dipakai di kas masuk. Penjualan aset dicatat lewat Aset Tetap › Jual / hapus aset');
         }
