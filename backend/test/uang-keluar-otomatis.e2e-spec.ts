@@ -31,7 +31,7 @@ describe('Uang keluar otomatis (e2e)', () => {
   afterAll(() => app.close());
 
   it('jenis biaya menentukan akun beban; sumber masuk tidak boleh dipakai untuk kas keluar', async () => {
-    const r = await out([{ source: 'OUT_UTILITY', amount: '250000' }]);
+    const r = await out([{ source: 'OUT_ELECTRICITY', amount: '250000' }]);
     expect(r.status).toBe(201);
     const list = (await get('/api/accounting/journals').expect(200)).body as { id: string; number: string }[];
     const detail = JSON.stringify((await get(`/api/accounting/journals/${list.find((x) => x.number === r.body.journalNumber)!.id}`).expect(200)).body);
