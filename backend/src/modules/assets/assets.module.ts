@@ -30,7 +30,7 @@ import { addDays, diffDays, toDocDate, todayJakarta } from '../../common/utils/d
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, assetCategories, assetDepreciations, fixedAssets, users } from '../../db/schema';
+import { accounts, assetCategories, assetDepreciations, assetUsage, fixedAssets, users } from '../../db/schema';
 import { AccountingModule } from '../accounting/accounting.module';
 import { frameworkOf } from '../accounting/coa-sync';
 import { SYS } from '../accounting/default-coa';
@@ -65,6 +65,8 @@ export class CreateAssetDto {
   @ApiPropertyOptional({ example: '0' }) @IsOptional() @IsNumberString() residualValue?: string;
   @ApiPropertyOptional({ description: 'Kosong = ikut kategori' }) @IsOptional() @IsInt() @Min(0) @Max(600) usefulLifeMonths?: number;
   @ApiPropertyOptional({ enum: DEPRECIATION_METHODS }) @IsOptional() @IsIn(DEPRECIATION_METHODS) method?: string;
+  @ApiPropertyOptional({ example: '200000', description: 'Metode unit produksi: kapasitas total aset (wajib untuk metode itu)' }) @IsOptional() @IsNumberString() totalUnits?: string;
+  @ApiPropertyOptional({ example: 'km', description: 'Satuan unit produksi (km, jam, unit, ...)' }) @IsOptional() @IsString() @MaxLength(20) unitLabel?: string;
   @ApiPropertyOptional({ description: 'Bulan mulai disusutkan; kosong = bulan perolehan' }) @IsOptional() @IsDateString() depreciationStart?: string;
   @ApiProperty({ enum: ['CASH', 'PAYABLE', 'EXISTING'], description: 'CASH = dibayar dari kas/bank, PAYABLE = utang lain-lain, EXISTING = aset lama (tanpa jurnal)' })
   @IsIn(['CASH', 'PAYABLE', 'EXISTING'])
@@ -95,6 +97,12 @@ export class ChangeMethodDto {
 export class MethodPreviewQuery {
   @ApiProperty() @IsIn(DEPRECIATION_METHODS.filter((m) => m !== 'NONE')) method: string;
   @ApiPropertyOptional() @IsOptional() @Matches(/^\d{4}-(0[1-9]|1[0-2])$/) effectiveMonth?: string;
+}
+
+export class UsageDto {
+  @ApiProperty({ example: '2026-10' }) @Matches(/^\d{4}-(0[1-9]|1[0-2])$/) period: string;
+  @ApiProperty({ example: '3500', description: 'Pemakaian bulan itu dalam satuan aset (km, jam, ...)' }) @IsNumberString() units: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(200) note?: string;
 }
 
 export class RunDepreciationDto {
@@ -192,6 +200,19 @@ export class AssetsService {
     return c;
   }
 
+  /** Pemakaian per bulan semua aset (metode unit produksi): assetId → { 'YYYY-MM': unit } */
+  private async loadUsage(db: Db | Tx, tenantId: string, assetId?: string) {
+    const rows = await db.select().from(assetUsage).where(and(eq(assetUsage.tenantId, tenantId), assetId ? eq(assetUsage.assetId, assetId) : undefined));
+    const map = new Map<string, Record<string, number>>();
+    for (const r of rows) map.set(r.assetId, { ...(map.get(r.assetId) ?? {}), [r.period]: Number(r.units) });
+    return map;
+  }
+
+  /** Sisipkan kapasitas dan pemakaian agar perhitungan unit produksi bisa berjalan */
+  private withUnits<T extends { id: string; method: string; totalUnits: string | null }>(a: T, usage: Map<string, Record<string, number>>) {
+    return a.method === 'UNITS_OF_PRODUCTION' ? { ...a, units: { total: Number(a.totalUnits ?? 0), byPeriod: usage.get(a.id) ?? {} } } : a;
+  }
+
   /** Daftar aset dengan nilai buku per tanggal */
   async list(tenantId: string, asOf?: string) {
     const date = toDocDate(asOf);
@@ -201,7 +222,8 @@ export class AssetsService {
       orderBy: asc(fixedAssets.code),
     });
     const posted = await this.postedTotals(this.db, tenantId, date.slice(0, 7));
-    return rows.map((a) => this.withValues(a, posted.get(a.id), date));
+    const usage = await this.loadUsage(this.db, tenantId);
+    return rows.map((a) => this.withValues(this.withUnits(a, usage), posted.get(a.id), date));
   }
 
   /**
@@ -321,7 +343,7 @@ export class AssetsService {
     return { asOf: date, rows, mismatched: rows.filter((r) => D(r.diff).abs().gte(1)).length };
   }
 
-  private withValues(a: Asset & { category: { id: string; name: string; fiscalGroup: string } }, p: { total: Dec; last: string | null } | undefined, date: string) {
+  private withValues(a: Asset & { category: { id: string; name: string; fiscalGroup: string }; units?: { total: number; byPeriod: Record<string, number> } }, p: { total: Dec; last: string | null } | undefined, date: string) {
     const disposed = a.status === 'DISPOSED' && a.disposalDate && a.disposalDate <= date;
     const accumulated = disposed ? ZERO : D(a.openingAccumulated).plus(p?.total ?? ZERO);
     const cost = disposed ? ZERO : D(a.cost);
@@ -356,10 +378,14 @@ export class AssetsService {
     let acc = D(a.openingAccumulated);
     const postedMap = new Map(a.depreciations.map((d) => [d.period, D(d.amount)]));
     const start = monthIndex(a.depreciationStart.slice(0, 7));
-    const end = a.status === 'DISPOSED' && a.disposalDate ? monthIndex(a.disposalDate.slice(0, 7)) - 1 : start + Math.max(0, a.usefulLifeMonths - 1);
+    const usageMap = (await this.loadUsage(this.db, tenantId, a.id)).get(a.id) ?? {};
+    const dep = this.withUnits(a, new Map([[a.id, usageMap]]));
+    const lastUsage = Math.max(-1, ...Object.keys(usageMap).map((k) => monthIndex(k)));
+    let end = a.status === 'DISPOSED' && a.disposalDate ? monthIndex(a.disposalDate.slice(0, 7)) - 1 : start + Math.max(0, a.usefulLifeMonths - 1);
+    if (a.method === 'UNITS_OF_PRODUCTION') end = Math.max(lastUsage, ...[...postedMap.keys()].map((k) => monthIndex(k)), start);
     for (let i = start; i <= end && a.method !== 'NONE'; i++) {
       const p = periodOf(i);
-      const amt = postedMap.get(p) ?? depreciationFor(a, acc, p);
+      const amt = postedMap.get(p) ?? depreciationFor(dep, acc, p);
       if (amt.isZero() && !postedMap.has(p)) continue;
       acc = acc.plus(amt);
       schedule.push({ period: p, amount: amt.toFixed(2), accumulated: acc.toFixed(2), bookValue: D(a.cost).minus(acc).toFixed(2), posted: postedMap.has(p) });
@@ -409,6 +435,8 @@ export class AssetsService {
         location: dto.location,
         notes: dto.notes,
         branchId: dto.branchId ?? null,
+        totalUnits: dto.totalUnits,
+        unitLabel: dto.unitLabel,
       });
       if (dto.funding !== 'EXISTING') {
         const cashAcc = dto.funding === 'CASH' ? await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'BANK') : undefined;
@@ -463,8 +491,14 @@ export class AssetsService {
       acquisitionJournalId?: string;
       purchaseInvoiceId?: string;
       branchId?: string | null;
+      totalUnits?: string;
+      unitLabel?: string;
     },
   ) {
+    const effMethod = a.method ?? cat.method;
+    if (effMethod === 'UNITS_OF_PRODUCTION' && !(Number(a.totalUnits) > 0)) {
+      throw new BadRequestException('Metode unit produksi butuh total unit (kapasitas) aset. Daftarkan lewat Aset tetap › Aset baru dan isi total unit.');
+    }
     const code = a.code?.trim().toUpperCase() || (await this.nextCode(tx, tenantId));
     const [asset] = await tx
       .insert(fixedAssets)
@@ -478,7 +512,9 @@ export class AssetsService {
         cost: a.cost.toFixed(2),
         residualValue: a.residual.toFixed(2),
         usefulLifeMonths: a.usefulLifeMonths ?? cat.usefulLifeMonths,
-        method: a.method ?? cat.method,
+        method: effMethod,
+        totalUnits: effMethod === 'UNITS_OF_PRODUCTION' ? a.totalUnits : null,
+        unitLabel: effMethod === 'UNITS_OF_PRODUCTION' ? a.unitLabel?.trim() || 'unit' : null,
         openingAccumulated: (a.opening ?? ZERO).toFixed(2),
         location: a.location,
         notes: a.notes,
@@ -598,10 +634,12 @@ export class AssetsService {
         with: { category: true },
       });
       const posted = await this.postedTotals(tx, user.tenantId, '9999-12');
+      const usage = await this.loadUsage(tx, user.tenantId);
       // per bulan → per kategori → nilai
       const plan = new Map<string, { cat: Category; asset: Asset; amount: Dec }[]>();
-      for (const a of assets) {
-        if (a.method === 'NONE' || a.usefulLifeMonths <= 0) continue;
+      for (const base of assets) {
+        const a = Object.assign(base, this.withUnits(base, usage));
+        if (a.method === 'NONE' || (a.usefulLifeMonths <= 0 && a.method !== 'UNITS_OF_PRODUCTION')) continue;
         let acc = D(a.openingAccumulated).plus(posted.get(a.id)?.total ?? ZERO);
         const last = posted.get(a.id)?.last;
         const from = Math.max(monthIndex(a.depreciationStart.slice(0, 7)), last ? monthIndex(last) + 1 : 0);
@@ -725,6 +763,9 @@ export class AssetsService {
     const stale = active.filter((a) => a.category.fiscalGroup !== 'LAND' && (!a.lastVerifiedAt || new Date(a.lastVerifiedAt).getTime() < cutoff));
     add('NOT_VERIFIED', 'info', 'Aset belum diperiksa fisik dalam 12 bulan', stale.map((a) => a.id), `Lakukan pemeriksaan fisik berkala. ${names(stale)}`);
 
+    const noUsage = active.filter((a) => a.method === 'UNITS_OF_PRODUCTION' && (a as { units?: { byPeriod: Record<string, number> } }).units?.byPeriod[prev] === undefined && a.depreciationStart.slice(0, 7) <= prev);
+    add('USAGE_MISSING', 'warning', 'Pemakaian bulan lalu belum diisi (metode unit produksi)', noUsage.map((a) => a.id), `Tanpa catatan pemakaian, penyusutan bulan ${prev} tidak terhitung. ${names(noUsage)}`);
+
     // Pelepasan 180 hari terakhir: segera setelah dibeli, atau harga lepas jauh di bawah nilai buku
     const disposed = await this.db.execute<{ code: string; name: string; acq: string; disp: string; cost: string; opening: string; dep: string; price: string }>(sql`
       SELECT f.code, f.name, f.acquisition_date::text AS acq, f.disposal_date::text AS disp, f.cost::text AS cost, f.opening_accumulated::text AS opening, f.disposal_price::text AS price,
@@ -749,6 +790,41 @@ export class AssetsService {
     return { generatedAt: new Date().toISOString(), count: out.length, items: out, setup };
   }
 
+  /** Catatan pemakaian bulanan (metode unit produksi) */
+  async usageList(tenantId: string, id: string) {
+    const [a] = await this.db.select().from(fixedAssets).where(and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, tenantId)));
+    if (!a) throw new NotFoundException('Aset tidak ditemukan');
+    const rows = await this.db.select().from(assetUsage).where(and(eq(assetUsage.tenantId, tenantId), eq(assetUsage.assetId, id))).orderBy(asc(assetUsage.period));
+    const total = rows.reduce((t, r) => t.plus(r.units), ZERO);
+    return { method: a.method, totalUnits: a.totalUnits, unitLabel: a.unitLabel, usedUnits: total.toFixed(4), remainingUnits: D(a.totalUnits ?? 0).minus(total).toFixed(4), rows };
+  }
+
+  /**
+   * Catat (atau koreksi) pemakaian satu bulan. Hanya untuk bulan yang belum disusutkan; total pemakaian tidak boleh melebihi kapasitas.
+   * Staf Gudang/Produksi tidak punya akses: pemakaian menentukan beban penyusutan, jadi dicatat Admin/Akuntan dan terekam di jejak audit.
+   */
+  async setUsage(user: AuthUser, id: string, dto: UsageDto) {
+    const units = D(dto.units);
+    if (units.lt(0)) throw new BadRequestException('Pemakaian tidak boleh negatif');
+    return this.db.transaction(async (tx) => {
+      const a = await tx.query.fixedAssets.findFirst({ where: and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId)) });
+      if (!a) throw new NotFoundException('Aset tidak ditemukan');
+      if (a.method !== 'UNITS_OF_PRODUCTION') throw new BadRequestException('Aset ini tidak memakai metode unit produksi');
+      if (a.status !== 'ACTIVE') throw new BadRequestException('Aset sudah dilepas');
+      if (dto.period < a.depreciationStart.slice(0, 7)) throw new BadRequestException('Bulan sebelum penyusutan dimulai');
+      if (dto.period > todayJakarta().slice(0, 7)) throw new BadRequestException('Pemakaian bulan depan belum bisa dicatat');
+      const last = (await this.postedTotals(tx, user.tenantId, '9999-12')).get(a.id)?.last;
+      if (last && dto.period <= last) throw new BadRequestException(`Penyusutan sudah diposting sampai ${last}; pemakaian bulan itu tidak bisa diubah.`);
+      const [existing] = await tx.select().from(assetUsage).where(and(eq(assetUsage.assetId, id), eq(assetUsage.period, dto.period)));
+      const others = (await tx.select().from(assetUsage).where(eq(assetUsage.assetId, id))).filter((r) => r.period !== dto.period).reduce((t, r) => t.plus(r.units), ZERO);
+      if (others.plus(units).gt(D(a.totalUnits ?? 0))) throw new BadRequestException(`Total pemakaian melebihi kapasitas ${D(a.totalUnits ?? 0).toFixed(0)} ${a.unitLabel ?? 'unit'}`);
+      if (existing) await tx.update(assetUsage).set({ units: units.toFixed(4), note: dto.note ?? null, createdById: user.sub }).where(eq(assetUsage.id, existing.id));
+      else await tx.insert(assetUsage).values({ tenantId: user.tenantId, assetId: id, period: dto.period, units: units.toFixed(4), note: dto.note ?? null, createdById: user.sub });
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: existing ? 'UPDATE' : 'CREATE', entity: 'AssetUsage', entityId: id, data: { period: dto.period, units: units.toFixed(4), previous: existing?.units ?? null } });
+      return this.usageList(user.tenantId, id);
+    });
+  }
+
   /**
    * Ubah metode penyusutan satu aset: berlaku ke depan saja (tidak pernah mundur). Penyusutan sampai bulan sebelum bulan berlaku
    * diposting dulu dengan metode lama; sisa nilai buku (dikurangi residu) lalu disusutkan dengan metode baru selama sisa masa manfaat.
@@ -758,6 +834,7 @@ export class AssetsService {
     const reason = dto.reason?.trim() ?? '';
     if (reason.length < 5) throw new BadRequestException('Isi alasan perubahan metode (minimal 5 huruf)');
     if (dto.method === 'NONE') throw new BadRequestException('Aset yang disusutkan tidak bisa diubah menjadi "tidak disusutkan"; lepaskan asetnya bila sudah tidak dipakai.');
+    if (dto.method === 'UNITS_OF_PRODUCTION') throw new BadRequestException('Metode unit produksi butuh total unit dan catatan pemakaian sejak awal; tidak bisa dipilih untuk aset yang sudah berjalan. Daftarkan aset baru dengan metode itu.');
     const pre = await this.db.query.fixedAssets.findFirst({ where: and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId)) });
     if (!pre) throw new NotFoundException('Aset tidak ditemukan');
     if (!opts.approved && !this.approvals.isApprover(user.role)) {
@@ -771,6 +848,7 @@ export class AssetsService {
       if (a.status !== 'ACTIVE') throw new BadRequestException('Aset sudah dilepas');
       if (a.method === 'NONE') throw new BadRequestException('Aset ini tidak disusutkan (mis. tanah)');
       if (a.method === dto.method) throw new BadRequestException('Metode baru sama dengan metode sekarang');
+      if (a.method === 'UNITS_OF_PRODUCTION') throw new BadRequestException('Aset dengan metode unit produksi tidak bisa dipindah ke metode lain; riwayat pemakaiannya menjadi dasar penyusutan.');
       if (effective < a.depreciationStart.slice(0, 7)) throw new BadRequestException('Bulan berlaku sebelum penyusutan dimulai');
       if (effective > todayJakarta().slice(0, 7)) throw new BadRequestException('Bulan berlaku tidak boleh di masa depan');
       const lastChange = [...(a.methodChanges ?? [])].sort((x, y) => y.from.localeCompare(x.from))[0];
@@ -799,6 +877,7 @@ export class AssetsService {
     const a = await this.db.query.fixedAssets.findFirst({ where: and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, tenantId)) });
     if (!a) throw new NotFoundException('Aset tidak ditemukan');
     if (a.status !== 'ACTIVE' || a.method === 'NONE') throw new BadRequestException('Aset ini tidak disusutkan atau sudah dilepas');
+    if (a.method === 'UNITS_OF_PRODUCTION' || method === 'UNITS_OF_PRODUCTION') throw new BadRequestException('Pratinjau tidak tersedia untuk metode unit produksi: penyusutannya mengikuti pemakaian.');
     const effective = effectiveMonth ?? todayJakarta().slice(0, 7);
     const posted = (await this.postedTotals(this.db, tenantId, '9999-12')).get(a.id);
     let acc = D(a.openingAccumulated).plus(posted?.total ?? ZERO);
@@ -827,6 +906,7 @@ export class AssetsService {
     const [cat] = await this.db.select().from(assetCategories).where(and(eq(assetCategories.id, categoryId), eq(assetCategories.tenantId, user.tenantId)));
     if (!cat) throw new NotFoundException('Kategori tidak ditemukan');
     if (cat.method === 'NONE') throw new BadRequestException('Kategori ini tidak disusutkan (mis. tanah)');
+    if (dto.method === 'UNITS_OF_PRODUCTION') throw new BadRequestException('Metode unit produksi tidak bisa diterapkan ke aset yang sudah ada (butuh total unit per aset).');
     if (!opts.approved && !this.approvals.isApprover(user.role)) {
       const req = await this.approvals.create(this.db, user, { kind: 'ASSET_METHOD', refId: categoryId, title: `Ubah metode penyusutan kategori ${cat.name}`, amount: 0, payload: JSON.parse(JSON.stringify({ categoryId, ...dto })) });
       throw this.approvals.required(req.id, 'Perubahan metode penyusutan menunggu persetujuan pemilik atau admin; permintaan dikirim dan metode diubah setelah disetujui.');
@@ -835,7 +915,7 @@ export class AssetsService {
     const changed: string[] = [];
     const skipped: { asset: string; why: string }[] = [];
     for (const a of list) {
-      if (a.method === 'NONE' || a.method === dto.method) continue;
+      if (a.method === 'NONE' || a.method === dto.method || a.method === 'UNITS_OF_PRODUCTION') continue;
       try {
         await this.changeMethod(user, a.id, dto, { approved: true, silent: true });
         changed.push(`${a.code} ${a.name}`);
@@ -1221,6 +1301,18 @@ export class AssetsController {
   @Get(':id/method-preview')
   methodPreview(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Query() q: MethodPreviewQuery) {
     return this.svc.methodPreview(u.tenantId, id, q.method, q.effectiveMonth);
+  }
+
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
+  @Get(':id/usage')
+  usage(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.svc.usageList(u.tenantId, id);
+  }
+
+  @Roles('ADMIN', 'ACCOUNTANT')
+  @Put(':id/usage')
+  setUsage(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UsageDto) {
+    return this.svc.setUsage(u, id, dto);
   }
 
   @Roles('ADMIN', 'ACCOUNTANT')

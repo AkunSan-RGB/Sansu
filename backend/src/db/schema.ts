@@ -2442,6 +2442,9 @@ export const fixedAssets = pgTable(
     method: text('method').notNull(),
     /** Riwayat perubahan metode (berlaku ke depan): from = bulan berlaku, accumulatedAt = akumulasi tepat sebelum bulan itu */
     methodChanges: jsonb('method_changes').$type<{ from: string; method: string; prevMethod: string; accumulatedAt: string }[]>().notNull().default(sql`'[]'::jsonb`),
+    /** Metode unit produksi: kapasitas total (mis. 200000 km) dan satuannya */
+    totalUnits: numeric('total_units', { precision: 18, scale: 4 }),
+    unitLabel: text('unit_label'),
     /** Akumulasi penyusutan sebelum memakai SANSU (aset lama) */
     openingAccumulated: money('opening_accumulated').notNull().default('0'),
     /** Akumulasi penyusutan fiskal sebelum memakai SANSU */
@@ -2811,6 +2814,24 @@ export const bankStatementLines = pgTable(
     note: text('note'),
   },
   (t) => [index('bank_lines_statement_idx').on(t.statementId), uniqueIndex('bank_lines_journal_line_uq').on(t.journalLineId)],
+);
+
+/** Pemakaian aset per bulan (metode unit produksi): dasar penyusutan bulan itu */
+export const assetUsage = pgTable(
+  'asset_usage',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    assetId: uuid('asset_id')
+      .notNull()
+      .references(() => fixedAssets.id, { onDelete: 'cascade' }),
+    period: text('period').notNull(),
+    units: numeric('units', { precision: 18, scale: 4 }).notNull(),
+    note: text('note'),
+    createdById: uuid('created_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('asset_usage_asset_period_uq').on(t.assetId, t.period)],
 );
 
 /** Baris buku tambahan untuk satu mutasi bank (pencocokan satu-ke-banyak); baris buku pertama tetap di bank_statement_lines.journal_line_id */

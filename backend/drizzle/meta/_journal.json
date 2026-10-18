@@ -603,6 +603,13 @@
       "when": 1795718286484,
       "tag": "0085_ubah_metode_penyusutan",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1795804686484,
+      "tag": "0086_unit_produksi",
+      "breakpoints": true
     }
   ]
 }

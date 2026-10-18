@@ -179,13 +179,14 @@ export const LEGAL_FORM_LABELS: Record<LegalForm, string> = {
 };
 
 // ---------- Aset tetap ----------
-export const DEPRECIATION_METHODS = ['STRAIGHT_LINE', 'DECLINING_BALANCE', 'DECLINING_BALANCE_150', 'SUM_OF_YEARS', 'NONE'] as const;
+export const DEPRECIATION_METHODS = ['STRAIGHT_LINE', 'DECLINING_BALANCE', 'DECLINING_BALANCE_150', 'SUM_OF_YEARS', 'UNITS_OF_PRODUCTION', 'NONE'] as const;
 export type DepreciationMethod = (typeof DEPRECIATION_METHODS)[number];
 export const DEPRECIATION_METHOD_LABELS: Record<DepreciationMethod, string> = {
   STRAIGHT_LINE: 'Garis lurus',
   DECLINING_BALANCE: 'Saldo menurun ganda (2×)',
   DECLINING_BALANCE_150: 'Saldo menurun 1,5×',
   SUM_OF_YEARS: 'Jumlah angka tahun',
+  UNITS_OF_PRODUCTION: 'Unit produksi (menurut pemakaian)',
   NONE: 'Tidak disusutkan (tanah)',
 };
 

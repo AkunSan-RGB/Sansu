@@ -1411,6 +1411,9 @@ export interface FixedAsset {
   residualValue: string;
   usefulLifeMonths: number;
   method: string;
+  /** Metode unit produksi: kapasitas total dan satuannya */
+  totalUnits?: string | null;
+  unitLabel?: string | null;
   openingAccumulated: string;
   location: string | null;
   /** Penanggung jawab aset */
