@@ -376,6 +376,10 @@ export class CashService {
         const names = [...new Set(verify.map((l) => cashInSource((l as { sourceKey?: string }).sourceKey)!.label))].join(', ');
         void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER', 'ACCOUNTANT'], excludeUserId: user.sub, title: `Kas masuk non-penjualan ${number}: ${names} Rp${amount.toNumber().toLocaleString('id-ID')}`, lines: [dto.description, dto.reference ? `Bukti: ${dto.reference}` : ''], path: '/cash' });
       }
+      // Real-time ke Keuangan: setiap uang masuk di luar penjualan (kas masuk) dikabarkan lewat Telegram agar tidak terlewat
+      if (dto.type === 'IN') {
+        void this.approvals.notifyRoles(user.tenantId, { roles: ['FINANCE'], excludeUserId: user.sub, info: true, title: `Uang masuk non-penjualan ${number}: Rp${amount.toNumber().toLocaleString('id-ID')}`, lines: [dto.description, dto.reference ? `Bukti: ${dto.reference}` : ''], path: '/cash' });
+      }
       return { ...trx, journalNumber: journal.number };
     };
     return opts.tx ? run(opts.tx) : this.db.transaction(run);

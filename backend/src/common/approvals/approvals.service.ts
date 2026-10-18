@@ -109,17 +109,17 @@ export class ApprovalsService {
    * Beri tahu pengguna berperan tertentu bahwa ada proses yang menunggu tindakan mereka (Telegram bila terhubung, email bila dikonfigurasi).
    * Pelaku proses (`excludeUserId`) tidak diberi tahu: dia bukan yang memutuskan (pemisahan fungsi). Gagal kirim tidak menggagalkan proses.
    */
-  async notifyRoles(tenantId: string, p: { roles: readonly Role[]; excludeUserId?: string; title: string; lines?: string[]; path: string }) {
+  async notifyRoles(tenantId: string, p: { roles: readonly Role[]; excludeUserId?: string; title: string; lines?: string[]; path: string; info?: boolean }) {
     try {
       const to = await this.db
         .select({ id: users.id, email: users.email })
         .from(users)
         .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, [...p.roles]), p.excludeUserId ? ne(users.id, p.excludeUserId) : undefined));
       const url = `${appUrl()}${p.path}`;
-      await this.telegram.notifyUsers(to.map((t) => t.id), `🔔 Menunggu tindakan Anda\n${p.title}\n${(p.lines ?? []).join('\n')}\n${url}`);
+      await this.telegram.notifyUsers(to.map((t) => t.id), `${p.info ? 'ℹ️ Pemberitahuan' : '🔔 Menunggu tindakan Anda'}\n${p.title}\n${(p.lines ?? []).join('\n')}\n${url}`);
       if (!this.mail.configured) return;
       for (const t of to) {
-        await this.mail.send({ to: t.email, subject: `Menunggu tindakan Anda: ${p.title}`, heading: 'Menunggu tindakan Anda', paragraphs: [p.title, ...(p.lines ?? [])], action: { label: 'Buka SANSU', url } });
+        await this.mail.send({ to: t.email, subject: `${p.info ? 'Pemberitahuan' : 'Menunggu tindakan Anda'}: ${p.title}`, heading: p.info ? 'Pemberitahuan' : 'Menunggu tindakan Anda', paragraphs: [p.title, ...(p.lines ?? [])], action: { label: 'Buka SANSU', url } });
       }
     } catch (e) {
       this.logger.warn(`Notifikasi proses gagal: ${(e as Error).message}`);

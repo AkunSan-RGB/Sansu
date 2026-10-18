@@ -223,6 +223,13 @@ export class BankService {
       await this.autoMatchTx(tx, user.tenantId, st.id);
       const byRule = await this.applyRules(tx, user, st.id);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'IMPORT', entity: 'BankStatement', entityId: st.id, data: { lines: fresh.length, skippedDuplicates: skipped, byRule } });
+      // Uang masuk di rekening yang belum cocok dengan pembayaran mana pun: Keuangan langsung diberi tahu (tidak menunggu membuka halaman Bank)
+      const open = (await tx.execute<{ n: number; total: string }>(sql`
+        SELECT COUNT(*)::int AS n, COALESCE(SUM(amount), 0) AS total FROM bank_statement_lines
+        WHERE statement_id = ${st.id} AND tenant_id = ${user.tenantId} AND amount > 0 AND status = 'UNMATCHED'`)).rows[0];
+      if (open && open.n > 0) {
+        void this.approvals.notifyRoles(user.tenantId, { roles: ['FINANCE'], excludeUserId: user.sub, info: true, title: `${open.n} uang masuk di rekening belum jelas sumbernya: Rp${D(open.total).toNumber().toLocaleString('id-ID')}`, lines: ['Cocokkan dengan pembayaran faktur atau pilih sumber uangnya.'], path: '/bank' });
+      }
       return st.id;
     });
     return { ...(await this.get(user.tenantId, id)), skippedDuplicates: skipped };
@@ -425,6 +432,9 @@ export class BankService {
       }
       if (!accountId) throw new BadRequestException('Pilih akun lawan');
       const j = await this.postFromLine(tx, user, l, st, accountId, dto.description, 'CREATED');
+      if (D(l.amount).gt(0)) {
+        void this.approvals.notifyRoles(user.tenantId, { roles: ['FINANCE'], excludeUserId: user.sub, info: true, title: `Uang masuk bank non-penjualan dicatat: Rp${D(l.amount).toNumber().toLocaleString('id-ID')}`, lines: [l.description], path: '/bank' });
+      }
       if (dto.source && CASH_IN_SOURCES_TO_VERIFY.includes(dto.source)) {
         void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER', 'ACCOUNTANT'], excludeUserId: user.sub, title: `Uang masuk bank non-penjualan: ${cashInSource(dto.source)!.label} Rp${D(l.amount).toNumber().toLocaleString('id-ID')}`, lines: [l.description], path: '/bank' });
       }
