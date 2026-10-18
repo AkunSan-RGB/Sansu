@@ -43,6 +43,7 @@ export const PAGE_HINTS: Record<string, string> = {
   '/suppliers': 'Data pemasok: kontak dan termin pembayaran.',
   '/shopping-list': 'Daftar bahan yang perlu dibeli hari ini, lengkap dengan harga terakhir.',
   '/price-agreements': 'Harga yang disepakati dengan pemasok; pesanan di atas harga ini ditahan.',
+  '/inventory-controls': 'Peringatan persediaan yang janggal: penyesuaian stok besar atau berulang, selisih opname, gudang lama tidak dihitung, transfer menggantung.',
   '/sales-controls': 'Peringatan penjualan yang janggal: pesanan atau surat jalan dibatalkan, diskon besar, barang keluar belum ditagih.',
   '/purchase-controls': 'Peringatan pembelian yang janggal: harga naik, barang belum ditagih, dan sejenisnya.',
 

@@ -56,6 +56,17 @@ export class TaskInboxService {
           WHERE tenant_id = ${u.tenantId} AND status = 'SUBMITTED' AND requested_by_id IS DISTINCT FROM ${u.sub}`));
       }
     }
+    if (is(['WAREHOUSE', 'ADMIN']) && on.has('inventory')) {
+      add('count-stale', '/inventory/counts', (n) => `${n} gudang belum diopname lebih dari 35 hari`, 'Jadwalkan hitung fisik (stock opname)', await this.one(sql`
+        SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - COALESCE(l.last, CURRENT_DATE - 35)), 0)::int AS oldest FROM (
+          SELECT w.id, MAX(c.posted_at)::date AS last FROM warehouses w LEFT JOIN stock_counts c ON c.warehouse_id = w.id AND c.status = 'POSTED'
+          WHERE w.tenant_id = ${u.tenantId} AND w.kind = 'MAIN' AND EXISTS (SELECT 1 FROM stock_balances b WHERE b.warehouse_id = w.id AND b.qty > 0)
+            AND EXISTS (SELECT 1 FROM stock_moves m WHERE m.warehouse_id = w.id AND m.date <= CURRENT_DATE - 35)
+          GROUP BY w.id HAVING MAX(c.posted_at) IS NULL OR MAX(c.posted_at)::date < CURRENT_DATE - 35) l`));
+      add('transfer-stuck', '/inventory/transfers', (n) => `${n} transfer gudang belum diterima lebih dari 3 hari`, 'Konfirmasi ke gudang tujuan atau batalkan', await this.one(sql`
+        SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - date), 0)::int AS oldest FROM stock_transfers
+        WHERE tenant_id = ${u.tenantId} AND status = 'IN_TRANSIT' AND date <= CURRENT_DATE - 3`));
+    }
     if (is(['WAREHOUSE', 'ADMIN']) && on.has('sales')) {
       add('so-awaiting-delivery', '/sales-orders?status=CONFIRMED', (n) => `${n} pesanan penjualan menunggu dikirim`, 'Siapkan, hitung, lalu catat surat jalan', await this.one(sql`
         SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - o.date), 0)::int AS oldest FROM sales_orders o

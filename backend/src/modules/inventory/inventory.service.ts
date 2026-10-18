@@ -174,7 +174,15 @@ export class InventoryService {
     // dipakai juga oleh impor data (satu transaksi untuk seluruh file)
     if (outerTx) return run(outerTx);
     try {
-      return await this.db.transaction(run);
+      const out = await this.db.transaction(run);
+      // Pemilik diberi tahu bila penyesuaian stok keluar bernilai besar (kecuali saldo awal / oleh Pemilik sendiri)
+      if (dto.reason !== 'OPENING' && user.role !== 'OWNER') {
+        const pol = await this.approvals.policy(this.db, user.tenantId);
+        if (pol.stockAlertValue > 0 && Number(out.valueOut) >= pol.stockAlertValue) {
+          void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER'], excludeUserId: user.sub, info: true, title: `⚠ Penyesuaian stok keluar ${out.number} bernilai besar (Rp${Number(out.valueOut).toLocaleString('id-ID')})`, lines: [`Alasan: ${dto.reason}${dto.notes ? ` — ${dto.notes}` : ''}`], path: '/inventory' });
+        }
+      }
+      return out;
     } catch (e) {
       if (gate && (e as Error).message === 'STOCK_ADJUSTMENT_NEEDS_APPROVAL') {
         const g = gate as { limit: number; total: number };

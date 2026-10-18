@@ -24,6 +24,7 @@ import { PurchaseInvoicesService } from '../purchasing/purchase-invoices.service
 import { SuppliersService } from '../purchasing/suppliers.service';
 import { SalesOrdersService } from '../sales/orders/sales-orders.service';
 import { PaymentsService } from '../sales/payments/payments.service';
+import { WarehouseOpsService } from '../inventory/warehouse-ops';
 import { ReturnsService } from '../returns/returns.service';
 import { CustomersService } from '../master-data/customers/customers.service';
 import { CreatePurchaseInvoiceDto } from '../purchasing/purchasing.dto';
@@ -60,6 +61,9 @@ class PolicyDto implements Partial<ApprovalPolicy> {
   @ApiPropertyOptional({ description: 'Retur penjualan bernilai ≥ ini oleh staf perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) salesReturn?: number;
   @ApiPropertyOptional({ description: 'Harga jual di bawah harga pokok rata-rata perlu persetujuan' }) @IsOptional() @IsBoolean() salesBelowCost?: boolean;
   @ApiPropertyOptional({ description: 'Pembayaran/retur atas faktur oleh pembuat fakturnya sendiri perlu persetujuan' }) @IsOptional() @IsBoolean() salesSeparateDuties?: boolean;
+  @ApiPropertyOptional({ description: 'Pemilik diberi tahu bila penyesuaian stok keluar / selisih opname bernilai ≥ ini; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) stockAlertValue?: number;
+  @ApiPropertyOptional({ description: 'Yang mengisi jumlah fisik opname tidak boleh memposting selisihnya' }) @IsOptional() @IsBoolean() stockCountSod?: boolean;
+  @ApiPropertyOptional({ description: 'Opname buta: penghitung tidak melihat stok sistem' }) @IsOptional() @IsBoolean() blindCount?: boolean;
   @ApiPropertyOptional({ description: 'Pembayaran ke supplier yang rekeningnya baru diubah (hari terakhir) wajib disetujui; 0 = nonaktif' }) @IsOptional() @IsInt() @Min(0) @Max(60) bankChangeHoldDays?: number;
   @ApiPropertyOptional({ description: 'Masa berlaku tautan persetujuan lewat Telegram (jam, 1–72)' }) @IsOptional() @IsInt() @Min(1) @Max(72) telegramLinkHours?: number;
 }
@@ -84,6 +88,7 @@ export class ApprovalRequestsService {
     private readonly suppliers: SuppliersService,
     private readonly salesOrders: SalesOrdersService,
     private readonly paymentsSvc: PaymentsService,
+    private readonly warehouseOps: WarehouseOpsService,
     private readonly returnsSvc: ReturnsService,
     private readonly customersSvc: CustomersService,
     private readonly accounting: AccountingService,
@@ -175,6 +180,9 @@ export class ApprovalRequestsService {
       } else if (req.kind === 'SALES_ORDER') {
         const so = await this.salesOrders.confirm(user, req.refId!);
         resultRef = so.number;
+      } else if (req.kind === 'STOCK_COUNT') {
+        const r = await this.warehouseOps.postCount(user, req.refId!, { approved: true });
+        resultRef = (r as { adjustmentNumber?: string | null }).adjustmentNumber ?? undefined;
       } else if (req.kind === 'CUSTOMER_PAYMENT') {
         const pay = await this.paymentsSvc.create({ ...user, sub: req.requestedById }, req.payload as never, { approved: true });
         resultRef = (pay as { number?: string }).number;

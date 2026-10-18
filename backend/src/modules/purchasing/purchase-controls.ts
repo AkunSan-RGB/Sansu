@@ -23,8 +23,7 @@ const list = (rows: string[]) => rows.slice(0, 6).join(', ') + (rows.length > 6 
 
 /**
  * Temuan kontrol pembelian & stok (anti-fraud) untuk 60 hari terakhir: PO dipecah di bawah batas persetujuan,
- * pembayaran akhir pekan, supplier baru langsung dibayar, penyesuaian stok keluar berulang,
- * barang diterima lama belum ditagih, pembayaran yang dibatalkan, dan harga faktur yang disetujui di atas toleransi.
+ * pembayaran akhir pekan, supplier baru langsung dibayar, barang diterima lama belum ditagih, pembayaran yang dibatalkan, dan harga faktur yang disetujui di atas toleransi.
  */
 @Injectable()
 export class PurchaseControlsService {
@@ -77,17 +76,6 @@ export class PurchaseControlsService {
       JOIN LATERAL (SELECT MIN(p.date) AS d FROM supplier_payments p WHERE p.supplier_id = s.id AND p.status = 'POSTED') f ON f.d IS NOT NULL
       WHERE s.tenant_id = ${tenantId} AND f.d >= ${since} AND f.d::date - s.created_at::date <= 14`);
     add('NEW_SUPPLIER_PAID', 'warning', 'Supplier baru langsung dibayar', fresh.rows.map((r) => `${r.code} ${r.name}`), 'Pemasok fiktif biasanya dibuat lalu cepat dibayar. Pastikan pemasok & barangnya nyata (NPWP, kontak, bukti terima).');
-
-    // 4. Penyesuaian stok keluar (di luar stock opname) berulang di satu gudang dalam 30 hari (tidak relevan untuk jasa)
-    if (cp.adjOutRepeat !== null) {
-    const adj = await this.db.execute<{ wh: string; n: number }>(sql`
-      SELECT w.name AS wh, COUNT(DISTINCT m.ref_id)::int AS n
-      FROM stock_moves m JOIN warehouses w ON w.id = m.warehouse_id
-      WHERE m.tenant_id = ${tenantId} AND m.type = 'ADJUSTMENT_OUT' AND m.ref_type = 'STOCK_ADJUSTMENT' AND m.date >= ${addDays(today, -30)}
-        AND NOT EXISTS (SELECT 1 FROM stock_counts c WHERE c.tenant_id = ${tenantId} AND c.adjustment_number = m.ref_number)
-      GROUP BY w.name HAVING COUNT(DISTINCT m.ref_id) >= ${cp.adjOutRepeat}`);
-    add('ADJ_OUT_REPEAT', 'warning', 'Penyesuaian stok keluar berulang', adj.rows.map((r) => `${r.wh}: ${r.n} kali`), 'Stok dikurangi lewat penyesuaian (bukan opname) berulang kali dalam 30 hari — salah satu modus pencurian barang. Tinjau alasan & pelakunya.');
-    }
 
     // 6. Barang diterima belum ditagih pemasok (ambang menurut jenis usaha; tidak relevan untuk jasa)
     if (cp.grniDays !== null) {

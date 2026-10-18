@@ -63,7 +63,7 @@ function CashControlCard() {
 
 /** Batas nilai yang memerlukan persetujuan pemilik / admin (0 = nonaktif) */
 function ApprovalPolicyCard() {
-  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; blindReceiving: boolean; blindDelivery: boolean; salesOrder: number; salesDiscountMaxPct: number; salesReturn: number; salesBelowCost: boolean; salesSeparateDuties: boolean; bankChangeHoldDays: number; budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK'; telegramLinkHours: number };
+  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; blindReceiving: boolean; blindDelivery: boolean; salesOrder: number; salesDiscountMaxPct: number; salesReturn: number; salesBelowCost: boolean; salesSeparateDuties: boolean; stockAlertValue: number; stockCountSod: boolean; blindCount: boolean; bankChangeHoldDays: number; budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK'; telegramLinkHours: number };
   const [form] = Form.useForm<Policy>();
   const policy = useQuery({ queryKey: ['approvals', 'policy'], queryFn: () => get<Policy>('/approvals/policy') });
   useEffect(() => {
@@ -122,6 +122,15 @@ function ApprovalPolicyCard() {
         <Form.Item name="salesSeparateDuties" label="Pemisahan fungsi penjualan (pembuat faktur ≠ pencatat pembayaran/retur)" valuePropName="checked" extra="Bila menyala, pembayaran pelanggan atau retur atas faktur oleh orang yang membuat faktur itu sendiri (selain Pemilik/Admin) menunggu persetujuan. Cocok bila ada lebih dari satu Keuangan; bila hanya satu Keuangan, semua pembayaran akan menunggu persetujuan.">
           <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
         </Form.Item>
+        <Form.Item name="stockAlertValue" label="Beri tahu Pemilik bila penyesuaian stok keluar / selisih opname mulai dari" extra="Pemilik menerima Telegram/email saat penyesuaian stok keluar atau selisih stock opname bernilai di atas ini (kecuali ia sendiri pelakunya). Bawaan Rp5 juta; 0 = tidak diberi tahu.">
+          <InputNumber min={0} step={1_000_000} style={{ width: '100%' }} prefix="Rp" />
+        </Form.Item>
+        <Form.Item name="stockCountSod" label="Penghitung ≠ pemosting selisih opname" valuePropName="checked" extra="Yang mengisi jumlah fisik opname tidak boleh memposting selisihnya sendiri (selain Pemilik). Nyalakan bila ada lebih dari satu Admin/Keuangan.">
+          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
+        </Form.Item>
+        <Form.Item name="blindCount" label="Opname buta (penghitung tidak melihat stok sistem)" valuePropName="checked" extra="Gudang yang menghitung tidak melihat stok sistem selama opname berjalan, sehingga tidak sekadar menyalin angka sistem.">
+          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
+        </Form.Item>
         <Form.Item name="blindDelivery" label="Pengiriman buta (Gudang mengisi jumlah kemas sendiri)" valuePropName="checked" extra="Gudang tidak melihat jumlah pesanan dan wajib mengisi jumlah yang dikemas. Bila tidak sama dengan pesanan, pengiriman ditahan dan Penjualan, Admin, dan Pemilik diberi tahu.">
           <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
         </Form.Item>
@@ -137,7 +146,7 @@ function ApprovalPolicyCard() {
         <Form.Item name="cashOut" label="Kas keluar / transfer dengan nilai mulai dari" extra="Uang keluar oleh staf (selain pemilik dan admin) di atas batas, termasuk pembayaran ke supplier, menunggu persetujuan lalu diposting setelah disetujui. 0 = tidak perlu persetujuan.">
           <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
         </Form.Item>
-        <Form.Item name="stockAdjustment" label="Penyesuaian stok bernilai mulai dari" extra="Penyesuaian stok (masuk + keluar) oleh Gudang di atas batas menunggu persetujuan; stok berubah setelah disetujui. 0 = tidak perlu persetujuan.">
+        <Form.Item name="stockAdjustment" label="Penyesuaian stok / selisih opname bernilai mulai dari" extra="Penyesuaian stok (masuk + keluar) dan selisih stock opname oleh Gudang di atas batas menunggu persetujuan; stok berubah setelah disetujui. 0 = tidak perlu persetujuan.">
           <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
         </Form.Item>
         <Form.Item name="assetDisposal" label="Pelepasan aset tetap dengan harga perolehan mulai dari" extra="Penjualan/penghapusan aset oleh staf (selain pemilik dan admin) menunggu persetujuan. 0 = tidak perlu persetujuan.">
