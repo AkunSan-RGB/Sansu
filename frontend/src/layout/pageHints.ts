@@ -63,7 +63,7 @@ export const PAGE_HINTS: Record<string, string> = {
   '/production/report': 'Harga pokok produksi per barang jadi.',
   '/production/variance': 'Selisih antara biaya standar dan biaya sebenarnya produksi.',
 
-  '/cash': 'Catat uang yang masuk dan keluar di kas dan rekening bank, lengkap dengan saldonya. Mulai dari sini setiap hari.',
+  '/cash': 'Catat uang yang masuk dan keluar di kas dan rekening bank, lengkap dengan saldonya. Kas kecil dan hitung uang kas ada di tab di atas.',
   '/petty-cash': 'Uang tunai kecil untuk pengeluaran harian (bensin, ATK, konsumsi): isi ulang dan catat buktinya.',
   '/bank': 'Unggah mutasi rekening bank lalu cocokkan satu per satu dengan catatan di SANSU. Lakukan tiap bulan.',
   '/cash/counts': 'Hitung uang tunai yang benar-benar ada di laci atau brankas, lalu cocokkan dengan saldo di sistem. Selisih tercatat.',
