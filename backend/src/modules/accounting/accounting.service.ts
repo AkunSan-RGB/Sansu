@@ -329,7 +329,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       const totalD = dto.lines.reduce<Dec>((s, l) => s.plus(money(D(l.debit))), ZERO);
       const totalC = dto.lines.reduce<Dec>((s, l) => s.plus(money(D(l.credit))), ZERO);
       const diff = totalD.minus(totalC);
-      return this.posting.post(tx, {
+      const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
         date,
         description: 'Saldo awal akun',
@@ -340,8 +340,15 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
           { key: SYS.OPENING_EQUITY, credit: diff.gt(0) ? diff : 0, debit: diff.lt(0) ? diff.abs() : 0 },
         ],
       });
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'OpeningBalance', entityId: journal.id, data: { date, debit: totalD.toFixed(2), credit: totalC.toFixed(2), balancing: diff.negated().toFixed(2) } });
+      return Object.assign(journal, { _balancing: diff.negated().toFixed(2), _total: ZERO.plus(totalD.gt(totalC) ? totalD : totalC).toFixed(2) });
     };
-    return outerTx ? run(outerTx) : this.db.transaction(run);
+    const res = outerTx ? await run(outerTx) : await this.db.transaction(run);
+    // Saldo awal mengubah seluruh neraca: Pemilik diberi tahu bila dicatat orang lain (impor massal memakai transaksi luar dan tidak memberi tahu)
+    if (!outerTx && user.role !== 'OWNER') {
+      void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER'], excludeUserId: user.sub, info: true, title: `Saldo awal dicatat per ${date}`, lines: [`Total Rp${Math.round(Number(res._total)).toLocaleString('id-ID')} · penyeimbang Ekuitas Saldo Awal Rp${Math.round(Number(res._balancing)).toLocaleString('id-ID')}`, 'Saldo awal mengubah seluruh neraca; pastikan angkanya sesuai neraca penutup sistem lama.'], path: '/opening-balance' });
+    }
+    return res;
   }
 
   /**
