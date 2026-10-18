@@ -17,7 +17,7 @@ interface Agreement {
   lastPrice: string | null; overLastPct: number | null; suspicious: boolean;
 }
 const STATUS = { PENDING: { color: 'gold', text: 'Menunggu persetujuan' }, ACTIVE: { color: 'green', text: 'Berlaku' }, REJECTED: { color: 'red', text: 'Ditolak' }, ENDED: { color: 'default', text: 'Berakhir' } };
-const TITLE = { FMCG: 'Kontrak harga prinsipal', FNB: 'Harga pemasok bahan', MANUFAKTUR: 'Kontrak harga bahan baku', DAGANG: 'Kontrak harga pemasok', RITEL: 'Kontrak harga pemasok', JASA: 'Kontrak harga pemasok' } as const;
+const TITLE = { FMCG: 'Kontrak harga prinsipal', FNB: 'Harga pemasok bahan', MANUFAKTUR: 'Kontrak harga bahan baku', DAGANG: 'Kontrak harga pemasok', RITEL: 'Kontrak harga pemasok', JASA: 'Kontrak harga pemasok', UTILITAS: 'Kontrak harga pemasok' } as const;
 
 /** Harga yang disepakati per barang dari pemasok/prinsipal untuk periode tertentu; PO di atas harga ini ditahan */
 export default function PriceAgreementsPage() {

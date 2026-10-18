@@ -35,7 +35,7 @@ function RosterTab() {
   const from = week.format('YYYY-MM-DD');
   const to = week.add(6, 'day').format('YYYY-MM-DD');
   const { data: tpls } = useQuery({ queryKey: ['shift-tpls'], queryFn: () => get<Tpl[]>('/shifts/templates') });
-  const { data: emps } = useQuery({ queryKey: ['employees'], queryFn: () => get<Emp[]>('/hr/employees') });
+  const { data: emps } = useQuery({ queryKey: ['employees'], queryFn: () => get<Emp[]>('/shifts/staff') });
   const roster = useQuery({ queryKey: ['shift-roster', from], queryFn: () => get<Roster>(`/shifts/roster?from=${from}&to=${to}`) });
   const [cell, setCell] = useState<{ employeeId: string; date: string } | null>(null);
   const [pick, setPick] = useState<string | undefined>();

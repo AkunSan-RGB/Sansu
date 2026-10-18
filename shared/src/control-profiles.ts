@@ -33,6 +33,8 @@ export const CONTROL_PROFILES: Record<BusinessModel, ControlProfile> = {
   MANUFAKTUR: { bankOutDays: 3, bankInDays: 7, bookNotInBankDays: 30, branchNoSalesDays: 45, branchMarginGapPts: 15, deliveryNotBilledDays: 14, grniDays: 60, adjOutRepeat: 4, posOpenHours: 30 },
   // F&B: bahan cepat habis/basi, penjualan harian lewat kasir, shift kasir pendek; penyesuaian stok (bahan terbuang) lebih sering wajar
   FNB: { bankOutDays: 2, bankInDays: 3, bookNotInBankDays: 14, branchNoSalesDays: 3, branchMarginGapPts: 12, deliveryNotBilledDays: null, grniDays: 7, adjOutRepeat: 5, posOpenHours: 20 },
+  // Utilitas: tagihan berkala ke ribuan sambungan; tunggakan dan penyambungan kembali harus cepat terlihat, tidak ada kasir/pengiriman
+  UTILITAS: { bankOutDays: 3, bankInDays: 5, bookNotInBankDays: 14, branchNoSalesDays: 30, branchMarginGapPts: 15, deliveryNotBilledDays: null, grniDays: 30, adjOutRepeat: 4, posOpenHours: 30 },
   JASA: { bankOutDays: 5, bankInDays: 14, bookNotInBankDays: 30, branchNoSalesDays: 60, branchMarginGapPts: 25, deliveryNotBilledDays: null, grniDays: null, adjOutRepeat: null, posOpenHours: 30 },
 };
 
@@ -40,6 +42,7 @@ export const CONTROL_PROFILES: Record<BusinessModel, ControlProfile> = {
 export const BUDGET_SUGGESTED_CODES: Record<BusinessModel, string[]> = {
   RITEL: ['4-1000', '5-1000', '5-1300', '6-1000', '6-1100', '6-3000', '6-4000', '6-2100', '6-2450', '6-2500', '6-2600', '6-7000', '6-6000', '8-1100'],
   DAGANG: ['4-1000', '5-1000', '5-1100', '6-1000', '6-1100', '6-3000', '6-4000', '6-2000', '6-2100', '6-2300', '6-2350', '6-7000', '6-7100', '8-1100'],
+  UTILITAS: ['4-2300', '4-2310', '4-2320', '4-2330', '5-1550', '5-1560', '6-1000', '6-1100', '6-3000', '6-4000', '6-2000', '6-7000', '6-7100', '8-1100'],
   JASA: ['4-2000', '4-2100', '5-1500', '5-1600', '5-1700', '5-1800', '5-1900', '6-1000', '6-1100', '6-3000', '6-4000', '6-3600', '6-3700', '6-3800', '6-7200', '8-1100'],
   FMCG: ['4-1000', '4-1200', '5-1000', '6-1000', '6-1100', '6-3000', '6-4000', '6-2100', '6-2150', '6-2160', '6-2200', '6-2700', '6-7000', '8-1100'],
   MANUFAKTUR: ['4-1000', '5-1000', '5-4100', '5-4200', '5-4300', '5-4500', '5-4600', '5-4700', '5-4950', '6-1000', '6-1100', '6-3000', '6-4000', '6-2700', '6-7000', '8-1100'],
@@ -63,6 +66,7 @@ const COMMON_RULES: DefaultBankRule[] = [
 export const DEFAULT_BANK_RULES: Record<BusinessModel, DefaultBankRule[]> = {
   RITEL: [...COMMON_RULES, { name: 'Biaya MDR QRIS / kartu', keyword: 'MDR', direction: 'OUT', accountCode: '6-2450', maxAmount: 5_000_000 }, { name: 'Biaya QRIS', keyword: 'BIAYA QRIS', direction: 'OUT', accountCode: '6-2450', maxAmount: 5_000_000 }],
   DAGANG: COMMON_RULES,
+  UTILITAS: [...COMMON_RULES, { name: 'Pembelian listrik (PLN) untuk operasional', keyword: 'PLN', direction: 'OUT', accountCode: '5-1560', maxAmount: 50_000_000 }, { name: 'Pembelian air baku', keyword: 'AIR BAKU', direction: 'OUT', accountCode: '5-1550', maxAmount: 50_000_000 }],
   JASA: [...COMMON_RULES, { name: 'Langganan perangkat lunak', keyword: 'SUBSCRIPTION', direction: 'OUT', accountCode: '6-3700', maxAmount: 3_000_000 }],
   FMCG: [...COMMON_RULES, { name: 'Ongkos kirim ekspedisi', keyword: 'EKSPEDISI', direction: 'OUT', accountCode: '6-2700', maxAmount: 25_000_000 }],
   MANUFAKTUR: [...COMMON_RULES, { name: 'Listrik pabrik (PLN)', keyword: 'PLN', direction: 'OUT', accountCode: '5-4500', maxAmount: 10_000_000 }],

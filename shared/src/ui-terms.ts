@@ -24,6 +24,19 @@ const TERMS: Record<BusinessModel, Terms> = {
     ],
     exact: {},
   },
+  UTILITAS: {
+    words: [
+      ['Faktur & piutang', 'Tagihan & piutang'],
+      ['Penjualan bulan ini', 'Pendapatan layanan bulan ini'],
+      ['Faktur terbaru', 'Tagihan terbaru'],
+      ['Nilai persediaan', 'Nilai bahan jaringan'],
+      ['Sales Order', 'Pesanan pasang baru'],
+      ['Supplier', 'Pemasok'],
+      ['Produk', 'Layanan & bahan'],
+      ['Gudang', 'Gudang bahan'],
+    ],
+    exact: { Penjualan: 'Layanan & penagihan', Faktur: 'Tagihan', Pelanggan: 'Pelanggan', Retur: 'Retur bahan', 'Retur penjualan': 'Retur bahan dari pelanggan', 'Retur Penjualan': 'Retur bahan dari pelanggan' },
+  },
   JASA: {
     words: [
       ['Faktur & piutang', 'Tagihan & piutang'],

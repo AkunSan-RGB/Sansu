@@ -13,6 +13,7 @@ import {
   ShoppingCartOutlined,
   TeamOutlined,
   WalletOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { APP_BY_KEY, type AppKey, canUseApp } from '@sansu/shared';
 import type { ReactNode } from 'react';
@@ -28,6 +29,7 @@ export const APP_ICONS: Record<AppKey | 'dashboard' | 'settings' | 'apps' | 'tax
   crm: <FundProjectionScreenOutlined />,
   hr: <TeamOutlined />,
   payroll: <BankOutlined />,
+  utility: <ThunderboltOutlined />,
   dashboard: <BarChartOutlined />,
   settings: <SettingOutlined />,
   apps: <AppstoreOutlined />,

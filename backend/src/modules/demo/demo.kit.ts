@@ -39,6 +39,7 @@ import { PaymentsService } from '../sales/payments/payments.service';
 import { documentTotals } from '../sales/pricing';
 import { ServiceBillingService } from '../sales/services/service-billing';
 import { PricingService } from '../sales/pricing/price-lists';
+import { UtilityService } from '../utility/utility.module';
 
 /** Alat bantu bersama untuk semua data contoh: semua transaksi lewat service aplikasi (bukan insert mentah) agar jurnal & laporan konsisten */
 export interface Demo {
@@ -83,6 +84,7 @@ export interface Demo {
     petty: PettyCashService;
     writedown: WritedownService;
     cashCount: CashCountService;
+    utility: UtilityService;
   };
   acc: (code: string) => string;
   kas: string;
@@ -113,6 +115,7 @@ const PROFILE: Record<BusinessModel, { activity: string; address: string; city: 
   JASA: { activity: 'jasa konsultasi teknologi informasi dan desain digital', address: 'Gedung Graha Mitra Lt. 5, Jl. Gatot Subroto Kav. 21, Jakarta', city: 'Jakarta' },
   FMCG: { activity: 'distribusi barang konsumen cepat laku (makanan, minuman, perawatan, rumah tangga) ke toko dan minimarket', address: 'Kawasan Pergudangan Cibitung Blok D-12, Bekasi', city: 'Bekasi' },
   MANUFAKTUR: { activity: 'manufaktur furnitur kayu (meja, kursi, lemari)', address: 'Kawasan Industri Jepara Blok F-3, Jawa Tengah', city: 'Jepara' },
+  UTILITAS: { activity: 'penyediaan air bersih dan internet berlangganan untuk kawasan perumahan', address: 'Jl. Tirta Kencana No. 5, Sleman', city: 'Sleman' },
   FNB: { activity: 'kafe dan kedai makan (kopi, minuman, nasi, mi, dan roti)', address: 'Jl. Braga No. 88, Bandung', city: 'Bandung' },
 };
 
@@ -123,6 +126,7 @@ const APPS_BY_MODEL: Record<BusinessModel, ('pos' | 'crm' | 'payroll')[]> = {
   FMCG: ['payroll', 'crm'],
   MANUFAKTUR: ['payroll', 'crm'],
   FNB: ['pos', 'payroll'],
+  UTILITAS: ['payroll', 'crm'],
 };
 
 export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: BusinessModel): Promise<Demo> {
@@ -190,6 +194,7 @@ export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: 
       petty: get(PettyCashService),
       writedown: get(WritedownService),
       cashCount: get(CashCountService),
+      utility: get(UtilityService),
     },
     acc: (code) => acc.get(code)!,
     kas: acc.get('1-1100')!,

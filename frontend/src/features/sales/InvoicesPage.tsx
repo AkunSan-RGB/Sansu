@@ -50,7 +50,7 @@ export default function InvoicesPage() {
         extra={
           me?.businessModel === 'RITEL' || !can('POST', '/services/invoices') ? undefined : (
             <Button icon={<PlusOutlined />} onClick={() => navigate('/invoices/services/new')}>
-              {me?.businessModel === 'JASA' ? 'Tagihan jasa' : 'Faktur jasa'}
+              {me?.businessModel === 'JASA' ? 'Tagihan jasa' : me?.businessModel === 'UTILITAS' ? 'Tagihan layanan' : 'Faktur jasa'}
             </Button>
           )
         }

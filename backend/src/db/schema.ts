@@ -3577,3 +3577,114 @@ export const shiftAssignments = pgTable(
   },
   (t) => [uniqueIndex('shift_assignments_uq').on(t.employeeId, t.workDate, t.templateId), index('shift_assignments_date_idx').on(t.tenantId, t.workDate)],
 );
+
+// ---------- Utilitas (air, listrik, internet) ----------
+export const utilityTariffs = pgTable(
+  'utility_tariffs',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    name: text('name').notNull(),
+    serviceType: text('service_type').$type<'AIR' | 'LISTRIK' | 'INTERNET' | 'GAS' | 'TV_KABEL' | 'KEBERSIHAN'>().notNull(),
+    unit: text('unit').notNull(),
+    metered: boolean('metered').notNull().default(true),
+    fixedFee: money('fixed_fee').notNull().default('0'),
+    adminFee: money('admin_fee').notNull().default('0'),
+    minUsage: numeric('min_usage', { precision: 18, scale: 4 }).notNull().default('0'),
+    blocks: jsonb('blocks').$type<{ upTo: number | null; price: number }[]>().notNull().default([]),
+    vatable: boolean('vatable').notNull().default(false),
+    isActive: boolean('is_active').notNull().default(true),
+    createdById: uuid('created_by_id').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('utility_tariffs_name_uq').on(t.tenantId, t.name)],
+);
+
+export const utilityConnections = pgTable(
+  'utility_connections',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    tariffId: uuid('tariff_id')
+      .notNull()
+      .references(() => utilityTariffs.id),
+    meterNo: text('meter_no'),
+    address: text('address').notNull(),
+    status: text('status').$type<'ACTIVE' | 'SUSPENDED' | 'DISCONNECTED'>().notNull().default('ACTIVE'),
+    installedAt: date('installed_at').notNull(),
+    initialReading: numeric('initial_reading', { precision: 18, scale: 4 }).notNull().default('0'),
+    statusChangedById: uuid('status_changed_by_id'),
+    statusChangedAt: timestamp('status_changed_at', { withTimezone: true }),
+    statusNote: text('status_note'),
+    createdById: uuid('created_by_id').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('utility_connections_number_uq').on(t.tenantId, t.number), index('utility_connections_customer_idx').on(t.tenantId, t.customerId)],
+);
+
+export const utilityBills = pgTable(
+  'utility_bills',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => utilityConnections.id),
+    period: text('period').notNull(),
+    /** Kosong = penagihan sedang berjalan / tertahan (klaim periode agar tidak tertagih dua kali) */
+    invoiceId: uuid('invoice_id').references(() => invoices.id),
+    usage: numeric('usage', { precision: 18, scale: 4 }),
+    subtotal: money('subtotal').notNull(),
+    lateFee: money('late_fee').notNull().default('0'),
+    createdById: uuid('created_by_id').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('utility_bills_period_uq').on(t.connectionId, t.period), uniqueIndex('utility_bills_invoice_uq').on(t.invoiceId)],
+);
+
+export const utilityReadings = pgTable(
+  'utility_readings',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => utilityConnections.id),
+    period: text('period').notNull(),
+    previous: numeric('previous', { precision: 18, scale: 4 }).notNull(),
+    current: numeric('current', { precision: 18, scale: 4 }).notNull(),
+    usage: numeric('usage', { precision: 18, scale: 4 }).notNull(),
+    meterReplaced: boolean('meter_replaced').notNull().default(false),
+    flags: text('flags').array().notNull().default(sql`'{}'`),
+    status: text('status').$type<'ENTERED' | 'VERIFIED' | 'BILLED' | 'REJECTED'>().notNull().default('ENTERED'),
+    note: text('note'),
+    enteredById: uuid('entered_by_id').notNull(),
+    enteredAt: timestamp('entered_at', { withTimezone: true }).notNull().defaultNow(),
+    verifiedById: uuid('verified_by_id'),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    verifyNote: text('verify_note'),
+    billId: uuid('bill_id').references(() => utilityBills.id),
+  },
+  (t) => [uniqueIndex('utility_readings_period_uq').on(t.connectionId, t.period).where(sql`status <> 'REJECTED'`), index('utility_readings_status_idx').on(t.tenantId, t.status, t.period)],
+);
+
+export const utilityLateFees = pgTable(
+  'utility_late_fees',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => invoices.id),
+    billId: uuid('bill_id')
+      .notNull()
+      .references(() => utilityBills.id),
+    amount: money('amount').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('utility_late_fees_invoice_uq').on(t.invoiceId)],
+);

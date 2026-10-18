@@ -151,6 +151,35 @@ export const WORKFLOW_PIPELINES: WorkflowPipeline[] = [
       { key: 'BATAL', label: 'Dibatalkan', hint: 'Dihentikan sebelum selesai (wajib alasan).', next: [], roles: ['ADMIN'], requireNote: true, terminal: 'DONE' },
     ],
   },
+  // ---- Utilitas ----
+  {
+    open: { link: 'QUOTATION', subject: 'customer', label: 'Pasang baru' },
+    key: 'UTILITAS_PASANG', model: 'UTILITAS', label: 'Sambungan baru: permintaan → survei → bayar → pasang → aktif', summary: 'Dari permintaan sambungan sampai meter terpasang dan sambungan didaftarkan aktif untuk ditagih.', subject: 'CUSTOMER',
+    links: ['QUOTATION', 'INVOICE'], start: 'PERMINTAAN',
+    stages: [
+      { key: 'PERMINTAAN', label: 'Permintaan masuk', hint: 'Calon pelanggan meminta sambungan; alamat dan jenis layanan dicatat.', next: ['SURVEI', 'BATAL'], roles: ['SALES', 'ADMIN', 'FINANCE'] },
+      { key: 'SURVEI', label: 'Survei lokasi', hint: 'Petugas memeriksa jarak jaringan dan kelayakan (catat hasil survei).', next: ['BIAYA', 'BATAL'], roles: ['WAREHOUSE', 'ADMIN'], requireNote: true, slaDays: 7 },
+      { key: 'BIAYA', label: 'Biaya sambung ditagih', hint: 'Penawaran/tagihan biaya sambung baru diterbitkan.', next: ['DIBAYAR', 'BATAL'], roles: FIN, requireLink: ['INVOICE'], auto: [{ link: 'INVOICE', status: ['UNPAID', 'PARTIAL', 'PAID'] }], slaDays: 7 },
+      { key: 'DIBAYAR', label: 'Biaya dibayar', hint: 'Biaya sambung lunas; boleh dijadwalkan pemasangan.', next: ['TERPASANG', 'BATAL'], roles: FIN, requireLink: ['INVOICE'], auto: [{ link: 'INVOICE', status: ['PAID'] }], slaDays: 14 },
+      { key: 'TERPASANG', label: 'Terpasang', hint: 'Meter/perangkat dipasang oleh petugas (catat nomor meter dan angka awal).', next: ['AKTIF', 'BATAL'], roles: ['WAREHOUSE', 'ADMIN'], requireNote: true, sod: true, slaDays: 7 },
+      { key: 'AKTIF', label: 'Sambungan aktif', hint: 'Sambungan didaftarkan di Layanan Utilitas → Sambungan oleh orang selain pemasang; mulai ditagih.', next: [], roles: FIN, requireNote: true, sod: true, terminal: 'DONE' },
+      { key: 'BATAL', label: 'Dibatalkan', hint: 'Dihentikan sebelum selesai (wajib alasan).', next: [], roles: ['ADMIN'], requireNote: true, terminal: 'DONE' },
+    ],
+  },
+  {
+    key: 'UTILITAS_TUNGGAKAN', model: 'UTILITAS', label: 'Penagihan tunggakan: hubungi → janji bayar → putus / lunas', summary: 'Satu kasus per pelanggan menunggak: dihubungi, janji bayar, lalu diputus sementara bila tetap tidak membayar, atau lunas.', subject: 'CUSTOMER',
+    links: ['INVOICE'], start: 'MENUNGGAK',
+    stages: [
+      { key: 'MENUNGGAK', label: 'Menunggak', hint: 'Tagihan lewat jatuh tempo melebihi masa toleransi.', next: ['DIHUBUNGI', 'LUNAS', 'BATAL'], roles: FIN, requireLink: ['INVOICE'] },
+      { key: 'DIHUBUNGI', label: 'Sudah dihubungi', hint: 'Pelanggan diingatkan lewat telepon/WhatsApp/kunjungan (catat hasilnya).', next: ['JANJI', 'DIPUTUS', 'LUNAS', 'BATAL'], roles: ['FINANCE', 'SALES', 'ADMIN'], requireNote: true, slaDays: 7 },
+      { key: 'JANJI', label: 'Janji bayar', hint: 'Pelanggan berjanji membayar pada tanggal tertentu (catat tanggalnya).', next: ['DIPUTUS', 'LUNAS', 'BATAL'], roles: ['FINANCE', 'SALES', 'ADMIN'], requireNote: true, slaDays: 14 },
+      { key: 'DIPUTUS', label: 'Diputus sementara', hint: 'Sambungan diputus sementara; pemutusan disetujui orang selain penagih (catat alasan).', next: ['LUNAS', 'BATAL'], roles: ['ADMIN'], requireNote: true, sod: true, slaDays: 60 },
+      { key: 'LUNAS', label: 'Lunas', hint: 'Tunggakan dibayar; sambungan boleh disambung kembali.', next: [], roles: FIN, requireLink: ['INVOICE'], auto: [{ link: 'INVOICE', status: ['PAID'] }], terminal: 'DONE' },
+      { key: 'BATAL', label: 'Dihapus / dibatalkan', hint: 'Kasus ditutup tanpa pelunasan (mis. dihapusbukukan; wajib alasan).', next: [], roles: ['ADMIN'], requireNote: true, terminal: 'DONE' },
+    ],
+  },
+  procureToPay('UTILITAS', 'UTILITAS_BAHAN', 'Bahan jaringan: kebutuhan → penerimaan → pembayaran', 'Dari kebutuhan pipa, kabel, meter, atau bahan pengolahan sampai tagihan pemasok lunas.', 'Kebutuhan bahan jaringan'),
+  purchaseReturnFlow('UTILITAS', 'UTILITAS_RETUR_BELI'),
   // ---- FMCG ----
   orderToCash('FMCG', 'FMCG_ORDER', 'Order outlet: sales → muat → kirim → tagih', 'Dari order sales ke outlet sampai faktur lunas.', { order: 'Order sales', approve: 'Disetujui (kredit & promo)', ship: 'Terkirim ke outlet' }),
   {

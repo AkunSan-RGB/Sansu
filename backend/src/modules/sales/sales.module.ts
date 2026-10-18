@@ -23,6 +23,6 @@ import { ServiceBillingController, ServiceBillingService } from './services/serv
   imports: [AccountingModule, InventoryModule, FxModule],
   controllers: [SalesOrdersController, DeliveriesController, InvoicesController, PaymentsController, ServiceBillingController, PricingController, SalesTargetsController, SalesCommissionsController, ConsignmentsController, CanvassController, TradeController],
   providers: [TradeService, CanvassService, ConsignmentsService, PricingService, SalesTargetsService, SalesCommissionsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService],
-  exports: [SalesOrdersService, InvoicesService, PricingService],
+  exports: [SalesOrdersService, InvoicesService, PricingService, ServiceBillingService],
 })
 export class SalesModule {}

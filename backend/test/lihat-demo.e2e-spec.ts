@@ -11,7 +11,7 @@ import { configureApp } from '../src/bootstrap';
 import { DB, Db } from '../src/db/db';
 import { DemoService } from '../src/modules/demo/demo.module';
 
-const MODELS = ['RITEL', 'DAGANG', 'JASA', 'FMCG', 'MANUFAKTUR', 'FNB'] as const;
+const MODELS = ['RITEL', 'DAGANG', 'JASA', 'FMCG', 'MANUFAKTUR', 'FNB', 'UTILITAS'] as const;
 
 describe('Lihat Demo (e2e)', () => {
   let app: INestApplication;
@@ -88,6 +88,12 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(s('MANUFAKTUR'), 'production_orders')).toBeGreaterThan(2);
     expect(await count(s('RITEL'), 'production_orders')).toBe(0);
     expect(await count(s('DAGANG'), 'pos_orders')).toBe(0);
+    // Utilitas: sambungan, tarif bertingkat, catat meter terverifikasi, dan tagihan bulanan lewat faktur
+    expect(await count(s('UTILITAS'), 'utility_tariffs')).toBe(3);
+    expect(await count(s('UTILITAS'), 'utility_connections')).toBe(8);
+    expect(await count(s('UTILITAS'), 'utility_readings')).toBeGreaterThan(10);
+    expect(await count(s('UTILITAS'), 'utility_bills')).toBeGreaterThan(10);
+    expect(await count(s('UTILITAS'), 'pos_orders')).toBe(0);
     // F&B: menu dijual lewat kasir dan bahan terpotong otomatis sesuai resep; ada resep, barang setengah jadi, dan produksi adonan
     expect(await count(s('FNB'), 'pos_orders')).toBeGreaterThan(50);
     expect(await count(s('FNB'), 'boms')).toBeGreaterThan(6);
