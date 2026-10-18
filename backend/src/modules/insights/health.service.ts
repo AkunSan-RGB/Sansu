@@ -536,6 +536,28 @@ export class HealthService {
       link: '/closing',
     });
 
+    // 12a. Saldo awal: dicatat jauh setelah transaksi berjalan, atau berkali-kali, mengubah seluruh neraca
+    const [ob] = await q<{ n: number; late: number; first_created: string | null; last_created: string | null }>(sql`
+      SELECT COUNT(*)::int AS n,
+        COUNT(*) FILTER (WHERE j.created_at > (SELECT MIN(x.created_at) FROM journal_entries x WHERE x.tenant_id = ${tenantId} AND x.source_type NOT IN ('OPENING', 'CLOSING')) + interval '14 days')::int AS late,
+        MIN(j.date)::text AS first_created, MAX(j.date)::text AS last_created
+      FROM journal_entries j
+      WHERE j.tenant_id = ${tenantId} AND j.source_type = 'OPENING' AND j.reversal_of_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = j.id)`);
+    if (ob.n > 0) {
+      const issues: string[] = [];
+      if (ob.late > 0) issues.push(`${ob.late} jurnal saldo awal dicatat lebih dari 14 hari setelah transaksi pertama berjalan`);
+      if (ob.n > 2) issues.push(`Saldo awal dicatat ${ob.n} kali (tanggal ${ob.first_created} s/d ${ob.last_created})`);
+      checks.push({
+        key: 'opening-balance',
+        category: 'Kewajaran',
+        title: 'Saldo awal dicatat wajar',
+        status: issues.length ? 'WARN' : 'OK',
+        message: issues.length ? `${issues.join('; ')}. Saldo awal mengubah seluruh neraca; pastikan sesuai neraca penutup sistem lama dan penyeimbang Ekuitas Saldo Awal wajar.` : 'Saldo awal dicatat sebelum transaksi berjalan',
+        link: '/opening-balance',
+      });
+    }
+
     // 12b. Pemisahan fungsi: yang memegang uang (Keuangan) berbeda dari yang membukukan (Akuntan)
     const roleRows = await q<{ role: string; n: number }>(sql`SELECT role::text AS role, COUNT(*)::int AS n FROM users WHERE tenant_id = ${tenantId} AND is_active GROUP BY role`);
     const nRole = (r: string) => roleRows.find((x) => x.role === r)?.n ?? 0;
