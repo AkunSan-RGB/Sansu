@@ -102,7 +102,6 @@ const MENU: Group[] = [
       { key: '/customer-deposits', label: t('Uang muka pelanggan'), hideFor: ['RITEL'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
       { key: '/projects', label: 'Proyek & termin', models: ['JASA'] },
       { key: '/deliveries', label: 'Surat jalan', hideFor: ['JASA', 'RITEL', 'FNB', 'UTILITAS'] },
-      { key: '/sales-controls', label: 'Kontrol penjualan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA', 'RITEL', 'FNB', 'UTILITAS'] },
       { key: '/invoices', label: t('Faktur & piutang'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
       { key: '/returns?tab=sales', label: t('Retur penjualan'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT', 'WAREHOUSE'] },
       { key: '/price-lists', label: 'Daftar harga', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
@@ -112,7 +111,8 @@ const MENU: Group[] = [
       { key: '/canvass', label: 'Kanvas (van sales)', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
       { key: '/trade', label: 'Modern trade & klaim prinsipal', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/sales-targets', label: 'Target & komisi sales', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
-      { key: '/integrations?tab=marketplace', label: 'Marketplace', hideFor: ['JASA', 'UTILITAS'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+      // Menu Marketplace disembunyikan dulu (halamannya tetap ada di /integrations?tab=marketplace)
+      { key: '/sales-controls', label: 'Kontrol penjualan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA', 'RITEL', 'FNB', 'UTILITAS'] },
       { section: 'Data', items: [{ key: '/customers', label: t('Pelanggan') }] },
     ],
   },
