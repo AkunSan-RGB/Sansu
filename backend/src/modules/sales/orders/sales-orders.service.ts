@@ -1,3 +1,4 @@
+import { HandoffService } from '../../../common/handoff/handoff.service';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AuthUser } from '../../../common/auth/auth-user';
@@ -25,6 +26,8 @@ export class SalesOrdersService {
     private readonly audit: AuditService,
     private readonly fx: FxService,
     private readonly pricing: PricingService,
+  
+    private readonly handoff: HandoffService,
   ) {}
 
   list(tenantId: string, q: SalesOrderQueryDto) {
@@ -222,6 +225,7 @@ export class SalesOrdersService {
       await tx.update(salesOrders).set({ status: 'CONFIRMED' }).where(eq(salesOrders.id, id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CONFIRM', entity: 'SalesOrder', entityId: id });
     });
+    this.handoff.fire(user.tenantId, 'SALES_ORDER_CONFIRMED', user.sub, id);
     return this.get(user.tenantId, id);
   }
 

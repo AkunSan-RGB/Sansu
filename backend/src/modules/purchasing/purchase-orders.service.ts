@@ -1,3 +1,4 @@
+import { HandoffService } from '../../common/handoff/handoff.service';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
@@ -27,6 +28,8 @@ export class PurchaseOrdersService {
     private readonly approvals: ApprovalsService,
     private readonly fx: FxService,
     private readonly agreements: PriceAgreementsService,
+  
+    private readonly handoff: HandoffService,
   ) {}
 
   /** Status penerimaan dan penagihan turunan dari baris pesanan: NONE / PARTIAL / FULL */
@@ -215,6 +218,7 @@ export class PurchaseOrdersService {
       await tx.update(purchaseOrders).set({ status: 'CONFIRMED' }).where(eq(purchaseOrders.id, id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CONFIRM', entity: 'PurchaseOrder', entityId: id });
     });
+    this.handoff.fire(user.tenantId, 'PO_CONFIRMED', user.sub, id);
     return this.get(user.tenantId, id);
   }
 
