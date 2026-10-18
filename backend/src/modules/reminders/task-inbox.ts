@@ -56,6 +56,16 @@ export class TaskInboxService {
           WHERE tenant_id = ${u.tenantId} AND status = 'SUBMITTED' AND requested_by_id IS DISTINCT FROM ${u.sub}`));
       }
     }
+    if (is(['WAREHOUSE', 'ADMIN']) && on.has('sales')) {
+      add('so-awaiting-delivery', '/sales-orders?status=CONFIRMED', (n) => `${n} pesanan penjualan menunggu dikirim`, 'Siapkan, hitung, lalu catat surat jalan', await this.one(sql`
+        SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - o.date), 0)::int AS oldest FROM sales_orders o
+        WHERE o.tenant_id = ${u.tenantId} AND o.status = 'CONFIRMED'`));
+    }
+    if (is(['FINANCE', 'ADMIN']) && on.has('sales')) {
+      add('dn-awaiting-invoice', '/deliveries', (n) => `${n} surat jalan menunggu ditagih`, 'Barang sudah keluar; catat faktur penjualan', await this.one(sql`
+        SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - d.date), 0)::int AS oldest FROM delivery_orders d
+        WHERE d.tenant_id = ${u.tenantId} AND d.status = 'DELIVERED' AND d.invoice_id IS NULL`));
+    }
     if (is(['WAREHOUSE', 'PURCHASING', 'ADMIN']) && on.has('purchase')) {
       add('po-awaiting-goods', '/purchase-orders?status=CONFIRMED', (n) => `${n} PO menunggu barang diterima`, u.role === 'PURCHASING' ? 'Pantau pengiriman pemasok' : 'Hitung barang yang tiba lalu catat penerimaan', await this.one(sql`
         SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - o.date), 0)::int AS oldest FROM purchase_orders o

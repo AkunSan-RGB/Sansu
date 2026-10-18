@@ -250,7 +250,7 @@ export class ConsignmentsService {
     } catch (e) {
       // gagal SEBELUM faktur terbit: kembalikan laporan agar bisa diproses ulang dan batalkan pesanan yang terlanjur dibuat
       await this.db.update(consignmentDocs).set({ status: 'REPORTED', decidedById: null }).where(eq(consignmentDocs.id, id));
-      if (soId) await this.orders.cancel(u, soId).catch(() => undefined);
+      if (soId) await this.orders.cancel(u, soId, 'Pembatalan otomatis: proses konsinyasi gagal').catch(() => undefined);
       throw e;
     }
     // faktur sudah terbit: laporan tetap INVOICED walau pencatatan tautan/audit di bawah gagal (mencegah penagihan ganda)

@@ -186,7 +186,7 @@ export class CanvassService {
       inv = await this.invoicesSvc.createFromOrder(u, { salesOrderId: so.id, date } as never);
     } catch (e) {
       // gagal sebelum faktur terbit: batalkan pesanan agar tidak menggantung
-      await this.orders.cancel(u, so.id).catch(() => undefined);
+      await this.orders.cancel(u, so.id, 'Pembatalan otomatis: proses kanvas gagal').catch(() => undefined);
       throw e;
     }
     // faktur sudah terbit: kegagalan mencatat setoran tidak boleh membuat klien mengulang penjualan (faktur ganda)
