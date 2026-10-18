@@ -47,6 +47,7 @@ class PolicyDto implements Partial<ApprovalPolicy> {
   @ApiPropertyOptional({ enum: ['OFF', 'APPROVAL', 'BLOCK'], description: 'Pengendalian belanja yang melewati anggaran' }) @IsOptional() @IsIn(['OFF', 'APPROVAL', 'BLOCK']) budgetControl?: 'OFF' | 'APPROVAL' | 'BLOCK';
   @ApiPropertyOptional({ description: 'Pembayaran pertama ke supplier wajib disetujui' }) @IsOptional() @IsBoolean() firstSupplierPayment?: boolean;
   @ApiPropertyOptional({ description: 'Penerimaan buta: Gudang mengisi jumlah yang dihitung sendiri' }) @IsOptional() @IsBoolean() blindReceiving?: boolean;
+  @ApiPropertyOptional({ description: 'Pengiriman buta: Gudang mengisi jumlah yang dikemas sendiri' }) @IsOptional() @IsBoolean() blindDelivery?: boolean;
   @ApiPropertyOptional({ description: 'Pembayaran ke supplier yang rekeningnya baru diubah (hari terakhir) wajib disetujui; 0 = nonaktif' }) @IsOptional() @IsInt() @Min(0) @Max(60) bankChangeHoldDays?: number;
   @ApiPropertyOptional({ description: 'Masa berlaku tautan persetujuan lewat Telegram (jam, 1–72)' }) @IsOptional() @IsInt() @Min(1) @Max(72) telegramLinkHours?: number;
 }

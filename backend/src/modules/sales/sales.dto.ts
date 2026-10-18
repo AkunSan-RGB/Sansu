@@ -82,3 +82,7 @@ export class CreatePaymentDto {
   cashAccountId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) notes?: string;
 }
+
+export class CancelOrderDto {
+  @ApiPropertyOptional({ description: 'Alasan pembatalan; wajib untuk pesanan yang sudah dikonfirmasi bila dibatalkan staf' }) @IsOptional() @IsString() @MaxLength(300) reason?: string;
+}

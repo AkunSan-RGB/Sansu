@@ -1,6 +1,8 @@
 import { ArrowLeftOutlined, PrinterOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Card, Popconfirm, Space, Tag } from 'antd';
+import { Alert, Button, Card, Input, Modal, Space, Tag } from 'antd';
+import { useState } from 'react';
+import { useAuth } from '@/auth/AuthContext';
 import { useNavigate, useParams } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { useAction } from '@/api/queries';
@@ -20,8 +22,12 @@ export default function DeliveryDetailPage() {
   const navigate = useNavigate();
   const q = useQuery({ queryKey: ['deliveries', 'detail', id], queryFn: () => get<Delivery>(`/deliveries/${id}`) });
   const can = useCan();
-  const cancel = useAction(() => post(`/deliveries/${id}/cancel`), {
+  const { me } = useAuth();
+  const isApprover = ['OWNER', 'ADMIN'].includes(me?.role ?? '');
+  const [reason, setReason] = useState<string | null>(null);
+  const cancel = useAction((r?: string) => post(`/deliveries/${id}/cancel`, { reason: r }), {
     success: 'Surat jalan dibatalkan, stok dikembalikan',
+    onSuccess: () => setReason(null),
     invalidate: ['deliveries', 'sales-orders', 'stock', 'stock-moves', 'dashboard', 'journals', 'doc-chain'],
   });
   return (
@@ -39,11 +45,9 @@ export default function DeliveryDetailPage() {
               </Button>
             )}
             {q.data && q.data.status === 'DELIVERED' && !q.data.invoice && can('POST', '/deliveries/:id/cancel') && (
-              <Popconfirm title="Batalkan surat jalan? Stok dikembalikan dan jurnal HPP dibalik." onConfirm={() => cancel.mutate(undefined)}>
-                <Button danger loading={cancel.isPending}>
-                  Batalkan surat jalan
-                </Button>
-              </Popconfirm>
+              <Button danger loading={cancel.isPending} onClick={() => setReason('')}>
+                Batalkan surat jalan
+              </Button>
             )}
           </Space>
         }
@@ -95,6 +99,18 @@ export default function DeliveryDetailPage() {
           </>
         )}
       </QueryState>
+      <Modal
+        title="Batalkan surat jalan"
+        open={reason !== null}
+        onCancel={() => setReason(null)}
+        onOk={() => cancel.mutate(reason ?? '')}
+        okButtonProps={{ danger: true, disabled: !isApprover && (reason ?? '').trim().length < 5 }}
+        confirmLoading={cancel.isPending}
+        okText="Batalkan surat jalan"
+      >
+        <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="Stok dikembalikan dan jurnal HPP dibalik. Pembatalan dicatat dan dikabarkan ke Pemilik, Admin, dan Gudang." />
+        <Input.TextArea rows={3} placeholder="Alasan pembatalan (mis. barang salah kirim)" value={reason ?? ''} onChange={(e) => setReason(e.target.value)} maxLength={300} />
+      </Modal>
     </>
   );
 }

@@ -64,6 +64,15 @@ export class InvoicesService {
    *  4. Order → INVOICED
    * Jika salah satu gagal (mis. stok kurang), semuanya dibatalkan.
    */
+  /** Staf (selain Pemilik/Admin) hanya boleh menagih pesanan yang sudah dikirim Gudang (ada surat jalan) */
+  async assertDeliveredBeforeInvoice(user: AuthUser, orderId: string) {
+    if (['OWNER', 'ADMIN'].includes(user.role)) return;
+    const [o] = await this.db.select({ status: salesOrders.status }).from(salesOrders).where(and(eq(salesOrders.id, orderId), eq(salesOrders.tenantId, user.tenantId)));
+    if (o?.status === 'CONFIRMED') {
+      throw new BadRequestException('Barang pada pesanan ini belum dikirim Gudang. Minta Gudang mencatat pengiriman (surat jalan) dulu, baru faktur dicatat.');
+    }
+  }
+
   async createFromOrder(user: AuthUser, dto: CreateInvoiceDto) {
     const date = toDocDate(dto.date);
     const result = await this.db.transaction(async (tx) => {

@@ -11,6 +11,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { WorkflowService } from '../../workflow/workflow.module';
+import { ApprovalsService } from '../../../common/approvals/approvals.service';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { SequenceService } from '../../../common/sequence/sequence.service';
@@ -36,12 +37,17 @@ export class DeliveriesService {
     private readonly orders: SalesOrdersService,
     private readonly audit: AuditService,
     private readonly workflow: WorkflowService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   /** Kirim barang atas pesanan CONFIRMED: stok keluar, HPP dijurnal, pesanan → DELIVERED */
-  async deliver(user: AuthUser, orderId: string, dto: { date?: string; notes?: string }) {
+  async deliver(user: AuthUser, orderId: string, dto: { date?: string; notes?: string; lines?: { orderLineId: string; qty: string }[] }) {
     await this.workflow.gate(user.tenantId, 'DELIVER', orderId);
     const date = toDocDate(dto.date);
+    // Pengiriman buta: Gudang mengisi jumlah yang dikemasnya; harus sama dengan pesanan (pengiriman tidak parsial), selisih ditahan dan dikabarkan
+    const blind = user.role === 'WAREHOUSE' && (await this.approvals.policy(this.db, user.tenantId)).blindDelivery;
+    if (blind && !dto.lines?.length) throw new BadRequestException('Isi jumlah barang yang Anda kemas pada setiap baris (pengiriman buta); jangan mengirim otomatis sesuai pesanan.');
+    if (blind) await this.assertPackedMatches(user, orderId, dto.lines!);
     const id = await this.db.transaction(async (tx) => {
       const order = await this.orders.lockOrder(tx, user.tenantId, orderId);
       if (order.status !== 'CONFIRMED') {
@@ -109,12 +115,34 @@ export class DeliveriesService {
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'DeliveryOrder', entityId: delivery.id, data: { number } });
       return delivery.id;
     });
-    return this.get(user.tenantId, id);
+    const rec = await this.get(user.tenantId, id);
+    // Penagihan tahu barang sudah keluar (siap ditagih); Sales tahu pesanannya terkirim
+    void this.approvals.notifyRoles(user.tenantId, { roles: ['FINANCE', 'ADMIN'], excludeUserId: user.sub, info: true, title: `Surat jalan ${(rec as { number: string }).number} terkirim, siap ditagih`, lines: ['Catat faktur penjualan atas barang yang sudah dikirim.'], path: '/deliveries' });
+    void this.approvals.notifyRoles(user.tenantId, { roles: ['SALES'], excludeUserId: user.sub, info: true, title: `Pesanan ${(rec as { number: string }).number} sudah dikirim Gudang`, lines: [], path: '/deliveries' });
+    return rec;
+  }
+
+  /** Jumlah yang dikemas Gudang harus sama dengan pesanan; selisih menahan pengiriman dan dikabarkan ke Penjualan/Admin/Pemilik */
+  private async assertPackedMatches(user: AuthUser, orderId: string, packed: { orderLineId: string; qty: string }[]) {
+    const order = await this.db.query.salesOrders.findFirst({ where: and(eq(salesOrders.id, orderId), eq(salesOrders.tenantId, user.tenantId)), with: { lines: true } });
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    const diffs: string[] = [];
+    for (const l of order.lines) {
+      const got = D(packed.find((p) => p.orderLineId === l.id)?.qty ?? '0');
+      if (!got.eq(D(l.qty))) diffs.push(l.productId);
+    }
+    if (packed.some((p) => !order.lines.some((l) => l.id === p.orderLineId))) throw new BadRequestException('Baris pesanan tidak ditemukan');
+    if (!diffs.length) return;
+    void this.approvals.notifyRoles(user.tenantId, { roles: ['SALES', 'ADMIN', 'OWNER'], excludeUserId: user.sub, title: `⚠ Pengiriman ${order.number} ditahan: ${diffs.length} baris jumlah kemasnya tidak sama dengan pesanan`, lines: ['Gudang menghitung berbeda dari pesanan. Periksa stok atau ubah pesanannya.'], path: '/sales-orders' });
+    throw new BadRequestException(`Jumlah yang dikemas tidak sama dengan pesanan pada ${diffs.length} baris. Pengiriman ditahan; Penjualan/Admin sudah diberi tahu. Hitung ulang atau minta pesanan dikoreksi.`);
   }
 
   /** Batalkan surat jalan yang belum difakturkan: stok kembali dengan harga pokok semula, jurnal HPP dibalik, pesanan → CONFIRMED */
-  async cancel(user: AuthUser, id: string, dto: { date?: string }) {
+  async cancel(user: AuthUser, id: string, dto: { date?: string; reason?: string }) {
     const date = toDocDate(dto.date);
+    // Surat jalan dibatalkan staf: barang sudah keluar fisik, jadi alasan wajib dan Pemilik/Admin diberi tahu
+    if (!this.approvals.isApprover(user.role) && (dto.reason?.trim().length ?? 0) < 5) throw new BadRequestException('Isi alasan pembatalan surat jalan (minimal 5 huruf)');
+    let dnNumber = '';
     await this.db.transaction(async (tx) => {
       const locked = await tx.execute(sql`SELECT id FROM delivery_orders WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
       if (!locked.rows.length) throw new NotFoundException('Surat jalan tidak ditemukan');
@@ -142,10 +170,12 @@ export class DeliveriesService {
         });
       }
       if (delivery.journalId) await this.posting.reverse(tx, user.tenantId, delivery.journalId, date, user.sub, true);
-      await tx.update(deliveryOrders).set({ status: 'CANCELLED' }).where(eq(deliveryOrders.id, id));
+      dnNumber = delivery.number;
+      await tx.update(deliveryOrders).set({ status: 'CANCELLED', cancelReason: dto.reason?.trim() || null, cancelledById: user.sub }).where(eq(deliveryOrders.id, id));
       await tx.update(salesOrders).set({ status: 'CONFIRMED' }).where(eq(salesOrders.id, delivery.salesOrderId));
-      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'DeliveryOrder', entityId: id });
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'DeliveryOrder', entityId: id, data: { reason: dto.reason?.trim() || null } });
     });
+    void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER', 'ADMIN', 'WAREHOUSE'], excludeUserId: user.sub, info: true, title: `Surat jalan ${dnNumber} dibatalkan`, lines: [dto.reason?.trim() ? `Alasan: ${dto.reason.trim()}` : 'Tanpa alasan tertulis'], path: '/deliveries' });
     return this.get(user.tenantId, id);
   }
 
