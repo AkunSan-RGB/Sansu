@@ -77,17 +77,15 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
       expect(lines.find((l) => l.key === 'COST_OF_SALES')).toMatchObject({ amount: '-1000000.00' });
     });
 
-    it('ganti jenis usaha menambah akun model baru tanpa menghapus yang lama', async () => {
+    it('jenis usaha dikunci setelah ada transaksi: ganti ditolak, bagan akun tidak berubah', async () => {
       const before = await codes('JASA');
-      await http.put('/api/settings/business').set(as('JASA')).send({ model: 'RITEL', applyApps: false }).expect(200);
-      const after = await codes('JASA');
-      for (const code of before) expect(after).toContain(code); // tidak ada yang hilang
-      for (const code of specific.RITEL) expect(after).toContain(code); // akun ritel muncul
-      expect(new Set(after).size).toBe(after.length);
-      // ganti kembali: tetap tanpa duplikat dan tanpa kehilangan
+      const r = await http.put('/api/settings/business').set(as('JASA')).send({ model: 'RITEL', applyApps: false });
+      expect(r.status).toBe(409);
+      expect(JSON.stringify(r.body)).toMatch(/dikunci/);
+      expect((await codes('JASA')).sort()).toEqual(before.sort());
+      expect((await get('JASA', '/api/settings/business')).body).toMatchObject({ model: 'JASA', locked: true });
+      // memilih model yang sama tetap diperbolehkan
       await http.put('/api/settings/business').set(as('JASA')).send({ model: 'JASA', applyApps: false }).expect(200);
-      const again = await codes('JASA');
-      expect(again.sort()).toEqual(after.sort());
     });
   });
 
@@ -169,11 +167,11 @@ describe('Bagan akun & laporan per jenis usaha (e2e)', () => {
       expect(text(sec(await notes('JASA'), 'general'))).toContain('penyediaan jasa kepada pelanggan');
     });
 
-    it('ganti model mengubah teks CALK tanpa mengubah angka', async () => {
+    it('ganti model ditolak setelah bertransaksi: teks CALK dan angka tidak berubah', async () => {
       const total = async () => (await get('JASA', `/api/accounting/notes/${year}`)).body.totals;
       const before = await total();
-      await http.put('/api/settings/business').set(as('JASA')).send({ model: 'FMCG', applyApps: false }).expect(200);
-      expect(text(sec(await notes('JASA'), 'revenue'))).toContain('barang konsumen');
+      expect((await http.put('/api/settings/business').set(as('JASA')).send({ model: 'FMCG', applyApps: false })).status).toBe(409);
+      expect(text(sec(await notes('JASA'), 'revenue'))).not.toContain('barang konsumen');
       expect(await total()).toEqual(before);
     });
   });

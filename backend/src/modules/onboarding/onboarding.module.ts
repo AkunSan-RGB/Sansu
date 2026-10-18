@@ -1,7 +1,7 @@
-import { Body, Controller, Get, HttpCode, Injectable, Module, Post, Put } from '@nestjs/common';
+import { Body, ConflictException, Controller, Get, HttpCode, Injectable, Module, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsIn, IsOptional } from 'class-validator';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { BUSINESS_MODEL_BY_KEY, BUSINESS_MODEL_KEYS, isProductionModel, type AppKey, type BusinessModel } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -10,6 +10,7 @@ import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { AllowWhenLocked } from '../../common/auth/platform-admin';
 import { SettingsService } from '../../common/settings.service';
 import { Db } from '../../db/db';
+import { tenants } from '../../db/schema';
 import { InjectDb } from '../../db/db.module';
 import { syncChartOfAccounts } from '../accounting/coa-sync';
 
@@ -40,6 +41,13 @@ export interface OnboardingStep {
 
 const DEFAULTS = { dismissed: false };
 
+/** Tabel yang menandai perusahaan sudah bertransaksi (dokumen, mutasi, jurnal) — satu baris saja cukup untuk mengunci jenis usaha */
+const TRANSACTION_PROBES = [
+  'journal_entries', 'sales_orders', 'quotations', 'invoices', 'payments', 'delivery_orders', 'purchase_requests', 'purchase_orders', 'goods_receipts', 'purchase_invoices',
+  'supplier_payments', 'stock_moves', 'stock_transfers', 'stock_counts', 'production_orders', 'pos_sessions', 'pos_orders', 'cash_transactions', 'payroll_runs', 'fixed_assets',
+  'customer_deposits', 'sales_returns', 'purchase_returns', 'consignment_docs', 'canvass_collections', 'marketplace_orders', 'tax_payments', 'leads',
+];
+
 /** Daftar langkah awal untuk perusahaan baru — status terdeteksi otomatis dari data */
 @Injectable()
 export class OnboardingService {
@@ -50,12 +58,32 @@ export class OnboardingService {
     private readonly audit: AuditService,
   ) {}
 
+  /** Perusahaan yang sudah punya transaksi atau dokumen tidak boleh berganti jenis usaha (data antar jenis usaha tidak boleh tercampur) */
+  async hasTransactions(tenantId: string): Promise<boolean> {
+    const checks = TRANSACTION_PROBES.map((t) => sql.raw(`SELECT 1 FROM "${t}" WHERE tenant_id = '${tenantId.replace(/'/g, '')}'`));
+    const r = await this.db.execute<{ x: number }>(sql`SELECT 1 AS x WHERE ${sql.join(checks.map((c) => sql`EXISTS (${c})`), sql` OR `)}`);
+    return r.rows.length > 0;
+  }
+
+  /** Jenis usaha sudah pernah dipilih secara sadar (bukan nilai bawaan perusahaan lama) */
+  private async chosen(tenantId: string): Promise<boolean> {
+    const [t] = await this.db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+    return !!(t?.settings as { business?: { model?: string } } | null)?.business?.model;
+  }
+
   async business(tenantId: string) {
     const model = await this.settings.businessModel(this.db, tenantId);
-    return { model, info: BUSINESS_MODEL_BY_KEY[model] };
+    const locked = (await this.chosen(tenantId)) && (await this.hasTransactions(tenantId));
+    return { model, info: BUSINESS_MODEL_BY_KEY[model], locked };
   }
 
   async setBusiness(u: AuthUser, dto: BusinessModelDto) {
+    const current = await this.settings.businessModel(this.db, u.tenantId);
+    if (dto.model !== current && (await this.chosen(u.tenantId)) && (await this.hasTransactions(u.tenantId))) {
+      throw new ConflictException(
+        `Jenis usaha dikunci: perusahaan ini sudah punya transaksi sebagai ${BUSINESS_MODEL_BY_KEY[current].name}. Data antar jenis usaha tidak boleh tercampur — untuk jenis usaha lain, buat perusahaan baru.`,
+      );
+    }
     await this.settings.saveSection(
       this.db,
       u.tenantId,

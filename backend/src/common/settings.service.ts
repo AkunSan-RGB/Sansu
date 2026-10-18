@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { BUSINESS_MODEL_KEYS, type BusinessModel, type PayrollSettings, type ReportingSettings, type TaxProfile } from '@sansu/shared';
 import { DbOrTx } from '../db/db';
 import { tenants } from '../db/schema';
@@ -57,6 +57,14 @@ export function definedOnly<T extends object>(patch: T): Partial<T> {
   return Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
 
+/**
+ * Tulis satu kunci pengaturan secara atomik di database (jsonb_set), bukan menimpa seluruh dokumen hasil baca lama:
+ * dua penyimpanan pengaturan yang berdekatan tidak lagi saling menghapus (mis. jenis usaha kembali ke nilai lama).
+ */
+async function writeKey(db: DbOrTx, tenantId: string, key: string, value: object) {
+  await db.execute(sql`UPDATE tenants SET settings = jsonb_set(coalesce(settings, '{}'::jsonb), ARRAY[${key}]::text[], ${JSON.stringify(value)}::jsonb, true) WHERE id = ${tenantId}`);
+}
+
 @Injectable()
 export class SettingsService {
   async taxProfile(db: DbOrTx, tenantId: string): Promise<TaxProfile> {
@@ -76,7 +84,7 @@ export class SettingsService {
     const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
     const current = (t?.settings ?? {}) as Record<string, unknown>;
     const reporting = { ...DEFAULT_REPORTING, ...((current.reporting as object) ?? {}), ...definedOnly(patch) };
-    await db.update(tenants).set({ settings: { ...current, reporting } }).where(eq(tenants.id, tenantId));
+    await writeKey(db, tenantId, 'reporting', reporting);
     return reporting;
   }
 
@@ -89,7 +97,7 @@ export class SettingsService {
     const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
     const current = (t?.settings ?? {}) as Record<string, unknown>;
     const payroll = { ...DEFAULT_PAYROLL, ...((current.payroll as object) ?? {}), ...definedOnly(patch) };
-    await db.update(tenants).set({ settings: { ...current, payroll } }).where(eq(tenants.id, tenantId));
+    await writeKey(db, tenantId, 'payroll', payroll);
     return payroll;
   }
 
@@ -109,7 +117,7 @@ export class SettingsService {
     const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
     const current = (t?.settings ?? {}) as Record<string, unknown>;
     const merged = { ...defaults, ...((current[key] as object) ?? {}), ...definedOnly(patch) } as T;
-    await db.update(tenants).set({ settings: { ...current, [key]: merged } }).where(eq(tenants.id, tenantId));
+    await writeKey(db, tenantId, key, merged);
     return merged;
   }
 }

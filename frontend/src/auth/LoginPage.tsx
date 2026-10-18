@@ -197,7 +197,7 @@ export default function LoginPage() {
 
   const registerForm = (
     <Form name="register" layout="vertical" initialValues={{ businessModel: 'DAGANG' }} onFinish={(v) => run(() => register({ ...v, companyName: trim(v.companyName), name: trim(v.name), email: trim(v.email).toLowerCase() }))}>
-      <Form.Item name="businessModel" label="Model bisnis Anda" extra="Menentukan aplikasi yang disiapkan. Bisa diubah kapan saja.">
+      <Form.Item name="businessModel" label="Model bisnis Anda" extra="Menentukan aplikasi, istilah, dan bagan akun. Pilih dengan teliti: jenis usaha dikunci setelah ada transaksi.">
         <BusinessModelPicker />
       </Form.Item>
       <Form.Item name="companyName" label="Nama perusahaan" rules={[{ required: true }]}>
