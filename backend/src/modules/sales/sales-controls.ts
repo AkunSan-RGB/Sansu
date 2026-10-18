@@ -139,7 +139,13 @@ export class SalesControlsService {
 
     const rank = { error: 0, warning: 1, info: 2 } as const;
     out.sort((a, b) => rank[a.level] - rank[b.level]);
-    return { asOf: today, since, items: out, policy: { salesOrder: pol.salesOrder, salesDiscountMaxPct: pol.salesDiscountMaxPct, salesReturn: pol.salesReturn, salesBelowCost: pol.salesBelowCost, salesSeparateDuties: pol.salesSeparateDuties, blindDelivery: pol.blindDelivery } };
+    const setup = {
+      active: pol.salesOrder > 0 || pol.salesDiscountMaxPct > 0 || pol.salesReturn > 0 || pol.salesBelowCost,
+      message: 'Pesanan besar, diskon besar, penjualan di bawah harga pokok, dan retur besar belum butuh persetujuan, sehingga staf bisa melakukannya sendiri.',
+      recommended: { salesOrder: 50_000_000, salesDiscountMaxPct: 15, salesReturn: 5_000_000, salesBelowCost: true },
+      recommendedText: 'pesanan ≥ Rp50 juta, diskon > 15%, retur ≥ Rp5 juta, dan harga di bawah pokok butuh persetujuan Pemilik/Admin',
+    };
+    return { asOf: today, since, items: out, setup, policy: { salesOrder: pol.salesOrder, salesDiscountMaxPct: pol.salesDiscountMaxPct, salesReturn: pol.salesReturn, salesBelowCost: pol.salesBelowCost, salesSeparateDuties: pol.salesSeparateDuties, blindDelivery: pol.blindDelivery } };
   }
 }
 

@@ -78,7 +78,7 @@ export class InventoryService {
    */
   async adjust(user: AuthUser, dto: StockAdjustmentDto, outerTx?: Tx, opts: { approved?: boolean; special?: boolean } = {}) {
     const date = toDocDate(dto.date);
-    let gate: { limit: number; total: number } | null = null;
+    let gate: { limit: number; total: number; costHigh?: number } | null = null;
     const run = async (tx: Tx) => {
       const [wh] = await tx
         .select()
@@ -101,10 +101,20 @@ export class InventoryService {
       const ins: { productId: string; value: Dec }[] = [];
       const outs: { productId: string; value: Dec }[] = [];
 
+      // Penyesuaian masuk: harga pokok yang diketik dibandingkan HPP rata-rata stok saat ini (anti penggelembungan nilai persediaan)
+      const bal = await tx
+        .select({ productId: stockBalances.productId, avg: stockBalances.avgCost })
+        .from(stockBalances)
+        .where(and(eq(stockBalances.tenantId, user.tenantId), eq(stockBalances.warehouseId, dto.warehouseId), inArray(stockBalances.productId, productIds)));
+      const avgBefore = new Map(bal.map((b) => [b.productId, Number(b.avg)]));
+      const pol = await this.approvals.policy(tx, user.tenantId);
+      const costHigh: string[] = [];
       for (const line of dto.lines) {
         const qty = D(line.qty);
         if ((line.lotNo || line.expiryDate) && !qty.isPositive()) throw new BadRequestException('Nomor lot dan tanggal kedaluwarsa hanya untuk barang masuk');
         if (line.lotId && qty.isPositive()) throw new BadRequestException('Pilihan lot hanya untuk barang keluar');
+        const avg0 = avgBefore.get(line.productId) ?? 0;
+        if (qty.isPositive() && dto.reason !== 'OPENING' && line.unitCost && avg0 > 0 && pol.stockInCostTolerancePct > 0 && Number(line.unitCost) > avg0 * (1 + pol.stockInCostTolerancePct / 100)) costHigh.push(line.productId);
         const r = await this.stock.move(tx, {
           tenantId: user.tenantId,
           productId: line.productId,
@@ -133,8 +143,9 @@ export class InventoryService {
       if (!outerTx && !opts.approved) {
         const total = valueIn.plus(valueOut).toNumber();
         const limit = await this.approvals.needs(tx, user, 'STOCK_ADJUSTMENT', total);
-        if (limit !== null) {
-          gate = { limit, total };
+        const byCost = costHigh.length > 0 && !this.approvals.isApprover(user.role);
+        if (limit !== null || byCost) {
+          gate = { limit: limit ?? 0, total, ...(byCost ? { costHigh: costHigh.length } : {}) } as typeof gate;
           throw new Error('STOCK_ADJUSTMENT_NEEDS_APPROVAL');
         }
       }
@@ -181,19 +192,22 @@ export class InventoryService {
         if (pol.stockAlertValue > 0 && Number(out.valueOut) >= pol.stockAlertValue) {
           void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER'], excludeUserId: user.sub, info: true, title: `⚠ Penyesuaian stok keluar ${out.number} bernilai besar (Rp${Number(out.valueOut).toLocaleString('id-ID')})`, lines: [`Alasan: ${dto.reason}${dto.notes ? ` — ${dto.notes}` : ''}`], path: '/inventory' });
         }
+        if (pol.stockAlertValue > 0 && Number(out.valueIn) >= pol.stockAlertValue) {
+          void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER'], excludeUserId: user.sub, info: true, title: `⚠ Penyesuaian stok MASUK ${out.number} bernilai besar (Rp${Number(out.valueIn).toLocaleString('id-ID')})`, lines: [`Alasan: ${dto.reason}${dto.notes ? ` — ${dto.notes}` : ''}. Stok bertambah tanpa pembelian; pastikan harga pokok wajar.`], path: '/inventory' });
+        }
       }
       return out;
     } catch (e) {
       if (gate && (e as Error).message === 'STOCK_ADJUSTMENT_NEEDS_APPROVAL') {
-        const g = gate as { limit: number; total: number };
+        const g = gate as { limit: number; total: number; costHigh?: number };
         const req = await this.approvals.create(this.db, user, {
           kind: 'STOCK_ADJUSTMENT',
           refId: null,
-          title: `Penyesuaian stok (${dto.reason}) ${dto.lines.length} barang`,
+          title: `Penyesuaian stok (${dto.reason}) ${dto.lines.length} barang${g.costHigh ? ` — harga masuk di atas rata-rata (${g.costHigh} barang)` : ''}`,
           amount: g.total,
           payload: JSON.parse(JSON.stringify(dto)),
         });
-        throw this.approvals.required(req.id, 'Nilai penyesuaian stok mencapai batas persetujuan; permintaan dikirim ke pemilik atau admin dan stok disesuaikan setelah disetujui.');
+        throw this.approvals.required(req.id, g.costHigh ? 'Harga pokok barang masuk jauh di atas rata-rata stok; permintaan dikirim ke pemilik atau admin dan stok disesuaikan setelah disetujui.' : 'Nilai penyesuaian stok mencapai batas persetujuan; permintaan dikirim ke pemilik atau admin dan stok disesuaikan setelah disetujui.');
       }
       throw e;
     }
