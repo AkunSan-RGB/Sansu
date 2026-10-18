@@ -538,6 +538,7 @@ export class ProductionService {
 
   /** Produk jadi masuk: Dr Persediaan | Cr Barang dalam Proses (bahan), Cr Biaya Produksi Dibebankan (upah & overhead) */
   async complete(user: AuthUser, id: string, dto: CompleteProductionDto) {
+    await this.workflow.gate(user.tenantId, 'COMPLETE_PRODUCTION', id);
     const date = toDocDate(dto.date);
     await this.db.transaction(async (tx) => {
       const o = await this.lock(tx, user.tenantId, id);

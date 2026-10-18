@@ -139,6 +139,14 @@ describe('Alur kerja lanjutan (e2e)', () => {
     await call(wh1).post(`/api/workflow/cases/${k.id}/advance`, { to: 'MATERIAL_SIAP', note: 'Kain 100 meter tersedia di rak' }).expect(201);
     await call(owner).post(`/api/production/orders/${o.id}/start`, { date: today }).expect(201);
     expect((await call(owner).get(`/api/workflow/cases/${k.id}`).expect(200)).body.stage).toBe('PRODUKSI'); // maju otomatis dari status produksi
+    // hasil produksi tidak boleh dicatat selesai sebelum QC
+    const early = await call(owner).post(`/api/production/orders/${o.id}/complete`, { date: today, outputQty: '10' });
+    expect(early.status).toBe(400);
+    expect(JSON.stringify(early.body)).toMatch(/alur kerja/i);
+    await call(owner).post(`/api/workflow/cases/${k.id}/advance`, { to: 'QC', note: 'Contoh uji lolos pemeriksaan mutu' }).expect(201);
+    const comp = await call(owner).post(`/api/production/orders/${o.id}/complete`, { date: today, outputQty: '10' });
+    expect(comp.status).toBe(201);
+    expect((await call(owner).get(`/api/workflow/cases/${k.id}`).expect(200)).body.stage).toBe('BARANG_JADI');
     // dokumen tanpa kasus tidak dihalangi
     const o2 = (await call(owner).post('/api/production/orders', { bomId: bom.id, warehouseId: wh, batches: '1', date: today }).expect(201)).body;
     await call(owner).put('/api/workflow/settings', { autoOpen: false }).expect(200);
@@ -159,6 +167,64 @@ describe('Alur kerja lanjutan (e2e)', () => {
     await cases(owner);
     const alerts = (await call(owner).get('/api/workflow/alerts').expect(200)).body as { kind: string }[];
     expect(alerts.map((a) => a.kind)).toContain('KREDIT');
+  });
+
+  it('pengiriman barang ditahan saat piutang pelanggan melebihi batas kredit (alur wajib); kembali boleh setelah dilunasi/batas dinaikkan', async () => {
+    const owner = await reg('DAGANG', 'kirim');
+    const wh = (await call(owner).get('/api/warehouses').expect(200)).body[0].id;
+    const prod = (await call(owner).post('/api/products', { sku: 'D1', name: 'Barang', baseUom: 'PCS', sellPrice: '100000' }).expect(201)).body.id;
+    const cust = (await call(owner).post('/api/customers', { code: 'C8', name: 'Toko Tempo', creditLimit: '1000000' }).expect(201)).body.id;
+    await call(owner).post('/api/inventory/adjustments', { warehouseId: wh, reason: 'OPENING', date: today, lines: [{ productId: prod, qty: '50', unitCost: '5000' }] }).expect(201);
+    await cases(owner);
+    const mk = async () => {
+      const so = (await call(owner).post('/api/sales-orders', { customerId: cust, warehouseId: wh, date: today, lines: [{ productId: prod, qty: '2' }] }).expect(201)).body;
+      await call(owner).post(`/api/sales-orders/${so.id}/confirm`).expect(201);
+      return so.id as string;
+    };
+    const so1 = await mk();
+    const so2 = await mk();
+    await call(owner).post('/api/invoices', { salesOrderId: so1, date: today }).expect(201);
+    await call(owner).patch(`/api/customers/${cust}`, { creditLimit: '50000' }).expect(200);
+    await cases(owner);
+    // tanpa alur wajib: tidak dihalangi
+    await call(owner).put('/api/workflow/settings', { enforce: true }).expect(200);
+    const held = await call(owner).post(`/api/sales-orders/${so2}/deliver`, {});
+    expect(held.status).toBe(400);
+    expect(JSON.stringify(held.body)).toMatch(/batas kredit/i);
+    await call(owner).patch(`/api/customers/${cust}`, { creditLimit: '5000000' }).expect(200);
+    await call(owner).post(`/api/sales-orders/${so2}/deliver`, {}).expect(201);
+  });
+
+  it('restok tidak dibuka bila barang sudah dipesan; judul memuat saran jumlah', async () => {
+    const owner = await reg('RITEL', 'pintar');
+    const wh = (await call(owner).get('/api/warehouses').expect(200)).body[0].id;
+    const sup = (await call(owner).post('/api/suppliers', { code: 'S2', name: 'Pemasok Sabun' }).expect(201)).body.id;
+    const a = (await call(owner).post('/api/products', { sku: 'RA', name: 'Sabun A', baseUom: 'PCS', sellPrice: '5000' }).expect(201)).body.id;
+    const b = (await call(owner).post('/api/products', { sku: 'RB', name: 'Sabun B', baseUom: 'PCS', sellPrice: '5000' }).expect(201)).body.id;
+    await call(owner).put('/api/inventory/minimums', { warehouseId: wh, items: [{ productId: a, minQty: '10' }, { productId: b, minQty: '10' }] }).expect(200);
+    // A sudah dipesan penuh, B belum
+    const po = (await call(owner).post('/api/purchase-orders', { supplierId: sup, warehouseId: wh, lines: [{ productId: a, qty: '20', price: '3000' }] }).expect(201)).body;
+    await call(owner).post(`/api/purchase-orders/${po.id}/confirm`).expect(201);
+    const restok = (await cases(owner)).filter((c) => c.pipeline === 'RITEL_RESTOK' && c.title.startsWith('Stok menipis'));
+    expect(restok.map((c) => c.title).join('|')).toMatch(/RB/);
+    expect(restok.map((c) => c.title).join('|')).not.toMatch(/RA /);
+    expect(restok.find((c) => /RB/.test(c.title))!.title).toMatch(/disarankan pesan 20/);
+
+  });
+
+  it('peringatan jual rugi: faktur di bawah harga pokok muncul pada kasus penjualan', async () => {
+    const owner = await reg('DAGANG', 'rugi');
+    const wh = (await call(owner).get('/api/warehouses').expect(200)).body[0].id;
+    const prod = (await call(owner).post('/api/products', { sku: 'L1', name: 'Barang', baseUom: 'PCS', sellPrice: '1000' }).expect(201)).body.id;
+    const cust = (await call(owner).post('/api/customers', { code: 'C6', name: 'Pembeli' }).expect(201)).body.id;
+    await call(owner).post('/api/inventory/adjustments', { warehouseId: wh, reason: 'OPENING', date: today, lines: [{ productId: prod, qty: '30', unitCost: '4000' }] }).expect(201);
+    await cases(owner);
+    const so = (await call(owner).post('/api/sales-orders', { customerId: cust, warehouseId: wh, date: today, lines: [{ productId: prod, qty: '2' }] }).expect(201)).body;
+    await call(owner).post(`/api/sales-orders/${so.id}/confirm`).expect(201);
+    await call(owner).post('/api/invoices', { salesOrderId: so.id, date: today }).expect(201);
+    await cases(owner);
+    const alerts = (await call(owner).get('/api/workflow/alerts').expect(200)).body as { kind: string; message: string }[];
+    expect(alerts.find((a) => a.kind === 'JUAL_RUGI')?.message).toMatch(/di bawah harga pokok/);
   });
 
   it('jenis usaha lain tidak melihat alur baru (FMCG kanvas, F&B online hanya untuk jenisnya)', async () => {

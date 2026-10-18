@@ -41,7 +41,7 @@ Jenis usaha dikunci per perusahaan (lihat `ISOLASI-DATA.md`), jadi perusahaan ha
 
 ## Otomatisasi (tanpa perlu ada yang membuka kasus)
 - **Kasus dibuka otomatis** dari dokumen baru: pesanan penjualan, pesanan pembelian, penawaran (Jasa), sesi kasir, perintah produksi, klaim prinsipal, kanvas, pesanan online F&B. Hanya dokumen yang dibuat sejak fitur ini pertama dipakai perusahaan (riwayat lama tidak dibanjiri); satu dokumen tidak pernah membuka dua kasus.
-- **Restok otomatis**: barang yang stoknya di bawah stok minimum membuka kasus restok (Dagang/Ritel/FMCG/Manufaktur/F&B/Jasa pembelian). Kasus yang belum dikerjakan ditutup sendiri bila stok pulih.
+- **Restok otomatis**: barang yang posisi stoknya (gudang + sedang dipesan + sedang diminta) di bawah stok minimum membuka kasus restok, lengkap dengan saran jumlah dan pemasok terakhir (Dagang/Ritel/FMCG/Manufaktur/F&B/Jasa pembelian). Kasus yang belum dikerjakan ditutup sendiri bila stok pulih.
 - **Dokumen turunan tertaut sendiri**: faktur dari pesanan, surat jalan, penerimaan barang, dan tagihan pemasok langsung masuk ke kasus yang sama; tahap maju bila buktinya sudah ada.
 - Berjalan tiap 10 menit di server dan juga setiap kali daftar/kasus dibuka. Bisa dimatikan di *Pengaturan alur*.
 
@@ -49,14 +49,15 @@ Jenis usaha dikunci per perusahaan (lihat `ISOLASI-DATA.md`), jadi perusahaan ha
 Admin dapat mengatur di **Alur kerja → Pengaturan alur**: mempersempit peran suatu tahap, mewajibkan catatan, mewajibkan pemeriksa berbeda, memperpendek batas hari, dan mengganti nama tahap. Server menolak penyesuaian yang melonggarkan aturan bawaan (menambah peran, mematikan catatan/pemeriksa wajib, memperpanjang/menghapus batas hari). Perubahan tercatat di jejak audit.
 
 ## Alur wajib (opsional)
-Bila dinyalakan, dokumen berisiko yang sudah punya kasus diperiksa terhadap tahapnya: **bayar tagihan pemasok** ditolak bila kasus dibatalkan atau belum sampai tahap *Diterima*; **mulai produksi** ditolak bila belum sampai *Bahan siap*. Dokumen yang tidak punya kasus tidak dihalangi. Halaman pesanan, faktur, dan PO menampilkan lencana tahap alurnya.
+Bila dinyalakan, dokumen berisiko yang sudah punya kasus diperiksa terhadap tahapnya: **bayar tagihan pemasok** ditolak bila kasus dibatalkan atau belum sampai tahap *Diterima*; **mulai produksi** ditolak bila belum sampai *Bahan siap*; **selesaikan produksi** ditolak sebelum tahap *QC* (pemeriksaan mutu oleh orang lain); **kirim barang** ditolak bila pesanan belum disetujui atau piutang pelanggan melebihi batas kredit. Dokumen yang tidak punya kasus tidak dihalangi. Halaman pesanan, faktur, dan PO menampilkan lencana tahap alurnya.
 
 ## Peringatan tambahan
 - **Batas kredit**: piutang pelanggan melebihi batas kredit saat kasus penjualan masih berjalan.
 - **Selisih kas**: sesi kasir yang uangnya tidak sama dengan hitungan sistem.
+- **Jual rugi**: baris faktur yang dijual di bawah harga pokok (harga, diskon, atau salah input).
 
 ## Batasan
-- Alur membaca status dokumen di modul masing-masing dan hanya menegakkan di dua dokumen berisiko (bayar tagihan pemasok, mulai produksi); modul lain tetap memakai status dokumennya sendiri.
+- Alur membaca status dokumen di modul masing-masing dan hanya menegakkan di empat aksi berisiko (bayar tagihan pemasok, mulai dan selesaikan produksi, kirim barang); modul lain tetap memakai status dokumennya sendiri.
 - Gerbang "alur wajib" untuk tagihan pemasok jarang menahan karena tagihan biasanya memerlukan penerimaan barang; ia terutama berguna bila kasus dibatalkan.
 - Penyesuaian tahap belum bisa menambah/menghapus tahap atau mengubah urutan (sengaja, agar kontrol bawaan tidak bisa dilemahkan).
 - Pesanan online F&B bergantung pada pesanan yang masuk lewat kanal yang sudah ada (kunci API/manual); tidak ada API resmi GoFood/GrabFood/ShopeeFood.

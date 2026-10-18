@@ -10,6 +10,7 @@
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { WorkflowService } from '../../workflow/workflow.module';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { SequenceService } from '../../../common/sequence/sequence.service';
@@ -34,10 +35,12 @@ export class DeliveriesService {
     private readonly posting: PostingService,
     private readonly orders: SalesOrdersService,
     private readonly audit: AuditService,
+    private readonly workflow: WorkflowService,
   ) {}
 
   /** Kirim barang atas pesanan CONFIRMED: stok keluar, HPP dijurnal, pesanan → DELIVERED */
   async deliver(user: AuthUser, orderId: string, dto: { date?: string; notes?: string }) {
+    await this.workflow.gate(user.tenantId, 'DELIVER', orderId);
     const date = toDocDate(dto.date);
     const id = await this.db.transaction(async (tx) => {
       const order = await this.orders.lockOrder(tx, user.tenantId, orderId);

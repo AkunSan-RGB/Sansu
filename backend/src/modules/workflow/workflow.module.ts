@@ -69,6 +69,10 @@ const GATES = {
   // tagihan bisa belum tertaut sendiri; kasusnya dicari juga lewat pesanan pembelian induknya
   PAY_SUPPLIER: { link: 'PURCHASE_INVOICE' as WorkflowLinkType, stage: 'DITERIMA', what: 'membayar tagihan pemasok', viaPo: true },
   START_PRODUCTION: { link: 'PRODUCTION_ORDER' as WorkflowLinkType, stage: 'MATERIAL_SIAP', what: 'memulai produksi', viaPo: false },
+  // hasil produksi tidak boleh dicatat selesai sebelum pemeriksaan mutu (QC) oleh orang lain
+  COMPLETE_PRODUCTION: { link: 'PRODUCTION_ORDER' as WorkflowLinkType, stage: 'QC', what: 'menyelesaikan produksi', viaPo: false },
+  // barang tidak keluar gudang bila pesanan belum disetujui atau piutang pelanggan sudah melebihi batas kredit
+  DELIVER: { link: 'SALES_ORDER' as WorkflowLinkType, stage: 'DISETUJUI', what: 'mengirim barang', viaPo: false },
 };
 export type WorkflowGateAction = keyof typeof GATES;
 
@@ -273,6 +277,14 @@ export class WorkflowService {
     return r.rows.filter((x) => !DEAD.has(x.status));
   }
 
+  /** Piutang berjalan pelanggan (setelah retur) dan batas kreditnya */
+  private async creditPosition(tenantId: string, customerId: string) {
+    const r = await this.db.execute<{ lim: string; ar: string }>(sql`
+      SELECT cu.credit_limit AS lim, COALESCE((SELECT SUM(i.total - i.paid_amount - i.returned_amount) FROM invoices i WHERE i.tenant_id = cu.tenant_id AND i.customer_id = cu.id AND i.status <> 'PAID'), 0) AS ar
+      FROM customers cu WHERE cu.id = ${customerId} AND cu.tenant_id = ${tenantId}`);
+    return { limit: Number(r.rows[0]?.lim ?? 0), ar: Number(r.rows[0]?.ar ?? 0) };
+  }
+
   async alerts(u: AuthUser) {
     const defs = await this.defs(u.tenantId);
     const out: { kind: string; severity: 'warn' | 'info'; caseId: string; number: string; message: string }[] = [];
@@ -294,12 +306,16 @@ export class WorkflowService {
       }
       // Dagang/FMCG: piutang pelanggan melebihi batas kredit saat kasus masih berjalan
       if (c.customerId) {
-        const r = await this.db.execute<{ lim: string; ar: string }>(sql`
-          SELECT cu.credit_limit AS lim, COALESCE((SELECT SUM(i.total - i.paid_amount - i.returned_amount) FROM invoices i WHERE i.tenant_id = cu.tenant_id AND i.customer_id = cu.id AND i.status <> 'PAID'), 0) AS ar
-          FROM customers cu WHERE cu.id = ${c.customerId} AND cu.tenant_id = ${u.tenantId}`);
-        const lim = Number(r.rows[0]?.lim ?? 0);
-        const ar = Number(r.rows[0]?.ar ?? 0);
+        const { limit: lim, ar } = await this.creditPosition(u.tenantId, c.customerId);
         if (lim > 0 && ar > lim) out.push({ kind: 'KREDIT', severity: 'warn', caseId: c.id, number: c.number, message: `${c.number} · ${c.title}: piutang pelanggan ${rp(ar)} melebihi batas kredit ${rp(lim)}` });
+      }
+      // Dagang/Ritel/FMCG: faktur terjual di bawah harga pokok (rugi) — perlu dicek harga, diskon, atau salah input
+      for (const l of links.filter((x) => x.type === 'INVOICE' && !x.dead)) {
+        const r = await this.db.execute<{ n: number; loss: string }>(sql`
+          SELECT COUNT(*)::int AS n, COALESCE(SUM((il.unit_cost * il.uom_factor - il.line_total / NULLIF(il.qty, 0)) * il.qty), 0) AS loss
+          FROM invoice_lines il JOIN invoices i ON i.id = il.invoice_id
+          WHERE i.id = ${l.docId} AND i.tenant_id = ${u.tenantId} AND il.qty > 0 AND il.unit_cost > 0 AND il.line_total / il.qty < il.unit_cost * il.uom_factor`);
+        if (r.rows[0]?.n) out.push({ kind: 'JUAL_RUGI', severity: 'warn', caseId: c.id, number: c.number, message: `${c.number} · ${c.title}: ${r.rows[0].n} baris di faktur ${l.number} dijual di bawah harga pokok (rugi sekitar ${rp(Number(r.rows[0].loss))})` });
       }
       // Ritel/F&B: selisih kas pada sesi kasir
       const sess = links.find((l) => l.type === 'POS_SESSION' && !l.dead);
@@ -462,7 +478,7 @@ export class WorkflowService {
       const cur = stageOf(p, c.stage)!;
       const links = await this.liveLinks(tx, c.tenantId, c.id);
       const next = cur.next
-        .filter((k) => k !== 'BATAL')
+        .filter((k) => k !== 'BATAL' && p.stages.findIndex((x) => x.key === k) > p.stages.findIndex((x) => x.key === cur.key)) // otomatis hanya maju, tidak pernah mundur (mis. QC → Produksi)
         .map((k) => stageOf(p, k)!)
         .find((s) => !s.requireNote && !!s.auto?.length && (s.requireLink ?? []).every((t) => links.some((l) => l.type === t && !l.dead)) && s.auto.some((r) => links.some((l) => l.type === r.link && !l.dead && l.status && r.status.includes(l.status))));
       if (!next) return;
@@ -505,17 +521,26 @@ export class WorkflowService {
     const p = defs.find((x) => x.restock);
     if (!p) return 0;
     let opened = 0;
-    const low = await this.db.execute<{ product_id: string; warehouse_id: string; min_qty: string; qty: string; sku: string; name: string }>(sql`
-      SELECT sm.product_id, sm.warehouse_id, sm.min_qty, COALESCE(sb.qty, 0) AS qty, pr.sku, pr.name
-      FROM stock_minimums sm JOIN products pr ON pr.id = sm.product_id AND pr.tenant_id = sm.tenant_id AND pr.is_active
+    // posisi stok = ada di gudang + sedang dipesan + sedang diminta; kasus hanya dibuka bila posisi ini masih di bawah minimum
+    const low = await this.db.execute<{ product_id: string; warehouse_id: string; min_qty: string; qty: string; incoming: string; sku: string; name: string; supplier_id: string | null; supplier_name: string | null }>(sql`
+      SELECT sm.product_id, sm.warehouse_id, sm.min_qty, COALESCE(sb.qty, 0) AS qty, COALESCE(po.qty, 0) + COALESCE(pr.qty, 0) AS incoming, pr0.sku, pr0.name, ls.supplier_id, ls.supplier_name
+      FROM stock_minimums sm JOIN products pr0 ON pr0.id = sm.product_id AND pr0.tenant_id = sm.tenant_id AND pr0.is_active
       LEFT JOIN stock_balances sb ON sb.tenant_id = sm.tenant_id AND sb.product_id = sm.product_id AND sb.warehouse_id = sm.warehouse_id
-      WHERE sm.tenant_id = ${tenantId} AND COALESCE(sb.qty, 0) < sm.min_qty
+      LEFT JOIN (SELECT l.product_id, o.warehouse_id, SUM((l.qty - l.received_qty) * l.uom_factor) AS qty
+                 FROM purchase_order_lines l JOIN purchase_orders o ON o.id = l.order_id
+                 WHERE o.tenant_id = ${tenantId} AND o.status IN ('DRAFT', 'CONFIRMED') AND l.qty > l.received_qty GROUP BY 1, 2) po ON po.product_id = sm.product_id AND po.warehouse_id = sm.warehouse_id
+      LEFT JOIN (SELECT l.product_id, r.warehouse_id, SUM(l.qty * l.uom_factor) AS qty
+                 FROM purchase_request_lines l JOIN purchase_requests r ON r.id = l.request_id
+                 WHERE r.tenant_id = ${tenantId} AND r.status IN ('SUBMITTED', 'APPROVED') AND l.purchase_order_id IS NULL GROUP BY 1, 2) pr ON pr.product_id = sm.product_id AND pr.warehouse_id = sm.warehouse_id
+      LEFT JOIN LATERAL (SELECT o.supplier_id, s.name AS supplier_name FROM purchase_order_lines l JOIN purchase_orders o ON o.id = l.order_id JOIN suppliers s ON s.id = o.supplier_id
+                         WHERE o.tenant_id = sm.tenant_id AND l.product_id = sm.product_id AND o.status <> 'CANCELLED' ORDER BY o.date DESC, o.created_at DESC LIMIT 1) ls ON true
+      WHERE sm.tenant_id = ${tenantId} AND COALESCE(sb.qty, 0) + COALESCE(po.qty, 0) + COALESCE(pr.qty, 0) < sm.min_qty
         AND NOT EXISTS (SELECT 1 FROM workflow_cases c WHERE c.tenant_id = sm.tenant_id AND c.status = 'ACTIVE' AND c.ref_key = 'RESTOCK:' || sm.product_id || ':' || sm.warehouse_id)
-      ORDER BY pr.sku LIMIT 30`);
+      ORDER BY pr0.sku LIMIT 30`);
     for (const r of low.rows) {
       try {
         await this.db.transaction(async (tx) => {
-          await this.insertCase(tx, tenantId, actor, p, { title: `Stok menipis: ${r.sku} ${r.name} (${Number(r.qty)} dari minimum ${Number(r.min_qty)})`, refKey: `RESTOCK:${r.product_id}:${r.warehouse_id}`, auto: true });
+          await this.insertCase(tx, tenantId, actor, p, { title: `Stok menipis: ${r.sku} ${r.name} (ada ${Number(r.qty)}, minimum ${Number(r.min_qty)}; disarankan pesan ${Math.max(1, Math.ceil(Number(r.min_qty) * 2 - Number(r.qty) - Number(r.incoming)))}${r.supplier_name ? `, pemasok terakhir ${r.supplier_name}` : ''})`, supplierId: p.subject === 'SUPPLIER' ? r.supplier_id : null, refKey: `RESTOCK:${r.product_id}:${r.warehouse_id}`, auto: true });
         });
         opened++;
       } catch {
@@ -529,6 +554,7 @@ export class WorkflowService {
       const [, pid, wid] = (c.refKey ?? '').split(':');
       const r = await this.db.execute<{ ok: boolean; links: number }>(sql`
         SELECT (COALESCE((SELECT qty FROM stock_balances WHERE tenant_id = ${tenantId} AND product_id = ${pid}::uuid AND warehouse_id = ${wid}::uuid), 0)
+                + COALESCE((SELECT SUM((l.qty - l.received_qty) * l.uom_factor) FROM purchase_order_lines l JOIN purchase_orders o ON o.id = l.order_id WHERE o.tenant_id = ${tenantId} AND l.product_id = ${pid}::uuid AND o.warehouse_id = ${wid}::uuid AND o.status IN ('DRAFT', 'CONFIRMED') AND l.qty > l.received_qty), 0)
                 >= COALESCE((SELECT min_qty FROM stock_minimums WHERE tenant_id = ${tenantId} AND product_id = ${pid}::uuid AND warehouse_id = ${wid}::uuid), 0)) AS ok,
                (SELECT COUNT(*)::int FROM workflow_links WHERE case_id = ${c.id}) AS links`);
       if (!r.rows[0]?.ok || r.rows[0].links > 0) continue;
@@ -599,6 +625,10 @@ export class WorkflowService {
     if (c.status === 'DONE') return;
     const need = p.stages.findIndex((s) => s.key === g.stage);
     const have = p.stages.findIndex((s) => s.key === c.stage);
+    if (action === 'DELIVER' && c.customerId) {
+      const { limit, ar } = await this.creditPosition(tenantId, c.customerId);
+      if (limit > 0 && ar > limit) throw new BadRequestException(`Menurut alur kerja ${c.number}, ${g.what} ditahan: piutang pelanggan Rp${Math.round(ar).toLocaleString('id-ID')} melebihi batas kredit Rp${Math.round(limit).toLocaleString('id-ID')}. Minta pelunasan dulu atau naikkan batas kredit pelanggan di data pelanggan.`);
+    }
     if (need >= 0 && have < need) {
       throw new BadRequestException(`Menurut alur kerja ${c.number}, ${g.what} belum boleh: kasus masih di tahap "${stageOf(p, c.stage)?.label}", harus sudah mencapai "${stageOf(p, g.stage)?.label}".`);
     }
