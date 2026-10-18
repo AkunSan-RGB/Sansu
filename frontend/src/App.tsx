@@ -95,6 +95,7 @@ import WithheldPage from './features/services/WithheldPage';
 import ProductsPage from './features/products/ProductsPage';
 import DocumentViewPage from './features/accounting/DocumentViewPage';
 import ApprovalsPage from './features/approvals/ApprovalsPage';
+import WorkflowPage from './features/workflow/WorkflowPage';
 import DeliveriesPage from './features/sales/DeliveriesPage';
 import GoodsReceiptDetailPage from './features/purchasing/GoodsReceiptDetailPage';
 import GoodsReceiptsPage from './features/purchasing/GoodsReceiptsPage';
@@ -133,6 +134,7 @@ export default function App() {
           <Route path="dashboard" element={<DashboardPage />} />
         </Route>
         <Route path="approvals" element={<ApprovalsPage />} />
+        <Route path="workflow" element={<WorkflowPage />} />
         <Route path="documents/:id" element={<DocumentViewPage />} />
         <Route element={<AppGate app="crm" />}>
           <Route path="crm" element={<LeadsPipelinePage />} />

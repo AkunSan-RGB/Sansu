@@ -779,6 +779,22 @@ export const HELP_ARTICLES: HelpArticle[] = [
     link: { label: 'Buka daftar produk', to: '/products' },
   },
   {
+    id: 'alur-kerja',
+    category: 'Memulai',
+    title: 'Alur kerja: proses dari awal sampai selesai',
+    summary: 'Pantau tiap proses (proyek, order, pengadaan, shift kasir) tahap demi tahap sesuai jenis usaha Anda.',
+    paths: ['/workflow'],
+    steps: [
+      'Buka menu Alur kerja, pilih alur di tab sesuai jenis usaha Anda.',
+      'Klik Kasus baru untuk memulai satu proses (mis. satu proyek atau satu order).',
+      'Tautkan dokumen nyata (pesanan, faktur, penerimaan, dst.) sebagai bukti. Tahap yang buktinya sudah ada maju otomatis.',
+      'Pindahkan ke tahap berikutnya sesuai peran Anda; isi catatan/bukti bila diminta. Pemeriksaan dilakukan orang lain.',
+    ],
+    tips: ['Kasus tidak bisa loncat tahap; mundur atau batal wajib alasan dan hanya Admin/Pemilik.', 'Tag merah di dokumen terkait berarti dokumennya dibatalkan: periksa kasusnya.'],
+    keywords: 'alur kerja workflow pipeline tahap proyek order pengadaan shift kasir qc serah terima klaim',
+    link: { label: 'Buka Alur kerja', to: '/workflow' },
+  },
+  {
     id: 'lupa-sandi',
     category: 'Pengaturan & Keamanan',
     title: 'Lupa kata sandi',

@@ -39,6 +39,7 @@ import { PayrollModule } from './modules/payroll/payroll.module';
 import { AssetsModule } from './modules/assets/assets.module';
 import { InsightsModule } from './modules/insights/insights.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
+import { WorkflowModule } from './modules/workflow/workflow.module';
 import { BankModule } from './modules/bank/bank.module';
 import { BranchesModule } from './modules/branches/branches.module';
 import { DemoModule } from './modules/demo/demo.module';
@@ -95,6 +96,7 @@ import { MailModule } from './mail/mail.module';
     AssetsModule,
     InsightsModule,
     OnboardingModule,
+    WorkflowModule,
     TaxModule,
     BankModule,
     BranchesModule,
