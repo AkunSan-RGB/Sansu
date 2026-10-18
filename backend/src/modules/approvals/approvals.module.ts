@@ -64,6 +64,8 @@ class PolicyDto implements Partial<ApprovalPolicy> {
   @ApiPropertyOptional({ description: 'Pemilik diberi tahu bila penyesuaian stok keluar / selisih opname bernilai ≥ ini; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) stockAlertValue?: number;
   @ApiPropertyOptional({ description: 'Yang mengisi jumlah fisik opname tidak boleh memposting selisihnya' }) @IsOptional() @IsBoolean() stockCountSod?: boolean;
   @ApiPropertyOptional({ description: 'Opname buta: penghitung tidak melihat stok sistem' }) @IsOptional() @IsBoolean() blindCount?: boolean;
+  @ApiPropertyOptional({ description: 'Penyesuaian stok masuk dengan harga pokok di atas rata-rata lebih dari persen ini perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1000) stockInCostTolerancePct?: number;
+  @ApiPropertyOptional({ description: 'Pembuat transfer gudang tidak boleh menerimanya sendiri' }) @IsOptional() @IsBoolean() transferSod?: boolean;
   @ApiPropertyOptional({ description: 'Pembayaran ke supplier yang rekeningnya baru diubah (hari terakhir) wajib disetujui; 0 = nonaktif' }) @IsOptional() @IsInt() @Min(0) @Max(60) bankChangeHoldDays?: number;
   @ApiPropertyOptional({ description: 'Masa berlaku tautan persetujuan lewat Telegram (jam, 1–72)' }) @IsOptional() @IsInt() @Min(1) @Max(72) telegramLinkHours?: number;
 }

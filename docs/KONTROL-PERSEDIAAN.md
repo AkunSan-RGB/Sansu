@@ -28,3 +28,13 @@ Migrasi `0083` menambah kolom pencatat jumlah fisik opname; dijalankan otomatis 
 
 - **Nilai stok vs buku besar** (`STOCK_GL_DIFF`, tingkat *error*): total qty × HPP rata-rata kartu stok dibandingkan saldo akun Persediaan (+ Barang Setengah Jadi). Muncul bila selisih ≥ Rp100.000 atau 1% dari saldo. Catatan jujur: stok dalam perjalanan (transfer) atau kasus khusus dapat menimbulkan selisih sementara; tetap perlu ditelusuri sebelum tutup buku.
 - **Opname siklus** (`COUNT_CYCLE`, informasi): barang yang membentuk ±80% nilai stok (maks 20) yang belum dihitung fisik dalam 60 hari. Opname sebagian cukup untuk menghilangkan tandanya.
+## Penguatan lanjutan
+
+- **Harga pokok stok masuk**: penyesuaian stok MASUK (selain saldo awal) oleh staf dengan harga pokok di atas rata-rata stok + toleransi (`stockInCostTolerancePct`, Pengaturan › Perusahaan › Kebijakan) menunggu persetujuan Pemilik/Admin. Mencegah penggelembungan nilai persediaan.
+- **Stok masuk besar** (≥ batas pemberitahuan nilai stok) oleh bukan Pemilik: Pemilik diberi tahu; muncul sebagai temuan `ADJ_IN_LARGE`.
+- **Pemecahan penyesuaian**: dua penyesuaian keluar atau lebih dalam 3 hari di gudang yang sama, masing-masing di bawah batas persetujuan tetapi jumlahnya melewati batas → temuan `ADJ_OUT_SPLIT`.
+- **Transfer antar gudang**: saklar `transferSod` — pembuat transfer tidak boleh menerimanya sendiri (kecuali Pemilik).
+- **Selisih opname besar** (≥ batas pemberitahuan) wajib diisi catatan alasan (minimal 5 huruf) sebelum diposting.
+- **Banner "Pengaman belum aktif"** di Kontrol persediaan dan Kontrol penjualan, dengan tombol *Terapkan rekomendasi*.
+
+Belum dikerjakan: opname siklus terjadwal dan rekonsiliasi stok vs buku besar.

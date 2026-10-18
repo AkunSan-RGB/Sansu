@@ -63,7 +63,7 @@ function CashControlCard() {
 
 /** Batas nilai yang memerlukan persetujuan pemilik / admin (0 = nonaktif) */
 function ApprovalPolicyCard() {
-  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; blindReceiving: boolean; blindDelivery: boolean; salesOrder: number; salesDiscountMaxPct: number; salesReturn: number; salesBelowCost: boolean; salesSeparateDuties: boolean; stockAlertValue: number; stockCountSod: boolean; blindCount: boolean; bankChangeHoldDays: number; budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK'; telegramLinkHours: number };
+  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; blindReceiving: boolean; blindDelivery: boolean; salesOrder: number; salesDiscountMaxPct: number; salesReturn: number; salesBelowCost: boolean; salesSeparateDuties: boolean; stockAlertValue: number; stockCountSod: boolean; blindCount: boolean; stockInCostTolerancePct: number; transferSod: boolean; bankChangeHoldDays: number; budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK'; telegramLinkHours: number };
   const [form] = Form.useForm<Policy>();
   const policy = useQuery({ queryKey: ['approvals', 'policy'], queryFn: () => get<Policy>('/approvals/policy') });
   useEffect(() => {
@@ -124,6 +124,12 @@ function ApprovalPolicyCard() {
         </Form.Item>
         <Form.Item name="stockAlertValue" label="Beri tahu Pemilik bila penyesuaian stok keluar / selisih opname mulai dari" extra="Pemilik menerima Telegram/email saat penyesuaian stok keluar atau selisih stock opname bernilai di atas ini (kecuali ia sendiri pelakunya). Bawaan Rp5 juta; 0 = tidak diberi tahu.">
           <InputNumber min={0} step={1_000_000} style={{ width: '100%' }} prefix="Rp" />
+        </Form.Item>
+        <Form.Item name="stockInCostTolerancePct" label="Harga pokok penyesuaian stok MASUK di atas rata-rata (%) butuh persetujuan" extra="Penyesuaian stok masuk (di luar saldo awal) oleh staf dengan harga pokok lebih tinggi dari rata-rata stok sebesar ini menunggu persetujuan Pemilik/Admin. Mencegah penggelembungan nilai persediaan. 0 = tidak dicek.">
+          <InputNumber min={0} max={1000} step={5} precision={0} style={{ width: '100%' }} suffix="%" />
+        </Form.Item>
+        <Form.Item name="transferSod" label="Pembuat transfer gudang ≠ penerima" valuePropName="checked" extra="Yang membuat transfer antar gudang tidak boleh menerimanya sendiri (selain Pemilik). Nyalakan bila ada lebih dari satu orang Gudang/Admin.">
+          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
         </Form.Item>
         <Form.Item name="stockCountSod" label="Penghitung ≠ pemosting selisih opname" valuePropName="checked" extra="Yang mengisi jumlah fisik opname tidak boleh memposting selisihnya sendiri (selain Pemilik). Nyalakan bila ada lebih dari satu Admin/Keuangan.">
           <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />

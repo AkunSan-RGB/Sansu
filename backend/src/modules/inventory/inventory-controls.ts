@@ -80,6 +80,39 @@ export class InventoryControlsService {
       add('COUNT_LOSS', 'warning', 'Stock opname dengan kekurangan besar', loss.rows.map((r) => `${r.number} ${r.wh} kurang ${rp(r.v)}`), 'Barang fisik lebih sedikit dari catatan. Telusuri penyebabnya (pencurian, salah catat, retur belum tercatat).');
     }
 
+    // 2b. Penyesuaian stok MASUK bernilai besar (stok bertambah tanpa pembelian; bisa menggelembungkan nilai persediaan)
+    if (pol.stockAlertValue > 0) {
+      const inBig = await this.db.execute<{ number: string; wh: string; v: string }>(sql`
+        SELECT m.ref_number AS number, w.name AS wh, SUM(ABS(m.qty) * m.unit_cost)::text AS v
+        FROM stock_moves m JOIN warehouses w ON w.id = m.warehouse_id
+        WHERE m.tenant_id = ${tenantId} AND m.type = 'ADJUSTMENT_IN' AND m.ref_type = 'STOCK_ADJUSTMENT' AND m.date >= ${since}
+          AND NOT EXISTS (SELECT 1 FROM stock_counts c WHERE c.tenant_id = ${tenantId} AND c.adjustment_number = m.ref_number)
+          AND NOT EXISTS (SELECT 1 FROM journal_entries j WHERE j.tenant_id = ${tenantId} AND j.source_type = 'STOCK_ADJUSTMENT' AND j.source_id::text = m.ref_id::text AND j.description LIKE '%(OPENING)%')
+        GROUP BY m.ref_number, w.name HAVING SUM(ABS(m.qty) * m.unit_cost) >= ${pol.stockAlertValue} ORDER BY SUM(ABS(m.qty) * m.unit_cost) DESC`);
+      add('ADJ_IN_LARGE', 'warning', 'Penyesuaian stok masuk bernilai besar', inBig.rows.map((r) => `${r.number} ${r.wh} ${rp(r.v)}`), 'Stok bertambah tanpa pembelian atau opname. Periksa harga pokok yang diketik dan buktinya; nilainya langsung menambah persediaan.');
+    }
+
+    // 2c. Penyesuaian keluar dipecah di bawah batas persetujuan: ≥ 2 penyesuaian dalam 3 hari di satu gudang, masing-masing di bawah batas tetapi jumlahnya melewati
+    const splitLimit = pol.stockAdjustment > 0 ? pol.stockAdjustment : pol.stockAlertValue;
+    if (splitLimit > 0) {
+      const adjs = await this.db.execute<{ number: string; wh: string; date: string; v: string }>(sql`
+        SELECT m.ref_number AS number, w.name AS wh, MIN(m.date)::text AS date, SUM(ABS(m.qty) * m.unit_cost)::text AS v
+        FROM stock_moves m JOIN warehouses w ON w.id = m.warehouse_id
+        WHERE m.tenant_id = ${tenantId} AND m.type = 'ADJUSTMENT_OUT' AND m.ref_type = 'STOCK_ADJUSTMENT' AND m.date >= ${since}
+          AND NOT EXISTS (SELECT 1 FROM stock_counts c WHERE c.tenant_id = ${tenantId} AND c.adjustment_number = m.ref_number)
+        GROUP BY m.ref_number, w.name ORDER BY MIN(m.date)`);
+      const byWh = new Map<string, typeof adjs.rows>();
+      for (const r of adjs.rows.filter((x) => Number(x.v) < splitLimit)) byWh.set(r.wh, [...(byWh.get(r.wh) ?? []), r]);
+      const flagged = new Set<string>();
+      for (const rows of byWh.values()) {
+        for (let i = 0; i < rows.length; i++) {
+          const win = rows.filter((r) => Date.parse(r.date) >= Date.parse(rows[i].date) && Date.parse(r.date) - Date.parse(rows[i].date) <= 3 * 86_400_000);
+          if (win.length >= 2 && win.reduce((a, r) => a + Number(r.v), 0) >= splitLimit) win.forEach((r) => flagged.add(`${r.number} (${r.wh})`));
+        }
+      }
+      add('ADJ_OUT_SPLIT', 'warning', 'Penyesuaian stok keluar dipecah di bawah batas', [...flagged], `Beberapa penyesuaian keluar dalam 3 hari di gudang yang sama, tiap penyesuaian di bawah Rp${splitLimit.toLocaleString('id-ID')} tetapi jumlahnya melewati batas. Pastikan bukan cara menghindari persetujuan.`);
+    }
+
     // 4. Gudang utama berisi stok yang lewat jadwal opname (belum pernah atau terakhir > {COUNT_INTERVAL_DAYS} hari)
     const stale = await this.db.execute<{ name: string; last: string | null }>(sql`
       SELECT w.name, MAX(c.posted_at)::date::text AS last
@@ -130,7 +163,13 @@ export class InventoryControlsService {
 
     const rank = { error: 0, warning: 1, info: 2 } as const;
     out.sort((a, b) => rank[a.level] - rank[b.level]);
-    return { asOf: today, since, items: out };
+    const setup = {
+      active: pol.stockAdjustment > 0 || pol.stockInCostTolerancePct > 0 || pol.blindCount || pol.stockCountSod,
+      message: 'Persetujuan penyesuaian stok dan selisih opname, pengecekan harga pokok barang masuk, dan opname buta belum aktif. Tanpa itu, Gudang atau Admin bisa menyesuaikan stok sendirian (hanya Pemilik yang diberi tahu).',
+      recommended: { stockAdjustment: 5_000_000, stockInCostTolerancePct: 25, blindCount: true },
+      recommendedText: 'penyesuaian dan selisih opname ≥ Rp5 juta butuh persetujuan, harga masuk > 25% di atas rata-rata butuh persetujuan, opname buta',
+    };
+    return { asOf: today, since, items: out, setup };
   }
 }
 
