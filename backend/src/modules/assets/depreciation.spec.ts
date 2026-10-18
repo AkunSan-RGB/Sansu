@@ -89,3 +89,29 @@ describe('Perubahan metode (berlaku ke depan)', () => {
     expect(depreciationFor(base, ZERO, '2026-01').toNumber()).toBe(monthlyDepreciation(base, ZERO, '2026-01').toNumber());
   });
 });
+
+describe('Unit produksi', () => {
+  const a = { cost: '100000000', residualValue: '10000000', usefulLifeMonths: 60, method: 'UNITS_OF_PRODUCTION', depreciationStart: '2026-01-01', units: { total: 200_000, byPeriod: { '2026-01': 5_000, '2026-02': 0, '2026-03': 10_000 } as Record<string, number> } };
+
+  it('penyusutan = (perolehan − residu) × pemakaian ÷ kapasitas', () => {
+    expect(monthlyDepreciation(a, ZERO, '2026-01').toNumber()).toBe(2_250_000); // 90 jt × 5.000 / 200.000
+    expect(monthlyDepreciation(a, ZERO, '2026-03').toNumber()).toBe(4_500_000);
+  });
+
+  it('tanpa pemakaian (atau sebelum mulai) tidak ada penyusutan', () => {
+    expect(monthlyDepreciation(a, ZERO, '2026-02').toNumber()).toBe(0);
+    expect(monthlyDepreciation(a, ZERO, '2026-04').toNumber()).toBe(0);
+    expect(monthlyDepreciation(a, ZERO, '2025-12').toNumber()).toBe(0);
+  });
+
+  it('tidak melewati nilai yang bisa disusutkan walau pemakaian melebihi sisa', () => {
+    const b = { ...a, units: { total: 100, byPeriod: { '2026-01': 150 } as Record<string, number> } };
+    expect(monthlyDepreciation(b, ZERO, '2026-01').toNumber()).toBe(90_000_000);
+    expect(monthlyDepreciation(b, D('90000000'), '2026-02').toNumber()).toBe(0);
+  });
+
+  it('tidak dibatasi masa manfaat bulan (mengikuti pemakaian)', () => {
+    const c = { ...a, usefulLifeMonths: 1, units: { total: 200_000, byPeriod: { '2030-01': 1_000 } as Record<string, number> } };
+    expect(monthlyDepreciation(c, ZERO, '2030-01').toNumber()).toBe(450_000);
+  });
+});

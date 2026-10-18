@@ -21,6 +21,8 @@ export interface DepInput {
   usefulLifeMonths: number;
   method: string;
   depreciationStart: string; // YYYY-MM-DD
+  /** Metode unit produksi: kapasitas total dan pemakaian per bulan ('YYYY-MM' → unit) */
+  units?: { total: number; byPeriod: Record<string, number> } | null;
 }
 
 /**
@@ -28,6 +30,14 @@ export interface DepInput {
  * `accumulated` = akumulasi sebelum bulan ini; `period` = 'YYYY-MM'.
  */
 export function monthlyDepreciation(a: DepInput, accumulated: Dec, period: string): Dec {
+  if (a.method === 'UNITS_OF_PRODUCTION') {
+    // Unit produksi: (harga perolehan − residu) × pemakaian bulan itu ÷ kapasitas total; tanpa pemakaian = tanpa penyusutan; tidak melewati nilai residu
+    if (!a.units || a.units.total <= 0 || monthIndex(period) < monthIndex(a.depreciationStart.slice(0, 7))) return ZERO;
+    const used = a.units.byPeriod[period] ?? 0;
+    const left = D(a.cost).minus(a.residualValue).minus(accumulated);
+    if (used <= 0 || left.lte(0)) return ZERO;
+    return Decimal.min(money(D(a.cost).minus(a.residualValue).times(used).div(a.units.total)), left);
+  }
   if (a.method === 'NONE' || a.usefulLifeMonths <= 0) return ZERO;
   const start = monthIndex(a.depreciationStart.slice(0, 7));
   const n = monthIndex(period) - start; // 0 = bulan pertama

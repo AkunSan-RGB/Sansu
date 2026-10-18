@@ -35,7 +35,7 @@ import ExportButtons from '@/components/ExportButtons';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
-import { fmtDate, fmtMoney, today } from '@/lib/format';
+import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
 import { Amount } from './statements/format';
 import { assetCountSheet, fixedAssetsSheet } from '@/lib/xlsx/reports';
 import { useAuth } from '@/auth/AuthContext';
@@ -52,6 +52,7 @@ function AssetForm({ categories, onDone }: { categories: AssetCategory[]; onDone
   const catId = Form.useWatch('categoryId', form);
   const cat = categories.find((c) => c.id === catId);
   const cost = Form.useWatch('cost', form) as number | undefined;
+  const methodW = Form.useWatch('method', form) as string | undefined;
   const company = useQuery({ queryKey: ['company'], queryFn: () => get<CompanySettings>('/settings/company') });
   const threshold = company.data?.reporting?.capitalizationThreshold ?? 0;
   // Sama dengan aturan server: aset baru di bawah batas ditolak, kecuali tanah / aset lama / dipaksa
@@ -67,6 +68,7 @@ function AssetForm({ categories, onDone }: { categories: AssetCategory[]; onDone
         openingAccumulated: v.openingAccumulated ? String(v.openingAccumulated) : undefined,
         usefulLifeMonths: v.usefulLifeYears != null ? Math.round(Number(v.usefulLifeYears) * 12) : undefined,
         usefulLifeYears: undefined,
+        totalUnits: v.totalUnits ? String(v.totalUnits) : undefined,
         depreciationStart: v.depreciationStart || undefined,
       }),
     { success: (a) => `Aset ${a.code} didaftarkan`, invalidate: KEYS, onSuccess: onDone },
@@ -133,6 +135,25 @@ function AssetForm({ categories, onDone }: { categories: AssetCategory[]; onDone
           </Form.Item>
         </Col>
       </Row>
+      {methodW === 'UNITS_OF_PRODUCTION' && (
+        <Row gutter={12}>
+          <Col xs={14} md={8}>
+            <Form.Item name="totalUnits" label="Total unit (kapasitas)" rules={[{ required: true, message: 'Isi kapasitas total aset' }]} extra="Misalnya 200000 km atau 50000 jam">
+              <InputNumber min={1} style={{ width: '100%' }} />
+            </Form.Item>
+          </Col>
+          <Col xs={10} md={6}>
+            <Form.Item name="unitLabel" label="Satuan">
+              <Input placeholder="km / jam / unit" maxLength={20} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={10}>
+            <Typography.Paragraph type="secondary" style={{ marginTop: 30 }}>
+              Penyusutan dihitung dari pemakaian per bulan yang Anda catat di kartu aset, bukan dari waktu.
+            </Typography.Paragraph>
+          </Col>
+        </Row>
+      )}
       {cat && (
         <Typography.Paragraph type="secondary">
           Fiskal: {FISCAL_ASSET_GROUP_INFO[cat.fiscalGroup as FiscalAssetGroup]?.label} — dipakai otomatis di Rekonsiliasi Fiskal.
@@ -235,7 +256,7 @@ function ChangeMethodModal({ target, onClose }: { target: { kind: 'asset' | 'cat
       },
     },
   );
-  const options = toOptions(DEPRECIATION_METHOD_LABELS).filter((o) => o.value !== 'NONE' && o.value !== target?.method);
+  const options = toOptions(DEPRECIATION_METHOD_LABELS).filter((o) => o.value !== 'NONE' && o.value !== 'UNITS_OF_PRODUCTION' && o.value !== target?.method);
   return (
     <Modal
       title={target?.kind === 'category' ? `Ubah metode semua aset aktif — ${target?.name}` : `Ubah metode penyusutan — ${target?.name ?? ''}`}
@@ -252,7 +273,7 @@ function ChangeMethodModal({ target, onClose }: { target: { kind: 'asset' | 'cat
         showIcon
         style={{ marginBottom: 12 }}
         message="Berlaku ke depan saja"
-        description="Penyusutan yang sudah diposting tidak berubah. Mulai bulan berlaku, sisa nilai buku (dikurangi residu) disusutkan dengan metode baru selama sisa masa manfaat. Penyusutan sampai bulan sebelumnya diposting dulu dengan metode lama. Staf selain Pemilik/Admin menunggu persetujuan."
+        description="Penyusutan yang sudah diposting tidak berubah. Mulai bulan berlaku, sisa nilai buku (dikurangi residu) disusutkan dengan metode baru selama sisa masa manfaat. Penyusutan sampai bulan sebelumnya diposting dulu dengan metode lama. Staf selain Pemilik/Admin menunggu persetujuan. Penyusutan fiskal (Pasal 11) tidak berubah; selisihnya dengan komersial masuk koreksi fiskal otomatis. Metode unit produksi tidak bisa dipilih/ditinggalkan pada aset yang sudah berjalan."
       />
       <Space direction="vertical" style={{ width: '100%' }}>
         <Select style={{ width: '100%' }} placeholder="Metode baru" options={options} value={method} onChange={setMethod} />
@@ -278,6 +299,39 @@ function ChangeMethodModal({ target, onClose }: { target: { kind: 'asset' | 'cat
         )}
       </Space>
     </Modal>
+  );
+}
+
+/** Pemakaian bulanan aset dengan metode unit produksi */
+function UsagePanel({ asset, canEdit }: { asset: FixedAsset; canEdit: boolean }) {
+  const [period, setPeriod] = useState(today().slice(0, 7));
+  const [units, setUnits] = useState<number | null>(null);
+  const q = useQuery({
+    queryKey: ['assets', 'usage', asset.id],
+    queryFn: () => get<{ usedUnits: string; remainingUnits: string; rows: { id: string; period: string; units: string; note: string | null }[] }>(`/assets/${asset.id}/usage`),
+  });
+  const save = useAction(() => put(`/assets/${asset.id}/usage`, { period, units: String(units ?? 0) }), {
+    success: 'Pemakaian dicatat',
+    invalidate: [...KEYS, 'assets'],
+    onSuccess: () => setUnits(null),
+  });
+  const label = asset.unitLabel ?? 'unit';
+  return (
+    <Card size="small" title={`Pemakaian (${label}) — dasar penyusutan`} style={{ marginBottom: 16 }}>
+      <Typography.Paragraph type="secondary">
+        Kapasitas {fmtQty(asset.totalUnits ?? 0)} {label} · terpakai {fmtQty(q.data?.usedUnits ?? 0)} · sisa {fmtQty(q.data?.remainingUnits ?? 0)}. Pemakaian bulan yang sudah disusutkan tidak bisa diubah; bulan tanpa catatan tidak disusutkan.
+      </Typography.Paragraph>
+      {canEdit && asset.status === 'ACTIVE' && (
+        <Space wrap style={{ marginBottom: 8 }}>
+          <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} style={{ width: 160 }} />
+          <InputNumber min={0} value={units} onChange={setUnits} placeholder={`Pemakaian (${label})`} style={{ width: 180 }} />
+          <Button type="primary" disabled={units == null} loading={save.isPending} onClick={() => save.mutate(undefined)}>
+            Catat
+          </Button>
+        </Space>
+      )}
+      <Table size="small" rowKey="id" pagination={false} dataSource={q.data?.rows} columns={[{ title: 'Bulan', dataIndex: 'period' }, { title: `Pemakaian (${label})`, dataIndex: 'units', align: 'right', render: (v: string) => fmtQty(v) }]} />
+    </Card>
   );
 }
 
@@ -333,6 +387,7 @@ function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }
             {d.location && <Descriptions.Item label="Lokasi">{d.location}</Descriptions.Item>}
             {d.disposalPrice && <Descriptions.Item label="Harga jual">{fmtMoney(d.disposalPrice)}</Descriptions.Item>}
           </Descriptions>
+          {d.method === 'UNITS_OF_PRODUCTION' && <UsagePanel asset={d} canEdit={bookkeeper} />}
           {bookkeeper && d.status === 'ACTIVE' && (
             <Space wrap style={{ marginBottom: 16 }}>
               <Input

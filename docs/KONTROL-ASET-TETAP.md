@@ -18,3 +18,13 @@
 - **Pratinjau** 12 bulan (metode sekarang vs baru) sebelum menyimpan. Jadwal penyusutan, estimasi bulanan, temuan "penyusutan tertinggal", dan penyusutan otomatis bulanan otomatis memakai metode baru.
 - Mengubah metode di form kategori **tidak** mengubah aset lama (hanya aset baru); gunakan *Ubah metode semua aset*.
 - Batas: tidak bisa diubah ke/dari "tidak disusutkan" (tanah); penyusutan fiskal tidak terpengaruh.
+
+## Metode unit produksi & hubungan dengan penyusutan fiskal
+
+**Unit produksi** (baru): penyusutan bulan itu = (harga perolehan − residu) × pemakaian bulan itu ÷ kapasitas total. Aset menyimpan **total unit** dan satuannya (km, jam, ...) — wajib diisi saat mendaftarkan aset dengan metode ini. Pemakaian dicatat per bulan di kartu aset (panel *Pemakaian*; Admin/Akuntan, tercatat di jejak audit). Aturan:
+- Bulan tanpa catatan pemakaian tidak disusutkan; temuan `USAGE_MISSING` muncul bila pemakaian bulan lalu belum diisi.
+- Pemakaian bulan yang sudah disusutkan tidak bisa diubah/ditambah; total pemakaian tidak boleh melebihi kapasitas; bulan depan belum bisa dicatat.
+- Penyusutan tidak melewati nilai residu; tidak dibatasi umur (mengikuti pemakaian).
+- Tidak bisa dipindah dari/ke metode lain pada aset yang sudah berjalan, dan tidak bisa diterapkan lewat "Ubah metode semua aset" (butuh total unit per aset). Aset dari faktur pembelian, jurnal, atau impor tidak bisa memakai metode ini karena tidak membawa total unit.
+
+**Penyusutan fiskal** sengaja tidak mengikuti metode komersial: Pasal 11 UU PPh menetapkan metode fiskal per kelompok harta (garis lurus/saldo menurun per kategori). Yang otomatis ikut adalah **koreksi fiskal**: selisih penyusutan komersial (dari jurnal yang diposting) vs fiskal di Rekonsiliasi Fiskal, beda temporer, dan pajak tangguhan dihitung ulang dari penyusutan komersial terbaru, sehingga mengganti metode komersial langsung terlihat di koreksi fiskal. Metode fiskal tidak diubah lewat fitur ini (perubahan metode fiskal menurut aturan pajak perlu ketentuan tersendiri).
