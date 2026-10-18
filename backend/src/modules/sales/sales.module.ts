@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AccountingModule } from '../accounting/accounting.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { FxModule } from '../fx/fx.module';
+import { SalesControlsController, SalesControlsService } from './sales-controls';
 import { DeliveriesController } from './deliveries/deliveries.controller';
 import { DeliveriesService } from './deliveries/deliveries.service';
 import { InvoicesController } from './invoices/invoices.controller';
@@ -21,8 +22,8 @@ import { ServiceBillingController, ServiceBillingService } from './services/serv
 
 @Module({
   imports: [AccountingModule, InventoryModule, FxModule],
-  controllers: [SalesOrdersController, DeliveriesController, InvoicesController, PaymentsController, ServiceBillingController, PricingController, SalesTargetsController, SalesCommissionsController, ConsignmentsController, CanvassController, TradeController],
-  providers: [TradeService, CanvassService, ConsignmentsService, PricingService, SalesTargetsService, SalesCommissionsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService],
+  controllers: [SalesControlsController, SalesOrdersController, DeliveriesController, InvoicesController, PaymentsController, ServiceBillingController, PricingController, SalesTargetsController, SalesCommissionsController, ConsignmentsController, CanvassController, TradeController],
+  providers: [SalesControlsService, TradeService, CanvassService, ConsignmentsService, PricingService, SalesTargetsService, SalesCommissionsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService],
   exports: [SalesOrdersService, InvoicesService, PricingService, ServiceBillingService],
 })
 export class SalesModule {}

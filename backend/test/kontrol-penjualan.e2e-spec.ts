@@ -86,14 +86,14 @@ describe('Kontrol penjualan (e2e)', () => {
     expect((await post(fin, `/api/deliveries/${dn.id}/cancel`, {})).status).toBe(400);
     await post(fin, `/api/deliveries/${dn.id}/cancel`, { reason: 'Barang salah kirim' }).expect(201);
 
-    const items = (await get(owner, '/api/purchase-controls').expect(200)).body.items as { key: string; refs: string[] }[];
+    const items = (await get(owner, '/api/sales-controls').expect(200)).body.items as { key: string; refs: string[] }[];
     expect(items.find((f) => f.key === 'SO_CANCELLED_AFTER_CONFIRM')?.refs.join()).toContain('Pelanggan membatalkan pesanan');
     expect(items.find((f) => f.key === 'DN_CANCELLED')?.refs.join()).toContain('Barang salah kirim');
   });
 
   it('diskon besar muncul sebagai temuan', async () => {
     const so = await newSo('2', '25');
-    const items = (await get(owner, '/api/purchase-controls').expect(200)).body.items as { key: string; refs: string[] }[];
+    const items = (await get(owner, '/api/sales-controls').expect(200)).body.items as { key: string; refs: string[] }[];
     expect(items.find((f) => f.key === 'DISCOUNT_HEAVY')?.refs.join()).toContain(so.number);
   });
 });
