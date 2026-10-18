@@ -1,4 +1,3 @@
-import { HandoffService } from '../../common/handoff/handoff.service';
 import {
   BadRequestException,
   Body,
@@ -94,8 +93,6 @@ export class PayrollService {
     private readonly seq: SequenceService,
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
-  
-    private readonly handoff: HandoffService,
   ) {}
 
   listRuns(tenantId: string) {
@@ -244,7 +241,6 @@ export class PayrollService {
         .where(eq(payrollRuns.id, id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'POST', entity: 'PayrollRun', entityId: id, data: { journal: journal.number } });
     });
-    this.handoff.fire(user.tenantId, 'PAYROLL_POSTED', user.sub, id);
     return this.getRun(user.tenantId, id);
   }
 

@@ -6,7 +6,6 @@ import { Controller, Get, Injectable } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { sql } from 'drizzle-orm';
 import { AppsService } from '../../common/apps/apps.service';
-import { SettingsService } from '../../common/settings.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser } from '../../common/auth/decorators';
 import { Db } from '../../db/db';
@@ -30,7 +29,6 @@ export class TaskInboxService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly apps: AppsService,
-    private readonly settings: SettingsService,
     private readonly workflow: WorkflowService,
   ) {}
 
@@ -79,41 +77,6 @@ export class TaskInboxService {
     if (is(['ACCOUNTANT', 'ADMIN']) && on.has('payroll')) {
       add('payroll-post', '/payroll', (n) => `${n} penggajian menunggu diperiksa dan diposting`, 'Disiapkan HR; diposting Akuntan', await this.one(sql`
         SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - created_at::date), 0)::int AS oldest FROM payroll_runs WHERE tenant_id = ${u.tenantId} AND status = 'DRAFT'`));
-    }
-    // ---- serah terima dokumen antar bagian: antrean kerja tiap bagian (dihitung dari status dokumen, selalu mutakhir) ----
-    const model = await this.settings.businessModel(this.db, u.tenantId);
-    const goods = model !== 'JASA';
-    if (is(['WAREHOUSE', 'ADMIN']) && on.has('sales') && !['JASA', 'RITEL', 'FNB'].includes(model)) {
-      add('handoff-ship', '/sales-orders', (n) => `${n} pesanan menunggu dikirim`, 'Dikonfirmasi Sales; siapkan barang dan buat surat jalan', await this.one(sql`
-        SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - date), 0)::int AS oldest FROM sales_orders WHERE tenant_id = ${u.tenantId} AND status = 'CONFIRMED'`));
-    }
-    if (is(['FINANCE', 'ADMIN']) && on.has('sales') && !['JASA', 'RITEL', 'FNB'].includes(model)) {
-      add('handoff-invoice', '/deliveries', (n) => `${n} surat jalan belum difakturkan`, 'Barang sudah terkirim; terbitkan faktur', await this.one(sql`
-        SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - date), 0)::int AS oldest FROM delivery_orders WHERE tenant_id = ${u.tenantId} AND status = 'DELIVERED' AND invoice_id IS NULL`));
-    }
-    if (goods && is(['WAREHOUSE', 'ADMIN']) && on.has('purchase')) {
-      add('handoff-receive', '/purchase-orders', (n) => `${n} PO menunggu penerimaan barang`, 'Sudah dikonfirmasi ke pemasok', await this.one(sql`
-        SELECT COUNT(DISTINCT o.id)::int AS n, COALESCE(MAX(CURRENT_DATE - o.date), 0)::int AS oldest FROM purchase_orders o JOIN purchase_order_lines l ON l.order_id = o.id
-        WHERE o.tenant_id = ${u.tenantId} AND o.status = 'CONFIRMED' AND l.received_qty < l.qty`));
-    }
-    if (goods && is(['FINANCE', 'ADMIN']) && on.has('purchase')) {
-      add('handoff-bill', '/purchase-invoices', (n) => `${n} PO sudah diterima tetapi belum ditagih`, 'Catat tagihan pemasok dan cocokkan (3-way match)', await this.one(sql`
-        SELECT COUNT(DISTINCT o.id)::int AS n, COALESCE(MAX(CURRENT_DATE - o.date), 0)::int AS oldest FROM purchase_orders o JOIN purchase_order_lines l ON l.order_id = o.id
-        WHERE o.tenant_id = ${u.tenantId} AND o.status = 'CONFIRMED' AND l.received_qty > l.billed_qty`));
-    }
-    if (is(['PURCHASING', 'ADMIN']) && on.has('purchase')) {
-      add('handoff-pr', '/purchase-requests?status=APPROVED', (n) => `${n} permintaan beli disetujui, belum jadi PO`, 'Buka permintaan lalu buat PO', await this.one(sql`
-        SELECT COUNT(DISTINCT r.id)::int AS n, COALESCE(MAX(CURRENT_DATE - COALESCE(r.decided_at, r.created_at)::date), 0)::int AS oldest FROM purchase_requests r JOIN purchase_request_lines l ON l.request_id = r.id
-        WHERE r.tenant_id = ${u.tenantId} AND r.status = 'APPROVED' AND l.purchase_order_id IS NULL`));
-    }
-    if (is(['FINANCE', 'ADMIN']) && on.has('pos')) {
-      add('handoff-cash', '/pos/sessions', (n) => `${n} sesi kasir berselisih kas perlu diperiksa`, '7 hari terakhir; hitung ulang dan telusuri selisihnya', await this.one(sql`
-        SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - closed_at::date), 0)::int AS oldest FROM pos_sessions
-        WHERE tenant_id = ${u.tenantId} AND status = 'CLOSED' AND COALESCE(difference, 0) <> 0 AND closed_at >= now() - interval '7 days' AND user_id <> ${u.sub}`));
-    }
-    if (is(['FINANCE', 'ADMIN']) && on.has('payroll')) {
-      add('handoff-payroll-pay', '/payroll', (n) => `${n} penggajian sudah diposting, belum dibayar`, 'Lakukan pembayaran gaji dari kas/bank', await this.one(sql`
-        SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - pay_date), 0)::int AS oldest FROM payroll_runs WHERE tenant_id = ${u.tenantId} AND status = 'POSTED'`));
     }
     const wf = await this.workflow.tasksFor(u);
     if (wf.count > 0) out.push({ key: 'workflow', link: '/workflow', title: `${wf.count} kasus alur kerja menunggu tindakan Anda`, detail: wf.oldestDays >= 1 ? `Sesuai peran Anda · terlama ${wf.oldestDays} hari di tahap ini` : 'Sesuai peran Anda', count: wf.count, oldestDays: wf.oldestDays });

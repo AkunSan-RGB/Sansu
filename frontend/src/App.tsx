@@ -71,7 +71,6 @@ import WritedownsPage from './features/inventory/WritedownsPage';
 import PurchaseControlsPage from './features/purchasing/PurchaseControlsPage';
 import ShiftRosterPage from './features/hr/ShiftRosterPage';
 import ShoppingListPage from './features/purchasing/ShoppingListPage';
-import FlowControlsPage from './features/accounting/FlowControlsPage';
 import TasksPage from './features/tasks/TasksPage';
 import PriceAgreementsPage from './features/purchasing/PriceAgreementsPage';
 import BranchesPage from './features/accounting/BranchesPage';
@@ -195,7 +194,6 @@ export default function App() {
           <Route path="inventory/writedowns" element={<WritedownsPage />} />
           <Route path="purchase-controls" element={<PurchaseControlsPage />} />
           <Route path="tasks" element={<TasksPage />} />
-          <Route path="controls" element={<FlowControlsPage />} />
           <Route path="shopping-list" element={<ShoppingListPage />} />
           <Route path="shifts" element={<ShiftRosterPage />} />
           <Route path="price-agreements" element={<PriceAgreementsPage />} />

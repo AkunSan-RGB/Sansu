@@ -1,4 +1,3 @@
-import { HandoffService } from '../../common/handoff/handoff.service';
 import {
   BadRequestException,
   Body,
@@ -90,7 +89,6 @@ export class PosService {
     private readonly stock: StockService,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
-    private readonly handoff: HandoffService,
   ) {}
 
   /** Produk untuk layar kasir: harga, satuan, barcode, dan stok di gudang sesi */
@@ -413,7 +411,7 @@ export class PosService {
    * Selisih dijurnal ke "Selisih Kas Kasir" (kurang = beban, lebih = mengurangi beban).
    */
   async close(user: AuthUser, id: string, dto: CloseSessionDto) {
-    const result = await this.db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       const s = await this.lockSession(tx, user, id, true);
       const sum = await this.summary(tx, s.id, s.openingCash);
       const counted = money(dto.countedCash);
@@ -460,8 +458,6 @@ export class PosService {
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CLOSE', entity: 'PosSession', entityId: s.id, data: { diff: diff.toFixed(2) } });
       return { ...closed, summary: sum, journalNumber };
     });
-    this.handoff.fire(user.tenantId, 'POS_SESSION_CLOSED', user.sub, id, Number(result.difference ?? 0) !== 0 ? `Selisih kas: Rp${Math.round(Number(result.difference)).toLocaleString('id-ID')}` : undefined);
-    return result;
   }
 
   /** Ringkasan sesi: total per metode & uang tunai yang seharusnya ada di laci */
