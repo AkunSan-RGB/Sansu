@@ -60,6 +60,14 @@ export const PRODUCT_FORM: Record<BusinessModel, ProductFormProfile> = {
     skuLabel: 'SKU', nameLabel: 'Nama barang', baseUomLabel: 'Satuan jual', priceLabel: 'Harga jual / satuan jual (belum PPN)',
     note: 'Barcode dipakai untuk scan di kasir. Satuan lebih besar (renteng, dus) dipakai saat membeli dari pemasok.',
   },
+  UTILITAS: {
+    baseUoms: ['BULAN', 'M3', 'KWH', 'LITER', 'MBPS', 'PAKET', 'TITIK', 'PCS', 'UNIT', 'SET', 'M', 'BATANG', 'ROLL'],
+    packUoms: ['ROLL', 'BATANG', 'BOX', 'DUS', 'SET'],
+    categories: ['Biaya sambung baru', 'Paket langganan', 'Pipa & fitting', 'Kabel & konektor', 'Meter & perangkat', 'Suku cadang', 'Bahan pengolahan', 'Lain-lain'],
+    barcode: true, packs: true, menu: false, semi: false, shelfLife: false,
+    skuLabel: 'Kode layanan / bahan', nameLabel: 'Nama layanan / bahan', baseUomLabel: 'Satuan', priceLabel: 'Harga / satuan (belum PPN)',
+    note: 'Tarif pemakaian bulanan (per m³, kWh, paket) diatur di Layanan Utilitas → Tarif, bukan di sini. Daftar ini untuk biaya sambung baru dan bahan/perangkat (pipa, kabel, meter).',
+  },
   JASA: {
     baseUoms: ['JAM', 'HARI', 'SESI', 'PAKET', 'KUNJUNGAN', 'ORANG', 'PROYEK', 'BULAN', 'MINGGU', 'TAHUN', 'LAPORAN', 'DOKUMEN', 'TITIK', 'LISENSI', 'TRIP', 'PEKERJAAN', 'M2', 'PCS', 'UNIT', 'SET'],
     packUoms: ['HARI', 'MINGGU', 'BULAN', 'PAKET', 'SET'],

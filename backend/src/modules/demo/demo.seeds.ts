@@ -788,6 +788,94 @@ async function seedFnb(c: Demo) {
   await X.stockOps(c, ids, ['BB-SUSU', 'BB-GULA', 'BB-MINYAK', 'BB-BERAS', 'BB-MIE'], { saleInvoiceId: fnbUnpaid, billId: c.last.bill, supplierId: sup.get('SUP-PASAR') });
 }
 
+// ---------------------------------------------------------------- UTILITAS
+const UTILITAS: Prod[] = [
+  { sku: 'UT-SAMBUNG-AIR', name: 'Biaya Sambung Baru Air (paket pemasangan)', cat: 'Biaya sambung baru', price: 1_250_000, cost: 0, qty: 0, uom: 'PAKET' },
+  { sku: 'UT-PIPA-PVC', name: 'Pipa PVC 1/2 inci (4 m)', cat: 'Pipa & fitting', price: 38000, cost: 29000, qty: 400, uom: 'BATANG' },
+  { sku: 'UT-METER-AIR', name: 'Meter Air 1/2 inci', cat: 'Meter & perangkat', price: 285000, cost: 215000, qty: 120 },
+  { sku: 'UT-KABEL-FO', name: 'Kabel Fiber Optik Drop (roll 500 m)', cat: 'Kabel & konektor', price: 1_150_000, cost: 880000, qty: 12, uom: 'ROLL' },
+  { sku: 'UT-ONT', name: 'Perangkat ONT / Router Pelanggan', cat: 'Meter & perangkat', price: 420000, cost: 330000, qty: 60 },
+];
+async function seedUtilitas(c: Demo) {
+  const stock = UTILITAS.filter((p) => p.qty > 0);
+  const { ids, value } = await stockItems(c, stock);
+  await c.svc.products.create(c.tenantId, { sku: UTILITAS[0].sku, name: UTILITAS[0].name, category: UTILITAS[0].cat, baseUom: 'PAKET', sellPrice: String(UTILITAS[0].price) } as never).then((r) => ids.set(UTILITAS[0].sku, r.id)).catch(() => undefined);
+  await openingBalance(c, { kas: 9_000_000, bank: 240_000_000, stockValue: value });
+  const sup = await addSuppliers(c, [
+    { code: 'SUP-PIPA', name: 'PT Pipa Nusantara Abadi', term: 30 },
+    { code: 'SUP-FO', name: 'CV Fiber Teknik Mandiri', term: 14 },
+  ]);
+  const homes: [string, string, string][] = [
+    ['PLG-001', 'Budi Santoso', 'Griya Asri Blok A-01'], ['PLG-002', 'Siti Aminah', 'Griya Asri Blok A-02'], ['PLG-003', 'Agus Wijaya', 'Griya Asri Blok A-03'],
+    ['PLG-004', 'Rina Marlina', 'Griya Asri Blok B-01'], ['PLG-005', 'Dedi Kurniawan', 'Griya Asri Blok B-02'], ['PLG-006', 'Warung Makan Bu Tini', 'Griya Asri Blok B-05'],
+    ['PLG-007', 'Hendra Gunawan', 'Griya Asri Blok C-01'], ['PLG-008', 'Maya Sari', 'Griya Asri Blok C-02'],
+  ];
+  const cu = await addCustomers(c, homes.map(([code, name, address]) => ({ code, name, address: `${address}, Sleman`, term: 20 })));
+  const T = c.admin as never;
+  const air = (await c.step('tarif air', () => c.svc.utility.createTariff(T, { name: 'Air rumah tangga', serviceType: 'AIR', fixedFee: 12000, adminFee: 2500, minUsage: 5, blocks: [{ upTo: 10, price: 3000 }, { upTo: 20, price: 4500 }, { upTo: null, price: 7000 }] } as never))) as { id: string } | undefined;
+  const bisnis = (await c.step('tarif air usaha', () => c.svc.utility.createTariff(T, { name: 'Air usaha kecil', serviceType: 'AIR', fixedFee: 35000, adminFee: 2500, minUsage: 10, blocks: [{ upTo: 30, price: 6500 }, { upTo: null, price: 9500 }] } as never))) as { id: string } | undefined;
+  const net = (await c.step('tarif internet', () => c.svc.utility.createTariff(T, { name: 'Internet 20 Mbps', serviceType: 'INTERNET', fixedFee: 185000, adminFee: 0, blocks: [] } as never))) as { id: string } | undefined;
+  if (!air || !bisnis || !net) return;
+  const conns = new Map<string, { id: string }>();
+  for (const [i, [code, , address]] of homes.entries()) {
+    const tariff = code === 'PLG-006' ? bisnis.id : i % 4 === 3 ? net.id : air.id;
+    const metered = tariff !== net.id;
+    const r = (await c.step(`sambungan ${code}`, () => c.svc.utility.createConnection(T, { customerId: cu.get(code)!, tariffId: tariff, meterNo: metered ? `MA-2024-${String(i + 1).padStart(4, '0')}` : undefined, address: `${address}, Sleman`, installedAt: c.ago(100), initialReading: '0' } as never))) as { id: string } | undefined;
+    if (r) conns.set(code, r);
+  }
+  const month = (back: number) => {
+    const [y, m] = c.today.slice(0, 7).split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 1 - back, 1));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  };
+  // dua bulan sebelumnya: dicatat, diverifikasi, ditagih; bulan ini: sebagian masih menunggu verifikasi
+  let meter = new Map<string, number>();
+  for (const [back, billIt] of [[2, true], [1, true], [0, false]] as [number, boolean][]) {
+    const period = month(back);
+    for (const [code, conn] of conns) {
+      if (code === 'PLG-004' || code === 'PLG-008') continue; // tarif tetap (internet) tidak memakai meter
+      const base = meter.get(code) ?? 0;
+      const usage = code === 'PLG-006' ? c.int(28, 40) : c.int(7, 24);
+      const cur = base + usage;
+      const r = (await c.step(`catat meter ${code}`, () => c.svc.utility.enterReading(T, { connectionId: conn.id, period, current: String(cur) } as never))) as { id: string } | undefined;
+      meter.set(code, cur);
+      if (r && (billIt || code !== 'PLG-003')) await c.step(`verifikasi ${code}`, () => c.svc.utility.verify(T, r.id, { note: 'Cocok dengan foto meter' } as never));
+    }
+    if (billIt) await c.step(`tagih ${period}`, () => c.svc.utility.run(T, { period } as never));
+  }
+  await c.step('tagih bulan ini (yang sudah terverifikasi)', () => c.svc.utility.run(T, { period: month(0) } as never));
+  await c.step('beli pipa dan meter', () => purchase(c, sup.get('SUP-PIPA')!, 20, [{ productId: ids.get('UT-PIPA-PVC')!, qty: 200, price: 29000 }, { productId: ids.get('UT-METER-AIR')!, qty: 40, price: 215000 }], { pay: true, invoiceNo: 'PNA/1025/044' }));
+  await c.step('beli kabel fiber', () => purchase(c, sup.get('SUP-FO')!, 9, [{ productId: ids.get('UT-KABEL-FO')!, qty: 4, price: 880000 }], { invoiceNo: 'FTM-1190' }));
+  await expense(c, 54, 'bank', '6-3000', 'Sewa kantor dan gudang bahan', 3_500_000, 'SEWA-UTL');
+  await expense(c, 24, 'bank', '5-1560', 'Listrik pompa air dan perangkat jaringan', 4_200_000, 'PLN-UTL');
+  await expense(c, 15, 'bank', '5-1550', 'Bahan pengolahan air (kaporit, tawas)', 1_850_000, 'NOTA-KAPORIT');
+  await expense(c, 6, 'kas', '5-1570', 'Perbaikan pipa bocor', 640_000, 'NOTA-0606');
+  await payroll(c, [
+    { code: 'U-001', name: 'Hadi Prasetyo', title: 'Petugas Lapangan', dept: 'Operasi', salary: 3_800_000, allowance: 300_000, ptkp: 'K/1' },
+    { code: 'U-002', name: 'Wulan Pertiwi', title: 'Admin Penagihan', dept: 'Keuangan', salary: 4_200_000, allowance: 300_000, ptkp: 'TK/0' },
+    { code: 'U-003', name: 'Joko Susilo', title: 'Teknisi Jaringan', dept: 'Operasi', salary: 4_600_000, allowance: 350_000, ptkp: 'K/2' },
+  ]);
+  await X.monthlyOps(c, [
+    { code: '6-3000', desc: 'Sewa kantor dan gudang bahan', amount: 3_500_000, from: 'bank', day: 2 },
+    { code: '5-1560', desc: 'Listrik pompa air dan perangkat jaringan', amount: 4_200_000, from: 'bank', day: 12 },
+  ]);
+  await X.cashMovements(c);
+  await X.fixedAssets(c, 'SUP-PIPA', [
+    { cat: 'Peralatan', name: 'Pompa air dan tangki penampung', cost: 38_000_000, ago: 100, location: 'Instalasi air' },
+    { cat: 'Inventaris', name: 'Alat uji dan perkakas lapangan', cost: 9_500_000, ago: 85, location: 'Gudang' },
+  ]);
+  await X.journals(c);
+  await X.taxes(c);
+  await X.bankStatement(c);
+  await X.pettyCash(c);
+  await X.cashCount(c);
+  await X.attendance(c);
+  await X.crm(c, cu.get('PLG-001')!, '', [
+    { title: 'Perumahan Griya Asri blok D — 24 sambungan baru', company: 'PT Griya Asri Properti', contact: 'Pak Heru', value: 30_000_000, source: 'Pengembang / pengelola perumahan' },
+    { title: 'Ruko Pasar Baru — internet 6 unit', company: 'Pengelola Ruko Pasar Baru', contact: 'Bu Lina', value: 12_000_000, source: 'Datang ke kantor' },
+  ]);
+}
+
 export const SEEDS: Record<BusinessModel, (c: Demo) => Promise<void>> = {
   RITEL: seedRitel,
   DAGANG: seedDagang,
@@ -795,5 +883,6 @@ export const SEEDS: Record<BusinessModel, (c: Demo) => Promise<void>> = {
   FMCG: seedFmcg,
   MANUFAKTUR: seedManufaktur,
   FNB: seedFnb,
+  UTILITAS: seedUtilitas,
 };
 export { payBill };

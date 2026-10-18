@@ -30,6 +30,13 @@ export const CRM_PROFILES: Record<BusinessModel, CrmProfile> = {
     sources: ['Datang ke toko', 'WhatsApp', 'Media sosial', 'Referensi pelanggan', 'Marketplace'],
     lostReasons: ['Harga kurang murah', 'Barang tidak tersedia', 'Lokasi terlalu jauh', 'Belum butuh sekarang', 'Tidak bisa dihubungi'],
   },
+  UTILITAS: {
+    noun: 'Calon pelanggan sambungan',
+    titleExample: 'Perumahan Griya Asri blok C — 24 sambungan baru',
+    stages: [{ name: 'Permintaan masuk', probability: 10 }, { name: 'Survei lokasi', probability: 30 }, { name: 'Penawaran biaya sambung', probability: 55 }, { name: 'Biaya dibayar & jadwal pasang', probability: 85 }],
+    sources: ['Datang ke kantor', 'Telepon / WhatsApp', 'Referensi pelanggan', 'Pengembang / pengelola perumahan', 'Website', 'Spanduk / brosur'],
+    lostReasons: ['Biaya sambung terlalu mahal', 'Jaringan belum menjangkau lokasi', 'Memilih penyedia lain', 'Tidak jadi pasang', 'Tidak bisa dihubungi'],
+  },
   JASA: {
     noun: 'Calon klien',
     titleExample: 'PT Maju — renovasi kantor lantai 3',

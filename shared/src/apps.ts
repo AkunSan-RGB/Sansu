@@ -4,7 +4,7 @@ import type { Role } from './domain.js';
  * Katalog aplikasi SANSU (mirip layar "Apps" di Odoo).
  * Setiap perusahaan memilih aplikasi yang dipakai; menu & API mengikuti pilihan ini.
  */
-export const APP_KEYS = ['sales', 'purchase', 'inventory', 'accounting', 'cash', 'pos', 'crm', 'hr', 'payroll'] as const;
+export const APP_KEYS = ['sales', 'purchase', 'inventory', 'accounting', 'cash', 'pos', 'crm', 'hr', 'payroll', 'utility'] as const;
 export type AppKey = (typeof APP_KEYS)[number];
 
 export type AppCategory = 'Penjualan' | 'Supply Chain' | 'Keuangan' | 'SDM';
@@ -36,6 +36,16 @@ export const APPS: AppInfo[] = [
     depends: ['sales'],
     roles: ['SALES'],
     home: '/crm',
+  },
+  {
+    key: 'utility',
+    name: 'Layanan Utilitas',
+    category: 'Penjualan',
+    description: 'Sambungan pelanggan, tarif bertingkat, catat meter, tagihan bulanan, denda, dan penyambungan kembali',
+    color: '#0891B2',
+    depends: ['sales'],
+    roles: ['FINANCE', 'ACCOUNTANT', 'WAREHOUSE', 'SALES'],
+    home: '/utility',
   },
   {
     key: 'sales',
@@ -138,7 +148,7 @@ export function withDependencies(key: AppKey): AppKey[] {
 export const canUseApp = (role: Role, app: AppKey) => role === 'OWNER' || role === 'ADMIN' || APP_BY_KEY[app].roles.includes(role);
 
 // ---------- Model bisnis ----------
-export const BUSINESS_MODEL_KEYS = ['DAGANG', 'RITEL', 'JASA', 'FMCG', 'MANUFAKTUR', 'FNB'] as const;
+export const BUSINESS_MODEL_KEYS = ['DAGANG', 'RITEL', 'JASA', 'FMCG', 'MANUFAKTUR', 'FNB', 'UTILITAS'] as const;
 export type BusinessModel = (typeof BUSINESS_MODEL_KEYS)[number];
 /** Model yang mengolah bahan menjadi barang jadi atau menu (resep, perintah produksi, biaya pabrik/dapur) */
 export const isProductionModel = (m: BusinessModel | string | null | undefined): boolean => m === 'MANUFAKTUR' || m === 'FNB';
@@ -157,7 +167,7 @@ export interface BusinessModelInfo {
   note?: string;
 }
 /**
- * Enam model bisnis. Satu sistem untuk semuanya — model hanya menentukan aplikasi bawaan,
+ * Tujuh model bisnis. Satu sistem untuk semuanya — model hanya menentukan aplikasi bawaan,
  * langkah panduan mulai, dan istilah; aplikasi lain tetap bisa dinyalakan kapan saja.
  */
 export const BUSINESS_MODELS: BusinessModelInfo[] = [
@@ -216,6 +226,16 @@ export const BUSINESS_MODELS: BusinessModelInfo[] = [
     apps: ['pos', 'purchase', 'inventory', 'accounting', 'cash'],
     ready: true,
     note: 'Tandai produk sebagai "Menu (dibuat saat dipesan)" dan buat resepnya di Produksi › Resep. Setiap menu terjual di kasir, bahan sesuai resep otomatis terpotong dan HPP dihitung dari bahan. Nyalakan pajak restoran daerah (PB1) di Pengaturan › Perusahaan bila daerah Anda mengenakannya; tarif dan tenggat tetap perlu dipastikan dengan konsultan pajak.',
+  },
+  {
+    key: 'UTILITAS',
+    name: 'Utilitas (air, listrik, internet)',
+    summary: 'Menyediakan layanan berlangganan yang dipakai terus-menerus dan ditagih tiap bulan berdasarkan meter atau paket',
+    examples: 'Air bersih (PDAM/pengelola air), listrik komunitas/kawasan, internet RT-RW Net / ISP lokal, TV kabel, gas pipa, iuran kebersihan & keamanan kawasan',
+    flow: ['Pemasangan sambungan baru', 'Catat meter (petugas)', 'Verifikasi meter (orang lain)', 'Tagihan bulanan & denda', 'Pembayaran & penagihan tunggakan', 'Pemutusan / penyambungan kembali', 'Laporan & pajak'],
+    apps: ['utility', 'sales', 'purchase', 'inventory', 'accounting', 'cash'],
+    ready: true,
+    note: 'Mulai dari Layanan Utilitas → Tarif (blok tarif, abonemen), lalu daftarkan sambungan pelanggan. Tiap bulan: petugas mencatat meter, orang lain memverifikasi, lalu keuangan menjalankan penagihan. Aturan denda dan batas pemutusan diatur di Layanan Utilitas → Aturan. Tarif, PPN, dan denda perlu disesuaikan dengan ketentuan penyedia/regulator Anda.',
   },
 ];
 export const BUSINESS_MODEL_BY_KEY = Object.fromEntries(BUSINESS_MODELS.map((m) => [m.key, m])) as Record<BusinessModel, BusinessModelInfo>;

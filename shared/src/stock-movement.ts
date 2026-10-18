@@ -99,6 +99,18 @@ export const MOVEMENT_PROFILES: Record<BusinessModel, MovementProfile> = {
       OUT: 'Segera beli: menu yang memakai bahan ini tidak bisa dijual selama stok habis.',
     },
   },
+  UTILITAS: {
+    windowDays: 180,
+    fastCoverDays: 60,
+    normalCoverDays: 180,
+    deadDays: 270,
+    outWord: 'dipakai untuk perawatan / pemasangan',
+    actions: {
+      SLOW: 'Beli bahan (pipa, kabel, meter) seperlunya, jangan menimbun.',
+      DEAD: 'Bahan tidak terpakai: pindahkan ke proyek jaringan berikutnya atau retur.',
+      OUT: 'Beli sebelum jadwal pemasangan / perbaikan berikutnya; meter cadangan jangan sampai habis.',
+    },
+  },
   JASA: {
     windowDays: 180,
     fastCoverDays: 60,

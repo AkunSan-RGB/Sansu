@@ -126,6 +126,13 @@ export class ServiceWorkService {
     private readonly approvals: ApprovalsService,
   ) {}
 
+  /** Nama pegawai aktif untuk memilih pegawai pada catatan kerja — tanpa gaji/rekening, jadi aman dibuka untuk Admin */
+  async staff(u: AuthUser) {
+    const r = await this.db.execute<{ id: string; code: string; name: string; isActive: boolean; verified: boolean }>(sql`
+      SELECT id, code, name, is_active AS "isActive", verified FROM employees WHERE tenant_id = ${u.tenantId} AND is_active ORDER BY name`);
+    return r.rows;
+  }
+
   private async requireJasa(tenantId: string) {
     if ((await this.settings.businessModel(this.db, tenantId)) !== 'JASA') throw new BadRequestException('Fitur ini khusus usaha jasa');
   }
@@ -439,6 +446,10 @@ export class ServiceWorkService {
 export class ServiceWorkController {
   constructor(private readonly svc: ServiceWorkService) {}
 
+  @Get('staff')
+  staff(@CurrentUser() u: AuthUser) {
+    return this.svc.staff(u);
+  }
   @Get('profile')
   profile(@CurrentUser() u: AuthUser) {
     return this.svc.profile(u);

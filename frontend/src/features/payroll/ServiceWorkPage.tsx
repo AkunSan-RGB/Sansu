@@ -50,7 +50,7 @@ function EntriesTab() {
   const [status, setStatus] = useState<string | undefined>();
   const period = month.format('YYYY-MM');
   const { data, isLoading } = useQuery({ queryKey: ['svc-entries', period, status], queryFn: () => get<Entry[]>(`/payroll/service/entries?period=${period}${status ? `&status=${status}` : ''}`) });
-  const { data: employees } = useQuery({ queryKey: ['employees'], queryFn: () => get<Employee[]>('/hr/employees') });
+  const { data: employees } = useQuery({ queryKey: ['employees'], queryFn: () => get<Employee[]>('/payroll/service/staff') });
   const { data: rates } = useQuery({ queryKey: ['svc-rates'], queryFn: () => get<Rate[]>('/payroll/service/rates') });
   const { me } = useAuth();
   const isJasa = me?.businessModel === 'JASA';

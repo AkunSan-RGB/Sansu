@@ -93,6 +93,13 @@ export class ShiftsService {
     if (!WORK_UNITS_BY_MODEL[model].includes('SHIFT')) throw new BadRequestException('Jadwal shift untuk Ritel, F&B, dan Manufaktur');
   }
 
+  /** Nama pegawai aktif untuk memilih petugas shift — tanpa data gaji/rekening, jadi aman dibuka untuk Admin */
+  async staff(u: AuthUser) {
+    const r = await this.db.execute<{ id: string; code: string; name: string; jobTitle: string | null; isActive: boolean }>(sql`
+      SELECT id, code, name, job_title AS "jobTitle", is_active AS "isActive" FROM employees WHERE tenant_id = ${u.tenantId} AND is_active ORDER BY name`);
+    return r.rows;
+  }
+
   // ---------- templat ----------
   async templates(u: AuthUser) {
     await this.requireShiftModel(u.tenantId);
@@ -240,6 +247,10 @@ export class ShiftsService {
 export class ShiftsController {
   constructor(private readonly svc: ShiftsService) {}
 
+  @Get('staff')
+  staff(@CurrentUser() u: AuthUser) {
+    return this.svc.staff(u);
+  }
   @Get('templates')
   templates(@CurrentUser() u: AuthUser) {
     return this.svc.templates(u);

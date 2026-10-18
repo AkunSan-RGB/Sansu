@@ -494,12 +494,12 @@ export class PayrollService {
 export class PayrollController {
   constructor(private readonly svc: PayrollService) {}
 
-  @Roles('HR', 'FINANCE', 'ACCOUNTANT')
+  @Roles('HR', 'FINANCE', 'ACCOUNTANT', 'ADMIN')
   @Get('runs')
   runs(@CurrentUser() u: AuthUser) {
     return this.svc.listRuns(u.tenantId);
   }
-  @Roles('HR', 'FINANCE', 'ACCOUNTANT')
+  @Roles('HR', 'FINANCE', 'ACCOUNTANT', 'ADMIN')
   @Get('runs/:id')
   run(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.getRun(u.tenantId, id);
@@ -529,7 +529,7 @@ export class PayrollController {
   pay(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: PayRunDto) {
     return this.svc.pay(u, id, dto);
   }
-  @Roles('HR', 'FINANCE', 'ACCOUNTANT')
+  @Roles('HR', 'FINANCE', 'ACCOUNTANT', 'ADMIN')
   @Get('payslips/:id')
   payslip(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.getPayslip(u.tenantId, id);
@@ -539,13 +539,13 @@ export class PayrollController {
   updatePayslip(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdatePayslipDto) {
     return this.svc.updatePayslip(u, id, dto);
   }
-  @Roles('HR', 'FINANCE', 'ACCOUNTANT')
+  @Roles('HR', 'FINANCE', 'ACCOUNTANT', 'ADMIN')
   @Get('reports/bpjs')
   bpjs(@CurrentUser() u: AuthUser, @Query('period') period?: string) {
     const p = period && /^\d{4}-(0[1-9]|1[0-2])$/.test(period) ? period : new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date()).slice(0, 7);
     return this.svc.bpjsReport(u.tenantId, p);
   }
-  @Roles('HR', 'FINANCE', 'ACCOUNTANT')
+  @Roles('HR', 'FINANCE', 'ACCOUNTANT', 'ADMIN')
   @Get('reports/pph21')
   pph21(@CurrentUser() u: AuthUser, @Query('year') year?: string) {
     return this.svc.pph21Report(u.tenantId, yearQuery(year, new Date().getFullYear()));

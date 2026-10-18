@@ -62,6 +62,19 @@ export const REPORT_TERMS: Record<BusinessModel, ReportTerms> = {
     recognitionPolicy:
       'Pendapatan dari penjualan eceran diakui pada saat barang diserahkan kepada pembeli di kasir dan pembayaran diterima, sebesar nilai wajar imbalan setelah dikurangi retur dan potongan. Selisih kas kasir diakui sebagai beban pada periode terjadinya. Beban diakui pada saat terjadinya (dasar akrual).',
   },
+  UTILITAS: {
+    revenueLabel: 'Pendapatan layanan utilitas',
+    cogsLabel: 'Beban pokok layanan',
+    activity: 'penyediaan layanan utilitas berlangganan (pemakaian terukur dan abonemen) kepada pelanggan',
+    revenueSource: 'tagihan layanan utilitas',
+    revenueNote: 'Pendapatan berasal dari tagihan pemakaian terukur, abonemen, biaya sambung baru, dan denda keterlambatan kepada pelanggan di dalam negeri.',
+    receivableNote: 'Piutang usaha seluruhnya dalam Rupiah dan berasal dari tagihan layanan bulanan kepada pelanggan; tunggakan lama dipantau lewat umur piutang dan penyisihan.',
+    inventoryNote: 'Persediaan terdiri dari bahan pemasangan dan perawatan jaringan (pipa, kabel, meter, bahan pengolahan).',
+    cogsNote: 'Beban pokok layanan terdiri dari pembelian energi/air baku, bahan pengolahan, dan biaya langsung operasi jaringan.',
+    payableNote: PAYABLE('pemasok energi, air baku, dan bahan jaringan'),
+    recognitionPolicy:
+      'Pendapatan pemakaian diakui pada periode pemakaian berdasarkan catatan meter yang telah diverifikasi, sebesar tarif yang berlaku; abonemen diakui per periode layanan. Biaya sambung baru diakui saat sambungan aktif. Denda keterlambatan diakui saat dikenakan. Beban diakui pada saat terjadinya (dasar akrual).',
+  },
   JASA: {
     revenueLabel: 'Pendapatan jasa',
     cogsLabel: 'Beban pokok pendapatan',

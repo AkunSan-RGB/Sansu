@@ -147,6 +147,7 @@ export class OnboardingService {
       ],
       FMCG: ['Masukkan produk (SKU) & satuan dus/pak', 'Isi harga jual per satuan, barcode, dan satuan dus/pak. Tandai masa simpan agar kedaluwarsa dipantau. Bisa impor dari Excel.'],
       MANUFAKTUR: ['Masukkan bahan, barang setengah jadi & barang jadi', 'Daftarkan bahan baku, bahan penolong, barang setengah jadi, dan barang jadi — atau impor dari Excel.'],
+      UTILITAS: ['Atur tarif & daftar sambungan', 'Buat tarif (blok pemakaian, abonemen) di Layanan Utilitas → Tarif, lalu daftarkan sambungan pelanggan beserta nomor meter.'],
       FNB: ['Masukkan bahan & menu', 'Daftarkan bahan (kopi, susu, tepung) dan menu yang dijual. Tandai menu sebagai "dibuat saat dipesan" agar bahan terpotong otomatis di kasir.'],
     };
     const saleStep: Record<BusinessModel, [string, string, string]> = {
@@ -159,6 +160,7 @@ export class OnboardingService {
       ],
       FMCG: ['Catat pesanan outlet pertama', 'Buat sales order untuk outlet (daftar harga dan promo mengikuti segmen pelanggan), lalu jadikan faktur.', '/sales-orders/new'],
       MANUFAKTUR: ['Catat penjualan pertama', 'Buat sales order barang jadi, lalu jadikan faktur.', '/sales-orders/new'],
+      UTILITAS: ['Tagih bulan pertama', 'Catat meter, verifikasi oleh orang lain, lalu jalankan penagihan bulanan.', '/utility'],
       FNB: ['Buka kasir & jual menu pertama', 'Buka sesi kasir, pilih menu, terima pembayaran. Bahan sesuai resep terpotong otomatis.', '/pos'],
     };
     const steps: OnboardingStep[] = [

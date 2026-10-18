@@ -73,6 +73,7 @@ import ShiftRosterPage from './features/hr/ShiftRosterPage';
 import ShoppingListPage from './features/purchasing/ShoppingListPage';
 import TasksPage from './features/tasks/TasksPage';
 import PriceAgreementsPage from './features/purchasing/PriceAgreementsPage';
+import UtilityPage from './features/utility/UtilityPage';
 import BranchesPage from './features/accounting/BranchesPage';
 import KitchenPage from './features/pos/KitchenPage';
 import OnlineOrdersPage from './features/pos/OnlineOrdersPage';
@@ -197,6 +198,7 @@ export default function App() {
           <Route path="shopping-list" element={<ShoppingListPage />} />
           <Route path="shifts" element={<ShiftRosterPage />} />
           <Route path="price-agreements" element={<PriceAgreementsPage />} />
+          <Route path="utility/:tab?" element={<UtilityPage />} />
           <Route path="settings/branches" element={<BranchesPage />} />
           <Route path="branches" element={<Navigate to="/reports?tab=branches" replace />} />
           <Route path="inventory/movement" element={<MovementPage />} />

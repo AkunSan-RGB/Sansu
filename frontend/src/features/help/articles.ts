@@ -33,7 +33,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     summary: 'Urutan yang disarankan agar data dan laporan benar sejak hari pertama.',
     paths: ['/'],
     steps: [
-      'Pilih model bisnis saat mendaftar (Dagang, Ritel, Jasa, FMCG, Manufaktur, atau F&B) — SANSU menyiapkan aplikasi yang sesuai. Bisa diubah di Pengaturan › Perusahaan.',
+      'Pilih model bisnis saat mendaftar (Dagang, Ritel, Jasa, FMCG, Manufaktur, F&B, atau Utilitas) — SANSU menyiapkan aplikasi yang sesuai. Bisa diubah di Pengaturan › Perusahaan.',
       'Lengkapi profil perusahaan: nama, NPWP, alamat, dan tarif PPN di Pengaturan › Perusahaan. Pasang juga logo dan info rekening agar tampil di faktur.',
       'Tambahkan gudang/toko bila punya lebih dari satu lokasi (Inventori › Gudang).',
       'Masukkan produk, pelanggan, dan supplier — satu per satu atau impor dari Excel (Pengaturan › Impor data).',
@@ -256,6 +256,29 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     keywords: 'kedaluwarsa expired lot fefo basi bahan makanan tanggal buang',
     link: { label: 'Buka Kedaluwarsa bahan', to: '/inventory/expiry' },
+  },
+  {
+    id: 'utilitas-tagihan-bulanan',
+    category: 'Penjualan',
+    title: 'Utilitas: tarif, catat meter, dan tagihan bulanan',
+    summary: 'Untuk penyedia air, listrik, internet, atau iuran kawasan: buat tarif bertingkat, daftarkan sambungan, catat dan verifikasi meter, lalu terbitkan tagihan sebulan sekali.',
+    paths: ['/utility', '/utility/ringkasan', '/utility/sambungan', '/utility/meter', '/utility/tagihan', '/utility/tunggakan', '/utility/tarif'],
+    steps: [
+      'Layanan utilitas › Tarif & aturan › Tarif baru: isi abonemen, biaya admin, dan blok pemakaian (mis. 0–10 m³ Rp3.000, 10–20 m³ Rp4.500, selebihnya Rp7.000). Layanan tetap seperti internet hanya memakai biaya tetap.',
+      'Sambungan › Sambungan baru: pilih pelanggan, tarif, alamat, nomor meter, dan angka awal meter.',
+      'Catat meter: petugas lapangan mengisi angka meter tiap sambungan. Bila meter diganti, centang "meter diganti" dan isi angka akhir meter lama serta angka awal meter baru.',
+      'Verifikasi: orang lain (Keuangan/Admin) memeriksa angka. Angka yang ditandai janggal (melonjak, nol, meter diganti) wajib diberi catatan pemeriksaan.',
+      'Tagihan bulanan: pilih periode, lihat pratinjau, lalu Terbitkan tagihan. Faktur muncul di Penjualan › Faktur & piutang; denda keterlambatan dari tagihan lama ikut ditagih.',
+      'Tunggakan: sambungan yang lewat batas diusulkan putus sementara; sambung kembali dilakukan orang lain setelah lunas.',
+    ],
+    tips: [
+      'Satu sambungan hanya bisa ditagih sekali per periode; menekan Terbitkan lagi tidak menggandakan faktur.',
+      'Besaran denda dan batas pemutusan diatur di Tarif & aturan; sesuaikan dengan ketentuan penyedia/regulator dan perjanjian pelanggan.',
+      'Tab Kontrol menampilkan kebocoran pendapatan: sambungan tak tercatat, pemakaian nol berulang, dan pencatatan yang lama belum diverifikasi.',
+      'Perlakuan PPN tiap layanan berbeda; pastikan dengan konsultan pajak sebelum menyalakan PPN pada tarif.',
+    ],
+    keywords: 'utilitas air listrik internet pdam meter tarif blok abonemen tagihan bulanan denda tunggakan pemutusan sambungan',
+    link: { label: 'Buka Layanan utilitas', to: '/utility' },
   },
   {
     id: 'fmcg-harga-promo',

@@ -18,6 +18,7 @@ export const WORK_UNIT_LABELS: Record<WorkUnit, string> = {
 };
 
 export const WORK_UNITS_BY_MODEL: Record<BusinessModel, WorkUnit[]> = {
+  UTILITAS: ['JOB', 'SHIFT'],
   JASA: ['HOUR', 'SESSION', 'JOB', 'PERCENT'],
   RITEL: ['SHIFT', 'JOB'],
   FNB: ['SHIFT', 'JOB'],
@@ -28,6 +29,7 @@ export const WORK_UNITS_BY_MODEL: Record<BusinessModel, WorkUnit[]> = {
 
 /** Nama menu & judul halaman per jenis usaha */
 export const WORK_PAGE_TITLE: Record<BusinessModel, string> = {
+  UTILITAS: 'Upah petugas lapangan (pasang & catat meter)',
   JASA: 'Upah jasa (jam, sesi, komisi)',
   RITEL: 'Premi shift & borongan',
   FNB: 'Premi shift & borongan katering',

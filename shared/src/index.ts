@@ -20,3 +20,4 @@ export * from './work-units.js';
 export * from './crm-profile.js';
 export * from './tax-focus.js';
 export * from './barcode.js';
+export * from './utility.js';

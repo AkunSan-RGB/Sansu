@@ -69,7 +69,7 @@ export class TaskInboxService {
         SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - created_at::date), 0)::int AS oldest FROM supplier_price_agreements
         WHERE tenant_id = ${u.tenantId} AND status = 'PENDING' AND created_by_id <> ${u.sub}`));
     }
-    if (is(['ADMIN', 'HR']) && on.has('hr')) {
+    if (is(['HR']) && on.has('hr')) {
       add('leaves', '/leaves', (n) => `${n} pengajuan cuti menunggu keputusan Anda`, 'Cuti sendiri tidak ikut dihitung', await this.one(sql`
         SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - l.created_at::date), 0)::int AS oldest FROM leave_requests l JOIN employees e ON e.id = l.employee_id
         WHERE l.tenant_id = ${u.tenantId} AND l.status = 'PENDING' AND e.user_id IS DISTINCT FROM ${u.sub}`));
@@ -77,6 +77,25 @@ export class TaskInboxService {
     if (is(['ACCOUNTANT', 'ADMIN']) && on.has('payroll')) {
       add('payroll-post', '/payroll', (n) => `${n} penggajian menunggu diperiksa dan diposting`, 'Disiapkan HR; diposting Akuntan', await this.one(sql`
         SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - created_at::date), 0)::int AS oldest FROM payroll_runs WHERE tenant_id = ${u.tenantId} AND status = 'DRAFT'`));
+    }
+    if (on.has('utility')) {
+      if (is(['ADMIN', 'FINANCE'])) {
+        add('utility-verify', '/utility/meter', (n) => `${n} pencatatan meter menunggu verifikasi Anda`, 'Dicatat petugas lapangan; angka janggal wajib catatan pemeriksa', await this.one(sql`
+          SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - entered_at::date), 0)::int AS oldest FROM utility_readings
+          WHERE tenant_id = ${u.tenantId} AND status = 'ENTERED' AND entered_by_id <> ${u.sub}`));
+        add('utility-bill', '/utility/tagihan', (n) => `${n} pencatatan meter terverifikasi siap ditagih`, 'Jalankan penagihan bulanan agar faktur terbit', await this.one(sql`
+          SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - verified_at::date), 0)::int AS oldest FROM utility_readings WHERE tenant_id = ${u.tenantId} AND status = 'VERIFIED'`));
+        add('utility-suspend', '/utility/tunggakan', (n) => `${n} sambungan menunggak melewati batas pemutusan`, 'Tinjau dan putus sementara sesuai aturan', await this.one(sql`
+          SELECT COUNT(DISTINCT c.id)::int AS n, COALESCE(MAX(CURRENT_DATE - i.due_date), 0)::int AS oldest
+          FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id JOIN utility_connections c ON c.id = b.connection_id
+          WHERE b.tenant_id = ${u.tenantId} AND c.status = 'ACTIVE' AND i.status <> 'PAID' AND CURRENT_DATE - i.due_date > 30`));
+      }
+      if (is(['WAREHOUSE'])) {
+        add('utility-read', '/utility/meter', (n) => `${n} sambungan belum dicatat meternya bulan ini`, 'Catat angka meter lalu kirim untuk diverifikasi', await this.one(sql`
+          SELECT COUNT(*)::int AS n, 0 AS oldest FROM utility_connections c JOIN utility_tariffs t ON t.id = c.tariff_id
+          WHERE c.tenant_id = ${u.tenantId} AND c.status = 'ACTIVE' AND t.metered AND to_char(c.installed_at, 'YYYY-MM') <= to_char(CURRENT_DATE, 'YYYY-MM')
+            AND NOT EXISTS (SELECT 1 FROM utility_readings r WHERE r.connection_id = c.id AND r.period = to_char(CURRENT_DATE, 'YYYY-MM') AND r.status <> 'REJECTED')`));
+      }
     }
     const wf = await this.workflow.tasksFor(u);
     if (wf.count > 0) out.push({ key: 'workflow', link: '/workflow', title: `${wf.count} kasus alur kerja menunggu tindakan Anda`, detail: wf.oldestDays >= 1 ? `Sesuai peran Anda · terlama ${wf.oldestDays} hari di tahap ini` : 'Sesuai peran Anda', count: wf.count, oldestDays: wf.oldestDays });

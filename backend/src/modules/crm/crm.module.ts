@@ -503,7 +503,7 @@ export class CrmService {
 @ApiTags('CRM')
 @ApiBearerAuth()
 @RequireApp('crm')
-@Roles('SALES')
+@Roles('SALES', 'ADMIN')
 @Controller('crm')
 export class CrmController {
   constructor(private readonly svc: CrmService) {}
