@@ -63,7 +63,7 @@ function CashControlCard() {
 
 /** Batas nilai yang memerlukan persetujuan pemilik / admin (0 = nonaktif) */
 function ApprovalPolicyCard() {
-  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK'; telegramLinkHours: number };
+  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; blindReceiving: boolean; bankChangeHoldDays: number; budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK'; telegramLinkHours: number };
   const [form] = Form.useForm<Policy>();
   const policy = useQuery({ queryKey: ['approvals', 'policy'], queryFn: () => get<Policy>('/approvals/policy') });
   useEffect(() => {
@@ -103,6 +103,12 @@ function ApprovalPolicyCard() {
         </Form.Item>
         <Form.Item name="firstSupplierPayment" label="Pembayaran pertama ke supplier wajib disetujui" valuePropName="checked" extra="Anti pemasok fiktif: staf (selain pemilik dan admin) yang membayar supplier untuk pertama kali menunggu persetujuan. Pembayaran berikutnya ke supplier yang sama berjalan biasa.">
           <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
+        </Form.Item>
+        <Form.Item name="blindReceiving" label="Penerimaan buta (Gudang menghitung sendiri)" valuePropName="checked" extra="Gudang tidak melihat jumlah yang dipesan dan wajib mengisi hasil hitungannya. Selisih terhadap pesanan langsung dikabarkan ke Pembelian, Admin, dan Pemilik.">
+          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
+        </Form.Item>
+        <Form.Item name="bankChangeHoldDays" label="Tahan pembayaran setelah rekening supplier diubah (hari)" extra="Pembayaran oleh staf ke supplier yang rekeningnya baru diubah menunggu persetujuan Pemilik/Admin. 0 = tidak ditahan.">
+          <InputNumber min={0} max={60} step={1} precision={0} style={{ width: '100%' }} suffix="hari" />
         </Form.Item>
         <Form.Item name="telegramLinkHours" label="Masa berlaku tautan persetujuan lewat Telegram (jam)" extra="1–72 jam. Lebih pendek = lebih aman bila chat terbaca orang lain, tetapi pemberi persetujuan harus memutuskan lebih cepat. Tautan lewat email tetap 72 jam.">
           <InputNumber min={1} max={72} step={1} precision={0} style={{ width: '100%' }} suffix="jam" />

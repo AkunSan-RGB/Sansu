@@ -10,6 +10,7 @@
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SequenceService } from '../../common/sequence/sequence.service';
@@ -44,6 +45,7 @@ export class GoodsReceiptsService {
     private readonly posting: PostingService,
     private readonly orders: PurchaseOrdersService,
     private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   async isPkp(tx: Tx, tenantId: string) {
@@ -59,8 +61,14 @@ export class GoodsReceiptsService {
   /** Terima barang atas pesanan CONFIRMED. Tanpa `lines`: seluruh sisa pesanan diterima. */
   async receive(user: AuthUser, orderId: string, dto: { date?: string; lines?: ReceiveItem[]; supplierDeliveryNo?: string; notes?: string }) {
     const date = toDocDate(dto.date);
+    // Penerimaan buta: Gudang mengisi jumlah hasil hitungannya sendiri (tidak terisi otomatis sesuai PO)
+    const blind = user.role === 'WAREHOUSE' && (await this.approvals.policy(this.db, user.tenantId)).blindReceiving;
+    if (blind && !dto.lines?.length) throw new BadRequestException('Isi jumlah barang yang Anda hitung pada setiap baris (penerimaan buta); jangan menerima otomatis sesuai PO.');
+    const diffs: { sku: string; ordered: Dec; got: Dec }[] = [];
+    let poNumber = '';
     const id = await this.db.transaction(async (tx) => {
       const order = await this.orders.lock(tx, user.tenantId, orderId);
+      poNumber = order.number;
       if (order.status !== 'CONFIRMED') {
         throw new BadRequestException(`PO berstatus ${order.status}; hanya PO yang sudah dikonfirmasi yang bisa diterima barangnya`);
       }
@@ -82,11 +90,31 @@ export class GoodsReceiptsService {
         items.push({ line, qty: q, lot: { lotNo: p.lotNo, expiryDate: p.expiryDate } });
       }
       if (!items.length) throw new BadRequestException('Tidak ada barang yang diterima: isi jumlah pada minimal satu baris');
+      // Selisih terhadap sisa pesanan (kurang/lebih dari yang dipesan) dicatat untuk dikabarkan ke Pembelian dan Pemilik
+      for (const l of order.lines) {
+        const want = left.get(l.id)!;
+        const got = items.find((i) => i.line.id === l.id)?.qty ?? ZERO;
+        if (want.gt(QTY_EPS) && got.minus(want).abs().gt(QTY_EPS)) diffs.push({ sku: l.productId, ordered: want, got });
+      }
       const receipt = await this.record(tx, user, order, items, date, { deliveryNo: dto.supplierDeliveryNo, notes: dto.notes });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'GoodsReceipt', entityId: receipt.id, data: { number: receipt.number } });
       return receipt.id;
     });
-    return this.get(user.tenantId, id);
+    const rec = await this.get(user.tenantId, id);
+    if (diffs.length) {
+      const names = (await this.db.execute<{ id: string; name: string }>(sql`SELECT id, name FROM products WHERE tenant_id = ${user.tenantId} AND id IN (${sql.join(diffs.map((d) => sql`${d.sku}::uuid`), sql`, `)})`)).rows;
+      const nm = new Map(names.map((n) => [n.id, n.name]));
+      void this.approvals.notifyRoles(user.tenantId, {
+        roles: ['PURCHASING', 'ADMIN', 'OWNER'],
+        excludeUserId: user.sub,
+        title: `⚠ Penerimaan ${poNumber}: ${diffs.length} baris tidak sama dengan pesanan`,
+        lines: diffs.slice(0, 5).map((d) => `${nm.get(d.sku) ?? 'Barang'}: dipesan sisa ${d.ordered.toString()}, diterima ${d.got.toString()}`),
+        path: '/purchase-orders',
+      });
+    } else {
+      void this.approvals.notifyRoles(user.tenantId, { roles: ['PURCHASING'], excludeUserId: user.sub, info: true, title: `Barang PO ${poNumber} sudah diterima Gudang`, lines: ['Sesuai pesanan. Tagihan supplier dapat dicocokkan.'], path: '/purchase-orders' });
+    }
+    return rec;
   }
 
   /** Inti penerimaan: stok masuk, jurnal Dr Persediaan | Cr Barang Diterima Belum Ditagih, sisa pesanan diperbarui */

@@ -202,6 +202,13 @@ export class PurchaseOrdersService {
     return out;
   }
 
+  /** Penerimaan buta: Gudang tidak melihat jumlah yang dipesan (hanya menghitung dan mengisi yang tiba) */
+  async forViewer<T extends { status: string; lines?: { qty: string; receivedQty: string; billedQty: string }[] }>(user: AuthUser, po: T): Promise<T & { blindReceiving: boolean }> {
+    const blind = user.role === 'WAREHOUSE' && po.status === 'CONFIRMED' && (await this.approvals.policy(this.db, user.tenantId)).blindReceiving;
+    if (!blind) return { ...po, blindReceiving: false };
+    return { ...po, blindReceiving: true, lines: po.lines?.map((l) => ({ ...l, qty: '0', receivedQty: '0', billedQty: '0' })) };
+  }
+
   async confirm(user: AuthUser, id: string) {
     // Pesanan bernilai besar dari peran yang tidak berwenang: butuh persetujuan (permintaan dibuat di luar transaksi)
     const [po] = await this.db.select({ number: purchaseOrders.number, total: purchaseOrders.total, status: purchaseOrders.status, supplierId: purchaseOrders.supplierId }).from(purchaseOrders).where(and(eq(purchaseOrders.id, id), eq(purchaseOrders.tenantId, user.tenantId)));
@@ -215,19 +222,33 @@ export class PurchaseOrdersService {
       await tx.update(purchaseOrders).set({ status: 'CONFIRMED' }).where(eq(purchaseOrders.id, id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CONFIRM', entity: 'PurchaseOrder', entityId: id });
     });
+    // Gudang tahu barang apa yang akan datang (dasar penerimaan buta dan pembanding saat barang tiba)
+    const [sp] = po ? await this.db.select({ name: suppliers.name }).from(suppliers).where(eq(suppliers.id, po.supplierId)) : [];
+    void this.approvals.notifyRoles(user.tenantId, { roles: ['WAREHOUSE'], excludeUserId: user.sub, info: true, title: `PO ${po?.number ?? ''} dari ${sp?.name ?? 'supplier'} akan datang`, lines: ['Siapkan penerimaan. Hitung barang yang tiba lalu catat di Penerimaan Barang.'], path: '/purchase-orders' });
     return this.get(user.tenantId, id);
   }
 
-  async cancel(user: AuthUser, id: string) {
+  async cancel(user: AuthUser, id: string, reason?: string) {
+    let was = '';
+    let number = '';
     await this.db.transaction(async (tx) => {
       const order = await this.lock(tx, user.tenantId, id);
       if (order.status === 'BILLED') throw new BadRequestException('PO sudah difakturkan; buat retur pembelian');
       if (order.status === 'CANCELLED') throw new BadRequestException('PO sudah dibatalkan');
+      // PO yang sudah dikonfirmasi tidak bisa diubah; membatalkannya oleh staf wajib beralasan (agar tidak dipakai mengakali persetujuan)
+      if (order.status === 'CONFIRMED' && !this.approvals.isApprover(user.role) && (reason?.trim().length ?? 0) < 5) {
+        throw new BadRequestException('Isi alasan pembatalan PO yang sudah dikonfirmasi (minimal 5 huruf)');
+      }
       const [{ receipts }] = (await tx.execute<{ receipts: number }>(sql`SELECT COUNT(*)::int AS receipts FROM goods_receipts WHERE purchase_order_id = ${id} AND status = 'RECEIVED'`)).rows;
       if (receipts > 0) throw new BadRequestException('PO sudah ada penerimaan barang; batalkan penerimaannya dulu atau buat retur pembelian');
-      await tx.update(purchaseOrders).set({ status: 'CANCELLED' }).where(eq(purchaseOrders.id, id));
-      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'PurchaseOrder', entityId: id });
+      was = order.status;
+      number = order.number;
+      await tx.update(purchaseOrders).set({ status: 'CANCELLED', cancelReason: reason?.trim() || null, cancelledById: user.sub }).where(eq(purchaseOrders.id, id));
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'PurchaseOrder', entityId: id, data: { reason: reason?.trim() || null, wasStatus: order.status } });
     });
+    if (was === 'CONFIRMED') {
+      void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER', 'ADMIN', 'WAREHOUSE'], excludeUserId: user.sub, info: true, title: `PO ${number} yang sudah dikonfirmasi dibatalkan`, lines: [reason?.trim() ? `Alasan: ${reason.trim()}` : 'Tanpa alasan tertulis'], path: '/purchase-orders' });
+    }
     return this.get(user.tenantId, id);
   }
 

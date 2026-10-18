@@ -469,6 +469,9 @@ export interface Supplier {
   /** Supplier favorit: persetujuan otomatis sampai `autoApproveLimit` */
   isPreferred?: boolean;
   autoApproveLimit?: string;
+  bankName?: string | null;
+  bankAccountNo?: string | null;
+  bankAccountName?: string | null;
   outstanding?: string;
 }
 
@@ -515,6 +518,8 @@ export interface PurchaseOrder {
   invoices?: { id: string; number: string; supplierInvoiceNo: string; date: string; total: string; status: InvoiceStatus }[];
   receipts?: { id: string; number: string; date: string; status: 'RECEIVED' | 'CANCELLED'; value: string; supplierDeliveryNo: string | null; autoInvoiceId: string | null }[];
   /** Kemajuan penerimaan barang dan penagihan: NONE / PARTIAL / FULL */
+  /** Penerimaan buta aktif untuk Gudang: jumlah pesanan disembunyikan */
+  blindReceiving?: boolean;
   receiptStatus?: 'NONE' | 'PARTIAL' | 'FULL';
   billingStatus?: 'NONE' | 'PARTIAL' | 'FULL';
 }

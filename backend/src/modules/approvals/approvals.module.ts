@@ -21,6 +21,7 @@ import { AccountingService } from '../accounting/accounting.service';
 import { CreateJournalDto } from '../accounting/dto/accounting.dto';
 import { PurchaseOrdersService } from '../purchasing/purchase-orders.service';
 import { PurchaseInvoicesService } from '../purchasing/purchase-invoices.service';
+import { SuppliersService } from '../purchasing/suppliers.service';
 import { CreatePurchaseInvoiceDto } from '../purchasing/purchasing.dto';
 import { PurchasingModule } from '../purchasing/purchasing.module';
 import { AssetsModule, AssetsService } from '../assets/assets.module';
@@ -45,6 +46,8 @@ class PolicyDto implements Partial<ApprovalPolicy> {
   @ApiPropertyOptional({ description: 'Toleransi harga faktur di atas rata-rata harga beli 90 hari (%)' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(1000) priceBenchmarkPct?: number;
   @ApiPropertyOptional({ enum: ['OFF', 'APPROVAL', 'BLOCK'], description: 'Pengendalian belanja yang melewati anggaran' }) @IsOptional() @IsIn(['OFF', 'APPROVAL', 'BLOCK']) budgetControl?: 'OFF' | 'APPROVAL' | 'BLOCK';
   @ApiPropertyOptional({ description: 'Pembayaran pertama ke supplier wajib disetujui' }) @IsOptional() @IsBoolean() firstSupplierPayment?: boolean;
+  @ApiPropertyOptional({ description: 'Penerimaan buta: Gudang mengisi jumlah yang dihitung sendiri' }) @IsOptional() @IsBoolean() blindReceiving?: boolean;
+  @ApiPropertyOptional({ description: 'Pembayaran ke supplier yang rekeningnya baru diubah (hari terakhir) wajib disetujui; 0 = nonaktif' }) @IsOptional() @IsInt() @Min(0) @Max(60) bankChangeHoldDays?: number;
   @ApiPropertyOptional({ description: 'Masa berlaku tautan persetujuan lewat Telegram (jam, 1–72)' }) @IsOptional() @IsInt() @Min(1) @Max(72) telegramLinkHours?: number;
 }
 class AssignDto {
@@ -65,6 +68,7 @@ export class ApprovalRequestsService {
     private readonly approvals: ApprovalsService,
     private readonly orders: PurchaseOrdersService,
     private readonly invoices: PurchaseInvoicesService,
+    private readonly suppliers: SuppliersService,
     private readonly accounting: AccountingService,
     private readonly assets: AssetsService,
     private readonly cash: CashService,
@@ -151,6 +155,10 @@ export class ApprovalRequestsService {
         // faktur dicatat atas nama pemohon; penyetuju tercatat di permintaan dan faktur
         const inv = await this.invoices.createFromOrder({ ...user, sub: req.requestedById }, req.payload as unknown as CreatePurchaseInvoiceDto, { approvalId: id });
         resultRef = inv.number;
+      } else if (req.kind === 'SUPPLIER_BANK') {
+        // rekening diubah atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
+        const sp = await this.suppliers.applyBankChange({ ...user, sub: req.requestedById }, req.payload as never);
+        resultRef = sp.code;
       } else if (req.kind === 'CASH_TX') {
         // dicatat atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
         const t = await this.cash.create({ ...user, sub: req.requestedById }, req.payload as unknown as CreateCashTxDto, { approved: true });
@@ -184,6 +192,7 @@ export class ApprovalRequestsService {
       throw new BadRequestException(`Persetujuan gagal dijalankan: ${(e as Error).message}`);
     }
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'APPROVE', entity: 'ApprovalRequest', entityId: id, data: { kind: req.kind, title: req.title } });
+    void this.approvals.notifyUser(req.requestedById, `✅ Permintaan Anda disetujui\n${APPROVAL_KIND_LABELS[req.kind]}: ${req.title}${dto.note ? `\nCatatan: ${dto.note}` : ''}`);
     return (await this.list(user, { status: 'ALL' })).find((r) => r.id === id) ?? { id };
   }
 
@@ -198,6 +207,7 @@ export class ApprovalRequestsService {
       .returning({ id: approvalRequests.id });
     if (!done.length) throw new ConflictException('Permintaan ini sudah diputuskan');
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'REJECT', entity: 'ApprovalRequest', entityId: id, data: { kind: req.kind, title: req.title, note: dto.note } });
+    void this.approvals.notifyUser(req.requestedById, `❌ Permintaan Anda ditolak\n${APPROVAL_KIND_LABELS[req.kind]}: ${req.title}\nAlasan: ${dto.note}`);
     return { id, status: 'REJECTED' };
   }
 

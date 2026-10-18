@@ -20,6 +20,9 @@ interface FormValues {
   isActive?: boolean;
   isPreferred?: boolean;
   autoApproveLimit?: number;
+  bankName?: string | null;
+  bankAccountNo?: string | null;
+  bankAccountName?: string | null;
 }
 
 export default function SuppliersPage() {
@@ -50,7 +53,7 @@ export default function SuppliersPage() {
         return send({ confirmDuplicate: true });
       }
     },
-    { success: 'Supplier disimpan', invalidate: ['suppliers'], onSuccess: () => setEditing(null) },
+    { success: (r) => ((r as { bankChangePending?: boolean } | undefined)?.bankChangePending ? 'Perubahan rekening dikirim ke Pemilik/Admin; berlaku setelah disetujui' : 'Supplier disimpan'), invalidate: ['suppliers', 'approvals'], onSuccess: () => setEditing(null) },
   );
 
   const open = (s: Supplier | 'new') => {
@@ -61,6 +64,9 @@ export default function SuppliersPage() {
         phone: s.phone ?? undefined,
         address: s.address ?? undefined,
         npwp: s.npwp ?? undefined,
+        bankName: s.bankName ?? undefined,
+        bankAccountNo: s.bankAccountNo ?? undefined,
+        bankAccountName: s.bankAccountName ?? undefined,
         autoApproveLimit: Number(s.autoApproveLimit ?? 0),
       });
     }
@@ -135,6 +141,13 @@ export default function SuppliersPage() {
           </Form.Item>
           <Form.Item name="npwp" label="NPWP" extra="Dipakai di rekap PPN masukan">
             <Input />
+          </Form.Item>
+          <Form.Item label="Rekening pembayaran" extra={editing && editing !== 'new' && editing.bankAccountNo ? 'Mengubah rekening yang sudah terisi menunggu persetujuan Pemilik/Admin, dan pembayaran ke supplier ini ditahan beberapa hari (anti pengalihan pembayaran).' : 'Nama pemilik rekening harus sesuai nama supplier.'}>
+            <Space wrap>
+              <Form.Item name="bankName" noStyle><Input placeholder="Bank (mis. BCA)" style={{ width: 130 }} /></Form.Item>
+              <Form.Item name="bankAccountNo" noStyle><Input placeholder="No. rekening" style={{ width: 170 }} /></Form.Item>
+              <Form.Item name="bankAccountName" noStyle><Input placeholder="Atas nama" style={{ width: 200 }} /></Form.Item>
+            </Space>
           </Form.Item>
           <Space wrap size="large">
             <Form.Item name="paymentTermDays" label="Termin pembayaran">

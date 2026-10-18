@@ -56,6 +56,12 @@ export class TaskInboxService {
           WHERE tenant_id = ${u.tenantId} AND status = 'SUBMITTED' AND requested_by_id IS DISTINCT FROM ${u.sub}`));
       }
     }
+    if (is(['WAREHOUSE', 'PURCHASING', 'ADMIN']) && on.has('purchase')) {
+      add('po-awaiting-goods', '/purchase-orders?status=CONFIRMED', (n) => `${n} PO menunggu barang diterima`, u.role === 'PURCHASING' ? 'Pantau pengiriman pemasok' : 'Hitung barang yang tiba lalu catat penerimaan', await this.one(sql`
+        SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - o.date), 0)::int AS oldest FROM purchase_orders o
+        WHERE o.tenant_id = ${u.tenantId} AND o.status = 'CONFIRMED'
+          AND EXISTS (SELECT 1 FROM purchase_order_lines l WHERE l.order_id = o.id AND l.received_qty < l.qty)`));
+    }
     if (is(DECIDERS) && on.has('payroll')) {
       add('work-entries', '/payroll/jasa', (n) => `${n} catatan upah kerja menunggu persetujuan Anda`, 'Dicatat HR; pembuat tidak boleh menyetujui sendiri', await this.one(sql`
         SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - w.created_at::date), 0)::int AS oldest FROM service_work_entries w JOIN employees e ON e.id = w.employee_id
