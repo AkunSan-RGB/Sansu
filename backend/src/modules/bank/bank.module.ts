@@ -6,7 +6,7 @@
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsDateString, IsIn, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, ArrayMinSize, IsBoolean, IsDateString, IsIn, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength, ValidateNested } from 'class-validator';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { CONTROL_PROFILES, DEFAULT_BANK_RULES } from '@sansu/shared';
 import { SettingsService } from '../../common/settings.service';
@@ -17,7 +17,7 @@ import { addDays, diffDays, DocDate, toDocDate, todayJakarta } from '../../commo
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, bankReconciliations, bankRules, bankStatementLines, bankStatements, journalLines } from '../../db/schema';
+import { accounts, bankLineExtraMatches, bankReconciliations, bankRules, bankStatementLines, bankStatements, journalLines } from '../../db/schema';
 import { AccountingModule } from '../accounting/accounting.module';
 import { PostingService } from '../accounting/posting.service';
 
@@ -42,6 +42,14 @@ export class ImportStatementDto {
 }
 export class MatchDto {
   @ApiProperty() @IsUUID() journalLineId: string;
+}
+export class MatchManyDto {
+  @ApiProperty({ type: [String], description: 'Beberapa baris buku yang jumlahnya persis sama dengan satu mutasi bank (mis. setoran gabungan)' })
+  @IsArray()
+  @ArrayMinSize(2)
+  @ArrayMaxSize(30)
+  @IsUUID('all', { each: true })
+  journalLineIds: string[];
 }
 export class CreateFromLineDto {
   @ApiProperty({ description: 'Akun lawan, mis. Beban Administrasi Bank atau Pendapatan Bunga' }) @IsUUID() accountId: string;
@@ -134,9 +142,11 @@ export class BankService {
           )})`)
       : { rows: [] as BookLine[] };
     const byId = new Map(book.rows.map((b) => [b.id, b]));
+    const extra = await this.db.execute<{ line_id: string; n: number }>(sql`SELECT line_id, COUNT(*)::int AS n FROM bank_line_extra_matches WHERE tenant_id = ${tenantId} AND line_id IN (SELECT id FROM bank_statement_lines WHERE statement_id = ${id}) GROUP BY line_id`);
+    const extraBy = new Map(extra.rows.map((r) => [r.line_id, r.n]));
     const lines = st.lines.map((l) => {
       const b = l.journalLineId ? byId.get(l.journalLineId) : undefined;
-      return { ...l, book: b ? { journalId: b.journal_id, number: b.number, date: b.date, description: b.description, sourceType: b.source_type } : null };
+      return { ...l, extraBooks: extraBy.get(l.id) ?? 0, book: b ? { journalId: b.journal_id, number: b.number, date: b.date, description: b.description, sourceType: b.source_type } : null };
     });
     const sumIn = st.lines.filter((l) => D(l.amount).gt(0)).reduce<Dec>((a, l) => a.plus(l.amount), ZERO);
     const sumOut = st.lines.filter((l) => D(l.amount).lt(0)).reduce<Dec>((a, l) => a.plus(l.amount), ZERO);
@@ -228,6 +238,7 @@ export class BankService {
       WHERE j.tenant_id = ${tenantId} AND l.account_id = ${cashAccountId} AND j.source_type <> 'CLOSING'
         AND j.date BETWEEN ${from} AND ${to}
         AND NOT EXISTS (SELECT 1 FROM bank_statement_lines b WHERE b.journal_line_id = l.id)
+        AND NOT EXISTS (SELECT 1 FROM bank_line_extra_matches x WHERE x.journal_line_id = l.id)
       ORDER BY j.date, j.number`);
     return r.rows;
   }
@@ -300,9 +311,40 @@ export class BankService {
       if (!b || b.accountId !== st.cashAccountId) throw new BadRequestException('Transaksi buku harus di rekening yang sama');
       if (!D(b.debit).minus(b.credit).equals(D(l.amount))) throw new BadRequestException('Nilai transaksi buku berbeda dengan mutasi bank');
       const [taken] = await tx.select({ id: bankStatementLines.id }).from(bankStatementLines).where(eq(bankStatementLines.journalLineId, b.id));
-      if (taken) throw new BadRequestException('Transaksi buku itu sudah dicocokkan dengan mutasi lain');
+      const [takenExtra] = await tx.select({ id: bankLineExtraMatches.id }).from(bankLineExtraMatches).where(eq(bankLineExtraMatches.journalLineId, b.id));
+      if (taken || takenExtra) throw new BadRequestException('Transaksi buku itu sudah dicocokkan dengan mutasi lain');
       await tx.update(bankStatementLines).set({ status: 'MATCHED', journalLineId: b.id, matchedBy: 'MANUAL' }).where(eq(bankStatementLines.id, l.id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'MATCH', entity: 'BankStatementLine', entityId: l.id, data: { amount: l.amount } });
+    });
+    return { ok: true };
+  }
+
+  /**
+   * Satu mutasi bank = beberapa baris buku (mis. setoran gabungan beberapa transaksi, atau satu transfer pelanggan untuk beberapa faktur).
+   * Syarat: semua di rekening yang sama, searah dengan mutasi, belum dicocokkan, dan jumlahnya persis sama dengan mutasi.
+   */
+  async matchMany(user: AuthUser, lineId: string, dto: MatchManyDto) {
+    const ids = [...new Set(dto.journalLineIds)];
+    if (ids.length !== dto.journalLineIds.length) throw new BadRequestException('Ada baris buku yang dipilih dua kali');
+    await this.db.transaction(async (tx) => {
+      const { l, st } = await this.lockLine(tx, user.tenantId, lineId);
+      if (l.status !== 'UNMATCHED') throw new BadRequestException('Mutasi ini sudah diproses');
+      const rows = await tx.execute<{ id: string; account_id: string; debit: string; credit: string; tenant_id: string }>(sql`
+        SELECT l.id, l.account_id, l.debit, l.credit, j.tenant_id FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
+        WHERE l.id IN (${sql.join(ids.map((x) => sql`${x}`), sql`, `)})`);
+      if (rows.rows.length !== ids.length || rows.rows.some((r) => r.tenant_id !== user.tenantId)) throw new BadRequestException('Ada baris buku yang tidak ditemukan');
+      if (rows.rows.some((r) => r.account_id !== st.cashAccountId)) throw new BadRequestException('Semua transaksi buku harus di rekening yang sama dengan mutasi');
+      const amt = D(l.amount);
+      if (rows.rows.some((r) => D(r.debit).minus(r.credit).isZero() || D(r.debit).minus(r.credit).isPositive() !== amt.isPositive())) throw new BadRequestException('Semua transaksi buku harus searah dengan mutasi bank (masuk dengan masuk, keluar dengan keluar)');
+      const sum = rows.rows.reduce<Dec>((a, r) => a.plus(D(r.debit).minus(r.credit)), ZERO);
+      if (!sum.equals(amt)) throw new BadRequestException(`Jumlah transaksi buku (${sum.toFixed(2)}) harus persis sama dengan mutasi bank (${amt.toFixed(2)})`);
+      const usedMain = await tx.execute(sql`SELECT 1 FROM bank_statement_lines WHERE journal_line_id IN (${sql.join(ids.map((x) => sql`${x}`), sql`, `)}) LIMIT 1`);
+      const usedExtra = await tx.execute(sql`SELECT 1 FROM bank_line_extra_matches WHERE journal_line_id IN (${sql.join(ids.map((x) => sql`${x}`), sql`, `)}) LIMIT 1`);
+      if (usedMain.rows.length || usedExtra.rows.length) throw new BadRequestException('Ada transaksi buku yang sudah dicocokkan dengan mutasi lain');
+      const [first, ...rest] = ids;
+      await tx.update(bankStatementLines).set({ status: 'MATCHED', journalLineId: first, matchedBy: 'MANUAL' }).where(eq(bankStatementLines.id, l.id));
+      await tx.insert(bankLineExtraMatches).values(rest.map((jl) => ({ tenantId: user.tenantId, lineId: l.id, journalLineId: jl })));
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'MATCH', entity: 'BankStatementLine', entityId: l.id, data: { amount: l.amount, books: ids.length } });
     });
     return { ok: true };
   }
@@ -311,6 +353,7 @@ export class BankService {
     await this.db.transaction(async (tx) => {
       const { l } = await this.lockLine(tx, user.tenantId, lineId);
       if (l.status === 'CREATED') throw new BadRequestException('Mutasi ini sudah dibuatkan jurnal; balik jurnalnya di Jurnal Umum bila salah');
+      await tx.delete(bankLineExtraMatches).where(eq(bankLineExtraMatches.lineId, l.id));
       await tx.update(bankStatementLines).set({ status: 'UNMATCHED', journalLineId: null, matchedBy: null }).where(eq(bankStatementLines.id, l.id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'UNMATCH', entity: 'BankStatementLine', entityId: l.id, data: { amount: l.amount } });
     });
@@ -488,7 +531,8 @@ export class BankService {
       WHERE j.tenant_id = ${tenantId} AND a.is_cash_account AND a.code IN (SELECT a2.code FROM accounts a2 WHERE a2.tenant_id = ${tenantId} AND EXISTS (SELECT 1 FROM bank_statements s WHERE s.cash_account_id = a2.id))
         AND l.credit > 0 AND j.date <= ${addDays(today, -cp.bookNotInBankDays)} AND j.source_type <> 'CLOSING'
         AND EXISTS (SELECT 1 FROM bank_statements s WHERE s.cash_account_id = l.account_id AND s.period_to >= j.date)
-        AND NOT EXISTS (SELECT 1 FROM bank_statement_lines b WHERE b.journal_line_id = l.id) ORDER BY j.date LIMIT 50`);
+        AND NOT EXISTS (SELECT 1 FROM bank_statement_lines b WHERE b.journal_line_id = l.id)
+        AND NOT EXISTS (SELECT 1 FROM bank_line_extra_matches x WHERE x.journal_line_id = l.id) ORDER BY j.date LIMIT 50`);
     add('BOOK_OUT_NOT_IN_BANK', 'warning', `Pembayaran di buku tidak muncul di bank > ${cp.bookNotInBankDays} hari`, book.rows.map((r) => `${r.number} ${rp(r.credit)}`), 'Pembayaran tercatat tetapi tidak pernah keluar dari bank (cek/giro tidak dicairkan, atau pencatatan fiktif).');
     const ign = await this.db.execute<{ date: string; amount: string; note: string | null }>(sql`
       SELECT l.date::text, l.amount, l.note FROM bank_statement_lines l JOIN bank_statements s ON s.id = l.statement_id
@@ -632,6 +676,11 @@ export class BankController {
   @Post('lines/:id/match')
   match(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: MatchDto) {
     return this.svc.match(u, id, dto);
+  }
+  @Roles('ADMIN', 'FINANCE')
+  @Post('lines/:id/match-many')
+  matchMany(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: MatchManyDto) {
+    return this.svc.matchMany(u, id, dto);
   }
   @Roles('ADMIN', 'FINANCE')
   @Post('lines/:id/unmatch')

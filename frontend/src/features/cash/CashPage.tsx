@@ -5,7 +5,7 @@ import { Alert, App, Badge, Button, Card, Checkbox, Col, Collapse, Empty, Form, 
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { get, post, qs } from '@/api/client';
+import { get, post, put, qs } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { LEDGER_KEYS, useBranches, useAction, useCashAccounts } from '@/api/queries';
 import { withBudgetOverride } from '@/lib/budgetOverride';
@@ -162,8 +162,47 @@ export default function CashPage() {
   const withProject = mode === 'OUT' && activeProjects.length > 0;
   const linesTotal = lines.reduce((a, l) => a + (l?.amount ?? 0), 0);
 
+  const cfg = useQuery({ queryKey: ['cash', 'settings'], queryFn: () => get<{ evidenceFrom: number; blockNegative: boolean; maxCashBalance: number }>('/cash/settings'), retry: false, enabled: !!me && ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'].includes(me.role) });
+  const [hideTip, setHideTip] = useState(() => {
+    try {
+      return localStorage.getItem('sansu.cashControlTip') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const applyControls = useAction(() => put('/cash/settings', { evidenceFrom: 1_000_000, blockNegative: true }), { success: 'Kontrol kas diaktifkan', invalidate: ['cash'] });
+  const controlsOff = !!cfg.data && cfg.data.evidenceFrom === 0 && !cfg.data.blockNegative;
   return (
     <>
+      {controlsOff && !hideTip && (
+        <Alert
+          type="warning"
+          showIcon
+          closable
+          onClose={() => {
+            setHideTip(true);
+            try {
+              localStorage.setItem('sansu.cashControlTip', '1');
+            } catch {
+              /* penyimpanan browser tidak tersedia */
+            }
+          }}
+          style={{ marginBottom: 12 }}
+          message="Kontrol uang keluar belum aktif"
+          description={
+            <span>
+              Saat ini uang keluar berapa pun tanpa nomor bukti dan saldo kas boleh minus. Rekomendasi: wajib nomor bukti mulai Rp1.000.000 dan blokir saldo negatif.{' '}
+              {me && ['OWNER', 'ADMIN'].includes(me.role) ? (
+                <Button size="small" type="primary" loading={applyControls.isPending} onClick={() => applyControls.mutate(undefined)}>
+                  Terapkan rekomendasi
+                </Button>
+              ) : (
+                <span>Minta Pemilik atau Admin mengaktifkannya (Pengaturan › Perusahaan).</span>
+              )}
+            </span>
+          }
+        />
+      )}
       <PageHeader
         title="Kas & Bank"
         extra={
