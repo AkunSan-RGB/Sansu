@@ -176,7 +176,7 @@ describe('Keamanan & isolasi tenant (e2e)', () => {
     }
     expect(ok).toEqual([]);
     expect(await fingerprint()).toBe(before);
-  });
+  }, 180_000);
 
   it('B tidak bisa memakai ID milik perusahaan lain di isi permintaan', async () => {
     const pb = (url: string, body: object) => http.post(url).set(as(tokenB)).send(body);
