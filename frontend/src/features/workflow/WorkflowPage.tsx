@@ -34,7 +34,7 @@ export default function WorkflowPage() {
   const can = useCan();
   return (
     <>
-      <PageHeader title="Alur kerja" extra={can('PUT', '/workflow/settings') && <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>Pengaturan alur</Button>} />
+      <PageHeader title="Alur kerja" subtitle="Pantau satu proses dari awal sampai selesai: di tahap mana, siapa berikutnya, dan mana yang macet." extra={can('PUT', '/workflow/settings') && <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>Pengaturan alur</Button>} />
       {settingsOpen && <SettingsDrawer onClose={() => setSettingsOpen(false)} />}
       {!!alerts.data?.length && (
         <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={`${alerts.data.length} hal perlu perhatian`}
