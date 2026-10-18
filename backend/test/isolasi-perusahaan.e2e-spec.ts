@@ -28,6 +28,16 @@ describe('Isolasi data antar perusahaan & jenis usaha (e2e)', () => {
   const post = (s: Side, url: string, body: object = {}) => http.post(url).set(as(s.token)).send(body);
   const get = (s: Side, url: string) => http.get(url).set(as(s.token));
   const OK_REJECT = [400, 403, 404, 409, 422];
+  /** Galat asli PostgreSQL ada di cause (drizzle membungkusnya) */
+  const dbError = async (p: Promise<unknown>) => {
+    try {
+      await p;
+      return 'TIDAK DITOLAK';
+    } catch (e) {
+      const x = e as { message: string; cause?: { message?: string } };
+      return x.cause?.message ?? x.message;
+    }
+  };
 
   const setup = async (s: Side, model: string, tag: string) => {
     const r = (await http.post('/api/auth/register').send({ companyName: `PT ${tag}`, name: 'Pemilik', email: `is-${tag}-${stamp}@uji.id`, password: 'rahasia123', businessModel: model }).expect(201)).body;
@@ -53,7 +63,7 @@ describe('Isolasi data antar perusahaan & jenis usaha (e2e)', () => {
     db = app.get<Db>(DB);
     await setup(A, 'FMCG', 'a');
     await setup(B, 'DAGANG', 'b');
-    await setup(C, 'RITEL', 'c');
+    await setup(C, 'MANUFAKTUR', 'c');
   });
   afterAll(() => app.close());
 
@@ -103,10 +113,10 @@ describe('Isolasi data antar perusahaan & jenis usaha (e2e)', () => {
 
   it('pengaman database: foreign key lintas perusahaan ditolak walau kode lupa memeriksa', async () => {
     // koneksi admin (melewati RLS) — meniru kode yang lupa menyaring tenant
-    await expect(db.execute(sql`INSERT INTO sales_orders (tenant_id, number, date, customer_id, warehouse_id, status, subtotal, tax_amount, total) VALUES (${A.tenantId}, 'X-1', ${today}, ${B.customer}, ${A.wh}, 'DRAFT', '0', '0', '0')`)).rejects.toThrow(/lintas perusahaan|foreign key|violates/i);
-    // baris anak: produk milik perusahaan lain pada baris faktur perusahaan ini
+    expect(await dbError(db.execute(sql`INSERT INTO sales_orders (tenant_id, number, date, customer_id, warehouse_id, status, subtotal, tax_amount, total) VALUES (${A.tenantId}, 'X-1', ${today}, ${B.customer}, ${A.wh}, 'DRAFT', '0', '0', '0')`))).toMatch(/lintas perusahaan/);
+    // baris anak: produk milik perusahaan lain pada baris pesanan perusahaan ini
     const soA = (await get(A, '/api/sales-orders').expect(200)).body[0];
-    await expect(db.execute(sql`INSERT INTO sales_order_lines (order_id, product_id, qty, uom, price, line_total) VALUES (${soA.id}, ${B.product}, '1', 'PCS', '1', '1')`)).rejects.toThrow(/lintas perusahaan|violates|null value/i);
+    expect(await dbError(db.execute(sql`INSERT INTO sales_order_lines (order_id, product_id, uom, uom_factor, qty, price, line_total) VALUES (${soA.id}, ${B.product}, 'PCS', '1', '1', '1', '1')`))).toMatch(/lintas perusahaan/);
   });
 
   it('tabel anak tunduk pada RLS induknya (peran aplikasi tanpa filter tetap hanya melihat perusahaannya)', async () => {
