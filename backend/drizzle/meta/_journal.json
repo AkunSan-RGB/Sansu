@@ -519,6 +519,13 @@
       "when": 1794681486484,
       "tag": "0073_upah_per_jenis_usaha",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1794767886484,
+      "tag": "0074_kontrak_harga_pemasok",
+      "breakpoints": true
     }
   ]
 }

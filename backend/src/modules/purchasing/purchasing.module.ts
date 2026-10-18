@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PriceAgreementsController, PriceAgreementsService } from './price-agreements';
 import { PurchaseControlsController, PurchaseControlsService } from './purchase-controls';
 import { AssetsModule } from '../assets/assets.module';
 import { FxModule } from '../fx/fx.module';
@@ -13,8 +14,8 @@ import { SuppliersService } from './suppliers.service';
 
 @Module({
   imports: [AccountingModule, InventoryModule, AssetsModule, FxModule],
-  controllers: [PurchaseControlsController, SuppliersController, PurchaseOrdersController, GoodsReceiptsController, PurchaseInvoicesController, PurchaseRequestsController],
-  providers: [PurchaseControlsService, SuppliersService, PurchaseOrdersService, GoodsReceiptsService, PurchaseInvoicesService, PurchaseRequestsService],
+  controllers: [PriceAgreementsController, PurchaseControlsController, SuppliersController, PurchaseOrdersController, GoodsReceiptsController, PurchaseInvoicesController, PurchaseRequestsController],
+  providers: [PriceAgreementsService, PurchaseControlsService, SuppliersService, PurchaseOrdersService, GoodsReceiptsService, PurchaseInvoicesService, PurchaseRequestsService],
   exports: [PurchaseOrdersService, PurchaseInvoicesService, PurchaseRequestsService],
 })
 export class PurchasingModule {}

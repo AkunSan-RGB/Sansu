@@ -3507,3 +3507,30 @@ export const bankReconciliations = pgTable(
   },
   (t) => [uniqueIndex('bank_reconciliations_uq').on(t.cashAccountId, t.period)],
 );
+
+/** Kontrak harga pemasok / prinsipal: harga per satuan dasar untuk periode tertentu (maker-checker: PENDING → ACTIVE oleh orang lain) */
+export const supplierPriceAgreements = pgTable(
+  'supplier_price_agreements',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    supplierId: uuid('supplier_id')
+      .notNull()
+      .references(() => suppliers.id),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    /** Rupiah per satuan dasar (sebelum PPN) */
+    price: money('price').notNull(),
+    validFrom: date('valid_from').notNull(),
+    validTo: date('valid_to').notNull(),
+    status: text('status').$type<'PENDING' | 'ACTIVE' | 'REJECTED' | 'ENDED'>().notNull().default('PENDING'),
+    note: text('note'),
+    createdById: uuid('created_by_id').notNull(),
+    decidedById: uuid('decided_by_id'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('spa_lookup_idx').on(t.tenantId, t.supplierId, t.productId, t.status)],
+);
