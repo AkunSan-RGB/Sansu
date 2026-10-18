@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AuthUser } from '../../../common/auth/auth-user';
+import { ApprovalsService } from '../../../common/approvals/approvals.service';
 import { AuditService } from '../../../common/audit/audit.service';
 import { SequenceService } from '../../../common/sequence/sequence.service';
 import { outputVatRate, taxProfileOf } from '../../../common/settings.service';
@@ -25,6 +26,7 @@ export class SalesOrdersService {
     private readonly audit: AuditService,
     private readonly fx: FxService,
     private readonly pricing: PricingService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   list(tenantId: string, q: SalesOrderQueryDto) {
@@ -215,26 +217,51 @@ export class SalesOrdersService {
 
   /** DRAFT → CONFIRMED: cek faktur jatuh tempo & limit kredit. */
   async confirm(user: AuthUser, id: string) {
+    let number = '';
+    let customerId = '';
     await this.db.transaction(async (tx) => {
       const order = await this.lockOrder(tx, user.tenantId, id);
       if (order.status !== 'DRAFT') throw new BadRequestException(`Order berstatus ${order.status}, tidak bisa dikonfirmasi`);
       await this.credit.assertCanOrder(tx, user.tenantId, order.customerId, D(order.total), order.id);
       await tx.update(salesOrders).set({ status: 'CONFIRMED' }).where(eq(salesOrders.id, id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CONFIRM', entity: 'SalesOrder', entityId: id });
+      number = order.number;
+      customerId = order.customerId;
     });
+    // Gudang tahu pesanan apa yang harus disiapkan dan dikirim
+    const [c] = await this.db.select({ name: customers.name }).from(customers).where(eq(customers.id, customerId));
+    void this.approvals.notifyRoles(user.tenantId, { roles: ['WAREHOUSE'], excludeUserId: user.sub, info: true, title: `Pesanan ${number} untuk ${c?.name ?? 'pelanggan'} siap disiapkan dan dikirim`, lines: ['Siapkan barang, hitung, lalu catat pengiriman (surat jalan).'], path: '/sales-orders' });
     return this.get(user.tenantId, id);
   }
 
-  async cancel(user: AuthUser, id: string) {
+  async cancel(user: AuthUser, id: string, reason?: string) {
+    let was = '';
+    let number = '';
     await this.db.transaction(async (tx) => {
       const order = await this.lockOrder(tx, user.tenantId, id);
       if (order.status === 'INVOICED') throw new BadRequestException('Order sudah difakturkan; buat retur penjualan');
       if (order.status === 'DELIVERED') throw new BadRequestException('Barang sudah dikirim; batalkan surat jalannya dulu atau buat faktur');
       if (order.status === 'CANCELLED') throw new BadRequestException('Order sudah dibatalkan');
-      await tx.update(salesOrders).set({ status: 'CANCELLED' }).where(eq(salesOrders.id, id));
-      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'SalesOrder', entityId: id });
+      // Pesanan yang sudah dikonfirmasi lalu dibatalkan staf: wajib alasan (tidak boleh dipakai menghilangkan jejak penjualan)
+      if (order.status === 'CONFIRMED' && !this.approvals.isApprover(user.role) && (reason?.trim().length ?? 0) < 5) {
+        throw new BadRequestException('Isi alasan pembatalan pesanan yang sudah dikonfirmasi (minimal 5 huruf)');
+      }
+      was = order.status;
+      number = order.number;
+      await tx.update(salesOrders).set({ status: 'CANCELLED', cancelReason: reason?.trim() || null, cancelledById: user.sub }).where(eq(salesOrders.id, id));
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'SalesOrder', entityId: id, data: { reason: reason?.trim() || null, wasStatus: order.status } });
     });
+    if (was === 'CONFIRMED') {
+      void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER', 'ADMIN', 'WAREHOUSE'], excludeUserId: user.sub, info: true, title: `Pesanan ${number} yang sudah dikonfirmasi dibatalkan`, lines: [reason?.trim() ? `Alasan: ${reason.trim()}` : 'Tanpa alasan tertulis'], path: '/sales-orders' });
+    }
     return this.get(user.tenantId, id);
+  }
+
+  /** Pengiriman buta: Gudang tidak melihat jumlah pesanan (hanya menghitung dan mengisi yang dikemas) */
+  async forViewer<T extends { status: string; lines?: { qty: string }[] }>(user: AuthUser, o: T): Promise<T & { blindDelivery: boolean }> {
+    const blind = user.role === 'WAREHOUSE' && o.status === 'CONFIRMED' && (await this.approvals.policy(this.db, user.tenantId)).blindDelivery;
+    if (!blind) return { ...o, blindDelivery: false };
+    return { ...o, blindDelivery: true, lines: o.lines?.map((l) => ({ ...l, qty: '0' })) };
   }
 
   /** Kunci baris order agar konfirmasi/faktur tidak berjalan dua kali bersamaan. */

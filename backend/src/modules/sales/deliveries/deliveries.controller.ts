@@ -1,17 +1,29 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsDateString, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ArrayMinSize, IsDateString, IsNumberString, IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from 'class-validator';
 import { RequireApp } from '../../../common/apps/app.guard';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../../common/auth/decorators';
 import { DeliveriesService } from './deliveries.service';
 
+class DeliverLineDto {
+  @ApiProperty() @IsUUID() orderLineId: string;
+  @ApiProperty({ example: '10', description: 'Jumlah yang dihitung/dikemas Gudang' }) @IsNumberString() qty: string;
+}
 class DeliverDto {
   @ApiPropertyOptional({ example: '2026-10-06', description: 'Tanggal kirim (bawaan: hari ini)' }) @IsOptional() @IsDateString() date?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) notes?: string;
+  @ApiPropertyOptional({ type: () => [DeliverLineDto], description: 'Pengiriman buta: jumlah yang dikemas per baris (wajib bila pengiriman buta menyala untuk Gudang)' })
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => DeliverLineDto)
+  @ArrayMinSize(1)
+  lines?: DeliverLineDto[];
 }
 class CancelDeliveryDto {
   @ApiPropertyOptional({ description: 'Tanggal pembatalan (bawaan: hari ini)' }) @IsOptional() @IsDateString() date?: string;
+  @ApiPropertyOptional({ description: 'Alasan pembatalan; wajib bila dibatalkan staf selain Pemilik/Admin' }) @IsOptional() @IsString() @MaxLength(300) reason?: string;
 }
 class DeliveryQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsDateString() from?: string;

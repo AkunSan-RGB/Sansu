@@ -333,6 +333,8 @@ export interface SalesOrder {
   warehouse?: { id: string; code: string; name: string };
   lines?: SalesOrderLine[];
   invoice: { id: string; number: string } | null;
+  /** Pengiriman buta aktif untuk Gudang: jumlah pesanan disembunyikan */
+  blindDelivery?: boolean;
 }
 
 export interface Invoice {

@@ -48,12 +48,14 @@ export interface ApprovalPolicy {
   firstSupplierPayment: boolean;
   /** Penerimaan buta: Gudang wajib mengisi jumlah yang dihitung (tidak terisi otomatis dari PO); selisih dikabarkan ke Pembelian dan Pemilik */
   blindReceiving: boolean;
+  /** Pengiriman buta: Gudang mengisi jumlah barang yang dikemas (tidak terisi dari pesanan); selisih menahan pengiriman dan dikabarkan ke Penjualan */
+  blindDelivery: boolean;
   /** Pembayaran ke supplier yang rekeningnya diubah dalam sekian hari terakhir wajib disetujui (0 = nonaktif) */
   bankChangeHoldDays: number;
   /** Masa berlaku tautan persetujuan yang dikirim lewat Telegram (jam, 1–72); email tetap 72 jam */
   telegramLinkHours: number;
 }
-export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, blindReceiving: false, bankChangeHoldDays: 7, budgetControl: 'OFF', telegramLinkHours: 72 };
+export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, blindReceiving: false, blindDelivery: false, bankChangeHoldDays: 7, budgetControl: 'OFF', telegramLinkHours: 72 };
 
 export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PURCHASE_ORDER: 'Pesanan pembelian',

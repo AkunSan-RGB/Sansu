@@ -63,7 +63,7 @@ function CashControlCard() {
 
 /** Batas nilai yang memerlukan persetujuan pemilik / admin (0 = nonaktif) */
 function ApprovalPolicyCard() {
-  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; blindReceiving: boolean; bankChangeHoldDays: number; budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK'; telegramLinkHours: number };
+  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; blindReceiving: boolean; blindDelivery: boolean; bankChangeHoldDays: number; budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK'; telegramLinkHours: number };
   const [form] = Form.useForm<Policy>();
   const policy = useQuery({ queryKey: ['approvals', 'policy'], queryFn: () => get<Policy>('/approvals/policy') });
   useEffect(() => {
@@ -105,6 +105,9 @@ function ApprovalPolicyCard() {
           <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
         </Form.Item>
         <Form.Item name="blindReceiving" label="Penerimaan buta (Gudang menghitung sendiri)" valuePropName="checked" extra="Gudang tidak melihat jumlah yang dipesan dan wajib mengisi hasil hitungannya. Selisih terhadap pesanan langsung dikabarkan ke Pembelian, Admin, dan Pemilik.">
+          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
+        </Form.Item>
+        <Form.Item name="blindDelivery" label="Pengiriman buta (Gudang mengisi jumlah kemas sendiri)" valuePropName="checked" extra="Gudang tidak melihat jumlah pesanan dan wajib mengisi jumlah yang dikemas. Bila tidak sama dengan pesanan, pengiriman ditahan dan Penjualan, Admin, dan Pemilik diberi tahu.">
           <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
         </Form.Item>
         <Form.Item name="bankChangeHoldDays" label="Tahan pembayaran setelah rekening supplier diubah (hari)" extra="Pembayaran oleh staf ke supplier yang rekeningnya baru diubah menunggu persetujuan Pemilik/Admin. 0 = tidak ditahan.">
