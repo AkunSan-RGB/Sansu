@@ -392,6 +392,7 @@ export class CashService {
             notes: `Dibeli tunai, ${number}`,
             branchId: dto.branchId ?? cash.branchId ?? null,
           });
+          this.assets.notifyAcquisition(user, l.assetName?.trim() || l.memo?.trim() || dto.description, money(l.amount), `dibayar dari kas/bank (${number})`);
         }
       }
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'CashTransaction', entityId: trx.id });

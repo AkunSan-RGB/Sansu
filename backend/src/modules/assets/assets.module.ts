@@ -273,6 +273,12 @@ export class AssetsService {
 
   /** Jadikan pembelian yang sudah dijurnal sebagai kartu aset, tanpa jurnal baru (jurnal asalnya tetap satu-satunya pencatatan) */
   async registerFromJournal(user: AuthUser, dto: RegisterFromJournalDto) {
+    const asset = await this.registerFromJournalTx(user, dto);
+    this.notifyAcquisition(user, `${asset.code} ${asset.name}`, D(asset.cost), 'didaftarkan dari jurnal yang sudah ada');
+    return asset;
+  }
+
+  private async registerFromJournalTx(user: AuthUser, dto: RegisterFromJournalDto) {
     return this.db.transaction(async (tx) => {
       const rows = (await this.unregistered(user.tenantId)).filter((r) => r.journalId === dto.journalId && r.accountId === dto.accountId);
       const row = rows[0];
@@ -457,7 +463,16 @@ export class AssetsService {
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'FixedAsset', entityId: asset.id });
       return asset.id;
     });
-    return this.get(user.tenantId, id);
+    const created = await this.get(user.tenantId, id);
+    this.notifyAcquisition(user, `${created.code} ${created.name}`, D(created.cost), dto.funding === 'CASH' ? 'dibayar dari kas/bank' : dto.funding === 'PAYABLE' ? 'diutangkan' : 'aset lama (tanpa jurnal)');
+    return created;
+  }
+
+  /** Pemilik diberi tahu bila aset berharga perolehan ≥ batas didaftarkan/dibeli oleh orang lain */
+  notifyAcquisition(user: AuthUser, name: string, cost: Dec | number, how: string) {
+    const v = typeof cost === 'number' ? cost : cost.toNumber();
+    if (user.role === 'OWNER' || v < ASSET_ALERT_VALUE) return;
+    void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER'], excludeUserId: user.sub, info: true, title: `Aset baru: ${name}`, lines: [`Harga perolehan Rp${Math.round(v).toLocaleString('id-ID')} · ${how}`, 'Pastikan ada dokumen pembelian dan aset benar-benar diterima.'], path: '/fixed-assets' });
   }
 
   async update(user: AuthUser, id: string, dto: UpdateAssetDto) {
@@ -765,6 +780,23 @@ export class AssetsService {
 
     const noUsage = active.filter((a) => a.method === 'UNITS_OF_PRODUCTION' && (a as { units?: { byPeriod: Record<string, number> } }).units?.byPeriod[prev] === undefined && a.depreciationStart.slice(0, 7) <= prev);
     add('USAGE_MISSING', 'warning', 'Pemakaian bulan lalu belum diisi (metode unit produksi)', noUsage.map((a) => a.id), `Tanpa catatan pemakaian, penyusutan bulan ${prev} tidak terhitung. ${names(noUsage)}`);
+
+    // Pembelian peralatan kecil yang dibebankan karena di bawah batas kapitalisasi tetapi berulang tepat di bawah batas pada pemasok yang sama
+    const { capitalizationThreshold: threshold } = await this.settings.reporting(this.db, tenantId);
+    if (threshold > 0) {
+      const small = await this.db.execute<{ supplier: string; n: number; total: string; first: string; last: string }>(sql`
+        WITH lines AS (
+          SELECT s.name AS supplier, j.date, l.debit
+          FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
+          JOIN purchase_invoices i ON i.id::text = j.source_id AND j.source_type = 'PURCHASE_INVOICE' JOIN suppliers s ON s.id = i.supplier_id
+          WHERE j.tenant_id = ${tenantId} AND a.system_key = 'SMALL_ASSET_EXPENSE' AND l.debit >= ${threshold * 0.7} AND l.debit < ${threshold}
+            AND j.date >= ${addDays(today, -60)}
+        )
+        SELECT a.supplier, COUNT(*)::int AS n, SUM(a.debit)::text AS total, MIN(a.date)::text AS first, MAX(a.date)::text AS last
+        FROM lines a JOIN lines b ON b.supplier = a.supplier AND b.date BETWEEN a.date - 14 AND a.date + 14
+        GROUP BY a.supplier HAVING COUNT(DISTINCT (a.date, a.debit)) >= 2 AND SUM(a.debit) >= ${threshold}`);
+      out.push(...(small.rows.length ? [{ key: 'ASSET_SPLIT', level: 'warning' as const, title: `Pembelian di bawah batas kapitalisasi berulang pada pemasok yang sama (${small.rows.length})`, detail: `Beberapa barang masing-masing ≥ 70% dari batas Rp${threshold.toLocaleString('id-ID')} tetapi di bawahnya, dibeli dari pemasok yang sama dalam 14 hari dan dibebankan, bukan dicatat sebagai aset. Bisa wajar (banyak barang kecil) atau pembelian aset yang dipecah agar langsung menjadi beban.`, assetIds: small.rows.map((r) => `${r.supplier}: ${r.n} baris, total Rp${Math.round(Number(r.total)).toLocaleString('id-ID')} (${r.first} s/d ${r.last})`) }] : []));
+    }
 
     // Pelepasan 180 hari terakhir: segera setelah dibeli, atau harga lepas jauh di bawah nilai buku
     const disposed = await this.db.execute<{ code: string; name: string; acq: string; disp: string; cost: string; opening: string; dep: string; price: string }>(sql`

@@ -701,12 +701,14 @@ export class PurchaseInvoicesService {
         ],
       });
 
+      const assetNotices: { name: string; cost: Dec }[] = [];
       for (const [idx, l] of lines.entries()) {
         let assetId: string | undefined;
         if (l.dto.type === 'ASSET' && !expensed[idx]) {
           // Satu aset per unit agar penyusutan & pelepasannya bisa per barang
           const lineCost = costs[idx];
           const n = assetUnitCount(l.qty);
+          assetNotices.push({ name: l.dto.description, cost: lineCost });
           const unitCost = n > 1 ? money(lineCost.div(n)) : lineCost;
           for (let i = 0; i < n; i++) {
             const cost = i === n - 1 ? lineCost.minus(unitCost.times(n - 1)) : unitCost;
@@ -749,8 +751,9 @@ export class PurchaseInvoicesService {
         entityId: invoice.id,
         data: { number, journal: journal.number },
       });
-      return { id: invoice.id, journalNumber: journal.number, expensedLines: expensed.filter(Boolean).length };
+      return { id: invoice.id, journalNumber: journal.number, expensedLines: expensed.filter(Boolean).length, assetNotices, supplierName: supplier.name };
     });
+    for (const n of result.assetNotices) this.assets.notifyAcquisition(user, n.name, n.cost, `dibeli dari ${result.supplierName} (faktur pembelian)`);
     return { ...(await this.get(user.tenantId, result.id)), journalNumber: result.journalNumber, expensedLines: result.expensedLines };
   }
 

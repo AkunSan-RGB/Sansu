@@ -28,3 +28,9 @@
 - Tidak bisa dipindah dari/ke metode lain pada aset yang sudah berjalan, dan tidak bisa diterapkan lewat "Ubah metode semua aset" (butuh total unit per aset). Aset dari faktur pembelian, jurnal, atau impor tidak bisa memakai metode ini karena tidak membawa total unit.
 
 **Penyusutan fiskal** sengaja tidak mengikuti metode komersial: Pasal 11 UU PPh menetapkan metode fiskal per kelompok harta (garis lurus/saldo menurun per kategori). Yang otomatis ikut adalah **koreksi fiskal**: selisih penyusutan komersial (dari jurnal yang diposting) vs fiskal di Rekonsiliasi Fiskal, beda temporer, dan pajak tangguhan dihitung ulang dari penyusutan komersial terbaru, sehingga mengganti metode komersial langsung terlihat di koreksi fiskal. Metode fiskal tidak diubah lewat fitur ini (perubahan metode fiskal menurut aturan pajak perlu ketentuan tersendiri).
+
+## Pembelian aset besar & pembelian dipecah di bawah batas kapitalisasi
+
+- **Pemilik diberi tahu** (Telegram/email) bila aset berharga perolehan ≥ Rp5 juta didaftarkan atau dibeli oleh selain Pemilik, lewat semua jalur: Aset baru, faktur pembelian (baris aset, per baris), kas keluar (baris aset), dan pendaftaran dari jurnal. Impor massal tidak memberi tahu.
+- Temuan **`ASSET_SPLIT`**: dua baris atau lebih pada pemasok yang sama dalam 14 hari, masing-masing 70–100% dari batas kapitalisasi (di bawahnya, jadi dibebankan sebagai "Beban Peralatan Kecil"), dengan jumlah ≥ batas. Bisa wajar (banyak barang kecil); tandanya pembelian aset yang dipecah agar tidak dikapitalisasi. Hanya berlaku bila batas kapitalisasi diisi (> 0).
+- Batas: deteksi memakai nilai baris (bukan per unit) dan hanya melihat faktur pembelian; barang kecil yang dibayar kas langsung ditolak sistem (harus dicatat sebagai beban), jadi tidak masuk deteksi ini.
