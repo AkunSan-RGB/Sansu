@@ -10,6 +10,23 @@ Cerminan kontrol alur PO (lihat `KONTROL-ALUR-PO.md`). Pemesan, pengirim barang,
 | **Notifikasi** | Pesanan dikonfirmasi → Gudang ("siap disiapkan dan dikirim"); surat jalan dibuat → Keuangan/Admin ("siap ditagih") dan Sales ("sudah dikirim"). Tugas saya: Gudang/Admin "N pesanan menunggu dikirim", Keuangan/Admin "N surat jalan menunggu ditagih". |
 | **Tinjauan Pemilik** (menu **Penjualan › Kontrol penjualan**, halaman terpisah dari Kontrol pembelian; dijaga aplikasi Penjualan) | Pesanan dibatalkan setelah dikonfirmasi; surat jalan dibatalkan; diskon besar (≥ 20% per baris); surat jalan belum difakturkan. |
 
+## Kontrol lanjutan (harga, pelanggan, retur, komisi)
+Semua ambang diatur di **Pengaturan › Perusahaan › Kebijakan** dan bernilai 0 (mati) secara bawaan; Pemilik/Admin tidak dibatasi tetapi tercatat.
+
+| Kontrol | Cara kerja |
+|---|---|
+| **Pesanan besar** (`salesOrder`) | Konfirmasi pesanan oleh staf (Sales/Keuangan) dengan total ≥ batas menunggu persetujuan Pemilik/Admin. Pesanan besar yang dikonfirmasi pemilik/admin masuk temuan "Pesanan besar dikonfirmasi tanpa persetujuan terpisah". |
+| **Diskon besar** (`salesDiscountMaxPct`) | Diskon per baris di atas batas → konfirmasi menunggu persetujuan. Alur kanvas/konsinyasi tidak dikenai (harga dan potongan sudah dikunci server). Batasan: yang diperiksa adalah kolom diskon; harga yang diubah langsung (di luar daftar harga) belum dibandingkan dengan harga pokok. |
+| **Syarat pelanggan** | Menaikkan limit kredit, memperpanjang termin, atau melepas wajib PO oleh selain Pemilik/Admin → butuh persetujuan (memperketat langsung berlaku). Perubahan tercatat dan Pemilik diberi tahu; temuan "Limit kredit / termin pelanggan diubah". |
+| **Pelanggan ganda/fiktif** | NPWP sama (angka) atau nama sangat mirip → ditahan (409) sampai dikonfirmasi; konfirmasi tercatat di jejak audit (sama seperti supplier). |
+| **Retur penjualan = kredit nota** (`salesReturn`) | Retur bernilai ≥ batas oleh staf menunggu persetujuan sebelum piutang dikurangi. |
+| **Pembayaran dicatat terlambat** | Temuan: pembayaran pelanggan dicatat ≥ 3 hari setelah tanggal terima (tanda uang tertahan atau dipakai menutup piutang pelanggan lain). |
+| **Komisi** | Temuan: retur terjadi setelah komisi periodenya ditutup (komisi sudah dihitung sebelum retur). Pemotongan komisi tetap manual. |
+
+## Yang belum dibuat
+- **Pengiriman parsial** (kirim sebagian lalu sisanya menyusul): butuh perubahan besar pada faktur, surat jalan, dan jurnal; dikerjakan terpisah bila diperlukan.
+- **Penghapusan piutang (write-off)**: belum ada fiturnya di SANSU (hanya penyisihan lewat jurnal penyesuaian). Bila fitur dibuat, harus butuh persetujuan Pemilik.
+
 ## Batas yang jujur
 - Persetujuan khusus untuk pesanan besar atau diskon besar belum ada (hanya batas kredit pelanggan dan temuan tinjauan). Bila diperlukan, perlu jenis persetujuan baru.
 - Pengiriman buta menyembunyikan jumlah di respons API untuk peran Gudang pada pesanan terkonfirmasi, tetapi Gudang tetap bisa menebak dari dokumen fisik.

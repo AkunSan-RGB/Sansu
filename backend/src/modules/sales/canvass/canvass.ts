@@ -182,7 +182,7 @@ export class CanvassService {
     const so = await this.orders.create(u, { customerId: cust.id, warehouseId: van.id, date, notes: `Penjualan kanvas ${van.name}`, customerPoNo: dto.customerPoNo, salespersonId: van.vanUserId ?? undefined, lines: dto.lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: l.qty })) } as never);
     let inv: Awaited<ReturnType<InvoicesService['createFromOrder']>>;
     try {
-      await this.orders.confirm(u, so.id);
+      await this.orders.confirm(u, so.id, { internal: true });
       inv = await this.invoicesSvc.createFromOrder(u, { salesOrderId: so.id, date } as never);
     } catch (e) {
       // gagal sebelum faktur terbit: batalkan pesanan agar tidak menggantung

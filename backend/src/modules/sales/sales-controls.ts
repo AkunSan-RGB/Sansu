@@ -2,6 +2,7 @@ import { Controller, Get, Injectable } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CONTROL_PROFILES } from '@sansu/shared';
 import { sql } from 'drizzle-orm';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { SettingsService } from '../../common/settings.service';
 import { RequireApp } from '../../common/apps/app.guard';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -27,6 +28,7 @@ export class SalesControlsService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly settings: SettingsService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   async controls(tenantId: string) {
@@ -65,6 +67,41 @@ export class SalesControlsService {
       SELECT DISTINCT o.number, MAX(l.discount_pct)::text AS pct FROM sales_order_lines l JOIN sales_orders o ON o.id = l.order_id
       WHERE o.tenant_id = ${tenantId} AND o.date >= ${since} AND o.status <> 'CANCELLED' AND l.discount_pct >= 20 GROUP BY o.number ORDER BY o.number DESC`);
     add('DISCOUNT_HEAVY', 'info', 'Diskon besar (≥ 20%) pada pesanan penjualan', dh.rows.map((r) => `${r.number} (${Number(r.pct)}%)`), 'Diskon besar yang berulang pada pelanggan atau sales yang sama patut ditanyakan.');
+
+    // 15. Pesanan bernilai di atas batas persetujuan yang dikonfirmasi tanpa persetujuan terpisah (pemilik/admin): ditinjau Pemilik
+    const pol = await this.approvals.policy(this.db, tenantId);
+    if (pol.salesOrder > 0) {
+      const na = await this.db.execute<{ number: string; name: string }>(sql`
+        SELECT o.number, c.name FROM sales_orders o JOIN customers c ON c.id = o.customer_id
+        WHERE o.tenant_id = ${tenantId} AND o.date >= ${since} AND o.status IN ('CONFIRMED', 'DELIVERED', 'INVOICED') AND o.total >= ${pol.salesOrder}
+          AND NOT EXISTS (SELECT 1 FROM approval_requests a WHERE a.tenant_id = ${tenantId} AND a.kind = 'SALES_ORDER' AND a.ref_id = o.id::text AND a.status = 'APPROVED')
+        ORDER BY o.date DESC`);
+      add('SO_NO_APPROVAL', 'info', 'Pesanan besar dikonfirmasi tanpa persetujuan terpisah', na.rows.map((r) => `${r.number} (${r.name})`), 'Dikonfirmasi pemilik/admin. Tinjau berkala apakah pantas.');
+    }
+
+    // 16. Pembayaran pelanggan dicatat jauh setelah tanggal terima (tanda uang ditahan lalu dicatat belakangan / menutup piutang lain)
+    const lp = await this.db.execute<{ number: string | null; name: string; days: number }>(sql`
+      SELECT p.number, c.name, (p.created_at::date - p.date)::int AS days
+      FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id
+      WHERE p.tenant_id = ${tenantId} AND p.date >= ${since} AND (p.created_at::date - p.date) >= 3
+      ORDER BY days DESC`);
+    add('PAYMENT_LATE_RECORDED', 'warning', 'Pembayaran pelanggan dicatat ≥ 3 hari setelah tanggal terima', lp.rows.map((r) => `${r.number ?? 'bayar'} ${r.name} (${r.days} hari)`), 'Uang yang diterima lalu baru dicatat belakangan adalah tanda uang tertahan atau dipakai menutup piutang pelanggan lain. Cocokkan dengan mutasi bank.');
+
+    // 17. Retur setelah komisi periodenya ditutup (komisi sudah dibayar atas penjualan yang kemudian diretur)
+    const cb = await this.db.execute<{ who: string; period: string; v: string }>(sql`
+      SELECT u.name AS who, sc.period, SUM(r.subtotal)::text AS v
+      FROM sales_returns r JOIN invoices i ON i.id = r.invoice_id JOIN sales_orders o ON o.id = i.sales_order_id
+      JOIN sales_commissions sc ON sc.tenant_id = r.tenant_id AND sc.user_id = o.salesperson_id AND sc.period = to_char(i.date, 'YYYY-MM') AND sc.status IN ('ACCRUED', 'PAID')
+      JOIN users u ON u.id = o.salesperson_id
+      WHERE r.tenant_id = ${tenantId} AND r.date >= ${since} AND to_char(r.date, 'YYYY-MM') > sc.period
+      GROUP BY u.name, sc.period`);
+    add('COMMISSION_CLAWBACK', 'warning', 'Retur atas penjualan yang komisinya sudah ditutup', cb.rows.map((r) => `${r.who} periode ${r.period}: retur Rp${Math.round(Number(r.v)).toLocaleString('id-ID')}`), 'Komisi periode itu dihitung sebelum retur terjadi. Pertimbangkan koreksi komisi (potong di periode berikutnya).');
+
+    // 18. Syarat pelanggan dilonggarkan / diubah
+    const ct = await this.db.execute<{ code: string; name: string }>(sql`
+      SELECT DISTINCT c.code, c.name FROM audit_logs l JOIN customers c ON c.id::text = l.entity_id
+      WHERE l.tenant_id = ${tenantId} AND l.entity = 'Customer' AND l.action = 'UPDATE_TERMS' AND l.created_at >= ${since}::date`);
+    add('CUSTOMER_TERMS_CHANGED', 'info', 'Limit kredit / termin pelanggan diubah', ct.rows.map((r) => `${r.code} ${r.name}`), 'Melonggarkan syarat adalah cara umum menutupi tagihan macet. Pastikan ada dasar komersialnya.');
 
     const rank = { error: 0, warning: 1, info: 2 } as const;
     out.sort((a, b) => rank[a.level] - rank[b.level]);

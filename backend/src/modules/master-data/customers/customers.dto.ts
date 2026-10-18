@@ -18,6 +18,7 @@ export class CreateCustomerDto {
   @ApiPropertyOptional({ example: 106.8 }) @IsOptional() @IsLongitude() geoLng?: number;
   @ApiPropertyOptional({ description: 'Peritel modern: pesanan wajib membawa nomor PO outlet' }) @IsOptional() @IsBoolean() requirePo?: boolean;
   @ApiPropertyOptional({ description: 'Daftar harga pelanggan (segmen); kosong = harga jual master' }) @IsOptional() @IsUUID() priceListId?: string;
+  @ApiPropertyOptional({ description: 'Tetap simpan walau NPWP / nama mirip pelanggan lain' }) @IsOptional() @IsBoolean() confirmDuplicate?: boolean;
 }
 
 export class UpdateCustomerDto extends PartialType(CreateCustomerDto) {

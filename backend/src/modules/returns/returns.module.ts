@@ -49,5 +49,6 @@ export class ReturnsController {
   imports: [AccountingModule, InventoryModule],
   controllers: [ReturnsController, SwapsController],
   providers: [ReturnsService, SwapsService],
+  exports: [ReturnsService],
 })
 export class ReturnsModule {}
