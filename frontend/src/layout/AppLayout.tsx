@@ -124,6 +124,7 @@ const MENU: Group[] = [
     icon: APP_ICONS.purchase,
     children: [
       { key: '/purchase-requests', label: 'Permintaan beli' },
+      { key: '/shopping-list', label: 'Daftar belanja harian', hideFor: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING', 'WAREHOUSE'] },
       { key: '/purchase-orders', label: t('Purchase Order') },
       { key: '/goods-receipts', label: 'Penerimaan barang', hideFor: ['JASA'] },
       { key: '/purchase-invoices', label: t('Faktur & hutang') },
@@ -263,6 +264,7 @@ const MENU: Group[] = [
       { key: '/employees', label: 'Data karyawan' },
       { key: '/employees/controls', label: 'Persetujuan & peringatan', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'HR', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/attendance', label: 'Absensi' },
+      { key: '/shifts', label: 'Jadwal shift', models: ['RITEL', 'FNB', 'MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'HR', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/leaves', label: 'Cuti' },
     ],
   },
