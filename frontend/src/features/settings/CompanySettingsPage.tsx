@@ -63,7 +63,7 @@ function CashControlCard() {
 
 /** Batas nilai yang memerlukan persetujuan pemilik / admin (0 = nonaktif) */
 function ApprovalPolicyCard() {
-  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; blindReceiving: boolean; blindDelivery: boolean; bankChangeHoldDays: number; budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK'; telegramLinkHours: number };
+  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; blindReceiving: boolean; blindDelivery: boolean; salesOrder: number; salesDiscountMaxPct: number; salesReturn: number; bankChangeHoldDays: number; budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK'; telegramLinkHours: number };
   const [form] = Form.useForm<Policy>();
   const policy = useQuery({ queryKey: ['approvals', 'policy'], queryFn: () => get<Policy>('/approvals/policy') });
   useEffect(() => {
@@ -106,6 +106,15 @@ function ApprovalPolicyCard() {
         </Form.Item>
         <Form.Item name="blindReceiving" label="Penerimaan buta (Gudang menghitung sendiri)" valuePropName="checked" extra="Gudang tidak melihat jumlah yang dipesan dan wajib mengisi hasil hitungannya. Selisih terhadap pesanan langsung dikabarkan ke Pembelian, Admin, dan Pemilik.">
           <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
+        </Form.Item>
+        <Form.Item name="salesOrder" label="Pesanan penjualan dengan total mulai dari" extra="Konfirmasi pesanan oleh staf (Sales/Keuangan) menunggu persetujuan Pemilik/Admin. 0 = tanpa persetujuan.">
+          <InputNumber min={0} step={1_000_000} style={{ width: '100%' }} prefix="Rp" />
+        </Form.Item>
+        <Form.Item name="salesDiscountMaxPct" label="Diskon per baris di atas (%) butuh persetujuan" extra="Pesanan dengan diskon di atas persen ini, saat dikonfirmasi staf, menunggu persetujuan Pemilik/Admin. 0 = tanpa batas.">
+          <InputNumber min={0} max={100} step={1} precision={0} style={{ width: '100%' }} suffix="%" />
+        </Form.Item>
+        <Form.Item name="salesReturn" label="Retur penjualan bernilai mulai dari" extra="Retur (kredit nota) oleh staf menunggu persetujuan Pemilik/Admin sebelum piutang dikurangi. 0 = tanpa persetujuan.">
+          <InputNumber min={0} step={1_000_000} style={{ width: '100%' }} prefix="Rp" />
         </Form.Item>
         <Form.Item name="blindDelivery" label="Pengiriman buta (Gudang mengisi jumlah kemas sendiri)" valuePropName="checked" extra="Gudang tidak melihat jumlah pesanan dan wajib mengisi jumlah yang dikemas. Bila tidak sama dengan pesanan, pengiriman ditahan dan Penjualan, Admin, dan Pemilik diberi tahu.">
           <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />

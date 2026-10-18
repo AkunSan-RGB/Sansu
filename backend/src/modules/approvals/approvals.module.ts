@@ -22,8 +22,14 @@ import { CreateJournalDto } from '../accounting/dto/accounting.dto';
 import { PurchaseOrdersService } from '../purchasing/purchase-orders.service';
 import { PurchaseInvoicesService } from '../purchasing/purchase-invoices.service';
 import { SuppliersService } from '../purchasing/suppliers.service';
+import { SalesOrdersService } from '../sales/orders/sales-orders.service';
+import { ReturnsService } from '../returns/returns.service';
+import { CustomersService } from '../master-data/customers/customers.service';
 import { CreatePurchaseInvoiceDto } from '../purchasing/purchasing.dto';
 import { PurchasingModule } from '../purchasing/purchasing.module';
+import { SalesModule } from '../sales/sales.module';
+import { ReturnsModule } from '../returns/returns.module';
+import { MasterDataModule } from '../master-data/master-data.module';
 import { AssetsModule, AssetsService } from '../assets/assets.module';
 import { CashModule } from '../cash/cash.module';
 import { CashService, type CreateCashTxDto } from '../cash/cash.module';
@@ -48,6 +54,9 @@ class PolicyDto implements Partial<ApprovalPolicy> {
   @ApiPropertyOptional({ description: 'Pembayaran pertama ke supplier wajib disetujui' }) @IsOptional() @IsBoolean() firstSupplierPayment?: boolean;
   @ApiPropertyOptional({ description: 'Penerimaan buta: Gudang mengisi jumlah yang dihitung sendiri' }) @IsOptional() @IsBoolean() blindReceiving?: boolean;
   @ApiPropertyOptional({ description: 'Pengiriman buta: Gudang mengisi jumlah yang dikemas sendiri' }) @IsOptional() @IsBoolean() blindDelivery?: boolean;
+  @ApiPropertyOptional({ description: 'Pesanan penjualan bernilai ≥ ini oleh staf perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) salesOrder?: number;
+  @ApiPropertyOptional({ description: 'Diskon per baris di atas persen ini perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(100) salesDiscountMaxPct?: number;
+  @ApiPropertyOptional({ description: 'Retur penjualan bernilai ≥ ini oleh staf perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) salesReturn?: number;
   @ApiPropertyOptional({ description: 'Pembayaran ke supplier yang rekeningnya baru diubah (hari terakhir) wajib disetujui; 0 = nonaktif' }) @IsOptional() @IsInt() @Min(0) @Max(60) bankChangeHoldDays?: number;
   @ApiPropertyOptional({ description: 'Masa berlaku tautan persetujuan lewat Telegram (jam, 1–72)' }) @IsOptional() @IsInt() @Min(1) @Max(72) telegramLinkHours?: number;
 }
@@ -70,6 +79,9 @@ export class ApprovalRequestsService {
     private readonly orders: PurchaseOrdersService,
     private readonly invoices: PurchaseInvoicesService,
     private readonly suppliers: SuppliersService,
+    private readonly salesOrders: SalesOrdersService,
+    private readonly returnsSvc: ReturnsService,
+    private readonly customersSvc: CustomersService,
     private readonly accounting: AccountingService,
     private readonly assets: AssetsService,
     private readonly cash: CashService,
@@ -156,6 +168,16 @@ export class ApprovalRequestsService {
         // faktur dicatat atas nama pemohon; penyetuju tercatat di permintaan dan faktur
         const inv = await this.invoices.createFromOrder({ ...user, sub: req.requestedById }, req.payload as unknown as CreatePurchaseInvoiceDto, { approvalId: id });
         resultRef = inv.number;
+      } else if (req.kind === 'SALES_ORDER') {
+        const so = await this.salesOrders.confirm(user, req.refId!);
+        resultRef = so.number;
+      } else if (req.kind === 'SALES_RETURN') {
+        // retur dicatat atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
+        const r = await this.returnsSvc.createSales({ ...user, sub: req.requestedById }, req.payload as never, { approved: true });
+        resultRef = (r as { number?: string }).number;
+      } else if (req.kind === 'CUSTOMER_TERMS') {
+        const c = await this.customersSvc.applyTerms({ ...user, sub: req.requestedById }, req.payload as never);
+        resultRef = c.code;
       } else if (req.kind === 'SUPPLIER_BANK') {
         // rekening diubah atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
         const sp = await this.suppliers.applyBankChange({ ...user, sub: req.requestedById }, req.payload as never);
@@ -367,7 +389,7 @@ export class PublicApprovalLinksController {
 }
 
 @Module({
-  imports: [AccountingModule, PurchasingModule, AssetsModule, CashModule, InventoryModule],
+  imports: [AccountingModule, PurchasingModule, AssetsModule, CashModule, InventoryModule, SalesModule, ReturnsModule, MasterDataModule],
   controllers: [ApprovalsController, PublicApprovalLinksController],
   providers: [ApprovalRequestsService],
 })

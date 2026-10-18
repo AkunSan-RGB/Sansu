@@ -18,7 +18,7 @@ import { SettingsService } from '../settings.service';
 import { TelegramService } from '../telegram/telegram.service';
 
 export const APPROVER_ROLES: readonly Role[] = ['OWNER', 'ADMIN'];
-export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL' | 'SUPPLIER_BANK';
+export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS';
 
 export interface ApprovalPolicy {
   /** Pesanan pembelian dengan total ≥ nilai ini perlu persetujuan (0 = nonaktif) */
@@ -50,12 +50,18 @@ export interface ApprovalPolicy {
   blindReceiving: boolean;
   /** Pengiriman buta: Gudang mengisi jumlah barang yang dikemas (tidak terisi dari pesanan); selisih menahan pengiriman dan dikabarkan ke Penjualan */
   blindDelivery: boolean;
+  /** Pesanan penjualan dengan total ≥ nilai ini perlu persetujuan saat dikonfirmasi staf (0 = nonaktif) */
+  salesOrder: number;
+  /** Pesanan dengan diskon per baris di atas persen ini perlu persetujuan saat dikonfirmasi staf (0 = nonaktif) */
+  salesDiscountMaxPct: number;
+  /** Retur penjualan bernilai ≥ nilai ini oleh staf perlu persetujuan (0 = nonaktif) */
+  salesReturn: number;
   /** Pembayaran ke supplier yang rekeningnya diubah dalam sekian hari terakhir wajib disetujui (0 = nonaktif) */
   bankChangeHoldDays: number;
   /** Masa berlaku tautan persetujuan yang dikirim lewat Telegram (jam, 1–72); email tetap 72 jam */
   telegramLinkHours: number;
 }
-export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, blindReceiving: false, blindDelivery: false, bankChangeHoldDays: 7, budgetControl: 'OFF', telegramLinkHours: 72 };
+export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, blindReceiving: false, blindDelivery: false, salesOrder: 0, salesDiscountMaxPct: 0, salesReturn: 0, bankChangeHoldDays: 7, budgetControl: 'OFF', telegramLinkHours: 72 };
 
 export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PURCHASE_ORDER: 'Pesanan pembelian',
@@ -68,6 +74,9 @@ export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   SUPPLIER_PAYMENT: 'Pembayaran ke supplier',
   BILL: 'Tagihan biaya / aset',
   SUPPLIER_BANK: 'Perubahan rekening supplier',
+  SALES_ORDER: 'Pesanan penjualan',
+  SALES_RETURN: 'Retur penjualan',
+  CUSTOMER_TERMS: 'Perubahan syarat pelanggan (limit kredit / termin)',
 };
 
 @Injectable()
@@ -167,7 +176,7 @@ export class ApprovalsService {
   async needs(db: DbOrTx, user: AuthUser, kind: ApprovalKind, amount: number): Promise<number | null> {
     if (this.isApprover(user.role)) return null;
     const pol = await this.policy(db, user.tenantId);
-    const limit = kind === 'PURCHASE_ORDER' ? pol.purchaseOrder : kind === 'ASSET_DISPOSAL' ? pol.assetDisposal : kind === 'CASH_TX' || kind === 'SUPPLIER_PAYMENT' ? pol.cashOut : kind === 'STOCK_ADJUSTMENT' ? pol.stockAdjustment : pol.manualJournal;
+    const limit = kind === 'PURCHASE_ORDER' ? pol.purchaseOrder : kind === 'SALES_ORDER' ? pol.salesOrder : kind === 'SALES_RETURN' ? pol.salesReturn : kind === 'ASSET_DISPOSAL' ? pol.assetDisposal : kind === 'CASH_TX' || kind === 'SUPPLIER_PAYMENT' ? pol.cashOut : kind === 'STOCK_ADJUSTMENT' ? pol.stockAdjustment : pol.manualJournal;
     return limit > 0 && amount >= limit ? limit : null;
   }
 
@@ -186,6 +195,22 @@ export class ApprovalsService {
     if (existing) throw this.required(existing.id, 'Permintaan persetujuan sudah dikirim dan masih menunggu keputusan pemilik atau admin.');
     const request = await this.create(db, user, { ...p, payload: null });
     throw this.required(request.id, `Nilai ${APPROVAL_KIND_LABELS[p.kind].toLowerCase()} mencapai batas persetujuan; permintaan dikirim ke pemilik atau admin.`);
+  }
+
+  /**
+   * Gerbang dengan pemicu sendiri (bukan hanya nilai): bila `triggered`, dokumen butuh persetujuan Pemilik/Admin. Sama dengan gateDocument:
+   * bila sudah disetujui lanjut; bila sudah diminta menunggu; bila belum, dibuat lalu 409 APPROVAL_REQUIRED.
+   */
+  async gateIf(db: DbOrTx, user: AuthUser, p: { kind: ApprovalKind; refId: string; title: string; amount: number }, triggered: boolean, why: string) {
+    if (!triggered || this.isApprover(user.role)) return;
+    const [existing] = await db
+      .select()
+      .from(approvalRequests)
+      .where(and(eq(approvalRequests.tenantId, user.tenantId), eq(approvalRequests.kind, p.kind), eq(approvalRequests.refId, p.refId), inArray(approvalRequests.status, ['PENDING', 'APPROVED'])));
+    if (existing?.status === 'APPROVED') return;
+    if (existing) throw this.required(existing.id, 'Permintaan persetujuan sudah dikirim dan masih menunggu keputusan pemilik atau admin.');
+    const request = await this.create(db, user, { ...p, payload: null });
+    throw this.required(request.id, `${why}; permintaan dikirim ke pemilik atau admin.`);
   }
 
   /** Buat permintaan baru dan catat di jejak audit */

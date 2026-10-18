@@ -216,7 +216,25 @@ export class SalesOrdersService {
   }
 
   /** DRAFT → CONFIRMED: cek faktur jatuh tempo & limit kredit. */
-  async confirm(user: AuthUser, id: string) {
+  async confirm(user: AuthUser, id: string, opts: { internal?: boolean } = {}) {
+    // Persetujuan: pesanan bernilai besar, atau diskon per baris di atas batas, oleh staf (selain Pemilik/Admin) menunggu persetujuan.
+    // Alur internal (kanvas/konsinyasi) harga dan potongannya sudah dikunci server sehingga tidak dikenai gerbang ini.
+    if (!opts.internal) {
+      const pre = await this.db.query.salesOrders.findFirst({ where: and(eq(salesOrders.id, id), eq(salesOrders.tenantId, user.tenantId)), with: { lines: true } });
+      if (pre?.status === 'DRAFT') {
+        const pol = await this.approvals.policy(this.db, user.tenantId);
+        const maxDisc = Math.max(0, ...pre.lines.map((l) => Number(l.discountPct)));
+        const byDiscount = pol.salesDiscountMaxPct > 0 && maxDisc > pol.salesDiscountMaxPct;
+        const byValue = pol.salesOrder > 0 && Number(pre.total) >= pol.salesOrder;
+        await this.approvals.gateIf(
+          this.db,
+          user,
+          { kind: 'SALES_ORDER', refId: id, title: `Pesanan ${pre.number}${byDiscount ? ` (diskon ${maxDisc}%)` : ''}`, amount: Number(pre.total) },
+          byDiscount || byValue,
+          byDiscount ? `Diskon ${maxDisc}% melebihi batas ${pol.salesDiscountMaxPct}%` : 'Nilai pesanan mencapai batas persetujuan',
+        );
+      }
+    }
     let number = '';
     let customerId = '';
     await this.db.transaction(async (tx) => {

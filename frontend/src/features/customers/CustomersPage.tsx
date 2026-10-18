@@ -2,9 +2,9 @@ import { useApps } from '@/lib/apps';
 import { useNavigate } from 'react-router-dom';
 import { FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Tag } from 'antd';
+import { App, Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Tag } from 'antd';
 import { useState } from 'react';
-import { get, patch, post } from '@/api/client';
+import { ApiError, get, patch, post } from '@/api/client';
 import { useAction, useCustomers } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
@@ -38,14 +38,31 @@ export default function CustomersPage() {
   const [editing, setEditing] = useState<Customer | 'new' | null>(null);
   const [form] = Form.useForm<FormValues>();
 
+  const { modal } = App.useApp();
   const save = useAction(
-    (v: FormValues) => {
+    async (v: FormValues) => {
       const body: Record<string, unknown> = { ...v, creditLimit: String(v.creditLimit ?? 0), priceListId: v.priceListId ?? null, geoLat: v.geoLat ?? undefined, geoLng: v.geoLng ?? undefined };
       // Sales hanya mendaftarkan outlet; syarat komersial (limit kredit, termin, daftar harga, wajib PO) diatur Admin/Keuangan
       if (me?.role === 'SALES' && editing === 'new') for (const k of ['creditLimit', 'paymentTermDays', 'priceListId', 'requirePo']) delete body[k];
-      return editing && editing !== 'new' ? patch(`/customers/${editing.id}`, body) : post('/customers', body);
+      const send = (extra: object) => (editing && editing !== 'new' ? patch(`/customers/${editing.id}`, { ...body, ...extra }) : post('/customers', { ...body, ...extra }));
+      try {
+        return await send({});
+      } catch (e) {
+        const data = e instanceof ApiError ? (e.data as { code?: string; message?: string } | undefined) : undefined;
+        if (data?.code !== 'POSSIBLE_DUPLICATE_CUSTOMER') throw e;
+        // anti pelanggan ganda/fiktif: tampilkan yang mirip, simpan hanya bila pengguna yakin
+        const ok = await new Promise<boolean>((resolve) =>
+          modal.confirm({ title: 'Mirip dengan pelanggan lain', width: 520, content: data.message, okText: 'Tetap simpan', cancelText: 'Periksa dulu', onOk: () => resolve(true), onCancel: () => resolve(false) }),
+        );
+        if (!ok) throw new Error('Penyimpanan dibatalkan');
+        return send({ confirmDuplicate: true });
+      }
     },
-    { success: 'Pelanggan disimpan', invalidate: ['customers'], onSuccess: () => setEditing(null) },
+    {
+      success: (r) => ((r as { termsPending?: boolean } | undefined)?.termsPending ? 'Perubahan limit kredit / termin dikirim ke Pemilik/Admin; berlaku setelah disetujui' : 'Pelanggan disimpan'),
+      invalidate: ['customers', 'approvals'],
+      onSuccess: () => setEditing(null),
+    },
   );
 
   const open = (c: Customer | 'new') => {

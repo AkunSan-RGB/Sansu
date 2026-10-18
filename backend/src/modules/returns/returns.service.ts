@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { toDocDate } from '../../common/utils/dates';
@@ -83,6 +84,7 @@ export class ReturnsService {
     private readonly stock: StockService,
     private readonly posting: PostingService,
     private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   // ================= Retur penjualan =================
@@ -107,8 +109,23 @@ export class ReturnsService {
    *  - Dr Persediaan | Cr HPP
    *  - piutang faktur berkurang
    */
-  async createSales(user: AuthUser, dto: CreateReturnDto) {
+  async createSales(user: AuthUser, dto: CreateReturnDto, opts: { approved?: boolean } = {}) {
     const date = toDocDate(dto.date);
+    // Retur penjualan = kredit nota yang mengurangi piutang: bernilai besar oleh staf (selain Pemilik/Admin) menunggu persetujuan
+    if (!opts.approved && !this.approvals.isApprover(user.role)) {
+      const pol = await this.approvals.policy(this.db, user.tenantId);
+      if (pol.salesReturn > 0) {
+        const inv = await this.db.query.invoices.findFirst({ where: and(eq(invoices.id, dto.invoiceId), eq(invoices.tenantId, user.tenantId)), with: { lines: true } });
+        const value = (inv?.lines ?? []).reduce((a, l) => {
+          const q = dto.lines.find((x) => x.invoiceLineId === l.id)?.qty;
+          return q ? a + Number(q) * Number(l.price) * (1 - Number(l.discountPct) / 100) : a;
+        }, 0);
+        if (value >= pol.salesReturn) {
+          const req = await this.approvals.create(this.db, user, { kind: 'SALES_RETURN', refId: null, title: `Retur penjualan faktur ${inv?.number ?? ''} (≈ Rp${Math.round(value).toLocaleString('id-ID')})`, amount: value, payload: JSON.parse(JSON.stringify(dto)) });
+          throw this.approvals.required(req.id, 'Nilai retur mencapai batas persetujuan; permintaan dikirim ke pemilik atau admin dan retur dicatat setelah disetujui.');
+        }
+      }
+    }
     return this.db.transaction(async (tx) => {
       await this.lockRow(tx, 'invoices', dto.invoiceId, user.tenantId);
       const inv = await tx.query.invoices.findFirst({ where: eq(invoices.id, dto.invoiceId), with: { lines: true } });

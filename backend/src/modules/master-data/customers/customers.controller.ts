@@ -31,12 +31,12 @@ export class CustomersController {
     if (u.role === 'SALES' && (dto.creditLimit !== undefined || dto.paymentTermDays !== undefined || dto.priceListId !== undefined || dto.requirePo !== undefined)) {
       throw new ForbiddenException('Limit kredit, termin, daftar harga, dan wajib PO outlet diatur oleh Admin/Keuangan');
     }
-    return this.svc.create(u.tenantId, dto);
+    return this.svc.createBy(u, dto);
   }
 
   @Patch(':id')
   @Roles('ADMIN', 'FINANCE')
   update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCustomerDto) {
-    return this.svc.update(u.tenantId, id, dto);
+    return this.svc.updateBy(u, id, dto);
   }
 }

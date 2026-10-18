@@ -245,7 +245,7 @@ export class ConsignmentsService {
         lines: doc.lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: l.qty })),
       } as never, { consignment: true });
       soId = so.id;
-      await this.orders.confirm(u, so.id);
+      await this.orders.confirm(u, so.id, { internal: true });
       inv = await this.invoices.createFromOrder(u, { salesOrderId: so.id, date: doc.date } as never);
     } catch (e) {
       // gagal SEBELUM faktur terbit: kembalikan laporan agar bisa diproses ulang dan batalkan pesanan yang terlanjur dibuat
