@@ -34,3 +34,8 @@ Uang masuk di luar penjualan langsung dikabarkan ke pengguna **Keuangan** lewat 
 - Impor mutasi bank berisi uang masuk yang belum cocok dengan pembayaran mana pun.
 
 Syarat: `TELEGRAM_BOT_TOKEN` terpasang dan pengguna Keuangan sudah menghubungkan Telegram (Keamanan akun › Hubungkan Telegram). Pelaku sendiri tidak dikirimi. Tanpa Telegram terhubung, pemberitahuan hanya lewat email/Tugas saya.
+
+## Penutup celah anti-fraud
+- **Pembayaran pelanggan dibelokkan:** uang masuk lewat sumber (kas masuk atau mutasi bank) yang jumlahnya persis sama dengan sisa piutang suatu faktur, atau yang keterangan/bukti-nya menyebut nama pelanggan/nomor faktur yang masih berutang, **ditolak untuk Keuangan** (diarahkan ke Faktur & piutang). Pemilik/Admin boleh melanjutkan, tetapi tercatat di jejak audit (`CASH_IN_LOOKALIKE_RECEIVABLE`) dan Pemilik + Akuntan diberi tahu.
+- **Eskalasi:** uang masuk di rekening yang lebih dari 1 hari belum dicocokkan/dijelaskan dikabarkan ke Pemilik dan Akuntan (sekali per hari, lewat penjadwal pengingat).
+- **Batas yang jujur:** pencocokan memakai jumlah persis dan nama (≥4 huruf); pembayaran sebagian atau tanpa nama tidak terdeteksi. Uang tunai yang tidak pernah dicatat tetap tidak terlihat sistem (hanya selisih hitung kas dan rekonsiliasi bank).

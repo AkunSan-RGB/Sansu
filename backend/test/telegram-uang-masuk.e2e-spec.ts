@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
+import { ReminderMailer } from '../src/modules/reminders/reminder-mailer.service';
 import { TelegramService } from '../src/common/telegram/telegram.service';
 
 describe('Telegram uang masuk non-penjualan (e2e)', () => {
@@ -63,5 +64,38 @@ describe('Telegram uang masuk non-penjualan (e2e)', () => {
     const m = tg.outbox.slice(before).filter((x) => x.chatId === '777001');
     expect(m.length).toBe(1);
     expect(m[0].text).toContain('belum jelas sumbernya');
+  });
+
+  it('pembayaran pelanggan tidak bisa dibelokkan jadi pendapatan lain oleh Keuangan', async () => {
+    const wh = (await get('/api/warehouses').expect(200)).body[0].id;
+    const prod = (await post('/api/products', { sku: 'A1', name: 'Barang', baseUom: 'PCS', sellPrice: '10000' }).expect(201)).body.id;
+    const cust = (await post('/api/customers', { code: 'C1', name: 'Budi Santoso' }).expect(201)).body.id;
+    await post('/api/inventory/adjustments', { warehouseId: wh, reason: 'OPENING', date: today, lines: [{ productId: prod, qty: '100', unitCost: '5000' }] }).expect(201);
+    const so = (await post('/api/sales-orders', { customerId: cust, warehouseId: wh, date: today, lines: [{ productId: prod, qty: '2' }] }).expect(201)).body;
+    await post(`/api/sales-orders/${so.id}/confirm`).expect(201);
+    const inv = (await post('/api/invoices', { salesOrderId: so.id, date: today }).expect(201)).body;
+    const total = (await get(`/api/invoices/${inv.id}`).expect(200)).body.total as string;
+    const other = (amount: string, description: string, t = fin) => post('/api/cash/transactions', { type: 'IN', cashAccountId: kasId, date: today, description, reference: 'Nota-1', lines: [{ source: 'OTHER_INCOME', amount }] }, t);
+    // jumlah sama dengan sisa piutang → ditolak untuk Keuangan
+    const r1 = await other(total, 'Terima uang');
+    expect(r1.status).toBe(400);
+    expect(JSON.stringify(r1.body)).toContain('Faktur & piutang');
+    // menyebut nama pelanggan → ditolak
+    expect((await other('12345', 'pelunasan BUDI SANTOSO')).status).toBe(400);
+    // uang masuk lain yang tidak mirip → boleh
+    expect((await other('12345', 'Komisi supplier')).status).toBe(201);
+    // pemilik boleh, tetapi ditandai di jejak audit
+    expect((await other(total, 'Terima uang', owner)).status).toBe(201);
+    const audit = (await get('/api/audit?action=CASH_IN_LOOKALIKE_RECEIVABLE').then((r) => JSON.stringify(r.body)));
+    expect(audit).toContain('CASH_IN_LOOKALIKE_RECEIVABLE');
+  });
+
+  it('eskalasi: uang masuk rekening >1 hari belum dijelaskan dikabarkan ke Pemilik sekali per hari', async () => {
+    const tenantId = (await get('/api/auth/me').expect(200)).body.tenantId as string;
+    const mailer = app.get(ReminderMailer);
+    const yesterday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date(Date.now() - 2 * 86400_000));
+    await post('/api/bank/statements', { cashAccountId: bankId, fileName: 'lama.csv', lines: [{ date: yesterday, description: 'SETORAN TUNAI MISTERIUS', amount: '777000' }] }).expect(201);
+    expect((await mailer.runBankEscalation(tenantId)).notified).toBe(true);
+    expect((await mailer.runBankEscalation(tenantId)).notified).toBe(false); // sekali per hari
   });
 });

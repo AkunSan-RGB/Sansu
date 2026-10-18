@@ -7,6 +7,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { appUrl, MailService } from '../../common/mail/mail.service';
 import { SettingsService } from '../../common/settings.service';
 import { todayJakarta } from '../../common/utils/dates';
@@ -36,10 +37,11 @@ export class ReminderMailer {
     private readonly reminders: RemindersService,
     private readonly mail: MailService,
     private readonly settings: SettingsService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   /** Catat pengiriman; false bila sudah pernah dicatat (tidak boleh dikirim lagi) */
-  private async claim(tenantId: string, kind: 'DIGEST' | 'CUSTOMER', ref: string, stage: string, sentTo: string, force = false) {
+  private async claim(tenantId: string, kind: 'DIGEST' | 'CUSTOMER' | 'BANK_ESC', ref: string, stage: string, sentTo: string, force = false) {
     const r = await this.db.execute<{ id: string }>(
       force
         ? sql`INSERT INTO reminder_log (tenant_id, kind, ref, stage, sent_to) VALUES (${tenantId}, ${kind}, ${ref}, ${stage}, ${sentTo})
@@ -186,6 +188,20 @@ export class ReminderMailer {
     return { sent };
   }
 
+  /**
+   * Eskalasi: uang masuk di rekening yang lebih dari 1 hari belum dicocokkan/dijelaskan Keuangan dikabarkan ke Pemilik dan Akuntan
+   * (sekali per hari), supaya tidak bergantung pada satu orang. Dijaga catatan harian agar tidak ganda.
+   */
+  async runBankEscalation(tenantId: string) {
+    const r = (await this.db.execute<{ n: number; total: string; oldest: number }>(sql`
+      SELECT COUNT(*)::int AS n, COALESCE(SUM(amount), 0)::text AS total, COALESCE(MAX(CURRENT_DATE - date), 0)::int AS oldest
+      FROM bank_statement_lines WHERE tenant_id = ${tenantId} AND status = 'UNMATCHED' AND amount > 0 AND date < CURRENT_DATE`)).rows[0];
+    if (!r || r.n === 0) return { notified: false };
+    if (!(await this.claim(tenantId, 'BANK_ESC', tenantId, todayJakarta(), 'OWNER,ACCOUNTANT'))) return { notified: false };
+    await this.approvals.notifyRoles(tenantId, { roles: ['OWNER', 'ACCOUNTANT'], info: true, title: `⚠ ${r.n} uang masuk di rekening belum dijelaskan sumbernya: ${rp(r.total)}`, lines: [`Yang terlama ${r.oldest} hari. Keuangan belum mencocokkan atau memilih sumbernya.`], path: '/bank' });
+    return { notified: true };
+  }
+
   /** Satu putaran penjadwal untuk semua perusahaan: ringkasan harian (setelah pukul 07.00 WIB) dan pengingat pelanggan */
   async runAll() {
     const hour = new Date(Date.now() + 7 * 3600_000).getUTCHours();
@@ -197,6 +213,7 @@ export class ReminderMailer {
       try {
         digests += (await this.sendDigest(t.id)).sent;
         customers += (await this.runCustomerReminders(t.id)).sent;
+        await this.runBankEscalation(t.id);
       } catch (e) {
         this.logger.error(`Pengingat perusahaan ${t.id}: ${(e as Error).message}`);
       }

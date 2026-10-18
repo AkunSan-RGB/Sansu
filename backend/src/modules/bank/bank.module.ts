@@ -3,6 +3,7 @@
  * dengan transaksi di buku, buat jurnal untuk mutasi yang belum tercatat (biaya admin, bunga, dll.)
  * dan susun laporan rekonsiliasi saldo bank vs saldo buku.
  */
+import { findReceivableLookalike } from '../cash/receivable-guard';
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -431,6 +432,15 @@ export class BankService {
         throw new BadRequestException('Pilih sumber uang untuk uang masuk ini (mis. Bunga bank, Modal dari pemilik). Pembayaran pelanggan dicocokkan dengan pembayaran fakturnya.');
       }
       if (!accountId) throw new BadRequestException('Pilih akun lawan');
+      if (D(l.amount).gt(0)) {
+        const hit = await findReceivableLookalike(tx, user.tenantId, D(l.amount).toNumber(), `${l.description} ${dto.description ?? ''}`);
+        if (hit) {
+          if (user.role === 'FINANCE') {
+            throw new BadRequestException(`Mutasi ini ${hit.why === 'JUMLAH' ? 'sama dengan sisa piutang' : 'menyebut pelanggan'} ${hit.customer} (faktur ${hit.number}). Cocokkan dengan pembayaran fakturnya, bukan dibuat jurnal sendiri. Bila memang bukan pembayaran pelanggan, minta Admin/Pemilik.`);
+          }
+          void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER', 'ACCOUNTANT'], excludeUserId: user.sub, title: `⚠ Uang masuk bank mirip pembayaran pelanggan ${hit.customer} (${hit.number})`, lines: [l.description], path: '/bank' });
+        }
+      }
       const j = await this.postFromLine(tx, user, l, st, accountId, dto.description, 'CREATED');
       if (D(l.amount).gt(0)) {
         void this.approvals.notifyRoles(user.tenantId, { roles: ['FINANCE'], excludeUserId: user.sub, info: true, title: `Uang masuk bank non-penjualan dicatat: Rp${D(l.amount).toNumber().toLocaleString('id-ID')}`, lines: [l.description], path: '/bank' });
