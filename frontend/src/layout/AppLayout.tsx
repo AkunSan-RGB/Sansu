@@ -1,5 +1,5 @@
 import { rememberReturnTo } from '@/auth/returnTo';
-import { AppstoreOutlined, AuditOutlined, CrownOutlined, MenuOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, AppstoreOutlined, AuditOutlined, CrownOutlined, MenuOutlined } from '@ant-design/icons';
 import { BUSINESS_MODELS, localize, type AppKey, type BusinessModel } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Badge, Button, Drawer, Grid, Layout, Menu, type MenuProps, message, Segmented, Spin, Typography } from 'antd';
@@ -37,6 +37,9 @@ type Group = {
   part: string;
   /** Peran yang hanya melihat menu ini (tanpa hak mengubah): diberi keterangan "lihat" pada judul grup */
   readOnlyFor?: string[];
+  /** Menu inti: tampil untuk peran di `roles` tanpa syarat aplikasi */
+  core?: boolean;
+  roles?: string[];
 };
 const PART_STYLE: React.CSSProperties = {
   fontSize: 11,
@@ -56,6 +59,7 @@ const subItems = (c: Sub[] = []): Item[] => c.flatMap((x) => ('section' in x ? x
  */
 const MENU: Group[] = [
   { part: '', key: '/dashboard', label: 'Dashboard', icon: APP_ICONS.dashboard, to: '/dashboard' },
+  { part: '', key: '/workflow', label: 'Alur kerja', icon: <ApartmentOutlined />, to: '/workflow', core: true, roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'PURCHASING', 'WAREHOUSE', 'CASHIER'] },
 
   // ---------- Penjualan ----------
   {
@@ -339,7 +343,7 @@ export default function AppLayout() {
   const visible = ordered.filter(
     (g) =>
       (!g.models || g.models.includes(me.businessModel)) &&
-      (g.admin ? isAdmin : g.app ? can(g.app) : (can('accounting') || can('sales')) && (g.key !== '/dashboard' || dashboardRole)),
+      (g.core ? me.role === 'OWNER' || !!g.roles?.includes(me.role) : g.admin ? isAdmin : g.app ? can(g.app) : (can('accounting') || can('sales')) && (g.key !== '/dashboard' || dashboardRole)),
   );
   const L = (text: string) => localize(text, me.businessModel);
   // Fitur pajak yang tidak relevan (non-PKP, PPh final, usaha penjualan barang) tidak ditampilkan

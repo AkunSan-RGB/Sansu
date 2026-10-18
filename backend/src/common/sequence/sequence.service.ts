@@ -50,6 +50,7 @@ export const DOC_PREFIX = {
   TRADE_ACCRUAL: 'TT',
   TRADE_SETTLEMENT: 'PTT',
   PRINCIPAL_CLAIM: 'KLP',
+  WORKFLOW_CASE: 'WF',
 } as const;
 
 export type DocType = keyof typeof DOC_PREFIX;
