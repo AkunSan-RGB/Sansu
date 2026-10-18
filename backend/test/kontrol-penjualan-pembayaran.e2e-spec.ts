@@ -14,6 +14,7 @@ describe('Kontrol pembayaran penjualan (e2e)', () => {
   let http: ReturnType<typeof request>;
   let owner: string; let fin: string; let fin2: string; let wh: string; let sls: string;
   let whId: string; let prod: string; let cust: string; let bankId: string;
+  const ids: Record<string, string> = {};
   const stamp = Date.now();
   const day = todayJakarta();
   const as = (t: string) => ({ Authorization: `Bearer ${t}` });
@@ -21,7 +22,8 @@ describe('Kontrol pembayaran penjualan (e2e)', () => {
   const post = (t: string, u: string, b: object = {}) => http.post(u).set(as(t)).send(b);
   const put = (t: string, u: string, b: object = {}) => http.put(u).set(as(t)).send(b);
   const login = async (role: string, n: string) => {
-    await post(owner, '/api/users', { name: n, email: `ksl4-${n}-${stamp}@uji.id`, password: 'rahasia12345', role }).expect(201);
+    const u = await post(owner, '/api/users', { name: n, email: `ksl4-${n}-${stamp}@uji.id`, password: 'rahasia12345', role }).expect(201);
+    ids[n] = u.body.id;
     return (await http.post('/api/auth/login').send({ email: `ksl4-${n}-${stamp}@uji.id`, password: 'rahasia12345' }).expect(200)).body.accessToken as string;
   };
   /** Faktur atas nama `maker` (pesanan → surat jalan → faktur) */
@@ -87,6 +89,10 @@ describe('Kontrol pembayaran penjualan (e2e)', () => {
     expect(ret.status).toBe(409);
     expect(ret.body.code).toBe('APPROVAL_REQUIRED');
     await put(owner, '/api/approvals/policy', { salesSeparateDuties: false }).expect(200);
+    // hanya satu Keuangan aktif: temuan "dicatat oleh pembuat fakturnya sendiri" disembunyikan (hanya kebisingan)
+    await http.patch(`/api/users/${ids.fin2}`).set(as(owner)).send({ isActive: false }).expect(200);
+    const solo = (await get(owner, '/api/sales-controls').expect(200)).body.items as { key: string }[];
+    expect(solo.some((f) => f.key === 'PAYMENT_BY_INVOICE_CREATOR' || f.key === 'RETURN_BY_INVOICE_CREATOR')).toBe(false);
   });
 
   it('pelanggan dengan faktur lewat jatuh tempo tidak bisa mengonfirmasi pesanan baru (kontrol kredit yang sudah ada)', async () => {
