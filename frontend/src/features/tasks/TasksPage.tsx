@@ -9,7 +9,7 @@ export default function TasksPage() {
   const { data, isLoading } = useTasks();
   return (
     <>
-      <PageHeader title="Tugas saya" subtitle="Pekerjaan yang menunggu Anda sekarang (persetujuan, pemeriksaan, dan lainnya). Selesaikan satu per satu." />
+      <PageHeader title="Tugas saya" />
       <Card>
         <Typography.Paragraph type="secondary">
           Hanya proses yang memang boleh Anda putuskan. Yang Anda buat sendiri atau yang ditujukan ke penyetuju lain tidak tampil di sini.
