@@ -10,14 +10,13 @@ import { MailService } from './mail/mail.service';
 import { SubscriptionService } from './billing/subscription.service';
 import { TwoFactorPolicy } from './auth/two-factor-policy';
 import { ApprovalsService } from './approvals/approvals.service';
-import { HandoffService } from './handoff/handoff.service';
 import { TelegramController } from './telegram/telegram.controller';
 import { TelegramService } from './telegram/telegram.service';
 
 @Global()
 @Module({
   controllers: [TelegramController],
-  providers: [TelegramService, ApprovalsService, HandoffService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
-  exports: [TelegramService, ApprovalsService, HandoffService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
+  providers: [TelegramService, ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
+  exports: [TelegramService, ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
 })
 export class CommonModule {}

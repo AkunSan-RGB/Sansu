@@ -1,4 +1,3 @@
-import { HandoffService } from '../../common/handoff/handoff.service';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
@@ -29,8 +28,6 @@ export class PurchaseRequestsService {
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
     private readonly orders: PurchaseOrdersService,
-  
-    private readonly handoff: HandoffService,
   ) {}
 
   private async names(db: DbOrTx, ids: (string | null)[]) {
@@ -189,7 +186,6 @@ export class PurchaseRequestsService {
         .where(eq(purchaseRequests.id, id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: approve ? 'APPROVE' : 'REJECT', entity: 'PurchaseRequest', entityId: id });
     });
-    if (approve) this.handoff.fire(user.tenantId, 'PR_APPROVED', user.sub, id);
     return this.get(user.tenantId, id);
   }
 

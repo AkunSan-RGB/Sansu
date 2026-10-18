@@ -13,8 +13,6 @@ const ICON = {
   warning: <ExclamationCircleFilled style={{ color: '#D48A06' }} />,
   info: <InfoCircleFilled style={{ color: '#3B6FD4' }} />,
 };
-/** Pengingat yang sudah tercakup antrean tugas pengguna (tidak ditampilkan dobel di lonceng) */
-const COVERED_BY_TASK: Record<string, string> = { approvals: 'approvals', 'pr-pending': 'purchase-requests', 'pr-approved': 'handoff-pr', 'delivery-not-invoiced': 'handoff-invoice', 'po-not-received': 'handoff-receive', 'grni-old': 'handoff-bill' };
 const SNOOZE = [
   { key: '1', label: 'Besok' },
   { key: '3', label: '3 hari' },
@@ -49,8 +47,7 @@ export default function ReminderBell() {
   const tasks = useTasks().data ?? [];
   const taskTotal = tasks.reduce((a, t) => a + t.count, 0);
   // persetujuan sudah tampil sebagai tugas (disaring per pengguna); hindari ganda
-  const taskKeys = new Set(tasks.map((t) => t.key));
-  const data = q.data ? { ...q.data, items: q.data.items.filter((i) => !(COVERED_BY_TASK[i.key] && taskKeys.has(COVERED_BY_TASK[i.key]))) } : q.data;
+  const data = q.data ? { ...q.data, items: q.data.items.filter((i) => i.key !== 'approvals' && i.key !== 'pr-pending') } : q.data;
   const urgent = (data?.items.filter((i) => i.level !== 'info').length ?? 0) + taskTotal;
 
   const row = (i: ReminderItem, snoozed = false) => (
