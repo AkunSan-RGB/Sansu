@@ -40,7 +40,7 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { InventoryService } from '../inventory/inventory.service';
 import type { StockAdjustmentDto } from '../inventory/dto/inventory.dto';
 import type { CreateBillDto, CreateSupplierPaymentDto } from '../purchasing/purchasing.dto';
-import type { DisposeDto } from '../assets/assets.module';
+import type { ChangeMethodDto, DisposeDto } from '../assets/assets.module';
 
 class PolicyDto implements Partial<ApprovalPolicy> {
   @ApiPropertyOptional({ description: 'Pesanan pembelian dengan total ≥ nilai ini perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) purchaseOrder?: number;
@@ -219,6 +219,16 @@ export class ApprovalRequestsService {
         // dijalankan atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
         const r = await this.petty.executeReplenish({ ...user, sub: req.requestedById }, req.payload as unknown as { fundId: string; date?: string; voucherIds: string[] });
         resultRef = r.number;
+      } else if (req.kind === 'ASSET_METHOD') {
+        // dijalankan atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
+        const pl = req.payload as unknown as ChangeMethodDto & { id?: string; categoryId?: string };
+        if (pl.categoryId) {
+          const r = await this.assets.changeCategoryMethod({ ...user, sub: req.requestedById }, pl.categoryId, pl, { approved: true });
+          resultRef = `${r.changed.length} aset diubah`;
+        } else {
+          const a = await this.assets.changeMethod({ ...user, sub: req.requestedById }, pl.id!, pl, { approved: true });
+          resultRef = a.code;
+        }
       } else if (req.kind === 'ASSET_DISPOSAL') {
         const { id: assetId, ...dto } = req.payload as unknown as DisposeDto & { id: string };
         const a = await this.assets.dispose({ ...user, sub: req.requestedById }, assetId, dto, { approved: true });

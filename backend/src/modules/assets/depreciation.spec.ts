@@ -1,5 +1,5 @@
 import { D, ZERO } from '../../common/utils/money';
-import { accumulatedThrough, fiscalDepreciation, monthlyDepreciation } from './depreciation';
+import { accumulatedThrough, depreciationFor, fiscalDepreciation, monthlyDepreciation } from './depreciation';
 
 describe('Penyusutan komersial', () => {
   const car = { cost: '240000000', residualValue: '0', usefulLifeMonths: 96, method: 'STRAIGHT_LINE', depreciationStart: '2026-01-01' };
@@ -60,5 +60,32 @@ describe('Penyusutan fiskal', () => {
 
   it('tanah tidak disusutkan', () => {
     expect(fiscalDepreciation('500000000', '2026-01-01', 'LAND', 'STRAIGHT_LINE', 2026).amount.toNumber()).toBe(0);
+  });
+});
+
+describe('Perubahan metode (berlaku ke depan)', () => {
+  const base = { cost: '48000000', residualValue: '0', usefulLifeMonths: 48, method: 'DECLINING_BALANCE', depreciationStart: '2026-01-01' };
+  const changes = [{ from: '2027-01', method: 'DECLINING_BALANCE', prevMethod: 'STRAIGHT_LINE', accumulatedAt: '12000000' }];
+
+  it('bulan sebelum bulan berlaku tetap memakai metode lama', () => {
+    expect(depreciationFor({ ...base, methodChanges: changes }, ZERO, '2026-06').toNumber()).toBe(1_000_000); // garis lurus 48 jt / 48
+  });
+
+  it('mulai bulan berlaku: sisa nilai buku disusutkan dengan metode baru selama sisa masa manfaat', () => {
+    // sisa 36 jt, 36 bulan, saldo menurun ganda: 36 jt × (2/3) / 12 = 2 jt
+    expect(depreciationFor({ ...base, methodChanges: changes }, D('12000000'), '2027-01').toNumber()).toBe(2_000_000);
+  });
+
+  it('total tetap habis tepat di akhir masa manfaat (tidak lebih/kurang dari harga perolehan)', () => {
+    let acc = ZERO;
+    for (let i = 0; i < 48; i++) {
+      const p = `${2026 + Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`;
+      acc = acc.plus(depreciationFor({ ...base, methodChanges: changes }, acc, p));
+    }
+    expect(acc.toNumber()).toBe(48_000_000);
+  });
+
+  it('tanpa perubahan memberi hasil sama dengan monthlyDepreciation', () => {
+    expect(depreciationFor(base, ZERO, '2026-01').toNumber()).toBe(monthlyDepreciation(base, ZERO, '2026-01').toNumber());
   });
 });

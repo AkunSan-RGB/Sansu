@@ -212,10 +212,80 @@ function VerifyTag({ a }: { a: FixedAsset }) {
   );
 }
 
+/** Ubah metode penyusutan (berlaku ke depan saja): satu aset, atau semua aset aktif di satu kategori */
+function ChangeMethodModal({ target, onClose }: { target: { kind: 'asset' | 'category'; id: string; name: string; method: string } | null; onClose: () => void }) {
+  const [method, setMethod] = useState<string | undefined>();
+  const [month, setMonth] = useState(today().slice(0, 7));
+  const [reason, setReason] = useState('');
+  const preview = useQuery({
+    queryKey: ['assets', 'method-preview', target?.id, method, month],
+    queryFn: () => get<{ bookValueAtEffective: string; rows: { period: string; current: string; proposed: string }[]; total12: { current: string; proposed: string } }>(`/assets/${target!.id}/method-preview?method=${method}&effectiveMonth=${month}`),
+    enabled: !!target && target.kind === 'asset' && !!method,
+    retry: false,
+  });
+  const submit = useAction(
+    () => post<{ changed?: string[]; skipped?: { asset: string; why: string }[] }>(target!.kind === 'asset' ? `/assets/${target!.id}/change-method` : `/assets/categories/${target!.id}/change-method`, { method, effectiveMonth: month, reason }),
+    {
+      success: (r) => (r?.changed ? `${r.changed.length} aset diubah${r.skipped?.length ? `, ${r.skipped.length} dilewati` : ''}` : 'Metode penyusutan diubah (berlaku ke depan)'),
+      invalidate: [...KEYS, 'assets'],
+      onSuccess: () => {
+        setMethod(undefined);
+        setReason('');
+        onClose();
+      },
+    },
+  );
+  const options = toOptions(DEPRECIATION_METHOD_LABELS).filter((o) => o.value !== 'NONE' && o.value !== target?.method);
+  return (
+    <Modal
+      title={target?.kind === 'category' ? `Ubah metode semua aset aktif — ${target?.name}` : `Ubah metode penyusutan — ${target?.name ?? ''}`}
+      open={!!target}
+      onCancel={onClose}
+      onOk={() => submit.mutate(undefined)}
+      okText="Ubah metode"
+      okButtonProps={{ disabled: !method || reason.trim().length < 5 }}
+      confirmLoading={submit.isPending}
+      width={640}
+    >
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message="Berlaku ke depan saja"
+        description="Penyusutan yang sudah diposting tidak berubah. Mulai bulan berlaku, sisa nilai buku (dikurangi residu) disusutkan dengan metode baru selama sisa masa manfaat. Penyusutan sampai bulan sebelumnya diposting dulu dengan metode lama. Staf selain Pemilik/Admin menunggu persetujuan."
+      />
+      <Space direction="vertical" style={{ width: '100%' }}>
+        <Select style={{ width: '100%' }} placeholder="Metode baru" options={options} value={method} onChange={setMethod} />
+        <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} addonBefore="Berlaku mulai bulan" />
+        <Input.TextArea rows={2} placeholder="Alasan perubahan (wajib, minimal 5 huruf)" value={reason} onChange={(e) => setReason(e.target.value)} />
+        {target?.kind === 'asset' && method && preview.isError && <Alert type="error" showIcon message={(preview.error as Error)?.message} />}
+        {target?.kind === 'asset' && method && preview.data && (
+          <>
+            <Typography.Text type="secondary">Nilai buku saat berlaku {fmtMoney(preview.data.bookValueAtEffective)} · total 12 bulan: sekarang {fmtMoney(preview.data.total12.current)} → baru {fmtMoney(preview.data.total12.proposed)}</Typography.Text>
+            <Table
+              size="small"
+              rowKey="period"
+              pagination={false}
+              dataSource={preview.data.rows}
+              scroll={{ y: 200 }}
+              columns={[
+                { title: 'Bulan', dataIndex: 'period' },
+                { title: 'Metode sekarang', dataIndex: 'current', align: 'right', render: fmtMoney },
+                { title: 'Metode baru', dataIndex: 'proposed', align: 'right', render: fmtMoney },
+              ]}
+            />
+          </>
+        )}
+      </Space>
+    </Modal>
+  );
+}
+
 function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }) {
   const { me } = useAuth();
   const bookkeeper = canBookkeep(me?.role);
   const [dispose, setDispose] = useState(false);
+  const [methodOpen, setMethodOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveForm] = Form.useForm();
   const branchList = useBranches();
@@ -300,6 +370,11 @@ function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }
               </Button>
             </Space>
           )}
+          {bookkeeper && d.status === 'ACTIVE' && d.method !== 'NONE' && (
+            <Button style={{ marginBottom: 16, marginRight: 8 }} onClick={() => setMethodOpen(true)}>
+              Ubah metode penyusutan
+            </Button>
+          )}
           {bookkeeper && d.status === 'ACTIVE' && (
             <Button
               danger
@@ -356,6 +431,7 @@ function AssetDetail({ id, onClose }: { id: string | null; onClose: () => void }
               </Form.Item>
             </Form>
           </Modal>
+          <ChangeMethodModal target={methodOpen ? { kind: 'asset', id: d.id, name: `${d.code} ${d.name}`, method: d.method } : null} onClose={() => setMethodOpen(false)} />
           <Modal title="Jual / hapus aset" open={dispose} onCancel={() => setDispose(false)} onOk={() => form.submit()} confirmLoading={doDispose.isPending} okText="Posting">
             <Typography.Paragraph type="secondary">
               Penyusutan dikejar sampai bulan sebelum pelepasan, lalu aset & akumulasinya dikeluarkan. Selisih dengan harga jual dicatat sebagai laba / rugi pelepasan aset.
@@ -709,6 +785,7 @@ function DepreciationTab() {
 function CategoriesTab() {
   const bookkeeper = canBookkeep(useAuth().me?.role);
   const [editing, setEditing] = useState<AssetCategory | 'new' | null>(null);
+  const [catMethod, setCatMethod] = useState<{ kind: 'asset' | 'category'; id: string; name: string; method: string } | null>(null);
   const [form] = Form.useForm();
   const accounts = useAccounts();
   const cats = useQuery({ queryKey: ['assets', 'categories'], queryFn: () => get<AssetCategory[]>('/assets/categories') });
@@ -753,6 +830,7 @@ function CategoriesTab() {
           { title: 'Fiskal', dataIndex: 'fiscalGroup', render: (g: FiscalAssetGroup) => FISCAL_ASSET_GROUP_INFO[g]?.label },
           {
             render: (_, c) => bookkeeper && (
+              <>
               <Button
                 size="small"
                 onClick={() => {
@@ -762,10 +840,15 @@ function CategoriesTab() {
               >
                 Ubah
               </Button>
+              <Button size="small" style={{ marginLeft: 6 }} disabled={c.method === 'NONE'} onClick={() => setCatMethod({ kind: 'category', id: c.id, name: c.name, method: c.method })}>
+                Ubah metode semua aset
+              </Button>
+              </>
             ),
           },
         ]}
       />
+      <ChangeMethodModal target={catMethod} onClose={() => setCatMethod(null)} />
       <Modal title={editing === 'new' ? 'Kategori baru' : 'Ubah kategori'} open={!!editing} onCancel={() => setEditing(null)} onOk={() => form.submit()} confirmLoading={save.isPending} width={640} destroyOnHidden>
         <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
           <Form.Item name="name" label="Nama" rules={[{ required: true }]}>
@@ -773,7 +856,7 @@ function CategoriesTab() {
           </Form.Item>
           <Row gutter={12}>
             <Col span={12}>
-              <Form.Item name="method" label="Metode komersial">
+              <Form.Item name="method" label="Metode komersial" extra="Hanya untuk aset baru di kategori ini. Untuk aset yang sudah ada, pakai Ubah metode semua aset (berlaku ke depan).">
                 <Select options={toOptions(DEPRECIATION_METHOD_LABELS)} />
               </Form.Item>
             </Col>

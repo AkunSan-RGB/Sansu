@@ -596,6 +596,13 @@
       "when": 1795631886484,
       "tag": "0084_pengiriman_parsial",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1795718286484,
+      "tag": "0085_ubah_metode_penyusutan",
+      "breakpoints": true
     }
   ]
 }

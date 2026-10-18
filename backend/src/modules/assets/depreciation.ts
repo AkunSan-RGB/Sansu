@@ -59,6 +59,35 @@ export function monthlyDepreciation(a: DepInput, accumulated: Dec, period: strin
   return Decimal.min(amount, remainingValue);
 }
 
+/** Perubahan metode (berlaku ke depan mulai bulan `from`; `accumulatedAt` = akumulasi total tepat sebelum bulan itu) */
+export interface MethodChange {
+  from: string;
+  method: string;
+  prevMethod: string;
+  accumulatedAt: string;
+}
+
+/**
+ * Penyusutan satu bulan dengan memperhitungkan perubahan metode. Sebelum perubahan pertama dipakai metode lama; sesudahnya,
+ * sisa nilai buku (dikurangi residu) disusutkan dengan metode baru selama sisa masa manfaat sejak bulan berlaku.
+ * Bulan-bulan sebelum bulan berlaku tidak berubah.
+ */
+export function depreciationFor(a: DepInput & { methodChanges?: MethodChange[] | null }, accumulated: Dec, period: string): Dec {
+  const changes = [...(a.methodChanges ?? [])].sort((x, y) => x.from.localeCompare(y.from));
+  if (!changes.length) return monthlyDepreciation(a, accumulated, period);
+  const active = [...changes].reverse().find((c) => c.from <= period);
+  if (!active) return monthlyDepreciation({ ...a, method: changes[0].prevMethod }, accumulated, period);
+  const elapsed = monthIndex(active.from) - monthIndex(a.depreciationStart.slice(0, 7));
+  const remainingLife = a.usefulLifeMonths - elapsed;
+  if (remainingLife <= 0) return ZERO;
+  const segCost = D(a.cost).minus(active.accumulatedAt);
+  return monthlyDepreciation(
+    { cost: segCost.toFixed(2), residualValue: a.residualValue, usefulLifeMonths: remainingLife, method: active.method, depreciationStart: `${active.from}-01` },
+    accumulated.minus(active.accumulatedAt),
+    period,
+  );
+}
+
 /** Akumulasi komersial s/d akhir periode tertentu (simulasi dari awal penyusutan) */
 export function accumulatedThrough(a: DepInput, openingAccumulated: Dec, period: string, startFrom?: string) {
   let acc = openingAccumulated;

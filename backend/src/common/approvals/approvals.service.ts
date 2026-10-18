@@ -18,7 +18,7 @@ import { SettingsService } from '../settings.service';
 import { TelegramService } from '../telegram/telegram.service';
 
 export const APPROVER_ROLES: readonly Role[] = ['OWNER', 'ADMIN'];
-export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS' | 'CUSTOMER_PAYMENT' | 'STOCK_COUNT' | 'AR_WRITE_OFF';
+export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS' | 'CUSTOMER_PAYMENT' | 'STOCK_COUNT' | 'AR_WRITE_OFF' | 'ASSET_METHOD';
 
 export interface ApprovalPolicy {
   /** Pesanan pembelian dengan total ≥ nilai ini perlu persetujuan (0 = nonaktif) */
@@ -93,6 +93,7 @@ export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   CUSTOMER_TERMS: 'Perubahan syarat pelanggan (limit kredit / termin)',
   CUSTOMER_PAYMENT: 'Pembayaran pelanggan oleh pembuat fakturnya sendiri',
   AR_WRITE_OFF: 'Penghapusan piutang (write-off)',
+  ASSET_METHOD: 'Perubahan metode penyusutan aset',
   STOCK_COUNT: 'Selisih stock opname',
 };
 
