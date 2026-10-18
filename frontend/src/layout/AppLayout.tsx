@@ -1,7 +1,7 @@
 import { taskCountByPath, useTasks } from './useTasks';
 import ApprovalAssignListener from '@/features/approvals/ApprovalAssignListener';
 import { rememberReturnTo } from '@/auth/returnTo';
-import { ApartmentOutlined, AppstoreOutlined, AuditOutlined, CheckSquareOutlined, CrownOutlined, MenuOutlined, SettingOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, AuditOutlined, CheckSquareOutlined, CrownOutlined, MenuOutlined, SettingOutlined } from '@ant-design/icons';
 import { BUSINESS_MODELS, localize, type AppKey, type BusinessModel } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Badge, Button, Checkbox, Drawer, Grid, Layout, Menu, type MenuProps, message, Segmented, Spin, Typography } from 'antd';
@@ -62,7 +62,6 @@ const subItems = (c: Sub[] = []): Item[] => c.flatMap((x) => ('section' in x ? x
 const MENU: Group[] = [
   { part: '', key: '/dashboard', label: 'Dashboard', icon: APP_ICONS.dashboard, to: '/dashboard' },
   { part: '', key: '/tasks', label: 'Tugas saya', icon: <CheckSquareOutlined />, to: '/tasks', core: true, roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'PURCHASING', 'WAREHOUSE', 'CASHIER', 'HR'] },
-  { part: '', key: '/workflow', label: 'Alur kerja', icon: <ApartmentOutlined />, to: '/workflow', core: true, roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'PURCHASING', 'WAREHOUSE', 'CASHIER'] },
 
   // ---------- Penjualan ----------
   {

@@ -17,7 +17,7 @@ export default function WorkflowBadge({ type, id }: { type: string; id?: string 
   const color = data.status === 'DONE' ? 'green' : data.status === 'CANCELLED' ? 'default' : 'blue';
   return (
     <Tooltip title={`${data.pipelineLabel} · ${data.number}`}>
-      <Link to="/workflow"><Tag color={color} icon={<ApartmentOutlined />} style={{ cursor: 'pointer' }}>Alur: {data.status === 'ACTIVE' ? data.stageLabel : data.status === 'DONE' ? 'Selesai' : 'Dibatalkan'}</Tag></Link>
+      <Link to="/tasks?tab=proses"><Tag color={color} icon={<ApartmentOutlined />} style={{ cursor: 'pointer' }}>Alur: {data.status === 'ACTIVE' ? data.stageLabel : data.status === 'DONE' ? 'Selesai' : 'Dibatalkan'}</Tag></Link>
     </Tooltip>
   );
 }
