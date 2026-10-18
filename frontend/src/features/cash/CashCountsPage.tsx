@@ -89,7 +89,7 @@ export default function CashCountsPage() {
   return (
     <>
       <PageHeader
-        title="Opname kas"
+        title="Hitung uang kas (opname)"
         extra={
           <Space wrap>
             {me?.role === 'OWNER' && (

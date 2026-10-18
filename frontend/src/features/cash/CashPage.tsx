@@ -165,7 +165,7 @@ export default function CashPage() {
   return (
     <>
       <PageHeader
-        title="Kas & Bank"
+        title="Uang masuk & keluar"
         extra={
           canEvidence && (
           <Space wrap>

@@ -551,7 +551,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     summary: 'Cocokkan uang di kas kecil / kas kantor dengan saldo di pembukuan, minimal sebulan sekali.',
     paths: ['/cash/counts', '/cash'],
     steps: [
-      'Buka Kas & Bank › Opname kas › Opname baru. Pilih kas, tanggal, dan nama pemegang kas.',
+      'Buka Kas & Bank › Hitung uang kas (opname) › Opname baru. Pilih kas, tanggal, dan nama pemegang kas.',
       'Hitung uang per pecahan (lembar & keping). Total dan selisih terhadap saldo buku muncul otomatis.',
       'Bila ada bon sementara/kasbon yang belum dicatat, tambahkan sebagai pos (+); uang titipan sebagai pos (−).',
       'Isi penjelasan bila masih ada selisih, lalu klik Selesaikan. Selisih kecil langsung dibukukan ke akun Selisih Kas.',
@@ -560,7 +560,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     tips: [
       'Setelah opname selesai, transaksi ke kas tersebut tidak bisa lagi bertanggal sebelum/sama dengan tanggal opname — hasil yang sudah ditandatangani tidak berubah.',
-      'Rekening bank tidak diopname; gunakan Rekonsiliasi bank.',
+      'Rekening bank tidak diopname; gunakan menu Cocokkan dengan bank.',
       'Cek kesehatan data mengingatkan bila kas belum diopname lebih dari sebulan.',
     ],
     keywords: 'opname kas cash count hitung uang kas kecil petty cash selisih kas berita acara pecahan',
@@ -685,7 +685,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     summary: 'Impor rekening koran, cocokkan dengan buku, dan catat biaya bank rutin otomatis.',
     paths: ['/bank'],
     steps: [
-      'Kas & Bank › Bank › impor file mutasi (CSV/Excel) rekening koran.',
+      'Kas & Bank › Cocokkan dengan bank › impor file mutasi (CSV/Excel) rekening koran.',
       'Cocokkan mutasi dengan transaksi di buku, atau buat jurnal dari mutasi yang belum tercatat.',
       'Aturan otomatis (mis. "BIAYA ADM" menjadi Beban Administrasi Bank) hanya dibuat Admin/Pemilik dan berlaku sampai batas nilai tertentu.',
       'Akhir bulan: selisih harus nol, lalu rekonsiliasi disahkan oleh orang lain selain pengimpor.',

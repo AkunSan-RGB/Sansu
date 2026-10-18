@@ -77,7 +77,7 @@ export default function PettyCashPage() {
   return (
     <>
       <PageHeader
-        title="Kas Kecil"
+        title="Kas kecil"
         extra={
           admin && (
             <Button type={fund ? 'default' : 'primary'} onClick={() => navigate('/settings/company?tab=kebijakan')}>

@@ -561,7 +561,7 @@ export default function BankPage() {
   return (
     <>
       <PageHeader
-        title="Rekonsiliasi Bank"
+        title="Cocokkan dengan bank (rekonsiliasi)"
         extra={
           <Space wrap>
             <Radio.Group
