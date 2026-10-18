@@ -27,6 +27,20 @@ describe('Penyusutan komersial', () => {
     expect(accumulatedThrough(a, ZERO, '2029-12').toNumber()).toBe(40_000_000);
   });
 
+  it('saldo menurun 1,5×: tarif 37,5% setahun untuk masa 4 tahun, habis tepat di akhir', () => {
+    const a = { cost: '48000000', residualValue: '8000000', usefulLifeMonths: 48, method: 'DECLINING_BALANCE_150', depreciationStart: '2026-01-01' };
+    expect(monthlyDepreciation(a, ZERO, '2026-01').toNumber()).toBe(1_500_000); // 48 jt × 37,5% / 12
+    expect(accumulatedThrough(a, ZERO, '2029-12').toNumber()).toBe(40_000_000);
+  });
+
+  it('jumlah angka tahun: 15 jt / 5 tahun → 5, 4, 3, 2, 1 jt per tahun', () => {
+    const a = { cost: '15000000', residualValue: '0', usefulLifeMonths: 60, method: 'SUM_OF_YEARS', depreciationStart: '2026-01-01' };
+    expect(accumulatedThrough(a, ZERO, '2026-12').toNumber()).toBeCloseTo(5_000_000, 0);
+    expect(accumulatedThrough(a, ZERO, '2027-12').toNumber()).toBeCloseTo(9_000_000, 0);
+    expect(monthlyDepreciation(a, ZERO, '2026-01').toNumber()).toBeGreaterThan(monthlyDepreciation(a, ZERO, '2027-01').toNumber());
+    expect(accumulatedThrough(a, ZERO, '2030-12').toNumber()).toBe(15_000_000); // habis tepat, tanpa melewati
+  });
+
   it('aset lama: akumulasi awal ikut diperhitungkan', () => {
     expect(monthlyDepreciation(car, D('237500000'), '2033-12').toNumber()).toBe(2_500_000);
   });

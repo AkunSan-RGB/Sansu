@@ -1,6 +1,7 @@
 /**
  * Perhitungan penyusutan aset tetap (fungsi murni, dites di depreciation.spec.ts).
- *  - Komersial (SAK EP/EMKM): bulanan, garis lurus atau saldo menurun ganda, sampai nilai residu.
+ *  - Komersial (SAK EP/EMKM): bulanan, garis lurus, saldo menurun (2× atau 1,5×), atau jumlah angka tahun, sampai nilai residu.
+ *    (Metode unit produksi belum ada: butuh catatan pemakaian per periode.)
  *  - Fiskal (Pasal 11 UU PPh): tahunan per kelompok harta, mulai bulan perolehan.
  */
 import { FISCAL_ASSET_GROUP_INFO, type FiscalAssetGroup } from '@sansu/shared';
@@ -38,13 +39,20 @@ export function monthlyDepreciation(a: DepInput, accumulated: Dec, period: strin
   // Bulan terakhir masa manfaat: habiskan sisa
   if (n >= a.usefulLifeMonths - 1) return money(remainingValue);
   let amount: Dec;
-  if (a.method === 'DECLINING_BALANCE') {
+  if (a.method === 'DECLINING_BALANCE' || a.method === 'DECLINING_BALANCE_150') {
+    const factor = a.method === 'DECLINING_BALANCE' ? 2 : 1.5;
     const nbv = cost.minus(accumulated);
-    const annualRate = D(2).div(D(a.usefulLifeMonths).div(12));
+    const annualRate = D(factor).div(D(a.usefulLifeMonths).div(12));
     amount = money(nbv.times(annualRate).div(12));
     // Beralih ke garis lurus bila lebih besar (praktik umum agar habis tepat waktu)
     const sl = money(remainingValue.div(a.usefulLifeMonths - n));
     if (sl.gt(amount)) amount = sl;
+  } else if (a.method === 'SUM_OF_YEARS') {
+    // Jumlah angka tahun: tahun ke-k mendapat (N − k + 1) / (N(N+1)/2) dari nilai yang disusutkan; dibagi rata per bulan dalam tahun itu
+    const years = Math.ceil(a.usefulLifeMonths / 12);
+    const k = Math.floor(n / 12) + 1;
+    const share = D(years - k + 1).div((years * (years + 1)) / 2);
+    amount = money(cost.minus(residual).times(share).div(12));
   } else {
     amount = money(cost.minus(residual).div(a.usefulLifeMonths));
   }

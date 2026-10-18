@@ -408,8 +408,10 @@ function AssetList() {
   );
   const controls = useQuery({
     queryKey: ['assets', 'controls'],
-    queryFn: () => get<{ items: { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string; assetIds: string[] }[] }>('/assets/controls'),
+    queryFn: () => get<{ items: { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string; assetIds: string[] }[]; setup?: { active: boolean; message: string; recommended: Record<string, unknown>; recommendedText: string } }>('/assets/controls'),
   });
+  const policyEditor = ['OWNER', 'ADMIN'].includes(useAuth().me?.role ?? '');
+  const applySetup = useAction(() => put('/approvals/policy', controls.data?.setup?.recommended ?? {}), { success: 'Rekomendasi diterapkan', invalidate: ['assets', 'approvals'] });
   const autoSetting = useQuery({ queryKey: ['assets', 'settings'], queryFn: () => get<{ autoDepreciation: boolean }>('/assets/settings') });
   const saveAuto = useAction((v: boolean) => put('/assets/settings', { autoDepreciation: v }), { success: 'Pengaturan disimpan', invalidate: ['assets'] });
   const mismatches = (recon.data?.rows ?? []).filter((r) => Math.abs(Number(r.diff)) >= 1);
@@ -422,6 +424,20 @@ function AssetList() {
   const monthly = rows.filter((a) => a.status === 'ACTIVE').reduce((s, a) => s + Number(a.monthlyEstimate ?? 0), 0);
   return (
     <>
+      {controls.data?.setup && !controls.data.setup.active && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Pengaman belum aktif"
+          description={`${controls.data.setup.message} Rekomendasi: ${controls.data.setup.recommendedText}.`}
+          action={policyEditor && (
+            <Button size="small" type="primary" loading={applySetup.isPending} onClick={() => applySetup.mutate(undefined)}>
+              Terapkan rekomendasi
+            </Button>
+          )}
+        />
+      )}
       {!!controls.data?.items.length && (
         <Card size="small" title="Kontrol aset tetap" style={{ marginBottom: 16 }}>
           <Space direction="vertical" style={{ width: '100%' }}>
