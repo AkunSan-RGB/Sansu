@@ -1,8 +1,8 @@
 import { APP_BY_KEY, BUSINESS_MODEL_BY_KEY, type BusinessModel } from '@sansu/shared';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Card, message, Space, Steps, Typography } from 'antd';
 import { useEffect, useState } from 'react';
-import { put } from '@/api/client';
+import { get, put } from '@/api/client';
 import { useAction } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
 import BusinessModelPicker from '@/components/BusinessModelPicker';
@@ -11,6 +11,8 @@ import BusinessModelPicker from '@/components/BusinessModelPicker';
 export default function BusinessModelCard() {
   const { me, startDemo } = useAuth();
   const [reseeding, setReseeding] = useState(false);
+  const biz = useQuery({ queryKey: ['onboarding', 'business'], queryFn: () => get<{ locked: boolean }>('/settings/business') });
+  const locked = !!biz.data?.locked;
   const qc = useQueryClient();
   const [model, setModel] = useState<BusinessModel>(me?.businessModel ?? 'DAGANG');
   useEffect(() => setModel(me?.businessModel ?? 'DAGANG'), [me?.businessModel]);
@@ -27,6 +29,7 @@ export default function BusinessModelCard() {
       onSuccess: () => {
         qc.invalidateQueries({ queryKey: ['me'] });
         qc.invalidateQueries({ queryKey: ['onboarding'] });
+        qc.invalidateQueries({ queryKey: ['onboarding', 'business'] });
         qc.invalidateQueries({ queryKey: ['apps'] });
         // bagan akun mendapat akun khusus model baru; laporan memakai istilah model baru
         for (const k of ['accounts', 'statements', 'notes', 'appendix', 'entity-profile']) qc.invalidateQueries({ queryKey: [k] });
@@ -50,10 +53,19 @@ export default function BusinessModelCard() {
     <Card title="Model bisnis">
       <Typography.Paragraph type="secondary">
         Menentukan aplikasi yang disarankan, langkah panduan mulai, akun khusus di bagan akun, dan istilah di laporan
-        keuangan (mis. beban pokok penjualan atau beban pokok pendapatan). Mengganti model tidak menghapus akun atau
-        mengubah angka. Semua aplikasi tetap bisa dinyalakan atau dimatikan di Pengaturan › Aplikasi.
+        keuangan (mis. beban pokok penjualan atau beban pokok pendapatan). Jenis usaha dikunci begitu perusahaan
+        punya transaksi, supaya data antar jenis usaha tidak tercampur. Semua aplikasi tetap bisa dinyalakan atau dimatikan di Pengaturan › Aplikasi.
       </Typography.Paragraph>
-      <BusinessModelPicker value={model} onChange={isAdmin ? setModel : undefined} detailed />
+      {locked && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="Jenis usaha dikunci"
+          description={`Perusahaan ini sudah punya transaksi sebagai ${BUSINESS_MODEL_BY_KEY[me?.businessModel ?? 'DAGANG'].name}. Data antar jenis usaha tidak boleh tercampur. Untuk jenis usaha lain, buat perusahaan baru dengan data terpisah.`}
+        />
+      )}
+      <BusinessModelPicker value={model} onChange={isAdmin && (!locked || demo) ? setModel : undefined} detailed />
       <div style={{ margin: '16px 0 8px', fontWeight: 600 }}>Alur yang dihubungkan SANSU</div>
       <Steps
         size="small"
@@ -72,7 +84,7 @@ export default function BusinessModelCard() {
           action={<Button type="primary" disabled={!changed} loading={reseeding} onClick={reseed}>Buat demo baru: {info.name}</Button>}
         />
       )}
-      {isAdmin && !demo && (
+      {isAdmin && !demo && !locked && (
         <Space wrap style={{ marginTop: 16 }}>
           {missing.length > 0 && (
             <Button type="primary" loading={save.isPending} onClick={() => save.mutate(true)}>
