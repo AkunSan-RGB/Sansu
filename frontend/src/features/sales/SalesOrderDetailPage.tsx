@@ -12,6 +12,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
 import { SalesOrderStatusTag } from './status';
 import { t } from '@/lib/terms';
+import WorkflowBadge from '@/features/workflow/WorkflowBadge';
 
 export default function SalesOrderDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -39,7 +40,7 @@ export default function SalesOrderDetailPage() {
   return (
     <>
       <PageHeader
-        title={o ? `Sales Order ${o.number}` : 'Sales Order'}
+        title={<Space wrap>{o ? `Sales Order ${o.number}` : 'Sales Order'}{o && <WorkflowBadge type="SALES_ORDER" id={o.id} />}</Space>}
         extra={
           o && (
             <Space wrap>

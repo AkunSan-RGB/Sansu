@@ -2281,6 +2281,9 @@ export const workflowCases = pgTable(
     stageEnteredAt: timestamp('stage_entered_at', { withTimezone: true }).notNull().defaultNow(),
     stageEnteredById: uuid('stage_entered_by_id'),
     closedAt: timestamp('closed_at', { withTimezone: true }),
+    /** Kunci kasus buatan sistem (mis. RESTOCK:produk:gudang) agar tidak ganda */
+    refKey: text('ref_key'),
+    autoOpened: boolean('auto_opened').notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('workflow_cases_number_uq').on(t.tenantId, t.number), index('workflow_cases_pipeline_idx').on(t.tenantId, t.pipeline, t.status, t.stage)],

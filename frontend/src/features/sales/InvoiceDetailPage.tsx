@@ -20,6 +20,7 @@ import PaymentModal, { outstanding } from './PaymentModal';
 import { ApplyDepositModal } from '../services/DepositsPage';
 import { InvoiceStatusTag } from './status';
 import { t } from '@/lib/terms';
+import WorkflowBadge from '@/features/workflow/WorkflowBadge';
 
 type Detail = InvoiceDetail & {
   customerId: string;
@@ -83,6 +84,7 @@ export default function InvoiceDetailPage() {
             {inv ? `Faktur ${inv.number}` : 'Faktur'}
             {inv && <InvoiceStatusTag status={inv.status} />}
             {inv?.isOpening && <Tag color="gold">Saldo awal</Tag>}
+            {inv && <WorkflowBadge type="INVOICE" id={inv.id} />}
           </Space>
         }
         extra={

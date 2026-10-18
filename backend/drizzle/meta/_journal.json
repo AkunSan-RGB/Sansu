@@ -505,6 +505,13 @@
       "when": 1794508686484,
       "tag": "0071_alur_kerja",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1794595086484,
+      "tag": "0072_alur_kerja_otomatis",
+      "breakpoints": true
     }
   ]
 }
