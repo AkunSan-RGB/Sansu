@@ -38,6 +38,7 @@ import {
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { CASH_DENOMINATIONS, type CashCountSettings } from '@sansu/shared';
 import { RequireApp } from '../../common/apps/app.guard';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
@@ -108,6 +109,7 @@ export class CashCountService {
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
     private readonly settings: SettingsService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   getSettings(tenantId: string) {
@@ -370,6 +372,8 @@ export class CashCountService {
           .update(cashCounts)
           .set({ status: 'WAITING_APPROVAL', rejectReason: null })
           .where(eq(cashCounts.id, id));
+        // Hanya Pemilik yang menyetujui selisih besar: beri tahu langsung, jangan menunggu dibuka sendiri
+        void this.approvals.notifyRoles(u.tenantId, { roles: ['OWNER'], excludeUserId: u.sub, title: `Opname kas ${c.number} selisih Rp${Math.abs(t.difference.toNumber()).toLocaleString('id-ID')} menunggu persetujuan Anda`, lines: [c.reason ?? ''], path: '/cash/counts' });
       } else {
         await this.post(tx, u, c, t.difference, u.role === 'OWNER' ? u.sub : undefined);
       }

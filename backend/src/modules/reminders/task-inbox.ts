@@ -97,6 +97,18 @@ export class TaskInboxService {
             AND NOT EXISTS (SELECT 1 FROM utility_readings r WHERE r.connection_id = c.id AND r.period = to_char(CURRENT_DATE, 'YYYY-MM') AND r.status <> 'REJECTED')`));
       }
     }
+    if (on.has('cash')) {
+      if (isOwner) {
+        add('cash-count-approval', '/cash/counts', (n) => `${n} opname kas dengan selisih besar menunggu persetujuan Anda`, 'Hanya Pemilik yang menyetujui; diajukan Keuangan/Admin', await this.one(sql`
+          SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - date), 0)::int AS oldest FROM cash_counts WHERE tenant_id = ${u.tenantId} AND status = 'WAITING_APPROVAL'`));
+      }
+      if (is(['ADMIN', 'FINANCE'])) {
+        add('bank-unmatched', '/bank', (n) => `${n} mutasi bank belum dicocokkan`, 'Cocokkan dengan catatan kas atau catat sebagai transaksi baru', await this.one(sql`
+          SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - date), 0)::int AS oldest FROM bank_statement_lines WHERE tenant_id = ${u.tenantId} AND status = 'UNMATCHED'`));
+        add('petty-replenish', '/petty-cash', (n) => `${n} bukti kas kecil belum diganti (pengisian kembali)`, 'Bukti sudah lebih dari 7 hari; ajukan pengisian kembali agar kas kecil tidak kosong', await this.one(sql`
+          SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - date), 0)::int AS oldest FROM petty_cash_vouchers WHERE tenant_id = ${u.tenantId} AND status = 'OPEN' AND date < CURRENT_DATE - 7`));
+      }
+    }
     const wf = await this.workflow.tasksFor(u);
     if (wf.count > 0) out.push({ key: 'workflow', link: '/workflow', title: `${wf.count} kasus alur kerja menunggu tindakan Anda`, detail: wf.oldestDays >= 1 ? `Sesuai peran Anda · terlama ${wf.oldestDays} hari di tahap ini` : 'Sesuai peran Anda', count: wf.count, oldestDays: wf.oldestDays });
     return out.sort((a, b) => b.oldestDays - a.oldestDays);
