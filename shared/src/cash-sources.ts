@@ -16,3 +16,24 @@ export const CASH_IN_SOURCE_KEYS = CASH_IN_SOURCES.map((s) => s.key) as unknown 
 export const cashInSource = (key: string | null | undefined) => CASH_IN_SOURCES.find((s) => s.key === key);
 /** Sumber yang mengubah modal/utang: pemilik dan Akuntan perlu diberi tahu agar bisa memverifikasi */
 export const CASH_IN_SOURCES_TO_VERIFY: readonly CashInSourceKey[] = ['OWNER_CAPITAL', 'LOAN_BANK', 'LOAN_OTHER', 'OTHER_INCOME'];
+
+/**
+ * Jenis uang keluar (biaya) dalam bahasa kegiatan usaha. Keuangan memilih jenisnya; sistem menentukan akun beban dan jurnalnya.
+ * Pengeluaran yang bukan biaya (prive, bayar utang, pajak, aset) tidak ada di sini: itu lewat dokumennya atau dicatat Pemilik/Admin.
+ */
+export const CASH_OUT_SOURCES = [
+  { key: 'OUT_UTILITY', label: 'Listrik, air & telepon', hint: 'Tagihan listrik, PDAM, internet, pulsa', code: '6-4000', needsRef: false },
+  { key: 'OUT_RENT', label: 'Sewa tempat', hint: 'Sewa toko, kantor, gudang', code: '6-3000', needsRef: true },
+  { key: 'OUT_FUEL', label: 'Bensin & transportasi', hint: 'BBM, parkir, tol, ongkos', code: '6-2000', needsRef: false },
+  { key: 'OUT_OFFICE', label: 'Perlengkapan kantor (ATK)', hint: 'Alat tulis, kertas, perlengkapan habis pakai', code: '6-6000', needsRef: false },
+  { key: 'OUT_REPAIR', label: 'Perbaikan & pemeliharaan', hint: 'Servis, perbaikan, perawatan', code: '6-7000', needsRef: false },
+  { key: 'OUT_ADS', label: 'Iklan & promosi', hint: 'Iklan, cetak brosur, promosi', code: '6-2100', needsRef: false },
+  { key: 'OUT_INSURANCE', label: 'Asuransi', hint: 'Premi asuransi', code: '6-7100', needsRef: true },
+  { key: 'OUT_PROFESSIONAL', label: 'Jasa profesional', hint: 'Akuntan, konsultan, notaris, pengacara', code: '6-7200', needsRef: true },
+  { key: 'OUT_OTHER', label: 'Biaya lain-lain', hint: 'Biaya operasional lain; wajib ada bukti', code: '6-9000', needsRef: true },
+] as const;
+export type CashOutSourceKey = (typeof CASH_OUT_SOURCES)[number]['key'];
+export const CASH_OUT_SOURCE_KEYS = CASH_OUT_SOURCES.map((s) => s.key) as unknown as readonly CashOutSourceKey[];
+export const cashOutSource = (key: string | null | undefined) => CASH_OUT_SOURCES.find((s) => s.key === key);
+/** Semua kunci sumber (masuk + keluar) yang diterima API */
+export const CASH_SOURCE_KEYS = [...CASH_IN_SOURCE_KEYS, ...CASH_OUT_SOURCE_KEYS] as readonly (CashInSourceKey | CashOutSourceKey)[];
