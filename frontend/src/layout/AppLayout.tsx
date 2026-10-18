@@ -205,6 +205,7 @@ const MENU: Group[] = [
     children: [
       { key: '/cash', label: 'Kas, kas kecil & opname' },
       { key: '/bank', label: 'Cocokkan dengan bank' },
+      { key: '/finance-controls', label: 'Kontrol keuangan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
     ],
   },
   {

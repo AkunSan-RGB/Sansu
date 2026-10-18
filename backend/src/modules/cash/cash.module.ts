@@ -548,7 +548,40 @@ export class CashService {
 
     const voided = await this.db.query.cashTransactions.findMany({ where: and(eq(cashTransactions.tenantId, tenantId), eq(cashTransactions.status, 'VOID'), gte(cashTransactions.voidedAt, new Date(`${addDays(today, -30)}T00:00:00Z`))) });
     add('VOIDED', 'info', 'Transaksi kas dibatalkan (30 hari)', voided.map((t) => t.number), `Tinjau alasan pembatalan: ${list(voided)}`);
-    return { generatedAt: new Date().toISOString(), count: out.length, items: out };
+
+    // Jurnal manual 60 hari terakhir: jalan pintas yang tidak lewat faktur/kas/stok — sering dipakai menutupi kecurangan
+    const limit = pol.manualJournal > 0 ? pol.manualJournal : 10_000_000;
+    const jrows = async (q: ReturnType<typeof sql>) => (await this.db.execute<{ number: string; d: string; v: string }>(q)).rows;
+    const fmtJ = (r: { number: string; d: string; v: string }) => `${r.number} (${r.d}) Rp${Math.round(Number(r.v)).toLocaleString('id-ID')}`;
+    const big = await jrows(sql`
+      SELECT j.number, j.date::text AS d, SUM(l.debit)::text AS v FROM journal_entries j JOIN journal_lines l ON l.journal_id = j.id
+      WHERE j.tenant_id = ${tenantId} AND j.source_type = 'MANUAL' AND j.date >= ${since}
+      GROUP BY j.id, j.number, j.date HAVING SUM(l.debit) >= ${limit} ORDER BY SUM(l.debit) DESC`);
+    add('JE_LARGE', 'warning', 'Jurnal manual bernilai besar', big.map(fmtJ), `Jurnal manual ≥ Rp${limit.toLocaleString('id-ID')} tidak lewat faktur/kas/stok. Pastikan ada dokumen dasar dan penyetujunya.`);
+    const ctl = await jrows(sql`
+      SELECT j.number, j.date::text AS d, SUM(l.debit)::text AS v FROM journal_entries j JOIN journal_lines l ON l.journal_id = j.id JOIN accounts a ON a.id = l.account_id
+      WHERE j.tenant_id = ${tenantId} AND j.source_type = 'MANUAL' AND j.date >= ${since} AND (a.is_cash_account OR COALESCE(a.system_key, '') IN ('AR', 'AP', 'INVENTORY'))
+      GROUP BY j.id, j.number, j.date ORDER BY j.date DESC`);
+    add('JE_CONTROL_ACCOUNT', 'warning', 'Jurnal manual menyentuh kas/bank, piutang, utang, atau persediaan', ctl.map(fmtJ), 'Akun ini seharusnya bergerak lewat kas, faktur, pembayaran, atau stok. Jurnal manual ke sana melewati kontrol dokumen dan bisa membuat saldo tidak cocok dengan kartu pembantu.');
+    const wk = await jrows(sql`
+      SELECT j.number, j.date::text AS d, SUM(l.debit)::text AS v FROM journal_entries j JOIN journal_lines l ON l.journal_id = j.id
+      WHERE j.tenant_id = ${tenantId} AND j.source_type = 'MANUAL' AND j.date >= ${since} AND EXTRACT(DOW FROM j.date) IN (0, 6)
+      GROUP BY j.id, j.number, j.date ORDER BY j.date DESC`);
+    add('JE_WEEKEND', 'info', 'Jurnal manual bertanggal akhir pekan', wk.map(fmtJ), 'Tidak selalu salah, tetapi jurnal di luar hari kerja layak ditinjau.');
+    const rev = await jrows(sql`
+      SELECT j.number, j.date::text AS d, SUM(l.debit)::text AS v FROM journal_entries j JOIN journal_lines l ON l.journal_id = j.id
+      JOIN journal_entries r ON r.reversal_of_id = j.id
+      WHERE j.tenant_id = ${tenantId} AND j.source_type = 'MANUAL' AND j.date >= ${since} AND r.created_at - j.created_at <= interval '3 days'
+      GROUP BY j.id, j.number, j.date ORDER BY j.date DESC`);
+    add('JE_REVERSED_FAST', 'info', 'Jurnal manual dibalik dalam 3 hari', rev.map(fmtJ), 'Dibuat lalu cepat dibatalkan: wajar untuk salah input, tetapi juga pola menyembunyikan angka sementara (mis. di tutup periode).');
+
+    const setup = {
+      active: pol.cashOut > 0 || pol.manualJournal > 0,
+      message: 'Batas persetujuan uang keluar dan jurnal manual masih 0 (mati): berapa pun nilainya langsung tercatat tanpa persetujuan Pemilik/Admin.',
+      recommended: { cashOut: 5_000_000, manualJournal: 10_000_000 },
+      recommendedText: 'uang keluar ≥ Rp5 juta dan jurnal manual ≥ Rp10 juta butuh persetujuan',
+    };
+    return { generatedAt: new Date().toISOString(), asOf: today, since, count: out.length, items: out, setup };
   }
 
   /**
