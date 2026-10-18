@@ -116,6 +116,9 @@ export class SalesControlsService {
     add('PAYMENT_NOT_IN_BANK', 'warning', 'Pembayaran transfer pelanggan tidak ada di mutasi bank', bu.rows.map((r) => `${r.number} ${r.name}`), 'Mutasi bank periode itu sudah diimpor, tetapi tidak ada baris yang cocok dengan pembayaran ini. Bisa pembayaran fiktif atau salah rekening; cocokkan di Kas & Bank › Cocokkan dengan bank.');
 
     // 20. Pemisahan fungsi: pembayaran / retur atas faktur oleh orang yang sama dengan pembuat fakturnya
+    // Hanya relevan bila ada lebih dari satu Keuangan aktif (satu orang pasti memegang kedua langkah, sehingga temuannya hanya kebisingan)
+    const [{ n: financeCount }] = (await this.db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM users WHERE tenant_id = ${tenantId} AND role = 'FINANCE' AND is_active`)).rows;
+    if (financeCount >= 2) {
     const sp = await this.db.execute<{ who: string; n: number }>(sql`
       SELECT u.name AS who, COUNT(DISTINCT p.invoice_id)::int AS n
       FROM payments p
@@ -123,7 +126,7 @@ export class SalesControlsService {
       JOIN audit_logs ai ON ai.tenant_id = p.tenant_id AND ai.entity = 'Invoice' AND ai.entity_id = p.invoice_id::text AND ai.action = 'CREATE' AND ai.user_id = ap.user_id
       JOIN users u ON u.id = ap.user_id
       WHERE p.tenant_id = ${tenantId} AND p.date >= ${since} GROUP BY u.name ORDER BY n DESC`);
-    add('PAYMENT_BY_INVOICE_CREATOR', 'info', 'Pembayaran dicatat oleh pembuat fakturnya sendiri', sp.rows.map((r) => `${r.who}: ${r.n} faktur`), 'Satu orang membuat tagihan sekaligus mencatat uang masuknya. Wajar bila hanya ada satu Keuangan; bila ada lebih, aktifkan "Pemisahan fungsi penjualan" di Pengaturan › Kebijakan.');
+    add('PAYMENT_BY_INVOICE_CREATOR', 'info', 'Pembayaran dicatat oleh pembuat fakturnya sendiri', sp.rows.map((r) => `${r.who}: ${r.n} faktur`), 'Satu orang membuat tagihan sekaligus mencatat uang masuknya, padahal ada lebih dari satu Keuangan. Bagi tugasnya dan aktifkan "Pemisahan fungsi penjualan" di Pengaturan › Perusahaan › Kebijakan.');
     const sr = await this.db.execute<{ who: string; n: number }>(sql`
       SELECT u.name AS who, COUNT(DISTINCT r.invoice_id)::int AS n
       FROM sales_returns r
@@ -131,7 +134,8 @@ export class SalesControlsService {
       JOIN audit_logs ai ON ai.tenant_id = r.tenant_id AND ai.entity = 'Invoice' AND ai.entity_id = r.invoice_id::text AND ai.action = 'CREATE' AND ai.user_id = ar.user_id
       JOIN users u ON u.id = ar.user_id
       WHERE r.tenant_id = ${tenantId} AND r.date >= ${since} GROUP BY u.name ORDER BY n DESC`);
-    add('RETURN_BY_INVOICE_CREATOR', 'info', 'Retur dicatat oleh pembuat fakturnya sendiri', sr.rows.map((r) => `${r.who}: ${r.n} faktur`), 'Orang yang membuat faktur juga membuat kredit nota (retur) atasnya. Aktifkan "Pemisahan fungsi penjualan" bila ada lebih dari satu Keuangan.');
+    add('RETURN_BY_INVOICE_CREATOR', 'info', 'Retur dicatat oleh pembuat fakturnya sendiri', sr.rows.map((r) => `${r.who}: ${r.n} faktur`), 'Orang yang membuat faktur juga membuat kredit nota (retur) atasnya, padahal ada lebih dari satu Keuangan. Aktifkan "Pemisahan fungsi penjualan" di Pengaturan › Perusahaan › Kebijakan.');
+    }
 
     const rank = { error: 0, warning: 1, info: 2 } as const;
     out.sort((a, b) => rank[a.level] - rank[b.level]);

@@ -31,7 +31,7 @@ Semua ambang diatur di **Pengaturan › Perusahaan › Kebijakan** dan bernilai 
 ## Pembayaran pelanggan dan pemisahan fungsi Keuangan
 - **Pembayaran transfer yang tidak ada di mutasi bank:** temuan bila pembayaran non-tunai (≥ 3 hari lalu) tidak cocok dengan baris mutasi bank, padahal mutasi bank periode itu sudah diimpor ke rekening yang sama. Bisa pembayaran fiktif atau salah rekening. Belum dinilai bila mutasi periodenya belum diimpor. Pembayaran **tunai** belum bisa diperiksa (belum ada pencatatan setoran ke bank yang terkait ke pembayaran).
 - **Pemisahan fungsi penjualan** (`salesSeparateDuties`, mati bawaan; Pengaturan › Kebijakan): pembayaran pelanggan atau retur atas faktur oleh orang yang membuat faktur itu sendiri (selain Pemilik/Admin) menunggu persetujuan Pemilik/Admin; orang lain langsung boleh. Cocok bila ada lebih dari satu Keuangan; bila hanya satu, semua pembayaran akan menunggu persetujuan, jadi jangan dinyalakan.
-- **Temuan** "Pembayaran/Retur dicatat oleh pembuat fakturnya sendiri" muncul walau saklar mati (info; wajar bila hanya satu Keuangan).
+- **Temuan** "Pembayaran/Retur dicatat oleh pembuat fakturnya sendiri" (info) muncul walau saklar mati, tetapi **hanya bila ada dua pengguna Keuangan aktif atau lebih**; dengan satu Keuangan temuan disembunyikan karena pasti terjadi dan hanya jadi kebisingan. Dengan satu Keuangan, pengawasnya adalah rekonsiliasi bank dan tinjauan Pemilik.
 - **Blokir order pelanggan berfaktur jatuh tempo** sudah ada sejak awal (kontrol kredit): pesanan baru ditolak selama ada faktur lewat jatuh tempo, dan juga bila eksposur melebihi limit kredit.
 
 ## Yang belum dibuat
