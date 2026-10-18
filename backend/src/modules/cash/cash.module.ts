@@ -26,6 +26,7 @@ import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { SettingsService } from '../../common/settings.service';
+import { taxFindings } from './tax-controls';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { addDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
@@ -525,6 +526,8 @@ export class CashService {
       const split = [...byDay.values()].filter((g) => g.length >= 3 && g.reduce((a, t) => a + Number(t.amount), 0) >= pol.cashOut);
       add('SPLIT', 'warning', 'Pengeluaran terpecah tepat di bawah batas persetujuan', split.map((g) => `${g[0].date} ${g[0].cashAccount.name}`), 'Beberapa uang keluar kecil di hari dan akun yang sama totalnya melewati batas persetujuan. Periksa apakah sengaja dipecah.');
     }
+
+    out.push(...(await taxFindings(this.db, tenantId, since, today)));
 
     const bal = await this.accounts(tenantId);
     const neg = bal.filter((a) => D(a.balance).lt(0));
