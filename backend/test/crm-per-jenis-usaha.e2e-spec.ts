@@ -37,6 +37,7 @@ describe('CRM per jenis usaha (e2e)', () => {
   describe.each(['DAGANG', 'JASA', 'FMCG', 'MANUFAKTUR'] as const)('%s', (model) => {
     it('tahap bawaan, sumber, dan alasan kalah mengikuti jenis usaha', async () => {
       const t = (await http.post('/api/auth/register').send({ companyName: `PT ${model}`, name: 'P', email: `crm-${model}-${stamp}@uji.id`, password: 'rahasia123', businessModel: model }).expect(201)).body.accessToken as string;
+      await http.post('/api/apps/crm/install').set(as(t)).expect(201);
       const prof = CRM_PROFILES[model];
       const stages = (await http.get('/api/crm/stages').set(as(t)).expect(200)).body as { name: string }[];
       expect(stages.map((s) => s.name)).toEqual(prof.stages.map((s) => s.name));
@@ -53,13 +54,5 @@ describe('CRM per jenis usaha (e2e)', () => {
       await http.post(`/api/crm/leads/${lead.id}/mark`).set(as(t)).send({ status: 'OPEN' }).expect(201);
       await mark(prof.lostReasons[0]).expect(201);
     });
-  });
-
-  it('aplikasi CRM menyala bawaan untuk Dagang, Jasa, FMCG, Manufaktur', async () => {
-    for (const m of ['DAGANG', 'JASA', 'FMCG', 'MANUFAKTUR']) {
-      const t = (await http.post('/api/auth/register').send({ companyName: `PT apps ${m}`, name: 'P', email: `crm-apps-${m}-${stamp}@uji.id`, password: 'rahasia123', businessModel: m }).expect(201)).body.accessToken as string;
-      const me = (await http.get('/api/auth/me').set(as(t)).expect(200)).body;
-      expect(me.apps).toContain('crm');
-    }
   });
 });

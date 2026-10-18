@@ -167,6 +167,8 @@ export class CrmService {
   }
 
   async deleteStage(tenantId: string, id: string) {
+    const [mine] = await this.db.select({ id: crmStages.id }).from(crmStages).where(and(eq(crmStages.id, id), eq(crmStages.tenantId, tenantId)));
+    if (!mine) throw new NotFoundException('Tahap tidak ditemukan');
     const [used] = await this.db.select({ id: leads.id }).from(leads).where(eq(leads.stageId, id)).limit(1);
     if (used) throw new BadRequestException('Tahap masih berisi prospek; pindahkan dulu prospeknya');
     const all = await this.stages(tenantId);

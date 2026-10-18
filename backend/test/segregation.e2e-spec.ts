@@ -129,7 +129,7 @@ describe('Pemisahan fungsi (e2e)', () => {
 
     it('Pembelian hanya menulis di bidang pemesanan; tidak menerima barang, membayar, atau menagihkan pemasok', () => {
       const writes = matrix.filter((r) => r.method !== 'GET' && !r.public && allowed(r).has('PURCHASING') && !/^\/api\/(auth|platform|billing|platform-admin|reminders)/.test(r.path) && r.path !== '/api/approvals/:id/cancel');
-      const outside = writes.filter((r) => !/^\/api\/(suppliers|purchase-orders|purchase-requests|workflow\/cases)/.test(r.path));
+      const outside = writes.filter((r) => !/^\/api\/(suppliers|purchase-orders|purchase-requests|price-agreements|workflow\/cases)/.test(r.path));
       expect(outside.map((r) => `${r.method} ${r.path}`)).toEqual([]);
       for (const [m, p] of [['POST', '/api/purchase-orders/:id/receipts'], ['POST', '/api/purchase-invoices/payments'], ['POST', '/api/purchase-invoices/bills'], ['POST', '/api/purchase-requests/:id/approve'], ['PATCH', '/api/suppliers/:id']] as const) {
         expect(`${m} ${p} ${find(m, p).has('PURCHASING')}`).toBe(`${m} ${p} false`);

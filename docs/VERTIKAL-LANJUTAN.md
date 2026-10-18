@@ -19,7 +19,7 @@ Catatan penting:
 - Antifraud sama dengan Jasa: nominal dari tarif (tidak diketik), pembuat ≠ penyetuju, tidak bentrok absensi, catatan kembar ditolak, dikunci setelah gaji diposting; tambahan: hasil per perintah produksi tidak boleh melebihi keluarannya.
 
 ## CRM (`shared/src/crm-profile.ts`)
-Tahap pipeline bawaan, sumber prospek, dan alasan kalah berbeda per jenis usaha (Jasa: survei → penawaran → kontrak; FMCG: kunjungan → sampel → listing/PO pertama; F&B: pesanan besar/katering sampai DP; dst.). Semua berupa daftar tertutup (alasan lain: "Lainnya: …"). Aplikasi CRM kini menyala bawaan untuk Dagang, Jasa, FMCG, dan Manufaktur (perusahaan lama tidak berubah). Tahap bawaan hanya dibuat untuk perusahaan yang belum punya tahap.
+Tahap pipeline bawaan, sumber prospek, dan alasan kalah berbeda per jenis usaha (Jasa: survei → penawaran → kontrak; FMCG: kunjungan → sampel → listing/PO pertama; F&B: pesanan besar/katering sampai DP; dst.). Semua berupa daftar tertutup (alasan lain: "Lainnya: …"). Aplikasi CRM tetap hanya menyala bawaan untuk Jasa (bagan akun kontrak/proyek mengikuti aplikasi ini); jenis usaha lain menyalakannya di menu Aplikasi. Tahap bawaan hanya dibuat untuk perusahaan yang belum punya tahap.
 
 ## Pembelian — kontrak harga (`backend/src/modules/purchasing/price-agreements.ts`)
 Harga yang disepakati per barang dari pemasok/prinsipal untuk periode tertentu. Menu bernama menurut jenis usaha (FMCG: kontrak harga prinsipal; F&B: harga pemasok bahan; lainnya: kontrak harga pemasok; tidak tampil untuk Jasa).
