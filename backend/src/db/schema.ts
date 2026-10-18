@@ -2329,7 +2329,7 @@ export const serviceRates = pgTable(
     tenantId: tenantId(),
     name: text('name').notNull(),
     /** HOUR = per jam · SESSION = per sesi · JOB = borongan per pekerjaan · PERCENT = persen dari nilai faktur jasa */
-    unit: text('unit').$type<'HOUR' | 'SESSION' | 'JOB' | 'PERCENT'>().notNull(),
+    unit: text('unit').$type<'HOUR' | 'SESSION' | 'JOB' | 'PERCENT' | 'SHIFT' | 'PIECE'>().notNull(),
     rate: numeric('rate', { precision: 18, scale: 2 }).notNull(),
     isActive: boolean('is_active').notNull().default(true),
     createdById: uuid('created_by_id'),
@@ -2350,11 +2350,13 @@ export const serviceWorkEntries = pgTable(
     rateId: uuid('rate_id')
       .notNull()
       .references(() => serviceRates.id),
-    unit: text('unit').$type<'HOUR' | 'SESSION' | 'JOB' | 'PERCENT'>().notNull(),
+    unit: text('unit').$type<'HOUR' | 'SESSION' | 'JOB' | 'PERCENT' | 'SHIFT' | 'PIECE'>().notNull(),
     workDate: date('work_date').notNull(),
     projectId: uuid('project_id'),
     /** Hanya untuk komisi: faktur jasa yang dikomisikan */
     invoiceId: uuid('invoice_id').references(() => invoices.id),
+    /** Upah per hasil (pabrik): perintah produksi yang dikerjakan; jumlah hasil dibatasi oleh keluaran perintah itu */
+    productionOrderId: uuid('production_order_id').references(() => productionOrders.id),
     /** Jam / sesi / pekerjaan; untuk komisi = persen */
     quantity: numeric('quantity', { precision: 12, scale: 2 }).notNull(),
     rate: numeric('rate', { precision: 18, scale: 2 }).notNull(),

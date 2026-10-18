@@ -269,6 +269,8 @@ const MENU: Group[] = [
     children: [
       { key: '/payroll', label: 'Proses gaji' },
       { key: '/payroll/jasa', label: 'Upah jasa (jam, sesi, komisi)', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'HR', 'FINANCE', 'ACCOUNTANT'] },
+      { key: '/payroll/jasa', label: 'Premi shift & borongan', models: ['RITEL', 'FNB'], roles: ['OWNER', 'ADMIN', 'HR', 'FINANCE', 'ACCOUNTANT'] },
+      { key: '/payroll/jasa', label: 'Upah borongan & per hasil', models: ['MANUFAKTUR', 'DAGANG', 'FMCG'], roles: ['OWNER', 'ADMIN', 'HR', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/payroll/pph21', label: 'Rekap PPh 21' },
       { key: '/payroll/bpjs', label: 'Rekap BPJS' },
     ],

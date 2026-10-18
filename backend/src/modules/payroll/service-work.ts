@@ -1,6 +1,6 @@
 /**
- * Gaji usaha jasa. Usaha jasa dibayar bermacam-macam: per jam (konsultan, tutor), per sesi (terapis, instruktur), borongan per pekerjaan
- * (teknisi, desainer) atau komisi dari faktur jasa. Semuanya dicatat sebagai "catatan kerja", disetujui, lalu otomatis masuk slip gaji
+ * Upah kerja. Dibuat untuk usaha jasa, lalu dipakai semua jenis usaha dengan satuan yang sesuai (lihat shared/work-units): usaha jasa dibayar bermacam-macam: per jam (konsultan, tutor), per sesi (terapis, instruktur), borongan per pekerjaan
+ * (teknisi, desainer) atau komisi dari faktur jasa; toko, kafe, dan pabrik per shift; pabrik dan gudang per hasil atau borongan. Semuanya dicatat sebagai "catatan kerja", disetujui, lalu otomatis masuk slip gaji
  * bulan berjalan sebagai upah jasa — dan menjadi biaya langsung proyek bila dikaitkan ke proyek.
  *
  * Pencegahan kecurangan:
@@ -15,6 +15,7 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Injectable, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsDateString, IsIn, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
+import { WORK_LIMITS, WORK_UNIT_LABELS, WORK_UNITS, WORK_UNITS_BY_MODEL, type WorkUnit } from '@sansu/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import { RequireApp } from '../../common/apps/app.guard';
 import { AuditService } from '../../common/audit/audit.service';
@@ -25,14 +26,14 @@ import { addDays, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { attendances, employees, invoices, projects, serviceRates, serviceWorkEntries } from '../../db/schema';
+import { attendances, employees, invoices, productionOrders, projects, serviceRates, serviceWorkEntries } from '../../db/schema';
 import { monthRange } from '../hr/hr.module';
 
 export const MAX_HOURS_PER_DAY = 16;
 export const MAX_BACKDATE_DAYS = 62;
 export const MAX_HOURS_PER_MONTH = 260;
-const UNITS = ['HOUR', 'SESSION', 'JOB', 'PERCENT'] as const;
-export const UNIT_LABELS: Record<(typeof UNITS)[number], string> = { HOUR: 'per jam', SESSION: 'per sesi', JOB: 'per pekerjaan (borongan)', PERCENT: 'komisi % dari faktur jasa' };
+const UNITS = WORK_UNITS;
+export const UNIT_LABELS = WORK_UNIT_LABELS;
 const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export class CreateRateDto {
@@ -51,6 +52,7 @@ export class CreateEntryDto {
   @ApiPropertyOptional({ example: '6.5', description: 'Jam / sesi / pekerjaan. Kosong untuk komisi.' }) @IsOptional() @IsNumberString() quantity?: string;
   @ApiPropertyOptional() @IsOptional() @IsUUID() projectId?: string;
   @ApiPropertyOptional({ description: 'Wajib untuk tarif komisi: faktur jasa yang sudah lunas' }) @IsOptional() @IsUUID() invoiceId?: string;
+  @ApiPropertyOptional({ description: 'Tarif per hasil (pabrik): perintah produksi yang dikerjakan; jumlah hasil dibatasi keluaran perintah itu' }) @IsOptional() @IsUUID() productionOrderId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) description?: string;
 }
 export class DecideEntryDto {
@@ -126,14 +128,24 @@ export class ServiceWorkService {
     if ((await this.settings.businessModel(this.db, tenantId)) !== 'JASA') throw new BadRequestException('Fitur ini khusus usaha jasa');
   }
 
+  /** Satuan upah yang berlaku untuk jenis usaha perusahaan ini */
+  private async unitsOf(tenantId: string): Promise<WorkUnit[]> {
+    return WORK_UNITS_BY_MODEL[await this.settings.businessModel(this.db, tenantId)];
+  }
+
+  /** Satuan upah dan batas wajar untuk layar (judul, pilihan satuan tarif) */
+  async profile(u: AuthUser) {
+    const model = await this.settings.businessModel(this.db, u.tenantId);
+    return { model, units: WORK_UNITS_BY_MODEL[model].map((k) => ({ key: k, label: WORK_UNIT_LABELS[k] })), limits: WORK_LIMITS };
+  }
+
   // ---------- kartu tarif ----------
   async listRates(u: AuthUser) {
-    await this.requireJasa(u.tenantId);
     return this.db.select().from(serviceRates).where(eq(serviceRates.tenantId, u.tenantId)).orderBy(serviceRates.unit, serviceRates.name);
   }
 
   async createRate(u: AuthUser, dto: CreateRateDto) {
-    await this.requireJasa(u.tenantId);
+    if (!(await this.unitsOf(u.tenantId)).includes(dto.unit)) throw new BadRequestException(`Satuan "${WORK_UNIT_LABELS[dto.unit]}" tidak dipakai di jenis usaha Anda`);
     const rate = D(dto.rate);
     this.checkRate(dto.unit, rate);
     const [dup] = await this.db.select({ id: serviceRates.id }).from(serviceRates).where(and(eq(serviceRates.tenantId, u.tenantId), eq(serviceRates.name, dto.name.trim())));
@@ -144,7 +156,6 @@ export class ServiceWorkService {
   }
 
   async updateRate(u: AuthUser, id: string, dto: UpdateRateDto) {
-    await this.requireJasa(u.tenantId);
     const [r] = await this.db.select().from(serviceRates).where(and(eq(serviceRates.id, id), eq(serviceRates.tenantId, u.tenantId)));
     if (!r) throw new NotFoundException('Tarif tidak ditemukan');
     const rate = dto.rate !== undefined ? D(dto.rate) : D(r.rate);
@@ -163,11 +174,10 @@ export class ServiceWorkService {
 
   // ---------- catatan kerja ----------
   async list(u: AuthUser, q: EntryQueryDto) {
-    await this.requireJasa(u.tenantId);
     const range = q.period ? monthRange(q.period) : null;
     const rows = await this.db.execute<Record<string, unknown>>(sql`
       SELECT w.id, w.employee_id AS "employeeId", e.code AS "employeeCode", e.name AS "employeeName", w.rate_id AS "rateId", sr.name AS "rateName", w.unit,
-             w.work_date::text AS "workDate", w.project_id AS "projectId", p.code AS "projectCode", w.invoice_id AS "invoiceId", i.number AS "invoiceNumber",
+             w.work_date::text AS "workDate", w.project_id AS "projectId", p.code AS "projectCode", w.invoice_id AS "invoiceId", i.number AS "invoiceNumber", w.production_order_id AS "productionOrderId", po.number AS "productionNumber",
              w.quantity, w.rate, w.base_amount AS "baseAmount", w.amount, w.description, w.status, w.created_by_id AS "createdById", cu.name AS "createdByName",
              w.decided_by_id AS "decidedById", du.name AS "decidedByName", w.decision_note AS "decisionNote", w.run_id AS "runId", r.number AS "runNumber", r.status AS "runStatus"
       FROM service_work_entries w
@@ -175,6 +185,7 @@ export class ServiceWorkService {
       JOIN service_rates sr ON sr.id = w.rate_id
       LEFT JOIN projects p ON p.id = w.project_id
       LEFT JOIN invoices i ON i.id = w.invoice_id
+      LEFT JOIN production_orders po ON po.id = w.production_order_id
       LEFT JOIN payroll_runs r ON r.id = w.run_id
       LEFT JOIN users cu ON cu.id = w.created_by_id
       LEFT JOIN users du ON du.id = w.decided_by_id
@@ -183,6 +194,15 @@ export class ServiceWorkService {
         ${q.status ? sql`AND w.status = ${q.status}` : sql``}
         ${q.employeeId ? sql`AND w.employee_id = ${q.employeeId}` : sql``}
       ORDER BY w.work_date DESC, w.created_at DESC LIMIT 500`);
+    return rows.rows;
+  }
+
+  /** Perintah produksi yang bisa dijadikan dasar upah per hasil (sedang berjalan atau selesai) */
+  async productionOrdersForPay(u: AuthUser) {
+    const rows = await this.db.execute<Record<string, unknown>>(sql`
+      SELECT po.id, po.number, po.status, po.planned_qty AS "plannedQty", po.output_qty AS "outputQty",
+             COALESCE((SELECT SUM(w.quantity) FROM service_work_entries w WHERE w.production_order_id = po.id AND w.status IN ('PENDING','APPROVED')), 0) AS "paidQty"
+      FROM production_orders po WHERE po.tenant_id = ${u.tenantId} AND po.status IN ('IN_PROGRESS','COMPLETED') ORDER BY po.created_at DESC LIMIT 100`);
     return rows.rows;
   }
 
@@ -200,7 +220,6 @@ export class ServiceWorkService {
   }
 
   async create(u: AuthUser, dto: CreateEntryDto) {
-    await this.requireJasa(u.tenantId);
     const today = todayJakarta();
     const workDate = dto.workDate ?? today;
     if (workDate > today) throw new BadRequestException('Tanggal kerja tidak boleh di masa depan');
@@ -222,6 +241,7 @@ export class ServiceWorkService {
       const [rate] = await tx.select().from(serviceRates).where(and(eq(serviceRates.id, dto.rateId), eq(serviceRates.tenantId, u.tenantId)));
       if (!rate) throw new NotFoundException('Tarif tidak ditemukan');
       if (!rate.isActive) throw new BadRequestException('Tarif ini sudah tidak aktif');
+      if (!(await this.unitsOf(u.tenantId)).includes(rate.unit)) throw new BadRequestException('Satuan tarif ini tidak dipakai di jenis usaha Anda');
 
       let projectId = dto.projectId ?? null;
       if (projectId) {
@@ -229,6 +249,7 @@ export class ServiceWorkService {
         if (!p) throw new BadRequestException('Proyek tidak ditemukan');
       }
 
+      let productionOrderId: string | null = null;
       let quantity: Dec;
       let baseAmount: Dec | null = null;
       let amount: Dec;
@@ -247,6 +268,7 @@ export class ServiceWorkService {
         amount = money(baseAmount.times(rate.rate).div(100));
       } else {
         if (dto.invoiceId) throw new BadRequestException('Faktur hanya untuk tarif komisi');
+        if (dto.productionOrderId && rate.unit !== 'PIECE') throw new BadRequestException('Perintah produksi hanya untuk tarif per hasil');
         quantity = D(dto.quantity ?? NaN);
         if (!quantity.isFinite() || quantity.lte(0)) throw new BadRequestException('Jumlah harus lebih dari 0');
         if (quantity.decimalPlaces() > 2) throw new BadRequestException('Jumlah maksimal 2 angka di belakang koma');
@@ -254,6 +276,22 @@ export class ServiceWorkService {
           if (quantity.gt(MAX_HOURS_PER_DAY)) throw new BadRequestException(`Satu catatan maksimal ${MAX_HOURS_PER_DAY} jam`);
           const day = await tx.execute<{ h: string }>(sql`SELECT COALESCE(SUM(quantity), 0) AS h FROM service_work_entries WHERE employee_id = ${emp.id} AND work_date = ${workDate} AND unit = 'HOUR' AND status IN ('PENDING','APPROVED')`);
           if (D(day.rows[0].h).plus(quantity).gt(MAX_HOURS_PER_DAY)) throw new BadRequestException(`Jam kerja pegawai pada tanggal itu melebihi ${MAX_HOURS_PER_DAY} jam per hari`);
+        } else if (rate.unit === 'SHIFT') {
+          if (!quantity.isInteger()) throw new BadRequestException('Jumlah shift harus bilangan bulat');
+          const day = await tx.execute<{ n: string }>(sql`SELECT COALESCE(SUM(quantity), 0) AS n FROM service_work_entries WHERE employee_id = ${emp.id} AND work_date = ${workDate} AND unit = 'SHIFT' AND status IN ('PENDING','APPROVED')`);
+          if (D(day.rows[0].n).plus(quantity).gt(WORK_LIMITS.shiftPerDay)) throw new BadRequestException(`Satu pegawai maksimal ${WORK_LIMITS.shiftPerDay} shift per hari`);
+        } else if (rate.unit === 'PIECE') {
+          if (quantity.gt(WORK_LIMITS.maxPieceQty)) throw new BadRequestException('Jumlah hasil terlalu besar untuk satu catatan');
+          if (dto.productionOrderId) {
+            // jumlah hasil yang dibayarkan per perintah produksi tidak boleh melebihi keluarannya (aktual bila selesai, rencana bila berjalan)
+            const [po] = await tx.select().from(productionOrders).where(and(eq(productionOrders.id, dto.productionOrderId), eq(productionOrders.tenantId, u.tenantId))).for('update');
+            if (!po) throw new BadRequestException('Perintah produksi tidak ditemukan');
+            if (po.status !== 'IN_PROGRESS' && po.status !== 'COMPLETED') throw new BadRequestException('Perintah produksi harus sedang berjalan atau sudah selesai');
+            const cap = D(po.status === 'COMPLETED' ? po.outputQty : po.plannedQty);
+            const used = await tx.execute<{ q: string }>(sql`SELECT COALESCE(SUM(quantity), 0) AS q FROM service_work_entries WHERE production_order_id = ${po.id} AND rate_id = ${rate.id} AND status IN ('PENDING','APPROVED')`);
+            if (D(used.rows[0].q).plus(quantity).gt(cap)) throw new BadRequestException(`Jumlah hasil melebihi keluaran perintah produksi ${po.number} (${cap.toFixed(2)} sudah termasuk catatan lain untuk tarif ini)`);
+            productionOrderId = po.id;
+          }
         } else if (quantity.gt(100)) {
           throw new BadRequestException('Jumlah sesi / pekerjaan terlalu besar untuk satu catatan');
         }
@@ -263,7 +301,8 @@ export class ServiceWorkService {
       }
       const dup = await tx.execute<{ id: string }>(sql`
         SELECT id FROM service_work_entries WHERE employee_id = ${emp.id} AND work_date = ${workDate} AND rate_id = ${rate.id} AND quantity = ${quantity.toFixed(2)}
-          AND project_id IS NOT DISTINCT FROM ${projectId}::uuid AND invoice_id IS NOT DISTINCT FROM ${invoiceId}::uuid AND status IN ('PENDING','APPROVED') LIMIT 1`);
+          AND project_id IS NOT DISTINCT FROM ${projectId}::uuid AND invoice_id IS NOT DISTINCT FROM ${invoiceId}::uuid
+          AND production_order_id IS NOT DISTINCT FROM ${productionOrderId}::uuid AND status IN ('PENDING','APPROVED') LIMIT 1`);
       if (dup.rows.length) throw new BadRequestException('Catatan yang sama persis sudah ada');
 
       const [row] = await tx
@@ -276,6 +315,7 @@ export class ServiceWorkService {
           workDate,
           projectId,
           invoiceId,
+          productionOrderId,
           quantity: quantity.toFixed(2),
           rate: D(rate.rate).toFixed(2),
           baseAmount: baseAmount ? baseAmount.toFixed(2) : null,
@@ -303,7 +343,6 @@ export class ServiceWorkService {
   }
 
   async approve(u: AuthUser, id: string, dto: DecideEntryDto) {
-    await this.requireJasa(u.tenantId);
     return this.db.transaction(async (tx) => {
       const e = await this.lockEntry(tx, u.tenantId, id);
       if (e.status !== 'PENDING') throw new BadRequestException('Catatan ini sudah diputuskan');
@@ -319,7 +358,6 @@ export class ServiceWorkService {
   }
 
   async reject(u: AuthUser, id: string, dto: VoidEntryDto) {
-    await this.requireJasa(u.tenantId);
     return this.db.transaction(async (tx) => {
       const e = await this.lockEntry(tx, u.tenantId, id);
       if (e.status !== 'PENDING') throw new BadRequestException('Catatan ini sudah diputuskan');
@@ -332,7 +370,6 @@ export class ServiceWorkService {
 
   /** Batalkan: pembuat boleh menarik catatan yang masih menunggu; keuangan boleh membatalkan yang sudah disetujui selama gajinya belum diposting */
   async voidIt(u: AuthUser, id: string, dto: VoidEntryDto) {
-    await this.requireJasa(u.tenantId);
     return this.db.transaction(async (tx) => {
       const e = await this.lockEntry(tx, u.tenantId, id);
       if (e.status === 'REJECTED' || e.status === 'VOID') throw new BadRequestException('Catatan ini sudah ditolak / dibatalkan');
@@ -351,7 +388,6 @@ export class ServiceWorkService {
 
   /** Hal yang patut diperiksa pemilik / keuangan sebelum memposting gaji */
   async anomalies(u: AuthUser, period: string) {
-    await this.requireJasa(u.tenantId);
     const { from, to } = monthRange(period);
     const out: { kind: string; severity: 'warn' | 'info'; message: string; employeeId?: string }[] = [];
     const hours = await this.db.execute<{ employee_id: string; name: string; h: string }>(sql`
@@ -374,7 +410,20 @@ export class ServiceWorkService {
       WHERE w.tenant_id = ${u.tenantId} AND w.status IN ('PENDING','APPROVED') AND w.work_date BETWEEN ${from} AND ${to}
       GROUP BY w.employee_id, e.name, e.base_salary, e.fixed_allowance
       HAVING (e.base_salary + e.fixed_allowance) > 0 AND SUM(w.amount) > 3 * (e.base_salary + e.fixed_allowance)`);
-    for (const r of big.rows) out.push({ kind: 'UPAH_JASA_BESAR', severity: 'info', employeeId: r.employee_id, message: `${r.name}: upah jasa bulan ini lebih dari 3× gaji tetapnya` });
+    for (const r of big.rows) out.push({ kind: 'UPAH_JASA_BESAR', severity: 'info', employeeId: r.employee_id, message: `${r.name}: upah kerja bulan ini lebih dari 3× gaji tetapnya` });
+    // premi shift berlebihan dan hasil per perintah produksi yang sudah melebihi keluaran (mis. setelah keluaran dikoreksi)
+    const shifts = await this.db.execute<{ employee_id: string; name: string; n: string }>(sql`
+      SELECT w.employee_id, e.name, SUM(w.quantity) AS n FROM service_work_entries w JOIN employees e ON e.id = w.employee_id
+      WHERE w.tenant_id = ${u.tenantId} AND w.unit = 'SHIFT' AND w.status IN ('PENDING','APPROVED') AND w.work_date BETWEEN ${from} AND ${to}
+      GROUP BY w.employee_id, e.name HAVING SUM(w.quantity) > 31`);
+    for (const r of shifts.rows) out.push({ kind: 'SHIFT_BERLEBIH', severity: 'warn', employeeId: r.employee_id, message: `${r.name}: ${D(r.n).toFixed(0)} shift dalam sebulan (lebih dari 31)` });
+    const over = await this.db.execute<{ number: string; paid: string; cap: string }>(sql`
+      SELECT po.number, SUM(w.quantity) AS paid, (CASE WHEN po.status = 'COMPLETED' THEN po.output_qty ELSE po.planned_qty END) AS cap
+      FROM service_work_entries w JOIN production_orders po ON po.id = w.production_order_id
+      WHERE w.tenant_id = ${u.tenantId} AND w.unit = 'PIECE' AND w.status IN ('PENDING','APPROVED')
+      GROUP BY po.id, po.number, po.status, po.output_qty, po.planned_qty
+      HAVING SUM(w.quantity) > (CASE WHEN po.status = 'COMPLETED' THEN po.output_qty ELSE po.planned_qty END)`);
+    for (const r of over.rows) out.push({ kind: 'HASIL_MELEBIHI_PRODUKSI', severity: 'warn', message: `Perintah produksi ${r.number}: hasil yang dibayar ${D(r.paid).toFixed(2)} melebihi keluaran ${D(r.cap).toFixed(2)}` });
     return out;
   }
 }
@@ -387,6 +436,10 @@ export class ServiceWorkService {
 export class ServiceWorkController {
   constructor(private readonly svc: ServiceWorkService) {}
 
+  @Get('profile')
+  profile(@CurrentUser() u: AuthUser) {
+    return this.svc.profile(u);
+  }
   @Get('rates')
   rates(@CurrentUser() u: AuthUser) {
     return this.svc.listRates(u);
@@ -404,6 +457,10 @@ export class ServiceWorkController {
   @Get('entries')
   entries(@CurrentUser() u: AuthUser, @Query() q: EntryQueryDto) {
     return this.svc.list(u, q);
+  }
+  @Get('production-orders')
+  productionOrders(@CurrentUser() u: AuthUser) {
+    return this.svc.productionOrdersForPay(u);
   }
   @Get('commissionable-invoices')
   invoices(@CurrentUser() u: AuthUser) {

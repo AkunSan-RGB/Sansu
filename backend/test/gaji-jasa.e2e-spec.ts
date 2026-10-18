@@ -77,10 +77,13 @@ describe('Gaji usaha jasa (e2e)', () => {
   });
   afterAll(() => app.close());
 
-  it('khusus usaha jasa: usaha dagang ditolak', async () => {
+  it('komisi faktur jasa khusus usaha jasa; usaha dagang hanya memakai satuan miliknya', async () => {
     const o = (await http.post('/api/auth/register').send({ companyName: 'Toko', name: 'P', email: `gj-d-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'DAGANG' }).expect(201)).body.accessToken;
     await post('/api/apps/payroll/install', {}, o).expect(201);
-    expect((await get('/api/payroll/service/rates', o)).status).toBe(400);
+    expect((await get('/api/payroll/service/rates', o)).status).toBe(200);
+    expect((await get('/api/payroll/service/commissionable-invoices', o)).status).toBe(400);
+    expect((await post('/api/payroll/service/rates', { name: 'Per jam', unit: 'HOUR', rate: '10000' }, o)).status).toBe(400);
+    expect((await post('/api/payroll/service/rates', { name: 'Komisi', unit: 'PERCENT', rate: '5' }, o)).status).toBe(400);
   });
 
   it('tarif hanya diatur Keuangan/Admin, bukan HR; persen maksimal 100; nama unik', async () => {
