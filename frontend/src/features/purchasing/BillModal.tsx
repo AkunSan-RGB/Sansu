@@ -11,7 +11,7 @@ import { useApps } from '@/lib/apps';
 import { fmtMoney, today } from '@/lib/format';
 import { t } from '@/lib/terms';
 
-type LineV = { type: 'EXPENSE' | 'ASSET'; description?: string; accountId?: string; assetCategoryId?: string; qty?: number; price?: number; withholding?: boolean };
+type LineV = { totalUnits?: number; unitLabel?: string; type: 'EXPENSE' | 'ASSET'; description?: string; accountId?: string; assetCategoryId?: string; qty?: number; price?: number; withholding?: boolean };
 
 /** Tagihan supplier untuk biaya (jasa, sewa, servis, listrik…) atau pembelian aset tetap — tanpa PO */
 export default function BillModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -61,7 +61,7 @@ export default function BillModal({ open, onClose }: { open: boolean; onClose: (
           ...v,
           budgetOverrideReason,
           withholdingRate: v.withholdingType ? String(v.withholdingRate ?? 0) : undefined,
-          lines: v.lines.map((l) => ({ ...l, qty: String(l.qty ?? 1), price: String(l.price ?? 0), withholding: l.withholding ?? l.type === 'EXPENSE' })),
+          lines: v.lines.map((l) => ({ ...l, qty: String(l.qty ?? 1), price: String(l.price ?? 0), withholding: l.withholding ?? l.type === 'EXPENSE', totalUnits: l.totalUnits ? String(l.totalUnits) : undefined })),
         }),
       ),
     {
@@ -163,6 +163,16 @@ export default function BillModal({ open, onClose }: { open: boolean; onClose: (
                       <Form.Item name={[f.name, 'withholding']} valuePropName="checked" initialValue={t === 'EXPENSE'}>
                         <Checkbox>Dipotong PPh</Checkbox>
                       </Form.Item>
+                    )}
+                    {t === 'ASSET' && cats.data?.find((c) => c.id === lines[f.name]?.assetCategoryId)?.method === 'UNITS_OF_PRODUCTION' && (
+                      <>
+                        <Form.Item name={[f.name, 'totalUnits']} rules={[{ required: true, message: 'Isi total unit' }]}>
+                          <InputNumber min={1} placeholder="Total unit per aset (kapasitas)" style={{ width: 200 }} />
+                        </Form.Item>
+                        <Form.Item name={[f.name, 'unitLabel']}>
+                          <Input placeholder="Satuan (km/jam)" maxLength={20} style={{ width: 120 }} />
+                        </Form.Item>
+                      </>
                     )}
                     {belowThreshold(lines[f.name]) && (
                       <Typography.Text type="warning">Di bawah batas kapitalisasi {fmtMoney(threshold)} → dibebankan, bukan aset</Typography.Text>

@@ -204,6 +204,8 @@ export class BillLineDto {
   @ApiPropertyOptional({ example: '1' }) @IsOptional() @IsNumberString() qty?: string;
   @ApiProperty({ example: '1500000', description: 'Harga satuan sebelum PPN' }) @IsNumberString() price: string;
   @ApiPropertyOptional({ description: 'ASSET: umur manfaat (bulan); kosong = ikut kategori' }) @IsOptional() @IsInt() @Min(0) @Max(600) usefulLifeMonths?: number;
+  @ApiPropertyOptional({ description: 'ASSET kategori unit produksi: kapasitas total tiap unit aset (km, jam, ...)' }) @IsOptional() @IsNumberString() totalUnits?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(20) unitLabel?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(120) location?: string;
   @ApiPropertyOptional({ description: 'Baris ini objek PPh yang dipotong (jasa / sewa)' }) @IsOptional() @IsBoolean() withholding?: boolean;
 }

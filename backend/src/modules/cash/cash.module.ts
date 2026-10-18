@@ -51,6 +51,8 @@ export class CashLineDto {
   @ApiPropertyOptional({ description: 'Nama aset (kosong = memo/keterangan transaksi)' }) @IsOptional() @IsString() @MaxLength(160) assetName?: string;
   @ApiPropertyOptional({ description: 'Masa manfaat bulan (kosong = ikut kategori)' }) @IsOptional() @IsInt() @Min(0) @Max(600) assetUsefulLifeMonths?: number;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(120) assetLocation?: string;
+  @ApiPropertyOptional({ description: 'Kategori bermetode unit produksi: kapasitas total aset' }) @IsOptional() @IsNumberString() assetTotalUnits?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(20) assetUnitLabel?: string;
 }
 
 export class CreateCashTxDto {
@@ -388,6 +390,8 @@ export class CashService {
             cost: money(l.amount),
             usefulLifeMonths: l.assetUsefulLifeMonths,
             location: l.assetLocation,
+            totalUnits: l.assetTotalUnits,
+            unitLabel: l.assetUnitLabel,
             journalId: journal.id,
             notes: `Dibeli tunai, ${number}`,
             branchId: dto.branchId ?? cash.branchId ?? null,

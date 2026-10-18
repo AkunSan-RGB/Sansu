@@ -129,6 +129,8 @@ export class RegisterFromJournalDto {
   @ApiPropertyOptional({ description: 'Nilai yang didaftarkan; kosong = seluruh sisa yang belum jadi kartu aset' }) @IsOptional() @IsNumberString() amount?: string;
   @ApiPropertyOptional({ description: 'Masa manfaat (bulan); kosong = ikut kategori' }) @IsOptional() @IsInt() @Min(0) @Max(600) usefulLifeMonths?: number;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(120) location?: string;
+  @ApiPropertyOptional({ example: '200000', description: 'Kategori bermetode unit produksi: kapasitas total aset (wajib untuk metode itu)' }) @IsOptional() @IsNumberString() totalUnits?: string;
+  @ApiPropertyOptional({ example: 'km' }) @IsOptional() @IsString() @MaxLength(20) unitLabel?: string;
 }
 
 export class AssetSettingsDto {
@@ -267,7 +269,7 @@ export class AssetsService {
         accountName: r.name,
         amount: D(r.amount).toFixed(2),
         remaining: r.remaining.toFixed(2),
-        categories: cats.filter((c) => c.assetAccount?.id === r.account_id).map((c) => ({ id: c.id, name: c.name })),
+        categories: cats.filter((c) => c.assetAccount?.id === r.account_id).map((c) => ({ id: c.id, name: c.name, method: c.method })),
       }));
   }
 
@@ -300,6 +302,8 @@ export class AssetsService {
         notes: `Didaftarkan dari jurnal ${row.journalNumber}`,
         acquisitionJournalId: dto.journalId,
         branchId: jl?.b ?? null,
+        totalUnits: dto.totalUnits,
+        unitLabel: dto.unitLabel,
       });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'FixedAsset', entityId: asset.id, data: { via: 'JOURNAL', journal: row.journalNumber, amount: amount.toFixed(2) } });
       return asset;
@@ -512,7 +516,7 @@ export class AssetsService {
   ) {
     const effMethod = a.method ?? cat.method;
     if (effMethod === 'UNITS_OF_PRODUCTION' && !(Number(a.totalUnits) > 0)) {
-      throw new BadRequestException('Metode unit produksi butuh total unit (kapasitas) aset. Daftarkan lewat Aset tetap › Aset baru dan isi total unit.');
+      throw new BadRequestException('Metode unit produksi butuh total unit (kapasitas) aset. Isi total unit pada baris/form pendaftaran aset ini.');
     }
     const code = a.code?.trim().toUpperCase() || (await this.nextCode(tx, tenantId));
     const [asset] = await tx
@@ -548,7 +552,7 @@ export class AssetsService {
   async registerFromPurchase(
     tx: Tx,
     tenantId: string,
-    a: { categoryId: string; name: string; date: string; cost: Dec; usefulLifeMonths?: number; location?: string; journalId: string; purchaseInvoiceId: string; notes?: string; branchId?: string | null },
+    a: { categoryId: string; name: string; date: string; cost: Dec; usefulLifeMonths?: number; location?: string; journalId: string; purchaseInvoiceId: string; notes?: string; branchId?: string | null; totalUnits?: string; unitLabel?: string },
   ) {
     const [cat] = await tx.select().from(assetCategories).where(and(eq(assetCategories.id, a.categoryId), eq(assetCategories.tenantId, tenantId)));
     if (!cat) throw new BadRequestException('Kategori aset tidak ditemukan');
@@ -564,6 +568,8 @@ export class AssetsService {
       acquisitionJournalId: a.journalId,
       purchaseInvoiceId: a.purchaseInvoiceId,
       branchId: a.branchId ?? null,
+      totalUnits: a.totalUnits,
+      unitLabel: a.unitLabel,
     });
   }
 
@@ -572,7 +578,7 @@ export class AssetsService {
     tx: Tx,
     tenantId: string,
     cat: Category,
-    a: { code: string; name: string; acquisitionDate: string; depreciationStart: string; cost: Dec; residual: Dec; opening: Dec; usefulLifeMonths?: number; location?: string; notes?: string },
+    a: { code: string; name: string; acquisitionDate: string; depreciationStart: string; cost: Dec; residual: Dec; opening: Dec; usefulLifeMonths?: number; location?: string; notes?: string; totalUnits?: string; unitLabel?: string },
   ) {
     return this.insertAsset(tx, tenantId, cat, a);
   }
@@ -584,7 +590,7 @@ export class AssetsService {
   async registerFromCash(
     tx: Tx,
     user: AuthUser,
-    a: { categoryId: string; name: string; date: string; cost: Dec; usefulLifeMonths?: number; location?: string; journalId: string; notes?: string; branchId?: string | null },
+    a: { categoryId: string; name: string; date: string; cost: Dec; usefulLifeMonths?: number; location?: string; journalId: string; notes?: string; branchId?: string | null; totalUnits?: string; unitLabel?: string },
   ) {
     const [cat] = await tx.select().from(assetCategories).where(and(eq(assetCategories.id, a.categoryId), eq(assetCategories.tenantId, user.tenantId)));
     if (!cat) throw new BadRequestException('Kategori aset tidak ditemukan');
@@ -607,6 +613,8 @@ export class AssetsService {
       notes: a.notes,
       acquisitionJournalId: a.journalId,
       branchId: a.branchId ?? null,
+      totalUnits: a.totalUnits,
+      unitLabel: a.unitLabel,
     });
     await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'FixedAsset', entityId: asset.id, data: { via: 'CASH' } });
     return asset;
