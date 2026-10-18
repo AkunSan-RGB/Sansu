@@ -32,13 +32,13 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm';
-import { ACTIVITY_TYPES, type ActivityType, LEAD_STATUSES, type LeadStatus, QUOTATION_STATUSES, type QuotationStatus } from '@sansu/shared';
+import { ACTIVITY_TYPES, type ActivityType, CRM_PROFILES, isValidLostReason, LEAD_STATUSES, type LeadStatus, QUOTATION_STATUSES, type QuotationStatus } from '@sansu/shared';
 import { RequireApp } from '../../common/apps/app.guard';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { SequenceService } from '../../common/sequence/sequence.service';
-import { outputVatRate, taxProfileOf } from '../../common/settings.service';
+import { outputVatRate, SettingsService, taxProfileOf } from '../../common/settings.service';
 import { addDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D } from '../../common/utils/money';
 import { Db, DbOrTx } from '../../db/db';
@@ -49,12 +49,6 @@ import { SalesOrdersService } from '../sales/orders/sales-orders.service';
 import { documentTotals, inclusiveDocument } from '../sales/pricing';
 import { SalesModule } from '../sales/sales.module';
 
-const DEFAULT_STAGES = [
-  { name: 'Prospek baru', probability: 10 },
-  { name: 'Sudah dihubungi', probability: 25 },
-  { name: 'Penawaran dikirim', probability: 50 },
-  { name: 'Negosiasi', probability: 75 },
-];
 
 // ---------- DTO ----------
 export class CreateLeadDto {
@@ -136,15 +130,18 @@ export class CrmService {
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
     private readonly orders: SalesOrdersService,
+    private readonly settings: SettingsService,
   ) {}
 
   /** Tahap pipeline; dibuat otomatis saat pertama dipakai */
   async stages(tenantId: string, db: DbOrTx = this.db) {
     let rows = await db.select().from(crmStages).where(eq(crmStages.tenantId, tenantId)).orderBy(asc(crmStages.sequence));
     if (!rows.length) {
+      // tahap bawaan mengikuti jenis usaha (survei untuk jasa, kunjungan outlet untuk FMCG, dst.)
+      const model = await this.settings.businessModel(db, tenantId);
       rows = await db
         .insert(crmStages)
-        .values(DEFAULT_STAGES.map((s, i) => ({ tenantId, sequence: i + 1, ...s })))
+        .values(CRM_PROFILES[model].stages.map((s, i) => ({ tenantId, sequence: i + 1, ...s })))
         .returning();
     }
     return rows;
@@ -170,6 +167,8 @@ export class CrmService {
   }
 
   async deleteStage(tenantId: string, id: string) {
+    const [mine] = await this.db.select({ id: crmStages.id }).from(crmStages).where(and(eq(crmStages.id, id), eq(crmStages.tenantId, tenantId)));
+    if (!mine) throw new NotFoundException('Tahap tidak ditemukan');
     const [used] = await this.db.select({ id: leads.id }).from(leads).where(eq(leads.stageId, id)).limit(1);
     if (used) throw new BadRequestException('Tahap masih berisi prospek; pindahkan dulu prospeknya');
     const all = await this.stages(tenantId);
@@ -217,7 +216,20 @@ export class CrmService {
     return l;
   }
 
+  /** Profil CRM jenis usaha ini (tahap bawaan, sumber, alasan kalah) untuk layar */
+  async profile(tenantId: string) {
+    const model = await this.settings.businessModel(this.db, tenantId);
+    return { model, ...CRM_PROFILES[model] };
+  }
+
+  private async assertSource(tenantId: string, source: string | undefined | null, current?: string | null) {
+    if (!source || source === current) return;
+    const model = await this.settings.businessModel(this.db, tenantId);
+    if (!CRM_PROFILES[model].sources.includes(source)) throw new BadRequestException(`Sumber prospek harus salah satu: ${CRM_PROFILES[model].sources.join(', ')}`);
+  }
+
   async createLead(user: AuthUser, dto: CreateLeadDto) {
+    await this.assertSource(user.tenantId, dto.source);
     const stages = await this.stages(user.tenantId);
     const stage = dto.stageId ? stages.find((s) => s.id === dto.stageId) : stages[0];
     if (!stage) throw new BadRequestException('Tahap tidak ditemukan');
@@ -239,6 +251,7 @@ export class CrmService {
 
   async updateLead(user: AuthUser, id: string, dto: UpdateLeadDto) {
     const lead = await this.getLead(user.tenantId, id);
+    await this.assertSource(user.tenantId, dto.source, lead.source);
     await this.assertCustomer(user.tenantId, dto.customerId);
     let probability = dto.probability;
     if (dto.stageId && dto.stageId !== lead.stageId) {
@@ -258,6 +271,7 @@ export class CrmService {
   async mark(user: AuthUser, id: string, dto: MarkLeadDto) {
     const lead = await this.getLead(user.tenantId, id);
     if (dto.status === 'LOST' && !dto.lostReason) throw new BadRequestException('Isi alasan kalah agar bisa dianalisis');
+    if (dto.status === 'LOST' && !isValidLostReason(await this.settings.businessModel(this.db, user.tenantId), dto.lostReason!)) throw new BadRequestException('Pilih alasan kalah dari daftar, atau tulis "Lainnya: …" dengan keterangan');
     return this.db.transaction(async (tx) => {
       let customerId = lead.customerId;
       if (dto.status === 'WON' && !customerId && dto.createCustomer) {
@@ -494,6 +508,10 @@ export class CrmService {
 export class CrmController {
   constructor(private readonly svc: CrmService) {}
 
+  @Get('profile')
+  profile(@CurrentUser() u: AuthUser) {
+    return this.svc.profile(u.tenantId);
+  }
   @Get('stages')
   stages(@CurrentUser() u: AuthUser) {
     return this.svc.stages(u.tenantId);

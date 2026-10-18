@@ -1,3 +1,4 @@
+import { CRM_PROFILES } from '@sansu/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import { addDays } from '../../common/utils/dates';
 import { assetCategories, crmStages, journalEntries, journalLines, leads, suppliers, warehouses } from '../../db/schema';
@@ -331,21 +332,17 @@ export async function attendance(c: Demo) {
 
 /** Pipeline CRM + penawaran */
 export async function crm(c: Demo, customerId: string, productId: string, items: { title: string; company: string; contact: string; value: number; source: string }[]) {
+  const prof = CRM_PROFILES[c.model];
   const stages = await c.db
     .insert(crmStages)
-    .values([
-      { tenantId: c.tenantId, name: 'Prospek baru', sequence: 1, probability: 10 },
-      { tenantId: c.tenantId, name: 'Sudah dihubungi', sequence: 2, probability: 25 },
-      { tenantId: c.tenantId, name: 'Penawaran dikirim', sequence: 3, probability: 50 },
-      { tenantId: c.tenantId, name: 'Negosiasi', sequence: 4, probability: 75 },
-    ])
+    .values(prof.stages.map((st, i) => ({ tenantId: c.tenantId, name: st.name, sequence: i + 1, probability: st.probability })))
     .returning();
   const created = await c.db.insert(leads).values(
-    items.map((it, i) => ({ tenantId: c.tenantId, title: it.title, contactName: it.contact, phone: `0813-${c.int(1000, 9999)}-${c.int(1000, 9999)}`, companyName: it.company, source: it.source, expectedRevenue: String(it.value), stageId: stages[i % 4].id, probability: [10, 25, 50, 75][i % 4], ownerId: c.admin.sub })),
+    items.map((it, i) => ({ tenantId: c.tenantId, title: it.title, contactName: it.contact, phone: `0813-${c.int(1000, 9999)}-${c.int(1000, 9999)}`, companyName: it.company, source: prof.sources.includes(it.source) ? it.source : prof.sources[i % prof.sources.length], expectedRevenue: String(it.value), stageId: stages[i % 4].id, probability: stages[i % 4].probability, ownerId: c.admin.sub })),
   ).returning();
   // satu prospek menang (jadi pelanggan), satu gagal — supaya angka "menang/gagal" di CRM terisi
   if (created[0]) await c.step('prospek menang', () => c.svc.crm.mark(c.admin as never, created[0].id, { status: 'WON', createCustomer: false } as never));
-  if (created[1]) await c.step('prospek gagal', () => c.svc.crm.mark(c.admin as never, created[1].id, { status: 'LOST', lostReason: 'Memilih pemasok lain karena harga' } as never));
+  if (created[1]) await c.step('prospek gagal', () => c.svc.crm.mark(c.admin as never, created[1].id, { status: 'LOST', lostReason: prof.lostReasons[0] } as never));
   if (productId) {
     for (const [i, days] of [20, 8].entries()) {
       await c.step(`penawaran ${i + 1}`, () =>

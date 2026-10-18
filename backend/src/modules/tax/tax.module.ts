@@ -7,6 +7,7 @@
  *  PPh 25   : Dr Pajak Dibayar Dimuka | Cr Bank (jadi kredit pajak di Rekonsiliasi Fiskal)
  *  PPh final UMKM 0,5% : Dr Beban PPh Final | Cr Bank
  */
+import { TaxFocusService } from './tax-focus';
 import { BadRequestException, Body, Controller, Delete, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsDateString, IsIn, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
@@ -593,8 +594,13 @@ export const TAX_LABEL: Record<TaxPaymentType, string> = {
 @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
 @Controller('tax')
 export class TaxController {
-  constructor(private readonly svc: TaxService) {}
+  constructor(private readonly svc: TaxService, private readonly focusSvc: TaxFocusService) {}
 
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
+  @Get('focus')
+  focus(@CurrentUser() u: AuthUser) {
+    return this.focusSvc.focus(u.tenantId);
+  }
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('obligations')
   obligations(@CurrentUser() u: AuthUser, @Query('period') period?: string) {
@@ -632,7 +638,7 @@ export class TaxController {
 @Module({
   imports: [AccountingModule, InsightsModule],
   controllers: [TaxController],
-  providers: [TaxService],
+  providers: [TaxService, TaxFocusService],
   exports: [TaxService],
 })
 export class TaxModule {}

@@ -2329,7 +2329,7 @@ export const serviceRates = pgTable(
     tenantId: tenantId(),
     name: text('name').notNull(),
     /** HOUR = per jam · SESSION = per sesi · JOB = borongan per pekerjaan · PERCENT = persen dari nilai faktur jasa */
-    unit: text('unit').$type<'HOUR' | 'SESSION' | 'JOB' | 'PERCENT'>().notNull(),
+    unit: text('unit').$type<'HOUR' | 'SESSION' | 'JOB' | 'PERCENT' | 'SHIFT' | 'PIECE'>().notNull(),
     rate: numeric('rate', { precision: 18, scale: 2 }).notNull(),
     isActive: boolean('is_active').notNull().default(true),
     createdById: uuid('created_by_id'),
@@ -2350,11 +2350,13 @@ export const serviceWorkEntries = pgTable(
     rateId: uuid('rate_id')
       .notNull()
       .references(() => serviceRates.id),
-    unit: text('unit').$type<'HOUR' | 'SESSION' | 'JOB' | 'PERCENT'>().notNull(),
+    unit: text('unit').$type<'HOUR' | 'SESSION' | 'JOB' | 'PERCENT' | 'SHIFT' | 'PIECE'>().notNull(),
     workDate: date('work_date').notNull(),
     projectId: uuid('project_id'),
     /** Hanya untuk komisi: faktur jasa yang dikomisikan */
     invoiceId: uuid('invoice_id').references(() => invoices.id),
+    /** Upah per hasil (pabrik): perintah produksi yang dikerjakan; jumlah hasil dibatasi oleh keluaran perintah itu */
+    productionOrderId: uuid('production_order_id').references(() => productionOrders.id),
     /** Jam / sesi / pekerjaan; untuk komisi = persen */
     quantity: numeric('quantity', { precision: 12, scale: 2 }).notNull(),
     rate: numeric('rate', { precision: 18, scale: 2 }).notNull(),
@@ -3504,4 +3506,31 @@ export const bankReconciliations = pgTable(
     notes: text('notes'),
   },
   (t) => [uniqueIndex('bank_reconciliations_uq').on(t.cashAccountId, t.period)],
+);
+
+/** Kontrak harga pemasok / prinsipal: harga per satuan dasar untuk periode tertentu (maker-checker: PENDING → ACTIVE oleh orang lain) */
+export const supplierPriceAgreements = pgTable(
+  'supplier_price_agreements',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    supplierId: uuid('supplier_id')
+      .notNull()
+      .references(() => suppliers.id),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    /** Rupiah per satuan dasar (sebelum PPN) */
+    price: money('price').notNull(),
+    validFrom: date('valid_from').notNull(),
+    validTo: date('valid_to').notNull(),
+    status: text('status').$type<'PENDING' | 'ACTIVE' | 'REJECTED' | 'ENDED'>().notNull().default('PENDING'),
+    note: text('note'),
+    createdById: uuid('created_by_id').notNull(),
+    decidedById: uuid('decided_by_id'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('spa_lookup_idx').on(t.tenantId, t.supplierId, t.productId, t.status)],
 );

@@ -14,6 +14,7 @@ import { documentTotals } from '../sales/pricing';
 import { foreignTotals } from '../../common/utils/fx';
 import { D, money } from '../../common/utils/money';
 import { FxService } from '../fx/fx.service';
+import { PriceAgreementsService } from './price-agreements';
 import { CreatePurchaseOrderDto, PurchaseOrderQueryDto } from './purchasing.dto';
 
 /** Purchase order: DRAFT → CONFIRMED (dikirim ke supplier) → BILLED (barang & faktur diterima) */
@@ -25,6 +26,7 @@ export class PurchaseOrdersService {
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
     private readonly fx: FxService,
+    private readonly agreements: PriceAgreementsService,
   ) {}
 
   /** Status penerimaan dan penagihan turunan dari baris pesanan: NONE / PARTIAL / FULL */
@@ -96,6 +98,7 @@ export class PurchaseOrdersService {
       const { currency, rate } = await this.fx.resolve(tx, user.tenantId, dto.currency, date, dto.fxRate);
       const foreign = currency !== 'IDR';
       const lines = await buildLines(tx, user.tenantId, dto.lines, 'required', foreign ? 4 : 2);
+      if (!foreign) await this.agreements.enforce(tx, user, supplier.id, date, lines);
       // Valas: harga baris dalam mata uang PO; Rupiah dihitung pada kurs PO (kurs ini juga dipakai faktur dan penerimaan barang)
       const fxDoc = foreign ? foreignTotals(lines.map((l) => l.lineTotal), rate, tenant.ppnRate, taxProfileOf(tenant.settings).vatRounding) : null;
       const priceForeign = lines.map((l) => (foreign ? l.price : null));

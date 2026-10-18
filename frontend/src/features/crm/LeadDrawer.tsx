@@ -1,6 +1,6 @@
 import { waLink } from '@/lib/wa';
 import { CheckOutlined, CloseOutlined, FileAddOutlined, PhoneOutlined, PlusOutlined, TrophyOutlined, WhatsAppOutlined } from '@ant-design/icons';
-import { ACTIVITY_TYPE_LABELS, type ActivityType, LEAD_STATUS_LABELS, QUOTATION_STATUS_LABELS, toOptions } from '@sansu/shared';
+import { ACTIVITY_TYPE_LABELS, OTHER_REASON_PREFIX, type ActivityType, type CrmProfile, LEAD_STATUS_LABELS, QUOTATION_STATUS_LABELS, toOptions } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import {
   Button,
@@ -37,10 +37,11 @@ export { waLink };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function LeadForm({ form, stages, onFinish }: { form: FormInstance<any>; stages: CrmStage[]; onFinish: (v: Record<string, unknown>) => void }) {
   const { data: customers } = useCustomers();
+  const { data: profile } = useQuery({ queryKey: ['crm-profile'], queryFn: () => get<CrmProfile & { model: string }>('/crm/profile'), staleTime: Infinity });
   return (
     <Form form={form} layout="vertical" onFinish={onFinish}>
       <Form.Item name="title" label="Judul peluang" rules={[{ required: true }]}>
-        <Input placeholder="Toko Makmur — pasok mi & minuman" />
+        <Input placeholder={profile?.titleExample ?? 'Toko Makmur — pasok barang bulanan'} />
       </Form.Item>
       <Form.Item name="customerId" label={t('Pelanggan terdaftar (jika sudah ada)')}>
         <Select allowClear showSearch optionFilterProp="label" options={customers?.map((c) => ({ value: c.id, label: `${c.code} · ${c.name}` }))} />
@@ -73,7 +74,7 @@ export function LeadForm({ form, stages, onFinish }: { form: FormInstance<any>; 
       <Form.Item name="source" label="Sumber">
         <Select
           allowClear
-          options={['Kunjungan sales', 'Referensi pelanggan', 'Telepon masuk', 'WhatsApp', 'Media sosial', 'Pameran', 'Website'].map((s) => ({ value: s, label: s }))}
+          options={(profile?.sources ?? []).map((s) => ({ value: s, label: s }))}
         />
       </Form.Item>
       <Form.Item name="notes" label="Catatan">
@@ -88,6 +89,8 @@ export default function LeadDrawer({ leadId, stages, onClose }: { leadId: string
   const [editing, setEditing] = useState(false);
   const [lostOpen, setLostOpen] = useState(false);
   const [lostReason, setLostReason] = useState('');
+  const [lostPick, setLostPick] = useState<string | undefined>();
+  const { data: profile } = useQuery({ queryKey: ['crm-profile'], queryFn: () => get<CrmProfile & { model: string }>('/crm/profile'), staleTime: Infinity });
   const [form] = Form.useForm();
   const [actForm] = Form.useForm();
   const refresh = ['crm-lead', 'crm-pipeline', 'crm-summary', 'crm-agenda', 'crm-leads'];
@@ -281,10 +284,11 @@ export default function LeadDrawer({ leadId, stages, onClose }: { leadId: string
         <Select
           style={{ width: '100%', marginBottom: 8 }}
           placeholder="Pilih alasan"
-          onChange={setLostReason}
-          options={['Harga kompetitor lebih murah', 'Belum butuh sekarang', 'Tidak bisa dihubungi', 'Produk tidak tersedia', 'Termin pembayaran tidak cocok'].map((r) => ({ value: r, label: r }))}
+          value={lostPick}
+          onChange={(v) => { setLostPick(v); setLostReason(v === 'OTHER' ? '' : v); }}
+          options={[...(profile?.lostReasons ?? []).map((r) => ({ value: r, label: r })), { value: 'OTHER', label: 'Lainnya…' }]}
         />
-        <Input placeholder="atau tulis alasan lain" value={lostReason} onChange={(e) => setLostReason(e.target.value)} />
+        {lostPick === 'OTHER' && <Input placeholder="Tulis alasannya (minimal 3 huruf)" onChange={(e) => setLostReason(e.target.value.trim().length >= 3 ? `${OTHER_REASON_PREFIX}${e.target.value.trim()}` : '')} />}
       </Modal>
     </Drawer>
   );
