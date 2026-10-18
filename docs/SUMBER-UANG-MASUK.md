@@ -26,3 +26,16 @@ Pembukuan (akun, jurnal) bukan pekerjaan Keuangan. Karena itu untuk uang masuk y
 - Daftar sumber tetap (6). Sumber lain (mis. pengembalian dari pemasok, penjualan aset) memakai jalurnya sendiri (retur, Aset Tetap › Jual) atau dicatat Pemilik/Admin lewat akun.
 - Pengaturan akun mengikuti kode bagan akun bawaan; bila akun tersebut diubah/dihapus, sumbernya menampilkan pesan agar Admin/Akuntan memperbaiki.
 - Uang keluar belum memakai kategori otomatis (Keuangan masih memilih akun beban).
+
+## Pemberitahuan real-time ke Keuangan (Telegram)
+Uang masuk di luar penjualan langsung dikabarkan ke pengguna **Keuangan** lewat Telegram (dan email bila dikonfigurasi), supaya tidak terlewat:
+- Kas masuk baru dicatat (oleh siapa pun selain Keuangan yang bersangkutan).
+- Mutasi bank masuk yang dijurnal lewat "Buat jurnal".
+- Impor mutasi bank berisi uang masuk yang belum cocok dengan pembayaran mana pun.
+
+Syarat: `TELEGRAM_BOT_TOKEN` terpasang dan pengguna Keuangan sudah menghubungkan Telegram (Keamanan akun › Hubungkan Telegram). Pelaku sendiri tidak dikirimi. Tanpa Telegram terhubung, pemberitahuan hanya lewat email/Tugas saya.
+
+## Penutup celah anti-fraud
+- **Pembayaran pelanggan dibelokkan:** uang masuk lewat sumber (kas masuk atau mutasi bank) yang jumlahnya persis sama dengan sisa piutang suatu faktur, atau yang keterangan/bukti-nya menyebut nama pelanggan/nomor faktur yang masih berutang, **ditolak untuk Keuangan** (diarahkan ke Faktur & piutang). Pemilik/Admin boleh melanjutkan, tetapi tercatat di jejak audit (`CASH_IN_LOOKALIKE_RECEIVABLE`) dan Pemilik + Akuntan diberi tahu.
+- **Eskalasi:** uang masuk di rekening yang lebih dari 1 hari belum dicocokkan/dijelaskan dikabarkan ke Pemilik dan Akuntan (sekali per hari, lewat penjadwal pengingat).
+- **Batas yang jujur:** pencocokan memakai jumlah persis dan nama (≥4 huruf); pembayaran sebagian atau tanpa nama tidak terdeteksi. Uang tunai yang tidak pernah dicatat tetap tidak terlihat sistem (hanya selisih hitung kas dan rekonsiliasi bank).

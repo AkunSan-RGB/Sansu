@@ -1,3 +1,4 @@
+import { findReceivableLookalike } from './receivable-guard';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { RequireApp } from '../../common/apps/app.guard';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
@@ -277,6 +278,19 @@ export class CashService {
         }
       }
       if (amount.lte(0)) throw new BadRequestException('Jumlah harus > 0');
+      // Pembayaran pelanggan tidak boleh "dibelokkan" jadi pendapatan lain/modal: jumlah sama dengan sisa piutang atau menyebut nama pelanggannya
+      const lookalikes: string[] = [];
+      if (dto.type === 'IN') {
+        for (const l of lines as { sourceKey?: string; amount: string }[]) {
+          if (!l.sourceKey) continue;
+          const hit = await findReceivableLookalike(tx, user.tenantId, Number(l.amount), `${dto.description ?? ''} ${dto.reference ?? ''}`);
+          if (!hit) continue;
+          if (user.role === 'FINANCE') {
+            throw new BadRequestException(`Uang masuk ini ${hit.why === 'JUMLAH' ? 'sama dengan sisa piutang' : 'menyebut pelanggan'} ${hit.customer} (faktur ${hit.number}, sisa Rp${hit.outstanding.toLocaleString('id-ID')}). Pembayaran pelanggan dicatat lewat Faktur & piutang, bukan Kas masuk. Bila memang bukan pembayaran pelanggan, minta Admin/Pemilik yang mencatat.`);
+          }
+          lookalikes.push(`${hit.customer} ${hit.number}`);
+        }
+      }
       if (dto.branchId) {
         const [br] = (await tx.execute<{ id: string }>(sql`SELECT id FROM branches WHERE id = ${dto.branchId} AND tenant_id = ${user.tenantId}`)).rows;
         if (!br) throw new BadRequestException('Cabang tidak ditemukan');
@@ -375,6 +389,14 @@ export class CashService {
       if (verify.length) {
         const names = [...new Set(verify.map((l) => cashInSource((l as { sourceKey?: string }).sourceKey)!.label))].join(', ');
         void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER', 'ACCOUNTANT'], excludeUserId: user.sub, title: `Kas masuk non-penjualan ${number}: ${names} Rp${amount.toNumber().toLocaleString('id-ID')}`, lines: [dto.description, dto.reference ? `Bukti: ${dto.reference}` : ''], path: '/cash' });
+      }
+      if (lookalikes.length) {
+        await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CASH_IN_LOOKALIKE_RECEIVABLE', entity: 'CashTransaction', entityId: trx.id, data: { invoices: lookalikes } });
+        void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER', 'ACCOUNTANT'], excludeUserId: user.sub, title: `⚠ Kas masuk ${number} mirip pembayaran pelanggan: ${lookalikes.join(', ')}`, lines: ['Dicatat sebagai non-penjualan padahal ada piutang yang cocok. Periksa agar piutang dan penjualan benar.'], path: '/cash' });
+      }
+      // Real-time ke Keuangan: setiap uang masuk di luar penjualan (kas masuk) dikabarkan lewat Telegram agar tidak terlewat
+      if (dto.type === 'IN') {
+        void this.approvals.notifyRoles(user.tenantId, { roles: ['FINANCE'], excludeUserId: user.sub, info: true, title: `Uang masuk non-penjualan ${number}: Rp${amount.toNumber().toLocaleString('id-ID')}`, lines: [dto.description, dto.reference ? `Bukti: ${dto.reference}` : ''], path: '/cash' });
       }
       return { ...trx, journalNumber: journal.number };
     };
