@@ -1,3 +1,4 @@
+import { FlowControlsController, FlowControlsService } from './flow-controls';
 import { Body, Controller, Delete, Get, Module, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsNumberString, IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator';
@@ -132,8 +133,8 @@ export class InsightsController {
 
 @Module({
   imports: [AccountingModule, AssetsModule, FxModule],
-  controllers: [InsightsController],
-  providers: [HealthService, FiscalService, NotesService, AppendixService, EntityProfileService, ThresholdsService],
+  controllers: [InsightsController, FlowControlsController],
+  providers: [FlowControlsService, HealthService, FiscalService, NotesService, AppendixService, EntityProfileService, ThresholdsService],
   exports: [FiscalService, HealthService, EntityProfileService, ThresholdsService],
 })
 export class InsightsModule {}
