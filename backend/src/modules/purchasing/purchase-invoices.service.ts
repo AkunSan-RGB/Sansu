@@ -719,6 +719,8 @@ export class PurchaseInvoicesService {
               cost,
               usefulLifeMonths: l.dto.usefulLifeMonths,
               location: l.dto.location,
+              totalUnits: l.dto.totalUnits,
+              unitLabel: l.dto.unitLabel,
               journalId: journal.id,
               purchaseInvoiceId: invoice.id,
               notes: `Dibeli dari ${supplier.name}, faktur ${dto.supplierInvoiceNo}`,

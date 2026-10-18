@@ -153,6 +153,8 @@ export const IMPORT_SPECS: KindSpec[] = [
       { key: 'akumulasi_penyusutan', label: 'Akumulasi penyusutan', hint: 'Total penyusutan sampai tanggal saldo awal; kosong = 0', example: [90000000, 9375000, 0], aliases: ['akumulasi', 'akm penyusutan', 'penyusutan terakumulasi', 'accumulated depreciation'] },
       { key: 'masa_manfaat_bulan', label: 'Masa manfaat (bulan)', hint: 'Opsional. Kosong = ikut kategori', example: [96, 96, 48], aliases: ['masa manfaat', 'umur ekonomis', 'umur', 'useful life'] },
       { key: 'nilai_residu', label: 'Nilai residu', hint: 'Opsional. Kosong = 0 (SAK EMKM tidak memakai residu)', example: ['', '', ''], aliases: ['residu', 'nilai sisa', 'salvage value'] },
+      { key: 'total_unit', label: 'Total unit (unit produksi)', hint: 'Hanya untuk kategori bermetode unit produksi: kapasitas penuh aset (mis. 200000 km); selain itu kosongkan', example: ['', '', ''], aliases: ['total unit', 'kapasitas', 'kapasitas total', 'total produksi'] },
+      { key: 'satuan_unit', label: 'Satuan unit', hint: 'Opsional: km, jam, unit', example: ['', '', ''], aliases: ['satuan', 'unit label'] },
       { key: 'lokasi', label: 'Lokasi', hint: 'Opsional', example: ['Gudang Bandung', 'Pabrik', 'Kantor'], aliases: ['lokasi aset', 'location', 'penempatan'] },
       { key: 'catatan', label: 'Catatan', hint: 'Opsional', example: ['', '', ''], aliases: ['catatan aset', 'notes'] },
     ],

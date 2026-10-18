@@ -623,7 +623,7 @@ export class ImportsService {
     const emkm = (await frameworkOf(this.db, user.tenantId)) === 'SAK_EMKM';
     const seen = new Set<string>();
     const results: RowResult[] = [];
-    type W = { cat: (typeof cats)[number]; code?: string; name: string; acquisitionDate: string; cost: Dec; residual: Dec; opening: Dec; life?: number; location?: string; notes?: string };
+    type W = { cat: (typeof cats)[number]; code?: string; name: string; acquisitionDate: string; cost: Dec; residual: Dec; opening: Dec; life?: number; location?: string; notes?: string; totalUnits?: string; unitLabel?: string };
     const writes: W[] = [];
 
     rows_: for (const [i, row] of dto.rows.entries()) {
@@ -658,7 +658,13 @@ export class ImportsService {
         continue rows_;
       }
       if (cat!.method === 'NONE' && opening.gt(0)) r.warnings.push('Kategori ini tidak disusutkan, tetapi akumulasi diisi');
-      writes.push({ cat: cat!, code, name: name!, acquisitionDate: acquired!, cost: cost!, residual, opening, life: lifeN?.toNumber(), location: text(row.lokasi), notes: text(row.catatan) });
+      const units = amount(row.total_unit, 'Total unit', { min: 0 });
+      if (cat!.method === 'UNITS_OF_PRODUCTION' && !(units && units.gt(0))) {
+        r.errors.push('Kategori bermetode unit produksi: isi kolom Total unit (kapasitas penuh aset)');
+        r.action = 'ERROR';
+        continue rows_;
+      }
+      writes.push({ cat: cat!, code, name: name!, acquisitionDate: acquired!, cost: cost!, residual, opening, life: lifeN?.toNumber(), location: text(row.lokasi), notes: text(row.catatan), totalUnits: cat!.method === 'UNITS_OF_PRODUCTION' ? units!.toFixed(4) : undefined, unitLabel: text(row.satuan_unit) ?? undefined });
     }
 
     return {
@@ -683,6 +689,8 @@ export class ImportsService {
             opening: w.opening,
             usefulLifeMonths: w.life,
             location: w.location,
+            totalUnits: w.totalUnits,
+            unitLabel: w.unitLabel,
             notes: w.notes ?? `Diimpor sebagai aset lama (saldo awal ${cutoff})`,
           });
         }

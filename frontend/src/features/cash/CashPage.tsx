@@ -33,7 +33,7 @@ interface FormValues {
   description: string;
   reference?: string;
   branchId?: string;
-  lines?: { accountId?: string; source?: string; amount?: number; memo?: string; projectId?: string; assetCategoryId?: string; assetName?: string; assetUsefulLifeMonths?: number; assetLocation?: string }[];
+  lines?: { accountId?: string; source?: string; amount?: number; memo?: string; projectId?: string; assetCategoryId?: string; assetName?: string; assetUsefulLifeMonths?: number; assetTotalUnits?: number; assetUnitLabel?: string; assetLocation?: string }[];
 }
 
 const TYPE_COLOR: Record<CashTxType, string> = { IN: 'green', OUT: 'red', TRANSFER: 'blue' };
@@ -68,9 +68,9 @@ export default function CashPage() {
     queryFn: () => get<CashTransaction[]>(`/cash/transactions${qs({ cashAccountId: filter, from, to })}`),
   });
   // Akun aset tetap: pembelian tunai ke akun ini otomatis menjadi kartu aset di Aset Tetap
-  const assetCats = useQuery({ queryKey: ['assets', 'categories'], queryFn: () => get<{ id: string; name: string; assetAccountId: string }[]>('/assets/categories') });
+  const assetCats = useQuery({ queryKey: ['assets', 'categories'], queryFn: () => get<{ id: string; name: string; assetAccountId: string; method: string }[]>('/assets/categories') });
   const assetCatsByAccount = useMemo(() => {
-    const m = new Map<string, { id: string; name: string }[]>();
+    const m = new Map<string, { id: string; name: string; method: string }[]>();
     for (const c of assetCats.data ?? []) m.set(c.assetAccountId, [...(m.get(c.assetAccountId) ?? []), c]);
     return m;
   }, [assetCats.data]);
@@ -142,7 +142,7 @@ export default function CashPage() {
                 memo: l.memo || undefined,
                 projectId: mode === 'OUT' ? l.projectId || undefined : undefined,
                 ...(mode === 'OUT' && l.accountId && assetCatsByAccount.has(l.accountId)
-                  ? { assetCategoryId: l.assetCategoryId, assetName: l.assetName || undefined, assetUsefulLifeMonths: l.assetUsefulLifeMonths, assetLocation: l.assetLocation || undefined }
+                  ? { assetCategoryId: l.assetCategoryId, assetName: l.assetName || undefined, assetUsefulLifeMonths: l.assetUsefulLifeMonths, assetLocation: l.assetLocation || undefined, assetTotalUnits: l.assetTotalUnits ? String(l.assetTotalUnits) : undefined, assetUnitLabel: l.assetUnitLabel || undefined }
                   : {}),
               })),
             }),
@@ -716,6 +716,20 @@ export default function CashPage() {
                                     <InputNumber min={0} max={600} style={{ width: '100%' }} placeholder="Masa manfaat (bln)" />
                                   </Form.Item>
                                 </Col>
+                                {(assetCatsByAccount.get(lines[f.name]!.accountId!) ?? []).some((c) => c.method === 'UNITS_OF_PRODUCTION' && (!lines[f.name]!.assetCategoryId || c.id === lines[f.name]!.assetCategoryId)) && (
+                                  <>
+                                    <Col xs={12} md={5}>
+                                      <Form.Item name={[f.name, 'assetTotalUnits']} rules={[{ required: true, message: 'Isi total unit' }]} noStyle>
+                                        <InputNumber min={1} style={{ width: '100%' }} placeholder="Total unit (kapasitas)" />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={12} md={4}>
+                                      <Form.Item name={[f.name, 'assetUnitLabel']} noStyle>
+                                        <Input placeholder="Satuan" maxLength={20} />
+                                      </Form.Item>
+                                    </Col>
+                                  </>
+                                )}
                                 <Col xs={12} md={5}>
                                   <Form.Item name={[f.name, 'assetLocation']} noStyle>
                                     <Input placeholder="Lokasi" maxLength={120} />

@@ -528,13 +528,13 @@ function AssetList() {
     queryKey: ['assets', 'reconciliation', asOf],
     queryFn: () => get<{ mismatched: number; rows: { accountId: string; code: string; name: string; kind: 'COST' | 'ACCUMULATED'; register: string; ledger: string; diff: string }[] }>(`/assets/reconciliation?asOf=${asOf}`),
   });
-  type Unregistered = { journalId: string; journalNumber: string; date: string; description: string; accountId: string; accountCode: string; accountName: string; remaining: string; categories: { id: string; name: string }[] };
+  type Unregistered = { journalId: string; journalNumber: string; date: string; description: string; accountId: string; accountCode: string; accountName: string; remaining: string; categories: { method?: string; id: string; name: string }[] };
   const unreg = useQuery({ queryKey: ['assets', 'unregistered'], queryFn: () => get<Unregistered[]>('/assets/unregistered') });
   const [regRow, setRegRow] = useState<Unregistered | null>(null);
-  const [regForm] = Form.useForm<{ name: string; categoryId?: string; usefulLifeMonths?: number; location?: string }>();
+  const [regForm] = Form.useForm<{ name: string; categoryId?: string; usefulLifeMonths?: number; location?: string; totalUnits?: number; unitLabel?: string }>();
   const register = useAction(
-    (v: { name: string; categoryId?: string; usefulLifeMonths?: number; location?: string }) =>
-      post('/assets/from-journal', { journalId: regRow!.journalId, accountId: regRow!.accountId, ...v }),
+    (v: { name: string; categoryId?: string; usefulLifeMonths?: number; location?: string; totalUnits?: number; unitLabel?: string }) =>
+      post('/assets/from-journal', { journalId: regRow!.journalId, accountId: regRow!.accountId, ...v, totalUnits: v.totalUnits ? String(v.totalUnits) : undefined }),
     { success: 'Kartu aset dibuat dari jurnal (tanpa jurnal baru)', invalidate: KEYS, onSuccess: () => setRegRow(null) },
   );
   const controls = useQuery({
@@ -631,6 +631,22 @@ function AssetList() {
           )}
           <Form.Item name="usefulLifeMonths" label="Masa manfaat (bulan)" extra="Kosong = ikut kategori">
             <InputNumber min={0} max={600} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate>
+            {({ getFieldValue }) => {
+              const chosen = getFieldValue('categoryId') as string | undefined;
+              const uop = (regRow?.categories ?? []).some((c) => c.method === 'UNITS_OF_PRODUCTION' && (!chosen || c.id === chosen) && ((regRow?.categories.length ?? 0) <= 1 || !!chosen));
+              return uop ? (
+                <Space align="start" style={{ width: '100%' }}>
+                  <Form.Item name="totalUnits" label="Total unit (kapasitas)" rules={[{ required: true, message: 'Isi kapasitas total aset' }]}>
+                    <InputNumber min={1} style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name="unitLabel" label="Satuan">
+                    <Input placeholder="km / jam" maxLength={20} style={{ width: 120 }} />
+                  </Form.Item>
+                </Space>
+              ) : null;
+            }}
           </Form.Item>
           <Form.Item name="location" label="Lokasi (opsional)">
             <Input maxLength={120} />
