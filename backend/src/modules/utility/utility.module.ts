@@ -424,18 +424,22 @@ export class UtilityService {
   }
 
   // ---------- penagihan ----------
-  private async lateFeeCandidates(tenantId: string, connectionId: string, rules: UtilityRules) {
+  /** Tagihan menunggak yang belum didenda, dikelompokkan per sambungan (satu query untuk seluruh perusahaan) */
+  private async lateFeesByConnection(tenantId: string, rules: UtilityRules) {
     const today = todayJakarta();
-    const r = await this.db.execute<{ invoice_id: string; number: string; total: string; paid_amount: string; due_date: string; bill_id: string }>(sql`
-      SELECT i.id AS invoice_id, i.number, i.total, i.paid_amount, i.due_date::text, b.id AS bill_id
+    const r = await this.db.execute<{ connection_id: string; invoice_id: string; number: string; total: string; paid_amount: string; due_date: string; bill_id: string }>(sql`
+      SELECT b.connection_id, i.id AS invoice_id, i.number, i.total, i.paid_amount, i.due_date::text, b.id AS bill_id
       FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id
-      WHERE b.tenant_id = ${tenantId} AND b.connection_id = ${connectionId} AND i.status <> 'PAID'
+      WHERE b.tenant_id = ${tenantId} AND i.status <> 'PAID' AND i.due_date < ${today}::date
         AND NOT EXISTS (SELECT 1 FROM utility_late_fees f WHERE f.invoice_id = i.id)`);
-    const out: { invoiceId: string; number: string; billId: string; amount: number; daysLate: number }[] = [];
+    const out = new Map<string, { invoiceId: string; number: string; billId: string; amount: number; daysLate: number }[]>();
     for (const x of r.rows) {
       const daysLate = diffDays(x.due_date, today);
       const amount = lateFee(num(x.total), num(x.total) - num(x.paid_amount), daysLate, rules);
-      if (amount > 0) out.push({ invoiceId: x.invoice_id, number: x.number, billId: x.bill_id, amount, daysLate });
+      if (amount <= 0) continue;
+      const list = out.get(x.connection_id) ?? [];
+      list.push({ invoiceId: x.invoice_id, number: x.number, billId: x.bill_id, amount, daysLate });
+      out.set(x.connection_id, list);
     }
     return out;
   }
@@ -445,6 +449,7 @@ export class UtilityService {
     if (!isPeriod(period)) throw new BadRequestException('Periode tidak valid (YYYY-MM)');
     if (period > todayJakarta().slice(0, 7)) throw new BadRequestException('Periode penagihan tidak boleh di masa depan');
     const rules = await this.rules(tenantId);
+    const lateFees = await this.lateFeesByConnection(tenantId, rules);
     const rows = await this.db.execute<Record<string, unknown>>(sql`
       SELECT c.id AS connection_id, c.number, c.status, c.address, cu.id AS customer_id, cu.name AS customer_name, t.id AS tariff_id, t.name AS tariff_name, t.unit, t.metered, t.fixed_fee, t.admin_fee, t.min_usage, t.blocks, t.vatable,
              r.id AS reading_id, r.status AS reading_status, r.usage, b.id AS bill_id, b.invoice_id AS bill_invoice_id
@@ -471,8 +476,8 @@ export class UtilityService {
       const usage = metered ? num(x.usage) : null;
       const bill = computeBill(tariff, usage, x.unit as string);
       if (bill.subtotal <= 0) { held.push({ ...base, reason: 'Nilai tagihan nol — periksa tarif' }); continue; }
-      const lateFees = await this.lateFeeCandidates(tenantId, base.connectionId, rules);
-      ready.push({ ...base, customerId: x.customer_id as string, tariffId: x.tariff_id as string, tariffName: x.tariff_name as string, vatable: x.vatable as boolean, unit: x.unit as string, usage, readingId: (x.reading_id as string) ?? null, lines: bill.lines, subtotal: bill.subtotal, lateFees, lateFeeTotal: Math.round(lateFees.reduce((s, l) => s + l.amount, 0) * 100) / 100 });
+      const fees = lateFees.get(base.connectionId) ?? [];
+      ready.push({ ...base, customerId: x.customer_id as string, tariffId: x.tariff_id as string, tariffName: x.tariff_name as string, vatable: x.vatable as boolean, unit: x.unit as string, usage, readingId: (x.reading_id as string) ?? null, lines: bill.lines, subtotal: bill.subtotal, lateFees: fees, lateFeeTotal: Math.round(fees.reduce((s, l) => s + l.amount, 0) * 100) / 100 });
     }
     return { period, ready, held, totals: { count: ready.length, subtotal: ready.reduce((s, r) => s + r.subtotal, 0), lateFee: ready.reduce((s, r) => s + r.lateFeeTotal, 0) } };
   }
