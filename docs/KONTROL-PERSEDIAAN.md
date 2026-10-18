@@ -23,3 +23,8 @@ Stok tidak boleh negatif; alasan wajib saat penyesuaian; tanggal masa depan dito
 - Jadwal opname per kategori/barang bernilai tinggi (opname siklus) belum ada; saat ini per gudang, 35 hari.
 
 Migrasi `0083` menambah kolom pencatat jumlah fisik opname; dijalankan otomatis saat start.
+
+## Rekonsiliasi & opname siklus
+
+- **Nilai stok vs buku besar** (`STOCK_GL_DIFF`, tingkat *error*): total qty × HPP rata-rata kartu stok dibandingkan saldo akun Persediaan (+ Barang Setengah Jadi). Muncul bila selisih ≥ Rp100.000 atau 1% dari saldo. Catatan jujur: stok dalam perjalanan (transfer) atau kasus khusus dapat menimbulkan selisih sementara; tetap perlu ditelusuri sebelum tutup buku.
+- **Opname siklus** (`COUNT_CYCLE`, informasi): barang yang membentuk ±80% nilai stok (maks 20) yang belum dihitung fisik dalam 60 hari. Opname sebagian cukup untuk menghilangkan tandanya.
