@@ -167,7 +167,7 @@ export const BUSINESS_MODELS: BusinessModelInfo[] = [
     summary: 'Membeli barang lalu menjualnya kembali ke pelanggan usaha',
     examples: 'Distributor, grosir, toko bangunan, suku cadang, alat kesehatan, ATK, penjual online',
     flow: ['Pembelian', 'Stok gudang', 'Penjualan & faktur', 'Piutang', 'Laporan & pajak'],
-    apps: ['sales', 'purchase', 'inventory', 'accounting', 'cash'],
+    apps: ['crm', 'sales', 'purchase', 'inventory', 'accounting', 'cash'],
     ready: true,
   },
   {
@@ -194,7 +194,7 @@ export const BUSINESS_MODELS: BusinessModelInfo[] = [
     summary: 'Menyalurkan barang konsumen bermasa simpan terbatas ke toko dan outlet lewat sales lapangan, dengan daftar harga bertingkat dan promo',
     examples: 'Distributor makanan & minuman kemasan, produsen/distributor sabun & kosmetik, produk rumah tangga, rokok, obat bebas',
     flow: ['Pembelian dari prinsipal/pabrik', 'Stok per lot & kedaluwarsa', 'Daftar harga & promo', 'Pesanan sales → faktur', 'Piutang outlet & penagihan', 'Penelusuran lot (recall) & laporan'],
-    apps: ['sales', 'purchase', 'inventory', 'accounting', 'cash'],
+    apps: ['crm', 'sales', 'purchase', 'inventory', 'accounting', 'cash'],
     ready: true,
     note: 'Atur daftar harga per segmen outlet di Penjualan › Daftar harga dan promo/bonus barang di Penjualan › Promo. Barang bermasa simpan ditandai "lacak lot" agar kedaluwarsa dipantau dan, bila ada penarikan produk, lot bisa ditelusuri sampai ke pelanggan penerimanya.',
   },
@@ -204,7 +204,7 @@ export const BUSINESS_MODELS: BusinessModelInfo[] = [
     summary: 'Pabrik yang mengolah bahan baku bertahap (bahan → barang setengah jadi → barang jadi) dengan perencanaan kebutuhan bahan dan pengendalian biaya produksi',
     examples: 'Pabrik makanan & minuman, garmen, plastik & kemasan, furnitur, kimia, komponen logam',
     flow: ['Perencanaan kebutuhan bahan', 'Pembelian bahan', 'Produksi bertingkat', 'Stok barang jadi', 'Penjualan', 'Analisis selisih & laporan'],
-    apps: ['sales', 'purchase', 'inventory', 'accounting', 'cash'],
+    apps: ['crm', 'sales', 'purchase', 'inventory', 'accounting', 'cash'],
     ready: true,
   },
   {
