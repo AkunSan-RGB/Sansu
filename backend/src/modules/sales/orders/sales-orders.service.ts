@@ -9,7 +9,7 @@ import { toDocDate } from '../../../common/utils/dates';
 import { D, money } from '../../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, products, promos, salesOrderLines, salesOrders, tenants, users, warehouses } from '../../../db/schema';
+import { customers, products, promos, salesOrderLines, salesOrders, stockBalances, tenants, users, warehouses } from '../../../db/schema';
 import { foreignTotals } from '../../../common/utils/fx';
 import { FxService } from '../../fx/fx.service';
 import { documentTotals, inclusiveDocument, lineTotal } from '../pricing';
@@ -226,12 +226,32 @@ export class SalesOrdersService {
         const maxDisc = Math.max(0, ...pre.lines.map((l) => Number(l.discountPct)));
         const byDiscount = pol.salesDiscountMaxPct > 0 && maxDisc > pol.salesDiscountMaxPct;
         const byValue = pol.salesOrder > 0 && Number(pre.total) >= pol.salesOrder;
+        // Harga jual (setelah diskon) di bawah harga pokok rata-rata gudang: menembus batas diskon lewat harga yang diketik langsung
+        let belowCost: string[] = [];
+        if (pol.salesBelowCost) {
+          const bal = await this.db
+            .select({ productId: stockBalances.productId, avg: stockBalances.avgCost })
+            .from(stockBalances)
+            .where(and(eq(stockBalances.tenantId, user.tenantId), eq(stockBalances.warehouseId, pre.warehouseId), inArray(stockBalances.productId, pre.lines.map((l) => l.productId))));
+          const avg = new Map(bal.map((b) => [b.productId, Number(b.avg)]));
+          belowCost = pre.lines
+            .filter((l) => Number(l.price) > 0 && (avg.get(l.productId) ?? 0) > 0 && Number(l.price) * (1 - Number(l.discountPct) / 100) < (avg.get(l.productId) ?? 0) * Number(l.uomFactor) - 0.005)
+            .map((l) => l.productId);
+        }
+        const byCost = belowCost.length > 0;
+        const why = byCost ? `Ada ${belowCost.length} baris dijual di bawah harga pokok` : byDiscount ? `Diskon ${maxDisc}% melebihi batas ${pol.salesDiscountMaxPct}%` : 'Nilai pesanan mencapai batas persetujuan';
+        const risky = byDiscount || byValue || byCost;
+        if (risky && this.approvals.isApprover(user.role)) {
+          // Pemilik/Admin tidak dibatasi, tetapi Pemilik diberi tahu (kecuali dia sendiri pelakunya) dan tercatat di jejak audit
+          await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CONFIRM_RISKY', entity: 'SalesOrder', entityId: id, data: { why } });
+          void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER'], excludeUserId: user.sub, info: true, title: `⚠ Pesanan ${pre.number} dikonfirmasi tanpa persetujuan terpisah`, lines: [why], path: '/sales-orders' });
+        }
         await this.approvals.gateIf(
           this.db,
           user,
-          { kind: 'SALES_ORDER', refId: id, title: `Pesanan ${pre.number}${byDiscount ? ` (diskon ${maxDisc}%)` : ''}`, amount: Number(pre.total) },
-          byDiscount || byValue,
-          byDiscount ? `Diskon ${maxDisc}% melebihi batas ${pol.salesDiscountMaxPct}%` : 'Nilai pesanan mencapai batas persetujuan',
+          { kind: 'SALES_ORDER', refId: id, title: `Pesanan ${pre.number}${byCost ? ' (harga di bawah pokok)' : byDiscount ? ` (diskon ${maxDisc}%)` : ''}`, amount: Number(pre.total) },
+          risky,
+          why,
         );
       }
     }

@@ -112,7 +112,7 @@ export class ReturnsService {
   async createSales(user: AuthUser, dto: CreateReturnDto, opts: { approved?: boolean } = {}) {
     const date = toDocDate(dto.date);
     // Retur penjualan = kredit nota yang mengurangi piutang: bernilai besar oleh staf (selain Pemilik/Admin) menunggu persetujuan
-    if (!opts.approved && !this.approvals.isApprover(user.role)) {
+    if (!opts.approved) {
       const pol = await this.approvals.policy(this.db, user.tenantId);
       if (pol.salesReturn > 0) {
         const inv = await this.db.query.invoices.findFirst({ where: and(eq(invoices.id, dto.invoiceId), eq(invoices.tenantId, user.tenantId)), with: { lines: true } });
@@ -120,7 +120,10 @@ export class ReturnsService {
           const q = dto.lines.find((x) => x.invoiceLineId === l.id)?.qty;
           return q ? a + Number(q) * Number(l.price) * (1 - Number(l.discountPct) / 100) : a;
         }, 0);
-        if (value >= pol.salesReturn) {
+        if (value >= pol.salesReturn && this.approvals.isApprover(user.role)) {
+          // Pemilik/Admin tidak dibatasi, tetapi Pemilik diberi tahu (kecuali dia sendiri pelakunya)
+          void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER'], excludeUserId: user.sub, info: true, title: `⚠ Retur penjualan faktur ${inv?.number ?? ''} bernilai besar dicatat tanpa persetujuan terpisah`, lines: [`≈ Rp${Math.round(value).toLocaleString('id-ID')}`], path: '/returns?tab=sales' });
+        } else if (value >= pol.salesReturn) {
           const req = await this.approvals.create(this.db, user, { kind: 'SALES_RETURN', refId: null, title: `Retur penjualan faktur ${inv?.number ?? ''} (≈ Rp${Math.round(value).toLocaleString('id-ID')})`, amount: value, payload: JSON.parse(JSON.stringify(dto)) });
           throw this.approvals.required(req.id, 'Nilai retur mencapai batas persetujuan; permintaan dikirim ke pemilik atau admin dan retur dicatat setelah disetujui.');
         }
