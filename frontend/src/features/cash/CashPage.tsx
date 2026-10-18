@@ -1,7 +1,7 @@
 import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, FilterOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
 import { BRAND, CASH_IN_SOURCES, CASH_TX_TYPE_LABELS, canHandleMoney, type CashTxType } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, App, Badge, Button, Card, Checkbox, Col, Collapse, Empty, Form, Input, InputNumber, Modal, Popover, Row, Segmented, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, App, Badge, Button, Card, Checkbox, Col, Collapse, Empty, Form, Input, InputNumber, Modal, Popover, Row, Segmented, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -739,15 +739,25 @@ export default function CashPage() {
   );
 }
 
-interface IncomeRow { key: string; label: string; group: 'SALES' | 'NONSALES' | 'OTHER'; amount: number; count: number; suspect?: string }
+interface IncomeRow { key: string; label: string; group: 'SALES' | 'NONSALES' | 'OTHER'; category: 'SALES' | 'CAPITAL' | 'LOAN' | 'OTHER'; amount: number; count: number; suspect?: string }
 
 /** Uang masuk 30 hari terakhir per sumber: penjualan vs bukan penjualan; penjualan yang dicatat lewat kas masuk ditandai */
 function IncomeSources() {
-  const { data } = useQuery({ queryKey: ['cash', 'income-sources'], queryFn: () => get<{ from: string; to: string; rows: IncomeRow[]; totals: { sales: number; nonSales: number; other: number } }>('/cash/income-sources'), retry: false });
+  const { data } = useQuery({ queryKey: ['cash', 'income-sources'], queryFn: () => get<{ from: string; to: string; rows: IncomeRow[]; totals: { sales: number; nonSales: number; other: number }; categories: { sales: number; capital: number; loan: number; other: number } }>('/cash/income-sources'), retry: false });
   if (!data || !data.rows.length) return null;
   const suspects = data.rows.filter((r) => r.suspect);
   const GROUP = { SALES: { c: 'green', t: 'Penjualan' }, NONSALES: { c: 'blue', t: 'Bukan penjualan' }, OTHER: { c: 'default', t: 'Lainnya' } } as const;
   return (
+    <>
+    <Card size="small" title="Uang masuk berdasarkan sumber (30 hari)" style={{ marginBottom: 12 }}>
+      <Row gutter={[12, 12]}>
+        {([['Penjualan', data.categories.sales, '#389e0d'], ['Modal dari pemilik', data.categories.capital, '#1677ff'], ['Pinjaman', data.categories.loan, '#d46b08'], ['Lainnya', data.categories.other, '#8c8c8c']] as const).map(([t, v, c]) => (
+          <Col key={t} xs={12} md={6}>
+            <Statistic title={t} value={v} formatter={(x) => fmtMoney(Number(x))} valueStyle={{ color: c, fontSize: 18 }} />
+          </Col>
+        ))}
+      </Row>
+    </Card>
     <Collapse
       style={{ marginBottom: 16 }}
       items={[
@@ -782,5 +792,6 @@ function IncomeSources() {
         },
       ]}
     />
+    </>
   );
 }
