@@ -1,4 +1,4 @@
-/** Temuan kontrol pembelian & stok (anti-fraud) 60 hari terakhir */
+/** Temuan kontrol (anti-fraud) 60 hari terakhir; dipakai halaman Kontrol pembelian dan Kontrol penjualan */
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Card, Empty, Space, Typography } from 'antd';
 import { get } from '@/api/client';
@@ -13,14 +13,14 @@ interface Finding {
   refs: string[];
 }
 
-export default function PurchaseControlsPage() {
-  const q = useQuery({ queryKey: ['purchase-controls'], queryFn: () => get<{ asOf: string; since: string; items: Finding[] }>('/purchase-controls') });
+export function ControlFindingsPage({ title, endpoint, intro }: { title: string; endpoint: string; intro: string }) {
+  const q = useQuery({ queryKey: [endpoint.slice(1)], queryFn: () => get<{ asOf: string; since: string; items: Finding[] }>(endpoint) });
   return (
     <>
-      <PageHeader title="Kontrol pembelian & penjualan" />
+      <PageHeader title={title} />
       <Card loading={q.isLoading}>
         <Typography.Paragraph type="secondary">
-          Pola yang patut diperiksa pada pembelian, penjualan, pembayaran supplier, dan stok sejak {q.data ? fmtDate(q.data.since) : '…'}. Temuan bukan berarti kecurangan, tetapi layak dikonfirmasi.
+          {intro} sejak {q.data ? fmtDate(q.data.since) : '…'}. Temuan bukan berarti kecurangan, tetapi layak dikonfirmasi.
         </Typography.Paragraph>
         {q.data && !q.data.items.length && <Empty description="Tidak ada temuan. Bagus!" />}
         <Space direction="vertical" style={{ width: '100%' }}>
@@ -45,4 +45,8 @@ export default function PurchaseControlsPage() {
       </Card>
     </>
   );
+}
+
+export default function PurchaseControlsPage() {
+  return <ControlFindingsPage title="Kontrol pembelian" endpoint="/purchase-controls" intro="Pola yang patut diperiksa pada pembelian, pembayaran supplier, dan stok" />;
 }
