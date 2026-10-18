@@ -21,3 +21,4 @@ export * from './crm-profile.js';
 export * from './tax-focus.js';
 export * from './barcode.js';
 export * from './utility.js';
+export * from './cash-sources.js';

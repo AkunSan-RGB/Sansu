@@ -28,7 +28,7 @@ import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, get, post, put } from '@/api/client';
-import { canBookkeep, canHandleMoney } from '@sansu/shared';
+import { canBookkeep, canHandleMoney, CASH_IN_SOURCES } from '@sansu/shared';
 import { useAuth } from '@/auth/AuthContext';
 import { LEDGER_KEYS, useAccounts, useAction, useCashAccounts } from '@/api/queries';
 import type { BankCandidate, BankLineStatus, BankReconciliation, BankStatement, BankStatementLine, BankStatementSummary } from '@/api/types';
@@ -181,7 +181,7 @@ function StatementDrawer({ id, onClose }: { id: string | null; onClose: () => vo
   const st = useQuery({ queryKey: ['bank', 'statement', id], queryFn: () => get<BankStatement>(`/bank/statements/${id}`), enabled: !!id });
   const cand = useQuery({ queryKey: ['bank', 'candidates', matching?.id], queryFn: () => get<BankCandidate[]>(`/bank/lines/${matching!.id}/candidates`), enabled: !!matching });
   const auto = useAction(() => post<{ matched: number }>(`/bank/statements/${id}/auto-match`), { success: (r) => `${r.matched} mutasi baru cocok`, invalidate: KEYS });
-  const create = useAction((v: { accountId: string; description?: string }) => post<{ journalNumber: string }>(`/bank/lines/${creating!.id}/create`, v), {
+  const create = useAction((v: { accountId: string; description?: string }) => post<{ journalNumber: string }>(`/bank/lines/${creating!.id}/create`, v.accountId.startsWith('src:') ? { source: v.accountId.slice(4), description: v.description } : v), {
     success: (r) => `Jurnal ${r.journalNumber} dibuat`,
     invalidate: KEYS,
     onSuccess: () => setCreating(null),
@@ -202,7 +202,12 @@ function StatementDrawer({ id, onClose }: { id: string | null; onClose: () => vo
   const ignore = useAction((v: { reason: string }) => post(`/bank/lines/${ignoring!.id}/ignore`, v), { success: 'Mutasi diabaikan (tercatat di jejak audit)', invalidate: KEYS, onSuccess: () => setIgnoring(null) });
   const d = st.data;
   const byKey = (k: string) => accounts.data?.find((a) => a.systemKey === k)?.id;
-  const counterOptions = accounts.data?.filter((a) => a.isPostable && a.id !== d?.cashAccount.id).map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` }));
+  const meRole = useAuth().me?.role;
+  const accountOpts = accounts.data?.filter((a) => a.isPostable && a.id !== d?.cashAccount.id).map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` })) ?? [];
+  // Uang masuk: Keuangan memilih sumber uang (sistem menentukan akun); akun pembukuan hanya Pemilik/Admin. Uang keluar tetap memilih akun.
+  const incoming = !!creating && Number(creating.amount) > 0;
+  const sourceOpts = CASH_IN_SOURCES.map((s) => ({ value: `src:${s.key}`, label: `${s.label} — ${s.hint}` }));
+  const counterOptions = incoming ? (meRole && ['OWNER', 'ADMIN'].includes(meRole) ? [{ label: 'Sumber uang (disarankan)', options: sourceOpts }, { label: 'Akun pembukuan (khusus Pemilik/Admin)', options: accountOpts }] : sourceOpts) : accountOpts;
   const rows = d?.lines.filter((l) => filter === 'ALL' || l.status === filter) ?? [];
 
   return (
@@ -300,8 +305,8 @@ function StatementDrawer({ id, onClose }: { id: string | null; onClose: () => vo
           </Typography.Paragraph>
         )}
         <Form form={form} layout="vertical" onFinish={(v) => create.mutate(v)}>
-          <Form.Item name="accountId" label="Akun lawan" rules={[{ required: true }]} extra="Biaya admin → Beban Administrasi Bank; bunga/jasa giro → Pendapatan Bunga; pajak bunga → Beban Pajak.">
-            <Select showSearch optionFilterProp="label" options={counterOptions} />
+          <Form.Item name="accountId" label={incoming ? 'Sumber uang masuk' : 'Akun lawan'} rules={[{ required: true }]} extra={incoming ? 'Pilih dari mana uang ini berasal; sistem membuat jurnalnya. Pembayaran pelanggan dicocokkan dengan faktur, bukan dibuat di sini.' : 'Biaya admin → Beban Administrasi Bank; pajak bank → Beban Pajak.'}>
+            <Select showSearch optionFilterProp="label" options={counterOptions as never} />
           </Form.Item>
           <Form.Item name="description" label="Keterangan jurnal">
             <Input />

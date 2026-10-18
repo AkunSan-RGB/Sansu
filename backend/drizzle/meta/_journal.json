@@ -561,6 +561,13 @@
       "when": 1795199886484,
       "tag": "0079_cocok_bank_banyak",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1795286286484,
+      "tag": "0080_sumber_kas_masuk",
+      "breakpoints": true
     }
   ]
 }
