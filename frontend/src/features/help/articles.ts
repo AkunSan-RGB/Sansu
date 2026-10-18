@@ -367,7 +367,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     paths: ['/goods-swaps'],
     steps: [
       'Penjualan › Tukar-guling › Usulan tukar-guling: pilih faktur outlet, alasan, jumlah yang ditukar (dan nomor lot lama bila ada).',
-      'Orang lain (Keuangan/Admin) menyetujui: stok barang pengganti keluar dan biayanya dijurnal ke Beban Barang Kedaluwarsa & Retur Rusak. Piutang tidak berubah.',
+      'Orang lain (Keuangan/Admin) menyetujui: stok barang pengganti keluar dan biayanya dijurnal ke Beban Barang Kedaluwarsa, Beban Retur Rusak, atau Beban Penarikan Produk (sesuai alasannya). Piutang tidak berubah.',
     ],
     tips: [
       'Pengganti selalu produk dan jumlah yang sama; maksimal jumlah yang pernah dijual dikurangi retur/tukar sebelumnya.',
