@@ -135,6 +135,8 @@ export async function syncChartOfAccounts(db: DbOrTx, tenantId: string, opts: { 
       byKey.set(row.key, acc);
     }
     if (row.header && HEADER_RENAMES[row.code]?.includes(acc.name)) patch.name = row.name;
+    // Akun yang dulu menggabungkan beberapa jenis beban: nama bawaan lama diganti ke nama tunggal (riwayat tetap di akun yang sama)
+    if (row.was?.includes(acc.name)) patch.name = coaName(row, model);
     // Nama inti mengikuti jenis usaha, tetapi hanya bila akun masih bernama bawaan (tidak menimpa nama buatan pengguna)
     const target = coaName(row, model);
     if (row.names && acc.name !== target && coaNameVariants(row).has(acc.name)) patch.name = target;

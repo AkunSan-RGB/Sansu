@@ -1,7 +1,7 @@
 /**
  * Retur tukar-guling: barang rusak/kedaluwarsa/ditarik dari outlet ditukar barang yang SAMA dengan jumlah yang sama, tanpa
  * mengubah piutang. Barang lama dimusnahkan/dikarantina (tidak masuk stok layak jual); barang pengganti keluar dari gudang dan
- * biayanya menjadi Beban Barang Kedaluwarsa & Retur Rusak (Dr 6-2160 | Cr Persediaan).
+ * biayanya menjadi Beban Barang Kedaluwarsa (6-2160), Beban Retur Rusak (6-2165), atau Beban Penarikan Produk (6-2170) menurut alasannya (Dr beban | Cr Persediaan).
  * Pencegahan kecurangan: wajib mengacu pada faktur outlet itu sendiri (≤ 180 hari); jumlah tukar kumulatif per baris faktur tidak
  * boleh melebihi yang pernah dijual (dikurangi retur & tukar sebelumnya, termasuk yang menunggu persetujuan); pengganti selalu
  * produk & jumlah yang sama (tidak bisa ditukar ke barang lain/lebih banyak); stok hanya bergerak setelah DISETUJUI oleh orang
@@ -154,7 +154,7 @@ export class SwapsService {
         sourceType: 'GOODS_SWAP',
         sourceId: swap.id,
         createdById: u.sub,
-        lines: [{ key: SYS.EXPIRED_LOSS, debit: cost }, ...inventoryLines(items, semi, 'credit')],
+        lines: [{ key: swap.reason === 'DAMAGED' ? SYS.DAMAGE_LOSS : swap.reason === 'EXPIRED' ? SYS.EXPIRED_LOSS : SYS.RECALL_LOSS, debit: cost }, ...inventoryLines(items, semi, 'credit')],
       });
       await tx.update(goodsSwaps).set({ status: 'APPROVED', decidedById: u.sub, decidedAt: new Date(), journalId: journal.id, costAmount: cost.toFixed(2) }).where(eq(goodsSwaps.id, id));
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'APPROVE', entity: 'GoodsSwap', entityId: id, data: { number: swap.number, cost: cost.toFixed(2), journal: journal.number } });
