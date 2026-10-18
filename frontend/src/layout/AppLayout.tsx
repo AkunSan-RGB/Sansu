@@ -242,6 +242,7 @@ const MENU: Group[] = [
           { key: '/worksheet', label: 'Neraca lajur' },
           { key: '/reports', label: 'Laporan keuangan' },
           { key: '/health', label: 'Cek kesehatan' },
+          { key: '/accounting-controls', label: 'Kontrol pembukuan & pajak', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
         ],
       },
       {

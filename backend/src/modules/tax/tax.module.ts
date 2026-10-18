@@ -8,6 +8,7 @@
  *  PPh final UMKM 0,5% : Dr Beban PPh Final | Cr Bank
  */
 import { TaxFocusService } from './tax-focus';
+import { AccountingControlsController, AccountingControlsService } from './accounting-controls';
 import { BadRequestException, Body, Controller, Delete, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsDateString, IsIn, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
@@ -637,8 +638,8 @@ export class TaxController {
 
 @Module({
   imports: [AccountingModule, InsightsModule],
-  controllers: [TaxController],
-  providers: [TaxService, TaxFocusService],
+  controllers: [TaxController, AccountingControlsController],
+  providers: [TaxService, TaxFocusService, AccountingControlsService],
   exports: [TaxService],
 })
 export class TaxModule {}
