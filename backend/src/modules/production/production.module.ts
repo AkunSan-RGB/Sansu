@@ -40,6 +40,7 @@ import {
 import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import type { Bom, ProductionOrder, ProductionReport } from '@sansu/shared';
 import { RequireApp } from '../../common/apps/app.guard';
+import { WorkflowService } from '../workflow/workflow.module';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
@@ -140,6 +141,7 @@ export class ProductionService {
     private readonly posting: PostingService,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
+    private readonly workflow: WorkflowService,
   ) {}
 
   /** Biaya rata-rata per satuan dasar seluruh gudang (untuk taksiran harga pokok resep) */
@@ -468,6 +470,7 @@ export class ProductionService {
   /** Keluarkan bahan ke produksi: Dr Barang dalam Proses | Cr Persediaan */
   async start(user: AuthUser, id: string, dto: StartProductionDto) {
     const date = toDocDate(dto.date);
+    await this.workflow.gate(user.tenantId, 'START_PRODUCTION', id);
     await this.db.transaction(async (tx) => {
       const o = await this.lock(tx, user.tenantId, id);
       if (o.status !== 'DRAFT') throw new BadRequestException('Produksi sudah dimulai / selesai / batal');

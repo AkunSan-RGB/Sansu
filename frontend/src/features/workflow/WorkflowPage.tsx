@@ -1,18 +1,18 @@
-import { PlusOutlined } from '@ant-design/icons';
+import { PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, DatePicker, Drawer, Empty, Form, Input, InputNumber, Modal, Select, Space, Steps, Tabs, Tag, Timeline, Tooltip } from 'antd';
+import { Alert, Button, DatePicker, Drawer, Empty, Form, Input, InputNumber, Modal, Select, Space, Steps, Switch, Tabs, Tag, Timeline, Tooltip } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
-import { get, post } from '@/api/client';
+import { get, post, put } from '@/api/client';
 import { useAction, useCustomers, useSuppliers } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
 
-interface Stage { key: string; label: string; hint: string; next: string[]; terminal?: string; requireNote?: boolean; count: number }
+interface Stage { key: string; label: string; hint: string; next: string[]; terminal?: string; requireNote?: boolean; sod?: boolean; roles?: string[]; slaDays?: number; count: number }
 interface Pipeline { key: string; label: string; summary: string; subject: 'CUSTOMER' | 'SUPPLIER' | 'NONE'; start: string; stages: Stage[] }
-interface CaseRow { id: string; pipeline: string; number: string; title: string; stage: string; status: 'ACTIVE' | 'DONE' | 'CANCELLED'; amount: string; dueDate: string | null; stageEnteredAt: string; customerName: string | null; supplierName: string | null; linkCount: number }
+interface CaseRow { id: string; pipeline: string; number: string; title: string; stage: string; status: 'ACTIVE' | 'DONE' | 'CANCELLED'; amount: string; dueDate: string | null; stageEnteredAt: string; customerName: string | null; supplierName: string | null; linkCount: number; autoOpened?: boolean }
 interface Detail extends CaseRow {
   pipelineLabel: string; stageLabel: string; stageHint: string; stages: { key: string; label: string; terminal: boolean }[];
   links: { id: string; type: string; docId: string; number: string; status: string | null; dead: boolean }[];
@@ -30,9 +30,12 @@ export default function WorkflowPage() {
   const { data: pipelines, isLoading } = useQuery({ queryKey: ['workflow', 'pipelines'], queryFn: () => get<Pipeline[]>('/workflow/pipelines') });
   const alerts = useQuery({ queryKey: ['workflow', 'alerts'], queryFn: () => get<Alert[]>('/workflow/alerts') });
   const [openId, setOpenId] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const can = useCan();
   return (
     <>
-      <PageHeader title="Alur kerja" />
+      <PageHeader title="Alur kerja" extra={can('PUT', '/workflow/settings') && <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>Pengaturan alur</Button>} />
+      {settingsOpen && <SettingsDrawer onClose={() => setSettingsOpen(false)} />}
       {!!alerts.data?.length && (
         <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={`${alerts.data.length} hal perlu perhatian`}
           description={<ul style={{ margin: 0, paddingLeft: 18 }}>{alerts.data.slice(0, 5).map((a, i) => <li key={i}><a onClick={() => setOpenId(a.caseId)}>{a.message}</a></li>)}</ul>} />
@@ -78,7 +81,7 @@ function PipelineTab({ p, onOpen }: { p: Pipeline; onOpen: (id: string) => void 
       <ResponsiveTable<CaseRow> rowKey="id" size="small" loading={cases.isLoading} dataSource={rows} pagination={{ pageSize: 15 }} scroll={{ x: 760 }} locale={{ emptyText: 'Belum ada kasus' }} onMobileClick={(c) => onOpen(c.id)}
         onRow={(c) => ({ onClick: () => onOpen(c.id), style: { cursor: 'pointer' } })}
         columns={[
-          { title: 'Kasus', render: (_: unknown, c: CaseRow) => <div><strong>{c.number}</strong><div>{c.title}</div></div> },
+          { title: 'Kasus', render: (_: unknown, c: CaseRow) => <div><strong>{c.number}</strong>{c.autoOpened && <Tag style={{ marginLeft: 6 }}>otomatis</Tag>}<div>{c.title}</div></div> },
           { title: p.subject === 'SUPPLIER' ? 'Pemasok' : p.subject === 'CUSTOMER' ? 'Pelanggan' : 'Pihak', render: (_: unknown, c: CaseRow) => c.customerName ?? c.supplierName ?? '—' },
           { title: 'Tahap', render: (_: unknown, c: CaseRow) => <span><Tag color={STATUS_TAG[c.status].color}>{c.status === 'ACTIVE' ? label(c.stage) : STATUS_TAG[c.status].text}</Tag></span> },
           { title: 'Di tahap ini', render: (_: unknown, c: CaseRow) => (c.status === 'ACTIVE' ? `${Math.max(0, dayjs().diff(dayjs(c.stageEnteredAt), 'day'))} hari` : '—') },
@@ -176,6 +179,60 @@ function CaseDrawer({ id, onClose }: { id: string; onClose: () => void }) {
           <Form.Item name="note" label="Alasan" rules={[{ required: true, min: 5, message: 'Isi alasan minimal 5 huruf' }]}><Input.TextArea rows={3} maxLength={500} /></Form.Item>
         </Form>
       </Modal>
+    </Drawer>
+  );
+}
+
+interface StageOverride { label?: string; roles?: string[]; requireNote?: boolean; sod?: boolean; slaDays?: number | null }
+type Overrides = Record<string, Record<string, StageOverride>>;
+interface SettingsData { settings: { autoOpen: boolean; enforce: boolean; overrides: Overrides }; defaults: Pipeline[] }
+
+/** Pengaturan alur: buka kasus otomatis, "alur wajib", dan penyesuaian tahap (hanya boleh memperketat) */
+function SettingsDrawer({ onClose }: { onClose: () => void }) {
+  const q = useQuery({ queryKey: ['workflow', 'settings'], queryFn: () => get<SettingsData>('/workflow/settings') });
+  const [autoOpen, setAutoOpen] = useState<boolean | undefined>();
+  const [enforce, setEnforce] = useState<boolean | undefined>();
+  const [ov, setOv] = useState<Overrides | undefined>();
+  const d = q.data;
+  const cur = ov ?? d?.settings.overrides ?? {};
+  const set = (pk: string, sk: string, patch: StageOverride) => setOv({ ...cur, [pk]: { ...(cur[pk] ?? {}), [sk]: { ...(cur[pk]?.[sk] ?? {}), ...patch } } });
+  const save = useAction(
+    () => put('/workflow/settings', { autoOpen: autoOpen ?? d?.settings.autoOpen, enforce: enforce ?? d?.settings.enforce, overrides: cur }),
+    { success: 'Pengaturan alur tersimpan', invalidate: ['workflow'], onSuccess: onClose },
+  );
+  return (
+    <Drawer open onClose={onClose} width={Math.min(720, window.innerWidth)} title="Pengaturan alur kerja" loading={q.isLoading} destroyOnHidden
+      extra={<Button type="primary" loading={save.isPending} onClick={() => save.mutate(undefined)}>Simpan</Button>}>
+      {d && (
+        <>
+          <Space direction="vertical" style={{ width: '100%', marginBottom: 12 }}>
+            <div><Switch checked={autoOpen ?? d.settings.autoOpen} onChange={setAutoOpen} /> Buka kasus otomatis dari dokumen baru (pesanan, pembelian, sesi kasir, produksi, ...) dan dari stok di bawah minimum</div>
+            <div><Switch checked={enforce ?? d.settings.enforce} onChange={setEnforce} /> Alur wajib: bayar tagihan pemasok dan mulai produksi ditolak bila tahap alurnya belum tercapai</div>
+          </Space>
+          <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Penyesuaian hanya boleh memperketat" description="Anda bisa mempersempit peran, mewajibkan catatan atau pemeriksa berbeda, memperpendek batas hari, dan mengganti nama tahap. Aturan bawaan tidak bisa dilonggarkan." />
+          <Tabs items={d.defaults.map((p) => ({
+            key: p.key, label: p.label.split(':')[0],
+            children: (
+              <Space direction="vertical" style={{ width: '100%' }}>
+                {p.stages.filter((s) => s.key !== 'BATAL').map((s) => {
+                  const o = cur[p.key]?.[s.key] ?? {};
+                  return (
+                    <div key={s.key} style={{ border: '1px solid #e3e8f0', borderRadius: 8, padding: 10 }}>
+                      <Input value={o.label ?? s.label} maxLength={40} onChange={(e) => set(p.key, s.key, { label: e.target.value })} style={{ fontWeight: 600, marginBottom: 6 }} />
+                      <Space wrap>
+                        <Select mode="multiple" style={{ minWidth: 220 }} value={o.roles ?? s.roles} options={(s.roles ?? []).map((r) => ({ value: r, label: r }))} onChange={(v) => set(p.key, s.key, { roles: v })} placeholder="Peran" />
+                        <span><Switch size="small" checked={o.requireNote ?? !!s.requireNote} disabled={!!s.requireNote} onChange={(v) => set(p.key, s.key, { requireNote: v })} /> Catatan wajib</span>
+                        <span><Switch size="small" checked={o.sod ?? !!s.sod} disabled={!!s.sod} onChange={(v) => set(p.key, s.key, { sod: v })} /> Pemeriksa berbeda</span>
+                        <span>Batas hari <InputNumber size="small" min={1} max={s.slaDays ?? 365} value={o.slaDays === undefined ? s.slaDays : o.slaDays ?? undefined} onChange={(v) => set(p.key, s.key, { slaDays: v ?? undefined })} style={{ width: 70 }} /></span>
+                      </Space>
+                    </div>
+                  );
+                })}
+              </Space>
+            ),
+          }))} />
+        </>
+      )}
     </Drawer>
   );
 }

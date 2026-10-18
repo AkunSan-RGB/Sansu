@@ -16,6 +16,7 @@ import { fmtCurrency, fmtDate, fmtMoney, fmtQty, fmtRate, today } from '@/lib/fo
 import { ReceiptStatusTag } from './GoodsReceiptsPage';
 import { PurchaseOrderStatusTag } from '../sales/status';
 import { t } from '@/lib/terms';
+import WorkflowBadge from '@/features/workflow/WorkflowBadge';
 
 /** Lot dan tanggal kedaluwarsa per baris (opsional; dipantau di Persediaan › Kedaluwarsa bahan) */
 interface LotPayload {
@@ -92,7 +93,7 @@ export default function PurchaseOrderDetailPage() {
   return (
     <>
       <PageHeader
-        title={o ? `Purchase Order ${o.number}` : 'Purchase Order'}
+        title={<Space wrap>{o ? `Purchase Order ${o.number}` : 'Purchase Order'}{o && <WorkflowBadge type="PURCHASE_ORDER" id={o.id} />}</Space>}
         extra={
           o && (
             <Space wrap>

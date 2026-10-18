@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuthUser } from '../../common/auth/auth-user';
+import { WorkflowService } from '../workflow/workflow.module';
 import { AuditService } from '../../common/audit/audit.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { SettingsService, taxProfileOf } from '../../common/settings.service';
@@ -50,6 +51,7 @@ export class PurchaseInvoicesService {
     private readonly assets: AssetsService,
     private readonly settings: SettingsService,
     private readonly approvals: ApprovalsService,
+    private readonly workflow: WorkflowService,
     private readonly fx: FxService,
     private readonly budget: BudgetService,
   ) {}
@@ -754,6 +756,7 @@ export class PurchaseInvoicesService {
     const amount = money(dto.amount);
     if (amount.lte(0)) throw new BadRequestException('Jumlah pembayaran harus > 0');
     assertNotFuture(date, 'Tanggal pembayaran');
+    await this.workflow.gate(user.tenantId, 'PAY_SUPPLIER', dto.purchaseInvoiceId);
     // Pemisahan fungsi: pembayaran besar oleh peran selain pemilik/admin menunggu persetujuan (batas sama dengan kas keluar)
     if (!opts.approved) {
       const limit = await this.approvals.needs(this.db, user, 'SUPPLIER_PAYMENT', amount.toNumber());
