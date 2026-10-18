@@ -1,10 +1,11 @@
+import { taskCountByPath, useTasks } from './useTasks';
 import ApprovalAssignListener from '@/features/approvals/ApprovalAssignListener';
 import { rememberReturnTo } from '@/auth/returnTo';
-import { ApartmentOutlined, AppstoreOutlined, AuditOutlined, CrownOutlined, MenuOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, AppstoreOutlined, AuditOutlined, CheckSquareOutlined, CrownOutlined, MenuOutlined, SettingOutlined } from '@ant-design/icons';
 import { BUSINESS_MODELS, localize, type AppKey, type BusinessModel } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Badge, Button, Drawer, Grid, Layout, Menu, type MenuProps, message, Segmented, Spin, Typography } from 'antd';
-import { useState } from 'react';
+import { Alert, Badge, Button, Checkbox, Drawer, Grid, Layout, Menu, type MenuProps, message, Segmented, Spin, Typography } from 'antd';
+import { useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { BRAND } from '@sansu/shared';
 import { get } from '@/api/client';
@@ -60,6 +61,7 @@ const subItems = (c: Sub[] = []): Item[] => c.flatMap((x) => ('section' in x ? x
  */
 const MENU: Group[] = [
   { part: '', key: '/dashboard', label: 'Dashboard', icon: APP_ICONS.dashboard, to: '/dashboard' },
+  { part: '', key: '/tasks', label: 'Tugas saya', icon: <CheckSquareOutlined />, to: '/tasks', core: true, roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'PURCHASING', 'WAREHOUSE', 'CASHIER', 'HR'] },
   { part: '', key: '/workflow', label: 'Alur kerja', icon: <ApartmentOutlined />, to: '/workflow', core: true, roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'PURCHASING', 'WAREHOUSE', 'CASHIER'] },
 
   // ---------- Penjualan ----------
@@ -323,6 +325,33 @@ export default function AppLayout() {
     enabled: !!me && ['OWNER', 'ADMIN'].includes(me.role),
     refetchInterval: 60_000,
   });
+  const tasks = useTasks();
+  const taskCounts = taskCountByPath(tasks.data);
+  const taskTotal = (tasks.data ?? []).reduce((a, t) => a + t.count, 0);
+  const hiddenKey = `sansu.menu.hidden.${me?.id ?? ''}`;
+  const [hidden, setHidden] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(hiddenKey) ?? '[]') as string[];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    try {
+      setHidden(JSON.parse(localStorage.getItem(hiddenKey) ?? '[]') as string[]);
+    } catch {
+      setHidden([]);
+    }
+  }, [hiddenKey]);
+  const [customizing, setCustomizing] = useState(false);
+  const saveHidden = (h: string[]) => {
+    setHidden(h);
+    try {
+      localStorage.setItem(hiddenKey, JSON.stringify(h));
+    } catch {
+      /* penyimpanan browser tidak tersedia */
+    }
+  };
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [openState, setOpenState] = useState<{ for: string | undefined; keys: string[] }>();
@@ -354,6 +383,13 @@ export default function AppLayout() {
   const L = (text: string) => localize(text, me.businessModel);
   // Fitur pajak yang tidak relevan (non-PKP, PPh final, usaha penjualan barang) tidak ditampilkan
   const taxOk = (i: Item) => (!i.roles || me.role === 'OWNER' || i.roles.includes(me.role)) && (!i.models || i.models.includes(me.businessModel)) && (!i.tax || me.taxFeatures?.[i.tax] !== false) && !i.hideFor?.includes(me.businessModel) && !(i.epOnly && me.framework === 'SAK_EMKM') && !(i.billing && me.subscription?.enabled === false) && !(i.branch && !me.multiBranch) && !(i.budget && !me.hasBudget);
+  // Menu yang disembunyikan pengguna sendiri (preferensi pribadi); menu yang sedang dibuka dan menu inti tidak pernah hilang
+  const keepKeys = new Set(['/tasks', '/approvals', '/dashboard']);
+  const shown = (key: string) => !hidden.includes(key) || keepKeys.has(key) || key === pathname + search || (key.split('?')[0] === pathname && !key.includes('?'));
+  const withBadge = (key: string, label: React.ReactNode) => {
+    const n = taskCounts.get(key.split('?')[0]) ?? 0;
+    return n ? <Badge count={n} size="small" offset={[10, 0]}>{label}</Badge> : label;
+  };
   const toMenu = (g: Group): NonNullable<MenuProps['items']>[number] =>
     g.children
       ? {
@@ -361,19 +397,19 @@ export default function AppLayout() {
           icon: g.icon,
           label: g.readOnlyFor?.includes(me.role) ? <span>{L(g.label)} <span style={{ fontSize: 11, opacity: 0.6 }}>· lihat</span></span> : L(g.label),
           children: g.children
-            .filter((c) => ('section' in c ? c.items.some((i) => (!i.app || can(i.app)) && taxOk(i)) : (!c.app || can(c.app)) && taxOk(c)))
+            .filter((c) => ('section' in c ? c.items.some((i) => (!i.app || can(i.app)) && taxOk(i) && shown(i.key)) : (!c.app || can(c.app)) && taxOk(c) && shown(c.key)))
             .map((c) =>
               'section' in c
                 ? {
                     type: 'group' as const,
                     key: `${g.key}:${c.section}`,
                     label: <span style={SECTION_STYLE}>{L(c.section)}</span>,
-                    children: c.items.filter((i) => (!i.app || can(i.app)) && taxOk(i)).map(({ key, label }) => ({ key, label: L(label) })),
+                    children: c.items.filter((i) => (!i.app || can(i.app)) && taxOk(i) && shown(i.key)).map(({ key, label }) => ({ key, label: withBadge(key, L(label)) })),
                   }
-                : { key: c.key, label: L(c.label) },
+                : { key: c.key, label: withBadge(c.key, L(c.label)) },
             ),
         }
-      : { key: g.key, icon: g.icon, label: g.key === '/approvals' && pendingApprovals.data?.count ? <Badge count={pendingApprovals.data.count} offset={[14, 2]}>{L(g.label)}</Badge> : L(g.label) };
+      : { key: g.key, icon: g.icon, label: g.key === '/tasks' && taskTotal ? <Badge count={taskTotal} offset={[14, 2]}>{L(g.label)}</Badge> : g.key === '/approvals' && pendingApprovals.data?.count ? <Badge count={pendingApprovals.data.count} offset={[14, 2]}>{L(g.label)}</Badge> : L(g.label) };
   // Menu utama dikelompokkan per bagian alur kerja (judul kecil hanya tampil saat sidebar terbuka)
   const parts = [...new Set(visible.map((g) => g.part))];
   const items: MenuProps['items'] = [
@@ -434,8 +470,32 @@ export default function AppLayout() {
     />
   );
 
+  // Semua submenu yang boleh dilihat peran ini (untuk dipilih disembunyikan)
+  const customizable = visible.flatMap((g) =>
+    g.children
+      ? subItems(g.children)
+          .filter((i) => (!i.app || can(i.app)) && taxOk(i) && !keepKeys.has(i.key))
+          .map((i) => ({ key: i.key, label: `${L(g.label)} › ${L(i.label)}` }))
+      : [],
+  );
+  const customizer = (
+    <div style={{ padding: collapsed && isDesktop ? 8 : '8px 20px 16px', textAlign: collapsed && isDesktop ? 'center' : 'left' }}>
+      <Button size="small" type="text" icon={<SettingOutlined />} onClick={() => setCustomizing(true)} style={{ color: '#8b97ad' }}>
+        {collapsed && isDesktop ? '' : 'Sesuaikan menu'}
+      </Button>
+    </div>
+  );
   return (
     <Layout style={{ minHeight: '100vh' }}>
+      <Drawer open={customizing} onClose={() => setCustomizing(false)} width={Math.min(420, window.innerWidth)} title="Sesuaikan menu Anda"
+        extra={<Button onClick={() => saveHidden([])} disabled={!hidden.length}>Tampilkan semua</Button>}>
+        <Typography.Paragraph type="secondary">Hilangkan menu yang tidak Anda pakai supaya sidebar lebih ringkas. Ini hanya mengubah tampilan Anda sendiri; hak akses tidak berubah, dan menu bisa ditampilkan lagi kapan saja.</Typography.Paragraph>
+        {customizable.map((i) => (
+          <div key={i.key} style={{ padding: '4px 0' }}>
+            <Checkbox checked={!hidden.includes(i.key)} onChange={(e) => saveHidden(e.target.checked ? hidden.filter((k) => k !== i.key) : [...hidden, i.key])}>{i.label}</Checkbox>
+          </div>
+        ))}
+      </Drawer>
       {isDesktop ? (
         <Layout.Sider
           collapsible
@@ -446,6 +506,7 @@ export default function AppLayout() {
         >
           {brand}
           {menu}
+          {customizer}
         </Layout.Sider>
       ) : (
         <Drawer
@@ -458,6 +519,7 @@ export default function AppLayout() {
         >
           {brand}
           {menu}
+          {customizer}
         </Drawer>
       )}
       <Layout>

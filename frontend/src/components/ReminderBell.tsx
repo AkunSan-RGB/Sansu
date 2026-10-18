@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
+import { useTasks } from '@/layout/useTasks';
 
 const ICON = {
   error: <CloseCircleFilled style={{ color: '#D92D20' }} />,
@@ -43,8 +44,11 @@ export default function ReminderBell() {
     await post('/reminders/unsnooze', { key });
     refresh();
   };
-  const data = q.data;
-  const urgent = (data?.counts.error ?? 0) + (data?.counts.warning ?? 0);
+  const tasks = useTasks().data ?? [];
+  const taskTotal = tasks.reduce((a, t) => a + t.count, 0);
+  // persetujuan sudah tampil sebagai tugas (disaring per pengguna); hindari ganda
+  const data = q.data ? { ...q.data, items: q.data.items.filter((i) => i.key !== 'approvals' && i.key !== 'pr-pending') } : q.data;
+  const urgent = (data?.items.filter((i) => i.level !== 'info').length ?? 0) + taskTotal;
 
   const row = (i: ReminderItem, snoozed = false) => (
     <div key={i.key} style={{ display: 'flex', gap: 10, padding: '10px 0', borderBottom: '1px solid #F0EEE8', opacity: snoozed ? 0.65 : 1 }}>
@@ -82,13 +86,24 @@ export default function ReminderBell() {
 
   const content = (
     <div style={{ width: 380, maxWidth: '86vw' }}>
+      {tasks.length > 0 && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7388', marginBottom: 4 }}>Menunggu tindakan Anda</div>
+          {tasks.map((t) => (
+            <div key={t.key} style={{ padding: '6px 0', borderBottom: '1px solid #F0EEE8' }}>
+              <a onClick={() => { setOpen(false); navigate(t.link); }} style={{ fontWeight: 600, color: '#101C33' }}>{t.title}</a>
+              <div style={{ fontSize: 12.5, color: '#5B6477' }}>{t.detail}</div>
+            </div>
+          ))}
+        </div>
+      )}
       {q.isPending ? (
         <div style={{ textAlign: 'center', padding: 24 }}>
           <Spin />
         </div>
       ) : data && data.items.length ? (
         <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>{data.items.map((i) => row(i))}</div>
-      ) : (
+      ) : tasks.length ? null : (
         <Empty
           image={<CheckCircleFilled style={{ fontSize: 40, color: '#16A37B' }} />}
           description={<span>Semua beres. Tidak ada yang perlu ditindaklanjuti.</span>}
