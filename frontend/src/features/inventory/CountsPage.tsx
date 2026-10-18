@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
 import { Alert, App, Button, Card, Form, Input, InputNumber, Modal, Progress, Segmented, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { get, post, put } from '@/api/client';
@@ -51,6 +52,8 @@ interface CountDetail {
   notes: string | null;
   adjustmentNumber: string | null;
   warehouse: { code: string; name: string };
+  /** Opname buta: stok sistem disembunyikan dari penghitung selama opname berjalan */
+  blindCount?: boolean;
   lines: CountLine[];
 }
 const KEYS = ['counts', 'stock', 'stock-moves', 'matrix', 'low-stock', 'journals', 'dashboard', 'reports', 'statements'];
@@ -193,6 +196,7 @@ function CountSheet({ c }: { c: CountDetail }) {
       .filter((l) => (!s || l.sku.toLowerCase().includes(s) || l.name.toLowerCase().includes(s)) && (filter === 'ALL' || (filter === 'TODO' ? l.counted == null : l.diff != null && Math.abs(l.diff) > 0.00001)));
   }, [c.lines, values, search, filter, editable]);
 
+  const blind = !!c.blindCount;
   const all = c.lines.length;
   const done = Object.values(values).filter((v) => v != null).length;
   const diffs = c.lines.map((l) => {
@@ -203,6 +207,44 @@ function CountSheet({ c }: { c: CountDetail }) {
   });
   const plus = diffs.filter((d) => d > 0).reduce((a, b) => a + b, 0);
   const minus = diffs.filter((d) => d < 0).reduce((a, b) => a + b, 0);
+
+  const cols: ColumnsType<(typeof rows)[number]> = [
+              { title: 'SKU', dataIndex: 'sku', width: 120 },
+              { title: 'Nama', dataIndex: 'name' },
+              { title: 'Satuan', dataIndex: 'baseUom', width: 70 },
+              { key: 'base', title: editable ? 'Stok sistem' : 'Stok sistem saat dibukukan', dataIndex: 'base', align: 'right', width: 130, render: (v: number) => fmtQty(v) },
+              {
+                title: 'Jumlah fisik',
+                width: 150,
+                align: 'right',
+                render: (_, l) =>
+                  editable && canEditCount ? (
+                    <InputNumber
+                      min={0}
+                      value={values[l.productId] ?? null}
+                      onChange={(v) => {
+                        setValues((s) => ({ ...s, [l.productId]: v == null ? null : Number(v) }));
+                        setDirty(true);
+                      }}
+                      style={{ width: 120 }}
+                      placeholder="—"
+                    />
+                  ) : l.counted == null ? (
+                    <Typography.Text type="secondary">tidak dihitung</Typography.Text>
+                  ) : (
+                    fmtQty(l.counted)
+                  ),
+              },
+              {
+                key: 'diff',
+                title: 'Selisih',
+                dataIndex: 'diff',
+                align: 'right',
+                width: 110,
+                render: (d: number | null) => (d == null ? '' : <Typography.Text type={d > 0 ? 'success' : d < 0 ? 'danger' : undefined}>{d > 0 ? '+' : ''}{fmtQty(d)}</Typography.Text>),
+              },
+              { key: 'diffValue', title: 'Nilai selisih', align: 'right', width: 130, render: (_, l) => (l.diff ? fmtMoney(l.diff * Number(l.avgCost)) : '') },
+  ];
 
   const confirmPost = () =>
     modal.confirm({
@@ -281,7 +323,7 @@ function CountSheet({ c }: { c: CountDetail }) {
                 { value: 'DIFF', label: 'Ada selisih' },
               ]}
             />
-            {editable && canEditCount && (
+            {editable && canEditCount && !blind && (
               <Button
                 onClick={() => {
                   setValues((v) => Object.fromEntries(c.lines.map((l) => [l.productId, v[l.productId] ?? Number(l.currentQty)])));
@@ -298,42 +340,7 @@ function CountSheet({ c }: { c: CountDetail }) {
             dataSource={rows}
             pagination={{ pageSize: 100, showSizeChanger: false }}
             scroll={{ x: 860 }}
-            columns={[
-              { title: 'SKU', dataIndex: 'sku', width: 120 },
-              { title: 'Nama', dataIndex: 'name' },
-              { title: 'Satuan', dataIndex: 'baseUom', width: 70 },
-              { title: editable ? 'Stok sistem' : 'Stok sistem saat dibukukan', dataIndex: 'base', align: 'right', width: 130, render: (v: number) => fmtQty(v) },
-              {
-                title: 'Jumlah fisik',
-                width: 150,
-                align: 'right',
-                render: (_, l) =>
-                  editable && canEditCount ? (
-                    <InputNumber
-                      min={0}
-                      value={values[l.productId] ?? null}
-                      onChange={(v) => {
-                        setValues((s) => ({ ...s, [l.productId]: v == null ? null : Number(v) }));
-                        setDirty(true);
-                      }}
-                      style={{ width: 120 }}
-                      placeholder="—"
-                    />
-                  ) : l.counted == null ? (
-                    <Typography.Text type="secondary">tidak dihitung</Typography.Text>
-                  ) : (
-                    fmtQty(l.counted)
-                  ),
-              },
-              {
-                title: 'Selisih',
-                dataIndex: 'diff',
-                align: 'right',
-                width: 110,
-                render: (d: number | null) => (d == null ? '' : <Typography.Text type={d > 0 ? 'success' : d < 0 ? 'danger' : undefined}>{d > 0 ? '+' : ''}{fmtQty(d)}</Typography.Text>),
-              },
-              { title: 'Nilai selisih', align: 'right', width: 130, render: (_, l) => (l.diff ? fmtMoney(l.diff * Number(l.avgCost)) : '') },
-            ]}
+            columns={cols.filter((col) => !(blind && ['base', 'diff', 'diffValue'].includes(String(col.key))))}
           />
         </Card>
       </Space>
