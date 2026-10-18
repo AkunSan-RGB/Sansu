@@ -202,9 +202,7 @@ const MENU: Group[] = [
     icon: APP_ICONS.cash,
     readOnlyFor: ['ACCOUNTANT'],
     children: [
-      { key: '/cash', label: 'Uang masuk & keluar' },
-      { key: '/petty-cash', label: 'Kas kecil' },
-      { key: '/cash/counts', label: 'Hitung uang kas (opname)' },
+      { key: '/cash', label: 'Kas, kas kecil & opname' },
       { key: '/bank', label: 'Cocokkan dengan bank' },
     ],
   },
@@ -455,9 +453,11 @@ export default function AppLayout() {
     '/platform',
   ];
   const url = pathname + search;
+  // Kas kecil adalah tab di dalam halaman Kas (menunya satu)
+  const menuPath = pathname.startsWith('/petty-cash') ? '/cash' : pathname;
   const selected =
     allKeys
-      .filter((k) => (k.includes('?') ? url.startsWith(k) : pathname === k || pathname.startsWith(`${k}/`)))
+      .filter((k) => (k.includes('?') ? url.startsWith(k) : menuPath === k || menuPath.startsWith(`${k}/`)))
       .sort((a, b) => b.length - a.length)[0] ?? pathname;
   const openGroup = visible.find((g) => subItems(g.children).some((c) => c.key === selected))?.key;
   // Hanya satu submenu terbuka sekaligus agar sidebar tetap ringkas

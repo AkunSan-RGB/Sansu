@@ -13,6 +13,7 @@ import type { CashTransaction, Project } from '@/api/types';
 import { useApps } from '@/lib/apps';
 import CashAccountSelect from '@/components/CashAccountSelect';
 import PageHeader from '@/layout/PageHeader';
+import CashTabs from './CashTabs';
 import ExportButtons from '@/components/ExportButtons';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
@@ -237,6 +238,7 @@ export default function CashPage() {
           )
         }
       />
+      <CashTabs />
 
       <IncomeSources />
 

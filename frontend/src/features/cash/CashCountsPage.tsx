@@ -47,6 +47,7 @@ import ExportButtons from '@/components/ExportButtons';
 import QueryState from '@/components/QueryState';
 import { cell, DocHeader, head, PrintSheet, Signatures } from '@/components/print/Letterhead';
 import PageHeader from '@/layout/PageHeader';
+import CashTabs from './CashTabs';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { printDoc } from '@/lib/print';
 import { cashCountSheet } from '@/lib/xlsx/reports';
@@ -103,6 +104,7 @@ export default function CashCountsPage() {
           </Space>
         }
       />
+      <CashTabs />
       {me?.role === 'OWNER' && waiting.length > 0 && (
         <Alert
           type="warning"

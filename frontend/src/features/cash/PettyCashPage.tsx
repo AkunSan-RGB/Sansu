@@ -9,6 +9,7 @@ import { canHandleMoney } from '@sansu/shared';
 import { useAuth } from '@/auth/AuthContext';
 import { PettyReplenishSheet, PettyVoucherSheet } from '@/components/print/PettyCashDocs';
 import PageHeader from '@/layout/PageHeader';
+import CashTabs from './CashTabs';
 import { fmtDate, fmtMoney, rupiahInput, today } from '@/lib/format';
 import { printDoc } from '@/lib/print';
 
@@ -86,6 +87,7 @@ export default function PettyCashPage() {
           )
         }
       />
+      <CashTabs />
       {!fund && !funds.isLoading && (
         <Alert
           type="info"
