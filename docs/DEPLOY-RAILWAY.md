@@ -39,3 +39,30 @@ Migrasi database dijalankan otomatis setiap start. Healthcheck Railway memakai `
 
 ## Cadangan
 Aktifkan **Backups** pada layanan Postgres di Railway, dan uji pemulihan ke database sementara sebelum dipakai data asli.
+
+## Pastikan isolasi antar perusahaan (RLS) aktif di produksi
+
+Aplikasi berganti ke peran database `sansu_app` (tanpa hak melewati RLS) pada setiap koneksi, jadi pemisahan data tetap berlaku walau `DATABASE_URL` memakai pengguna pemilik. Yang bisa mematikannya hanya salah konfigurasi. Cek sekali setelah deploy pertama dan setelah migrasi besar.
+
+1. **Variabel lingkungan:** di Railway › service API › Variables, pastikan **tidak ada** `RLS_DISABLED=true` (saklar darurat untuk diagnosis saja).
+2. **Jalankan tiga pemeriksaan ini** di Railway › Postgres › Data › Query (atau `psql`):
+
+```sql
+-- a) peran harus ada, bukan superuser, tidak melewati RLS  → harapan: rolsuper = f, rolbypassrls = f
+SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'sansu_app';
+
+-- b) tabel ber-tenant_id tanpa RLS  → harapan: 0 baris
+SELECT c.relname FROM pg_class c
+JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped
+WHERE c.relkind = 'r' AND c.relnamespace = 'public'::regnamespace AND NOT c.relrowsecurity;
+
+-- c) perusahaan asing tidak boleh melihat apa pun  → harapan: semua 0
+BEGIN;
+SET LOCAL ROLE sansu_app;
+SELECT set_config('app.tenant_id', '00000000-0000-0000-0000-000000000000', true), set_config('app.bypass_rls', 'off', true);
+SELECT (SELECT count(*) FROM invoices) AS faktur, (SELECT count(*) FROM journal_entries) AS jurnal;
+ROLLBACK;
+```
+
+3. Bila (a) kosong atau (b)/(c) tidak sesuai harapan, jalankan ulang migrasi (`npm run db:migrate`) dan hubungi pengelola database; jangan menerima data pelanggan sungguhan sebelum semuanya sesuai.
+4. Batas yang perlu diketahui: pemeriksaan ini hanya membuktikan pembatas database. Ia bukan pengganti uji penetrasi independen.
