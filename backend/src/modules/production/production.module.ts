@@ -8,6 +8,7 @@
  *  - Biaya produksi sesungguhnya (Upah Langsung Produksi, Overhead Pabrik) dicatat lewat gaji / kas / tagihan; selisihnya dengan
  *    yang dibebankan (lebih/kurang dibebankan) tetap di beban pokok penjualan periode berjalan (SAK EP 13.9).
  */
+import { HandoffService } from '../../common/handoff/handoff.service';
 import {
   BadRequestException,
   Body,
@@ -142,6 +143,8 @@ export class ProductionService {
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
     private readonly workflow: WorkflowService,
+  
+    private readonly handoff: HandoffService,
   ) {}
 
   /** Biaya rata-rata per satuan dasar seluruh gudang (untuk taksiran harga pokok resep) */
@@ -614,6 +617,7 @@ export class ProductionService {
         data: { output: out.toString(), total: total.toFixed(2) },
       });
     });
+    this.handoff.fire(user.tenantId, 'PRODUCTION_COMPLETED', user.sub, id);
     return this.getOrder(user.tenantId, id);
   }
 

@@ -8,6 +8,7 @@
  *  - Langsung faktur: stok dan utang dicatat bersama faktur (seperti sebelumnya) dan penerimaan dibuat otomatis, sudah
  *    terkait faktur, supaya rantai dokumen selalu lengkap.
  */
+import { HandoffService } from '../../common/handoff/handoff.service';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service';
@@ -44,6 +45,8 @@ export class GoodsReceiptsService {
     private readonly posting: PostingService,
     private readonly orders: PurchaseOrdersService,
     private readonly audit: AuditService,
+  
+    private readonly handoff: HandoffService,
   ) {}
 
   async isPkp(tx: Tx, tenantId: string) {
@@ -86,6 +89,7 @@ export class GoodsReceiptsService {
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'GoodsReceipt', entityId: receipt.id, data: { number: receipt.number } });
       return receipt.id;
     });
+    this.handoff.fire(user.tenantId, 'GOODS_RECEIVED', user.sub, id);
     return this.get(user.tenantId, id);
   }
 

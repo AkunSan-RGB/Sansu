@@ -8,6 +8,7 @@
  *  - Langsung faktur: stok dan HPP dicatat bersama faktur (seperti sebelumnya) dan surat jalan dibuat otomatis, sudah terkait faktur.
  * Seluruh pesanan dikirim sekaligus (belum ada pengiriman parsial).
  */
+import { HandoffService } from '../../../common/handoff/handoff.service';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { WorkflowService } from '../../workflow/workflow.module';
@@ -36,6 +37,7 @@ export class DeliveriesService {
     private readonly orders: SalesOrdersService,
     private readonly audit: AuditService,
     private readonly workflow: WorkflowService,
+    private readonly handoff: HandoffService,
   ) {}
 
   /** Kirim barang atas pesanan CONFIRMED: stok keluar, HPP dijurnal, pesanan → DELIVERED */
@@ -109,6 +111,7 @@ export class DeliveriesService {
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'DeliveryOrder', entityId: delivery.id, data: { number } });
       return delivery.id;
     });
+    this.handoff.fire(user.tenantId, 'DELIVERY_POSTED', user.sub, id);
     return this.get(user.tenantId, id);
   }
 
