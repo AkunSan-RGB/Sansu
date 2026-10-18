@@ -188,6 +188,9 @@ export class ApprovalRequestsService {
       } else if (req.kind === 'CUSTOMER_PAYMENT') {
         const pay = await this.paymentsSvc.create({ ...user, sub: req.requestedById }, req.payload as never, { approved: true });
         resultRef = (pay as { number?: string }).number;
+      } else if (req.kind === 'AR_WRITE_OFF') {
+        const w = await this.paymentsSvc.writeOff({ ...user, sub: req.requestedById }, req.payload as never, { approved: true });
+        resultRef = (w as { number?: string }).number;
       } else if (req.kind === 'SALES_RETURN') {
         // retur dicatat atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
         const r = await this.returnsSvc.createSales({ ...user, sub: req.requestedById }, req.payload as never, { approved: true });

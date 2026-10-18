@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, desc, eq, ne } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, ne } from 'drizzle-orm';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { AuditService } from '../../../common/audit/audit.service';
 import { SequenceService } from '../../../common/sequence/sequence.service';
@@ -81,8 +81,13 @@ export class InvoicesService {
         throw new BadRequestException(`Order berstatus ${order.status}; hanya order CONFIRMED atau sudah dikirim yang bisa difakturkan`);
       }
       // Sudah dikirim: stok dan HPP dicatat di surat jalan, faktur hanya piutang + penjualan + PPN
-      const delivery = order.status === 'DELIVERED' ? await this.deliveries.activeFor(tx, order.id) : undefined;
-      if (order.status === 'DELIVERED' && !delivery) throw new BadRequestException('Surat jalan pesanan ini tidak ditemukan');
+      const sent = await this.deliveries.activeAll(tx, order.id);
+      if (order.status === 'CONFIRMED' && sent.length) throw new BadRequestException('Pesanan ini baru terkirim sebagian. Selesaikan pengiriman sisanya dulu (atau batalkan surat jalannya), baru difakturkan.');
+      if (order.status === 'DELIVERED' && !sent.length) throw new BadRequestException('Surat jalan pesanan ini tidak ditemukan');
+      // Pengiriman bisa bertahap: biaya pokok tiap baris = rata-rata tertimbang seluruh surat jalan, HPP = jumlah HPP surat jalan
+      const delivery = sent.length
+        ? { id: sent[0].id, cogsAmount: sent.reduce((a, d) => a.plus(d.cogsAmount), ZERO).toFixed(2), lines: sent.flatMap((d) => d.lines) }
+        : undefined;
       const [customer] = await tx.select().from(customers).where(eq(customers.id, order.customerId));
       const number = await this.seq.next(tx, user.tenantId, 'INVOICE', date);
 
@@ -111,9 +116,10 @@ export class InvoicesService {
       for (const line of order.lines) {
         let unitCost: Dec;
         if (delivery) {
-          const dl = delivery.lines.find((x) => x.orderLineId === line.id);
-          if (!dl) throw new BadRequestException('Baris surat jalan tidak cocok dengan pesanan');
-          unitCost = D(dl.unitCost);
+          const dls = delivery.lines.filter((x) => x.orderLineId === line.id);
+          if (!dls.length) throw new BadRequestException('Baris surat jalan tidak cocok dengan pesanan');
+          const q = dls.reduce((a, x) => a.plus(x.qty), ZERO);
+          unitCost = q.gt(0) ? dls.reduce((a, x) => a.plus(D(x.unitCost).times(x.qty)), ZERO).div(q) : D(dls[0].unitCost);
         } else {
           const baseQty = D(line.qty).times(line.uomFactor);
           const moved = await this.stock.move(tx, {
@@ -162,7 +168,7 @@ export class InvoicesService {
       });
 
       if (delivery) {
-        await tx.update(deliveryOrders).set({ invoiceId: invoice.id }).where(eq(deliveryOrders.id, delivery.id));
+        await tx.update(deliveryOrders).set({ invoiceId: invoice.id }).where(inArray(deliveryOrders.id, sent.map((d) => d.id)));
       } else {
         const sj = await this.deliveries.recordWithInvoice(tx, user, { order, date, invoiceId: invoice.id, cogs, costs });
         await tx.update(invoices).set({ deliveryOrderId: sj.id }).where(eq(invoices.id, invoice.id));

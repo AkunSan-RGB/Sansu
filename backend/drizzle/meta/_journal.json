@@ -589,6 +589,13 @@
       "when": 1795545486484,
       "tag": "0083_kontrol_persediaan",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1795631886484,
+      "tag": "0084_pengiriman_parsial",
+      "breakpoints": true
     }
   ]
 }

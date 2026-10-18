@@ -79,11 +79,28 @@ export class SalesControlsService {
       add('SO_NO_APPROVAL', 'info', 'Pesanan besar dikonfirmasi tanpa persetujuan terpisah', na.rows.map((r) => `${r.number} (${r.name})`), 'Dikonfirmasi pemilik/admin. Tinjau berkala apakah pantas.');
     }
 
+    // 15a. Pesanan terkirim sebagian dan sisanya tak kunjung dikirim
+    const ps = await this.db.execute<{ number: string; name: string; days: number }>(sql`
+      SELECT o.number, c.name, (CURRENT_DATE - MAX(d.date))::int AS days
+      FROM sales_orders o JOIN customers c ON c.id = o.customer_id JOIN delivery_orders d ON d.sales_order_id = o.id AND d.status = 'DELIVERED'
+      WHERE o.tenant_id = ${tenantId} AND o.status = 'CONFIRMED'
+      GROUP BY o.number, c.name HAVING MAX(d.date) <= ${addDays(today, -14)} ORDER BY MAX(d.date)`);
+    add('PARTIAL_DELIVERY_STUCK', 'warning', 'Pesanan terkirim sebagian, sisanya belum dikirim > 14 hari', ps.rows.map((r) => `${r.number} ${r.name} (${r.days} hari sejak kirim terakhir)`), 'Selama sisa barang belum terkirim, pesanan tidak bisa difakturkan. Kirim sisanya, atau batalkan surat jalan bila pesanan dibatalkan.');
+
+    // 15b. Piutang dihapus (write-off) 60 hari terakhir — pintu belakang untuk menghilangkan tagihan
+    const wo = await this.db.execute<{ number: string | null; name: string; inv: string; v: string; who: string | null }>(sql`
+      SELECT p.number, c.name, i.number AS inv, p.amount::text AS v, u.name AS who
+      FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id
+      LEFT JOIN audit_logs a ON a.tenant_id = p.tenant_id AND a.entity = 'ReceivableWriteOff' AND a.entity_id = p.id::text
+      LEFT JOIN users u ON u.id = a.user_id
+      WHERE p.tenant_id = ${tenantId} AND p.method = 'WRITE_OFF' AND p.date >= ${since} ORDER BY p.date DESC`);
+    add('AR_WRITE_OFF', 'warning', 'Piutang dihapus (write-off)', wo.rows.map((r) => `${r.inv} ${r.name} Rp${Math.round(Number(r.v)).toLocaleString('id-ID')}${r.who ? ` oleh ${r.who}` : ''}`), 'Tagihan dihapus dari piutang tanpa uang masuk. Pastikan sudah ditagih, ada bukti, dan disetujui Pemilik; piutang yang dihapus tetap ditagih bila pelanggan membayar belakangan (catat sebagai pendapatan lain).');
+
     // 16. Pembayaran pelanggan dicatat jauh setelah tanggal terima (tanda uang ditahan lalu dicatat belakangan / menutup piutang lain)
     const lp = await this.db.execute<{ number: string | null; name: string; days: number }>(sql`
       SELECT p.number, c.name, (p.created_at::date - p.date)::int AS days
       FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id
-      WHERE p.tenant_id = ${tenantId} AND p.date >= ${since} AND (p.created_at::date - p.date) >= 3
+      WHERE p.tenant_id = ${tenantId} AND p.date >= ${since} AND p.method <> 'WRITE_OFF' AND (p.created_at::date - p.date) >= 3
       ORDER BY days DESC`);
     add('PAYMENT_LATE_RECORDED', 'warning', 'Pembayaran pelanggan dicatat ≥ 3 hari setelah tanggal terima', lp.rows.map((r) => `${r.number ?? 'bayar'} ${r.name} (${r.days} hari)`), 'Uang yang diterima lalu baru dicatat belakangan adalah tanda uang tertahan atau dipakai menutup piutang pelanggan lain. Cocokkan dengan mutasi bank.');
 
@@ -125,7 +142,7 @@ export class SalesControlsService {
       JOIN audit_logs ap ON ap.tenant_id = p.tenant_id AND ap.entity = 'Payment' AND ap.entity_id = p.id::text AND ap.action = 'CREATE'
       JOIN audit_logs ai ON ai.tenant_id = p.tenant_id AND ai.entity = 'Invoice' AND ai.entity_id = p.invoice_id::text AND ai.action = 'CREATE' AND ai.user_id = ap.user_id
       JOIN users u ON u.id = ap.user_id
-      WHERE p.tenant_id = ${tenantId} AND p.date >= ${since} GROUP BY u.name ORDER BY n DESC`);
+      WHERE p.tenant_id = ${tenantId} AND p.method <> 'WRITE_OFF' AND p.date >= ${since} GROUP BY u.name ORDER BY n DESC`);
     add('PAYMENT_BY_INVOICE_CREATOR', 'info', 'Pembayaran dicatat oleh pembuat fakturnya sendiri', sp.rows.map((r) => `${r.who}: ${r.n} faktur`), 'Satu orang membuat tagihan sekaligus mencatat uang masuknya, padahal ada lebih dari satu Keuangan. Bagi tugasnya dan aktifkan "Pemisahan fungsi penjualan" di Pengaturan › Perusahaan › Kebijakan.');
     const sr = await this.db.execute<{ who: string; n: number }>(sql`
       SELECT u.name AS who, COUNT(DISTINCT r.invoice_id)::int AS n

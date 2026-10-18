@@ -44,3 +44,20 @@ Semua ambang diatur di **Pengaturan › Perusahaan › Kebijakan** dan bernilai 
 - Retur/kredit nota untuk pelanggan baru belum diperiksa ulang di PR ini.
 
 Migrasi `0082` menambah kolom alasan pembatalan; dijalankan otomatis saat start.
+
+## Pengiriman parsial & hapus piutang
+
+**Pengiriman parsial**
+- Satu pesanan boleh dikirim bertahap (beberapa surat jalan). Tombol *Kirim sebagian* di halaman pesanan; *Kirim semua sisa* mengirim yang belum terkirim.
+- Pesanan tetap *Dikonfirmasi* sampai semua barang terkirim, lalu *Dikirim*. Faktur baru bisa dibuat setelah semuanya terkirim dan menagih seluruh pesanan; HPP = jumlah HPP semua surat jalan. Belum ada faktur per surat jalan.
+- Pesanan yang sudah terkirim sebagian tidak bisa dibatalkan atau difakturkan langsung (batalkan surat jalannya dulu). Membatalkan satu surat jalan mengembalikan pesanan ke *Dikonfirmasi*.
+- Pengiriman buta: jumlah yang dikemas harus sama dengan *sisa* pesanan (Gudang pada mode buta tidak bisa mengirim sebagian).
+- Temuan `PARTIAL_DELIVERY_STUCK` di Kontrol penjualan: terkirim sebagian dan sisanya belum dikirim > 14 hari.
+- Belum ada "tutup sisa pesanan" (mengurangi jumlah pesanan); sisa yang tak akan dikirim harus dikirim atau seluruh surat jalan dibatalkan.
+
+**Hapus piutang (write-off)**
+- Tombol *Hapus piutang* di faktur. Syarat: lewat jatuh tempo ≥ 90 hari (Pemilik dikecualikan), alasan wajib (≥ 5 huruf), faktur rupiah.
+- Pemilik/Admin langsung berlaku; Keuangan menunggu persetujuan Pemilik/Admin. Pemilik diberi tahu (Telegram/email).
+- Jurnal: Dr Cadangan kerugian piutang (sebatas saldonya) + Dr Beban kerugian piutang (sisanya, akun 6-7300) | Cr Piutang usaha. Dicatat sebagai pembayaran bermetode "Hapus piutang" tanpa kas, sehingga sisa tagihan di semua laporan ikut berkurang; faktur berstatus Lunas.
+- Temuan `AR_WRITE_OFF` di Kontrol penjualan menampilkan semua penghapusan 60 hari terakhir beserta pelakunya.
+- Batas jujur: PPN keluaran atas piutang yang dihapus tidak dikoreksi otomatis (perlu nota retur/pembatalan PPN sesuai ketentuan pajak, tinjau dengan konsultan pajak); faktur valas belum didukung; piutang yang kemudian dibayar pelanggan dicatat manual sebagai pendapatan lain.

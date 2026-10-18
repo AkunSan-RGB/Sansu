@@ -53,7 +53,12 @@ export class SalesOrdersService {
       },
     });
     if (!o) throw new NotFoundException('Sales order tidak ditemukan');
-    return o;
+    // Jumlah yang sudah dikirim per baris (pengiriman bisa bertahap)
+    const sent = await db.execute<{ id: string; q: string }>(sql`
+      SELECT dl.order_line_id::text AS id, SUM(dl.qty)::text AS q FROM delivery_order_lines dl JOIN delivery_orders d ON d.id = dl.delivery_id
+      WHERE d.sales_order_id = ${id} AND d.status = 'DELIVERED' GROUP BY dl.order_line_id`);
+    const m = new Map(sent.rows.map((r) => [r.id, r.q]));
+    return { ...o, lines: o.lines.map((l) => ({ ...l, deliveredQty: m.get(l.id) ?? '0' })) };
   }
 
   async create(user: AuthUser, dto: CreateSalesOrderDto, opts: { consignment?: boolean } = {}) {
@@ -280,6 +285,7 @@ export class SalesOrdersService {
       if (order.status === 'INVOICED') throw new BadRequestException('Order sudah difakturkan; buat retur penjualan');
       if (order.status === 'DELIVERED') throw new BadRequestException('Barang sudah dikirim; batalkan surat jalannya dulu atau buat faktur');
       if (order.status === 'CANCELLED') throw new BadRequestException('Order sudah dibatalkan');
+      if ((await tx.execute(sql`SELECT 1 FROM delivery_orders WHERE sales_order_id = ${id} AND status = 'DELIVERED' LIMIT 1`)).rows.length) throw new BadRequestException('Sebagian barang sudah dikirim; batalkan surat jalannya dulu');
       // Pesanan yang sudah dikonfirmasi lalu dibatalkan staf: wajib alasan (tidak boleh dipakai menghilangkan jejak penjualan)
       if (order.status === 'CONFIRMED' && !this.approvals.isApprover(user.role) && (reason?.trim().length ?? 0) < 5) {
         throw new BadRequestException('Isi alasan pembatalan pesanan yang sudah dikonfirmasi (minimal 5 huruf)');
@@ -296,10 +302,10 @@ export class SalesOrdersService {
   }
 
   /** Pengiriman buta: Gudang tidak melihat jumlah pesanan (hanya menghitung dan mengisi yang dikemas) */
-  async forViewer<T extends { status: string; lines?: { qty: string }[] }>(user: AuthUser, o: T): Promise<T & { blindDelivery: boolean }> {
+  async forViewer<T extends { status: string; lines?: { qty: string; deliveredQty?: string }[] }>(user: AuthUser, o: T): Promise<T & { blindDelivery: boolean }> {
     const blind = user.role === 'WAREHOUSE' && o.status === 'CONFIRMED' && (await this.approvals.policy(this.db, user.tenantId)).blindDelivery;
     if (!blind) return { ...o, blindDelivery: false };
-    return { ...o, blindDelivery: true, lines: o.lines?.map((l) => ({ ...l, qty: '0' })) };
+    return { ...o, blindDelivery: true, lines: o.lines?.map((l) => ({ ...l, qty: '0', deliveredQty: '0' })) };
   }
 
   /** Kunci baris order agar konfirmasi/faktur tidak berjalan dua kali bersamaan. */
