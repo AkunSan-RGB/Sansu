@@ -176,6 +176,7 @@ function StatementDrawer({ id, onClose }: { id: string | null; onClose: () => vo
   const [filter, setFilter] = useState<BankLineStatus | 'ALL'>('ALL');
   const [creating, setCreating] = useState<BankStatementLine | null>(null);
   const [matching, setMatching] = useState<BankStatementLine | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
   const [form] = Form.useForm();
   const st = useQuery({ queryKey: ['bank', 'statement', id], queryFn: () => get<BankStatement>(`/bank/statements/${id}`), enabled: !!id });
   const cand = useQuery({ queryKey: ['bank', 'candidates', matching?.id], queryFn: () => get<BankCandidate[]>(`/bank/lines/${matching!.id}/candidates`), enabled: !!matching });
@@ -187,6 +188,11 @@ function StatementDrawer({ id, onClose }: { id: string | null; onClose: () => vo
   });
   const match = useAction((journalLineId: string) => post(`/bank/lines/${matching!.id}/match`, { journalLineId }), {
     success: 'Dicocokkan',
+    invalidate: KEYS,
+    onSuccess: () => setMatching(null),
+  });
+  const matchMany = useAction((journalLineIds: string[]) => post(`/bank/lines/${matching!.id}/match-many`, { journalLineIds }), {
+    success: 'Beberapa transaksi dicocokkan dengan satu mutasi',
     invalidate: KEYS,
     onSuccess: () => setMatching(null),
   });
@@ -302,18 +308,40 @@ function StatementDrawer({ id, onClose }: { id: string | null; onClose: () => vo
           </Form.Item>
         </Form>
       </Modal>
-      <Modal title="Cocokkan dengan transaksi di buku" open={!!matching} onCancel={() => setMatching(null)} footer={null} width={860}>
+      <Modal title="Cocokkan dengan transaksi di buku" open={!!matching} onCancel={() => setMatching(null)} afterClose={() => setPicked([])} footer={null} width={860}>
         {matching && (
           <Typography.Paragraph>
             Mutasi bank: {fmtDate(matching.date)} · {matching.description} · {signed(matching.amount)}
           </Typography.Paragraph>
         )}
+        {matching && (() => {
+          const sum = (cand.data ?? []).filter((c) => picked.includes(c.id)).reduce((a, c) => a + Number(c.amount), 0);
+          const target = Number(matching.amount);
+          const ok = picked.length >= 2 && Math.abs(sum - target) < 0.005;
+          return (
+            <Alert
+              type={ok ? 'success' : 'info'}
+              showIcon
+              style={{ marginBottom: 8 }}
+              message="Satu mutasi untuk beberapa transaksi (mis. setoran gabungan atau satu transfer untuk beberapa faktur)"
+              description={
+                <span>
+                  Centang beberapa transaksi di bawah; jumlahnya harus persis {signed(matching.amount)}. Terpilih: {picked.length} transaksi, {signed(sum)}.{' '}
+                  <Button size="small" type="primary" disabled={!ok} loading={matchMany.isPending} onClick={() => matchMany.mutate(picked)}>
+                    Cocokkan yang dipilih
+                  </Button>
+                </span>
+              }
+            />
+          );
+        })()}
         <Table
           size="small"
           rowKey="id"
           loading={cand.isLoading}
           dataSource={cand.data}
           pagination={false}
+          rowSelection={{ selectedRowKeys: picked, onChange: (keys) => setPicked(keys as string[]) }}
           locale={{ emptyText: <Empty description="Tidak ada transaksi buku yang belum dicocokkan di sekitar tanggal ini" /> }}
           columns={[
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },

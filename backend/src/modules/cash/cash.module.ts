@@ -374,9 +374,10 @@ export class CashService {
       if (t.status === 'VOID') throw new BadRequestException('Transaksi ini sudah dibatalkan');
       if (!t.journalId) throw new BadRequestException('Transaksi belum punya jurnal');
       const matched = await tx.execute<{ n: number }>(sql`
-        SELECT COUNT(*)::int AS n FROM bank_statement_lines b
-        WHERE b.status IN ('MATCHED', 'CREATED')
-          AND (b.journal_id = ${t.journalId} OR b.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${t.journalId}))`);
+        SELECT (SELECT COUNT(*) FROM bank_statement_lines b
+                WHERE b.status IN ('MATCHED', 'CREATED')
+                  AND (b.journal_id = ${t.journalId} OR b.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${t.journalId})))::int
+             + (SELECT COUNT(*) FROM bank_line_extra_matches x WHERE x.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${t.journalId}))::int AS n`);
       if (matched.rows[0].n > 0) throw new BadRequestException('Transaksi ini sudah dicocokkan dengan mutasi bank. Batalkan pencocokannya di Rekonsiliasi Bank dulu');
       const assetRows = await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM fixed_assets WHERE tenant_id = ${user.tenantId} AND acquisition_journal_id = ${t.journalId}`);
       if (assetRows.rows[0].n > 0) throw new BadRequestException('Transaksi ini sudah menjadi kartu Aset Tetap. Lepaskan atau hapus asetnya dulu di Aset Tetap');
