@@ -410,6 +410,10 @@ export class WarehouseOpsService {
     return this.db.transaction(async (tx) => {
       const { t, lines } = await this.lockTransit(tx, u, id);
       assertWarehouseAccess(u, t.toWarehouseId);
+      // Pemisahan fungsi (bila dinyalakan): pembuat transfer tidak boleh menerimanya sendiri (selain Pemilik)
+      if (u.role !== 'OWNER' && t.createdById && t.createdById === u.sub && (await this.approvals.policy(tx, u.tenantId)).transferSod) {
+        throw new ForbiddenException('Transfer yang Anda buat tidak boleh Anda terima sendiri. Minta Gudang tujuan atau Admin lain menerimanya.');
+      }
       const to = await this.warehouse(tx, u.tenantId, t.toWarehouseId);
       const date = toDocDate(dto.date);
       if (date < t.date) throw new BadRequestException('Tanggal terima tidak boleh sebelum tanggal kirim');
@@ -735,6 +739,10 @@ export class WarehouseOpsService {
       .leftJoin(stockBalances, and(eq(stockBalances.productId, stockCountLines.productId), eq(stockBalances.warehouseId, cur.warehouseId)))
       .where(and(eq(stockCountLines.countId, id), isNotNull(stockCountLines.countedQty)));
     const gross = diffs.reduce((a, l) => a + Math.abs(Number(l.counted) - Number(l.qty)) * Number(l.avg), 0);
+    // Selisih besar wajib dijelaskan (catatan alasan) sebelum diposting; yang sudah disetujui Pemilik/Admin dikecualikan
+    if (!opts.approved && pol.stockAlertValue > 0 && gross >= pol.stockAlertValue && (cur.notes ?? '').trim().length < 5) {
+      throw new BadRequestException(`Selisih opname bernilai besar (≈ Rp${Math.round(gross).toLocaleString('id-ID')}). Isi catatan alasan selisih (mis. barang rusak, salah catat, retur belum tercatat) sebelum memposting.`);
+    }
     if (!opts.approved) {
       const limit = await this.approvals.needs(this.db, u, 'STOCK_COUNT', gross);
       await this.approvals.gateIf(this.db, u, { kind: 'STOCK_COUNT', refId: id, title: `Selisih stock opname ${cur.number} (≈ Rp${Math.round(gross).toLocaleString('id-ID')})`, amount: gross }, limit !== null, 'Nilai selisih opname mencapai batas persetujuan');

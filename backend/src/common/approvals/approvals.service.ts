@@ -66,12 +66,16 @@ export interface ApprovalPolicy {
   stockCountSod: boolean;
   /** Opname buta: penghitung (Gudang) tidak melihat stok sistem selama opname berjalan */
   blindCount: boolean;
+  /** Penyesuaian stok MASUK dengan harga pokok di atas rata-rata stok lebih dari persen ini oleh staf perlu persetujuan (0 = nonaktif; saldo awal dikecualikan) */
+  stockInCostTolerancePct: number;
+  /** Pemisahan fungsi transfer gudang: pembuat transfer tidak boleh menerimanya sendiri (selain Pemilik) */
+  transferSod: boolean;
   /** Pembayaran ke supplier yang rekeningnya diubah dalam sekian hari terakhir wajib disetujui (0 = nonaktif) */
   bankChangeHoldDays: number;
   /** Masa berlaku tautan persetujuan yang dikirim lewat Telegram (jam, 1–72); email tetap 72 jam */
   telegramLinkHours: number;
 }
-export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, blindReceiving: false, blindDelivery: false, salesOrder: 0, salesDiscountMaxPct: 0, salesReturn: 0, salesBelowCost: false, salesSeparateDuties: false, stockAlertValue: 5000000, stockCountSod: false, blindCount: false, bankChangeHoldDays: 7, budgetControl: 'OFF', telegramLinkHours: 72 };
+export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, blindReceiving: false, blindDelivery: false, salesOrder: 0, salesDiscountMaxPct: 0, salesReturn: 0, salesBelowCost: false, salesSeparateDuties: false, stockAlertValue: 5000000, stockCountSod: false, blindCount: false, stockInCostTolerancePct: 0, transferSod: false, bankChangeHoldDays: 7, budgetControl: 'OFF', telegramLinkHours: 72 };
 
 export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PURCHASE_ORDER: 'Pesanan pembelian',

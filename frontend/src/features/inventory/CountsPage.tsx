@@ -157,14 +157,16 @@ function CountSheet({ c }: { c: CountDetail }) {
   const editable = c.status === 'DRAFT';
   const [values, setValues] = useState<Record<string, number | null>>({});
   const [dirty, setDirty] = useState(false);
+  const [notes, setNotes] = useState(c.notes ?? '');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'ALL' | 'TODO' | 'DIFF'>('ALL');
   useEffect(() => {
     setValues(Object.fromEntries(c.lines.map((l) => [l.productId, l.countedQty == null ? null : Number(l.countedQty)])));
     setDirty(false);
+    setNotes(c.notes ?? '');
   }, [c]);
 
-  const save = useAction(() => put(`/inventory/counts/${c.id}`, { lines: c.lines.map((l) => ({ productId: l.productId, countedQty: values[l.productId] == null ? null : String(values[l.productId]) })) }), {
+  const save = useAction(() => put(`/inventory/counts/${c.id}`, { notes, lines: c.lines.map((l) => ({ productId: l.productId, countedQty: values[l.productId] == null ? null : String(values[l.productId]) })) }), {
     success: 'Hasil hitung disimpan',
     invalidate: ['counts'],
     onSuccess: () => setDirty(false),
@@ -174,7 +176,7 @@ function CountSheet({ c }: { c: CountDetail }) {
   const canEditCount = can('PUT', '/inventory/counts/:id');
   const postCount = useAction(
     async () => {
-      if (dirty) await put(`/inventory/counts/${c.id}`, { lines: c.lines.map((l) => ({ productId: l.productId, countedQty: values[l.productId] == null ? null : String(values[l.productId]) })) });
+      if (dirty) await put(`/inventory/counts/${c.id}`, { notes, lines: c.lines.map((l) => ({ productId: l.productId, countedQty: values[l.productId] == null ? null : String(values[l.productId]) })) });
       return post<{ adjusted: number; adjustmentNumber: string | null; valueIn: string; valueOut: string }>(`/inventory/counts/${c.id}/post`);
     },
     {
@@ -334,6 +336,15 @@ function CountSheet({ c }: { c: CountDetail }) {
               </Button>
             )}
           </Space>
+          {editable && canEditCount && (
+            <Input.TextArea
+              rows={2}
+              value={notes}
+              onChange={(e) => { setNotes(e.target.value); setDirty(true); }}
+              placeholder="Alasan selisih (wajib bila selisih bernilai besar)"
+              style={{ marginBottom: 12 }}
+            />
+          )}
           <Table
             rowKey="productId"
             size="small"

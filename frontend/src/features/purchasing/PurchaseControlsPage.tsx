@@ -16,23 +16,21 @@ interface Finding {
   refs: string[];
 }
 
-interface SalesPolicy {
-  salesOrder: number;
-  salesDiscountMaxPct: number;
-  salesReturn: number;
-  salesBelowCost: boolean;
+interface ControlSetup {
+  active: boolean;
+  message: string;
+  recommended: Record<string, number | boolean>;
+  recommendedText: string;
 }
-/** Nilai rekomendasi kontrol penjualan (bisa diubah di Pengaturan › Perusahaan › Kebijakan) */
-const SALES_RECOMMENDED = { salesOrder: 50_000_000, salesDiscountMaxPct: 15, salesReturn: 5_000_000, salesBelowCost: true };
 
 export function ControlFindingsPage({ title, endpoint, intro, settings, fixedRules }: { title: string; endpoint: string; intro: string; settings: string[]; fixedRules: string }) {
   const navigate = useNavigate();
-  const q = useQuery({ queryKey: [endpoint.slice(1)], queryFn: () => get<{ asOf: string; since: string; items: Finding[]; policy?: SalesPolicy }>(endpoint) });
+  const q = useQuery({ queryKey: [endpoint.slice(1)], queryFn: () => get<{ asOf: string; since: string; items: Finding[]; setup?: ControlSetup }>(endpoint) });
   const { me } = useAuth();
   const isAdmin = !!me && ['OWNER', 'ADMIN'].includes(me.role);
-  const apply = useAction(() => put('/approvals/policy', SALES_RECOMMENDED), { success: 'Rekomendasi kontrol penjualan diterapkan', invalidate: ['sales-controls', 'approvals'] });
-  const p = q.data?.policy;
-  const inactive = !!p && !p.salesOrder && !p.salesDiscountMaxPct && !p.salesReturn && !p.salesBelowCost;
+  const setup = q.data?.setup;
+  const apply = useAction(() => put('/approvals/policy', setup?.recommended ?? {}), { success: 'Rekomendasi diterapkan', invalidate: [endpoint.slice(1), 'approvals'] });
+  const inactive = !!setup && !setup.active;
   return (
     <>
       <PageHeader title={title} />
@@ -60,8 +58,8 @@ export function ControlFindingsPage({ title, endpoint, intro, settings, fixedRul
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
-          message="Persetujuan penjualan belum aktif"
-          description="Pesanan besar, diskon besar, penjualan di bawah harga pokok, dan retur besar belum butuh persetujuan, sehingga staf bisa melakukannya sendiri. Rekomendasi: pesanan ≥ Rp50 juta, diskon > 15%, retur ≥ Rp5 juta, dan harga di bawah pokok butuh persetujuan Pemilik/Admin."
+          message="Pengaman belum aktif"
+          description={`${setup?.message ?? ''} Rekomendasi: ${setup?.recommendedText ?? ''}.`}
           action={
             isAdmin ? (
               <Button size="small" type="primary" loading={apply.isPending} onClick={() => apply.mutate(undefined)}>
