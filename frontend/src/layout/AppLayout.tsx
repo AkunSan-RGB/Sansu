@@ -201,10 +201,10 @@ const MENU: Group[] = [
     icon: APP_ICONS.cash,
     readOnlyFor: ['ACCOUNTANT'],
     children: [
-      { key: '/cash', label: 'Transaksi kas & bank' },
+      { key: '/cash', label: 'Uang masuk & keluar' },
       { key: '/petty-cash', label: 'Kas kecil' },
-      { key: '/bank', label: 'Rekonsiliasi bank' },
-      { key: '/cash/counts', label: 'Opname kas' },
+      { key: '/cash/counts', label: 'Hitung uang kas (opname)' },
+      { key: '/bank', label: 'Cocokkan dengan bank' },
     ],
   },
   {
