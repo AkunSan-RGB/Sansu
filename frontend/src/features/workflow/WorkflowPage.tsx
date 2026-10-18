@@ -26,7 +26,7 @@ const STATUS_TAG = { ACTIVE: { color: 'blue', text: 'Berjalan' }, DONE: { color:
 const KIND: Record<string, string> = { CREATE: 'Kasus dibuka', ADVANCE: 'Pindah tahap', AUTO: 'Maju otomatis', LINK: 'Dokumen ditautkan', BACK: 'Dikembalikan', CANCEL: 'Dibatalkan' };
 
 /** Alur kerja operasional sesuai jenis usaha perusahaan: papan tahap, kasus, dokumen terkait, dan riwayat */
-export default function WorkflowPage() {
+export default function WorkflowPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { data: pipelines, isLoading } = useQuery({ queryKey: ['workflow', 'pipelines'], queryFn: () => get<Pipeline[]>('/workflow/pipelines') });
   const alerts = useQuery({ queryKey: ['workflow', 'alerts'], queryFn: () => get<Alert[]>('/workflow/alerts') });
   const [openId, setOpenId] = useState<string | null>(null);
@@ -34,7 +34,14 @@ export default function WorkflowPage() {
   const can = useCan();
   return (
     <>
-      <PageHeader title="Alur kerja" extra={can('PUT', '/workflow/settings') && <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>Pengaturan alur</Button>} />
+      {embedded ? (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+          <span style={{ color: 'rgba(0,0,0,0.55)' }}>Pantau satu proses dari awal sampai selesai: di tahap mana, siapa berikutnya, dan mana yang macet.</span>
+          {can('PUT', '/workflow/settings') && <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>Pengaturan alur</Button>}
+        </div>
+      ) : (
+        <PageHeader title="Alur kerja" extra={can('PUT', '/workflow/settings') && <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>Pengaturan alur</Button>} />
+      )}
       {settingsOpen && <SettingsDrawer onClose={() => setSettingsOpen(false)} />}
       {!!alerts.data?.length && (
         <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={`${alerts.data.length} hal perlu perhatian`}
