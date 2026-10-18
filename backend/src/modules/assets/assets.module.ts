@@ -18,7 +18,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags, PartialType } from '@nestjs/swagger';
 import { IsBoolean, IsDateString, IsIn, IsInt, IsNumberString, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
-import { DEPRECIATION_METHODS, FISCAL_ASSET_GROUPS, type FiscalAssetGroup } from '@sansu/shared';
+import { DEPRECIATION_METHOD_LABELS, DEPRECIATION_METHODS, FISCAL_ASSET_GROUPS, type FiscalAssetGroup } from '@sansu/shared';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -35,7 +35,7 @@ import { AccountingModule } from '../accounting/accounting.module';
 import { frameworkOf } from '../accounting/coa-sync';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
-import { accumulatedThrough, fiscalDepreciation, lastDay, monthIndex, monthlyDepreciation, periodOf } from './depreciation';
+import { accumulatedThrough, depreciationFor, fiscalDepreciation, lastDay, monthIndex, periodOf, type MethodChange } from './depreciation';
 
 // ---------- DTO ----------
 export class CategoryDto {
@@ -84,6 +84,17 @@ export class UpdateAssetDto {
   @ApiPropertyOptional({ description: 'Penanggung jawab aset' }) @IsOptional() @IsString() @MaxLength(120) custodian?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() location?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() notes?: string;
+}
+
+export class ChangeMethodDto {
+  @ApiProperty({ enum: DEPRECIATION_METHODS.filter((m) => m !== 'NONE') }) @IsIn(DEPRECIATION_METHODS.filter((m) => m !== 'NONE')) method: string;
+  @ApiPropertyOptional({ example: '2026-11', description: 'Bulan mulai berlaku (bawaan: bulan ini). Tidak boleh pada/ sebelum bulan yang sudah disusutkan.' }) @IsOptional() @Matches(/^\d{4}-(0[1-9]|1[0-2])$/) effectiveMonth?: string;
+  @ApiProperty({ description: 'Alasan perubahan (minimal 5 huruf)' }) @IsString() @MaxLength(300) reason: string;
+}
+
+export class MethodPreviewQuery {
+  @ApiProperty() @IsIn(DEPRECIATION_METHODS.filter((m) => m !== 'NONE')) method: string;
+  @ApiPropertyOptional() @IsOptional() @Matches(/^\d{4}-(0[1-9]|1[0-2])$/) effectiveMonth?: string;
 }
 
 export class RunDepreciationDto {
@@ -314,7 +325,7 @@ export class AssetsService {
     const disposed = a.status === 'DISPOSED' && a.disposalDate && a.disposalDate <= date;
     const accumulated = disposed ? ZERO : D(a.openingAccumulated).plus(p?.total ?? ZERO);
     const cost = disposed ? ZERO : D(a.cost);
-    const next = monthlyDepreciation(a, D(a.openingAccumulated).plus(p?.total ?? ZERO), date.slice(0, 7));
+    const next = depreciationFor(a, D(a.openingAccumulated).plus(p?.total ?? ZERO), date.slice(0, 7));
     return {
       ...a,
       accumulated: accumulated.toFixed(2),
@@ -348,7 +359,7 @@ export class AssetsService {
     const end = a.status === 'DISPOSED' && a.disposalDate ? monthIndex(a.disposalDate.slice(0, 7)) - 1 : start + Math.max(0, a.usefulLifeMonths - 1);
     for (let i = start; i <= end && a.method !== 'NONE'; i++) {
       const p = periodOf(i);
-      const amt = postedMap.get(p) ?? monthlyDepreciation(a, acc, p);
+      const amt = postedMap.get(p) ?? depreciationFor(a, acc, p);
       if (amt.isZero() && !postedMap.has(p)) continue;
       acc = acc.plus(amt);
       schedule.push({ period: p, amount: amt.toFixed(2), accumulated: acc.toFixed(2), bookValue: D(a.cost).minus(acc).toFixed(2), posted: postedMap.has(p) });
@@ -596,7 +607,7 @@ export class AssetsService {
         const from = Math.max(monthIndex(a.depreciationStart.slice(0, 7)), last ? monthIndex(last) + 1 : 0);
         for (let i = from; i <= monthIndex(period); i++) {
           const p = periodOf(i);
-          const amt = monthlyDepreciation(a, acc, p);
+          const amt = depreciationFor(a, acc, p);
           if (amt.isZero()) continue;
           acc = acc.plus(amt);
           plan.set(p, [...(plan.get(p) ?? []), { cat: a.category, asset: a, amount: amt }]);
@@ -693,7 +704,7 @@ export class AssetsService {
       const acc = D(a.openingAccumulated).plus(posted.get(a.id)?.total ?? ZERO);
       const last = posted.get(a.id)?.last;
       const from = Math.max(monthIndex(a.depreciationStart.slice(0, 7)), last ? monthIndex(last) + 1 : 0);
-      return from <= monthIndex(prev) && !monthlyDepreciation(a, acc, periodOf(from)).isZero();
+      return from <= monthIndex(prev) && !depreciationFor(a, acc, periodOf(from)).isZero();
     });
     add('DEP_BEHIND', 'warning', 'Penyusutan belum dijalankan sampai bulan lalu', behind.map((a) => a.id), `Jalankan penyusutan sampai ${prev}. ${names(behind)}`);
 
@@ -736,6 +747,108 @@ export class AssetsService {
       recommendedText: 'pelepasan aset ≥ Rp5 juta butuh persetujuan',
     };
     return { generatedAt: new Date().toISOString(), count: out.length, items: out, setup };
+  }
+
+  /**
+   * Ubah metode penyusutan satu aset: berlaku ke depan saja (tidak pernah mundur). Penyusutan sampai bulan sebelum bulan berlaku
+   * diposting dulu dengan metode lama; sisa nilai buku (dikurangi residu) lalu disusutkan dengan metode baru selama sisa masa manfaat.
+   * Staf selain Pemilik/Admin: menunggu persetujuan. Pemilik diberi tahu bila diubah orang lain.
+   */
+  async changeMethod(user: AuthUser, id: string, dto: ChangeMethodDto, opts: { approved?: boolean; silent?: boolean } = {}) {
+    const reason = dto.reason?.trim() ?? '';
+    if (reason.length < 5) throw new BadRequestException('Isi alasan perubahan metode (minimal 5 huruf)');
+    if (dto.method === 'NONE') throw new BadRequestException('Aset yang disusutkan tidak bisa diubah menjadi "tidak disusutkan"; lepaskan asetnya bila sudah tidak dipakai.');
+    const pre = await this.db.query.fixedAssets.findFirst({ where: and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId)) });
+    if (!pre) throw new NotFoundException('Aset tidak ditemukan');
+    if (!opts.approved && !this.approvals.isApprover(user.role)) {
+      const req = await this.approvals.create(this.db, user, { kind: 'ASSET_METHOD', refId: id, title: `Ubah metode penyusutan ${pre.code} ${pre.name}`, amount: D(pre.cost).toNumber(), payload: JSON.parse(JSON.stringify({ id, ...dto })) });
+      throw this.approvals.required(req.id, 'Perubahan metode penyusutan menunggu persetujuan pemilik atau admin; permintaan dikirim dan metode diubah setelah disetujui.');
+    }
+    const effective = dto.effectiveMonth ?? todayJakarta().slice(0, 7);
+    const res = await this.db.transaction(async (tx) => {
+      const a = await tx.query.fixedAssets.findFirst({ where: and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId)) });
+      if (!a) throw new NotFoundException('Aset tidak ditemukan');
+      if (a.status !== 'ACTIVE') throw new BadRequestException('Aset sudah dilepas');
+      if (a.method === 'NONE') throw new BadRequestException('Aset ini tidak disusutkan (mis. tanah)');
+      if (a.method === dto.method) throw new BadRequestException('Metode baru sama dengan metode sekarang');
+      if (effective < a.depreciationStart.slice(0, 7)) throw new BadRequestException('Bulan berlaku sebelum penyusutan dimulai');
+      if (effective > todayJakarta().slice(0, 7)) throw new BadRequestException('Bulan berlaku tidak boleh di masa depan');
+      const lastChange = [...(a.methodChanges ?? [])].sort((x, y) => y.from.localeCompare(x.from))[0];
+      if (lastChange && effective <= lastChange.from) throw new BadRequestException(`Metode sudah pernah diubah berlaku ${lastChange.from}; bulan berlaku harus sesudahnya`);
+      const last = (await this.postedTotals(tx, user.tenantId, '9999-12')).get(a.id)?.last;
+      if (last && effective <= last) throw new BadRequestException(`Penyusutan sudah diposting sampai ${last}; perubahan metode hanya berlaku ke depan, mulai ${periodOf(monthIndex(last) + 1)} atau sesudahnya.`);
+      // Susutkan dulu sampai bulan sebelum bulan berlaku dengan metode lama
+      await this.run(user, periodOf(monthIndex(effective) - 1), a.id, tx);
+      const [p] = (await tx.execute<{ total: string }>(sql`SELECT COALESCE(SUM(amount), 0) AS total FROM asset_depreciations WHERE asset_id = ${a.id}`)).rows;
+      const acc = D(a.openingAccumulated).plus(p.total);
+      if (D(a.cost).minus(acc).minus(a.residualValue).lte(0)) throw new BadRequestException('Aset sudah habis disusutkan; tidak ada lagi yang perlu diubah metodenya');
+      if (a.usefulLifeMonths - (monthIndex(effective) - monthIndex(a.depreciationStart.slice(0, 7))) <= 0) throw new BadRequestException('Masa manfaat aset sudah lewat');
+      const change: MethodChange = { from: effective, method: dto.method, prevMethod: a.method, accumulatedAt: acc.toFixed(2) };
+      await tx.update(fixedAssets).set({ method: dto.method, methodChanges: [...(a.methodChanges ?? []), change] }).where(eq(fixedAssets.id, a.id));
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CHANGE_METHOD', entity: 'FixedAsset', entityId: a.id, data: { from: a.method, to: dto.method, effective, reason, accumulated: acc.toFixed(2), bookValue: D(a.cost).minus(acc).toFixed(2) } });
+      return { name: `${a.code} ${a.name}`, from: a.method, to: dto.method };
+    });
+    if (!opts.silent && user.role !== 'OWNER') {
+      void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER'], excludeUserId: user.sub, info: true, title: `Metode penyusutan diubah: ${res.name}`, lines: [`${DEPRECIATION_METHOD_LABELS[res.from as keyof typeof DEPRECIATION_METHOD_LABELS] ?? res.from} → ${DEPRECIATION_METHOD_LABELS[res.to as keyof typeof DEPRECIATION_METHOD_LABELS] ?? res.to}, berlaku ${effective}`, `Alasan: ${reason}`], path: '/fixed-assets' });
+    }
+    return this.get(user.tenantId, id);
+  }
+
+  /** Pratinjau 12 bulan: penyusutan per bulan dengan metode sekarang vs metode baru (tanpa menyimpan apa pun) */
+  async methodPreview(tenantId: string, id: string, method: string, effectiveMonth?: string) {
+    const a = await this.db.query.fixedAssets.findFirst({ where: and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, tenantId)) });
+    if (!a) throw new NotFoundException('Aset tidak ditemukan');
+    if (a.status !== 'ACTIVE' || a.method === 'NONE') throw new BadRequestException('Aset ini tidak disusutkan atau sudah dilepas');
+    const effective = effectiveMonth ?? todayJakarta().slice(0, 7);
+    const posted = (await this.postedTotals(this.db, tenantId, '9999-12')).get(a.id);
+    let acc = D(a.openingAccumulated).plus(posted?.total ?? ZERO);
+    const from = Math.max(monthIndex(a.depreciationStart.slice(0, 7)), posted?.last ? monthIndex(posted.last) + 1 : 0);
+    if (posted?.last && monthIndex(effective) <= monthIndex(posted.last)) throw new BadRequestException(`Penyusutan sudah diposting sampai ${posted.last}; bulan berlaku harus sesudahnya`);
+    for (let i = from; i < monthIndex(effective); i++) acc = acc.plus(depreciationFor(a, acc, periodOf(i)));
+    const proposed = { ...a, methodChanges: [...(a.methodChanges ?? []), { from: effective, method, prevMethod: a.method, accumulatedAt: acc.toFixed(2) }] };
+    let accCur = acc;
+    let accNew = acc;
+    const rows: { period: string; current: string; proposed: string }[] = [];
+    for (let i = monthIndex(effective); i < monthIndex(effective) + 12; i++) {
+      const cur = depreciationFor(a, accCur, periodOf(i));
+      const nw = depreciationFor(proposed, accNew, periodOf(i));
+      accCur = accCur.plus(cur);
+      accNew = accNew.plus(nw);
+      rows.push({ period: periodOf(i), current: cur.toFixed(2), proposed: nw.toFixed(2) });
+    }
+    const sum = (k: 'current' | 'proposed') => rows.reduce((t, r) => t.plus(r[k]), ZERO).toFixed(2);
+    return { effectiveMonth: effective, bookValueAtEffective: D(a.cost).minus(acc).toFixed(2), rows, total12: { current: sum('current'), proposed: sum('proposed') } };
+  }
+
+  /** Ubah metode untuk semua aset aktif satu kategori (ke depan saja) dan jadikan metode bawaan aset baru di kategori itu */
+  async changeCategoryMethod(user: AuthUser, categoryId: string, dto: ChangeMethodDto, opts: { approved?: boolean } = {}) {
+    const reason = dto.reason?.trim() ?? '';
+    if (reason.length < 5) throw new BadRequestException('Isi alasan perubahan metode (minimal 5 huruf)');
+    const [cat] = await this.db.select().from(assetCategories).where(and(eq(assetCategories.id, categoryId), eq(assetCategories.tenantId, user.tenantId)));
+    if (!cat) throw new NotFoundException('Kategori tidak ditemukan');
+    if (cat.method === 'NONE') throw new BadRequestException('Kategori ini tidak disusutkan (mis. tanah)');
+    if (!opts.approved && !this.approvals.isApprover(user.role)) {
+      const req = await this.approvals.create(this.db, user, { kind: 'ASSET_METHOD', refId: categoryId, title: `Ubah metode penyusutan kategori ${cat.name}`, amount: 0, payload: JSON.parse(JSON.stringify({ categoryId, ...dto })) });
+      throw this.approvals.required(req.id, 'Perubahan metode penyusutan menunggu persetujuan pemilik atau admin; permintaan dikirim dan metode diubah setelah disetujui.');
+    }
+    const list = await this.db.query.fixedAssets.findMany({ where: and(eq(fixedAssets.tenantId, user.tenantId), eq(fixedAssets.categoryId, categoryId), eq(fixedAssets.status, 'ACTIVE')) });
+    const changed: string[] = [];
+    const skipped: { asset: string; why: string }[] = [];
+    for (const a of list) {
+      if (a.method === 'NONE' || a.method === dto.method) continue;
+      try {
+        await this.changeMethod(user, a.id, dto, { approved: true, silent: true });
+        changed.push(`${a.code} ${a.name}`);
+      } catch (e) {
+        skipped.push({ asset: `${a.code} ${a.name}`, why: (e as Error).message });
+      }
+    }
+    await this.db.update(assetCategories).set({ method: dto.method }).where(eq(assetCategories.id, categoryId));
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CHANGE_METHOD', entity: 'AssetCategory', entityId: categoryId, data: { from: cat.method, to: dto.method, effective: dto.effectiveMonth ?? todayJakarta().slice(0, 7), reason, changed: changed.length, skipped: skipped.length } });
+    if (user.role !== 'OWNER') {
+      void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER'], excludeUserId: user.sub, info: true, title: `Metode penyusutan kategori ${cat.name} diubah`, lines: [`${changed.length} aset diubah, ${skipped.length} dilewati`, `Alasan: ${reason}`], path: '/fixed-assets' });
+    }
+    return { changed, skipped };
   }
 
   /** Penyusutan otomatis: dipanggil penjadwal untuk semua perusahaan yang punya aset berpenyusutan */
@@ -1098,6 +1211,24 @@ export class AssetsController {
   update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateAssetDto) {
     return this.svc.update(u, id, dto);
   }
+  @Roles('ADMIN', 'ACCOUNTANT')
+  @Post('categories/:id/change-method')
+  changeCategoryMethod(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ChangeMethodDto) {
+    return this.svc.changeCategoryMethod(u, id, dto);
+  }
+
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
+  @Get(':id/method-preview')
+  methodPreview(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Query() q: MethodPreviewQuery) {
+    return this.svc.methodPreview(u.tenantId, id, q.method, q.effectiveMonth);
+  }
+
+  @Roles('ADMIN', 'ACCOUNTANT')
+  @Post(':id/change-method')
+  changeMethod(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ChangeMethodDto) {
+    return this.svc.changeMethod(u, id, dto);
+  }
+
   @Roles('ADMIN', 'ACCOUNTANT')
   @Post(':id/verify')
   verify(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VerifyDto) {

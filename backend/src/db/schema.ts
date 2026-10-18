@@ -888,7 +888,7 @@ export const approvalRequests = pgTable(
   {
     id: id(),
     tenantId: tenantId(),
-    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS' | 'CUSTOMER_PAYMENT' | 'STOCK_COUNT' | 'AR_WRITE_OFF'>().notNull(),
+    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS' | 'CUSTOMER_PAYMENT' | 'STOCK_COUNT' | 'AR_WRITE_OFF' | 'ASSET_METHOD'>().notNull(),
     /** Dokumen yang dimintakan persetujuan (PO); kosong untuk jurnal manual yang baru diposting setelah disetujui */
     refId: text('ref_id'),
     title: text('title').notNull(),
@@ -2440,6 +2440,8 @@ export const fixedAssets = pgTable(
     residualValue: money('residual_value').notNull().default('0'),
     usefulLifeMonths: integer('useful_life_months').notNull(),
     method: text('method').notNull(),
+    /** Riwayat perubahan metode (berlaku ke depan): from = bulan berlaku, accumulatedAt = akumulasi tepat sebelum bulan itu */
+    methodChanges: jsonb('method_changes').$type<{ from: string; method: string; prevMethod: string; accumulatedAt: string }[]>().notNull().default(sql`'[]'::jsonb`),
     /** Akumulasi penyusutan sebelum memakai SANSU (aset lama) */
     openingAccumulated: money('opening_accumulated').notNull().default('0'),
     /** Akumulasi penyusutan fiskal sebelum memakai SANSU */
