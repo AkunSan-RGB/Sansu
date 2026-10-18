@@ -72,6 +72,7 @@ import SalesControlsPage from './features/sales/SalesControlsPage';
 import InventoryControlsPage from './features/inventory/InventoryControlsPage';
 import PurchaseControlsPage from './features/purchasing/PurchaseControlsPage';
 import FinanceControlsPage from './features/cash/FinanceControlsPage';
+import AccountingControlsPage from './features/accounting/AccountingControlsPage';
 import ShiftRosterPage from './features/hr/ShiftRosterPage';
 import ShoppingListPage from './features/purchasing/ShoppingListPage';
 import TasksPage from './features/tasks/TasksPage';
@@ -198,6 +199,7 @@ export default function App() {
           <Route path="purchase-controls" element={<PurchaseControlsPage />} />
           <Route path="sales-controls" element={<SalesControlsPage />} />
           <Route path="finance-controls" element={<FinanceControlsPage />} />
+          <Route path="accounting-controls" element={<AccountingControlsPage />} />
           <Route path="inventory-controls" element={<InventoryControlsPage />} />
           <Route path="tasks" element={<TasksPage />} />
           <Route path="shopping-list" element={<ShoppingListPage />} />
