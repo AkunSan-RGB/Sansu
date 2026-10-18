@@ -19,7 +19,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { and, asc, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
-import { CASH_TX_TYPES, CashTxType } from '@sansu/shared';
+import { CASH_TX_TYPES, CashTxType, CASH_IN_SOURCE_KEYS, CASH_IN_SOURCES_TO_VERIFY, cashInSource, type CashInSourceKey } from '@sansu/shared';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
@@ -40,7 +40,8 @@ import { PettyCashController, PettyCashService } from './petty-cash';
 
 // ---------- DTO ----------
 export class CashLineDto {
-  @ApiProperty({ description: 'Akun lawan, mis. Beban Listrik atau Modal Pemilik' }) @IsUUID() accountId: string;
+  @ApiPropertyOptional({ description: 'Akun lawan, mis. Beban Listrik atau Modal Pemilik (khusus pembukuan; kosong bila memakai sumber)' }) @IsOptional() @IsUUID() accountId?: string;
+  @ApiPropertyOptional({ enum: CASH_IN_SOURCE_KEYS, description: 'Kas masuk: sumber uang (sistem menentukan akun). Keuangan wajib memakai ini' }) @IsOptional() @IsIn(CASH_IN_SOURCE_KEYS as unknown as string[]) source?: CashInSourceKey;
   @ApiProperty({ example: '350000' }) @IsNumberString() amount: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) memo?: string;
   @ApiPropertyOptional({ description: 'Kas keluar: biaya langsung proyek (usaha jasa)' }) @IsOptional() @IsUUID() projectId?: string;
@@ -67,6 +68,9 @@ export class CreateCashTxDto {
   @ArrayMinSize(1)
   lines?: CashLineDto[];
 }
+
+/** Kas yang sudah melewati penentuan sumber: setiap baris punya akun */
+export type ResolvedCashTx = Omit<CreateCashTxDto, 'lines'> & { lines?: (Omit<CashLineDto, 'accountId'> & { accountId: string; sourceKey?: string })[] };
 
 export class CashQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsUUID() cashAccountId?: string;
@@ -159,7 +163,46 @@ export class CashService {
    * Kas keluar : Dr akun lawan (beban, aset, prive, ...) | Cr Kas/Bank
    * Transfer   : Dr Kas/Bank tujuan | Cr Kas/Bank asal
    */
-  async create(user: AuthUser, dto: CreateCashTxDto, opts: { approved?: boolean; petty?: boolean; tx?: Tx } = {}) {
+  /**
+   * Kas masuk dengan "sumber uang" (modal, pinjaman, bunga, pendapatan lain): sistem menentukan akun, bukan Keuangan.
+   * Keuangan wajib memakai sumber (tidak memilih akun pembukuan); Pemilik/Admin boleh memakai akun langsung.
+   * Sumber yang mengubah modal/utang/pendapatan wajib bukti (referensi).
+   */
+  private async withSources(user: AuthUser, dto: CreateCashTxDto): Promise<ResolvedCashTx> {
+    const res = await this.resolveSources(user, dto);
+    if ((res.lines ?? []).some((l) => !l.accountId)) throw new BadRequestException('Pilih akun lawan (atau sumber uang untuk kas masuk) di setiap baris');
+    return res as ResolvedCashTx;
+  }
+
+  private async resolveSources(user: AuthUser, dto: CreateCashTxDto): Promise<CreateCashTxDto> {
+    const lines = dto.lines ?? [];
+    if (dto.type !== 'IN') {
+      if (lines.some((l) => l.source)) throw new BadRequestException('Sumber uang hanya untuk kas masuk');
+      return dto;
+    }
+    if (user.role === 'FINANCE' && lines.some((l) => !l.source)) {
+      throw new BadRequestException('Pilih sumber uang untuk setiap baris (mis. Modal dari pemilik, Bunga bank). Pencatatan akunnya dilakukan sistem. Pembayaran pelanggan dicatat lewat Faktur & piutang.');
+    }
+    if (!lines.some((l) => l.source)) return dto;
+    const keys = [...new Set(lines.filter((l) => l.source).map((l) => cashInSource(l.source)!))];
+    if (lines.some((l) => l.source && l.accountId)) throw new BadRequestException('Isi sumber uang ATAU akun, bukan keduanya');
+    if (keys.some((k) => k.needsRef) && !dto.reference?.trim()) {
+      throw new BadRequestException(`Isi nomor bukti/referensi untuk ${keys.filter((k) => k.needsRef).map((k) => `"${k.label}"`).join(', ')} (mis. bukti setor, perjanjian pinjaman, nota)`);
+    }
+    const found = await this.db.execute<{ id: string; code: string }>(sql`SELECT id, code FROM accounts WHERE tenant_id = ${user.tenantId} AND is_postable AND code IN (${sql.join(keys.map((k) => sql`${k.code}`), sql`, `)})`);
+    const byCode = new Map(found.rows.map((r) => [r.code, r.id]));
+    const out = lines.map((l) => {
+      if (!l.source) return l;
+      const k = cashInSource(l.source)!;
+      const accountId = byCode.get(k.code);
+      if (!accountId) throw new BadRequestException(`Akun untuk "${k.label}" (${k.code}) belum tersedia di Bagan Akun. Hubungi Admin/Akuntan.`);
+      return { ...l, accountId, source: undefined, sourceKey: l.source };
+    });
+    return { ...dto, lines: out };
+  }
+
+  async create(user: AuthUser, dto0: CreateCashTxDto, opts: { approved?: boolean; petty?: boolean; tx?: Tx } = {}) {
+    const dto = await this.withSources(user, dto0);
     const date = toDocDate(dto.date);
     // ---- SOP: bukti wajib & persetujuan untuk uang keluar (kas keluar, transfer) di atas batas ----
     if (dto.type !== 'IN') {
@@ -272,10 +315,11 @@ export class CashService {
         await tx.insert(cashTransactionLines).values(
           lines.map((l) => ({
             transactionId: trx.id,
-            accountId: l.accountId,
+            accountId: l.accountId as string,
             amount: money(l.amount).toFixed(2),
             memo: l.memo,
             projectId: dto.type === 'OUT' ? l.projectId : undefined,
+            sourceKey: (l as { sourceKey?: string }).sourceKey,
           })),
         );
       }
@@ -326,6 +370,12 @@ export class CashService {
         }
       }
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'CashTransaction', entityId: trx.id });
+      // Modal/pinjaman/pendapatan lain: pemilik dan Akuntan diberi tahu agar bisa memverifikasi sumbernya (bukan penjualan yang "dibelokkan")
+      const verify = lines.filter((l) => CASH_IN_SOURCES_TO_VERIFY.includes((l as { sourceKey?: string }).sourceKey as CashInSourceKey));
+      if (verify.length) {
+        const names = [...new Set(verify.map((l) => cashInSource((l as { sourceKey?: string }).sourceKey)!.label))].join(', ');
+        void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER', 'ACCOUNTANT'], excludeUserId: user.sub, title: `Kas masuk non-penjualan ${number}: ${names} Rp${amount.toNumber().toLocaleString('id-ID')}`, lines: [dto.description, dto.reference ? `Bukti: ${dto.reference}` : ''], path: '/cash' });
+      }
       return { ...trx, journalNumber: journal.number };
     };
     return opts.tx ? run(opts.tx) : this.db.transaction(run);
@@ -374,9 +424,10 @@ export class CashService {
       if (t.status === 'VOID') throw new BadRequestException('Transaksi ini sudah dibatalkan');
       if (!t.journalId) throw new BadRequestException('Transaksi belum punya jurnal');
       const matched = await tx.execute<{ n: number }>(sql`
-        SELECT COUNT(*)::int AS n FROM bank_statement_lines b
-        WHERE b.status IN ('MATCHED', 'CREATED')
-          AND (b.journal_id = ${t.journalId} OR b.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${t.journalId}))`);
+        SELECT (SELECT COUNT(*) FROM bank_statement_lines b
+                WHERE b.status IN ('MATCHED', 'CREATED')
+                  AND (b.journal_id = ${t.journalId} OR b.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${t.journalId})))::int
+             + (SELECT COUNT(*) FROM bank_line_extra_matches x WHERE x.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${t.journalId}))::int AS n`);
       if (matched.rows[0].n > 0) throw new BadRequestException('Transaksi ini sudah dicocokkan dengan mutasi bank. Batalkan pencocokannya di Rekonsiliasi Bank dulu');
       const assetRows = await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM fixed_assets WHERE tenant_id = ${user.tenantId} AND acquisition_journal_id = ${t.journalId}`);
       if (assetRows.rows[0].n > 0) throw new BadRequestException('Transaksi ini sudah menjadi kartu Aset Tetap. Lepaskan atau hapus asetnya dulu di Aset Tetap');
@@ -468,6 +519,51 @@ export class CashService {
     return { generatedAt: new Date().toISOString(), count: out.length, items: out };
   }
 
+  /**
+   * Uang masuk per sumber: penjualan (faktur, kasir, platform, uang muka) vs bukan penjualan (modal, pinjaman, bunga, lain-lain),
+   * dihitung dari jurnal ke akun kas/bank. Kas masuk/mutasi bank yang dikreditkan ke akun penjualan ditandai: seharusnya lewat faktur atau kasir.
+   */
+  async incomeSources(tenantId: string, q: { from?: string; to?: string }) {
+    const to = toDocDate(q.to);
+    const from = q.from ? toDocDate(q.from) : addDays(to, -29);
+    const base = await this.db.execute<{ st: string; amount: string; n: number }>(sql`
+      SELECT j.source_type AS st, COALESCE(SUM(l.debit), 0) AS amount, COUNT(DISTINCT j.id)::int AS n
+      FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
+      WHERE j.tenant_id = ${tenantId} AND a.is_cash_account AND l.debit > 0 AND j.date BETWEEN ${from} AND ${to}
+        AND j.source_type NOT IN ('TRANSFER', 'CLOSING', 'OPENING', 'REVERSAL', 'CASH_COUNT', 'CASH_IN', 'BANK')
+      GROUP BY j.source_type`);
+    const counter = await this.db.execute<{ st: string; code: string; name: string; type: string; system_key: string | null; amount: string; n: number }>(sql`
+      SELECT j.source_type AS st, ca.code, ca.name, ca.type, ca.system_key, COALESCE(SUM(lc.credit), 0) AS amount, COUNT(DISTINCT j.id)::int AS n
+      FROM journal_entries j
+      JOIN journal_lines l ON l.journal_id = j.id AND l.debit > 0 JOIN accounts a ON a.id = l.account_id AND a.is_cash_account
+      JOIN journal_lines lc ON lc.journal_id = j.id AND lc.credit > 0 JOIN accounts ca ON ca.id = lc.account_id AND NOT ca.is_cash_account
+      WHERE j.tenant_id = ${tenantId} AND j.source_type IN ('CASH_IN', 'BANK') AND j.date BETWEEN ${from} AND ${to}
+      GROUP BY j.source_type, ca.code, ca.name, ca.type, ca.system_key`);
+    type Row = { key: string; label: string; group: 'SALES' | 'NONSALES' | 'OTHER'; amount: number; count: number; suspect?: string };
+    const LABEL: Record<string, [string, Row['group']]> = {
+      PAYMENT: ['Pembayaran pelanggan (faktur)', 'SALES'],
+      POS: ['Penjualan kasir', 'SALES'],
+      PLATFORM_SETTLEMENT: ['Pencairan platform pesan-antar', 'SALES'],
+      CUSTOMER_DEPOSIT: ['Uang muka pelanggan', 'SALES'],
+      POS_CLOSE: ['Penutupan kasir (setoran/selisih)', 'OTHER'],
+    };
+    const rows: Row[] = base.rows.map((r) => ({ key: r.st, label: LABEL[r.st]?.[0] ?? r.st, group: LABEL[r.st]?.[1] ?? 'OTHER', amount: Number(r.amount), count: r.n }));
+    for (const r of counter.rows) {
+      const isSalesAcc = r.type === 'REVENUE' && ['SALES', 'SERVICE_REVENUE', 'CONSTRUCTION_REVENUE'].includes(r.system_key ?? '');
+      rows.push({
+        key: `${r.st}:${r.code}`,
+        label: `${r.st === 'BANK' ? 'Mutasi bank → ' : 'Kas masuk → '}${r.name}`,
+        group: isSalesAcc ? 'SALES' : 'NONSALES',
+        amount: Number(r.amount),
+        count: r.n,
+        ...(isSalesAcc ? { suspect: 'Penjualan dicatat lewat kas masuk/mutasi bank, bukan lewat faktur atau kasir — periksa agar piutang dan stok ikut benar' } : {}),
+      });
+    }
+    rows.sort((a, b) => b.amount - a.amount);
+    const sum = (g: Row['group']) => rows.filter((r) => r.group === g).reduce((a, r) => a + r.amount, 0);
+    return { from, to, rows, totals: { sales: sum('SALES'), nonSales: sum('NONSALES'), other: sum('OTHER') } };
+  }
+
   /** Akun yang boleh dipakai sebagai lawan kas (bukan kas, bukan piutang/hutang/persediaan) */
   counterAccounts(tenantId: string) {
     return this.db
@@ -514,6 +610,11 @@ export class CashController {
     return this.svc.list(u.tenantId, q, u.branchIds);
   }
 
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
+  @Get('income-sources')
+  incomeSources(@CurrentUser() u: AuthUser, @Query() q: CashQueryDto) {
+    return this.svc.incomeSources(u.tenantId, q);
+  }
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('controls')
   controls(@CurrentUser() u: AuthUser) {

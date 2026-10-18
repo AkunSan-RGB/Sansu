@@ -238,7 +238,8 @@ describe('Pemisahan fungsi (e2e)', () => {
       const day = todayJakarta();
       await call('ACCOUNTANT', 'post', '/api/accounting/journals', { date: day, description: 'Jurnal akuntan', lines: [{ accountId: id('6-4000'), debit: '1000' }, { accountId: id('3-1000'), credit: '1000' }] }).expect(201);
       const cashAcc = ((await call('OWNER', 'get', '/api/cash/accounts').expect(200)).body as { id: string }[])[0].id;
-      await call('FINANCE', 'post', '/api/cash/transactions', { type: 'IN', cashAccountId: cashAcc, date: day, description: 'Setoran', reference: 'S1', lines: [{ accountId: id('3-1000'), amount: '1000' }] }).expect(201);
+      await call('FINANCE', 'post', '/api/cash/transactions', { type: 'IN', cashAccountId: cashAcc, date: day, description: 'Setoran', reference: 'S1', lines: [{ accountId: id('3-1000'), amount: '1000' }] }).expect(400); // Keuangan tidak memilih akun pembukuan
+      await call('FINANCE', 'post', '/api/cash/transactions', { type: 'IN', cashAccountId: cashAcc, date: day, description: 'Setoran', reference: 'S1', lines: [{ source: 'OWNER_CAPITAL', amount: '1000' }] }).expect(201); // memilih sumber uang; sistem yang menjurnal
     });
     it('peran yang berhak tetap bisa bekerja', async () => {
       await call('SALES', 'get', '/api/customers').expect(200);

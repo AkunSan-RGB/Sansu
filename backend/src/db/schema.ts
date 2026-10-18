@@ -1686,6 +1686,8 @@ export const cashTransactionLines = pgTable('cash_transaction_lines', {
   memo: text('memo'),
   /** Biaya langsung proyek (usaha jasa) */
   projectId: uuid('project_id'),
+  /** Kas masuk non-penjualan: sumber dalam bahasa kegiatan usaha (akun ditentukan sistem) */
+  sourceKey: text('source_key'),
 });
 
 // ---------- Relasi (untuk db.query.*.findMany({ with: ... })) ----------
@@ -2796,6 +2798,22 @@ export const bankStatementLines = pgTable(
     note: text('note'),
   },
   (t) => [index('bank_lines_statement_idx').on(t.statementId), uniqueIndex('bank_lines_journal_line_uq').on(t.journalLineId)],
+);
+
+/** Baris buku tambahan untuk satu mutasi bank (pencocokan satu-ke-banyak); baris buku pertama tetap di bank_statement_lines.journal_line_id */
+export const bankLineExtraMatches = pgTable(
+  'bank_line_extra_matches',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    lineId: uuid('line_id')
+      .notNull()
+      .references(() => bankStatementLines.id, { onDelete: 'cascade' }),
+    journalLineId: uuid('journal_line_id')
+      .notNull()
+      .references(() => journalLines.id, { onDelete: 'cascade' }),
+  },
+  (t) => [uniqueIndex('bank_extra_matches_jl_uq').on(t.journalLineId), index('bank_extra_matches_line_idx').on(t.lineId)],
 );
 
 // ---------- Setoran pajak ----------

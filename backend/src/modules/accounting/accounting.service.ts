@@ -277,9 +277,10 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       if (!original) throw new NotFoundException('Jurnal tidak ditemukan');
       const lineIds = original.lines.map((l) => l.id);
       if (lineIds.length) {
+        const idList = sql.join(lineIds.map((x) => sql`${x}`), sql`, `);
         const matched = await tx.execute<{ n: number }>(sql`
-          SELECT COUNT(*)::int AS n FROM bank_statement_lines
-          WHERE status = 'MATCHED' AND journal_line_id IN (${sql.join(lineIds.map((x) => sql`${x}`), sql`, `)})`);
+          SELECT (SELECT COUNT(*) FROM bank_statement_lines WHERE status = 'MATCHED' AND journal_line_id IN (${idList}))::int
+               + (SELECT COUNT(*) FROM bank_line_extra_matches WHERE journal_line_id IN (${idList}))::int AS n`);
         if (matched.rows[0].n > 0) throw new BadRequestException('Jurnal ini sudah dicocokkan dengan mutasi bank. Batalkan pencocokannya di Rekonsiliasi Bank dulu, lalu balik jurnalnya');
       }
       let useDate: DocDate;

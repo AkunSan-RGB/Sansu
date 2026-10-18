@@ -861,9 +861,10 @@ export class PurchaseInvoicesService {
       if (p.status === 'VOID') throw new BadRequestException('Pembayaran ini sudah dibatalkan');
       if (!p.journalId) throw new BadRequestException('Pembayaran belum punya jurnal');
       const matched = await tx.execute<{ n: number }>(sql`
-        SELECT COUNT(*)::int AS n FROM bank_statement_lines b
-        WHERE b.status IN ('MATCHED', 'CREATED')
-          AND (b.journal_id = ${p.journalId} OR b.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${p.journalId}))`);
+        SELECT (SELECT COUNT(*) FROM bank_statement_lines b
+                WHERE b.status IN ('MATCHED', 'CREATED')
+                  AND (b.journal_id = ${p.journalId} OR b.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${p.journalId})))::int
+             + (SELECT COUNT(*) FROM bank_line_extra_matches x WHERE x.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${p.journalId}))::int AS n`);
       if (matched.rows[0].n > 0) throw new BadRequestException('Pembayaran ini sudah dicocokkan dengan mutasi bank. Batalkan pencocokannya di Rekonsiliasi Bank dulu');
       const rev = await this.posting.reverse(tx, user.tenantId, p.journalId, todayJakarta(), user.sub, true);
       const [inv] = await tx.select().from(purchaseInvoices).where(eq(purchaseInvoices.id, p.purchaseInvoiceId));

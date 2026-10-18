@@ -1,11 +1,11 @@
 import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, FilterOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
-import { BRAND, CASH_TX_TYPE_LABELS, canHandleMoney, type CashTxType } from '@sansu/shared';
+import { BRAND, CASH_IN_SOURCES, CASH_TX_TYPE_LABELS, canHandleMoney, type CashTxType } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, App, Badge, Button, Card, Checkbox, Col, Collapse, Empty, Form, Input, InputNumber, Modal, Popover, Row, Segmented, Select, Space, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { get, post, qs } from '@/api/client';
+import { get, post, put, qs } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { LEDGER_KEYS, useBranches, useAction, useCashAccounts } from '@/api/queries';
 import { withBudgetOverride } from '@/lib/budgetOverride';
@@ -32,7 +32,7 @@ interface FormValues {
   description: string;
   reference?: string;
   branchId?: string;
-  lines?: { accountId?: string; amount?: number; memo?: string; projectId?: string; assetCategoryId?: string; assetName?: string; assetUsefulLifeMonths?: number; assetLocation?: string }[];
+  lines?: { accountId?: string; source?: string; amount?: number; memo?: string; projectId?: string; assetCategoryId?: string; assetName?: string; assetUsefulLifeMonths?: number; assetLocation?: string }[];
 }
 
 const TYPE_COLOR: Record<CashTxType, string> = { IN: 'green', OUT: 'red', TRANSFER: 'blue' };
@@ -134,7 +134,9 @@ export default function CashPage() {
           ? { toCashAccountId: v.toCashAccountId, amount: String(v.amount) }
           : {
               lines: (v.lines ?? []).map((l) => ({
-                accountId: l.accountId,
+                // kas masuk: pilihan berawalan "src:" = sumber uang (sistem menentukan akun)
+                accountId: l.accountId?.startsWith('src:') ? undefined : l.accountId,
+                source: l.accountId?.startsWith('src:') ? l.accountId.slice(4) : undefined,
                 amount: String(l.amount),
                 memo: l.memo || undefined,
                 projectId: mode === 'OUT' ? l.projectId || undefined : undefined,
@@ -151,6 +153,14 @@ export default function CashPage() {
     },
   );
 
+  /** Kas masuk: Keuangan memilih sumber uang; akun pembukuan hanya untuk Pemilik/Admin */
+  const accountOptions = (m: CashTxType | null) => {
+    const accs = counter.data?.map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` })) ?? [];
+    if (m !== 'IN') return accs;
+    const sources = CASH_IN_SOURCES.map((s) => ({ value: `src:${s.key}`, label: `${s.label} — ${s.hint}` }));
+    return me && ['OWNER', 'ADMIN'].includes(me.role) ? [{ label: 'Sumber uang (disarankan)', options: sources }, { label: 'Akun pembukuan (khusus Pemilik/Admin)', options: accs }] : sources;
+  };
+
   const openForm = (m: CashTxType) => {
     form.resetFields();
     const cash = accounts.data?.find((a) => a.code.startsWith('1-11')) ?? accounts.data?.[0];
@@ -162,8 +172,47 @@ export default function CashPage() {
   const withProject = mode === 'OUT' && activeProjects.length > 0;
   const linesTotal = lines.reduce((a, l) => a + (l?.amount ?? 0), 0);
 
+  const cfg = useQuery({ queryKey: ['cash', 'settings'], queryFn: () => get<{ evidenceFrom: number; blockNegative: boolean; maxCashBalance: number }>('/cash/settings'), retry: false, enabled: !!me && ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'].includes(me.role) });
+  const [hideTip, setHideTip] = useState(() => {
+    try {
+      return localStorage.getItem('sansu.cashControlTip') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const applyControls = useAction(() => put('/cash/settings', { evidenceFrom: 1_000_000, blockNegative: true }), { success: 'Kontrol kas diaktifkan', invalidate: ['cash'] });
+  const controlsOff = !!cfg.data && cfg.data.evidenceFrom === 0 && !cfg.data.blockNegative;
   return (
     <>
+      {controlsOff && !hideTip && (
+        <Alert
+          type="warning"
+          showIcon
+          closable
+          onClose={() => {
+            setHideTip(true);
+            try {
+              localStorage.setItem('sansu.cashControlTip', '1');
+            } catch {
+              /* penyimpanan browser tidak tersedia */
+            }
+          }}
+          style={{ marginBottom: 12 }}
+          message="Kontrol uang keluar belum aktif"
+          description={
+            <span>
+              Saat ini uang keluar berapa pun tanpa nomor bukti dan saldo kas boleh minus. Rekomendasi: wajib nomor bukti mulai Rp1.000.000 dan blokir saldo negatif.{' '}
+              {me && ['OWNER', 'ADMIN'].includes(me.role) ? (
+                <Button size="small" type="primary" loading={applyControls.isPending} onClick={() => applyControls.mutate(undefined)}>
+                  Terapkan rekomendasi
+                </Button>
+              ) : (
+                <span>Minta Pemilik atau Admin mengaktifkannya (Pengaturan › Perusahaan).</span>
+              )}
+            </span>
+          }
+        />
+      )}
       <PageHeader
         title="Uang masuk & keluar"
         extra={
@@ -182,6 +231,8 @@ export default function CashPage() {
           )
         }
       />
+
+      <IncomeSources />
 
       {/* Saldo: klik satu rekening untuk melihat transaksinya saja */}
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
@@ -594,18 +645,18 @@ export default function CashPage() {
             <Form.List name="lines">
               {(fields, { add, remove }) => (
                 <>
-                  <Typography.Text strong>{mode === 'OUT' ? 'Dibebankan ke akun' : 'Sumber dana (akun lawan)'}</Typography.Text>
+                  <Typography.Text strong>{mode === 'OUT' ? 'Dibebankan ke akun' : 'Sumber uang masuk'}</Typography.Text>
                   {fields.map((f) => (
                     <Row gutter={8} key={f.key} style={{ marginTop: 8 }}>
                       <Col xs={24} md={withProject ? 8 : 11}>
-                        <Form.Item name={[f.name, 'accountId']} rules={[{ required: true, message: 'Pilih akun' }]} noStyle>
+                        <Form.Item name={[f.name, 'accountId']} rules={[{ required: true, message: mode === 'IN' ? 'Pilih sumber uang' : 'Pilih akun' }]} noStyle>
                           <Select
                             showSearch
                             optionFilterProp="label"
                             style={{ width: '100%' }}
-                            placeholder="Pilih akun"
+                            placeholder={mode === 'IN' ? 'Pilih sumber uang' : 'Pilih akun'}
                             loading={counter.isLoading}
-                            options={counter.data?.map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` }))}
+                            options={accountOptions(mode) as never}
                           />
                         </Form.Item>
                       </Col>
@@ -685,5 +736,51 @@ export default function CashPage() {
         </Form>
       </Modal>
     </>
+  );
+}
+
+interface IncomeRow { key: string; label: string; group: 'SALES' | 'NONSALES' | 'OTHER'; amount: number; count: number; suspect?: string }
+
+/** Uang masuk 30 hari terakhir per sumber: penjualan vs bukan penjualan; penjualan yang dicatat lewat kas masuk ditandai */
+function IncomeSources() {
+  const { data } = useQuery({ queryKey: ['cash', 'income-sources'], queryFn: () => get<{ from: string; to: string; rows: IncomeRow[]; totals: { sales: number; nonSales: number; other: number } }>('/cash/income-sources'), retry: false });
+  if (!data || !data.rows.length) return null;
+  const suspects = data.rows.filter((r) => r.suspect);
+  const GROUP = { SALES: { c: 'green', t: 'Penjualan' }, NONSALES: { c: 'blue', t: 'Bukan penjualan' }, OTHER: { c: 'default', t: 'Lainnya' } } as const;
+  return (
+    <Collapse
+      style={{ marginBottom: 16 }}
+      items={[
+        {
+          key: 'src',
+          label: (
+            <span>
+              <strong>Uang masuk per sumber</strong> (30 hari) · Penjualan {fmtMoney(data.totals.sales)} · Bukan penjualan {fmtMoney(data.totals.nonSales)}
+              {suspects.length > 0 && <Tag color="orange" style={{ marginLeft: 8 }}>{suspects.length} perlu diperiksa</Tag>}
+            </span>
+          ),
+          children: (
+            <>
+              {suspects.map((s) => <Alert key={s.key} type="warning" showIcon style={{ marginBottom: 8 }} message={`${s.label}: ${fmtMoney(s.amount)}`} description={s.suspect} />)}
+              <Table<IncomeRow>
+                size="small"
+                rowKey="key"
+                pagination={false}
+                dataSource={data.rows}
+                columns={[
+                  { title: 'Sumber', dataIndex: 'label' },
+                  { title: 'Jenis', dataIndex: 'group', render: (g: IncomeRow['group']) => <Tag color={GROUP[g].c}>{GROUP[g].t}</Tag> },
+                  { title: 'Transaksi', dataIndex: 'count', align: 'right' as const },
+                  { title: 'Jumlah', dataIndex: 'amount', align: 'right' as const, render: (v: number) => fmtMoney(v) },
+                ]}
+              />
+              <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+                Pembayaran pelanggan dicatat lewat Faktur & piutang (atau kasir). Uang masuk lain dicatat sebagai Kas masuk dengan memilih sumbernya; sistem membuat jurnalnya.
+              </Typography.Paragraph>
+            </>
+          ),
+        },
+      ]}
+    />
   );
 }
