@@ -886,7 +886,7 @@ export const approvalRequests = pgTable(
   {
     id: id(),
     tenantId: tenantId(),
-    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL'>().notNull(),
+    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL' | 'SUPPLIER_BANK'>().notNull(),
     /** Dokumen yang dimintakan persetujuan (PO); kosong untuk jurnal manual yang baru diposting setelah disetujui */
     refId: text('ref_id'),
     title: text('title').notNull(),
@@ -1174,6 +1174,11 @@ export const suppliers = pgTable(
     /** Supplier favorit: PO / permintaan pembelian sampai batas ini disetujui otomatis (0 = tidak ada) */
     isPreferred: boolean('is_preferred').notNull().default(false),
     autoApproveLimit: money('auto_approve_limit').notNull().default('0'),
+    /** Rekening pembayaran. Perubahan rekening yang sudah terisi wajib disetujui orang lain (anti pengalihan pembayaran) */
+    bankName: text('bank_name'),
+    bankAccountNo: text('bank_account_no'),
+    bankAccountName: text('bank_account_name'),
+    bankChangedAt: timestamp('bank_changed_at', { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('suppliers_code_uq').on(t.tenantId, t.code)],
@@ -1204,6 +1209,8 @@ export const purchaseOrders = pgTable(
     totalForeign: money('total_foreign'),
     notes: text('notes'),
     createdById: uuid('created_by_id'),
+    cancelReason: text('cancel_reason'),
+    cancelledById: uuid('cancelled_by_id'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('purchase_orders_number_uq').on(t.tenantId, t.number)],

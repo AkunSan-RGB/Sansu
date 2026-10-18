@@ -18,7 +18,7 @@ import { SettingsService } from '../settings.service';
 import { TelegramService } from '../telegram/telegram.service';
 
 export const APPROVER_ROLES: readonly Role[] = ['OWNER', 'ADMIN'];
-export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL';
+export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL' | 'SUPPLIER_BANK';
 
 export interface ApprovalPolicy {
   /** Pesanan pembelian dengan total ≥ nilai ini perlu persetujuan (0 = nonaktif) */
@@ -46,10 +46,14 @@ export interface ApprovalPolicy {
   budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK';
   /** Pembayaran PERTAMA ke supplier oleh peran selain pemilik/admin wajib disetujui (anti pemasok fiktif) */
   firstSupplierPayment: boolean;
+  /** Penerimaan buta: Gudang wajib mengisi jumlah yang dihitung (tidak terisi otomatis dari PO); selisih dikabarkan ke Pembelian dan Pemilik */
+  blindReceiving: boolean;
+  /** Pembayaran ke supplier yang rekeningnya diubah dalam sekian hari terakhir wajib disetujui (0 = nonaktif) */
+  bankChangeHoldDays: number;
   /** Masa berlaku tautan persetujuan yang dikirim lewat Telegram (jam, 1–72); email tetap 72 jam */
   telegramLinkHours: number;
 }
-export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, budgetControl: 'OFF', telegramLinkHours: 72 };
+export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, blindReceiving: false, bankChangeHoldDays: 7, budgetControl: 'OFF', telegramLinkHours: 72 };
 
 export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PURCHASE_ORDER: 'Pesanan pembelian',
@@ -61,6 +65,7 @@ export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   STOCK_ADJUSTMENT: 'Penyesuaian stok',
   SUPPLIER_PAYMENT: 'Pembayaran ke supplier',
   BILL: 'Tagihan biaya / aset',
+  SUPPLIER_BANK: 'Perubahan rekening supplier',
 };
 
 @Injectable()
@@ -123,6 +128,15 @@ export class ApprovalsService {
       }
     } catch (e) {
       this.logger.warn(`Notifikasi proses gagal: ${(e as Error).message}`);
+    }
+  }
+
+  /** Beri tahu satu pengguna (Telegram bila terhubung); gagal kirim tidak menggagalkan proses */
+  async notifyUser(userId: string, text: string) {
+    try {
+      await this.telegram.notifyUsers([userId], text);
+    } catch (e) {
+      this.logger.warn(`Notifikasi pengguna gagal: ${(e as Error).message}`);
     }
   }
 

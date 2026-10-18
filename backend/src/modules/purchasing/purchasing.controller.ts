@@ -1,3 +1,4 @@
+import { CancelPurchaseOrderDto } from './purchasing.dto';
 import { Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { RequireApp } from '../../common/apps/app.guard';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -87,7 +88,7 @@ export class PurchaseOrdersController {
   @Get(':id')
   @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.get(u.tenantId, id);
+    return this.svc.get(u.tenantId, id).then((po) => this.svc.forViewer(u, po as never));
   }
 
   /** Pembelian cepat atas penawaran supplier: buat + konfirmasi (+ terima barang bila sudah tiba) dalam satu langkah */
@@ -121,8 +122,8 @@ export class PurchaseOrdersController {
 
   @Post(':id/cancel')
   @Roles('ADMIN', 'FINANCE', 'PURCHASING')
-  cancel(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.cancel(u, id);
+  cancel(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CancelPurchaseOrderDto) {
+    return this.svc.cancel(u, id, dto?.reason);
   }
 
   /** Terima barang atas pesanan (bisa bertahap) */

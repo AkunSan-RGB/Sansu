@@ -568,6 +568,13 @@
       "when": 1795286286484,
       "tag": "0080_sumber_kas_masuk",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1795372686484,
+      "tag": "0081_kontrol_pembelian",
+      "breakpoints": true
     }
   ]
 }

@@ -29,6 +29,9 @@ export class CreateSupplierDto {
   @ApiPropertyOptional({ example: 30 }) @IsOptional() @IsInt() @Min(0) @Max(365) paymentTermDays?: number;
   @ApiPropertyOptional({ description: 'Supplier favorit: PO / permintaan sampai batas di bawah ini disetujui otomatis' }) @IsOptional() @IsBoolean() isPreferred?: boolean;
   @ApiPropertyOptional({ example: '50000000', description: 'Batas nilai persetujuan otomatis untuk supplier favorit (0 = tidak ada)' }) @IsOptional() @Matches(/^\d{1,15}$/) autoApproveLimit?: string;
+  @ApiPropertyOptional({ example: 'BCA' }) @IsOptional() @IsString() @MaxLength(80) bankName?: string;
+  @ApiPropertyOptional({ example: '1234567890', description: 'Rekening pembayaran. Mengubah rekening yang sudah terisi butuh persetujuan Pemilik/Admin' }) @IsOptional() @Matches(/^[0-9 .-]{5,30}$/, { message: 'Nomor rekening hanya angka (5-30 digit)' }) bankAccountNo?: string;
+  @ApiPropertyOptional({ example: 'PT Sumber Pangan Prima', description: 'Nama pemilik rekening (harus sesuai nama pemasok)' }) @IsOptional() @IsString() @MaxLength(160) bankAccountName?: string;
   @ApiPropertyOptional({ description: 'Tetap simpan walau NPWP / nama mirip supplier lain' }) @IsOptional() @IsBoolean() confirmDuplicate?: boolean;
 }
 
@@ -167,6 +170,10 @@ export class CreateGoodsReceiptDto {
   @Type(() => ReceiveLineDto)
   @ArrayMinSize(1)
   lines?: ReceiveLineDto[];
+}
+
+export class CancelPurchaseOrderDto {
+  @ApiPropertyOptional({ description: 'Alasan pembatalan; wajib untuk PO yang sudah dikonfirmasi bila dibatalkan staf' }) @IsOptional() @IsString() @MaxLength(300) reason?: string;
 }
 
 export class CancelGoodsReceiptDto {

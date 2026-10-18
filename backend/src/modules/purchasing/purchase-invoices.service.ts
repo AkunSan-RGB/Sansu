@@ -105,6 +105,10 @@ export class PurchaseInvoicesService {
         throw new BadRequestException(`PO berstatus ${order.status}; hanya PO yang sudah dikonfirmasi yang bisa difakturkan`);
       }
       const active = await tx.query.goodsReceipts.findMany({ where: and(eq(goodsReceipts.purchaseOrderId, order.id), eq(goodsReceipts.status, 'RECEIVED')), columns: { id: true } });
+      // Pencocokan tiga arah: tagihan hanya atas barang yang sudah diterima Gudang. Jalur "terima sekaligus tagih" hanya untuk Pemilik/Admin.
+      if (!active.length && !dto.lines && !this.approvals.isApprover(user.role)) {
+        throw new BadRequestException('Barang pada PO ini belum diterima Gudang. Minta Gudang mencatat penerimaan barang dulu, baru faktur supplier dicatat.');
+      }
       const r = active.length || dto.lines ? await this.billReceived(tx, user, order, dto, date) : await this.receiveAndBill(tx, user, order, dto, date);
       // jejak pengendalian harga: pembuat, alasan, penanda, dan persetujuan
       await tx
@@ -765,6 +769,20 @@ export class PurchaseInvoicesService {
         if (!inv) throw new NotFoundException('Faktur pembelian tidak ditemukan');
         const req = await this.approvals.create(this.db, user, { kind: 'SUPPLIER_PAYMENT', refId: null, title: `Pembayaran faktur supplier ${inv.n}`, amount: amount.toNumber(), payload: JSON.parse(JSON.stringify(dto)) });
         throw this.approvals.required(req.id, 'Nilai pembayaran mencapai batas persetujuan; permintaan dikirim ke pemilik atau admin dan dibayar setelah disetujui.');
+      }
+    }
+
+    // Rekening supplier baru diubah: pembayaran oleh staf ditahan untuk persetujuan beberapa hari (anti pengalihan pembayaran)
+    if (!opts.approved && !this.approvals.isApprover(user.role)) {
+      const hold = (await this.approvals.policy(this.db, user.tenantId)).bankChangeHoldDays;
+      if (hold > 0) {
+        const r = (await this.db.execute<{ no: string; code: string }>(sql`
+          SELECT i.supplier_invoice_no AS no, s.code FROM purchase_invoices i JOIN suppliers s ON s.id = i.supplier_id
+          WHERE i.id = ${dto.purchaseInvoiceId} AND i.tenant_id = ${user.tenantId} AND s.bank_changed_at IS NOT NULL AND s.bank_changed_at > now() - (${hold} || ' days')::interval`)).rows[0];
+        if (r) {
+          const req = await this.approvals.create(this.db, user, { kind: 'SUPPLIER_PAYMENT', refId: null, title: `Pembayaran ke supplier ${r.code} (rekening baru diubah ≤ ${hold} hari) — faktur ${r.no}`, amount: amount.toNumber(), payload: JSON.parse(JSON.stringify(dto)) });
+          throw this.approvals.required(req.id, `Rekening supplier ini baru diubah (dalam ${hold} hari terakhir); pembayaran menunggu persetujuan pemilik atau admin.`);
+        }
       }
     }
 

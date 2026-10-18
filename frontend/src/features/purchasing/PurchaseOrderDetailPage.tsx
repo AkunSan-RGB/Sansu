@@ -6,6 +6,7 @@ import { Link, useParams } from 'react-router-dom';
 import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAction } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
+import { useAuth } from '@/auth/AuthContext';
 import type { PurchaseInvoice, PurchaseOrder } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { cell, DocHeader, head, PartyBlock, PrintSheet, Signatures, useLetterhead } from '@/components/print/Letterhead';
@@ -28,6 +29,9 @@ interface LotPayload {
 export default function PurchaseOrderDetailPage() {
   const lh = useLetterhead();
   const can = useCan();
+  const { me } = useAuth();
+  const isApprover = !!me && ['OWNER', 'ADMIN'].includes(me.role);
+  const [cancelReason, setCancelReason] = useState<string | null>(null);
   const { id } = useParams<{ id: string }>();
   /** both = terima dan faktur sekaligus (satu jurnal); receive = terima barang saja; bill = faktur atas barang yang sudah diterima */
   const [mode, setMode] = useState<'both' | 'receive' | 'bill' | null>(null);
@@ -39,7 +43,7 @@ export default function PurchaseOrderDetailPage() {
   const refresh = ['purchase-orders', 'purchase-invoices', 'stock', 'stock-moves', 'suppliers', ...LEDGER_KEYS];
 
   const confirm = useAction(() => post(`/purchase-orders/${id}/confirm`), { success: 'PO dikonfirmasi — siap dikirim ke supplier', invalidate: refresh });
-  const cancel = useAction(() => post(`/purchase-orders/${id}/cancel`), { success: 'PO dibatalkan', invalidate: refresh });
+  const cancel = useAction((reason?: string) => post(`/purchase-orders/${id}/cancel`, { reason }), { success: 'PO dibatalkan', invalidate: refresh, onSuccess: () => setCancelReason(null) });
   const refreshAll = [...refresh, 'goods-receipts', 'approvals'];
   const both = useAction(
     (v: { supplierInvoiceNo: string; date: string; fxRate?: string; prices: { orderLineId: string; price: string }[]; lots?: LotPayload[]; varianceReason?: string; varianceNote?: string }) =>
@@ -86,7 +90,9 @@ export default function PurchaseOrderDetailPage() {
     (o?.lines ?? [])
       .filter((l) => v[`p_${l.id}`] != null && Number(v[`p_${l.id}`]) !== poPrice(l) && (!only || only.some((x) => x.orderLineId === l.id)))
       .map((l) => ({ orderLineId: l.id, price: String(v[`p_${l.id}`]) }));
-  const canReceive = !!o && o.status === 'CONFIRMED' && (o.lines ?? []).some((l) => left(l) > 0.00005);
+  /** Penerimaan buta: jumlah pesanan disembunyikan dari Gudang; Gudang mengisi hasil hitungannya sendiri */
+  const blind = !!o?.blindReceiving;
+  const canReceive = !!o && o.status === 'CONFIRMED' && (blind ? o.receiptStatus !== 'FULL' : (o.lines ?? []).some((l) => left(l) > 0.00005));
   const canBill = !!o && o.status === 'CONFIRMED' && (o.lines ?? []).some((l) => open(l) > 0.00005);
   const untouched = !!o && o.receiptStatus === 'NONE';
 
@@ -112,7 +118,7 @@ export default function PurchaseOrderDetailPage() {
                   type="primary"
                   onClick={() => {
                     form.resetFields();
-                    form.setFieldsValue({ supplierDeliveryNo: '', date: today(), ...qtyFields(left) });
+                    form.setFieldsValue({ supplierDeliveryNo: '', date: today(), ...(blind ? {} : qtyFields(left)) });
                     setMode('receive');
                   }}
                 >
@@ -131,7 +137,7 @@ export default function PurchaseOrderDetailPage() {
                   Catat faktur supplier
                 </Button>
               )}
-              {o.status === 'CONFIRMED' && untouched && can('POST', '/purchase-invoices') && (
+              {o.status === 'CONFIRMED' && untouched && isApprover && can('POST', '/purchase-invoices') && (
                 <Button
                   onClick={() => {
                     form.resetFields();
@@ -142,11 +148,16 @@ export default function PurchaseOrderDetailPage() {
                   Terima & faktur sekaligus
                 </Button>
               )}
-              {(o.status === 'DRAFT' || (o.status === 'CONFIRMED' && untouched)) && can('POST', '/purchase-orders/:id/cancel') && (
-                <Popconfirm title="Batalkan PO ini?" onConfirm={() => cancel.mutate(undefined)}>
-                  <Button danger>Batalkan</Button>
-                </Popconfirm>
-              )}
+              {(o.status === 'DRAFT' || (o.status === 'CONFIRMED' && untouched)) && can('POST', '/purchase-orders/:id/cancel') &&
+                (o.status === 'DRAFT' ? (
+                  <Popconfirm title="Batalkan PO ini?" onConfirm={() => cancel.mutate(undefined)}>
+                    <Button danger>Batalkan</Button>
+                  </Popconfirm>
+                ) : (
+                  <Button danger onClick={() => setCancelReason('')}>
+                    Batalkan
+                  </Button>
+                ))}
             </Space>
           )
         }
@@ -198,7 +209,7 @@ export default function PurchaseOrderDetailPage() {
               scroll={{ x: 700 }}
               columns={[
                 { title: t('Produk'), render: (_, l) => `${l.product.sku} · ${l.product.name}` },
-                { title: 'Dipesan', align: 'right', render: (_, l) => `${fmtQty(l.qty)} ${l.uom}` },
+                { title: 'Dipesan', align: 'right', render: (_, l) => (blind ? '—' : `${fmtQty(l.qty)} ${l.uom}`) },
                 { title: 'Diterima', align: 'right', className: 'no-print', render: (_, l) => fmtQty(l.receivedQty ?? '0') },
                 { title: 'Ditagih', align: 'right', className: 'no-print', render: (_, l) => fmtQty(l.billedQty ?? '0') },
                 { title: isForeignCurrency(o.currency) ? `Harga beli (${o.currency})` : 'Harga beli', dataIndex: 'price', align: 'right', render: (v, l) => (isForeignCurrency(o.currency) ? fmtCurrency(l.priceForeign, o.currency) : fmtMoney(v)) },
@@ -384,14 +395,14 @@ export default function PurchaseOrderDetailPage() {
                 ...(mode === 'both'
                   ? [{ title: 'Jumlah', align: 'right' as const, render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => `${fmtQty(String(l.qty))} ${l.uom}` }]
                   : [
-                      { title: mode === 'receive' ? 'Sisa' : 'Siap ditagih', align: 'right' as const, render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => `${fmtQty(String(mode === 'receive' ? left(l) : open(l)))} ${l.uom}` },
+                      { title: mode === 'receive' ? 'Sisa' : 'Siap ditagih', align: 'right' as const, render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => (blind && mode === 'receive' ? '—' : `${fmtQty(String(mode === 'receive' ? left(l) : open(l)))} ${l.uom}`) },
                       {
                         title: mode === 'receive' ? 'Diterima kali ini' : 'Ditagih kali ini',
                         align: 'right' as const,
                         width: 140,
                         render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => (
                           <Form.Item name={`q_${l.id}`} noStyle>
-                            <InputNumber min={0} max={mode === 'receive' ? left(l) : open(l)} disabled={(mode === 'receive' ? left(l) : open(l)) <= 0} style={{ width: 110 }} />
+                            <InputNumber min={0} max={blind && mode === 'receive' ? undefined : mode === 'receive' ? left(l) : open(l)} disabled={!(blind && mode === 'receive') && (mode === 'receive' ? left(l) : open(l)) <= 0} style={{ width: 110 }} />
                           </Form.Item>
                         ),
                       },
@@ -473,6 +484,18 @@ export default function PurchaseOrderDetailPage() {
             </Form.Item>
           )}
         </Form>
+      </Modal>
+      <Modal
+        title="Batalkan PO yang sudah dikonfirmasi"
+        open={cancelReason !== null}
+        onCancel={() => setCancelReason(null)}
+        onOk={() => cancel.mutate(cancelReason ?? '')}
+        okButtonProps={{ danger: true, disabled: !isApprover && (cancelReason ?? '').trim().length < 5 }}
+        confirmLoading={cancel.isPending}
+        okText="Batalkan PO"
+      >
+        <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="PO yang sudah dikonfirmasi tidak dapat diubah. Pembatalan dicatat dan dikabarkan ke Pemilik, Admin, dan Gudang." />
+        <Input.TextArea rows={3} placeholder="Alasan pembatalan (mis. pemasok kehabisan stok)" value={cancelReason ?? ''} onChange={(e) => setCancelReason(e.target.value)} maxLength={300} />
       </Modal>
     </>
   );

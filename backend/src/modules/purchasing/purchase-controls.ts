@@ -119,6 +119,28 @@ export class PurchaseControlsService {
       SELECT title FROM approval_requests WHERE tenant_id = ${tenantId} AND kind = 'PURCHASE_INVOICE_PRICE' AND status = 'APPROVED' AND decided_at >= ${since}::date`);
     add('PRICE_APPROVED', 'info', 'Faktur harga di atas toleransi yang disetujui', pr.rows.map((r) => r.title), 'Pastikan kenaikan harga itu wajar (bandingkan dengan pemasok lain).');
 
+    // 9. PO bernilai di atas batas persetujuan yang dikonfirmasi tanpa persetujuan (pemasok favorit / dikonfirmasi pemilik-admin): ditinjau Pemilik
+    if (pol.purchaseOrder > 0) {
+      const na = await this.db.execute<{ number: string; name: string }>(sql`
+        SELECT o.number, s.name FROM purchase_orders o JOIN suppliers s ON s.id = o.supplier_id
+        WHERE o.tenant_id = ${tenantId} AND o.date >= ${since} AND o.status IN ('CONFIRMED', 'BILLED') AND o.total >= ${pol.purchaseOrder}
+          AND NOT EXISTS (SELECT 1 FROM approval_requests a WHERE a.tenant_id = ${tenantId} AND a.kind = 'PURCHASE_ORDER' AND a.ref_id = o.id::text AND a.status = 'APPROVED')
+        ORDER BY o.date DESC`);
+      add('PO_NO_APPROVAL', 'info', 'PO bernilai besar dikonfirmasi tanpa persetujuan terpisah', na.rows.map((r) => `${r.number} (${r.name})`), 'Dikonfirmasi pemilik/admin atau lewat batas otomatis pemasok favorit. Tinjau berkala apakah pantas.');
+    }
+
+    // 10. PO yang sudah dikonfirmasi lalu dibatalkan
+    const pc = await this.db.execute<{ number: string; reason: string | null }>(sql`
+      SELECT o.number, o.cancel_reason AS reason FROM purchase_orders o
+      WHERE o.tenant_id = ${tenantId} AND o.status = 'CANCELLED' AND o.cancelled_by_id IS NOT NULL AND o.date >= ${since}
+        AND EXISTS (SELECT 1 FROM audit_logs l WHERE l.entity = 'PurchaseOrder' AND l.entity_id = o.id::text AND l.action = 'CONFIRM')`);
+    add('PO_CANCELLED_AFTER_CONFIRM', 'info', 'PO dibatalkan setelah dikonfirmasi', pc.rows.map((r) => `${r.number}${r.reason ? ` — ${r.reason}` : ''}`), 'Pesanan tidak dapat diubah setelah dikonfirmasi; pembatalan dan penggantiannya perlu dipantau (mis. dipakai mengakali persetujuan).');
+
+    // 11. Rekening supplier diubah
+    const bk = await this.db.execute<{ code: string; name: string }>(sql`
+      SELECT code, name FROM suppliers WHERE tenant_id = ${tenantId} AND bank_changed_at >= ${since}::date AND bank_changed_at IS NOT NULL`);
+    add('SUPPLIER_BANK_CHANGED', 'warning', 'Rekening supplier diubah', bk.rows.map((r) => `${r.code} ${r.name}`), 'Pengalihan rekening pembayaran adalah modus penipuan yang umum. Konfirmasi perubahan ke pemasok lewat kontak yang sudah dikenal.');
+
     const rank = { error: 0, warning: 1, info: 2 } as const;
     out.sort((a, b) => rank[a.level] - rank[b.level]);
     return { asOf: today, since, items: out };

@@ -38,6 +38,7 @@ describe('Pengendalian selisih harga faktur (e2e)', () => {
   const order = async (as_: string, productId: string, price: string) => {
     const po = (await post(as_, '/api/purchase-orders', { supplierId: sup, warehouseId: wh, lines: [{ productId, qty: '10', price }] }).expect(201)).body;
     await post(as_, `/api/purchase-orders/${po.id}/confirm`).expect(201);
+    await post(gudang, `/api/purchase-orders/${po.id}/receipts`, {}).expect(201); // tagihan hanya atas barang yang sudah diterima Gudang
     return (await get(as_, `/api/purchase-orders/${po.id}`).expect(200)).body;
   };
   const bill = (t: string, po: { id: string; lines: { id: string }[] }, price: string, extra: object = {}) =>
