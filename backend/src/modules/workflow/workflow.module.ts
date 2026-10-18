@@ -17,6 +17,7 @@ import {
   effectivePipelines, pipelinesFor, stageOf, validateWorkflowOverrides, WORKFLOW_LINK_LABELS, WORKFLOW_LINK_TYPES,
   type WorkflowLinkType, type WorkflowOverrides, type WorkflowPipeline, type WorkflowStage,
 } from '@sansu/shared';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
@@ -126,6 +127,7 @@ export class WorkflowService {
     private readonly settings: SettingsService,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   // ---------- pengaturan & definisi ----------
@@ -252,6 +254,27 @@ export class WorkflowService {
       canCancel: c.status === 'ACTIVE' && !!cancel && allows(u, cancel.roles),
       canBack: c.status === 'ACTIVE' && (u.role === 'OWNER' || u.role === 'ADMIN'),
     };
+  }
+
+  /**
+   * Kasus yang menunggu tindakan pengguna ini: ada tahap berikutnya yang boleh dipindahkan perannya, dan (bila tahap itu
+   * mensyaratkan pemeriksa berbeda) bukan dia yang memindahkan kasus ke tahap sekarang. Dipakai kotak tugas.
+   */
+  async tasksFor(u: AuthUser): Promise<{ count: number; oldestDays: number }> {
+    const defs = await this.defs(u.tenantId);
+    const rows = await this.db.select().from(workflowCases).where(and(eq(workflowCases.tenantId, u.tenantId), eq(workflowCases.status, 'ACTIVE')));
+    let count = 0;
+    let oldest = 0;
+    for (const c of rows) {
+      const p = defs.find((x) => x.key === c.pipeline);
+      const cur = p && stageOf(p, c.stage);
+      if (!p || !cur) continue;
+      const mine = cur.next.filter((k) => k !== 'BATAL').map((k) => stageOf(p, k)!).some((to) => allows(u, to.roles) && !(to.sod && c.stageEnteredById === u.sub && u.role !== 'OWNER'));
+      if (!mine) continue;
+      count++;
+      oldest = Math.max(oldest, Math.floor((Date.now() - c.stageEnteredAt.getTime()) / 86400000));
+    }
+    return { count, oldestDays: oldest };
   }
 
   /** Tahap alur sebuah dokumen (untuk lencana di halaman dokumen) */
@@ -416,6 +439,10 @@ export class WorkflowService {
       await this.setStage(tx, c, to, u.sub, { kind: 'ADVANCE', note: dto.note?.trim() });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'ADVANCE', entity: 'WorkflowCase', entityId: id, data: { from: cur.key, to: to.key, note: dto.note } });
       await this.autoAdvance(tx, c, p);
+      // beri tahu peran yang kini harus bertindak (bukan pelaku yang baru memindahkan)
+      const after = stageOf(p, c.stage);
+      const next = (after?.next ?? []).filter((k) => k !== 'BATAL').map((k) => stageOf(p, k)!).flatMap((s) => s.roles);
+      if (c.status === 'ACTIVE' && next.length) void this.approvals.notifyRoles(u.tenantId, { roles: [...new Set(next)] as never, excludeUserId: u.sub, title: `${c.number} · ${c.title}: kini di tahap "${after!.label}"`, lines: ['Menunggu tindakan sesuai peran Anda'], path: '/workflow' });
     });
     return this.get(u, id);
   }

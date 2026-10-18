@@ -18,6 +18,7 @@ import { IsBoolean, IsDateString, IsIn, IsNumberString, IsOptional, IsString, Is
 import { WORK_LIMITS, WORK_UNIT_LABELS, WORK_UNITS, WORK_UNITS_BY_MODEL, type WorkUnit } from '@sansu/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import { RequireApp } from '../../common/apps/app.guard';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
@@ -122,6 +123,7 @@ export class ServiceWorkService {
     @InjectDb() private readonly db: Db,
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   private async requireJasa(tenantId: string) {
@@ -325,6 +327,7 @@ export class ServiceWorkService {
         })
         .returning();
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'ServiceWorkEntry', entityId: row.id, data: { employee: emp.code, unit: row.unit, workDate, quantity: row.quantity, rate: row.rate, amount: row.amount, invoiceId } });
+      void this.approvals.notifyRoles(u.tenantId, { roles: ['FINANCE', 'ADMIN', 'OWNER'], excludeUserId: u.sub, title: `Catatan upah kerja menunggu persetujuan: ${emp.code} · Rp${Math.round(amount.toNumber()).toLocaleString('id-ID')}`, lines: [`Dicatat oleh ${u.email ?? 'HR'} untuk tanggal ${workDate}`], path: '/payroll/jasa' });
       return row;
     });
   }

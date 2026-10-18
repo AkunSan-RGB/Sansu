@@ -8,6 +8,7 @@
  *  - kontrak/magang wajib punya tanggal akhir; gaji dan catatan kerja otomatis berhenti di tanggal itu; perpanjangan lewat persetujuan
  *  - upah harian hanya dibayar untuk hari yang dicatat HADIR (tidak "dianggap hadir")
  */
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Injectable, NotFoundException, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
@@ -122,6 +123,7 @@ export class EmploymentService {
     @InjectDb() private readonly db: Db,
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   isJasa = async (tenantId: string, db: DbOrTx = this.db) => (await this.settings.businessModel(db, tenantId)) === 'JASA';
@@ -174,6 +176,7 @@ export class EmploymentService {
     if (pending) throw new BadRequestException('Masih ada permintaan perubahan yang menunggu persetujuan untuk karyawan ini');
     const [req] = await this.db.insert(employeeChangeRequests).values({ tenantId: user.tenantId, employeeId: emp.id, changes, reason: reason ?? null, requestedById: user.sub }).returning();
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'REQUEST', entity: 'EmployeeChange', entityId: req.id, data: { employee: emp.code, fields: Object.keys(changes) } });
+    void this.approvals.notifyRoles(user.tenantId, { roles: ['FINANCE', 'ADMIN', 'OWNER'], excludeUserId: user.sub, title: `Perubahan data karyawan ${emp.code} menunggu persetujuan`, lines: [`Bidang: ${Object.keys(changes).join(', ')}`], path: '/employees/controls' });
     return { direct, request: { id: req.id, fields: Object.keys(changes) } };
   }
 

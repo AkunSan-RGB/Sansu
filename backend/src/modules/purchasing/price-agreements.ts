@@ -13,6 +13,7 @@ import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestj
 import { IsDateString, IsNumberString, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { and, eq, sql } from 'drizzle-orm';
 import { RequireApp } from '../../common/apps/app.guard';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
@@ -50,6 +51,7 @@ export class PriceAgreementsService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   async list(u: AuthUser, status?: string) {
@@ -88,6 +90,7 @@ export class PriceAgreementsService {
     if (clash.rows.length) throw new BadRequestException('Barang ini sudah punya kontrak (atau pengajuan) yang periodenya tumpang tindih dengan pemasok yang sama');
     const [row] = await this.db.insert(supplierPriceAgreements).values({ tenantId: u.tenantId, supplierId: dto.supplierId, productId: dto.productId, price: price.toFixed(2), validFrom: from, validTo: to, note: dto.note ?? null, createdById: u.sub }).returning();
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'SupplierPriceAgreement', entityId: row.id, data: { price: row.price, from, to } });
+    void this.approvals.notifyRoles(u.tenantId, { roles: ['FINANCE', 'ADMIN', 'OWNER'], excludeUserId: u.sub, title: `Kontrak harga pemasok menunggu persetujuan: Rp${Math.round(price.toNumber()).toLocaleString('id-ID')} per satuan`, lines: [`Berlaku ${from} s.d. ${to}`], path: '/price-agreements' });
     return row;
   }
 
