@@ -539,7 +539,7 @@ export class CashService {
       JOIN journal_lines lc ON lc.journal_id = j.id AND lc.credit > 0 JOIN accounts ca ON ca.id = lc.account_id AND NOT ca.is_cash_account
       WHERE j.tenant_id = ${tenantId} AND j.source_type IN ('CASH_IN', 'BANK') AND j.date BETWEEN ${from} AND ${to}
       GROUP BY j.source_type, ca.code, ca.name, ca.type, ca.system_key`);
-    type Row = { key: string; label: string; group: 'SALES' | 'NONSALES' | 'OTHER'; amount: number; count: number; suspect?: string };
+    type Row = { key: string; label: string; group: 'SALES' | 'NONSALES' | 'OTHER'; category: 'SALES' | 'CAPITAL' | 'LOAN' | 'OTHER'; amount: number; count: number; suspect?: string };
     const LABEL: Record<string, [string, Row['group']]> = {
       PAYMENT: ['Pembayaran pelanggan (faktur)', 'SALES'],
       POS: ['Penjualan kasir', 'SALES'],
@@ -547,13 +547,14 @@ export class CashService {
       CUSTOMER_DEPOSIT: ['Uang muka pelanggan', 'SALES'],
       POS_CLOSE: ['Penutupan kasir (setoran/selisih)', 'OTHER'],
     };
-    const rows: Row[] = base.rows.map((r) => ({ key: r.st, label: LABEL[r.st]?.[0] ?? r.st, group: LABEL[r.st]?.[1] ?? 'OTHER', amount: Number(r.amount), count: r.n }));
+    const rows: Row[] = base.rows.map((r) => ({ key: r.st, label: LABEL[r.st]?.[0] ?? r.st, group: LABEL[r.st]?.[1] ?? 'OTHER', category: LABEL[r.st]?.[1] === 'SALES' ? 'SALES' : 'OTHER', amount: Number(r.amount), count: r.n }));
     for (const r of counter.rows) {
       const isSalesAcc = r.type === 'REVENUE' && ['SALES', 'SERVICE_REVENUE', 'CONSTRUCTION_REVENUE'].includes(r.system_key ?? '');
       rows.push({
         key: `${r.st}:${r.code}`,
         label: `${r.st === 'BANK' ? 'Mutasi bank → ' : 'Kas masuk → '}${r.name}`,
         group: isSalesAcc ? 'SALES' : 'NONSALES',
+        category: isSalesAcc ? 'SALES' : r.type === 'EQUITY' ? 'CAPITAL' : r.type === 'LIABILITY' ? 'LOAN' : 'OTHER',
         amount: Number(r.amount),
         count: r.n,
         ...(isSalesAcc ? { suspect: 'Penjualan dicatat lewat kas masuk/mutasi bank, bukan lewat faktur atau kasir — periksa agar piutang dan stok ikut benar' } : {}),
@@ -561,7 +562,12 @@ export class CashService {
     }
     rows.sort((a, b) => b.amount - a.amount);
     const sum = (g: Row['group']) => rows.filter((r) => r.group === g).reduce((a, r) => a + r.amount, 0);
-    return { from, to, rows, totals: { sales: sum('SALES'), nonSales: sum('NONSALES'), other: sum('OTHER') } };
+    const cat = (c: Row['category']) => rows.filter((r) => r.category === c).reduce((a, r) => a + r.amount, 0);
+    return {
+      from, to, rows,
+      totals: { sales: sum('SALES'), nonSales: sum('NONSALES'), other: sum('OTHER') },
+      categories: { sales: cat('SALES'), capital: cat('CAPITAL'), loan: cat('LOAN'), other: cat('OTHER') },
+    };
   }
 
   /** Akun yang boleh dipakai sebagai lawan kas (bukan kas, bukan piutang/hutang/persediaan) */

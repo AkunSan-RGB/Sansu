@@ -50,7 +50,7 @@ describe('Sumber uang masuk (e2e)', () => {
   it('sistem menjurnal ke akun yang benar dan memisahkannya dari penjualan', async () => {
     // Pemilik boleh memakai akun langsung: penjualan yang dicatat lewat kas masuk ditandai mencurigakan
     await cashIn([{ accountId: salesId, amount: '700000' }], {}, owner).then((r) => expect(r.status).toBe(201));
-    const r = (await get(`/api/cash/income-sources?from=${today}&to=${today}`, fin).expect(200)).body as { rows: { label: string; group: string; amount: number; suspect?: string }[]; totals: { sales: number; nonSales: number } };
+    const r = (await get(`/api/cash/income-sources?from=${today}&to=${today}`, fin).expect(200)).body as { rows: { label: string; group: string; amount: number; suspect?: string }[]; totals: { sales: number; nonSales: number }; categories: { sales: number; capital: number; loan: number; other: number } };
     const label = (s: string) => r.rows.find((x) => x.label.includes(s))!;
     expect(label('Modal Disetor')).toMatchObject({ group: 'NONSALES', amount: 1_000_000 });
     expect(label('Utang Bank Jangka Pendek')).toMatchObject({ group: 'NONSALES', amount: 5_000_000 });
@@ -59,6 +59,8 @@ describe('Sumber uang masuk (e2e)', () => {
     expect(bypass?.group).toBe('SALES');
     expect(bypass?.amount).toBe(700_000);
     expect(r.totals.nonSales).toBe(6_025_000);
+    expect(r.categories).toMatchObject({ capital: 1_000_000, loan: 5_000_000, other: 25_000 });
+    expect(r.categories.sales).toBeGreaterThanOrEqual(700_000);
   });
 
   it('mutasi bank masuk: Keuangan memilih sumber, tidak memilih akun', async () => {
