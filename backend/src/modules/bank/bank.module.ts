@@ -8,7 +8,8 @@ import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestj
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, ArrayMinSize, IsBoolean, IsDateString, IsIn, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength, ValidateNested } from 'class-validator';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
-import { CONTROL_PROFILES, DEFAULT_BANK_RULES } from '@sansu/shared';
+import { CASH_IN_SOURCE_KEYS, CASH_IN_SOURCES_TO_VERIFY, CONTROL_PROFILES, DEFAULT_BANK_RULES, cashInSource, type CashInSourceKey } from '@sansu/shared';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { SettingsService } from '../../common/settings.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -52,7 +53,8 @@ export class MatchManyDto {
   journalLineIds: string[];
 }
 export class CreateFromLineDto {
-  @ApiProperty({ description: 'Akun lawan, mis. Beban Administrasi Bank atau Pendapatan Bunga' }) @IsUUID() accountId: string;
+  @ApiPropertyOptional({ description: 'Akun lawan, mis. Beban Administrasi Bank atau Pendapatan Bunga (khusus pembukuan)' }) @IsOptional() @IsUUID() accountId?: string;
+  @ApiPropertyOptional({ enum: CASH_IN_SOURCE_KEYS, description: 'Uang masuk: sumber uang (sistem menentukan akun). Keuangan wajib memakai ini untuk uang masuk' }) @IsOptional() @IsIn(CASH_IN_SOURCE_KEYS as unknown as string[]) source?: CashInSourceKey;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) description?: string;
 }
 
@@ -94,6 +96,7 @@ export class BankService {
     private readonly posting: PostingService,
     private readonly audit: AuditService,
     private readonly settings: SettingsService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   private async bankAccount(db: DbOrTx, tenantId: string, id: string) {
@@ -409,7 +412,22 @@ export class BankService {
     return this.db.transaction(async (tx) => {
       const { l, st } = await this.lockLine(tx, user.tenantId, lineId);
       if (l.status !== 'UNMATCHED') throw new BadRequestException('Mutasi ini sudah diproses');
-      const j = await this.postFromLine(tx, user, l, st, dto.accountId, dto.description, 'CREATED');
+      let accountId = dto.accountId;
+      if (dto.source) {
+        if (!D(l.amount).gt(0)) throw new BadRequestException('Sumber uang hanya untuk uang masuk');
+        if (accountId) throw new BadRequestException('Isi sumber uang ATAU akun, bukan keduanya');
+        const k = cashInSource(dto.source)!;
+        const [a] = await tx.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.tenantId, user.tenantId), eq(accounts.code, k.code), eq(accounts.isPostable, true)));
+        if (!a) throw new BadRequestException(`Akun untuk "${k.label}" (${k.code}) belum tersedia di Bagan Akun. Hubungi Admin/Akuntan.`);
+        accountId = a.id;
+      } else if (user.role === 'FINANCE' && D(l.amount).gt(0)) {
+        throw new BadRequestException('Pilih sumber uang untuk uang masuk ini (mis. Bunga bank, Modal dari pemilik). Pembayaran pelanggan dicocokkan dengan pembayaran fakturnya.');
+      }
+      if (!accountId) throw new BadRequestException('Pilih akun lawan');
+      const j = await this.postFromLine(tx, user, l, st, accountId, dto.description, 'CREATED');
+      if (dto.source && CASH_IN_SOURCES_TO_VERIFY.includes(dto.source)) {
+        void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER', 'ACCOUNTANT'], excludeUserId: user.sub, title: `Uang masuk bank non-penjualan: ${cashInSource(dto.source)!.label} Rp${D(l.amount).toNumber().toLocaleString('id-ID')}`, lines: [l.description], path: '/bank' });
+      }
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE_FROM_BANK', entity: 'BankStatementLine', entityId: l.id, data: { amount: l.amount, journal: j.number } });
       return { journalNumber: j.number };
     });

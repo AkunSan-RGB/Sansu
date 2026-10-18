@@ -1686,6 +1686,8 @@ export const cashTransactionLines = pgTable('cash_transaction_lines', {
   memo: text('memo'),
   /** Biaya langsung proyek (usaha jasa) */
   projectId: uuid('project_id'),
+  /** Kas masuk non-penjualan: sumber dalam bahasa kegiatan usaha (akun ditentukan sistem) */
+  sourceKey: text('source_key'),
 });
 
 // ---------- Relasi (untuk db.query.*.findMany({ with: ... })) ----------
