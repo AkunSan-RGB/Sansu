@@ -897,6 +897,8 @@ export const approvalRequests = pgTable(
     decidedById: uuid('decided_by_id'),
     decidedAt: timestamp('decided_at', { withTimezone: true }),
     decisionNote: text('decision_note'),
+    /** Penyetuju yang dipilih pemohon (harus berwenang); kosong = semua penyetuju boleh memutuskan */
+    assignedToId: uuid('assigned_to_id').references(() => users.id),
     /** Nomor dokumen hasil persetujuan (mis. nomor jurnal) */
     resultRef: text('result_ref'),
   },

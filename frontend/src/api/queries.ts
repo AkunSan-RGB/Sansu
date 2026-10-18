@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App } from 'antd';
-import { get } from './client';
+import { ApiError, get } from './client';
 import type { Account, CashAccount, Customer, Product, Supplier, Warehouse } from './types';
 
 /** Data master yang dipakai banyak halaman */
@@ -38,7 +38,12 @@ export function useAction<TVars, TResult = unknown>(
       if (opts.success) message.success(typeof opts.success === 'function' ? opts.success(r) : opts.success);
       opts.onSuccess?.(r);
     },
-    onError: (e: Error) => message.error(e.message, 6),
+    onError: (e: Error) => {
+      message.error(e.message, 6);
+      // permintaan persetujuan baru dibuat: pemohon dapat memilih penyetuju yang berwenang
+      const d = e instanceof ApiError ? (e.data as { code?: string; requestId?: string } | undefined) : undefined;
+      if (d?.code === 'APPROVAL_REQUIRED' && d.requestId) window.dispatchEvent(new CustomEvent('sansu:approval-required', { detail: { requestId: d.requestId } }));
+    },
   });
 }
 

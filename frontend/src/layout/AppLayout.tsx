@@ -1,3 +1,4 @@
+import ApprovalAssignListener from '@/features/approvals/ApprovalAssignListener';
 import { rememberReturnTo } from '@/auth/returnTo';
 import { ApartmentOutlined, AppstoreOutlined, AuditOutlined, CrownOutlined, MenuOutlined } from '@ant-design/icons';
 import { BUSINESS_MODELS, localize, type AppKey, type BusinessModel } from '@sansu/shared';
@@ -523,6 +524,7 @@ export default function AppLayout() {
           <ServerStatus />
           <AccountStatusBanner />
           <Outlet />
+          <ApprovalAssignListener />
         </Layout.Content>
       </Layout>
     </Layout>

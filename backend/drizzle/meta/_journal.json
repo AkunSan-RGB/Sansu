@@ -526,6 +526,13 @@
       "when": 1794767886484,
       "tag": "0074_kontrak_harga_pemasok",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1794854286484,
+      "tag": "0075_penyetuju_dipilih",
+      "breakpoints": true
     }
   ]
 }

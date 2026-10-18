@@ -6,6 +6,7 @@ import { get, post } from '@/api/client';
 import { useAction } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
+import ApproverSelect from './ApproverSelect';
 import { fmtDate, fmtMoney } from '@/lib/format';
 
 interface Request {
@@ -23,6 +24,9 @@ interface Request {
   requestedBy: string;
   decidedBy: string | null;
   mine: boolean;
+  assignedToId: string | null;
+  assignedTo: string | null;
+  canDecide: boolean;
 }
 
 const STATUS: Record<Request['status'], { color: string; label: string }> = {
@@ -40,6 +44,8 @@ export default function ApprovalsPage() {
   const approver = !!me && ['OWNER', 'ADMIN'].includes(me.role);
   const [view, setView] = useState<'PENDING' | 'ALL'>('PENDING');
   const [rejecting, setRejecting] = useState<Request | null>(null);
+  const [assigning, setAssigning] = useState<Request | null>(null);
+  const [pick, setPick] = useState<string | undefined>();
   const [form] = Form.useForm<{ note: string }>();
   const q = useQuery({ queryKey: ['approvals', view], queryFn: () => get<Request[]>(`/approvals?status=${view}`), refetchInterval: 30_000 });
   const approve = useAction((id: string) => post(`/approvals/${id}/approve`), { success: 'Disetujui dan dijalankan', invalidate: KEYS });
@@ -48,6 +54,7 @@ export default function ApprovalsPage() {
     invalidate: KEYS,
     onSuccess: () => setRejecting(null),
   });
+  const assign = useAction((v: { id: string; approverId?: string }) => post(`/approvals/${v.id}/assign`, { approverId: v.approverId }), { success: 'Penyetuju dipilih — notifikasi dikirim ke yang bersangkutan', invalidate: ['approvals'], onSuccess: () => setAssigning(null) });
   const cancel = useAction((id: string) => post(`/approvals/${id}/cancel`), { success: 'Permintaan dibatalkan', invalidate: KEYS });
 
   return (
@@ -91,6 +98,7 @@ export default function ApprovalsPage() {
             },
             { title: 'Nilai', dataIndex: 'amount', align: 'right', render: fmtMoney },
             { title: 'Pemohon', dataIndex: 'requestedBy' },
+            { title: 'Ditujukan ke', dataIndex: 'assignedTo', render: (a: string | null) => a ?? <Typography.Text type="secondary">Semua penyetuju</Typography.Text> },
             {
               title: 'Status',
               dataIndex: 'status',
@@ -117,7 +125,7 @@ export default function ApprovalsPage() {
               render: (_, r) =>
                 r.status !== 'PENDING' ? null : (
                   <Space>
-                    {approver && !r.mine && (
+                    {approver && r.canDecide && (
                       <>
                         <Popconfirm title="Setujui dan jalankan sekarang?" onConfirm={() => approve.mutate(r.id)}>
                           <Button size="small" type="primary" loading={approve.isPending && approve.variables === r.id}>
@@ -137,6 +145,9 @@ export default function ApprovalsPage() {
                       </>
                     )}
                     {r.mine && (
+                      <Button size="small" onClick={() => { setPick(r.assignedToId ?? undefined); setAssigning(r); }}>Pilih penyetuju</Button>
+                    )}
+                    {r.mine && (
                       <Popconfirm title="Batalkan permintaan ini?" onConfirm={() => cancel.mutate(r.id)}>
                         <Button size="small">Batalkan</Button>
                       </Popconfirm>
@@ -147,6 +158,10 @@ export default function ApprovalsPage() {
           ]}
         />
       </Card>
+      <Modal title={assigning ? `Pilih penyetuju: ${assigning.title}` : ''} open={!!assigning} onCancel={() => setAssigning(null)} onOk={() => assigning && assign.mutate({ id: assigning.id, approverId: pick })} okText="Simpan" confirmLoading={assign.isPending} destroyOnHidden>
+        <Typography.Paragraph type="secondary">Hanya pengguna yang berwenang memutuskan yang ditampilkan. Notifikasi dikirim ke penyetuju yang dipilih, dan hanya dia (atau Pemilik) yang dapat memutuskan.</Typography.Paragraph>
+        <ApproverSelect value={pick} onChange={setPick} />
+      </Modal>
       <Modal
         title={rejecting ? `Tolak: ${rejecting.title}` : 'Tolak'}
         open={!!rejecting}
