@@ -58,7 +58,7 @@ describe('Form produk per jenis usaha (e2e)', () => {
     expect((await p({ uoms: [{ uom: 'DOS', factor: '40' }] })).status).toBe(400);
     expect((await p({ madeToOrder: true })).status).toBe(400);
     expect((await p({ shelfLifeDays: 30 })).status).toBe(400);
-    const ok = await p({ category: 'mi & pasta', baseUom: 'PCS', barcode: '8991234567890', uoms: [{ uom: 'DUS', factor: '40' }] });
+    const ok = await p({ category: 'mi & pasta', baseUom: 'PCS', barcode: '4006381333931', uoms: [{ uom: 'DUS', factor: '40' }] });
     expect(ok.status).toBe(201);
     expect(ok.body.category).toBe('Mi & Pasta'); // ejaan baku dari daftar
     expect(ok.body.uoms[0].uom).toBe('DUS');

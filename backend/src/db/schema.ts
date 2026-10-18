@@ -234,6 +234,8 @@ export const products = pgTable(
     sellPrice: money('sell_price').notNull().default('0'),
     /** Barcode / EAN untuk scan di kasir */
     barcode: text('barcode'),
+    /** GENERATED = dibuat sistem (tidak bisa diubah); MANUFACTURER = barcode pabrikan hasil scan */
+    barcodeSource: text('barcode_source').$type<'GENERATED' | 'MANUFACTURER'>(),
     /** GOODS = bahan / barang dagang / barang jadi; SEMI = barang setengah jadi (akun persediaan tersendiri, hanya lewat produksi) */
     inventoryKind: text('inventory_kind').$type<'GOODS' | 'SEMI'>().notNull().default('GOODS'),
     /** Menu: dibuat saat dipesan. Kasir memotong bahan sesuai resep aktif (bukan stok produk ini) dan HPP dihitung dari bahan */
@@ -897,6 +899,8 @@ export const approvalRequests = pgTable(
     decidedById: uuid('decided_by_id'),
     decidedAt: timestamp('decided_at', { withTimezone: true }),
     decisionNote: text('decision_note'),
+    /** Penyetuju yang dipilih pemohon (harus berwenang); kosong = semua penyetuju boleh memutuskan */
+    assignedToId: uuid('assigned_to_id').references(() => users.id),
     /** Nomor dokumen hasil persetujuan (mis. nomor jurnal) */
     resultRef: text('result_ref'),
   },
@@ -2357,6 +2361,8 @@ export const serviceWorkEntries = pgTable(
     invoiceId: uuid('invoice_id').references(() => invoices.id),
     /** Upah per hasil (pabrik): perintah produksi yang dikerjakan; jumlah hasil dibatasi oleh keluaran perintah itu */
     productionOrderId: uuid('production_order_id').references(() => productionOrders.id),
+    /** Premi shift otomatis dari jadwal: penugasan yang menjadi dasarnya (satu penugasan hanya satu premi) */
+    shiftAssignmentId: uuid('shift_assignment_id'),
     /** Jam / sesi / pekerjaan; untuk komisi = persen */
     quantity: numeric('quantity', { precision: 12, scale: 2 }).notNull(),
     rate: numeric('rate', { precision: 18, scale: 2 }).notNull(),
@@ -3533,4 +3539,41 @@ export const supplierPriceAgreements = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index('spa_lookup_idx').on(t.tenantId, t.supplierId, t.productId, t.status)],
+);
+
+/** Templat shift: jam kerja, jumlah minimal petugas, dan tarif premi (kartu tarif satuan SHIFT) */
+export const shiftTemplates = pgTable(
+  'shift_templates',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    name: text('name').notNull(),
+    startTime: text('start_time').notNull(),
+    endTime: text('end_time').notNull(),
+    minStaff: integer('min_staff').notNull().default(1),
+    premiumRateId: uuid('premium_rate_id').references(() => serviceRates.id),
+    isActive: boolean('is_active').notNull().default(true),
+    createdById: uuid('created_by_id').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('shift_templates_name_uq').on(t.tenantId, t.name)],
+);
+
+/** Penugasan pegawai ke shift pada tanggal tertentu (jadwal / roster) */
+export const shiftAssignments = pgTable(
+  'shift_assignments',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => employees.id),
+    templateId: uuid('template_id')
+      .notNull()
+      .references(() => shiftTemplates.id),
+    workDate: date('work_date').notNull(),
+    createdById: uuid('created_by_id').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('shift_assignments_uq').on(t.employeeId, t.workDate, t.templateId), index('shift_assignments_date_idx').on(t.tenantId, t.workDate)],
 );

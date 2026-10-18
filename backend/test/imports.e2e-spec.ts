@@ -40,7 +40,7 @@ describe('Impor data awal (e2e)', () => {
 
   it('produk: pratinjau menandai baris salah, simpan ditolak utuh bila ada error', async () => {
     const rows = [
-      { sku: 'mie-01', nama: 'Mie Goreng', satuan: 'pcs', harga_jual: '3.500', satuan2: 'dus', isi2: 40, barcode: '8990001' },
+      { sku: 'mie-01', nama: 'Mie Goreng', satuan: 'pcs', harga_jual: '3.500', satuan2: 'dus', isi2: 40, barcode: '4006381333931' },
       { sku: 'MIE-01', nama: 'Dobel', harga_jual: 1 },
       { sku: 'KOPI', harga_jual: 'murah' },
       { sku: 'GULA', nama: 'Gula 1kg', harga_jual: 15000, satuan2: 'PCS', isi2: 10 },
@@ -61,7 +61,7 @@ describe('Impor data awal (e2e)', () => {
     const r1 = await imp(
       'products',
       [
-        { sku: 'mie-01', nama: 'Mie Goreng 85g', kategori: 'Makanan', satuan: 'pcs', harga_jual: '3.500', satuan2: 'dus', isi2: 40, barcode: '8990001' },
+        { sku: 'mie-01', nama: 'Mie Goreng 85g', kategori: 'Makanan', satuan: 'pcs', harga_jual: '3.500', satuan2: 'dus', isi2: 40, barcode: '4006381333931' },
         { sku: 'KOPI-01', nama: 'Kopi Sachet', harga_jual: 'Rp 1.250' },
       ],
       { dryRun: false },
@@ -70,7 +70,7 @@ describe('Impor data awal (e2e)', () => {
     const r2 = await imp('products', [{ sku: 'MIE-01', harga_jual: 3700 }], { dryRun: false }).expect(200);
     expect(r2.body.summary).toMatchObject({ create: 0, update: 1 });
     const mie = (await get('/api/products?q=MIE-01')).body[0];
-    expect(mie).toMatchObject({ name: 'Mie Goreng 85g', sellPrice: '3700.00', baseUom: 'PCS', barcode: '8990001' });
+    expect(mie).toMatchObject({ name: 'Mie Goreng 85g', sellPrice: '3700.00', baseUom: 'PCS', barcode: '4006381333931' });
     expect(mie.uoms.map((u: { uom: string; factor: string }) => [u.uom, Number(u.factor)])).toEqual([['DUS', 40]]);
 
     await imp(

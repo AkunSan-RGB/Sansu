@@ -5,7 +5,7 @@
  * (OWNER dan ADMIN) tidak terkena batas: tindakan mereka adalah persetujuannya. Peran lain yang melewati batas membuat
  * permintaan yang menunggu keputusan; setelah disetujui, tindakannya dijalankan atas nama pemberi persetujuan.
  */
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { and, eq, inArray, ne } from 'drizzle-orm';
 import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
@@ -78,12 +78,12 @@ export class ApprovalsService {
    * Beri tahu pemilik/admin lewat email dengan tautan pribadi untuk menyetujui atau menolak tanpa login
    * (halaman ringkasan; keputusan baru diambil saat tombol ditekan). Gagal kirim tidak menggagalkan transaksi.
    */
-  async notifyApprovers(tenantId: string, p: { kind: 'AR' | 'PR'; id: string; requesterId?: string | null; title: string; lines: string[] }) {
+  async notifyApprovers(tenantId: string, p: { kind: 'AR' | 'PR'; id: string; requesterId?: string | null; title: string; lines: string[]; onlyIds?: string[] }) {
     try {
       const to = await this.db
         .select({ id: users.id, email: users.email })
         .from(users)
-        .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, [...APPROVER_ROLES]), p.requesterId ? ne(users.id, p.requesterId) : undefined));
+        .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, [...APPROVER_ROLES]), p.requesterId ? ne(users.id, p.requesterId) : undefined, p.onlyIds?.length ? inArray(users.id, p.onlyIds) : undefined));
       const hours = Math.min(72, Math.max(1, (await this.policy(this.db, tenantId)).telegramLinkHours || 72));
       for (const t of to) {
         const token = signApprovalLink({ k: p.kind, r: p.id, u: t.id });
@@ -105,6 +105,27 @@ export class ApprovalsService {
     }
   }
 
+  /**
+   * Beri tahu pengguna berperan tertentu bahwa ada proses yang menunggu tindakan mereka (Telegram bila terhubung, email bila dikonfigurasi).
+   * Pelaku proses (`excludeUserId`) tidak diberi tahu: dia bukan yang memutuskan (pemisahan fungsi). Gagal kirim tidak menggagalkan proses.
+   */
+  async notifyRoles(tenantId: string, p: { roles: readonly Role[]; excludeUserId?: string; title: string; lines?: string[]; path: string }) {
+    try {
+      const to = await this.db
+        .select({ id: users.id, email: users.email })
+        .from(users)
+        .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, [...p.roles]), p.excludeUserId ? ne(users.id, p.excludeUserId) : undefined));
+      const url = `${appUrl()}${p.path}`;
+      await this.telegram.notifyUsers(to.map((t) => t.id), `🔔 Menunggu tindakan Anda\n${p.title}\n${(p.lines ?? []).join('\n')}\n${url}`);
+      if (!this.mail.configured) return;
+      for (const t of to) {
+        await this.mail.send({ to: t.email, subject: `Menunggu tindakan Anda: ${p.title}`, heading: 'Menunggu tindakan Anda', paragraphs: [p.title, ...(p.lines ?? [])], action: { label: 'Buka SANSU', url } });
+      }
+    } catch (e) {
+      this.logger.warn(`Notifikasi proses gagal: ${(e as Error).message}`);
+    }
+  }
+
   async policy(db: DbOrTx, tenantId: string): Promise<ApprovalPolicy> {
     return this.settings.section(db, tenantId, 'approvals', DEFAULT_APPROVALS);
   }
@@ -116,6 +137,14 @@ export class ApprovalsService {
 
   isApprover(role: Role) {
     return APPROVER_ROLES.includes(role);
+  }
+
+  /** Pengguna yang berwenang memutuskan (peran penyetuju, aktif), selain pemohon sendiri */
+  async eligibleApprovers(db: DbOrTx, tenantId: string, excludeUserId?: string) {
+    return db
+      .select({ id: users.id, name: users.name, role: users.role })
+      .from(users)
+      .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, [...APPROVER_ROLES]), excludeUserId ? ne(users.id, excludeUserId) : undefined));
   }
 
   /** Apakah transaksi bernilai `amount` ini perlu persetujuan dari pengguna ini? */
@@ -144,13 +173,14 @@ export class ApprovalsService {
   }
 
   /** Buat permintaan baru dan catat di jejak audit */
-  async create(db: DbOrTx, user: AuthUser, p: { kind: ApprovalKind; refId: string | null; title: string; amount: number; payload: Record<string, unknown> | null }) {
+  async create(db: DbOrTx, user: AuthUser, p: { kind: ApprovalKind; refId: string | null; title: string; amount: number; payload: Record<string, unknown> | null; approverId?: string }) {
+    if (p.approverId && !(await this.eligibleApprovers(db, user.tenantId, user.sub)).some((a) => a.id === p.approverId)) throw new BadRequestException('Penyetuju yang dipilih tidak berwenang');
     const [row] = await db
       .insert(approvalRequests)
-      .values({ tenantId: user.tenantId, kind: p.kind, refId: p.refId, title: p.title, amount: p.amount.toFixed(2), payload: p.payload, requestedById: user.sub })
+      .values({ tenantId: user.tenantId, kind: p.kind, refId: p.refId, title: p.title, amount: p.amount.toFixed(2), payload: p.payload, requestedById: user.sub, assignedToId: p.approverId ?? null })
       .returning();
     await this.audit.log(db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'ApprovalRequest', entityId: row.id, data: { kind: p.kind, title: p.title, amount: p.amount } });
-    void this.notifyApprovers(user.tenantId, { kind: 'AR', id: row.id, requesterId: user.sub, title: `${APPROVAL_KIND_LABELS[p.kind]}: ${p.title}`, lines: [`Nilai: Rp${Math.round(p.amount).toLocaleString('id-ID')}`] });
+    void this.notifyApprovers(user.tenantId, { kind: 'AR', id: row.id, requesterId: user.sub, title: `${APPROVAL_KIND_LABELS[p.kind]}: ${p.title}`, lines: [`Nilai: Rp${Math.round(p.amount).toLocaleString('id-ID')}`], onlyIds: p.approverId ? [p.approverId] : undefined });
     return row;
   }
 

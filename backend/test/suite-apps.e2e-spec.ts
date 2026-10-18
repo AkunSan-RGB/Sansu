@@ -48,7 +48,7 @@ describe('Platform & aplikasi (e2e)', () => {
     token = reg.body.accessToken;
     warehouseId = (await get('/api/warehouses')).body[0].id;
     accounts = (await get('/api/accounting/accounts')).body;
-    productId = (await post('/api/products', { sku: 'POS-01', name: 'Kopi Botol', sellPrice: '10000', barcode: `899${stamp}` }).expect(201)).body.id;
+    productId = (await post('/api/products', { sku: 'POS-01', name: 'Kopi Botol', sellPrice: '10000', barcode: "5901234123457" }).expect(201)).body.id;
     customerId = (await post('/api/customers', { code: 'TK-01', name: 'Toko Satu' }).expect(201)).body.id;
     await post('/api/inventory/adjustments', { warehouseId, reason: 'OPENING', lines: [{ productId, qty: '100', unitCost: '7000' }] }).expect(201);
   });
@@ -120,7 +120,7 @@ describe('Platform & aplikasi (e2e)', () => {
     });
 
     it('cari produk lewat barcode beserta stok', async () => {
-      const r = await as(cashierToken).get(`/api/pos/products?q=899${stamp}&warehouseId=${warehouseId}`).expect(200);
+      const r = await as(cashierToken).get(`/api/pos/products?q=5901234123457&warehouseId=${warehouseId}`).expect(200);
       expect(r.body).toHaveLength(1);
       expect(Number(r.body[0].stock)).toBe(100);
     });

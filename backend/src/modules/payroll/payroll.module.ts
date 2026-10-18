@@ -32,6 +32,7 @@ import { PostingService } from '../accounting/posting.service';
 import { monthRange, workDaysBetween } from '../hr/hr.module';
 import { EmploymentService, isPerJob } from '../hr/employment';
 import { computePayslip, PayslipCalc } from './compute';
+import { generateShiftPremiums } from '../hr/shifts';
 import { assertServiceEntriesMatch, attachServiceEntries, ServiceWorkController, ServiceWorkService } from './service-work';
 import { yearQuery } from '../../common/pipes/year.pipe';
 
@@ -380,6 +381,8 @@ export class PayrollService {
         (e.isActive || (e.resignDate && e.resignDate >= from))
       );
     });
+    // premi shift dari jadwal + kehadiran dibuat otomatis (menunggu persetujuan) sebelum catatan kerja dikaitkan ke slip
+    await generateShiftPremiums(tx, tenantId, to);
     // Upah jasa: catatan kerja yang disetujui (jam, sesi, borongan, komisi faktur) otomatis masuk slip
     const serviceBy = await attachServiceEntries(tx, tenantId, runId, period, onlyEmployeeId ? null : new Set(eligible.map((e) => e.id)), onlyEmployeeId);
     // tenaga lepas / mitra hanya punya slip bila ada upah jasa bulan itu

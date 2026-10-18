@@ -7,6 +7,7 @@ import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { TaxModule } from '../tax/tax.module';
 import { ReminderMailer, ReminderScheduler } from './reminder-mailer.service';
 import { RemindersService } from './reminders.service';
+import { TaskInboxController, TaskInboxService } from './task-inbox';
 
 export class SnoozeKeyDto {
   @IsString() @MaxLength(80) @Matches(/^[A-Za-z0-9-]+$/, { message: 'Kunci pengingat tidak valid' }) key: string;
@@ -108,8 +109,8 @@ export class ReminderSettingsController {
 
 @Module({
   imports: [TaxModule],
-  controllers: [RemindersController, ReminderSettingsController],
-  providers: [RemindersService, ReminderMailer, ReminderScheduler],
+  controllers: [RemindersController, ReminderSettingsController, TaskInboxController],
+  providers: [RemindersService, ReminderMailer, ReminderScheduler, TaskInboxService],
   exports: [RemindersService, ReminderMailer],
 })
 export class RemindersModule {}

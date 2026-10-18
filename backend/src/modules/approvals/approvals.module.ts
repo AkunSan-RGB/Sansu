@@ -5,7 +5,7 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, HttpCode, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { APPROVAL_KIND_LABELS, ApprovalPolicy, ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -47,6 +47,9 @@ class PolicyDto implements Partial<ApprovalPolicy> {
   @ApiPropertyOptional({ description: 'Pembayaran pertama ke supplier wajib disetujui' }) @IsOptional() @IsBoolean() firstSupplierPayment?: boolean;
   @ApiPropertyOptional({ description: 'Masa berlaku tautan persetujuan lewat Telegram (jam, 1–72)' }) @IsOptional() @IsInt() @Min(1) @Max(72) telegramLinkHours?: number;
 }
+class AssignDto {
+  @ApiProperty({ description: 'Pengguna berwenang yang dipilih untuk memutuskan; kosong = semua penyetuju' }) @IsOptional() @IsUUID() approverId?: string;
+}
 class DecisionDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) note?: string;
 }
@@ -75,25 +78,28 @@ export class ApprovalRequestsService {
     const mineOnly = q.mine === 'true' || !approver;
     const rows = await this.db.execute<{
       id: string; kind: string; ref_id: string | null; title: string; amount: string; status: string; requested_at: string; decided_at: string | null;
-      decision_note: string | null; result_ref: string | null; requested_by: string; decided_by: string | null; requested_by_id: string;
+      decision_note: string | null; result_ref: string | null; requested_by: string; decided_by: string | null; requested_by_id: string; assigned_to_id: string | null; assigned_to: string | null;
     }>(sql`
-      SELECT r.id, r.kind, r.ref_id, r.title, r.amount, r.status, r.requested_at, r.decided_at, r.decision_note, r.result_ref, r.requested_by_id,
-             u.name AS requested_by, d.name AS decided_by
-      FROM approval_requests r JOIN users u ON u.id = r.requested_by_id LEFT JOIN users d ON d.id = r.decided_by_id
+      SELECT r.id, r.kind, r.ref_id, r.title, r.amount, r.status, r.requested_at, r.decided_at, r.decision_note, r.result_ref, r.requested_by_id, r.assigned_to_id,
+             u.name AS requested_by, d.name AS decided_by, a.name AS assigned_to
+      FROM approval_requests r JOIN users u ON u.id = r.requested_by_id LEFT JOIN users d ON d.id = r.decided_by_id LEFT JOIN users a ON a.id = r.assigned_to_id
       WHERE r.tenant_id = ${user.tenantId}
         ${q.status === 'PENDING' ? sql`AND r.status = 'PENDING'` : sql``}
-        ${mineOnly ? sql`AND r.requested_by_id = ${user.sub}` : sql``}
+        ${mineOnly ? sql`AND r.requested_by_id = ${user.sub}` : user.role === 'OWNER' ? sql`` : sql`AND (r.assigned_to_id IS NULL OR r.assigned_to_id = ${user.sub} OR r.requested_by_id = ${user.sub} OR r.status <> 'PENDING')`}
       ORDER BY (r.status = 'PENDING') DESC, r.requested_at DESC LIMIT 200`);
     return rows.rows.map((r) => ({
       id: r.id, kind: r.kind, kindLabel: APPROVAL_KIND_LABELS[r.kind as keyof typeof APPROVAL_KIND_LABELS] ?? r.kind, refId: r.ref_id, title: r.title,
       amount: r.amount, status: r.status, requestedAt: r.requested_at, decidedAt: r.decided_at, decisionNote: r.decision_note, resultRef: r.result_ref,
       requestedBy: r.requested_by, decidedBy: r.decided_by, mine: r.requested_by_id === user.sub,
+      assignedToId: r.assigned_to_id, assignedTo: r.assigned_to,
+      canDecide: r.status === 'PENDING' && approver && r.requested_by_id !== user.sub && (!r.assigned_to_id || r.assigned_to_id === user.sub || user.role === 'OWNER'),
     }));
   }
 
   async pendingCount(user: AuthUser) {
     if (!this.approvals.isApprover(user.role)) return { count: 0 };
-    const r = await this.db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM approval_requests WHERE tenant_id = ${user.tenantId} AND status = 'PENDING'`);
+    const r = await this.db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM approval_requests WHERE tenant_id = ${user.tenantId} AND status = 'PENDING' AND requested_by_id <> ${user.sub}
+      ${user.role === 'OWNER' ? sql`` : sql`AND (assigned_to_id IS NULL OR assigned_to_id = ${user.sub})`}`);
     return { count: r.rows[0].n };
   }
 
@@ -103,9 +109,32 @@ export class ApprovalRequestsService {
     return r;
   }
 
+  /** Hanya penyetuju yang dipilih pemohon (atau Pemilik) yang boleh memutuskan permintaan yang sudah ditujukan */
+  private assertAssignee(user: AuthUser, req: typeof approvalRequests.$inferSelect) {
+    if (req.assignedToId && req.assignedToId !== user.sub && user.role !== 'OWNER') throw new ForbiddenException('Permintaan ini ditujukan kepada penyetuju lain yang dipilih pemohon');
+  }
+
+  /** Penyetuju yang berwenang untuk dipilih pemohon */
+  approvers(user: AuthUser) {
+    return this.approvals.eligibleApprovers(this.db, user.tenantId, user.sub);
+  }
+
+  /** Pemohon menunjuk penyetuju (atau mengosongkan = semua penyetuju) selama permintaan masih menunggu */
+  async assign(user: AuthUser, id: string, dto: AssignDto) {
+    const req = await this.load(user, id);
+    if (req.requestedById !== user.sub) throw new ForbiddenException('Hanya pemohon yang dapat memilih penyetuju');
+    if (req.status !== 'PENDING') throw new ConflictException('Permintaan ini sudah diputuskan');
+    if (dto.approverId && !(await this.approvals.eligibleApprovers(this.db, user.tenantId, user.sub)).some((a) => a.id === dto.approverId)) throw new BadRequestException('Penyetuju yang dipilih tidak berwenang');
+    await this.db.update(approvalRequests).set({ assignedToId: dto.approverId ?? null }).where(and(eq(approvalRequests.id, id), eq(approvalRequests.status, 'PENDING')));
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'ASSIGN', entity: 'ApprovalRequest', entityId: id, data: { approverId: dto.approverId ?? null } });
+    void this.approvals.notifyApprovers(user.tenantId, { kind: 'AR', id, requesterId: user.sub, title: `${APPROVAL_KIND_LABELS[req.kind]}: ${req.title}`, lines: [`Nilai: Rp${Math.round(Number(req.amount)).toLocaleString('id-ID')}`], onlyIds: dto.approverId ? [dto.approverId] : undefined });
+    return { id, assignedToId: dto.approverId ?? null };
+  }
+
   async approve(user: AuthUser, id: string, dto: DecisionDto) {
     const req = await this.load(user, id);
     if (req.requestedById === user.sub) throw new ForbiddenException('Permintaan sendiri tidak bisa disetujui oleh pemohonnya');
+    this.assertAssignee(user, req);
     // Ambil keputusan secara atomik: hanya satu penyetuju yang berhasil
     const claimed = await this.db
       .update(approvalRequests)
@@ -160,6 +189,7 @@ export class ApprovalRequestsService {
 
   async reject(user: AuthUser, id: string, dto: DecisionDto) {
     const req = await this.load(user, id);
+    this.assertAssignee(user, req);
     if (!dto.note?.trim()) throw new BadRequestException('Isi alasan penolakan');
     const done = await this.db
       .update(approvalRequests)
@@ -199,6 +229,16 @@ export class ApprovalsController {
   @Get()
   list(@CurrentUser() u: AuthUser, @Query() q: ListDto) {
     return this.svc.list(u, q);
+  }
+
+  @Get('approvers')
+  approvers(@CurrentUser() u: AuthUser) {
+    return this.svc.approvers(u);
+  }
+
+  @Post(':id/assign')
+  assign(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AssignDto) {
+    return this.svc.assign(u, id, dto);
   }
 
   @Get('pending-count')

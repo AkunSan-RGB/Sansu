@@ -1,3 +1,4 @@
+import { ShiftsController, ShiftsService } from './shifts';
 import {
   BadRequestException,
   Body,
@@ -468,8 +469,8 @@ export class HrController {
 }
 
 @Module({
-  controllers: [HrController, EmploymentController],
-  providers: [HrService, EmploymentService],
+  controllers: [HrController, EmploymentController, ShiftsController],
+  providers: [HrService, EmploymentService, ShiftsService],
   exports: [HrService, EmploymentService],
 })
 export class HrModule {}
