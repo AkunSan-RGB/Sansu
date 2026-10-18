@@ -540,6 +540,13 @@
       "when": 1794940686484,
       "tag": "0076_barcode_otomatis",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1795027086484,
+      "tag": "0077_jadwal_shift",
+      "breakpoints": true
     }
   ]
 }
