@@ -1,9 +1,11 @@
 /**
  * Operasi gudang: transfer antar gudang, stock opname, stok minimum, rekap stok semua gudang.
  */
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { inventoryLines, semiSet } from './inventory-accounts';
 import {
   BadRequestException,
+  ForbiddenException,
   Body,
   Controller,
   Get,
@@ -156,6 +158,7 @@ export class WarehouseOpsService {
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
     private readonly posting: PostingService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   private async warehouse(db: Db | Tx, tenantId: string, id: string) {
@@ -689,7 +692,14 @@ export class WarehouseOpsService {
       )
       .where(eq(stockCountLines.countId, id))
       .orderBy(asc(products.category), asc(products.sku));
-    return { ...c, warehouse: { id: wh.id, code: wh.code, name: wh.name }, lines };
+    // Opname buta: penghitung (Gudang) tidak melihat stok sistem selama opname masih berjalan
+    const blind = u.role === 'WAREHOUSE' && c.status === 'DRAFT' && (await this.approvals.policy(this.db, u.tenantId)).blindCount;
+    return {
+      ...c,
+      blindCount: blind,
+      warehouse: { id: wh.id, code: wh.code, name: wh.name },
+      lines: blind ? lines.map((l) => ({ ...l, systemQty: '0', currentQty: '0', avgCost: '0' })) : lines,
+    };
   }
 
   async updateCount(u: AuthUser, id: string, dto: UpdateCountDto) {
@@ -704,13 +714,39 @@ export class WarehouseOpsService {
           .set({ countedQty: l.countedQty === null ? null : q4(l.countedQty) })
           .where(and(eq(stockCountLines.countId, id), eq(stockCountLines.productId, l.productId)));
       }
+      await tx.update(stockCounts).set({ countedById: u.sub }).where(eq(stockCounts.id, id));
       if (dto.notes !== undefined) await tx.update(stockCounts).set({ notes: dto.notes }).where(eq(stockCounts.id, id));
       return { ok: true };
     });
   }
 
   /** Bukukan selisih: jumlah fisik dibandingkan stok sistem SAAT DIPOSTING → penyesuaian stok + jurnal */
-  async postCount(u: AuthUser, id: string) {
+  async postCount(u: AuthUser, id: string, opts: { approved?: boolean } = {}) {
+    const pol = await this.approvals.policy(this.db, u.tenantId);
+    const cur = await this.ownCount(u, id);
+    // Pemisahan fungsi: yang mengisi jumlah fisik tidak boleh memposting selisihnya (selain Pemilik)
+    if (!opts.approved && pol.stockCountSod && u.role !== 'OWNER' && cur.countedById && cur.countedById === u.sub) {
+      throw new ForbiddenException('Yang mengisi jumlah fisik tidak boleh memposting selisihnya sendiri. Minta Keuangan/Admin lain yang memposting.');
+    }
+    // Nilai selisih (|selisih| × HPP rata-rata) untuk persetujuan dan pemberitahuan Pemilik
+    const diffs = await this.db
+      .select({ counted: stockCountLines.countedQty, qty: sql<string>`COALESCE(${stockBalances.qty}, 0)`, avg: sql<string>`COALESCE(${stockBalances.avgCost}, 0)` })
+      .from(stockCountLines)
+      .leftJoin(stockBalances, and(eq(stockBalances.productId, stockCountLines.productId), eq(stockBalances.warehouseId, cur.warehouseId)))
+      .where(and(eq(stockCountLines.countId, id), isNotNull(stockCountLines.countedQty)));
+    const gross = diffs.reduce((a, l) => a + Math.abs(Number(l.counted) - Number(l.qty)) * Number(l.avg), 0);
+    if (!opts.approved) {
+      const limit = await this.approvals.needs(this.db, u, 'STOCK_COUNT', gross);
+      await this.approvals.gateIf(this.db, u, { kind: 'STOCK_COUNT', refId: id, title: `Selisih stock opname ${cur.number} (≈ Rp${Math.round(gross).toLocaleString('id-ID')})`, amount: gross }, limit !== null, 'Nilai selisih opname mencapai batas persetujuan');
+    }
+    const result = await this.postCountTx(u, id);
+    if (pol.stockAlertValue > 0 && gross >= pol.stockAlertValue && u.role !== 'OWNER') {
+      void this.approvals.notifyRoles(u.tenantId, { roles: ['OWNER'], excludeUserId: u.sub, info: true, title: `⚠ Selisih stock opname ${cur.number} bernilai besar (≈ Rp${Math.round(gross).toLocaleString('id-ID')})`, lines: [`Diposting ${u.role === 'ADMIN' ? 'Admin' : 'Keuangan'}. Kurang Rp${Number(result.valueOut).toLocaleString('id-ID')}, lebih Rp${Number(result.valueIn).toLocaleString('id-ID')}.`], path: '/inventory/counts' });
+    }
+    return result;
+  }
+
+  private async postCountTx(u: AuthUser, id: string) {
     return this.db.transaction(async (tx) => {
       const c = await this.ownCount(u, id, tx, true);
       if (c.status !== 'DRAFT') throw new BadRequestException('Stock opname ini sudah selesai');

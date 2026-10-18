@@ -582,6 +582,13 @@
       "when": 1795459086484,
       "tag": "0082_kontrol_penjualan",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1795545486484,
+      "tag": "0083_kontrol_persediaan",
+      "breakpoints": true
     }
   ]
 }

@@ -18,7 +18,7 @@ import { SettingsService } from '../settings.service';
 import { TelegramService } from '../telegram/telegram.service';
 
 export const APPROVER_ROLES: readonly Role[] = ['OWNER', 'ADMIN'];
-export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS' | 'CUSTOMER_PAYMENT';
+export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS' | 'CUSTOMER_PAYMENT' | 'STOCK_COUNT';
 
 export interface ApprovalPolicy {
   /** Pesanan pembelian dengan total ≥ nilai ini perlu persetujuan (0 = nonaktif) */
@@ -60,12 +60,18 @@ export interface ApprovalPolicy {
   salesBelowCost: boolean;
   /** Pemisahan fungsi: pembayaran pelanggan dan retur atas faktur oleh pembuat fakturnya sendiri (selain Pemilik/Admin) perlu persetujuan */
   salesSeparateDuties: boolean;
+  /** Pemilik diberi tahu (Telegram/email) bila penyesuaian stok keluar atau selisih opname bernilai ≥ ini, siapa pun pelakunya selain Pemilik (0 = nonaktif) */
+  stockAlertValue: number;
+  /** Pemisahan fungsi opname: yang mengisi jumlah fisik tidak boleh memposting selisihnya (selain Pemilik) */
+  stockCountSod: boolean;
+  /** Opname buta: penghitung (Gudang) tidak melihat stok sistem selama opname berjalan */
+  blindCount: boolean;
   /** Pembayaran ke supplier yang rekeningnya diubah dalam sekian hari terakhir wajib disetujui (0 = nonaktif) */
   bankChangeHoldDays: number;
   /** Masa berlaku tautan persetujuan yang dikirim lewat Telegram (jam, 1–72); email tetap 72 jam */
   telegramLinkHours: number;
 }
-export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, blindReceiving: false, blindDelivery: false, salesOrder: 0, salesDiscountMaxPct: 0, salesReturn: 0, salesBelowCost: false, salesSeparateDuties: false, bankChangeHoldDays: 7, budgetControl: 'OFF', telegramLinkHours: 72 };
+export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, blindReceiving: false, blindDelivery: false, salesOrder: 0, salesDiscountMaxPct: 0, salesReturn: 0, salesBelowCost: false, salesSeparateDuties: false, stockAlertValue: 5000000, stockCountSod: false, blindCount: false, bankChangeHoldDays: 7, budgetControl: 'OFF', telegramLinkHours: 72 };
 
 export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PURCHASE_ORDER: 'Pesanan pembelian',
@@ -82,6 +88,7 @@ export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   SALES_RETURN: 'Retur penjualan',
   CUSTOMER_TERMS: 'Perubahan syarat pelanggan (limit kredit / termin)',
   CUSTOMER_PAYMENT: 'Pembayaran pelanggan oleh pembuat fakturnya sendiri',
+  STOCK_COUNT: 'Selisih stock opname',
 };
 
 @Injectable()
@@ -181,7 +188,7 @@ export class ApprovalsService {
   async needs(db: DbOrTx, user: AuthUser, kind: ApprovalKind, amount: number): Promise<number | null> {
     if (this.isApprover(user.role)) return null;
     const pol = await this.policy(db, user.tenantId);
-    const limit = kind === 'PURCHASE_ORDER' ? pol.purchaseOrder : kind === 'SALES_ORDER' ? pol.salesOrder : kind === 'SALES_RETURN' ? pol.salesReturn : kind === 'ASSET_DISPOSAL' ? pol.assetDisposal : kind === 'CASH_TX' || kind === 'SUPPLIER_PAYMENT' ? pol.cashOut : kind === 'STOCK_ADJUSTMENT' ? pol.stockAdjustment : pol.manualJournal;
+    const limit = kind === 'PURCHASE_ORDER' ? pol.purchaseOrder : kind === 'SALES_ORDER' ? pol.salesOrder : kind === 'SALES_RETURN' ? pol.salesReturn : kind === 'ASSET_DISPOSAL' ? pol.assetDisposal : kind === 'CASH_TX' || kind === 'SUPPLIER_PAYMENT' ? pol.cashOut : kind === 'STOCK_ADJUSTMENT' || kind === 'STOCK_COUNT' ? pol.stockAdjustment : pol.manualJournal;
     return limit > 0 && amount >= limit ? limit : null;
   }
 

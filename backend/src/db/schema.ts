@@ -888,7 +888,7 @@ export const approvalRequests = pgTable(
   {
     id: id(),
     tenantId: tenantId(),
-    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS' | 'CUSTOMER_PAYMENT'>().notNull(),
+    kind: text('kind').$type<'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS' | 'CUSTOMER_PAYMENT' | 'STOCK_COUNT'>().notNull(),
     /** Dokumen yang dimintakan persetujuan (PO); kosong untuk jurnal manual yang baru diposting setelah disetujui */
     refId: text('ref_id'),
     title: text('title').notNull(),
@@ -3079,6 +3079,8 @@ export const stockCounts = pgTable(
     notes: text('notes'),
     adjustmentNumber: text('adjustment_number'),
     createdById: uuid('created_by_id').references(() => users.id),
+    /** Terakhir yang mengisi jumlah fisik (pemisahan penghitung dan pemosting selisih) */
+    countedById: uuid('counted_by_id'),
     postedAt: timestamp('posted_at', { withTimezone: true }),
     createdAt: createdAt(),
   },
