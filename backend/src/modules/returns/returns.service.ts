@@ -111,6 +111,15 @@ export class ReturnsService {
    */
   async createSales(user: AuthUser, dto: CreateReturnDto, opts: { approved?: boolean } = {}) {
     const date = toDocDate(dto.date);
+    // Pemisahan fungsi (bila dinyalakan): retur atas faktur yang dibuat orang yang sama menunggu persetujuan Pemilik/Admin
+    if (!opts.approved && !this.approvals.isApprover(user.role) && (await this.approvals.policy(this.db, user.tenantId)).salesSeparateDuties) {
+      const creator = await this.approvals.invoiceCreator(this.db, user.tenantId, dto.invoiceId);
+      if (creator && creator === user.sub) {
+        const [inv] = await this.db.select({ n: invoices.number }).from(invoices).where(and(eq(invoices.id, dto.invoiceId), eq(invoices.tenantId, user.tenantId)));
+        const req = await this.approvals.create(this.db, user, { kind: 'SALES_RETURN', refId: null, title: `Retur penjualan faktur ${inv?.n ?? ''} oleh pembuat fakturnya`, amount: 0, payload: JSON.parse(JSON.stringify(dto)) });
+        throw this.approvals.required(req.id, 'Retur atas faktur yang Anda buat sendiri menunggu persetujuan pemilik atau admin (pemisahan fungsi); permintaan dikirim dan retur dicatat setelah disetujui.');
+      }
+    }
     // Retur penjualan = kredit nota yang mengurangi piutang: bernilai besar oleh staf (selain Pemilik/Admin) menunggu persetujuan
     if (!opts.approved) {
       const pol = await this.approvals.policy(this.db, user.tenantId);

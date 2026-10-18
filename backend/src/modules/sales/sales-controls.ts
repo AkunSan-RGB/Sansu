@@ -103,9 +103,39 @@ export class SalesControlsService {
       WHERE l.tenant_id = ${tenantId} AND l.entity = 'Customer' AND l.action = 'UPDATE_TERMS' AND l.created_at >= ${since}::date`);
     add('CUSTOMER_TERMS_CHANGED', 'info', 'Limit kredit / termin pelanggan diubah', ct.rows.map((r) => `${r.code} ${r.name}`), 'Melonggarkan syarat adalah cara umum menutupi tagihan macet. Pastikan ada dasar komersialnya.');
 
+    // 19. Pembayaran transfer/non-tunai yang tidak ada di mutasi bank padahal mutasi periodenya sudah diimpor (kemungkinan pembayaran fiktif)
+    const bu = await this.db.execute<{ number: string; name: string }>(sql`
+      SELECT p.number, c.name
+      FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id
+      JOIN journal_lines jl ON jl.journal_id = p.journal_id AND jl.account_id = p.cash_account_id AND jl.debit > 0
+      WHERE p.tenant_id = ${tenantId} AND p.method <> 'CASH' AND p.date >= ${since} AND p.date <= ${addDays(today, -3)}
+        AND EXISTS (SELECT 1 FROM bank_statements s WHERE s.tenant_id = ${tenantId} AND s.cash_account_id = p.cash_account_id AND p.date BETWEEN s.period_from AND s.period_to)
+        AND NOT EXISTS (SELECT 1 FROM bank_statement_lines b WHERE b.journal_line_id = jl.id)
+        AND NOT EXISTS (SELECT 1 FROM bank_line_extra_matches x WHERE x.journal_line_id = jl.id)
+      ORDER BY p.date DESC`);
+    add('PAYMENT_NOT_IN_BANK', 'warning', 'Pembayaran transfer pelanggan tidak ada di mutasi bank', bu.rows.map((r) => `${r.number} ${r.name}`), 'Mutasi bank periode itu sudah diimpor, tetapi tidak ada baris yang cocok dengan pembayaran ini. Bisa pembayaran fiktif atau salah rekening; cocokkan di Kas & Bank › Cocokkan dengan bank.');
+
+    // 20. Pemisahan fungsi: pembayaran / retur atas faktur oleh orang yang sama dengan pembuat fakturnya
+    const sp = await this.db.execute<{ who: string; n: number }>(sql`
+      SELECT u.name AS who, COUNT(DISTINCT p.invoice_id)::int AS n
+      FROM payments p
+      JOIN audit_logs ap ON ap.tenant_id = p.tenant_id AND ap.entity = 'Payment' AND ap.entity_id = p.id::text AND ap.action = 'CREATE'
+      JOIN audit_logs ai ON ai.tenant_id = p.tenant_id AND ai.entity = 'Invoice' AND ai.entity_id = p.invoice_id::text AND ai.action = 'CREATE' AND ai.user_id = ap.user_id
+      JOIN users u ON u.id = ap.user_id
+      WHERE p.tenant_id = ${tenantId} AND p.date >= ${since} GROUP BY u.name ORDER BY n DESC`);
+    add('PAYMENT_BY_INVOICE_CREATOR', 'info', 'Pembayaran dicatat oleh pembuat fakturnya sendiri', sp.rows.map((r) => `${r.who}: ${r.n} faktur`), 'Satu orang membuat tagihan sekaligus mencatat uang masuknya. Wajar bila hanya ada satu Keuangan; bila ada lebih, aktifkan "Pemisahan fungsi penjualan" di Pengaturan › Kebijakan.');
+    const sr = await this.db.execute<{ who: string; n: number }>(sql`
+      SELECT u.name AS who, COUNT(DISTINCT r.invoice_id)::int AS n
+      FROM sales_returns r
+      JOIN audit_logs ar ON ar.tenant_id = r.tenant_id AND ar.entity = 'SalesReturn' AND ar.entity_id = r.id::text AND ar.action = 'CREATE'
+      JOIN audit_logs ai ON ai.tenant_id = r.tenant_id AND ai.entity = 'Invoice' AND ai.entity_id = r.invoice_id::text AND ai.action = 'CREATE' AND ai.user_id = ar.user_id
+      JOIN users u ON u.id = ar.user_id
+      WHERE r.tenant_id = ${tenantId} AND r.date >= ${since} GROUP BY u.name ORDER BY n DESC`);
+    add('RETURN_BY_INVOICE_CREATOR', 'info', 'Retur dicatat oleh pembuat fakturnya sendiri', sr.rows.map((r) => `${r.who}: ${r.n} faktur`), 'Orang yang membuat faktur juga membuat kredit nota (retur) atasnya. Aktifkan "Pemisahan fungsi penjualan" bila ada lebih dari satu Keuangan.');
+
     const rank = { error: 0, warning: 1, info: 2 } as const;
     out.sort((a, b) => rank[a.level] - rank[b.level]);
-    return { asOf: today, since, items: out, policy: { salesOrder: pol.salesOrder, salesDiscountMaxPct: pol.salesDiscountMaxPct, salesReturn: pol.salesReturn, salesBelowCost: pol.salesBelowCost, blindDelivery: pol.blindDelivery } };
+    return { asOf: today, since, items: out, policy: { salesOrder: pol.salesOrder, salesDiscountMaxPct: pol.salesDiscountMaxPct, salesReturn: pol.salesReturn, salesBelowCost: pol.salesBelowCost, salesSeparateDuties: pol.salesSeparateDuties, blindDelivery: pol.blindDelivery } };
   }
 }
 

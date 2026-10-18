@@ -28,6 +28,12 @@ Semua ambang diatur di **Pengaturan › Perusahaan › Kebijakan** dan bernilai 
 - **Pemilik diberi tahu (Telegram/email) saat Admin melewati batas:** konfirmasi pesanan besar/diskon besar/di bawah pokok oleh Admin tetap jalan, tetapi tercatat (`CONFIRM_RISKY`) dan Pemilik dikabari; begitu juga retur besar yang dicatat Admin.
 - **Banner "Persetujuan penjualan belum aktif"** di halaman Kontrol penjualan bila semua ambang masih 0, dengan tombol **Terapkan rekomendasi** (pesanan ≥ Rp50 juta, diskon > 15%, retur ≥ Rp5 juta, harga di bawah pokok) untuk Pemilik/Admin. Nilainya bisa diubah di Pengaturan › Perusahaan › Kebijakan.
 
+## Pembayaran pelanggan dan pemisahan fungsi Keuangan
+- **Pembayaran transfer yang tidak ada di mutasi bank:** temuan bila pembayaran non-tunai (≥ 3 hari lalu) tidak cocok dengan baris mutasi bank, padahal mutasi bank periode itu sudah diimpor ke rekening yang sama. Bisa pembayaran fiktif atau salah rekening. Belum dinilai bila mutasi periodenya belum diimpor. Pembayaran **tunai** belum bisa diperiksa (belum ada pencatatan setoran ke bank yang terkait ke pembayaran).
+- **Pemisahan fungsi penjualan** (`salesSeparateDuties`, mati bawaan; Pengaturan › Kebijakan): pembayaran pelanggan atau retur atas faktur oleh orang yang membuat faktur itu sendiri (selain Pemilik/Admin) menunggu persetujuan Pemilik/Admin; orang lain langsung boleh. Cocok bila ada lebih dari satu Keuangan; bila hanya satu, semua pembayaran akan menunggu persetujuan, jadi jangan dinyalakan.
+- **Temuan** "Pembayaran/Retur dicatat oleh pembuat fakturnya sendiri" muncul walau saklar mati (info; wajar bila hanya satu Keuangan).
+- **Blokir order pelanggan berfaktur jatuh tempo** sudah ada sejak awal (kontrol kredit): pesanan baru ditolak selama ada faktur lewat jatuh tempo, dan juga bila eksposur melebihi limit kredit.
+
 ## Yang belum dibuat
 - **Pengiriman parsial** (kirim sebagian lalu sisanya menyusul): butuh perubahan besar pada faktur, surat jalan, dan jurnal; dikerjakan terpisah bila diperlukan.
 - **Penghapusan piutang (write-off)**: belum ada fiturnya di SANSU (hanya penyisihan lewat jurnal penyesuaian). Bila fitur dibuat, harus butuh persetujuan Pemilik.

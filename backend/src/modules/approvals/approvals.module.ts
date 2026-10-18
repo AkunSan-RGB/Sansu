@@ -23,6 +23,7 @@ import { PurchaseOrdersService } from '../purchasing/purchase-orders.service';
 import { PurchaseInvoicesService } from '../purchasing/purchase-invoices.service';
 import { SuppliersService } from '../purchasing/suppliers.service';
 import { SalesOrdersService } from '../sales/orders/sales-orders.service';
+import { PaymentsService } from '../sales/payments/payments.service';
 import { ReturnsService } from '../returns/returns.service';
 import { CustomersService } from '../master-data/customers/customers.service';
 import { CreatePurchaseInvoiceDto } from '../purchasing/purchasing.dto';
@@ -58,6 +59,7 @@ class PolicyDto implements Partial<ApprovalPolicy> {
   @ApiPropertyOptional({ description: 'Diskon per baris di atas persen ini perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(100) salesDiscountMaxPct?: number;
   @ApiPropertyOptional({ description: 'Retur penjualan bernilai ≥ ini oleh staf perlu persetujuan; 0 = nonaktif' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) salesReturn?: number;
   @ApiPropertyOptional({ description: 'Harga jual di bawah harga pokok rata-rata perlu persetujuan' }) @IsOptional() @IsBoolean() salesBelowCost?: boolean;
+  @ApiPropertyOptional({ description: 'Pembayaran/retur atas faktur oleh pembuat fakturnya sendiri perlu persetujuan' }) @IsOptional() @IsBoolean() salesSeparateDuties?: boolean;
   @ApiPropertyOptional({ description: 'Pembayaran ke supplier yang rekeningnya baru diubah (hari terakhir) wajib disetujui; 0 = nonaktif' }) @IsOptional() @IsInt() @Min(0) @Max(60) bankChangeHoldDays?: number;
   @ApiPropertyOptional({ description: 'Masa berlaku tautan persetujuan lewat Telegram (jam, 1–72)' }) @IsOptional() @IsInt() @Min(1) @Max(72) telegramLinkHours?: number;
 }
@@ -81,6 +83,7 @@ export class ApprovalRequestsService {
     private readonly invoices: PurchaseInvoicesService,
     private readonly suppliers: SuppliersService,
     private readonly salesOrders: SalesOrdersService,
+    private readonly paymentsSvc: PaymentsService,
     private readonly returnsSvc: ReturnsService,
     private readonly customersSvc: CustomersService,
     private readonly accounting: AccountingService,
@@ -172,6 +175,9 @@ export class ApprovalRequestsService {
       } else if (req.kind === 'SALES_ORDER') {
         const so = await this.salesOrders.confirm(user, req.refId!);
         resultRef = so.number;
+      } else if (req.kind === 'CUSTOMER_PAYMENT') {
+        const pay = await this.paymentsSvc.create({ ...user, sub: req.requestedById }, req.payload as never, { approved: true });
+        resultRef = (pay as { number?: string }).number;
       } else if (req.kind === 'SALES_RETURN') {
         // retur dicatat atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
         const r = await this.returnsSvc.createSales({ ...user, sub: req.requestedById }, req.payload as never, { approved: true });
