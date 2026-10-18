@@ -6,7 +6,8 @@
  *  - Kirim dulu: surat jalan mengeluarkan stok dan mencatat HPP (Dr HPP | Cr Persediaan). Faktur menyusul dan hanya mencatat
  *    piutang, penjualan, dan PPN keluaran. Surat jalan yang belum difakturkan bisa dibatalkan (stok dan jurnal dibalik).
  *  - Langsung faktur: stok dan HPP dicatat bersama faktur (seperti sebelumnya) dan surat jalan dibuat otomatis, sudah terkait faktur.
- * Seluruh pesanan dikirim sekaligus (belum ada pengiriman parsial).
+ * Pengiriman parsial: satu pesanan boleh dikirim bertahap (beberapa surat jalan). Pesanan tetap CONFIRMED sampai semua barang terkirim,
+ * lalu DELIVERED; faktur baru bisa dibuat setelah semua terkirim dan menagih seluruh pesanan (belum ada faktur per surat jalan).
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
@@ -48,6 +49,7 @@ export class DeliveriesService {
     const blind = user.role === 'WAREHOUSE' && (await this.approvals.policy(this.db, user.tenantId)).blindDelivery;
     if (blind && !dto.lines?.length) throw new BadRequestException('Isi jumlah barang yang Anda kemas pada setiap baris (pengiriman buta); jangan mengirim otomatis sesuai pesanan.');
     if (blind) await this.assertPackedMatches(user, orderId, dto.lines!);
+    let complete = true;
     const id = await this.db.transaction(async (tx) => {
       const order = await this.orders.lockOrder(tx, user.tenantId, orderId);
       if (order.status !== 'CONFIRMED') {
@@ -69,14 +71,16 @@ export class DeliveriesService {
         })
         .returning();
 
+      const remaining = await this.remainingQty(tx, order.id, order.lines);
+      const ship = this.planShipment(order.lines, remaining, dto.lines);
       let cogs: Dec = ZERO;
-      for (const line of order.lines) {
+      for (const { line, qty } of ship) {
         const moved = await this.stock.move(tx, {
           tenantId: user.tenantId,
           productId: line.productId,
           warehouseId: order.warehouseId,
           type: 'SALE',
-          qty: D(line.qty).times(line.uomFactor).negated(),
+          qty: qty.times(line.uomFactor).negated(),
           refType: 'DELIVERY',
           refId: delivery.id,
           refNumber: number,
@@ -89,10 +93,11 @@ export class DeliveriesService {
           productId: line.productId,
           uom: line.uom,
           uomFactor: line.uomFactor,
-          qty: line.qty,
+          qty: qty.toFixed(4),
           unitCost: moved.unitCost.toFixed(4),
         });
       }
+      complete = order.lines.every((l) => D(remaining.get(l.id) ?? 0).minus(ship.find((x) => x.line.id === l.id)?.qty ?? 0).lte(0));
       cogs = money(cogs);
       let journalId: string | null = null;
       if (cogs.gt(0)) {
@@ -111,25 +116,50 @@ export class DeliveriesService {
         journalId = journal.id;
       }
       await tx.update(deliveryOrders).set({ cogsAmount: cogs.toFixed(2), journalId }).where(eq(deliveryOrders.id, delivery.id));
-      await tx.update(salesOrders).set({ status: 'DELIVERED' }).where(eq(salesOrders.id, order.id));
-      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'DeliveryOrder', entityId: delivery.id, data: { number } });
+      if (complete) await tx.update(salesOrders).set({ status: 'DELIVERED' }).where(eq(salesOrders.id, order.id));
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'DeliveryOrder', entityId: delivery.id, data: { number, partial: !complete } });
       return delivery.id;
     });
     const rec = await this.get(user.tenantId, id);
     // Penagihan tahu barang sudah keluar (siap ditagih); Sales tahu pesanannya terkirim
-    void this.approvals.notifyRoles(user.tenantId, { roles: ['FINANCE', 'ADMIN'], excludeUserId: user.sub, info: true, title: `Surat jalan ${(rec as { number: string }).number} terkirim, siap ditagih`, lines: ['Catat faktur penjualan atas barang yang sudah dikirim.'], path: '/deliveries' });
-    void this.approvals.notifyRoles(user.tenantId, { roles: ['SALES'], excludeUserId: user.sub, info: true, title: `Pesanan ${(rec as { number: string }).number} sudah dikirim Gudang`, lines: [], path: '/deliveries' });
+    if (complete) void this.approvals.notifyRoles(user.tenantId, { roles: ['FINANCE', 'ADMIN'], excludeUserId: user.sub, info: true, title: `Surat jalan ${(rec as { number: string }).number} terkirim, siap ditagih`, lines: ['Catat faktur penjualan atas barang yang sudah dikirim.'], path: '/deliveries' });
+    void this.approvals.notifyRoles(user.tenantId, { roles: ['SALES'], excludeUserId: user.sub, info: true, title: complete ? `Pesanan ${(rec as { number: string }).number} sudah dikirim Gudang` : `Pesanan sebagian dikirim (surat jalan ${(rec as { number: string }).number}); sisanya menyusul`, lines: [], path: '/deliveries' });
     return rec;
   }
 
-  /** Jumlah yang dikemas Gudang harus sama dengan pesanan; selisih menahan pengiriman dan dikabarkan ke Penjualan/Admin/Pemilik */
+  /** Sisa yang belum dikirim per baris pesanan (pesanan dikurangi surat jalan aktif) */
+  async remainingQty(db: Db | Tx, orderId: string, lines: { id: string; qty: string }[]) {
+    const r = await db.execute<{ order_line_id: string; q: string }>(sql`
+      SELECT dl.order_line_id::text, SUM(dl.qty)::text AS q FROM delivery_order_lines dl JOIN delivery_orders d ON d.id = dl.delivery_id
+      WHERE d.sales_order_id = ${orderId} AND d.status = 'DELIVERED' GROUP BY dl.order_line_id`);
+    const sent = new Map(r.rows.map((x) => [x.order_line_id, D(x.q)]));
+    return new Map(lines.map((l) => [l.id, D(l.qty).minus(sent.get(l.id) ?? 0)]));
+  }
+
+  /** Tentukan jumlah yang dikirim per baris: sesuai permintaan (tidak melebihi sisa) atau seluruh sisa bila tidak diisi */
+  private planShipment<L extends { id: string }>(lines: L[], remaining: Map<string, Dec>, asked?: { orderLineId: string; qty: string }[]) {
+    if (asked?.some((a) => !lines.some((l) => l.id === a.orderLineId))) throw new BadRequestException('Baris pesanan tidak ditemukan');
+    const ship: { line: L; qty: Dec }[] = [];
+    for (const l of lines) {
+      const left = remaining.get(l.id) ?? ZERO;
+      const want = asked ? D(asked.find((a) => a.orderLineId === l.id)?.qty ?? 0) : left;
+      if (want.lt(0)) throw new BadRequestException('Jumlah kirim tidak boleh negatif');
+      if (want.gt(left)) throw new BadRequestException('Jumlah kirim melebihi sisa pesanan yang belum dikirim');
+      if (want.gt(0)) ship.push({ line: l, qty: want });
+    }
+    if (!ship.length) throw new BadRequestException('Tidak ada barang yang dikirim: semua sudah terkirim atau jumlah kirim kosong');
+    return ship;
+  }
+
+  /** Jumlah yang dikemas Gudang harus sama dengan sisa yang belum dikirim; selisih menahan pengiriman dan dikabarkan ke Penjualan/Admin/Pemilik */
   private async assertPackedMatches(user: AuthUser, orderId: string, packed: { orderLineId: string; qty: string }[]) {
     const order = await this.db.query.salesOrders.findFirst({ where: and(eq(salesOrders.id, orderId), eq(salesOrders.tenantId, user.tenantId)), with: { lines: true } });
     if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    const remaining = await this.remainingQty(this.db, order.id, order.lines);
     const diffs: string[] = [];
     for (const l of order.lines) {
       const got = D(packed.find((p) => p.orderLineId === l.id)?.qty ?? '0');
-      if (!got.eq(D(l.qty))) diffs.push(l.productId);
+      if (!got.eq(D(remaining.get(l.id) ?? 0))) diffs.push(l.productId);
     }
     if (packed.some((p) => !order.lines.some((l) => l.id === p.orderLineId))) throw new BadRequestException('Baris pesanan tidak ditemukan');
     if (!diffs.length) return;
@@ -223,6 +253,15 @@ export class DeliveriesService {
     return tx.query.deliveryOrders.findFirst({
       where: and(eq(deliveryOrders.salesOrderId, orderId), eq(deliveryOrders.status, 'DELIVERED')),
       with: { lines: true },
+    });
+  }
+
+  /** Semua surat jalan aktif sebuah pesanan (pengiriman bisa bertahap) */
+  activeAll(tx: Tx, orderId: string) {
+    return tx.query.deliveryOrders.findMany({
+      where: and(eq(deliveryOrders.salesOrderId, orderId), eq(deliveryOrders.status, 'DELIVERED')),
+      with: { lines: true },
+      orderBy: [deliveryOrders.createdAt],
     });
   }
 

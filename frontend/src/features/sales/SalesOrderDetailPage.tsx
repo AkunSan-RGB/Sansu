@@ -59,14 +59,17 @@ export default function SalesOrderDetailPage() {
                     Kirim barang (surat jalan)
                   </Button>
                 ) : (
-                  <Popconfirm title="Kirim barang? Surat jalan dibuat, stok dikurangi, dan HPP dijurnal. Faktur bisa dibuat sesudahnya." onConfirm={() => deliver.mutate(undefined)}>
-                    <Button type="primary" loading={deliver.isPending}>
-                      Kirim barang (surat jalan)
-                    </Button>
-                  </Popconfirm>
+                  <>
+                    <Popconfirm title={`Kirim ${o.lines?.some((l) => Number(l.deliveredQty ?? 0) > 0) ? 'sisa ' : ''}barang? Surat jalan dibuat, stok dikurangi, dan HPP dijurnal. Faktur bisa dibuat setelah semua terkirim.`} onConfirm={() => deliver.mutate(undefined)}>
+                      <Button type="primary" loading={deliver.isPending}>
+                        {o.lines?.some((l) => Number(l.deliveredQty ?? 0) > 0) ? 'Kirim semua sisa' : 'Kirim barang (surat jalan)'}
+                      </Button>
+                    </Popconfirm>
+                    <Button onClick={() => setPacking({})}>Kirim sebagian</Button>
+                  </>
                 )
               )}
-              {(o.status === 'DELIVERED' || (o.status === 'CONFIRMED' && isApprover)) && can('POST', '/invoices') && (
+              {(o.status === 'DELIVERED' || (o.status === 'CONFIRMED' && isApprover && !o.lines?.some((l) => Number(l.deliveredQty ?? 0) > 0))) && can('POST', '/invoices') && (
                 <Popconfirm
                   title={o.status === 'DELIVERED' ? 'Buat faktur dari surat jalan? Piutang, penjualan, dan PPN dijurnal.' : t('Buat faktur? Stok akan dikurangi dan jurnal diposting.')}
                   onConfirm={() => invoice.mutate(undefined)}
@@ -153,14 +156,14 @@ export default function SalesOrderDetailPage() {
         <Input.TextArea rows={3} placeholder="Alasan pembatalan (mis. pelanggan membatalkan)" value={cancelReason ?? ''} onChange={(e) => setCancelReason(e.target.value)} maxLength={300} />
       </Modal>
       <Modal
-        title="Kirim barang — isi jumlah yang Anda kemas"
+        title={o?.blindDelivery ? 'Kirim barang — isi jumlah yang Anda kemas' : 'Kirim sebagian — isi jumlah yang dikirim sekarang'}
         open={packing !== null}
         onCancel={() => setPacking(null)}
         onOk={() => o && deliver.mutate((o.lines ?? []).map((l) => ({ orderLineId: l.id, qty: String(packing?.[l.id] ?? 0) })), { onSuccess: () => setPacking(null) })}
         confirmLoading={deliver.isPending}
         okText="Kirim"
       >
-        <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Hitung barang yang benar-benar Anda kemas. Bila tidak sama dengan pesanan, pengiriman ditahan dan Penjualan diberi tahu." />
+        <Alert type="info" showIcon style={{ marginBottom: 12 }} message={o?.blindDelivery ? 'Hitung barang yang benar-benar Anda kemas. Bila tidak sama dengan sisa pesanan, pengiriman ditahan dan Penjualan diberi tahu.' : 'Pesanan tetap berstatus Dikonfirmasi sampai semua barang terkirim; faktur dibuat setelah semuanya terkirim.'} />
         <Table
           rowKey="id"
           size="small"
@@ -168,7 +171,11 @@ export default function SalesOrderDetailPage() {
           dataSource={o?.lines}
           columns={[
             { title: t('Produk'), render: (_, l) => `${l.product.sku} · ${l.product.name}` },
-            { title: 'Dikemas', align: 'right', width: 140, render: (_, l) => <InputNumber min={0} value={packing?.[l.id] ?? null} onChange={(v) => setPacking({ ...(packing ?? {}), [l.id]: v })} style={{ width: 110 }} /> },
+            ...(o?.blindDelivery ? [] : [
+              { title: 'Dipesan', align: 'right' as const, width: 90, render: (_: unknown, l: { qty: string }) => fmtQty(l.qty) },
+              { title: 'Terkirim', align: 'right' as const, width: 90, render: (_: unknown, l: { deliveredQty?: string }) => fmtQty(l.deliveredQty ?? '0') },
+            ]),
+            { title: o?.blindDelivery ? 'Dikemas' : 'Kirim sekarang', align: 'right', width: 140, render: (_, l) => <InputNumber min={0} value={packing?.[l.id] ?? null} onChange={(v) => setPacking({ ...(packing ?? {}), [l.id]: v })} style={{ width: 110 }} /> },
           ]}
         />
       </Modal>

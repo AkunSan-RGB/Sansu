@@ -1,7 +1,7 @@
 import { ArrowLeftOutlined, DollarOutlined, MailOutlined, PrinterOutlined, WhatsAppOutlined } from '@ant-design/icons';
 import { canHandleMoney, isForeignCurrency, PAYMENT_METHOD_LABELS, type InvoiceDetail } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Segmented, Space, Table, Tag, Tooltip } from 'antd';
+import { Alert, Button, Card, Input, InputNumber, Modal, Segmented, Space, Table, Tag, Tooltip } from 'antd';
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { get, post } from '@/api/client';
@@ -41,8 +41,14 @@ export default function InvoiceDetailPage() {
   const [doc, setDoc] = useState<'invoice' | 'delivery'>('invoice');
   const [paying, setPaying] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [wo, setWo] = useState<{ reason: string; amount: number | null } | null>(null);
   const inv = q.data;
   const emailReminder = useAction(() => post<{ to: string }>(`/reminders/invoices/${id}/customer`), { success: (r) => `Pengingat dikirim ke ${r.to}` });
+  const writeOff = useAction(() => post('/payments/write-off', { invoiceId: id, reason: wo?.reason, amount: wo?.amount ? String(wo.amount) : undefined }), {
+    success: 'Permintaan hapus piutang diproses',
+    invalidate: ['invoice', 'invoices', 'payments', 'approvals', 'journals', 'dashboard'],
+    onSuccess: () => setWo(null),
+  });
   const service = inv?.kind === 'SERVICE';
   const wh = Number(inv?.withholdingAmount ?? 0);
   const dep = Number(inv?.depositApplied ?? 0);
@@ -116,6 +122,13 @@ export default function InvoiceDetailPage() {
                 </Tooltip>
               )}
               {money && can('POST', '/services/deposits/:id/apply') && inv.status !== 'PAID' && !inv.isOpening && <Button onClick={() => setApplying(true)}>Pakai uang muka</Button>}
+              {money && can('POST', '/payments/write-off') && inv.status !== 'PAID' && !inv.isOpening && (
+                <Tooltip title="Untuk piutang macet (lewat jatuh tempo ≥ 90 hari). Selain Pemilik/Admin menunggu persetujuan.">
+                  <Button danger onClick={() => setWo({ reason: '', amount: null })}>
+                    Hapus piutang
+                  </Button>
+                </Tooltip>
+              )}
               {money && can('POST', '/payments') && inv.status !== 'PAID' && (
                 <Button type="primary" icon={<DollarOutlined />} onClick={() => setPaying(true)}>
                   Terima bayar
@@ -334,7 +347,7 @@ export default function InvoiceDetailPage() {
                   columns={[
                     { title: 'No.', dataIndex: 'number' },
                     { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-                    { title: 'Metode', dataIndex: 'method', render: (m: keyof typeof PAYMENT_METHOD_LABELS) => PAYMENT_METHOD_LABELS[m] ?? m },
+                    { title: 'Metode', dataIndex: 'method', render: (m: string) => (m === 'WRITE_OFF' ? 'Hapus piutang' : PAYMENT_METHOD_LABELS[m as keyof typeof PAYMENT_METHOD_LABELS] ?? m) },
                     { title: 'Catatan', dataIndex: 'notes' },
                     {
                       title: 'Jumlah',
@@ -361,6 +374,11 @@ export default function InvoiceDetailPage() {
           </>
         )}
       </QueryState>
+      <Modal title="Hapus piutang (write-off)" open={wo !== null} onCancel={() => setWo(null)} onOk={() => writeOff.mutate(undefined)} okText="Hapus piutang" okButtonProps={{ danger: true, disabled: (wo?.reason.trim().length ?? 0) < 5 }} confirmLoading={writeOff.isPending}>
+        <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="Tagihan dihapus dari piutang tanpa uang masuk dan dibebankan ke cadangan/beban kerugian piutang. Hanya untuk piutang yang sudah lewat jatuh tempo ≥ 90 hari dan tidak tertagih. Pemilik diberi tahu." />
+        <InputNumber min={0} placeholder="Jumlah (kosong = seluruh sisa tagihan)" value={wo?.amount ?? null} onChange={(v) => wo && setWo({ ...wo, amount: v })} style={{ width: '100%', marginBottom: 12 }} />
+        <Input.TextArea rows={3} placeholder="Alasan (mis. pelanggan bangkrut, sudah 3x ditagih)" value={wo?.reason ?? ''} onChange={(e) => wo && setWo({ ...wo, reason: e.target.value })} />
+      </Modal>
       <PaymentModal invoice={paying ? (inv ?? null) : null} onClose={() => setPaying(false)} />
       <ApplyDepositModal invoice={applying && inv ? { ...inv, customerId: inv.customerId } : null} onClose={() => setApplying(false)} />
     </>

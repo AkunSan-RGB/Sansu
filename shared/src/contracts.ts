@@ -306,6 +306,8 @@ export interface SalesOrderLine {
   uom: string;
   priceForeign?: string | null;
   qty: string;
+  /** Sudah dikirim (pengiriman bertahap) */
+  deliveredQty?: string;
   price: string;
   discountPct: string;
   lineTotal: string;
