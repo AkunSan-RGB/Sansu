@@ -51,7 +51,7 @@ describe('Pemisahan fungsi (e2e)', () => {
 
   describe('matriks hak akses', () => {
     it('semua endpoint penulisan punya batas peran (kecuali daftar yang memang untuk semua pengguna)', () => {
-      const exempt = [/^\/api\/auth\//, /^\/api\/platform-admin\//, /^\/api\/platform\//, /^\/api\/billing\//, /^\/api\/reminders\/(snooze|unsnooze|digest\/test)$/, /^\/api\/approvals\/:id\/cancel$/];
+      const exempt = [/^\/api\/auth\//, /^\/api\/platform-admin\//, /^\/api\/platform\//, /^\/api\/billing\//, /^\/api\/reminders\/(snooze|unsnooze|digest\/test)$/, /^\/api\/approvals\/:id\/(cancel|assign)$/];
       const open = matrix.filter((r) => r.method !== 'GET' && !r.public && !r.roles && !exempt.some((e) => e.test(r.path.replace(/\/$/, ''))));
       expect(open.map((r) => `${r.method} ${r.path}`)).toEqual([]);
     });
@@ -122,13 +122,13 @@ describe('Pemisahan fungsi (e2e)', () => {
       expect(nonOwner(find('POST', '/api/payroll/runs/:id/pay'))).toEqual(['FINANCE']);
     });
     it('Akuntan hanya menulis di bidang pembukuan (tidak ada penulisan di penjualan, pembelian, stok, kasir, SDM)', () => {
-      const writes = matrix.filter((r) => r.method !== 'GET' && !r.public && allowed(r).has('ACCOUNTANT') && !/^\/api\/(auth|platform|billing|platform-admin|reminders)/.test(r.path) && r.path !== '/api/approvals/:id/cancel');
+      const writes = matrix.filter((r) => r.method !== 'GET' && !r.public && allowed(r).has('ACCOUNTANT') && !/^\/api\/(auth|platform|billing|platform-admin|reminders)/.test(r.path) && !/^\/api\/approvals\/:id\/(cancel|assign)$/.test(r.path));
       const outside = writes.filter((r) => !/^\/api\/(accounting|assets|budgets|fx|settings\/reporting|inventory\/writedowns|payroll\/runs\/:id\/post|bank\/signoffs|imports|sales-commissions\/close|trade-accruals\/accrue|principal-claims\/(generate|:id\/submit|:id\/decide))/.test(r.path));
       expect(outside.map((r) => `${r.method} ${r.path}`)).toEqual([]);
     });
 
     it('Pembelian hanya menulis di bidang pemesanan; tidak menerima barang, membayar, atau menagihkan pemasok', () => {
-      const writes = matrix.filter((r) => r.method !== 'GET' && !r.public && allowed(r).has('PURCHASING') && !/^\/api\/(auth|platform|billing|platform-admin|reminders)/.test(r.path) && r.path !== '/api/approvals/:id/cancel');
+      const writes = matrix.filter((r) => r.method !== 'GET' && !r.public && allowed(r).has('PURCHASING') && !/^\/api\/(auth|platform|billing|platform-admin|reminders)/.test(r.path) && !/^\/api\/approvals\/:id\/(cancel|assign)$/.test(r.path));
       const outside = writes.filter((r) => !/^\/api\/(suppliers|purchase-orders|purchase-requests|price-agreements|shopping-list|workflow\/cases)/.test(r.path));
       expect(outside.map((r) => `${r.method} ${r.path}`)).toEqual([]);
       for (const [m, p] of [['POST', '/api/purchase-orders/:id/receipts'], ['POST', '/api/purchase-invoices/payments'], ['POST', '/api/purchase-invoices/bills'], ['POST', '/api/purchase-requests/:id/approve'], ['PATCH', '/api/suppliers/:id']] as const) {
@@ -143,10 +143,10 @@ describe('Pemisahan fungsi (e2e)', () => {
     });
 
     it('Kasir dan SDM tidak menulis di luar bidangnya', () => {
-      const misc = [/^\/api\/auth\//, /^\/api\/reminders\//, /^\/api\/approvals\/:id\/cancel$/];
+      const misc = [/^\/api\/auth\//, /^\/api\/reminders\//, /^\/api\/approvals\/:id\/(cancel|assign)$/];
       const writes = (role: Role) => matrix.filter((r) => r.method !== 'GET' && !r.public && allowed(r).has(role) && !misc.some((m) => m.test(r.path)) && !/^\/api\/(platform|billing|platform-admin)/.test(r.path));
       expect(writes('CASHIER').filter((r) => !r.path.startsWith('/api/pos') && !r.path.startsWith('/api/workflow/cases')).map((r) => `${r.method} ${r.path}`)).toEqual([]);
-      expect(writes('HR').filter((r) => !/^\/api\/(hr|payroll|settings\/payroll)/.test(r.path)).map((r) => `${r.method} ${r.path}`)).toEqual([]);
+      expect(writes('HR').filter((r) => !/^\/api\/(hr|shifts|payroll|settings\/payroll)/.test(r.path)).map((r) => `${r.method} ${r.path}`)).toEqual([]);
     });
 
     it('data biaya pembelian dan stok tidak terbuka untuk SDM, Kasir, dan Sales', () => {
