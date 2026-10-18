@@ -26,7 +26,7 @@ import { TelegramService } from '../../common/telegram/telegram.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { SettingsService } from '../../common/settings.service';
-import { toDocDate, todayJakarta } from '../../common/utils/dates';
+import { addDays, diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
@@ -118,6 +118,8 @@ export class AssetSettingsDto {
 
 /** Pengaturan aset tetap per perusahaan (disimpan di settings.assets) */
 export const DEFAULT_ASSET_SETTINGS = { autoDepreciation: true };
+/** Pelepasan aset berharga perolehan ≥ ini oleh selain Pemilik diberitahukan ke Pemilik */
+const ASSET_ALERT_VALUE = 5_000_000;
 
 type Asset = typeof fixedAssets.$inferSelect;
 type Category = typeof assetCategories.$inferSelect;
@@ -168,11 +170,14 @@ export class AssetsService {
     return c;
   }
 
-  async updateCategory(tenantId: string, id: string, dto: UpdateCategoryDto) {
+  async updateCategory(user: AuthUser, id: string, dto: UpdateCategoryDto) {
+    const tenantId = user.tenantId;
     const [cur] = await this.db.select().from(assetCategories).where(and(eq(assetCategories.id, id), eq(assetCategories.tenantId, tenantId)));
     if (!cur) throw new NotFoundException('Kategori tidak ditemukan');
     await this.assertAccounts(tenantId, { ...cur, ...dto } as CategoryDto);
     const [c] = await this.db.update(assetCategories).set(dto).where(eq(assetCategories.id, id)).returning();
+    const diff = Object.entries(dto).filter(([k, v]) => v !== undefined && (cur as Record<string, unknown>)[k] !== v);
+    if (diff.length) await this.audit.log(this.db, { tenantId, userId: user.sub, action: 'UPDATE', entity: 'AssetCategory', entityId: id, data: Object.fromEntries(diff.map(([k, v]) => [k, { from: (cur as Record<string, unknown>)[k], to: v }])) });
     return c;
   }
 
@@ -416,9 +421,15 @@ export class AssetsService {
     return this.get(user.tenantId, id);
   }
 
-  async update(tenantId: string, id: string, dto: UpdateAssetDto) {
-    const [a] = await this.db.update(fixedAssets).set(dto).where(and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, tenantId))).returning();
-    if (!a) throw new NotFoundException('Aset tidak ditemukan');
+  async update(user: AuthUser, id: string, dto: UpdateAssetDto) {
+    const [before] = await this.db.select().from(fixedAssets).where(and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId)));
+    if (!before) throw new NotFoundException('Aset tidak ditemukan');
+    const [a] = await this.db.update(fixedAssets).set(dto).where(and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId))).returning();
+    // Penanggung jawab/lokasi yang berubah sering dipakai menutupi aset yang hilang: tercatat siapa, dari apa ke apa
+    const changed = (['name', 'custodian', 'location', 'notes'] as const).filter((k) => dto[k] !== undefined && dto[k] !== before[k]);
+    if (changed.length) {
+      await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'FixedAsset', entityId: id, data: Object.fromEntries(changed.map((k) => [k, { from: before[k], to: dto[k] }])) });
+    }
     return a;
   }
 
@@ -702,7 +713,29 @@ export class AssetsService {
     const cutoff = Date.now() - 365 * 86_400_000;
     const stale = active.filter((a) => a.category.fiscalGroup !== 'LAND' && (!a.lastVerifiedAt || new Date(a.lastVerifiedAt).getTime() < cutoff));
     add('NOT_VERIFIED', 'info', 'Aset belum diperiksa fisik dalam 12 bulan', stale.map((a) => a.id), `Lakukan pemeriksaan fisik berkala. ${names(stale)}`);
-    return { generatedAt: new Date().toISOString(), count: out.length, items: out };
+
+    // Pelepasan 180 hari terakhir: segera setelah dibeli, atau harga lepas jauh di bawah nilai buku
+    const disposed = await this.db.execute<{ code: string; name: string; acq: string; disp: string; cost: string; opening: string; dep: string; price: string }>(sql`
+      SELECT f.code, f.name, f.acquisition_date::text AS acq, f.disposal_date::text AS disp, f.cost::text AS cost, f.opening_accumulated::text AS opening, f.disposal_price::text AS price,
+        COALESCE((SELECT SUM(d.amount) FROM asset_depreciations d WHERE d.asset_id = f.id), 0)::text AS dep
+      FROM fixed_assets f WHERE f.tenant_id = ${tenantId} AND f.status = 'DISPOSED' AND f.disposal_date >= ${addDays(today, -180)}
+      ORDER BY f.disposal_date DESC`);
+    const quick = disposed.rows.filter((r) => diffDays(r.acq, r.disp) <= 90);
+    out.push(...(quick.length ? [{ key: 'DISPOSE_QUICK', level: 'warning' as const, title: `Aset dilepas ≤ 90 hari setelah dibeli (${quick.length})`, detail: 'Aset baru dibeli lalu cepat dilepas bisa berarti pembelian fiktif atau barang dialihkan. Periksa dokumen pembelian dan pembelinya.', assetIds: quick.map((r) => `${r.code} ${r.name} (beli ${r.acq}, lepas ${r.disp})`) }] : []));
+    const low = disposed.rows.filter((r) => {
+      const book = D(r.cost).minus(r.opening).minus(r.dep).toNumber();
+      return book >= 1_000_000 && Number(r.price) < book * 0.5;
+    });
+    out.push(...(low.length ? [{ key: 'DISPOSE_LOW_PRICE', level: 'warning' as const, title: `Aset dilepas jauh di bawah nilai buku (${low.length})`, detail: 'Harga lepas kurang dari separuh nilai buku (atau nol). Pastikan ada alasan (rusak/hilang), bukti, dan pembelinya bukan pihak terkait.', assetIds: low.map((r) => `${r.code} ${r.name} harga Rp${Math.round(Number(r.price)).toLocaleString('id-ID')}`) }] : []));
+
+    const pol = await this.approvals.policy(this.db, tenantId);
+    const setup = {
+      active: pol.assetDisposal > 0,
+      message: 'Batas persetujuan pelepasan aset masih 0 (mati): aset berapa pun nilainya bisa dilepas oleh staf tanpa persetujuan Pemilik/Admin.',
+      recommended: { assetDisposal: 5_000_000 },
+      recommendedText: 'pelepasan aset ≥ Rp5 juta butuh persetujuan',
+    };
+    return { generatedAt: new Date().toISOString(), count: out.length, items: out, setup };
   }
 
   /** Penyusutan otomatis: dipanggil penjadwal untuk semua perusahaan yang punya aset berpenyusutan */
@@ -748,6 +781,7 @@ export class AssetsService {
   async transferBranch(user: AuthUser, id: string, dto: TransferAssetBranchDto) {
     const target = dto.branchId ?? null;
     const date = toDocDate(dto.date);
+    let notice: { name: string; cost: Dec; bookValue: Dec; price: Dec } | null = null;
     await this.db.transaction(async (tx) => {
       const a = await tx.query.fixedAssets.findFirst({ where: and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId)), with: { category: true } });
       if (!a) throw new NotFoundException('Aset tidak ditemukan');
@@ -807,6 +841,7 @@ export class AssetsService {
         }
       }
     }
+    let notice: { name: string; cost: Dec; bookValue: Dec; price: Dec } | null = null;
     await this.db.transaction(async (tx) => {
       const a = await tx.query.fixedAssets.findFirst({ where: and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId)), with: { category: true } });
       if (!a) throw new NotFoundException('Aset tidak ditemukan');
@@ -847,8 +882,15 @@ export class AssetsService {
         .update(fixedAssets)
         .set({ status: 'DISPOSED', disposalDate: date, disposalPrice: price.toFixed(2), disposalJournalId: j.id })
         .where(eq(fixedAssets.id, a.id));
-      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'DISPOSE', entity: 'FixedAsset', entityId: a.id, data: { gain: gain.toFixed(2) } });
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'DISPOSE', entity: 'FixedAsset', entityId: a.id, data: { gain: gain.toFixed(2), price: price.toFixed(2), cost: cost.toFixed(2), bookValue: bookValue.toFixed(2) } });
+      notice = { name: `${a.code} ${a.name}`, cost, bookValue, price };
     });
+    // Pemilik diberi tahu bila aset bernilai besar dilepas oleh orang lain (pelepasan adalah jalan umum memindahkan aset keluar)
+    const n = notice as { name: string; cost: Dec; bookValue: Dec; price: Dec } | null;
+    if (n && user.role !== 'OWNER' && n.cost.toNumber() >= ASSET_ALERT_VALUE) {
+      const rp = (d: Dec) => `Rp${Math.round(d.toNumber()).toLocaleString('id-ID')}`;
+      void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER'], excludeUserId: user.sub, info: true, title: `Aset dilepas: ${n.name}`, lines: [`Harga perolehan ${rp(n.cost)} · nilai buku ${rp(n.bookValue)} · harga lepas ${rp(n.price)}`], path: '/fixed-assets' });
+    }
     return this.get(user.tenantId, id);
   }
 
@@ -979,7 +1021,7 @@ export class AssetsController {
   @Roles('ADMIN', 'ACCOUNTANT')
   @Patch('categories/:id')
   updateCategory(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCategoryDto) {
-    return this.svc.updateCategory(u.tenantId, id, dto);
+    return this.svc.updateCategory(u, id, dto);
   }
 
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
@@ -1054,7 +1096,7 @@ export class AssetsController {
   @Roles('ADMIN', 'ACCOUNTANT')
   @Patch(':id')
   update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateAssetDto) {
-    return this.svc.update(u.tenantId, id, dto);
+    return this.svc.update(u, id, dto);
   }
   @Roles('ADMIN', 'ACCOUNTANT')
   @Post(':id/verify')
