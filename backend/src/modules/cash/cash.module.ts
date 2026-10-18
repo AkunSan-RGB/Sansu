@@ -542,6 +542,60 @@ export class CashService {
     const old = stale.rows.filter((r) => r.last && r.last < addDays(today, -30));
     add('BANK_STALE', 'warning', 'Rekening bank lama belum direkonsiliasi', old.map((r) => `${r.code} ${r.name}`), old.map((r) => `${r.code} ${r.name}: mutasi terakhir ${r.last}`).join('; '));
 
+    // Mutasi bank yang sudah diimpor tetapi tidak ada padanannya di catatan (uang keluar/masuk yang tidak tercatat), lebih dari 7 hari
+    const orphanBank = async (sign: '<' | '>') => (await this.db.execute<{ d: string; amt: string; descr: string; acc: string }>(sql`
+      SELECT b.date::text AS d, b.amount::text AS amt, b.description AS descr, a.name AS acc
+      FROM bank_statement_lines b JOIN bank_statements s ON s.id = b.statement_id JOIN accounts a ON a.id = s.cash_account_id
+      WHERE b.tenant_id = ${tenantId} AND b.status = 'UNMATCHED' AND b.date >= ${since} AND b.date <= ${addDays(today, -7)}
+        AND ${sign === '<' ? sql`b.amount < 0` : sql`b.amount > 0`}
+      ORDER BY ABS(b.amount) DESC LIMIT 30`)).rows;
+    const bankLine = (r: { d: string; amt: string; descr: string; acc: string }) => `${r.d} ${r.acc} Rp${Math.abs(Math.round(Number(r.amt))).toLocaleString('id-ID')} ${r.descr}`.slice(0, 120);
+    add('BANK_OUT_UNRECORDED', 'error', 'Uang keluar di rekening koran tidak ada di catatan', (await orphanBank('<')).map(bankLine), 'Bank mencatat uang keluar yang belum dicatat/dicocokkan di sistem lebih dari 7 hari. Bisa transfer tak sah, biaya bank yang belum dibukukan, atau pencatatan yang terlupa.');
+    add('BANK_IN_UNRECORDED', 'warning', 'Uang masuk di rekening koran belum dicatat', (await orphanBank('>')).map(bankLine), 'Ada uang masuk di bank yang belum dicocokkan lebih dari 7 hari. Pastikan semua tercatat sebagai penjualan/pembayaran yang benar, bukan dipakai pihak lain.');
+    // Uang keluar tercatat di buku (rekening bank) pada periode mutasi yang sudah diimpor, tetapi tidak ada di mutasi bank (kemungkinan pembayaran fiktif)
+    const ghost = await this.db.execute<{ number: string; d: string; v: string; acc: string }>(sql`
+      SELECT j.number, j.date::text AS d, jl.credit::text AS v, a.name AS acc
+      FROM journal_lines jl JOIN journal_entries j ON j.id = jl.journal_id JOIN accounts a ON a.id = jl.account_id
+      WHERE j.tenant_id = ${tenantId} AND a.is_cash_account AND jl.credit > 0 AND j.date >= ${since} AND j.date <= ${addDays(today, -3)}
+        AND j.source_type NOT IN ('TRANSFER', 'CLOSING', 'OPENING', 'REVERSAL')
+        AND EXISTS (SELECT 1 FROM bank_statements s WHERE s.tenant_id = ${tenantId} AND s.cash_account_id = a.id AND j.date BETWEEN s.period_from AND s.period_to)
+        AND NOT EXISTS (SELECT 1 FROM bank_statement_lines b WHERE b.journal_line_id = jl.id)
+        AND NOT EXISTS (SELECT 1 FROM bank_line_extra_matches x WHERE x.journal_line_id = jl.id)
+        AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = j.id OR r.id = j.reversal_of_id)
+      ORDER BY jl.credit DESC LIMIT 30`);
+    add('BANK_OUT_NOT_IN_STATEMENT', 'error', 'Uang keluar tercatat tetapi tidak ada di mutasi bank', ghost.rows.map((r) => `${r.number} (${r.d}) ${r.acc} Rp${Math.round(Number(r.v)).toLocaleString('id-ID')}`), 'Mutasi bank periode itu sudah diimpor, tetapi tidak ada baris yang cocok dengan pembayaran ini. Kemungkinan pembayaran fiktif atau salah rekening. Periksa bukti transfernya.');
+    // Saldo akhir rekening koran terbaru vs saldo buku pada tanggal itu
+    const bb = await this.db.execute<{ acc: string; to_d: string; closing: string; book: string }>(sql`
+      SELECT a.name AS acc, s.period_to::text AS to_d, s.closing_balance::text AS closing,
+        (SELECT COALESCE(SUM(jl.debit - jl.credit), 0) FROM journal_lines jl JOIN journal_entries j ON j.id = jl.journal_id WHERE jl.account_id = a.id AND j.tenant_id = ${tenantId} AND j.date <= s.period_to)::text AS book
+      FROM bank_statements s JOIN accounts a ON a.id = s.cash_account_id
+      WHERE s.tenant_id = ${tenantId} AND s.closing_balance IS NOT NULL
+        AND s.period_to = (SELECT MAX(s2.period_to) FROM bank_statements s2 WHERE s2.cash_account_id = s.cash_account_id AND s2.closing_balance IS NOT NULL)`);
+    const bd = bb.rows.filter((r) => Math.abs(Number(r.closing) - Number(r.book)) >= 1);
+    add('BANK_BALANCE_DIFF', 'warning', 'Saldo akhir rekening koran berbeda dari saldo buku', bd.map((r) => `${r.acc} per ${r.to_d}: bank Rp${Math.round(Number(r.closing)).toLocaleString('id-ID')} · buku Rp${Math.round(Number(r.book)).toLocaleString('id-ID')} · selisih Rp${Math.round(Number(r.closing) - Number(r.book)).toLocaleString('id-ID')}`), 'Selisih saldo harus bisa dijelaskan (cek yang belum cair, biaya bank, mutasi belum dicatat). Selisih tanpa penjelasan adalah tanda uang tidak tercatat.');
+
+    // Penggajian: lonjakan total gaji, gaji untuk karyawan yang sudah berhenti, tambahan manual besar, karyawan bergaji tanpa rekening
+    const runs = await this.db.execute<{ period: string; net: string }>(sql`SELECT period, total_net::text AS net FROM payroll_runs WHERE tenant_id = ${tenantId} ORDER BY period DESC LIMIT 2`);
+    if (runs.rows.length === 2 && Number(runs.rows[1].net) > 0) {
+      const ratio = Number(runs.rows[0].net) / Number(runs.rows[1].net);
+      if (ratio > 1.2 || ratio < 0.8) {
+        add('PAYROLL_JUMP', 'warning', 'Total gaji bersih berubah > 20% dari bulan sebelumnya', [`${runs.rows[1].period}: Rp${Math.round(Number(runs.rows[1].net)).toLocaleString('id-ID')} → ${runs.rows[0].period}: Rp${Math.round(Number(runs.rows[0].net)).toLocaleString('id-ID')} (${ratio > 1 ? '+' : ''}${Math.round((ratio - 1) * 100)}%)`], 'Cocokkan dengan karyawan masuk/keluar, kenaikan gaji, atau lembur. Lonjakan tanpa sebab adalah tanda karyawan fiktif atau tambahan manual yang tidak sah.');
+      }
+    }
+    const resigned = await this.db.execute<{ period: string; name: string; resign: string }>(sql`
+      SELECT r.period, e.name, e.resign_date::text AS resign FROM payslips p JOIN payroll_runs r ON r.id = p.run_id JOIN employees e ON e.id = p.employee_id
+      WHERE r.tenant_id = ${tenantId} AND e.resign_date IS NOT NULL AND (r.period || '-01')::date > e.resign_date AND p.net_pay > 0
+      ORDER BY r.period DESC LIMIT 30`);
+    add('PAYROLL_AFTER_RESIGN', 'error', 'Gaji dibayarkan setelah karyawan berhenti', resigned.rows.map((r) => `${r.name} (berhenti ${r.resign}) — slip ${r.period}`), 'Karyawan sudah berhenti tetapi masih menerima slip gaji. Telusuri: bisa karyawan fiktif/terlupa dinonaktifkan atau tanggal berhenti salah.');
+    const extra = await this.db.execute<{ period: string; name: string; v: string }>(sql`
+      SELECT r.period, e.name, p.other_income::text AS v FROM payslips p JOIN payroll_runs r ON r.id = p.run_id JOIN employees e ON e.id = p.employee_id
+      WHERE r.tenant_id = ${tenantId} AND r.period >= to_char(${addDays(today, -90)}::date, 'YYYY-MM') AND p.other_income >= GREATEST(1000000, p.base_salary * 0.2)
+      ORDER BY p.other_income DESC LIMIT 30`);
+    add('PAYROLL_OTHER_INCOME', 'warning', 'Tambahan penghasilan manual besar pada slip gaji', extra.rows.map((r) => `${r.name} ${r.period}: Rp${Math.round(Number(r.v)).toLocaleString('id-ID')}`), 'Penghasilan lain yang diisi manual oleh HR (≥ Rp1 juta atau ≥ 20% gaji pokok). Pastikan ada dasar (bonus, THR, persetujuan).');
+    const nobank = await this.db.execute<{ name: string }>(sql`
+      SELECT name FROM employees WHERE tenant_id = ${tenantId} AND is_active AND base_salary > 0 AND COALESCE(NULLIF(TRIM(bank_account), ''), '') = '' ORDER BY name LIMIT 30`);
+    add('PAYROLL_NO_BANK', 'info', 'Karyawan bergaji tanpa nomor rekening', nobank.rows.map((r) => r.name), 'Gaji sulit ditelusuri bila dibayar tunai tanpa rekening. Lengkapi rekening atau pastikan tanda terimanya.');
+
     const diff = await this.db.execute<{ number: string }>(sql`
       SELECT number FROM cash_counts WHERE tenant_id = ${tenantId} AND date >= ${addDays(today, -30)} AND status = 'POSTED' AND difference <> 0`);
     add('COUNT_DIFF', 'warning', 'Hitung kas fisik dengan selisih (30 hari)', diff.rows.map((r) => r.number), `Telusuri penyebab selisih: ${list(diff.rows)}`);
