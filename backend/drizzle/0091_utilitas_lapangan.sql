@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS "utility_remittances" (
 	"decided_by_id" uuid,
 	"decided_at" timestamp with time zone,
 	"decision_note" text,
+	"deposit_account_id" uuid REFERENCES "accounts"("id"),
+	"journal_id" uuid REFERENCES "journal_entries"("id"),
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "utility_remittances_number_uq" ON "utility_remittances" ("tenant_id", "number");--> statement-breakpoint
@@ -43,6 +45,7 @@ CREATE TABLE IF NOT EXISTS "utility_counter_receipts" (
 	"invoice_id" uuid NOT NULL REFERENCES "invoices"("id"),
 	"collector_id" uuid NOT NULL,
 	"amount" numeric(18, 2) NOT NULL,
+	"method" text DEFAULT 'CASH' NOT NULL,
 	"received_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"remittance_id" uuid REFERENCES "utility_remittances"("id")
 );--> statement-breakpoint

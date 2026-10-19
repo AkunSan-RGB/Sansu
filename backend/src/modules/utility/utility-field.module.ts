@@ -12,7 +12,7 @@ import { BadRequestException, Body, CanActivate, Controller, ExecutionContext, F
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength, ValidateNested } from 'class-validator';
 import { createHash, randomBytes } from 'node:crypto';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { AppsService } from '../../common/apps/apps.service';
@@ -27,6 +27,8 @@ import { D, money } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { utilityBills, utilityCounterReceipts, utilityIngestKeys, utilityRemittances } from '../../db/schema';
+import { PostingService } from '../accounting/posting.service';
+import { AccountingModule } from '../accounting/accounting.module';
 import { PaymentsService } from '../sales/payments/payments.service';
 import { SalesModule } from '../sales/sales.module';
 import { ReadingDto, UtilityModule, UtilityService } from './utility.module';
@@ -53,6 +55,8 @@ export class IngestKeyDto {
 }
 export class CounterPayDto {
   @ApiProperty() @IsUUID() invoiceId: string;
+  @ApiPropertyOptional({ enum: ['CASH', 'TRANSFER'], default: 'CASH', description: 'TRANSFER = transfer/QRIS yang masuk rekening bank; tidak ikut setoran tunai' }) @IsOptional() @IsIn(['CASH', 'TRANSFER']) method?: 'CASH' | 'TRANSFER';
+  @ApiPropertyOptional({ description: 'Rekening bank penerima (non-tunai); kosong = Bank utama' }) @IsOptional() @IsUUID() cashAccountId?: string;
   @ApiProperty({ example: '132090' }) @IsNumberString() amount: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) notes?: string;
 }
@@ -61,6 +65,7 @@ export class RemitDto {
   @ApiPropertyOptional({ description: 'Wajib bila ada selisih' }) @IsOptional() @IsString() @MaxLength(255) note?: string;
 }
 export class DecideDto {
+  @ApiPropertyOptional({ description: 'Rekening bank tujuan setoran; bila diisi, sistem menjurnal Kas → Bank sebesar uang yang disetor' }) @IsOptional() @IsUUID() depositAccountId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) note?: string;
   @ApiPropertyOptional({ description: 'true = tandai disengketakan (selisih belum bisa diterima)' }) @IsOptional() @IsBoolean() dispute?: boolean;
 }
@@ -74,6 +79,7 @@ export class UtilityFieldService {
     private readonly payments: PaymentsService,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
+    private readonly posting: PostingService,
   ) {}
 
   /** Cari sambungan menurut nomor (kunci unik per perusahaan) */
@@ -85,12 +91,20 @@ export class UtilityFieldService {
   /** Masukkan banyak angka meter; tiap baris diperiksa aturan yang sama dengan input manual dan gagal sendiri-sendiri */
   async importRows(u: AuthUser, rows: MeterRowDto[], source: 'IMPORT' | 'API') {
     const ids = await this.idsByNumber(u.tenantId, rows.map((r) => r.connectionNumber));
-    const results: { row: number; connectionNumber: string; ok: boolean; flags?: string[]; error?: string }[] = [];
+    const results: { row: number; connectionNumber: string; ok: boolean; flags?: string[]; error?: string; duplicate?: boolean }[] = [];
     for (const [i, r] of rows.entries()) {
       const connectionId = ids.get(r.connectionNumber);
       if (!connectionId) {
         results.push({ row: i + 1, connectionNumber: r.connectionNumber, ok: false, error: 'Nomor sambungan tidak ditemukan' });
         continue;
+      }
+      // alat yang mengulang kirim (jaringan putus) tidak dianggap gagal bila angkanya sama dengan yang sudah tercatat dari jalur yang sama
+      if (source === 'API') {
+        const dup = await this.db.execute(sql`SELECT 1 FROM utility_readings WHERE connection_id = ${connectionId} AND period = ${r.period} AND status <> 'REJECTED' AND source = 'API' AND current = ${r.current}::numeric LIMIT 1`);
+        if (dup.rows.length) {
+          results.push({ row: i + 1, connectionNumber: r.connectionNumber, ok: true, duplicate: true });
+          continue;
+        }
       }
       try {
         const x = await this.util.enterReading(u, { connectionId, period: r.period, current: r.current, note: r.note } as ReadingDto, source);
@@ -99,9 +113,10 @@ export class UtilityFieldService {
         results.push({ row: i + 1, connectionNumber: r.connectionNumber, ok: false, error: errMsg(e) });
       }
     }
-    const okCount = results.filter((x) => x.ok).length;
-    await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityReading', entityId: u.sub, data: { import: source, total: rows.length, accepted: okCount, rejected: rows.length - okCount } });
-    return { total: rows.length, accepted: okCount, rejected: rows.length - okCount, results };
+    const okCount = results.filter((x) => x.ok && !x.duplicate).length;
+    await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityReading', entityId: u.sub, data: { import: source, total: rows.length, accepted: okCount, rejected: results.filter((x) => !x.ok).length } });
+    const dupCount = results.filter((x) => x.duplicate).length;
+    return { total: rows.length, accepted: okCount, duplicates: dupCount, rejected: rows.length - okCount - dupCount, results };
   }
 
   // ----- kunci API -----
@@ -154,13 +169,21 @@ export class UtilityFieldService {
   async counterPay(u: AuthUser, dto: CounterPayDto) {
     const [bill] = await this.db.select({ id: utilityBills.id }).from(utilityBills).where(and(eq(utilityBills.invoiceId, dto.invoiceId), eq(utilityBills.tenantId, u.tenantId)));
     if (!bill) throw new BadRequestException('Faktur ini bukan tagihan utilitas');
-    const pay = await this.payments.create(u, { invoiceId: dto.invoiceId, amount: dto.amount, method: 'CASH', notes: `Loket${dto.notes ? ` - ${dto.notes}` : ''}` });
-    const [rc] = await this.db
-      .insert(utilityCounterReceipts)
-      .values({ tenantId: u.tenantId, paymentId: pay.id, invoiceId: dto.invoiceId, collectorId: u.sub, amount: money(dto.amount).toFixed(2) })
-      .returning();
-    await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityCounterReceipt', entityId: rc.id, data: { payment: pay.number, amount: dto.amount } });
-    return { receiptId: rc.id, paymentNumber: pay.number, amount: rc.amount };
+    const method = dto.method ?? 'CASH';
+    let receipt: { id: string; amount: string } | undefined;
+    // pelunasan dan catatan penerimaan satu transaksi: tidak mungkin ada uang tercatat tanpa penerimaan loket
+    const pay = await this.payments.create(u, { invoiceId: dto.invoiceId, amount: dto.amount, method, cashAccountId: dto.cashAccountId, notes: `Loket${dto.notes ? ` - ${dto.notes}` : ''}` }, {
+      inTx: async (tx, p) => {
+        const [rc] = await tx
+          .insert(utilityCounterReceipts)
+          .values({ tenantId: u.tenantId, paymentId: p.id, invoiceId: dto.invoiceId, collectorId: u.sub, amount: money(dto.amount).toFixed(2), method })
+          .returning();
+        receipt = rc;
+        await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityCounterReceipt', entityId: rc.id, data: { payment: p.number, amount: dto.amount, method } });
+      },
+    });
+    const rc = receipt!;
+    return { receiptId: rc.id, paymentNumber: pay.number, amount: rc.amount, method };
   }
 
   /** Penerimaan loket petugas ini yang belum disetor */
@@ -168,7 +191,7 @@ export class UtilityFieldService {
     const rows = await this.db
       .select()
       .from(utilityCounterReceipts)
-      .where(and(eq(utilityCounterReceipts.tenantId, u.tenantId), eq(utilityCounterReceipts.collectorId, u.sub), isNull(utilityCounterReceipts.remittanceId)))
+      .where(and(eq(utilityCounterReceipts.tenantId, u.tenantId), eq(utilityCounterReceipts.collectorId, u.sub), eq(utilityCounterReceipts.method, 'CASH'), isNull(utilityCounterReceipts.remittanceId)))
       .orderBy(utilityCounterReceipts.receivedAt);
     return { items: rows, expected: rows.reduce((a, r) => a.plus(r.amount), D(0)).toFixed(2) };
   }
@@ -179,11 +202,11 @@ export class UtilityFieldService {
     const counted = money(dto.counted);
     if (counted.lt(0)) throw new BadRequestException('Jumlah setoran tidak valid');
     await this.db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT id FROM utility_counter_receipts WHERE tenant_id = ${u.tenantId} AND collector_id = ${u.sub} AND remittance_id IS NULL FOR UPDATE`);
+      await tx.execute(sql`SELECT id FROM utility_counter_receipts WHERE tenant_id = ${u.tenantId} AND collector_id = ${u.sub} AND method = 'CASH' AND remittance_id IS NULL FOR UPDATE`);
       const rows = await tx
         .select()
         .from(utilityCounterReceipts)
-        .where(and(eq(utilityCounterReceipts.tenantId, u.tenantId), eq(utilityCounterReceipts.collectorId, u.sub), isNull(utilityCounterReceipts.remittanceId)));
+        .where(and(eq(utilityCounterReceipts.tenantId, u.tenantId), eq(utilityCounterReceipts.collectorId, u.sub), eq(utilityCounterReceipts.method, 'CASH'), isNull(utilityCounterReceipts.remittanceId)));
       if (!rows.length) throw new BadRequestException('Tidak ada penerimaan loket yang perlu disetor');
       const expected = rows.reduce((a, r) => a.plus(r.amount), D(0));
       const diff = counted.minus(expected);
@@ -208,14 +231,32 @@ export class UtilityFieldService {
   async decide(u: AuthUser, id: string, dto: DecideDto) {
     await this.db.transaction(async (tx) => {
       const r = await tx.execute(sql`SELECT * FROM utility_remittances WHERE id = ${id} AND tenant_id = ${u.tenantId} FOR UPDATE`);
-      const rem = r.rows[0] as unknown as { status: string; collector_id: string; difference: string; number: string } | undefined;
+      const rem = r.rows[0] as unknown as { status: string; collector_id: string; difference: string; number: string; counted: string; date: string } | undefined;
       if (!rem) throw new NotFoundException('Setoran tidak ditemukan');
       if (rem.status !== 'SUBMITTED') throw new BadRequestException('Setoran ini sudah diputuskan');
       if (rem.collector_id === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Setoran harus dikonfirmasi orang lain dari penyetornya (pemisahan fungsi)');
       if ((dto.dispute || !D(rem.difference).isZero()) && (dto.note ?? '').trim().length < 5) throw new BadRequestException('Setoran berselisih atau disengketakan: tulis catatan keputusan.');
       const status = dto.dispute ? 'DISPUTED' : 'CONFIRMED';
-      await tx.update(utilityRemittances).set({ status, decidedById: u.sub, decidedAt: new Date(), decisionNote: dto.note?.trim() || null }).where(eq(utilityRemittances.id, id));
-      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: dto.dispute ? 'REJECT' : 'APPROVE', entity: 'UtilityRemittance', entityId: id, data: { number: rem.number, difference: rem.difference, note: dto.note } });
+      if (dto.depositAccountId && dto.dispute) throw new BadRequestException('Setoran yang disengketakan belum bisa dijurnal ke bank');
+      // konfirmasi + rekening tujuan: pindahkan uang yang benar-benar disetor dari Kas ke Bank (selisih tetap di Kas sampai diselesaikan)
+      let journalId: string | null = null;
+      if (dto.depositAccountId && D(rem.counted).gt(0)) {
+        const bank = await this.posting.resolveCashAccount(tx, u.tenantId, dto.depositAccountId, 'BANK');
+        const cash = await this.posting.resolveCashAccount(tx, u.tenantId, undefined, 'CASH');
+        if (bank.id === cash.id) throw new BadRequestException('Rekening tujuan harus berbeda dari Kas');
+        const j = await this.posting.post(tx, {
+          tenantId: u.tenantId,
+          date: toDocDate(undefined),
+          description: `Setoran kas loket ${rem.number} ke ${bank.name}`,
+          sourceType: 'TRANSFER',
+          sourceId: id,
+          createdById: u.sub,
+          lines: [{ accountId: bank.id, debit: D(rem.counted) }, { accountId: cash.id, credit: D(rem.counted) }],
+        });
+        journalId = j.id;
+      }
+      await tx.update(utilityRemittances).set({ status, decidedById: u.sub, decidedAt: new Date(), decisionNote: dto.note?.trim() || null, depositAccountId: dto.depositAccountId ?? null, journalId }).where(eq(utilityRemittances.id, id));
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: dto.dispute ? 'REJECT' : 'APPROVE', entity: 'UtilityRemittance', entityId: id, data: { number: rem.number, difference: rem.difference, note: dto.note, journalId } });
     });
     return { ok: true };
   }
@@ -225,12 +266,12 @@ export class UtilityFieldService {
     const outside = await this.db.execute(sql`
       SELECT p.number, p.date, p.amount, i.number AS "invoiceNumber"
       FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN utility_bills b ON b.invoice_id = i.id
-      WHERE p.tenant_id = ${tenantId} AND p.method = 'CASH' AND p.notes LIKE 'Loket%'
+      WHERE p.tenant_id = ${tenantId} AND p.notes LIKE 'Loket%'
         AND NOT EXISTS (SELECT 1 FROM utility_counter_receipts r WHERE r.payment_id = p.id)
       ORDER BY p.date DESC LIMIT 100`);
     const stale = await this.db.execute(sql`
       SELECT collector_id AS "collectorId", count(*)::int AS count, sum(amount) AS amount, min(received_at) AS since
-      FROM utility_counter_receipts WHERE tenant_id = ${tenantId} AND remittance_id IS NULL AND received_at < now() - interval '1 day'
+      FROM utility_counter_receipts WHERE tenant_id = ${tenantId} AND method = 'CASH' AND remittance_id IS NULL AND received_at < now() - interval '1 day'
       GROUP BY collector_id`);
     const pending = await this.db.execute(sql`SELECT number, date, difference FROM utility_remittances WHERE tenant_id = ${tenantId} AND status = 'SUBMITTED' AND created_at < now() - interval '2 days' ORDER BY date`);
     const mismatch = await this.db.execute(sql`SELECT number, date, difference, status FROM utility_remittances WHERE tenant_id = ${tenantId} AND difference <> 0 AND date >= ${addMonths()} ORDER BY date DESC LIMIT 50`);
@@ -327,7 +368,7 @@ export class UtilityIngestController {
 }
 
 @Module({
-  imports: [UtilityModule, SalesModule],
+  imports: [UtilityModule, SalesModule, AccountingModule],
   controllers: [UtilityFieldController, UtilityIngestController],
   providers: [UtilityFieldService, UtilityIngestGuard],
 })

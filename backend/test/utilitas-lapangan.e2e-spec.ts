@@ -90,6 +90,10 @@ describe('Utilitas lapangan (e2e)', () => {
     expect(ok.body.accepted).toBe(1);
     const row = await db.execute<{ source: string; status: string }>(sql`SELECT source, status FROM utility_readings WHERE connection_id = ${conns[2].id} AND period = ${month(3)}`);
     expect(row.rows[0]).toMatchObject({ source: 'API', status: 'ENTERED' });
+    // alat mengulang kirim (jaringan putus): angka sama = duplikat diterima tanpa gagal; angka beda = ditolak
+    const rep = await send([{ connectionNumber: conns[2].number, period: month(3), current: '7' }]);
+    expect(rep.body).toMatchObject({ accepted: 0, duplicates: 1, rejected: 0 });
+    expect((await send([{ connectionNumber: conns[2].number, period: month(3), current: '8' }])).body.rejected).toBe(1);
     // kunci sistem tidak mengakses data lain selain mengirim angka
     expect((await http.get('/api/utility/readings').set('X-Api-Key', k.key)).status).toBe(401);
     await post(`/api/utility/ingest-keys/${k.id}/revoke`).expect(201);
@@ -165,6 +169,30 @@ describe('Utilitas lapangan (e2e)', () => {
     expect(c.remittancesWithDifference.map((x: { number: string }) => x.number)).toContain(rem.number);
     const audited = await db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM audit_logs WHERE entity IN ('UtilityRemittance','UtilityCounterReceipt')`);
     expect(audited.rows[0].n).toBeGreaterThanOrEqual(4);
+  });
+
+  it('loket non-tunai tidak ikut setoran tunai; konfirmasi + rekening tujuan menjurnal Kas → Bank', async () => {
+    const found = (await get('/api/utility/counter/search?q=Budi', fin).expect(200)).body as { invoiceId: string }[];
+    const before = (await get('/api/utility/counter/open', fin).expect(200)).body.items.length;
+    const tr = await post('/api/utility/counter/pay', { invoiceId: found[0].invoiceId, amount: '2000', method: 'TRANSFER' }, fin).expect(201);
+    expect(tr.body.method).toBe('TRANSFER');
+    expect((await get('/api/utility/counter/open', fin).expect(200)).body.items.length).toBe(before); // transfer tidak masuk setoran tunai
+    // satu pembayaran tunai baru lalu setor penuh dan konfirmasi dengan rekening bank tujuan
+    await post('/api/utility/counter/pay', { invoiceId: found[0].invoiceId, amount: '3000' }, fin).expect(201);
+    const rem = (await post('/api/utility/counter/remit', { counted: '3000' }, fin).expect(201)).body;
+    expect(Number(rem.difference)).toBe(0);
+    const accts = (await get('/api/accounting/accounts').expect(200)).body as { id: string; isCashAccount: boolean; systemKey?: string }[];
+    const bank = accts.find((a) => a.isCashAccount && a.systemKey === 'BANK')!;
+    const kas = accts.find((a) => a.systemKey === 'CASH')!;
+    expect((await post(`/api/utility/counter/remittances/${rem.id}/decide`, { depositAccountId: kas.id }, fin2)).status).toBe(400); // tujuan sama dengan Kas
+    expect((await post(`/api/utility/counter/remittances/${rem.id}/decide`, { depositAccountId: bank.id, dispute: true, note: 'sengketa' }, fin2)).status).toBe(400);
+    await post(`/api/utility/counter/remittances/${rem.id}/decide`, { depositAccountId: bank.id }, fin2).expect(201);
+    const j = await db.execute<{ account_id: string; debit: string; credit: string }>(sql`SELECT l.account_id, l.debit, l.credit FROM journal_lines l JOIN journal_entries e ON e.id = l.journal_id WHERE e.source_type = 'TRANSFER' AND e.source_id = ${rem.id}`);
+    expect(j.rows).toHaveLength(2);
+    expect(j.rows.find((x) => x.account_id === bank.id)!.debit).toMatch(/^3000/);
+    expect(j.rows.find((x) => x.account_id === kas.id)!.credit).toMatch(/^3000/);
+    const row = await db.execute<{ journal_id: string | null }>(sql`SELECT journal_id FROM utility_remittances WHERE id = ${rem.id}`);
+    expect(row.rows[0].journal_id).toBeTruthy();
   });
 
   it('kontrol: pembayaran loket tanpa catatan penerimaan terdeteksi', async () => {

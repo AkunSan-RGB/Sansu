@@ -1,10 +1,10 @@
 import { EnvironmentOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, DatePicker, Descriptions, Form, Input, InputNumber, Modal, Space, Tag, Typography } from 'antd';
+import { Alert, Button, Card, DatePicker, Descriptions, Form, Input, InputNumber, Modal, Select, Space, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { get, post } from '@/api/client';
-import { useAction } from '@/api/queries';
+import { useAction, useCashAccounts } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
@@ -182,14 +182,17 @@ export function CounterTab() {
   const rems = useQuery({ queryKey: [...KEY, 'counter-rems'], queryFn: () => get<Rem[]>('/utility/counter/remittances') });
   const ctl = useQuery({ queryKey: [...KEY, 'counter-controls'], queryFn: () => get<CounterControls>('/utility/counter/controls'), retry: false });
   const [paying, setPaying] = useState<Hit | null>(null);
-  const [pf] = Form.useForm<{ amount: number; notes?: string }>();
+  const [pf] = Form.useForm<{ amount: number; method: 'CASH' | 'TRANSFER'; cashAccountId?: string; notes?: string }>();
+  const payMethod = Form.useWatch('method', pf);
+  const cash = useCashAccounts();
+  const banks = (cash.data ?? []).filter((a) => !/^kas\b/i.test(a.name));
   const [remitting, setRemitting] = useState(false);
   const [rf] = Form.useForm<{ counted: number; note?: string }>();
   const [deciding, setDeciding] = useState<{ r: Rem; dispute: boolean } | null>(null);
-  const [df] = Form.useForm<{ note?: string }>();
-  const pay = useAction((v: { amount: number; notes?: string }) => post('/utility/counter/pay', { invoiceId: paying!.invoiceId, amount: String(v.amount), notes: v.notes }), { success: 'Pembayaran diterima', invalidate: KEY, onSuccess: () => setPaying(null) });
+  const [df] = Form.useForm<{ note?: string; depositAccountId?: string }>();
+  const pay = useAction((v: { amount: number; method: 'CASH' | 'TRANSFER'; cashAccountId?: string; notes?: string }) => post('/utility/counter/pay', { invoiceId: paying!.invoiceId, amount: String(v.amount), method: v.method, cashAccountId: v.method === 'TRANSFER' ? v.cashAccountId : undefined, notes: v.notes }), { success: 'Pembayaran diterima', invalidate: KEY, onSuccess: () => setPaying(null) });
   const remit = useAction((v: { counted: number; note?: string }) => post('/utility/counter/remit', { counted: String(v.counted), note: v.note }), { success: 'Setoran dicatat — menunggu konfirmasi', invalidate: KEY, onSuccess: () => setRemitting(false) });
-  const decide = useAction((v: { note?: string }) => post(`/utility/counter/remittances/${deciding!.r.id}/decide`, { note: v.note, dispute: deciding!.dispute }), { success: 'Tersimpan', invalidate: KEY, onSuccess: () => setDeciding(null) });
+  const decide = useAction((v: { note?: string; depositAccountId?: string }) => post(`/utility/counter/remittances/${deciding!.r.id}/decide`, { note: v.note, dispute: deciding!.dispute, depositAccountId: deciding!.dispute ? undefined : v.depositAccountId }), { success: 'Tersimpan', invalidate: KEY, onSuccess: () => setDeciding(null) });
   const exp = Number(open.data?.expected ?? 0);
   const warn = ctl.data ? ctl.data.receiptsWithoutRecord.length + ctl.data.unremittedOverOneDay.length + ctl.data.remittancesNotConfirmed.length : 0;
   return (
@@ -203,7 +206,7 @@ export function CounterTab() {
           </ul>} />
       )}
       {can('POST', '/utility/counter/pay') && (
-        <Card title="Terima pembayaran tunai" style={{ marginBottom: 16 }}>
+        <Card title="Terima pembayaran" style={{ marginBottom: 16 }}>
           <Input.Search placeholder="Cari nomor sambungan, nama pelanggan, atau nomor faktur" enterButton="Cari" value={q} onChange={(e) => setQ(e.target.value)} onSearch={(v) => setTerm(v)} style={{ maxWidth: 520, marginBottom: 12 }} />
           <ResponsiveTable<Hit>
             rowKey="invoiceId"
@@ -217,7 +220,7 @@ export function CounterTab() {
               { title: 'Faktur', render: (_: unknown, h: Hit) => `${h.invoiceNumber} (${h.period})` },
               { title: 'Jatuh tempo', render: (_: unknown, h: Hit) => fmtDate(h.dueDate) },
               { title: 'Sisa tagihan', render: (_: unknown, h: Hit) => fmtMoney(h.outstanding) },
-              { render: (_: unknown, h: Hit) => <Button size="small" type="primary" onClick={() => { setPaying(h); pf.setFieldsValue({ amount: Number(h.outstanding), notes: undefined }); }}>Terima</Button> },
+              { render: (_: unknown, h: Hit) => <Button size="small" type="primary" onClick={() => { setPaying(h); pf.setFieldsValue({ amount: Number(h.outstanding), method: 'CASH', cashAccountId: undefined, notes: undefined }); }}>Terima</Button> },
             ]}
           />
         </Card>
@@ -256,10 +259,12 @@ export function CounterTab() {
           },
         ]}
       />
-      <Modal title={paying ? `Terima pembayaran — ${paying.customerName}` : ''} open={!!paying} onCancel={() => setPaying(null)} onOk={() => pf.submit()} confirmLoading={pay.isPending} okText="Terima tunai" destroyOnHidden>
+      <Modal title={paying ? `Terima pembayaran — ${paying.customerName}` : ''} open={!!paying} onCancel={() => setPaying(null)} onOk={() => pf.submit()} confirmLoading={pay.isPending} okText="Terima pembayaran" destroyOnHidden>
         {paying && <Typography.Paragraph type="secondary">{paying.invoiceNumber} · sisa {fmtMoney(paying.outstanding)}</Typography.Paragraph>}
         <Form form={pf} layout="vertical" onFinish={(v) => pay.mutate(v)}>
           <Form.Item name="amount" label="Jumlah diterima (Rp)" rules={[{ required: true }]}><InputNumber min={1} style={{ width: 220 }} /></Form.Item>
+          <Form.Item name="method" label="Cara bayar" initialValue="CASH"><Select style={{ width: 220 }} options={[{ value: 'CASH', label: 'Tunai (masuk setoran harian)' }, { value: 'TRANSFER', label: 'Transfer / QRIS (langsung ke bank)' }]} /></Form.Item>
+          {payMethod === 'TRANSFER' && <Form.Item name="cashAccountId" label="Rekening penerima"><Select allowClear placeholder="Bank utama" options={banks.map((a) => ({ value: a.id, label: a.name }))} /></Form.Item>}
           <Form.Item name="notes" label="Catatan"><Input maxLength={200} /></Form.Item>
         </Form>
       </Modal>
@@ -273,6 +278,7 @@ export function CounterTab() {
       <Modal title={deciding?.dispute ? 'Sengketakan setoran' : 'Konfirmasi setoran'} open={!!deciding} onCancel={() => setDeciding(null)} onOk={() => df.submit()} confirmLoading={decide.isPending} okText="Simpan" destroyOnHidden>
         {deciding && <Typography.Paragraph type="secondary">{deciding.r.number} · selisih {fmtMoney(deciding.r.difference)}</Typography.Paragraph>}
         <Form form={df} layout="vertical" onFinish={(v) => decide.mutate(v)}>
+          {!deciding?.dispute && <Form.Item name="depositAccountId" label="Setor ke rekening bank (opsional)" extra="Bila dipilih, sistem menjurnal Kas → Bank sebesar uang yang disetor."><Select allowClear placeholder="Tidak dijurnal" options={banks.map((a) => ({ value: a.id, label: a.name }))} /></Form.Item>}
           <Form.Item name="note" label="Catatan keputusan" rules={deciding && (deciding.dispute || Number(deciding.r.difference) !== 0) ? [{ required: true, min: 5, message: 'Wajib diisi (min. 5 huruf)' }] : []}><Input maxLength={255} /></Form.Item>
         </Form>
       </Modal>

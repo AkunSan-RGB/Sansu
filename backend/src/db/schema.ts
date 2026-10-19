@@ -3973,6 +3973,8 @@ export const utilityRemittances = pgTable(
     decidedById: uuid('decided_by_id'),
     decidedAt: timestamp('decided_at', { withTimezone: true }),
     decisionNote: text('decision_note'),
+    depositAccountId: uuid('deposit_account_id').references(() => accounts.id),
+    journalId: uuid('journal_id').references(() => journalEntries.id),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('utility_remittances_number_uq').on(t.tenantId, t.number)],
@@ -3992,6 +3994,8 @@ export const utilityCounterReceipts = pgTable(
       .references(() => invoices.id),
     collectorId: uuid('collector_id').notNull(),
     amount: money('amount').notNull(),
+    /** CASH ikut setoran harian; TRANSFER/QRIS langsung masuk bank sehingga tidak disetor */
+    method: text('method').$type<'CASH' | 'TRANSFER'>().notNull().default('CASH'),
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
     remittanceId: uuid('remittance_id').references(() => utilityRemittances.id),
   },
