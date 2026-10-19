@@ -12,19 +12,17 @@ import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
-import { CounterTab, FieldTab, ImportTab } from './UtilityFieldTabs';
 
 const SEV: Record<string, string> = { high: 'red', medium: 'orange' };
 const STATUS_COLOR: Record<UtilityConnectionStatus, string> = { ACTIVE: 'green', SUSPENDED: 'orange', DISCONNECTED: 'default' };
 const READ_COLOR: Record<UtilityReadingStatus, string> = { ENTERED: 'gold', VERIFIED: 'blue', BILLED: 'green', REJECTED: 'red' };
 const COL: Record<string, string> = { number: 'Sambungan', customer: 'Pelanggan', address: 'Alamat', lastPeriod: 'Pencatatan terakhir', period: 'Periode', days: 'Hari', usage: 'Pemakaian', flags: 'Tanda', userName: 'Petugas', service: 'Layanan', n: 'Jumlah', numbers: 'Nomor sambungan' };
-const SOURCE_LABEL: Record<string, string> = { LAPANGAN: 'Lapangan', IMPORT: 'Impor', API: 'Alat meter' };
 const thisMonth = () => dayjs().format('YYYY-MM');
 
 interface Summary { period: string; active: number; suspended: number; awaitingVerification: number; readyToBill: number; missingReadings: number; overdueCount: number; overdueTotal: number; suggestSuspend: number }
 interface Tariff { id: string; name: string; serviceType: UtilityServiceType; unit: string; metered: boolean; fixedFee: string; adminFee: string; minUsage: string; blocks: { upTo: number | null; price: number }[]; vatable: boolean; isActive: boolean; connections: number }
 interface Connection { id: string; number: string; status: UtilityConnectionStatus; meterNo: string | null; address: string; installedAt: string; statusNote: string | null; customerName: string; tariffName: string; serviceType: UtilityServiceType; unit: string; metered: boolean; lastReading: string | null; lastPeriod: string | null }
-interface Reading { id: string; period: string; previous: string; current: string; usage: string; status: UtilityReadingStatus; flags: ReadingFlag[]; meterReplaced: boolean; note: string | null; verifyNote: string | null; connectionNumber: string; meterNo: string | null; customerName: string; unit: string; enteredByName: string | null; enteredById: string; verifiedByName: string | null; source?: string; hasPhoto?: boolean }
+interface Reading { id: string; period: string; previous: string; current: string; usage: string; status: UtilityReadingStatus; flags: ReadingFlag[]; meterReplaced: boolean; note: string | null; verifyNote: string | null; connectionNumber: string; meterNo: string | null; customerName: string; unit: string; enteredByName: string | null; enteredById: string; verifiedByName: string | null }
 interface Due { id: string; number: string; meterNo: string | null; address: string; customerName: string; unit: string; previous: string }
 interface Preview {
   period: string;
@@ -40,15 +38,11 @@ export default function UtilityPage() {
   const { tab = 'ringkasan' } = useParams();
   const navigate = useNavigate();
   const { me } = useAuth();
-  const can = useCan();
   const fin = !!me && ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'].includes(me.role);
   const summary = useQuery({ queryKey: ['utility', 'summary'], queryFn: () => get<Summary>('/utility/summary'), refetchInterval: 60_000 });
   const tabs = [
     { key: 'ringkasan', label: 'Ringkasan', children: <Overview s={summary.data} go={(t) => navigate(`/utility/${t}`)} /> },
     { key: 'sambungan', label: 'Sambungan', children: <ConnectionsTab /> },
-    ...(can('POST', '/utility/field/readings') ? [{ key: 'lapangan', label: 'Petugas lapangan', children: <FieldTab /> }] : []),
-    ...(can('POST', '/utility/readings/import') || can('POST', '/utility/ingest-keys') ? [{ key: 'impor', label: 'Impor & alat meter', children: <ImportTab /> }] : []),
-    ...(can('POST', '/utility/counter/pay') || can('POST', '/utility/counter/remit') ? [{ key: 'loket', label: 'Loket', children: <CounterTab /> }] : []),
     { key: 'meter', label: `Catat meter${summary.data?.awaitingVerification ? ` (${summary.data.awaitingVerification})` : ''}`, children: <ReadingsTab /> },
     ...(fin ? [{ key: 'tagihan', label: 'Tagihan bulanan', children: <BillingTab /> }, { key: 'tunggakan', label: `Tunggakan${summary.data?.overdueCount ? ` (${summary.data.overdueCount})` : ''}`, children: <OverdueTab /> }] : []),
     { key: 'tarif', label: 'Tarif & aturan', children: <TariffsTab /> },
@@ -205,8 +199,6 @@ function ReadingsTab() {
   const [period, setPeriod] = useState(thisMonth());
   const due = useQuery({ queryKey: ['utility', 'due', period], queryFn: () => get<Due[]>(`/utility/readings/due?period=${period}`), enabled: can('POST', '/utility/readings') });
   const list = useQuery({ queryKey: ['utility', 'readings', period], queryFn: () => get<Reading[]>(`/utility/readings?period=${period}`) });
-  const [photoOf, setPhotoOf] = useState<string | null>(null);
-  const photo = useQuery({ queryKey: ['utility', 'photo', photoOf], queryFn: () => get<{ photo: string | null }>(`/utility/readings/${photoOf}/photo`), enabled: !!photoOf });
   const [entering, setEntering] = useState<Due | null>(null);
   const [deciding, setDeciding] = useState<{ r: Reading; mode: 'verify' | 'reject' } | null>(null);
   const [ef] = Form.useForm();
@@ -240,7 +232,7 @@ function ReadingsTab() {
         columns={[
           { title: 'Sambungan', render: (_: unknown, r: Reading) => `${r.connectionNumber} · ${r.customerName}` },
           { title: 'Awal → akhir', render: (_: unknown, r: Reading) => `${Number(r.previous)} → ${Number(r.current)}` },
-          { title: 'Pemakaian', render: (_: unknown, r: Reading) => <span><b>{Number(r.usage)}</b> {r.unit} <FlagTags flags={r.flags} />{r.source && r.source !== 'MANUAL' && <Tag>{SOURCE_LABEL[r.source] ?? r.source}</Tag>}{r.hasPhoto && <Button size="small" type="link" onClick={() => setPhotoOf(r.id)}>Foto</Button>}</span> },
+          { title: 'Pemakaian', render: (_: unknown, r: Reading) => <span><b>{Number(r.usage)}</b> {r.unit} <FlagTags flags={r.flags} /></span> },
           { title: 'Status', render: (_: unknown, r: Reading) => <Tag color={READ_COLOR[r.status]}>{UTILITY_READING_LABELS[r.status]}</Tag> },
           { title: 'Dicatat → diperiksa', render: (_: unknown, r: Reading) => `${r.enteredByName ?? '-'}${r.verifiedByName ? ` → ${r.verifiedByName}` : ''}` },
           {
@@ -254,9 +246,6 @@ function ReadingsTab() {
           },
         ]}
       />
-      <Modal title="Foto meter" open={!!photoOf} onCancel={() => setPhotoOf(null)} footer={null} destroyOnHidden>
-        {photo.data?.photo ? <img src={photo.data.photo} alt="Foto meter" style={{ maxWidth: '100%' }} /> : <Typography.Text type="secondary">{photo.isLoading ? 'Memuat…' : 'Tidak ada foto'}</Typography.Text>}
-      </Modal>
       <Modal title={entering ? `Catat meter — ${entering.number}` : ''} open={!!entering} onCancel={() => setEntering(null)} onOk={() => ef.submit()} confirmLoading={enter.isPending} okText="Simpan" destroyOnHidden>
         {entering && <Typography.Paragraph type="secondary">{entering.customerName} · {entering.address}<br />Angka sebelumnya: <b>{Number(entering.previous)} {entering.unit}</b></Typography.Paragraph>}
         <Form form={ef} layout="vertical" onFinish={(v) => enter.mutate({ ...v, connectionId: entering!.id })}>
