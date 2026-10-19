@@ -11,7 +11,29 @@ export function configureApp(app: INestApplication) {
   // Impor mutasi bank / pesanan marketplace bisa besar
   ex.useBodyParser('json', { limit: process.env.BODY_LIMIT ?? '20mb' });
   ex.useBodyParser('urlencoded', { limit: process.env.BODY_LIMIT ?? '20mb', extended: true });
-  app.use(helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: 'same-site' } }));
+  // Header keamanan. CSP sama dengan yang dipasang Caddy pada instalasi VPS, sehingga mode satu layanan (Railway) mendapat perlindungan yang sama.
+  // Dokumentasi API (Swagger, hanya bila diaktifkan) memakai skrip sebaris sehingga dikecualikan dari CSP.
+  const withCsp = helmet({
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        'default-src': ["'self'"],
+        'script-src': ["'self'"],
+        'style-src': ["'self'", "'unsafe-inline'"], // gaya sebaris diperlukan Ant Design
+        'font-src': ["'self'", 'data:'],
+        'img-src': ["'self'", 'data:', 'blob:'],
+        'connect-src': ["'self'"],
+        'frame-ancestors': ["'none'"],
+        'base-uri': ["'self'"],
+        'form-action': ["'self'"],
+        'object-src': ["'none'"],
+      },
+    },
+    crossOriginResourcePolicy: { policy: 'same-site' },
+    frameguard: { action: 'deny' },
+  });
+  const withoutCsp = helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: 'same-site' } });
+  app.use((req: { path: string }, res: unknown, next: () => void) => (req.path.startsWith('/api/docs') ? withoutCsp : withCsp)(req as never, res as never, next));
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
     new ValidationPipe({
@@ -23,13 +45,25 @@ export function configureApp(app: INestApplication) {
   return app;
 }
 
+const WEAK = /ganti|changeme|secret|rahasia|password|contoh|example|sansu-dev-key/i;
+
+/** Masalah konfigurasi produksi yang membuat data pelanggan tidak aman (kosong = aman). Dipisah agar bisa diuji. */
+export function productionConfigProblems(env: NodeJS.ProcessEnv): string[] {
+  const problems: string[] = [];
+  const secret = env.JWT_SECRET ?? '';
+  if (secret.length < 32 || /ganti|changeme|secret|rahasia/i.test(secret)) problems.push('JWT_SECRET harus acak dan minimal 32 karakter');
+  const dek = env.DATA_ENCRYPTION_KEY ?? '';
+  if (!dek) problems.push('DATA_ENCRYPTION_KEY wajib diisi (kunci enkripsi token pihak ketiga). Buat dengan: openssl rand -base64 48');
+  else if (dek.length < 32 || WEAK.test(dek)) problems.push('DATA_ENCRYPTION_KEY harus acak dan minimal 32 karakter');
+  else if (dek === secret) problems.push('DATA_ENCRYPTION_KEY harus berbeda dari JWT_SECRET');
+  if (/ganti|akurata:akurata@|sansu:sansu@/i.test(env.DATABASE_URL ?? '')) problems.push('Password database masih bawaan contoh');
+  return problems;
+}
+
 /** Tolak berjalan di produksi dengan rahasia lemah / bawaan contoh. */
 export function assertProductionConfig() {
   if (process.env.NODE_ENV !== 'production') return;
-  const problems: string[] = [];
-  const secret = process.env.JWT_SECRET ?? '';
-  if (secret.length < 32 || /ganti|changeme|secret|rahasia/i.test(secret)) problems.push('JWT_SECRET harus acak dan minimal 32 karakter');
-  if (/ganti|akurata:akurata@|sansu:sansu@/i.test(process.env.DATABASE_URL ?? '')) problems.push('Password database masih bawaan contoh');
+  const problems = productionConfigProblems(process.env);
   if (problems.length) {
     for (const p of problems) Logger.error(p, 'Konfigurasi');
     throw new Error('Konfigurasi produksi tidak aman — perbaiki file .env lalu jalankan ulang.');
