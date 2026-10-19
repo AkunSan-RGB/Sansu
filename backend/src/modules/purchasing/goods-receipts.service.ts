@@ -21,6 +21,7 @@ import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { goodsReceiptLines, goodsReceipts, purchaseOrderLines, purchaseOrders, suppliers, tenants } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
+import { QcService } from '../production/qc';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
@@ -46,6 +47,7 @@ export class GoodsReceiptsService {
     private readonly orders: PurchaseOrdersService,
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
+    private readonly qc: QcService,
   ) {}
 
   async isPkp(tx: Tx, tenantId: string) {
@@ -147,15 +149,19 @@ export class GoodsReceiptsService {
       })
       .returning();
 
+    // Barang wajib QC masuk karantina dulu (bukan gudang tujuan) dan diinspeksi; lolos → dipindah ke gudang tujuan PO
+    const quarantine = await this.qc.inboundQuarantine(tx, user.tenantId, [...new Set(items.map((i) => i.line.productId))]);
     let total: Dec = ZERO;
     for (const { line, qty, lot } of items) {
       const baseQty = qty.times(line.uomFactor);
       const net = D(line.lineTotal).times(qty).div(line.qty);
       const unitCost = qty4(net.times(factor).div(baseQty));
+      const toQc = !!quarantine.warehouseId && quarantine.required.has(line.productId) && quarantine.warehouseId !== order.warehouseId;
       const moved = await this.stock.move(tx, {
         tenantId: user.tenantId,
         productId: line.productId,
-        warehouseId: order.warehouseId,
+        warehouseId: toQc ? quarantine.warehouseId! : order.warehouseId,
+        skipAccessCheck: toQc,
         type: 'PURCHASE',
         qty: baseQty,
         unitCost,
@@ -177,6 +183,7 @@ export class GoodsReceiptsService {
         value: moved.value.toFixed(2),
       });
       await tx.update(purchaseOrderLines).set({ receivedQty: sql`${purchaseOrderLines.receivedQty} + ${qty.toFixed(4)}` }).where(eq(purchaseOrderLines.id, line.id));
+      if (toQc) await this.qc.createForReceiptTx(tx, user, { receiptId: receipt.id, productId: line.productId, warehouseId: quarantine.warehouseId!, releaseWarehouseId: order.warehouseId, qty: baseQty.toFixed(4), unitCost: unitCost.toFixed(4), lot: { lotNo: lot?.lotNo, expiryDate: lot?.expiryDate } });
     }
     total = money(total);
     const journal = await this.posting.post(tx, {
@@ -256,6 +263,8 @@ export class GoodsReceiptsService {
       if (receipt.status === 'CANCELLED') throw new BadRequestException('Penerimaan sudah dibatalkan');
       if (receipt.autoInvoiceId) throw new BadRequestException('Penerimaan ini dibuat bersama faktur; koreksi lewat retur pembelian');
       if (receipt.lines.some((l) => D(l.billedQty).gt(0))) throw new BadRequestException('Sebagian barang sudah difakturkan; koreksi lewat retur pembelian');
+      const qcRows = await tx.execute(sql`SELECT 1 FROM qc_inspections WHERE receipt_id = ${id} LIMIT 1`);
+      if (qcRows.rows.length) throw new BadRequestException('Penerimaan ini sudah memiliki inspeksi QC (barang di karantina atau sudah diputuskan); selesaikan lewat Pengendalian mutu');
       await this.orders.lock(tx, user.tenantId, receipt.purchaseOrderId);
       let out: Dec = ZERO;
       for (const l of receipt.lines) {

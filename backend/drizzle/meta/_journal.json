@@ -666,6 +666,20 @@
       "when": 1796495886484,
       "tag": "0094_manufaktur_mutu_mesin",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1796582286484,
+      "tag": "0095_jasa_lanjutan",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1796668686484,
+      "tag": "0096_manufaktur_lanjutan",
+      "breakpoints": true
     }
   ]
 }

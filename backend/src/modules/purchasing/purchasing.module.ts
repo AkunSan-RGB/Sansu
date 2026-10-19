@@ -6,6 +6,7 @@ import { AssetsModule } from '../assets/assets.module';
 import { FxModule } from '../fx/fx.module';
 import { AccountingModule } from '../accounting/accounting.module';
 import { InventoryModule } from '../inventory/inventory.module';
+import { ProductionModule } from '../production/production.module';
 import { GoodsReceiptsService } from './goods-receipts.service';
 import { PurchaseInvoicesService } from './purchase-invoices.service';
 import { PurchaseRequestsService } from './purchase-requests.service';
@@ -14,7 +15,7 @@ import { GoodsReceiptsController, PurchaseInvoicesController, PurchaseOrdersCont
 import { SuppliersService } from './suppliers.service';
 
 @Module({
-  imports: [AccountingModule, InventoryModule, AssetsModule, FxModule],
+  imports: [AccountingModule, InventoryModule, AssetsModule, FxModule, ProductionModule],
   controllers: [ShoppingListController, PriceAgreementsController, PurchaseControlsController, SuppliersController, PurchaseOrdersController, GoodsReceiptsController, PurchaseInvoicesController, PurchaseRequestsController],
   providers: [ShoppingListService, PriceAgreementsService, PurchaseControlsService, SuppliersService, PurchaseOrdersService, GoodsReceiptsService, PurchaseInvoicesService, PurchaseRequestsService],
   exports: [PurchaseOrdersService, PurchaseInvoicesService, PurchaseRequestsService, SuppliersService],

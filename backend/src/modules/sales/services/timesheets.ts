@@ -50,6 +50,19 @@ export class UpdateTimeEntryDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MinLength(3) @MaxLength(300) description?: string;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() billable?: boolean;
 }
+export class TimerStartDto {
+  @ApiPropertyOptional({ description: 'Kosong = karyawan yang terhubung dengan akun Anda' }) @IsOptional() @IsUUID() employeeId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsUUID() projectId?: string;
+  @ApiPropertyOptional({ description: 'Wajib bila tanpa proyek' }) @IsOptional() @IsUUID() customerId?: string;
+  @ApiProperty() @IsString() @MinLength(3) @MaxLength(300) description: string;
+  @ApiPropertyOptional({ default: true }) @IsOptional() @IsBoolean() billable?: boolean;
+}
+export class TimerWhoDto {
+  @ApiPropertyOptional({ description: 'Kosong = karyawan yang terhubung dengan akun Anda' }) @IsOptional() @IsUUID() employeeId?: string;
+}
+export class TimerDiscardDto extends TimerWhoDto {
+  @ApiProperty() @IsString() @MinLength(5) @MaxLength(255) reason: string;
+}
 export class IdsDto {
   @ApiProperty({ type: [String] }) @IsArray() @ArrayMinSize(1) @ArrayMaxSize(200) @IsUUID('all', { each: true }) ids: string[];
 }
@@ -364,6 +377,77 @@ export class TimesheetService {
     return { ...inv, entries: ids.length, amount: money(total).toFixed(2) };
   }
 
+  // ---------- timer ----------
+  /** Satu timer berjalan per karyawan. Saat dihentikan menjadi draf catatan waktu (dibulatkan ke atas per 15 menit); jam tidak diketik. */
+  private async timerOwner(u: AuthUser, employeeId?: string) {
+    const own = await this.ownEmployee(this.db, u);
+    const emp = employeeId ?? own;
+    if (!emp) throw new BadRequestException('Akun Anda belum terhubung dengan data karyawan; pilih karyawan atau minta Admin menghubungkannya');
+    if (emp !== own && !isPriv(u)) throw new ForbiddenException('Anda hanya dapat memakai timer untuk diri sendiri');
+    return emp;
+  }
+
+  async timer(u: AuthUser, employeeId?: string) {
+    const emp = await this.timerOwner(u, employeeId);
+    const r = await this.db.execute(sql`SELECT t.id, t.employee_id AS "employeeId", t.customer_id AS "customerId", c.name AS "customerName", t.project_id AS "projectId", t.description, t.billable, t.started_at AS "startedAt", EXTRACT(EPOCH FROM (now() - t.started_at))::int AS "elapsedSeconds" FROM time_timers t JOIN customers c ON c.id = t.customer_id WHERE t.tenant_id = ${u.tenantId} AND t.employee_id = ${emp}`);
+    return r.rows[0] ?? null;
+  }
+
+  async startTimer(u: AuthUser, dto: TimerStartDto) {
+    const emp = await this.timerOwner(u, dto.employeeId);
+    let customerId = dto.customerId ?? null;
+    let projectId: string | null = null;
+    if (dto.projectId) {
+      const p = (await this.db.execute<{ id: string; customer_id: string; status: string }>(sql`SELECT id, customer_id, status FROM projects WHERE id = ${dto.projectId} AND tenant_id = ${u.tenantId}`)).rows[0];
+      if (!p) throw new BadRequestException('Proyek tidak ditemukan');
+      if (p.status !== 'ACTIVE') throw new BadRequestException('Proyek sudah selesai / dibatalkan');
+      if (customerId && customerId !== p.customer_id) throw new BadRequestException('Proyek ini milik pelanggan lain');
+      customerId = p.customer_id;
+      projectId = p.id;
+    }
+    if (!customerId) throw new BadRequestException('Pilih proyek atau pelanggan');
+    const c = await this.db.execute(sql`SELECT 1 FROM customers WHERE id = ${customerId} AND tenant_id = ${u.tenantId}`);
+    if (!c.rows.length) throw new BadRequestException('Pelanggan tidak ditemukan');
+    try {
+      await this.db.execute(sql`INSERT INTO time_timers (tenant_id, employee_id, project_id, customer_id, description, billable, created_by_id) VALUES (${u.tenantId}, ${emp}, ${projectId}, ${customerId}, ${dto.description.trim()}, ${dto.billable ?? true}, ${u.sub})`);
+    } catch (e) {
+      if (((e as { code?: string }).code ?? (e as { cause?: { code?: string } }).cause?.code) === '23505') throw new BadRequestException('Timer karyawan ini masih berjalan; hentikan atau buang dulu');
+      throw e;
+    }
+    return this.timer(u, emp);
+  }
+
+  async stopTimer(u: AuthUser, dto: TimerWhoDto) {
+    const emp = await this.timerOwner(u, dto.employeeId);
+    // DELETE ... RETURNING atomik: dua permintaan henti bersamaan hanya satu yang mendapat baris
+    const t = (await this.db.execute<{ project_id: string | null; customer_id: string; description: string; billable: boolean; started_at: Date; created_by_id: string }>(sql`DELETE FROM time_timers WHERE tenant_id = ${u.tenantId} AND employee_id = ${emp} RETURNING project_id, customer_id, description, billable, started_at, created_by_id`)).rows[0];
+    if (!t) throw new BadRequestException('Tidak ada timer yang berjalan');
+    const restore = () => this.db.execute(sql`INSERT INTO time_timers (tenant_id, employee_id, project_id, customer_id, description, billable, started_at, created_by_id) VALUES (${u.tenantId}, ${emp}, ${t.project_id}, ${t.customer_id}, ${t.description}, ${t.billable}, ${new Date(t.started_at).toISOString()}, ${t.created_by_id}) ON CONFLICT DO NOTHING`);
+    const hoursRaw = (Date.now() - new Date(t.started_at).getTime()) / 3_600_000;
+    if (hoursRaw > MAX_HOURS_PER_DAY) {
+      await restore();
+      throw new BadRequestException(`Timer berjalan ${hoursRaw.toFixed(1)} jam (lebih dari ${MAX_HOURS_PER_DAY}); buang timer dengan alasan lalu catat jamnya manual`);
+    }
+    const hours = Math.max(0.25, Math.ceil(hoursRaw * 4) / 4);
+    const workDate = new Date(new Date(t.started_at).getTime() + 7 * 3600_000).toISOString().slice(0, 10);
+    try {
+      const entry = await this.create(u, { employeeId: emp, projectId: t.project_id ?? undefined, customerId: t.customer_id, workDate, hours: hours.toFixed(2), description: t.description, billable: t.billable });
+      await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'TimeTimer', entityId: (entry as { id: string }).id, data: { startedAt: t.started_at, hours: hours.toFixed(2) } });
+      return entry;
+    } catch (e) {
+      await restore(); // pencatatan gagal (mis. melebihi batas jam harian): timer tidak hilang
+      throw e;
+    }
+  }
+
+  async discardTimer(u: AuthUser, dto: TimerWhoDto & { reason: string }) {
+    const emp = await this.timerOwner(u, dto.employeeId);
+    const r = await this.db.execute(sql`DELETE FROM time_timers WHERE tenant_id = ${u.tenantId} AND employee_id = ${emp} RETURNING started_at`);
+    if (!r.rows.length) throw new BadRequestException('Tidak ada timer yang berjalan');
+    await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'DELETE', entity: 'TimeTimer', entityId: emp, data: { reason: dto.reason, startedAt: (r.rows[0] as { started_at: Date }).started_at } });
+    return { ok: true };
+  }
+
   // ---------- kontrol dan laporan ----------
   async controls(tenantId: string) {
     const q = async (text: ReturnType<typeof sql>) => (await this.db.execute(text)).rows;
@@ -408,6 +492,11 @@ export class TimesheetController {
   @Roles('ADMIN', 'FINANCE') @Post('entries/:id/approve') approve(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ApproveDto) { return this.svc.approve(u, id, dto); }
   @Roles('ADMIN', 'FINANCE') @Post('entries/:id/reject') reject(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto) { return this.svc.reject(u, id, dto); }
   @Roles('ADMIN') @Post('entries/:id/write-off') writeOff(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto) { return this.svc.writeOff(u, id, dto); }
+
+  @Get('timer') timer(@CurrentUser() u: AuthUser, @Query() q: TimerWhoDto) { return this.svc.timer(u, q.employeeId); }
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE') @Post('timer/start') startTimer(@CurrentUser() u: AuthUser, @Body() dto: TimerStartDto) { return this.svc.startTimer(u, dto); }
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE') @Post('timer/stop') stopTimer(@CurrentUser() u: AuthUser, @Body() dto: TimerWhoDto) { return this.svc.stopTimer(u, dto); }
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE') @Post('timer/discard') discardTimer(@CurrentUser() u: AuthUser, @Body() dto: TimerDiscardDto) { return this.svc.discardTimer(u, dto); }
 
   @Get('rates') rates(@CurrentUser() u: AuthUser) { return this.svc.rates(u.tenantId); }
   @Roles('ADMIN', 'FINANCE') @Post('rates') createRate(@CurrentUser() u: AuthUser, @Body() dto: RateDto) { return this.svc.createRate(u, dto); }

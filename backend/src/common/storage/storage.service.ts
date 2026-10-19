@@ -12,12 +12,16 @@ import { BadRequestException, Global, Injectable, Logger, Module, NotFoundExcept
 import { randomUUID } from 'node:crypto';
 
 const DATA_URL = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/;
+const DOC_URL = /^data:(image\/(?:png|jpeg|webp)|application\/pdf);base64,([A-Za-z0-9+/=]+)$/;
 export const MAX_IMAGE_BYTES = 350_000;
-const EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
-const KEY_RE = /^[0-9a-f-]{36}\/[a-z-]+\/[0-9a-f-]{36}\.(png|jpg|webp)$/;
+/** Dokumen PDF (mis. sertifikat analisis); hanya untuk kegunaan yang membuka `docs` */
+export const MAX_PDF_BYTES = 800_000;
+const EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'application/pdf': 'pdf' };
+const KEY_RE = /^[0-9a-f-]{36}\/[a-z-]+\/[0-9a-f-]{36}\.(png|jpg|webp|pdf)$/;
 
 /** Tanda tangan berkas asli: isi harus sungguh gambar, bukan sekadar berlabel gambar */
 function looksLike(mime: string, b: Buffer) {
+  if (mime === 'application/pdf') return b.length > 5 && b.subarray(0, 5).toString() === '%PDF-';
   if (mime === 'image/png') return b.length > 8 && b.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
   if (mime === 'image/jpeg') return b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
   return b.length > 12 && b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP';
@@ -48,12 +52,13 @@ export class StorageService {
   }
 
   /** Periksa data URL gambar (jenis, ukuran, isi) dan kembalikan bytes-nya */
-  parse(dataUrl: string) {
-    const m = DATA_URL.exec(dataUrl);
-    if (!m) throw new BadRequestException('Gambar harus png/jpeg/webp');
+  parse(dataUrl: string, opts: { docs?: boolean } = {}) {
+    const m = (opts.docs ? DOC_URL : DATA_URL).exec(dataUrl);
+    if (!m) throw new BadRequestException(opts.docs ? 'Berkas harus gambar png/jpeg/webp atau PDF' : 'Gambar harus png/jpeg/webp');
     const buf = Buffer.from(m[2], 'base64');
-    if (buf.length > MAX_IMAGE_BYTES) throw new BadRequestException('Gambar terlalu besar');
-    if (!looksLike(m[1], buf)) throw new BadRequestException('Isi berkas bukan gambar yang valid');
+    const pdf = m[1] === 'application/pdf';
+    if (buf.length > (pdf ? MAX_PDF_BYTES : MAX_IMAGE_BYTES)) throw new BadRequestException(pdf ? 'PDF terlalu besar (maksimal 800 KB)' : 'Gambar terlalu besar');
+    if (!looksLike(m[1], buf)) throw new BadRequestException(pdf ? 'Isi berkas bukan PDF yang valid' : 'Isi berkas bukan gambar yang valid');
     return { mime: m[1], buf };
   }
 
@@ -61,9 +66,9 @@ export class StorageService {
    * Simpan gambar dan kembalikan nilai untuk kolom basis data.
    * Penyimpanan nonaktif → data URL dikembalikan apa adanya (setelah divalidasi).
    */
-  async store(tenantId: string, kind: string, dataUrl: string | null | undefined): Promise<string | null> {
+  async store(tenantId: string, kind: string, dataUrl: string | null | undefined, opts: { docs?: boolean } = {}): Promise<string | null> {
     if (!dataUrl) return null;
-    const { mime, buf } = this.parse(dataUrl);
+    const { mime, buf } = this.parse(dataUrl, opts);
     if (!this.enabled) return dataUrl;
     const key = `${tenantId}/${kind}/${randomUUID()}.${EXT[mime]}`;
     await this.s3().send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: buf, ContentType: mime, ContentLength: buf.length }));

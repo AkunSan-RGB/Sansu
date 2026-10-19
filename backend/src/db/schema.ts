@@ -4141,6 +4141,10 @@ export const schedulingResources = pgTable(
     employeeId: uuid('employee_id').references(() => employees.id),
     note: text('note'),
     isActive: boolean('is_active').notNull().default(true),
+    /** Jam kerja (WIB) dan hari kerja (1 = Senin … 7 = Minggu, dipisah koma) */
+    workStart: integer('work_start').notNull().default(8),
+    workEnd: integer('work_end').notNull().default(17),
+    workDays: text('work_days').notNull().default('1,2,3,4,5,6'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('scheduling_resources_name_uq').on(t.tenantId, sql`lower(${t.name})`)],
@@ -4162,8 +4166,69 @@ export const resourceBookings = pgTable(
     status: text('status').$type<'BOOKED' | 'DONE' | 'CANCELLED'>().notNull().default('BOOKED'),
     note: text('note'),
     cancelReason: text('cancel_reason'),
+    /** Pemesanan berulang: satu seri berbagi series_id */
+    seriesId: uuid('series_id'),
+    /** Di luar jam/hari kerja sumber daya (hanya Admin/Pemilik yang boleh) */
+    offHours: boolean('off_hours').notNull().default(false),
     createdById: uuid('created_by_id').notNull(),
     createdAt: createdAt(),
   },
   (t) => [index('resource_bookings_range_idx').on(t.tenantId, t.resourceId, t.startsAt)],
+);
+
+
+/** Timer jam kerja: satu timer berjalan per karyawan; saat dihentikan menjadi draf catatan waktu */
+export const timeTimers = pgTable(
+  'time_timers',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => employees.id),
+    projectId: uuid('project_id').references(() => projects.id),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    description: text('description').notNull(),
+    billable: boolean('billable').notNull().default(true),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    createdById: uuid('created_by_id').notNull(),
+  },
+  (t) => [uniqueIndex('time_timers_emp_uq').on(t.tenantId, t.employeeId)],
+);
+
+/** Retainer: biaya tetap bulanan per pelanggan; satu faktur per periode */
+export const serviceRetainers = pgTable('service_retainers', {
+  id: id(),
+  tenantId: tenantId(),
+  customerId: uuid('customer_id')
+    .notNull()
+    .references(() => customers.id),
+  projectId: uuid('project_id').references(() => projects.id),
+  title: text('title').notNull(),
+  monthlyFee: money('monthly_fee').notNull(),
+  withVat: boolean('with_vat'),
+  startDate: date('start_date').notNull(),
+  endDate: date('end_date'),
+  isActive: boolean('is_active').notNull().default(true),
+  createdById: uuid('created_by_id').notNull(),
+  createdAt: createdAt(),
+});
+
+export const serviceRetainerInvoices = pgTable(
+  'service_retainer_invoices',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    retainerId: uuid('retainer_id')
+      .notNull()
+      .references(() => serviceRetainers.id),
+    period: text('period').notNull(),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => invoices.id),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('service_retainer_invoices_uq').on(t.retainerId, t.period)],
 );
