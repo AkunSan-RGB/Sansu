@@ -31,3 +31,11 @@ Setiap laporan ada di menu bidangnya, tepat di atas menu kontrolnya: Penjualan �
 | F&B (Kasir (POS) › Laporan F&B) | F&B | Penjualan per menu dan jenis pesanan, pajak (PB1/PBJT atau PPN), pesanan online per kanal dan pencairan, bahan terpakai vs resep | Pajak daerah vs akun pajak daerah; pesanan online belum cair vs Piutang Platform; HPP pesanan vs akun HPP; jumlah bahan yang pemakaiannya sama dengan resep |
 
 Batasan: bahan terpakai dihitung dengan resep aktif saat laporan dibuka (resep yang diubah setelah penjualan menimbulkan selisih), dan retur kasir tidak dikurangkan dari pemakaian bahan. Jenis usaha lain (Jasa, FMCG, Manufaktur, Utilitas) belum punya laporan khusus.
+
+### FMCG (Penjualan › Laporan FMCG)
+
+Isi: penjualan per sales, target dan komisi, pemakaian promo dan klaim prinsipal, rebate/trade promo outlet, tukar-guling, sisa titipan konsinyasi, dan setoran tagihan kanvas per sales.
+
+Pencocokan buku besar: komisi ditutup pada periode vs beban komisi; komisi belum dibayar vs utang komisi; sisa rebate outlet vs utang rebate; klaim disetujui belum cair vs piutang prinsipal; biaya tukar-guling vs akun kerugian; kurang setor kanvas vs piutang karyawan.
+
+Batasan: pencocokan saldo (utang komisi, utang rebate, piutang klaim) dibandingkan per hari ini karena status dokumen tidak menyimpan riwayat; sisa titipan konsinyasi memakai saldo stok gudang konsinyasi tanpa nilai rupiah.
