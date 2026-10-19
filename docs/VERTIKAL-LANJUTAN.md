@@ -125,3 +125,21 @@ Menu: Pendapatan jasa › *Lembar waktu* dan *Jadwal sumber daya*. Lembar waktu 
 - Pencarian slot kosong pada jam kerja 08.00–17.00 WIB (Senin–Sabtu). Pemesanan orang yang sudah berlangsung dapat dijadikan **draf catatan waktu** sekali saja.
 - Kontrol: orang dijadwalkan > 10 jam sehari; pemesanan lewat > 1 hari belum diselesaikan.
 - **Belum ada:** penjadwalan berulang, sinkronisasi kalender (Google/Outlook), memeriksa bentrok dengan cuti/hari libur karyawan, pengaturan jam kerja per sumber daya (jam kerja tetap 08–17 WIB), penagihan berdasarkan tarif paket/retainer, timer otomatis (jam diisi manual).
+
+## Manufaktur — pengendalian mutu, jadwal mesin, biaya per operasi (`backend/src/modules/production/work-centers.ts`, `qc.ts`)
+Menu: Produksi › *Pusat kerja & jadwal mesin* dan *Pengendalian mutu (QC)*; operasi muncul di rincian Resep dan Perintah produksi.
+
+**Pusat kerja, jadwal mesin, biaya per operasi**
+- **Pusat kerja** (mesin/lini/stasiun, Admin): tarif upah dan overhead per jam, kapasitas jam/hari, jadwal mesin mati/perawatan.
+- **Operasi resep:** urutan operasi (pusat kerja + menit per batch). Perintah produksi menyalin operasinya (menit × batch).
+- **Jadwal mesin:** bentrok antar operasi atau dengan mesin mati ditolak (409, dengan daftar yang bertabrakan), termasuk penjadwalan bersamaan (baris pusat kerja dikunci); urutan operasi dijaga (tidak boleh mulai sebelum operasi sebelumnya selesai).
+- **Pelaksanaan:** operasi dimulai setelah operasi sebelumnya selesai dan perintah dimulai; satu pusat kerja satu operasi berjalan; aktual > 150% rencana wajib catatan; koreksi hanya Admin dengan alasan dan hanya sebelum perintah selesai.
+- **Biaya:** upah dan overhead operasi = jam aktual × tarif pusat kerja (snapshot saat selesai). Bila resep beroperasi, biaya konversi perintah dihitung dari operasi dan **tidak boleh diketik**; perintah tidak bisa diselesaikan sebelum semua operasinya selesai. Rincian biaya per operasi di endpoint `/production/orders/:id/costing`.
+- **Kontrol:** hari melebihi kapasitas, operasi lewat jadwal belum dimulai, dijadwalkan saat mesin mati, aktual > 150% rencana, perintah tak terjadwal; pemakaian pusat kerja (jam aktual vs rencana, biaya).
+
+**Pengendalian mutu (QC)**
+- **Rencana QC** per produk (Admin): parameter angka (batas min/maks) atau lulus/gagal, boleh kritis. Produk ditandai *wajib QC*.
+- **Karantina:** hasil produksi produk wajib QC masuk gudang Karantina (disiapkan sekali) dan inspeksi dibuat otomatis. Stok karantina **tidak bisa dijual, dipakai produksi, dikoreksi, atau dipindah** (dijaga di inti mutasi stok); keluar hanya lewat keputusan QC.
+- **Keputusan:** nilai lulus/gagal dihitung **server** dari angka ukur; parameter kritis gagal = seluruh lot gagal; sebagian lolos wajib catatan. Lolos dipindah ke gudang tujuan pada harga pokok yang sama. Inspektur harus orang lain dari yang menyelesaikan produksi (Pemilik dikecualikan).
+- **Lot gagal** tetap di karantina; dibuang (scrap) hanya oleh Admin, orang lain dari inspektur, dengan alasan, dan dijurnal sebagai selisih persediaan. Kontrol: inspeksi menunggu > 1 hari, lot gagal di karantina, tingkat gagal per produk.
+- **Belum ada:** pengambilan sampel statistik (AQL), sertifikat analisis/lampiran foto, inspeksi barang masuk dari pemasok, rework (perbaikan lalu inspeksi ulang), penjadwalan beban terbatas otomatis (jadwal diatur manual), shift dan kalender kerja per mesin (kapasitas hanya jam/hari).

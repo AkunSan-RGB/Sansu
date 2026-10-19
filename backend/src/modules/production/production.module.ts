@@ -58,6 +58,8 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { inventoryLines, semiSet } from '../inventory/inventory-accounts';
 import { StockService } from '../inventory/stock.service';
 import { ManufacturingService, PlanDto, RequirementsDto, VarianceQueryDto } from './manufacturing.service';
+import { WorkCenterController, WorkCenterService } from './work-centers';
+import { QcController, QcService } from './qc';
 
 // ---------- DTO ----------
 export class BomLineDto {
@@ -142,6 +144,8 @@ export class ProductionService {
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
     private readonly workflow: WorkflowService,
+    private readonly workCenters: WorkCenterService,
+    private readonly qc: QcService,
   ) {}
 
   /** Biaya rata-rata per satuan dasar seluruh gudang (untuk taksiran harga pokok resep) */
@@ -446,6 +450,7 @@ export class ProductionService {
             plannedQty: qty4(D(l.qty).times(batches)).toFixed(4),
           })),
         );
+      await this.workCenters.copyToOrder(tx, user.tenantId, b.id, o.id, batches.toNumber());
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,
@@ -552,18 +557,24 @@ export class ProductionService {
           'Hasil produksi harus > 0. Bila gagal total, batalkan produksi atau catat sebagai kerugian.',
         );
       const [b] = await tx.select().from(boms).where(eq(boms.id, o.bomId));
-      const labor = money(dto.laborCost ?? D(b.laborCost).times(o.batches));
-      const overhead = money(dto.overheadCost ?? D(b.overheadCost).times(o.batches));
+      // resep beroperasi: biaya konversi = jumlah biaya operasi (jam aktual × tarif pusat kerja), tidak boleh diketik
+      const ops = await this.workCenters.orderConversionCost(tx, user.tenantId, id);
+      if (ops && (dto.laborCost !== undefined || dto.overheadCost !== undefined)) throw new BadRequestException('Biaya upah dan overhead dihitung dari operasi pusat kerja; koreksi lewat operasinya (Admin)');
+      const labor = ops ? money(ops.labor) : money(dto.laborCost ?? D(b.laborCost).times(o.batches));
+      const overhead = ops ? money(ops.overhead) : money(dto.overheadCost ?? D(b.overheadCost).times(o.batches));
       if (labor.isNegative() || overhead.isNegative()) throw new BadRequestException('Biaya tidak boleh negatif');
       const material = D(o.materialCost);
       const total = material.plus(labor).plus(overhead);
       const unitCost = qty4(total.div(out));
       // Barang dengan umur simpan: hasil produksi menjadi lot dengan tanggal kedaluwarsa = tanggal selesai + umur simpan
-      const [prod] = await tx.select({ shelf: products.shelfLifeDays }).from(products).where(eq(products.id, o.productId));
+      const [prod] = await tx.select({ shelf: products.shelfLifeDays, qc: products.qcRequired }).from(products).where(eq(products.id, o.productId));
+      // produk wajib QC: hasil masuk gudang karantina dulu, bukan gudang tujuan
+      const quarantineId = prod?.qc ? await this.qc.quarantineWarehouse(tx, user.tenantId) : null;
+      if (prod?.qc && !quarantineId) throw new BadRequestException('Produk ini wajib QC tetapi gudang karantina belum disiapkan (Pengendalian mutu › Siapkan karantina)');
       const moved = await this.stock.move(tx, {
         tenantId: user.tenantId,
         productId: o.productId,
-        warehouseId: o.warehouseId,
+        warehouseId: quarantineId ?? o.warehouseId,
         type: 'PRODUCTION_OUTPUT',
         qty: out,
         unitCost,
@@ -605,6 +616,7 @@ export class ProductionService {
           completeJournalId: j.id,
         })
         .where(eq(productionOrders.id, id));
+      if (quarantineId) await this.qc.createForOrderTx(tx, user, { orderId: o.id, productId: o.productId, warehouseId: quarantineId, releaseWarehouseId: o.warehouseId, qty: out.toFixed(4), unitCost: unitCost.toFixed(4) });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,
@@ -624,6 +636,7 @@ export class ProductionService {
       const o = await this.lock(tx, user.tenantId, id);
       if (o.status === 'COMPLETED' || o.status === 'CANCELLED')
         throw new BadRequestException('Produksi yang sudah selesai / batal tidak bisa dibatalkan');
+      await this.workCenters.cancelOrderOps(tx, user.tenantId, id);
       if (o.status === 'IN_PROGRESS') {
         if (date < (o.startedDate ?? o.date))
           throw new BadRequestException('Tanggal batal tidak boleh sebelum tanggal mulai');
@@ -854,7 +867,7 @@ export class ProductionController {
 
 @Module({
   imports: [AccountingModule, InventoryModule],
-  controllers: [ProductionController],
-  providers: [ProductionService, ManufacturingService],
+  controllers: [ProductionController, WorkCenterController, QcController],
+  providers: [ProductionService, ManufacturingService, WorkCenterService, QcService],
 })
 export class ProductionModule {}

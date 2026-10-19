@@ -659,6 +659,13 @@
       "when": 1796409486484,
       "tag": "0093_jasa_timesheet_jadwal",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1796495886484,
+      "tag": "0094_manufaktur_mutu_mesin",
+      "breakpoints": true
     }
   ]
 }

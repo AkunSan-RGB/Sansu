@@ -96,6 +96,8 @@ import PromosPage from './features/pricing/PromosPage';
 import SalesTargetsPage from './features/pricing/SalesTargetsPage';
 import MovementPage from './features/inventory/MovementPage';
 import BomsPage from './features/production/BomsPage';
+import WorkCentersPage from './features/production/WorkCentersPage';
+import QcPage from './features/production/QcPage';
 import MaterialRequirementsPage from './features/production/MaterialRequirementsPage';
 import ProductionVariancePage from './features/production/ProductionVariancePage';
 import ProductionOrdersPage from './features/production/ProductionOrdersPage';
@@ -232,6 +234,8 @@ export default function App() {
           <Route path="sales-targets" element={<SalesTargetsPage />} />
           <Route path="production/boms" element={<BomsPage />} />
           <Route path="production/orders" element={<ProductionOrdersPage />} />
+          <Route path="production/work-centers" element={<WorkCentersPage />} />
+          <Route path="production/qc" element={<QcPage />} />
           <Route path="production/report" element={<ProductionReportPage />} />
           <Route path="production/requirements" element={<MaterialRequirementsPage />} />
           <Route path="production/variance" element={<ProductionVariancePage />} />

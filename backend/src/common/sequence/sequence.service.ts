@@ -55,6 +55,7 @@ export const DOC_PREFIX = {
   DELIVERY_TRIP: 'RTE',
   UTILITY_REMITTANCE: 'STL',
   POS_CARD_SETTLEMENT: 'PCS',
+  QC_INSPECTION: 'QC',
 } as const;
 
 export type DocType = keyof typeof DOC_PREFIX;

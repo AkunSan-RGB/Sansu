@@ -202,6 +202,8 @@ const MENU: Group[] = [
       { key: '/production/boms', label: t('Resep (BOM)'), roles: ['OWNER', 'ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/production/requirements', label: 'Kebutuhan bahan (MRP)', models: ['MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/production/orders', label: 'Perintah produksi', roles: ['OWNER', 'ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT'] },
+      { key: '/production/work-centers', label: 'Pusat kerja & jadwal mesin', models: ['MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT'] },
+      { key: '/production/qc', label: 'Pengendalian mutu (QC)', models: ['MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/production/report', label: 'Harga pokok produksi', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/production/variance', label: 'Analisis selisih', models: ['MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/support-reports?kind=mfg', label: 'Laporan produksi', models: ['MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },

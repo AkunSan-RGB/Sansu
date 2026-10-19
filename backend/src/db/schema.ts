@@ -207,6 +207,8 @@ export const warehouses = pgTable(
     kind: text('kind').$type<'MAIN' | 'CONSIGNMENT' | 'VAN'>().notNull().default('MAIN'),
     consigneeCustomerId: uuid('consignee_customer_id'),
     vanUserId: uuid('van_user_id'),
+    /** Gudang karantina: hasil produksi yang wajib QC menunggu di sini; stoknya tidak bisa dijual/dipakai sebelum lolos QC */
+    isQuarantine: boolean('is_quarantine').notNull().default(false),
   },
   (t) => [
     uniqueIndex('warehouses_code_uq').on(t.tenantId, t.code),
@@ -251,6 +253,8 @@ export const products = pgTable(
     madeToOrder: boolean('made_to_order').notNull().default(false),
     /** Umur simpan (hari): hasil produksi barang ini otomatis mendapat lot dengan tanggal kedaluwarsa = tanggal selesai + umur simpan */
     shelfLifeDays: integer('shelf_life_days'),
+    /** Hasil produksi barang ini wajib diinspeksi QC (masuk karantina dulu) */
+    qcRequired: boolean('qc_required').notNull().default(false),
     /** Berat per satuan dasar (kg): dasar muatan rute pengiriman; kosong = belum diisi */
     weightKg: numeric('weight_kg', { precision: 18, scale: 3 }),
     isActive: boolean('is_active').notNull().default(true),

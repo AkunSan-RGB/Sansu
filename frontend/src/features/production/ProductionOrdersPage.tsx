@@ -26,6 +26,7 @@ import { useCan } from '@/auth/useCan';
 import ListPage from '@/components/ListPage';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
 import { t } from '@/lib/terms';
+import { OrderOperations } from './OperationsPanels';
 
 const COLOR: Record<ProductionStatus, string> = {
   DRAFT: 'default',
@@ -195,6 +196,7 @@ function CreateModal({
   );
 }
 
+
 function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   const can = useCan();
   const { modal } = App.useApp();
@@ -308,6 +310,8 @@ function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               },
             ]}
           />
+
+          <OrderOperations orderId={id} />
 
           {o.status === 'DRAFT' && (
             <Space style={{ marginTop: 16 }} wrap>
