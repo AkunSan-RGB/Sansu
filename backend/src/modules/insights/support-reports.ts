@@ -248,31 +248,34 @@ export class SupportReportsService {
         FROM purchase_invoices i JOIN suppliers s ON s.id = i.supplier_id WHERE i.tenant_id = ${tenantId} AND i.date <= ${to}) x
       WHERE x.open > 0.5 GROUP BY x.name ORDER BY SUM(x.open) DESC LIMIT ${CAP}`);
     const agingRows: Cell[][] = apAging.map((r) => [r.name, num(r.b0), num(r.b1), num(r.b2), num(r.b3), num(r.b4), num(r.b0) + num(r.b1) + num(r.b2) + num(r.b3) + num(r.b4)]);
-    const today = todayJakarta();
+    // Per tanggal akhir: penerimaan sampai tanggal itu (tanpa yang sudah dibatalkan saat itu) dikurangi penagihan sampai tanggal itu
+    const notCancelled = sql`NOT EXISTS (SELECT 1 FROM journal_entries cj WHERE cj.tenant_id = g.tenant_id AND cj.source_type = 'GOODS_RECEIPT' AND cj.source_id = g.id::text AND cj.id IS DISTINCT FROM g.journal_id AND cj.date <= ${to})`;
+    const billedTo = sql`COALESCE((SELECT SUM(b.value) FROM goods_receipt_billings b WHERE b.receipt_id = g.id AND b.date <= ${to}), 0)`;
     const grni = await this.rows<{ number: string; d: string; supplier: string; po: string; value: string; billed: string; age: number }>(sql`
-      SELECT g.number, g.date::text AS d, s.name AS supplier, o.number AS po, g.value::text AS value, COALESCE((SELECT SUM(l.billed_value) FROM goods_receipt_lines l WHERE l.receipt_id = g.id), 0)::text AS billed, (${today}::date - g.date)::int AS age
+      SELECT g.number, g.date::text AS d, s.name AS supplier, o.number AS po, g.value::text AS value, ${billedTo}::text AS billed, (${to}::date - g.date)::int AS age
       FROM goods_receipts g JOIN suppliers s ON s.id = g.supplier_id JOIN purchase_orders o ON o.id = g.purchase_order_id
-      WHERE g.tenant_id = ${tenantId} AND g.status = 'RECEIVED' AND g.date <= ${today}
-        AND g.value - COALESCE((SELECT SUM(l.billed_value) FROM goods_receipt_lines l WHERE l.receipt_id = g.id), 0) > 0.5 ORDER BY g.date LIMIT ${CAP}`);
+      WHERE g.tenant_id = ${tenantId} AND g.auto_invoice_id IS NULL AND g.date <= ${to} AND ${notCancelled} AND g.value - ${billedTo} > 0.5
+      ORDER BY g.date LIMIT ${CAP}`);
     const grniRows: Cell[][] = grni.map((r) => [r.number, r.d, r.supplier, r.po, r.age, num(r.value), num(r.billed), num(r.value) - num(r.billed)]);
     const [grniDoc] = await this.rows<{ v: string }>(sql`
-      SELECT COALESCE(SUM(g.value - COALESCE((SELECT SUM(l.billed_value) FROM goods_receipt_lines l WHERE l.receipt_id = g.id), 0)), 0)::text AS v
-      FROM goods_receipts g WHERE g.tenant_id = ${tenantId} AND g.status = 'RECEIVED' AND g.date <= ${today}`);
-    const grniGl = -(await this.glBalance(tenantId, today, sql`a.system_key = 'GRNI'`));
+      SELECT COALESCE(SUM(g.value - ${billedTo}), 0)::text AS v
+      FROM goods_receipts g WHERE g.tenant_id = ${tenantId} AND g.auto_invoice_id IS NULL AND g.date <= ${to} AND ${notCancelled}`);
+    const [grniEst] = await this.rows<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM goods_receipt_billings WHERE tenant_id = ${tenantId} AND estimated AND date <= ${to}`);
+    const grniGl = -(await this.glBalance(tenantId, to, sql`a.system_key = 'GRNI'`));
     return {
       title: 'Laporan Pendukung Pembelian',
       summary: 'Rincian pembelian dari faktur pemasok dan retur, dicocokkan dengan akun utang usaha di buku besar.',
       reconciliation: [
         this.recon('purchases-ap-credit', 'Faktur pembelian vs kredit utang usaha', { label: 'Total faktur pemasok (dokumen)', value: Number(docs.tot) }, { label: 'Kredit akun Utang Usaha pada jurnal faktur', value: Number(gl.v) }, 'Selisih berarti jurnal faktur diubah di luar dokumen.'),
         this.recon('purchases-ap-balance', 'Sisa tagihan pemasok vs saldo utang usaha', { label: 'Sisa tagihan per faktur (rupiah)', value: Number(ap.v) }, { label: 'Saldo akun Utang Usaha di buku besar', value: apGl }, 'Selisih biasanya dari jurnal manual ke akun utang, faktur valas, atau utang tanpa faktur.'),
-        this.recon('purchases-grni', 'Barang diterima belum ditagih vs akun GRNI', { label: 'Penerimaan barang dikurangi yang sudah ditagih (per hari ini)', value: Number(grniDoc.v) }, { label: 'Saldo akun Barang Diterima Belum Ditagih per hari ini', value: grniGl }, 'Dibandingkan per hari ini karena status penagihan penerimaan tidak menyimpan riwayat. Selisih berarti jurnal manual ke akun GRNI atau penerimaan yang diubah di luar dokumen.'),
+        this.recon('purchases-grni', 'Barang diterima belum ditagih vs akun GRNI', { label: 'Penerimaan barang dikurangi penagihan (per tanggal akhir)', value: Number(grniDoc.v) }, { label: 'Saldo akun Barang Diterima Belum Ditagih per tanggal akhir', value: grniGl }, `Dihitung dari riwayat penagihan per tanggal faktur. Selisih berarti jurnal manual ke akun GRNI atau penerimaan yang diubah di luar dokumen.${grniEst.n ? ` ${grniEst.n} baris penagihan dari data lama tanggalnya diperkirakan (faktur terakhir pada pesanan itu).` : ''}`),
       ],
       sections: [
         { key: 'purchases-monthly', number: 'P1', title: 'Rekap pembelian per bulan', paragraphs: ['Menurut faktur pemasok pada periode, dikurangi retur pembelian.'], tables: [{ columns: ['Bulan', 'Faktur', 'Pembelian (DPP)', 'PPN masukan', 'PPh dipotong', 'Total dibayar', 'Retur (DPP)', 'Pembelian neto'], align: [L, R, R, R, R, R, R, R], rows: monthRows, total: monthRows.length ? ['Jumlah', sum(monthRows, 1), sum(monthRows, 2), sum(monthRows, 3), sum(monthRows, 4), sum(monthRows, 5), sum(monthRows, 6), sum(monthRows, 7)] : undefined }] },
         { key: 'purchases-supplier', number: 'P2', title: 'Pembelian per pemasok (100 teratas, sisanya digabung)', paragraphs: [], tables: [{ columns: ['Pemasok', 'Faktur', 'DPP', 'PPN', 'Total'], align: [L, R, R, R, R], rows: supplierRows, total: supplierRows.length ? ['Jumlah', sum(supplierRows, 1), sum(supplierRows, 2), sum(supplierRows, 3), sum(supplierRows, 4)] : undefined }] },
         { key: 'purchases-list', number: 'P3', title: 'Daftar faktur pembelian', paragraphs: [], tables: [{ columns: ['Nomor', 'No. faktur pemasok', 'Tanggal', 'Pemasok', 'Jenis', 'DPP', 'PPN', 'Total', 'Status'], align: [L, L, L, L, L, R, R, R, L], rows: listRows, total: listRows.length ? ['Jumlah', null, null, null, null, sum(listRows, 5), sum(listRows, 6), sum(listRows, 7), null] : undefined }] },
         { key: 'purchases-aging', number: 'P4', title: 'Umur utang usaha per pemasok', paragraphs: ['Sisa tagihan faktur pemasok rupiah per tanggal akhir menurut jatuh tempo.'], tables: [{ columns: ['Pemasok', 'Belum jatuh tempo', '1–30 hari', '31–60 hari', '61–90 hari', '> 90 hari', 'Total'], align: [L, R, R, R, R, R, R], rows: agingRows, total: agingRows.length ? ['Jumlah', sum(agingRows, 1), sum(agingRows, 2), sum(agingRows, 3), sum(agingRows, 4), sum(agingRows, 5), sum(agingRows, 6)] : undefined }] },
-        { key: 'purchases-grni', number: 'P5', title: 'Barang diterima belum ditagih', paragraphs: ['Penerimaan barang yang belum (seluruhnya) difaktur pemasok, per hari ini. Umur panjang menandakan faktur pemasok belum diterima atau belum diinput.'], tables: [{ columns: ['Penerimaan', 'Tanggal', 'Pemasok', 'PO', 'Umur (hari)', 'Nilai', 'Sudah ditagih', 'Belum ditagih'], align: [L, L, L, L, R, R, R, R], rows: grniRows, total: grniRows.length ? ['Jumlah', null, null, null, null, sum(grniRows, 5), sum(grniRows, 6), sum(grniRows, 7)] : undefined }] },
+        { key: 'purchases-grni', number: 'P5', title: 'Barang diterima belum ditagih', paragraphs: ['Penerimaan barang yang belum (seluruhnya) difaktur pemasok per tanggal akhir. Umur panjang menandakan faktur pemasok belum diterima atau belum diinput.'], tables: [{ columns: ['Penerimaan', 'Tanggal', 'Pemasok', 'PO', 'Umur (hari)', 'Nilai', 'Sudah ditagih', 'Belum ditagih'], align: [L, L, L, L, R, R, R, R], rows: grniRows, total: grniRows.length ? ['Jumlah', null, null, null, null, sum(grniRows, 5), sum(grniRows, 6), sum(grniRows, 7)] : undefined }] },
       ],
     };
   }
@@ -591,11 +594,13 @@ export class SupportReportsService {
       WHERE c.tenant_id = ${tenantId} AND c.period BETWEEN ${p1} AND ${p2} ORDER BY c.period, c.number LIMIT ${CAP}`);
     const CS: Record<string, string> = { DRAFT: 'Draf', SUBMITTED: 'Diajukan', APPROVED: 'Disetujui (belum cair)', PAID: 'Cair', REJECTED: 'Ditolak' };
     const claimRows: Cell[][] = claims.map((r) => [r.number, r.supplier, r.period, num(r.claimed), num(r.approved), CS[r.status] ?? r.status]);
-    const accruals = await this.rows<{ number: string; customer: string; term: string; period: string; base: string; amount: string; settled: string; status: string }>(sql`
-      SELECT a.number, c.name AS customer, t.name AS term, a.period, a.base_amount::text AS base, a.amount::text AS amount, a.settled_amount::text AS settled, a.status
+    const accruals = await this.rows<{ number: string; customer: string; term: string; period: string; base: string; amount: string; settled: string; voided: boolean }>(sql`
+      SELECT a.number, c.name AS customer, t.name AS term, a.period, a.base_amount::text AS base, a.amount::text AS amount,
+        COALESCE((SELECT SUM(x.amount) FROM trade_accrual_settlements x WHERE x.accrual_id = a.id AND x.date <= ${to}), 0)::text AS settled,
+        EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = a.accrual_journal_id AND r.date <= ${to}) AS voided
       FROM trade_accruals a JOIN customers c ON c.id = a.customer_id JOIN trade_terms t ON t.id = a.term_id
       WHERE a.tenant_id = ${tenantId} AND a.period BETWEEN ${p1} AND ${p2} ORDER BY a.period, c.name LIMIT ${CAP}`);
-    const accRows: Cell[][] = accruals.map((r) => [r.number, r.customer, r.term, r.period, num(r.base), num(r.amount), num(r.settled), num(r.amount) - num(r.settled), r.status === 'VOID' ? 'Dibatalkan' : r.status === 'SETTLED' ? 'Lunas' : 'Utang']);
+    const accRows: Cell[][] = accruals.map((r) => [r.number, r.customer, r.term, r.period, num(r.base), num(r.amount), num(r.settled), num(r.amount) - num(r.settled), r.voided ? 'Dibatalkan' : num(r.amount) - num(r.settled) > 0.5 ? 'Utang' : 'Lunas']);
     const swaps = await this.rows<{ reason: string; n: number; cost: string }>(sql`
       SELECT reason, COUNT(*)::int AS n, COALESCE(SUM(cost_amount), 0)::text AS cost FROM goods_swaps
       WHERE tenant_id = ${tenantId} AND status = 'APPROVED' AND date BETWEEN ${from} AND ${to} GROUP BY reason ORDER BY reason`);
@@ -628,7 +633,9 @@ export class SupportReportsService {
           WHERE c.tenant_id = ${tenantId} AND ja.date <= ${to}
             AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = ja.id AND r.date <= ${to})
             AND NOT EXISTS (SELECT 1 FROM journal_entries jp WHERE jp.id = c.payment_journal_id AND jp.date <= ${to}))::text AS comm_open,
-        (SELECT COALESCE(SUM(amount - settled_amount), 0) FROM trade_accruals WHERE tenant_id = ${tenantId} AND status <> 'VOID')::text AS trade_open,
+        (SELECT COALESCE(SUM(a.amount - COALESCE((SELECT SUM(x.amount) FROM trade_accrual_settlements x WHERE x.accrual_id = a.id AND x.date <= ${to}), 0)), 0) FROM trade_accruals a
+          JOIN journal_entries ja ON ja.id = a.accrual_journal_id
+          WHERE a.tenant_id = ${tenantId} AND ja.date <= ${to} AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = ja.id AND r.date <= ${to}))::text AS trade_open,
         (SELECT COALESCE(SUM(c.approved_amount), 0) FROM principal_claims c JOIN journal_entries ja ON ja.id = c.approval_journal_id
           WHERE c.tenant_id = ${tenantId} AND ja.date <= ${to}
             AND NOT EXISTS (SELECT 1 FROM journal_entries jp WHERE jp.id = c.payment_journal_id AND jp.date <= ${to}))::text AS claim_open,
@@ -640,7 +647,7 @@ export class SupportReportsService {
           WHERE a.system_key = 'EMPLOYEE_RECEIVABLE' AND l.journal_id IN (SELECT p.journal_id FROM payments p JOIN canvass_collections c ON c.payment_id = p.id
             WHERE c.tenant_id = ${tenantId} AND c.status = 'VERIFIED' AND c.date BETWEEN ${from} AND ${to} AND p.journal_id IS NOT NULL))::text AS short_gl`);
     const commPay = -(await this.glBalance(tenantId, to, sql`a.system_key = 'COMMISSION_PAYABLE'`));
-    const tradePay = -(await this.glBalance(tenantId, today, sql`a.system_key = 'TRADE_ACCRUAL_PAYABLE'`));
+    const tradePay = -(await this.glBalance(tenantId, to, sql`a.system_key = 'TRADE_ACCRUAL_PAYABLE'`));
     const claimGl = await this.glBalance(tenantId, to, sql`a.system_key = 'PRINCIPAL_CLAIM'`);
 
     return {
@@ -649,7 +656,7 @@ export class SupportReportsService {
       reconciliation: [
         this.recon('fmcg-commission', 'Komisi sales (periode) vs beban komisi', { label: 'Komisi ditutup pada periode (tidak dibatalkan)', value: Number(d.comm_acc) }, { label: 'Akun Beban Komisi pada jurnal komisi tersebut', value: Number(d.comm_gl) }),
         this.recon('fmcg-commission-payable', 'Komisi belum dibayar vs utang komisi', { label: 'Komisi ditutup, belum dibayar, tidak dibatalkan (per tanggal akhir)', value: Number(d.comm_open) }, { label: 'Saldo akun Utang Komisi Sales per tanggal akhir', value: commPay }),
-        this.recon('fmcg-trade', 'Rebate outlet belum dilunasi vs utang rebate', { label: 'Sisa utang rebate/trade promo (per hari ini)', value: Number(d.trade_open) }, { label: 'Saldo akun Utang Rebate & Trade Promo Outlet per hari ini', value: tradePay }, 'Dibandingkan per hari ini karena status tidak menyimpan riwayat.'),
+        this.recon('fmcg-trade', 'Rebate outlet belum dilunasi vs utang rebate', { label: 'Sisa utang rebate/trade promo (per tanggal akhir)', value: Number(d.trade_open) }, { label: 'Saldo akun Utang Rebate & Trade Promo Outlet per tanggal akhir', value: tradePay }, 'Dihitung dari riwayat pelunasan per tanggal.'),
         this.recon('fmcg-claim', 'Klaim disetujui belum cair vs piutang prinsipal', { label: 'Klaim disetujui belum cair (per tanggal akhir)', value: Number(d.claim_open) }, { label: 'Saldo akun Piutang Klaim Promo ke Prinsipal per tanggal akhir', value: claimGl }),
         this.recon('fmcg-swap', 'Tukar-guling disetujui vs akun kerugian', { label: 'Biaya tukar-guling disetujui pada periode', value: Number(d.swap_doc) }, { label: 'Akun kerugian kedaluwarsa/rusak/recall pada jurnal tukar-guling', value: Number(d.swap_gl) }),
         this.recon('fmcg-canvass', 'Kurang setor kanvas vs piutang karyawan', { label: 'Kurang setor pada setoran diverifikasi', value: Number(d.short_doc) }, { label: 'Debit Piutang Karyawan pada jurnal pelunasan kanvas', value: Number(d.short_gl) }, 'Kurang setor menjadi piutang karyawan sampai dipotong atau dilunasi.'),

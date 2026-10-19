@@ -86,7 +86,6 @@ Batasan: pencocokan GRNI dan daftar penerimaan dibandingkan per hari ini karena 
 | Surat jalan belum difaktur tanpa pencocokan | Pencocokan baru HPP surat jalan vs akun HPP; daftar belum difaktur tetap berupa daftar karena tidak ada akun tersendiri |
 
 Batasan yang masih ada:
-- Pencocokan "barang diterima belum ditagih" (GRNI) dan "rebate outlet belum dilunasi" dibandingkan per hari ini: penagihan penerimaan dan pelunasan rebate hanya menyimpan angka kumulatif, bukan riwayat per tanggal. Menghitungnya per tanggal memerlukan tabel riwayat baru.
 - Laporan ini belum ditinjau akuntan eksternal.
 
 ## Kesimpulan dan saran otomatis
@@ -115,3 +114,13 @@ Batasan: ambang di atas bersifat umum dan belum dapat diubah per perusahaan; kes
 ### Ambang dapat diatur per perusahaan
 
 Ambang kesimpulan di atas (mis. 20% piutang lewat 90 hari, retur 5%, surat jalan 14 hari) dapat diubah di **Pengaturan perusahaan › Pelaporan & PPh › Ambang kesimpulan laporan pendukung**. Perubahan berlaku langsung di semua laporan perusahaan itu. Pemilik, Admin, dan Akuntan dapat mengubah; Keuangan hanya melihat. Setiap ambang dibatasi rentang yang wajar (mis. persen 0,1–100, hari 1–365), batas kritis tidak boleh lebih kecil dari batas perhatian, dan tombol "Kembalikan semua ke standar" tersedia. Tersimpan di pengaturan perusahaan (`supportInsights`), terisolasi antar perusahaan.
+
+
+## Riwayat penagihan penerimaan dan pelunasan rebate
+
+Pencocokan "barang diterima belum ditagih" (GRNI) dan "rebate outlet belum dilunasi" kini dihitung **per tanggal akhir laporan**, bukan per hari ini. Untuk itu dua tabel riwayat ditambahkan (migrasi 0087):
+
+- `goods_receipt_billings`: setiap faktur pemasok yang menagih penerimaan barang mencatat jumlah dan nilai yang ditagih pada tanggal fakturnya. Penerimaan yang dibuat bersama faktur tidak masuk karena tidak pernah menjadi GRNI. Pembatalan penerimaan dibaca dari tanggal jurnal pembaliknya.
+- `trade_accrual_settlements`: setiap pelunasan rebate (potong tagihan atau bayar) mencatat tanggal dan jumlahnya. Pembatalan utang rebate dibaca dari tanggal jurnal pembaliknya.
+
+Data lama: pelunasan rebate direkonstruksi persis dari jurnal dan pembayaran yang sudah ada. Penagihan penerimaan hanya tersimpan kumulatif, jadi baris riwayatnya dibuat dengan tanggal perkiraan (tanggal faktur terakhir yang menagih baris pesanan itu) dan ditandai `estimated`; laporan menyebutkan jumlah baris perkiraan itu pada catatan pencocokan. Penagihan setelah migrasi tercatat pada tanggal sebenarnya.

@@ -760,6 +760,47 @@ export const principalClaimLines = pgTable(
   (t) => [uniqueIndex('principal_claim_lines_uq').on(t.orderLineId)],
 );
 
+/** Riwayat penagihan penerimaan barang per tanggal faktur: dasar menghitung "barang diterima belum ditagih" per tanggal tertentu */
+export const goodsReceiptBillings = pgTable(
+  'goods_receipt_billings',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    receiptId: uuid('receipt_id')
+      .notNull()
+      .references(() => goodsReceipts.id, { onDelete: 'cascade' }),
+    receiptLineId: uuid('receipt_line_id')
+      .notNull()
+      .references(() => goodsReceiptLines.id, { onDelete: 'cascade' }),
+    invoiceId: uuid('invoice_id'),
+    date: date('date').notNull(),
+    qty: qty('qty').notNull(),
+    value: money('value').notNull(),
+    /** true = dibuat dari data lama (tanggalnya perkiraan: faktur terakhir yang menagih baris pesanannya) */
+    estimated: boolean('estimated').notNull().default(false),
+    createdAt: createdAt(),
+  },
+  (t) => [index('goods_receipt_billings_receipt_idx').on(t.receiptId, t.date), index('goods_receipt_billings_tenant_date_idx').on(t.tenantId, t.date)],
+);
+
+/** Riwayat pelunasan utang rebate/trade promo outlet per tanggal: dasar menghitung sisa utang rebate per tanggal tertentu */
+export const tradeAccrualSettlements = pgTable(
+  'trade_accrual_settlements',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    accrualId: uuid('accrual_id')
+      .notNull()
+      .references(() => tradeAccruals.id, { onDelete: 'cascade' }),
+    date: date('date').notNull(),
+    amount: money('amount').notNull(),
+    mode: text('mode').$type<'DEDUCT' | 'PAY'>().notNull(),
+    journalId: uuid('journal_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('trade_accrual_settlements_accrual_idx').on(t.accrualId, t.date)],
+);
+
 /** Lot yang ikut berpindah saat transfer gudang: dicatat saat barang keluar, dipakai lagi saat barang masuk di gudang tujuan */
 export const stockLotTransit = pgTable(
   'stock_lot_transit',
