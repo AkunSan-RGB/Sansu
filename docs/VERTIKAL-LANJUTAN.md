@@ -57,3 +57,15 @@ Pemohon dapat menunjuk satu penyetuju dari daftar yang berwenang (Admin/Pemilik 
 - *Tugas saya* (menu teratas + lonceng + lencana di menu): hanya proses yang boleh diputuskan pengguna itu — persetujuan, permintaan pembelian, catatan upah kerja, perubahan data karyawan, kontrak harga, cuti, penggajian menunggu posting, dan kasus alur kerja. Yang dibuat sendiri tidak tampil (pembuat ≠ pemutus).
 - Notifikasi proses (Telegram/email bila terhubung) dikirim ke peran yang harus bertindak, tidak ke pelakunya.
 - *Sesuaikan menu*: setiap pengguna dapat menyembunyikan submenu yang tidak dipakai (preferensi pribadi, hak akses tidak berubah).
+
+## Dagang — rute pengiriman dan harga per segmen (`backend/src/modules/sales/deliveries/delivery-trips.ts`)
+Berlaku juga untuk FMCG dan Manufaktur (menu Penjualan › Rute pengiriman).
+- **Rencana pengiriman:** satu rute = satu kendaraan dan pengemudi pada satu tanggal, membawa beberapa surat jalan. Nomor otomatis `RTE/…`.
+- **Aturan:** hanya surat jalan terkirim (bukan batal) yang boleh dimasukkan, dan satu surat jalan hanya di satu rute yang masih berlaku (indeks unik di database); stop yang gagal boleh dijadwalkan ulang di rute lain. Susunan stop hanya bisa diubah selagi rute berstatus *Direncanakan*.
+- **Urutan stop:** manual (naik/turun) atau otomatis dari titik terdekat memakai koordinat pelanggan; stop pertama menjadi titik awal, stop tanpa koordinat di belakang.
+- **Alur status:** Direncanakan → Dalam perjalanan (berangkat, minimal satu stop) → Selesai (semua stop sudah diputuskan). Rute yang belum berangkat dapat dibatalkan dengan alasan.
+- **Bukti terima:** stop terkirim wajib memuat nama penerima, stop gagal wajib memuat alasan; hasil yang sudah dicatat tidak bisa diubah. Semuanya tercatat di jejak audit.
+- **Kontrol:** surat jalan hari sebelumnya yang belum dijadwalkan, rute berangkat yang belum selesai, dan stop gagal yang belum dijadwalkan ulang muncul sebagai peringatan di halaman rute.
+- **Peran:** Admin dan Gudang membuat dan menjalankan rute (Pemilik selalu boleh); Keuangan, Sales, dan Akuntan hanya melihat.
+- **Daftar harga per segmen** (sebelumnya hanya FMCG) kini juga tersedia untuk Dagang: grosir, toko, atau proyek dapat memiliki harga berbeda; pelanggan menunjuk satu daftar harga dan pesanan memakainya otomatis. Promo dan bonus barang tetap khusus FMCG.
+- **Belum ada:** optimasi rute memakai jarak jalan sebenarnya (hanya jarak lurus antar titik), kapasitas muatan kendaraan, pelacakan GPS, dan tanda tangan atau foto bukti terima.

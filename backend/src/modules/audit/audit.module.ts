@@ -31,6 +31,7 @@ export class AuditQueryDto {
 const NOUN: Record<string, [string, Category]> = {
   // entitas dari catatan rinci
   SalesOrder: ['sales order', 'sales'],
+  DeliveryTrip: ['rute pengiriman', 'sales'],
   Invoice: ['faktur penjualan', 'sales'],
   Payment: ['pembayaran pelanggan', 'sales'],
   SalesReturn: ['retur penjualan', 'sales'],
@@ -118,6 +119,13 @@ const VERB: Record<string, string> = {
   CLOSE_YEAR: 'Menutup buku tahun',
   IMPORT: 'Mengimpor',
   LOGIN: 'Masuk ke aplikasi',
+  ADD_STOPS: 'Menambah stop pada',
+  REMOVE_STOP: 'Melepas stop dari',
+  REORDER: 'Mengurutkan stop',
+  DEPART: 'Memberangkatkan',
+  STOP_DELIVERED: 'Mencatat terkirim pada',
+  STOP_FAILED: 'Mencatat gagal kirim pada',
+  COMPLETE: 'Menyelesaikan',
   // aksi pada rute :id/<aksi>
   confirm: 'Mengonfirmasi',
   cancel: 'Membatalkan',
