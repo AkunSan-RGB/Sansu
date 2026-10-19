@@ -14,6 +14,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
@@ -58,6 +59,11 @@ export class CreateProductDto {
   @Min(1)
   @Max(3650)
   shelfLifeDays?: number | null;
+  @ApiPropertyOptional({ example: '0.085', description: 'Berat per satuan dasar (kg); dasar muatan rute pengiriman. Kosong = belum diisi' })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumberString()
+  weightKg?: string | null;
 }
 
 export class UpdateProductDto extends PartialType(CreateProductDto) {

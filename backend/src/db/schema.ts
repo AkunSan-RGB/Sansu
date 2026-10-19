@@ -251,6 +251,8 @@ export const products = pgTable(
     madeToOrder: boolean('made_to_order').notNull().default(false),
     /** Umur simpan (hari): hasil produksi barang ini otomatis mendapat lot dengan tanggal kedaluwarsa = tanggal selesai + umur simpan */
     shelfLifeDays: integer('shelf_life_days'),
+    /** Berat per satuan dasar (kg): dasar muatan rute pengiriman; kosong = belum diisi */
+    weightKg: numeric('weight_kg', { precision: 18, scale: 3 }),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: createdAt(),
   },
@@ -1071,6 +1073,22 @@ export const deliveryOrderLines = pgTable('delivery_order_lines', {
   unitCost: numeric('unit_cost', { precision: 18, scale: 4 }).notNull(),
 });
 
+/** Kendaraan pengiriman beserta kapasitas muat (kg); kosong = tanpa batas */
+export const deliveryVehicles = pgTable(
+  'delivery_vehicles',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    plate: text('plate').notNull(),
+    name: text('name'),
+    capacityKg: numeric('capacity_kg', { precision: 18, scale: 2 }),
+    defaultDriver: text('default_driver'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('delivery_vehicles_plate_uq').on(t.tenantId, sql`lower(${t.plate})`)],
+);
+
 /** Rute pengiriman: satu kendaraan/pengemudi membawa beberapa surat jalan pada satu tanggal */
 export const deliveryTrips = pgTable(
   'delivery_trips',
@@ -1086,6 +1104,16 @@ export const deliveryTrips = pgTable(
     departedAt: timestamp('departed_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
     cancelReason: text('cancel_reason'),
+    vehicleId: uuid('vehicle_id').references(() => deliveryVehicles.id),
+    /** Jarak rute (meter) dan sumbernya: JALAN (layanan peta) atau LURUS (garis lurus antar titik) */
+    distanceM: integer('distance_m'),
+    distanceSource: text('distance_source').$type<'JALAN' | 'LURUS'>(),
+    /** Lokasi terakhir yang dibagikan petugas saat rute berjalan */
+    lastLat: numeric('last_lat', { precision: 9, scale: 6 }),
+    lastLng: numeric('last_lng', { precision: 9, scale: 6 }),
+    lastPositionAt: timestamp('last_position_at', { withTimezone: true }),
+    /** Alasan Admin/Pemilik memberangkatkan muatan melebihi kapasitas */
+    overCapacityReason: text('over_capacity_reason'),
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
   },
@@ -1109,6 +1137,13 @@ export const deliveryTripStops = pgTable(
     receivedAt: timestamp('received_at', { withTimezone: true }),
     failReason: text('fail_reason'),
     note: text('note'),
+    /** Lokasi saat hasil dicatat dan jaraknya dari titik pelanggan (meter) */
+    resultLat: numeric('result_lat', { precision: 9, scale: 6 }),
+    resultLng: numeric('result_lng', { precision: 9, scale: 6 }),
+    resultDistanceM: integer('result_distance_m'),
+    /** Foto bukti dan tanda tangan penerima (data URL gambar, dikompres di tampilan) */
+    proofPhoto: text('proof_photo'),
+    proofSignature: text('proof_signature'),
     createdAt: createdAt(),
   },
   (t) => [

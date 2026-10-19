@@ -218,6 +218,8 @@ export interface Product {
   madeToOrder?: boolean;
   /** Umur simpan (hari) untuk hasil produksi; kosong = kedaluwarsa tidak dipantau */
   shelfLifeDays?: number | null;
+  /** Berat per satuan dasar (kg); dasar muatan rute pengiriman */
+  weightKg?: string | null;
   /** Peran dalam produksi (otomatis dari resep): bahan baku, setengah jadi, produk jadi, atau barang dagang */
   role?: 'RAW' | 'SEMI' | 'FINISHED' | 'TRADING';
   isActive: boolean;

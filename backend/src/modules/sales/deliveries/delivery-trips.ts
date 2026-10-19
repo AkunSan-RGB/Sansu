@@ -4,11 +4,16 @@
  *    masih berlaku (stop yang gagal boleh dijadwalkan ulang).
  *  - Rute: PLANNED → ON_ROUTE (berangkat, minimal satu stop) → COMPLETED (semua stop sudah diputuskan). Rute yang belum berangkat bisa dibatalkan.
  *  - Stop terkirim wajib memuat nama penerima (bukti terima); stop gagal wajib memuat alasan. Setiap perubahan tercatat di jejak audit.
- *  - Urutan stop dapat diatur manual atau diurutkan otomatis dari titik terdekat memakai koordinat pelanggan (bila ada).
+ *  - Urutan stop dapat diatur manual atau diurutkan otomatis dari titik terdekat memakai koordinat pelanggan (bila ada). Jarak memakai layanan peta
+ *    bila ROUTING_URL diisi (OSRM, jarak jalan); bila tidak ada atau gagal, jarak garis lurus.
+ *  - Kendaraan punya kapasitas (kg) dan barang punya berat: muatan rute dihitung dari surat jalannya. Berangkat melebihi kapasitas hanya oleh Admin/Pemilik
+ *    dengan alasan tertulis.
+ *  - Lokasi: petugas membagikan posisi saat rute berjalan; hasil stop menyimpan lokasi dan jaraknya dari titik pelanggan (ditandai bila jauh).
+ *  - Bukti terima dapat dilengkapi foto dan tanda tangan penerima.
  */
 import { BadRequestException, Body, Controller, Get, Injectable, NotFoundException, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsDateString, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsIn, IsLatitude, IsLongitude, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
 import { and, asc, desc, eq, gte, inArray, lte, notInArray, sql } from 'drizzle-orm';
 import { RequireApp } from '../../../common/apps/app.guard';
 import { AuditService } from '../../../common/audit/audit.service';
@@ -18,12 +23,13 @@ import { SequenceService } from '../../../common/sequence/sequence.service';
 import { toDocDate, todayJakarta } from '../../../common/utils/dates';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, deliveryOrders, deliveryTrips, deliveryTripStops } from '../../../db/schema';
+import { customers, deliveryOrders, deliveryTrips, deliveryTripStops, deliveryVehicles } from '../../../db/schema';
 import { haversineM } from '../canvass/canvass';
 
 export class CreateTripDto {
   @ApiPropertyOptional({ example: '2026-10-20', description: 'Tanggal pengiriman (bawaan: hari ini)' }) @IsOptional() @IsDateString() date?: string;
   @ApiPropertyOptional({ example: 'B 1234 XY' }) @IsOptional() @IsString() @MaxLength(60) vehicle?: string;
+  @ApiPropertyOptional({ description: 'Kendaraan terdaftar (kapasitas dipakai untuk memeriksa muatan)' }) @IsOptional() @IsUUID() vehicleId?: string;
   @ApiPropertyOptional({ example: 'Pak Slamet' }) @IsOptional() @IsString() @MaxLength(100) driverName?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) notes?: string;
   @ApiPropertyOptional({ type: [String], description: 'Surat jalan yang langsung dimasukkan (urutan = urutan stop)' }) @IsOptional() @IsArray() @ArrayMaxSize(100) @IsUUID('all', { each: true }) deliveryIds?: string[];
@@ -34,11 +40,33 @@ export class AddStopsDto {
 export class ReorderDto {
   @ApiProperty({ type: [String], description: 'Seluruh id stop pada rute ini, dalam urutan baru' }) @IsArray() @ArrayMinSize(1) @ArrayMaxSize(200) @IsUUID('all', { each: true }) stopIds: string[];
 }
+const IMAGE_URL = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+const MAX_IMAGE_CHARS = 450_000; // ± 330 KB gambar
+
+export class DepartDto {
+  @ApiPropertyOptional({ description: 'Berangkat walau muatan melebihi kapasitas (hanya Admin/Pemilik, wajib alasan)' }) @IsOptional() @IsBoolean() acceptOverCapacity?: boolean;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MinLength(3) @MaxLength(300) reason?: string;
+}
+export class PositionDto {
+  @ApiProperty() @IsLatitude() lat: number;
+  @ApiProperty() @IsLongitude() lng: number;
+}
+export class VehicleDto {
+  @ApiProperty({ example: 'B 1234 XY' }) @IsString() @MinLength(3) @MaxLength(20) plate: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(80) name?: string;
+  @ApiPropertyOptional({ example: '1500', description: 'Kapasitas muat (kg); kosong = tanpa batas' }) @IsOptional() @IsNumberString() capacityKg?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100) defaultDriver?: string;
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() isActive?: boolean;
+}
 export class StopResultDto {
   @ApiProperty({ enum: ['DELIVERED', 'FAILED'] }) @IsIn(['DELIVERED', 'FAILED']) result: 'DELIVERED' | 'FAILED';
   @ApiPropertyOptional({ description: 'Nama penerima (wajib bila terkirim)' }) @IsOptional() @IsString() @MaxLength(120) receivedBy?: string;
   @ApiPropertyOptional({ description: 'Alasan gagal (wajib bila gagal)' }) @IsOptional() @IsString() @MaxLength(300) failReason?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) note?: string;
+  @ApiPropertyOptional({ description: 'Lokasi saat hasil dicatat' }) @IsOptional() @IsLatitude() lat?: number;
+  @ApiPropertyOptional() @IsOptional() @IsLongitude() lng?: number;
+  @ApiPropertyOptional({ description: 'Foto bukti (data URL png/jpeg/webp, maks ± 330 KB)' }) @IsOptional() @IsString() @MaxLength(MAX_IMAGE_CHARS) @Matches(IMAGE_URL, { message: 'Foto harus berupa gambar png/jpeg/webp' }) photo?: string;
+  @ApiPropertyOptional({ description: 'Tanda tangan penerima (data URL png/jpeg/webp)' }) @IsOptional() @IsString() @MaxLength(MAX_IMAGE_CHARS) @Matches(IMAGE_URL, { message: 'Tanda tangan harus berupa gambar png/jpeg/webp' }) signature?: string;
 }
 export class CancelTripDto {
   @ApiProperty() @IsString() @MinLength(3) @MaxLength(300) reason: string;
@@ -49,8 +77,12 @@ export class TripQueryDto {
   @ApiPropertyOptional({ enum: ['PLANNED', 'ON_ROUTE', 'COMPLETED', 'CANCELLED'] }) @IsOptional() @IsIn(['PLANNED', 'ON_ROUTE', 'COMPLETED', 'CANCELLED']) status?: string;
 }
 
+/** Jarak antar dua titik (meter); bawaan garis lurus */
+export type DistFn = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => number;
+const straight: DistFn = (a, b) => haversineM(a.lat, a.lng, b.lat, b.lng);
+
 /** Urutan terdekat (nearest neighbour) dimulai dari stop pertama yang berkoordinat; stop tanpa koordinat tetap di belakang dengan urutan semula */
-export function nearestOrder<T extends { id: string; lat: number | null; lng: number | null }>(stops: T[]): T[] {
+export function nearestOrder<T extends { id: string; lat: number | null; lng: number | null }>(stops: T[], dist: DistFn = straight): T[] {
   const withGeo = stops.filter((s) => s.lat !== null && s.lng !== null);
   const without = stops.filter((s) => s.lat === null || s.lng === null);
   if (withGeo.length < 2) return stops;
@@ -61,7 +93,7 @@ export function nearestOrder<T extends { id: string; lat: number | null; lng: nu
     let best = 0;
     let bestD = Infinity;
     left.forEach((s, i) => {
-      const d = haversineM(cur.lat!, cur.lng!, s.lat!, s.lng!);
+      const d = dist({ lat: cur.lat!, lng: cur.lng! }, { lat: s.lat!, lng: s.lng! });
       if (d < bestD) {
         bestD = d;
         best = i;
@@ -72,12 +104,44 @@ export function nearestOrder<T extends { id: string; lat: number | null; lng: nu
   return [...out, ...without];
 }
 
+/** Jarak jalan dari layanan peta kompatibel OSRM (ROUTING_URL, mis. server OSRM sendiri); gagal/tidak diisi → garis lurus. Tidak pernah melempar galat. */
+@Injectable()
+export class RoutingService {
+  async matrix(points: { lat: number; lng: number }[]): Promise<{ dist: DistFn; source: 'JALAN' | 'LURUS' }> {
+    const base = process.env.ROUTING_URL?.replace(/\/+$/, '');
+    if (!base || points.length < 2 || points.length > 100) return { dist: straight, source: 'LURUS' };
+    try {
+      const coords = points.map((p) => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
+      const res = await fetch(`${base}/table/v1/driving/${coords}?annotations=distance`, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as { code?: string; distances?: (number | null)[][] };
+      const m = body.distances;
+      if (body.code !== 'Ok' || !m || m.length !== points.length || m.some((r) => !r || r.length !== points.length)) throw new Error('bentuk jawaban tidak sesuai');
+      const key = (p: { lat: number; lng: number }) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
+      const index = new Map(points.map((p, i) => [key(p), i]));
+      const dist: DistFn = (a, b) => {
+        const i = index.get(key(a));
+        const j = index.get(key(b));
+        const v = i === undefined || j === undefined ? null : m[i][j];
+        return v === null || v === undefined ? straight(a, b) : v;
+      };
+      return { dist, source: 'JALAN' };
+    } catch {
+      return { dist: straight, source: 'LURUS' };
+    }
+  }
+}
+
+/** Jarak maksimum titik pencatatan dari lokasi pelanggan sebelum ditandai mencurigakan */
+export const FAR_DELIVERY_M = 300;
+
 @Injectable()
 export class DeliveryTripsService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
+    private readonly routing: RoutingService,
   ) {}
 
   private async trip(tenantId: string, id: string) {
@@ -100,6 +164,18 @@ export class DeliveryTripsService {
     });
   }
 
+  /** Muatan rute (kg) dari berat barang pada surat jalannya; stop gagal tidak dihitung */
+  private async load(tripId: string) {
+    const r = await this.db.execute<{ kg: string; unweighted: number }>(sql`
+      SELECT COALESCE(SUM(dol.qty * dol.uom_factor * COALESCE(p.weight_kg, 0)), 0)::text AS kg,
+             COUNT(DISTINCT dol.product_id) FILTER (WHERE p.weight_kg IS NULL)::int AS unweighted
+      FROM delivery_trip_stops s
+      JOIN delivery_order_lines dol ON dol.delivery_id = s.delivery_id
+      JOIN products p ON p.id = dol.product_id
+      WHERE s.trip_id = ${tripId} AND s.status <> 'FAILED'`);
+    return { loadKg: Number(r.rows[0].kg), unweightedProducts: r.rows[0].unweighted };
+  }
+
   async get(tenantId: string, id: string) {
     const t = await this.trip(tenantId, id);
     const stops = await this.db
@@ -111,6 +187,9 @@ export class DeliveryTripsService {
         receivedAt: deliveryTripStops.receivedAt,
         failReason: deliveryTripStops.failReason,
         note: deliveryTripStops.note,
+        resultDistanceM: deliveryTripStops.resultDistanceM,
+        hasPhoto: sql<boolean>`(${deliveryTripStops.proofPhoto} IS NOT NULL)`,
+        hasSignature: sql<boolean>`(${deliveryTripStops.proofSignature} IS NOT NULL)`,
         deliveryId: deliveryOrders.id,
         deliveryNumber: deliveryOrders.number,
         customerId: customers.id,
@@ -125,7 +204,20 @@ export class DeliveryTripsService {
       .innerJoin(customers, eq(customers.id, deliveryOrders.customerId))
       .where(eq(deliveryTripStops.tripId, id))
       .orderBy(asc(deliveryTripStops.sequence));
-    return { ...t, stops };
+    let capacityKg: number | null = null;
+    if (t.vehicleId) {
+      const [v] = await this.db.select({ c: deliveryVehicles.capacityKg }).from(deliveryVehicles).where(eq(deliveryVehicles.id, t.vehicleId));
+      capacityKg = v?.c != null ? Number(v.c) : null;
+    }
+    const { loadKg, unweightedProducts } = await this.load(id);
+    return {
+      ...t,
+      stops: stops.map((s) => ({ ...s, farFromCustomer: s.resultDistanceM !== null && s.resultDistanceM > FAR_DELIVERY_M })),
+      loadKg,
+      capacityKg,
+      overCapacity: capacityKg !== null && loadKg > capacityKg,
+      unweightedProducts,
+    };
   }
 
   /** Surat jalan yang belum masuk rute mana pun yang berlaku */
@@ -161,8 +253,17 @@ export class DeliveryTripsService {
   async create(u: AuthUser, dto: CreateTripDto) {
     const date = toDocDate(dto.date ?? todayJakarta());
     return this.db.transaction(async (tx) => {
+      let vehicle = dto.vehicle?.trim() || null;
+      let driver = dto.driverName?.trim() || null;
+      if (dto.vehicleId) {
+        const [v] = await tx.select().from(deliveryVehicles).where(and(eq(deliveryVehicles.id, dto.vehicleId), eq(deliveryVehicles.tenantId, u.tenantId)));
+        if (!v) throw new BadRequestException('Kendaraan tidak ditemukan');
+        if (!v.isActive) throw new BadRequestException(`Kendaraan ${v.plate} tidak aktif`);
+        vehicle = v.plate;
+        driver = driver ?? v.defaultDriver;
+      }
       const number = await this.seq.next(tx, u.tenantId, 'DELIVERY_TRIP', date);
-      const [t] = await tx.insert(deliveryTrips).values({ tenantId: u.tenantId, number, date, vehicle: dto.vehicle?.trim() || null, driverName: dto.driverName?.trim() || null, notes: dto.notes?.trim() || null, createdById: u.sub }).returning();
+      const [t] = await tx.insert(deliveryTrips).values({ tenantId: u.tenantId, number, date, vehicle, vehicleId: dto.vehicleId ?? null, driverName: driver, notes: dto.notes?.trim() || null, createdById: u.sub }).returning();
       if (dto.deliveryIds?.length) await this.addStopsTx(tx as unknown as Db, u.tenantId, t.id, dto.deliveryIds);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'DeliveryTrip', entityId: t.id, data: { number, stops: dto.deliveryIds?.length ?? 0 } });
       return t;
@@ -181,6 +282,7 @@ export class DeliveryTripsService {
       await this.addStopsTx(tx as unknown as Db, u.tenantId, id, dto.deliveryIds);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'ADD_STOPS', entity: 'DeliveryTrip', entityId: id, data: { number: t.number, added: dto.deliveryIds.length } });
     });
+    await this.refreshDistance(u.tenantId, id);
     return this.get(u.tenantId, id);
   }
 
@@ -194,6 +296,7 @@ export class DeliveryTripsService {
       await this.renumber(tx as unknown as Db, id);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'REMOVE_STOP', entity: 'DeliveryTrip', entityId: id, data: { number: t.number } });
     });
+    await this.refreshDistance(u.tenantId, id);
     return this.get(u.tenantId, id);
   }
 
@@ -213,31 +316,78 @@ export class DeliveryTripsService {
       for (let i = 0; i < dto.stopIds.length; i++) await tx.update(deliveryTripStops).set({ sequence: i + 1 }).where(eq(deliveryTripStops.id, dto.stopIds[i]));
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'REORDER', entity: 'DeliveryTrip', entityId: id, data: { number: t.number } });
     });
+    await this.refreshDistance(u.tenantId, id);
     return this.get(u.tenantId, id);
   }
 
   /** Susun ulang stop menurut titik terdekat (koordinat pelanggan) */
+  /** Hitung ulang jarak rute (sesuai urutan stop yang berkoordinat) dan simpan beserta sumbernya */
+  private async refreshDistance(tenantId: string, tripId: string) {
+    const stops = await this.db
+      .select({ lat: customers.geoLat, lng: customers.geoLng })
+      .from(deliveryTripStops)
+      .innerJoin(deliveryOrders, eq(deliveryOrders.id, deliveryTripStops.deliveryId))
+      .innerJoin(customers, eq(customers.id, deliveryOrders.customerId))
+      .where(and(eq(deliveryTripStops.tripId, tripId), eq(deliveryTripStops.tenantId, tenantId)))
+      .orderBy(asc(deliveryTripStops.sequence));
+    const pts = stops.filter((s) => s.lat !== null && s.lng !== null).map((s) => ({ lat: Number(s.lat), lng: Number(s.lng) }));
+    if (pts.length < 2) {
+      await this.db.update(deliveryTrips).set({ distanceM: null, distanceSource: null }).where(eq(deliveryTrips.id, tripId));
+      return;
+    }
+    const { dist, source } = await this.routing.matrix(pts);
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) total += dist(pts[i - 1], pts[i]);
+    await this.db.update(deliveryTrips).set({ distanceM: Math.round(total), distanceSource: source }).where(eq(deliveryTrips.id, tripId));
+  }
+
+  /** Susun ulang stop menurut titik terdekat (jarak jalan bila layanan peta tersedia, selain itu garis lurus) */
   async optimize(u: AuthUser, id: string) {
     const t = await this.get(u.tenantId, id);
     this.assertPlanned(t);
     const geo = await this.db.select({ id: customers.id, lat: customers.geoLat, lng: customers.geoLng }).from(customers).where(and(eq(customers.tenantId, u.tenantId), inArray(customers.id, [...new Set(t.stops.map((s) => s.customerId))])));
     const g = new Map(geo.map((c) => [c.id, c]));
     const rows = t.stops.map((s) => ({ id: s.id, lat: g.get(s.customerId)?.lat != null ? Number(g.get(s.customerId)!.lat) : null, lng: g.get(s.customerId)?.lng != null ? Number(g.get(s.customerId)!.lng) : null }));
-    const ordered = nearestOrder(rows);
+    const pts = rows.filter((r) => r.lat !== null && r.lng !== null).map((r) => ({ lat: r.lat!, lng: r.lng! }));
+    const { dist } = await this.routing.matrix(pts);
+    const ordered = nearestOrder(rows, dist);
     return this.reorder(u, id, { stopIds: ordered.map((r) => r.id) });
   }
 
-  async depart(u: AuthUser, id: string) {
+  async depart(u: AuthUser, id: string, dto: DepartDto = {}) {
     await this.db.transaction(async (tx) => {
       const [t] = await tx.select().from(deliveryTrips).where(and(eq(deliveryTrips.id, id), eq(deliveryTrips.tenantId, u.tenantId))).for('update');
       if (!t) throw new NotFoundException('Rute pengiriman tidak ditemukan');
       this.assertPlanned(t);
       const [{ n }] = await tx.select({ n: sql<number>`COUNT(*)::int` }).from(deliveryTripStops).where(eq(deliveryTripStops.tripId, id));
       if (!n) throw new BadRequestException('Rute belum punya stop; tambahkan surat jalan dulu');
-      await tx.update(deliveryTrips).set({ status: 'ON_ROUTE', departedAt: new Date() }).where(eq(deliveryTrips.id, id));
-      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'DEPART', entity: 'DeliveryTrip', entityId: id, data: { number: t.number, stops: n, vehicle: t.vehicle, driver: t.driverName } });
+      const cur = await this.get(u.tenantId, id);
+      let overReason: string | null = null;
+      if (cur.overCapacity) {
+        const may = u.role === 'OWNER' || u.role === 'ADMIN';
+        if (!dto.acceptOverCapacity || !may || !dto.reason?.trim()) {
+          throw new BadRequestException(`Muatan ${cur.loadKg.toFixed(1)} kg melebihi kapasitas ${cur.capacityKg!.toFixed(1)} kg. ${may ? 'Kurangi surat jalan, atau berangkatkan dengan menyatakan alasan.' : 'Kurangi surat jalan, atau minta Admin/Pemilik menyetujui.'}`);
+        }
+        overReason = dto.reason.trim();
+      }
+      await tx.update(deliveryTrips).set({ status: 'ON_ROUTE', departedAt: new Date(), overCapacityReason: overReason }).where(eq(deliveryTrips.id, id));
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'DEPART', entity: 'DeliveryTrip', entityId: id, data: { number: t.number, stops: n, vehicle: t.vehicle, driver: t.driverName, loadKg: cur.loadKg, capacityKg: cur.capacityKg, overCapacityReason: overReason } });
     });
     return this.get(u.tenantId, id);
+  }
+
+  /** Lokasi terbaru yang dibagikan petugas saat rute berjalan (hanya posisi terakhir yang disimpan) */
+  async position(u: AuthUser, id: string, dto: PositionDto) {
+    const r = await this.db
+      .update(deliveryTrips)
+      .set({ lastLat: dto.lat.toFixed(6), lastLng: dto.lng.toFixed(6), lastPositionAt: new Date() })
+      .where(and(eq(deliveryTrips.id, id), eq(deliveryTrips.tenantId, u.tenantId), eq(deliveryTrips.status, 'ON_ROUTE')))
+      .returning({ id: deliveryTrips.id });
+    if (!r.length) {
+      await this.trip(u.tenantId, id);
+      throw new BadRequestException('Lokasi hanya bisa dibagikan saat rute sedang berjalan');
+    }
+    return { ok: true };
   }
 
   async markStop(u: AuthUser, id: string, stopId: string, dto: StopResultDto) {
@@ -245,6 +395,8 @@ export class DeliveryTripsService {
     const failReason = dto.failReason?.trim();
     if (dto.result === 'DELIVERED' && (!receivedBy || receivedBy.length < 2)) throw new BadRequestException('Nama penerima wajib diisi sebagai bukti terima');
     if (dto.result === 'FAILED' && (!failReason || failReason.length < 3)) throw new BadRequestException('Alasan gagal kirim wajib diisi');
+    if ((dto.lat === undefined) !== (dto.lng === undefined)) throw new BadRequestException('Lintang dan bujur harus diisi bersamaan');
+    if (dto.result === 'FAILED' && (dto.photo || dto.signature)) throw new BadRequestException('Foto dan tanda tangan hanya untuk pengiriman yang terkirim');
     await this.db.transaction(async (tx) => {
       const [t] = await tx.select().from(deliveryTrips).where(and(eq(deliveryTrips.id, id), eq(deliveryTrips.tenantId, u.tenantId))).for('update');
       if (!t) throw new NotFoundException('Rute pengiriman tidak ditemukan');
@@ -252,10 +404,34 @@ export class DeliveryTripsService {
       const [s] = await tx.select().from(deliveryTripStops).where(and(eq(deliveryTripStops.id, stopId), eq(deliveryTripStops.tripId, id))).for('update');
       if (!s) throw new NotFoundException('Stop tidak ditemukan');
       if (s.status !== 'PENDING') throw new BadRequestException('Hasil stop ini sudah dicatat dan tidak bisa diubah');
-      await tx.update(deliveryTripStops).set({ status: dto.result, receivedBy: dto.result === 'DELIVERED' ? receivedBy : null, receivedAt: dto.result === 'DELIVERED' ? new Date() : null, failReason: dto.result === 'FAILED' ? failReason : null, note: dto.note?.trim() || null }).where(eq(deliveryTripStops.id, stopId));
-      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: dto.result === 'DELIVERED' ? 'STOP_DELIVERED' : 'STOP_FAILED', entity: 'DeliveryTrip', entityId: id, data: { number: t.number, stop: s.sequence, receivedBy, failReason } });
+      let distance: number | null = null;
+      if (dto.lat !== undefined && dto.lng !== undefined) {
+        const [c] = await tx.select({ lat: customers.geoLat, lng: customers.geoLng }).from(deliveryOrders).innerJoin(customers, eq(customers.id, deliveryOrders.customerId)).where(eq(deliveryOrders.id, s.deliveryId));
+        if (c?.lat != null && c?.lng != null) distance = haversineM(dto.lat, dto.lng, Number(c.lat), Number(c.lng));
+      }
+      await tx.update(deliveryTripStops).set({
+        status: dto.result,
+        receivedBy: dto.result === 'DELIVERED' ? receivedBy : null,
+        receivedAt: dto.result === 'DELIVERED' ? new Date() : null,
+        failReason: dto.result === 'FAILED' ? failReason : null,
+        note: dto.note?.trim() || null,
+        resultLat: dto.lat !== undefined ? dto.lat.toFixed(6) : null,
+        resultLng: dto.lng !== undefined ? dto.lng.toFixed(6) : null,
+        resultDistanceM: distance,
+        proofPhoto: dto.photo ?? null,
+        proofSignature: dto.signature ?? null,
+      }).where(eq(deliveryTripStops.id, stopId));
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: dto.result === 'DELIVERED' ? 'STOP_DELIVERED' : 'STOP_FAILED', entity: 'DeliveryTrip', entityId: id, data: { number: t.number, stop: s.sequence, receivedBy, failReason, distanceM: distance, photo: !!dto.photo, signature: !!dto.signature } });
     });
     return this.get(u.tenantId, id);
+  }
+
+  /** Foto dan tanda tangan bukti terima satu stop */
+  async proof(tenantId: string, id: string, stopId: string) {
+    await this.trip(tenantId, id);
+    const [s] = await this.db.select({ photo: deliveryTripStops.proofPhoto, signature: deliveryTripStops.proofSignature }).from(deliveryTripStops).where(and(eq(deliveryTripStops.id, stopId), eq(deliveryTripStops.tripId, id)));
+    if (!s) throw new NotFoundException('Stop tidak ditemukan');
+    return s;
   }
 
   async complete(u: AuthUser, id: string) {
@@ -293,7 +469,74 @@ export class DeliveryTripsService {
       .innerJoin(deliveryTrips, eq(deliveryTrips.id, deliveryTripStops.tripId))
       .innerJoin(deliveryOrders, eq(deliveryOrders.id, deliveryTripStops.deliveryId))
       .where(and(eq(deliveryTripStops.tenantId, tenantId), eq(deliveryTripStops.status, 'FAILED'), notInArray(deliveryTripStops.deliveryId, this.db.select({ id: deliveryTripStops.deliveryId }).from(deliveryTripStops).where(and(eq(deliveryTripStops.tenantId, tenantId), inArray(deliveryTripStops.status, ['PENDING', 'DELIVERED']))))));
-    return { unscheduledOlder: unscheduled, tripsNotCompleted: stuck, failedNotRescheduled: failed };
+    const far = await this.db
+      .select({ number: deliveryOrders.number, trip: deliveryTrips.number, customer: customers.name, distanceM: deliveryTripStops.resultDistanceM })
+      .from(deliveryTripStops)
+      .innerJoin(deliveryTrips, eq(deliveryTrips.id, deliveryTripStops.tripId))
+      .innerJoin(deliveryOrders, eq(deliveryOrders.id, deliveryTripStops.deliveryId))
+      .innerJoin(customers, eq(customers.id, deliveryOrders.customerId))
+      .where(and(eq(deliveryTripStops.tenantId, tenantId), eq(deliveryTripStops.status, 'DELIVERED'), sql`${deliveryTripStops.resultDistanceM} > ${FAR_DELIVERY_M}`))
+      .orderBy(desc(deliveryTrips.date))
+      .limit(100);
+    return { unscheduledOlder: unscheduled, tripsNotCompleted: stuck, failedNotRescheduled: failed, farDelivered: far };
+  }
+}
+
+@Injectable()
+export class DeliveryVehiclesService {
+  constructor(
+    @InjectDb() private readonly db: Db,
+    private readonly audit: AuditService,
+  ) {}
+
+  list(tenantId: string) {
+    return this.db.select().from(deliveryVehicles).where(eq(deliveryVehicles.tenantId, tenantId)).orderBy(asc(deliveryVehicles.plate));
+  }
+
+  async create(u: AuthUser, dto: VehicleDto) {
+    const plate = dto.plate.trim().toUpperCase();
+    const [dup] = await this.db.select({ id: deliveryVehicles.id }).from(deliveryVehicles).where(and(eq(deliveryVehicles.tenantId, u.tenantId), sql`lower(${deliveryVehicles.plate}) = ${plate.toLowerCase()}`));
+    if (dup) throw new BadRequestException(`Kendaraan ${plate} sudah terdaftar`);
+    const [v] = await this.db.insert(deliveryVehicles).values({ tenantId: u.tenantId, plate, name: dto.name?.trim() || null, capacityKg: dto.capacityKg ?? null, defaultDriver: dto.defaultDriver?.trim() || null }).returning();
+    await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'DeliveryVehicle', entityId: v.id, data: { plate, capacityKg: dto.capacityKg } });
+    return v;
+  }
+
+  async update(u: AuthUser, id: string, dto: Partial<VehicleDto>) {
+    const [cur] = await this.db.select().from(deliveryVehicles).where(and(eq(deliveryVehicles.id, id), eq(deliveryVehicles.tenantId, u.tenantId)));
+    if (!cur) throw new NotFoundException('Kendaraan tidak ditemukan');
+    const plate = dto.plate?.trim().toUpperCase();
+    if (plate && plate.toLowerCase() !== cur.plate.toLowerCase()) {
+      const [dup] = await this.db.select({ id: deliveryVehicles.id }).from(deliveryVehicles).where(and(eq(deliveryVehicles.tenantId, u.tenantId), sql`lower(${deliveryVehicles.plate}) = ${plate.toLowerCase()}`));
+      if (dup) throw new BadRequestException(`Kendaraan ${plate} sudah terdaftar`);
+    }
+    const [v] = await this.db.update(deliveryVehicles).set({ plate, name: dto.name === undefined ? undefined : dto.name.trim() || null, capacityKg: dto.capacityKg, defaultDriver: dto.defaultDriver === undefined ? undefined : dto.defaultDriver.trim() || null, isActive: dto.isActive }).where(eq(deliveryVehicles.id, id)).returning();
+    await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'DeliveryVehicle', entityId: id, data: { before: { plate: cur.plate, capacityKg: cur.capacityKg, isActive: cur.isActive }, after: { plate: v.plate, capacityKg: v.capacityKg, isActive: v.isActive } } });
+    return v;
+  }
+}
+
+@ApiTags('Penjualan')
+@ApiBearerAuth()
+@RequireApp('sales')
+@Controller('delivery-vehicles')
+export class DeliveryVehiclesController {
+  constructor(private readonly svc: DeliveryVehiclesService) {}
+
+  @Get()
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT')
+  list(@CurrentUser() u: AuthUser) {
+    return this.svc.list(u.tenantId);
+  }
+  @Post()
+  @Roles('ADMIN', 'WAREHOUSE')
+  create(@CurrentUser() u: AuthUser, @Body() dto: VehicleDto) {
+    return this.svc.create(u, dto);
+  }
+  @Post(':id')
+  @Roles('ADMIN', 'WAREHOUSE')
+  update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VehicleDto) {
+    return this.svc.update(u, id, dto);
   }
 }
 
@@ -351,8 +594,18 @@ export class DeliveryTripsController {
   }
   @Post(':id/depart')
   @Roles('ADMIN', 'WAREHOUSE')
-  depart(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.depart(u, id);
+  depart(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: DepartDto) {
+    return this.svc.depart(u, id, dto);
+  }
+  @Post(':id/position')
+  @Roles('ADMIN', 'WAREHOUSE')
+  position(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: PositionDto) {
+    return this.svc.position(u, id, dto);
+  }
+  @Get(':id/stops/:stopId/proof')
+  @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT')
+  proof(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Param('stopId', ParseUUIDPipe) stopId: string) {
+    return this.svc.proof(u.tenantId, id, stopId);
   }
   @Post(':id/stops/:stopId/result')
   @Roles('ADMIN', 'WAREHOUSE')

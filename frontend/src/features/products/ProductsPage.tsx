@@ -37,6 +37,7 @@ interface FormValues {
   semi?: boolean;
   madeToOrder?: boolean;
   shelfLifeDays?: number | null;
+  weightKg?: number | null;
 }
 
 export default function ProductsPage() {
@@ -70,6 +71,7 @@ export default function ProductsPage() {
         inventoryKind: v.semi ? 'SEMI' : 'GOODS',
         madeToOrder: !!v.madeToOrder && !v.semi,
         shelfLifeDays: v.shelfLifeDays ?? null,
+        weightKg: v.weightKg == null ? null : String(v.weightKg),
         uoms: (v.uoms ?? []).map((u) => ({ uom: u.uom.toUpperCase(), factor: String(u.factor) })),
       };
       return editing && editing !== 'new' ? patch(`/products/${editing.id}`, body) : post('/products', body);
@@ -90,6 +92,7 @@ export default function ProductsPage() {
         semi: p.inventoryKind === 'SEMI',
         madeToOrder: !!p.madeToOrder,
         shelfLifeDays: p.shelfLifeDays ?? undefined,
+        weightKg: p.weightKg == null ? undefined : Number(p.weightKg),
         uoms: p.uoms.map((u) => ({ uom: u.uom, factor: Number(u.factor) })),
       });
     }
@@ -261,6 +264,9 @@ export default function ProductsPage() {
               <InputNumber min={1} max={3650} precision={0} style={{ width: 160 }} />
             </Form.Item>
           )}
+          <Form.Item name="weightKg" label="Berat per satuan dasar (kg, opsional)" extra="Dipakai menghitung muatan kendaraan pada Rute pengiriman. Kosong = belum diisi.">
+            <InputNumber min={0} max={100000} step={0.001} style={{ width: 160 }} />
+          </Form.Item>
           <Space wrap align="start">
             <Form.Item name="baseUom" label={f?.baseUomLabel ?? 'Satuan dasar'} rules={[{ required: true, message: 'Pilih satuan' }]}>
               <Select showSearch optionFilterProp="label" style={{ width: 200 }} placeholder="Pilih satuan" options={opts?.baseUoms ?? []} />

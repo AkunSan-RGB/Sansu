@@ -1,12 +1,15 @@
-import { ArrowDownOutlined, ArrowUpOutlined, CarOutlined, PlusOutlined } from '@ant-design/icons';
+import { ArrowDownOutlined, ArrowUpOutlined, CarOutlined, EnvironmentOutlined, PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Checkbox, Drawer, Form, Input, Modal, Popconfirm, Space, Table, Tag, Typography } from 'antd';
-import { useState } from 'react';
+import { Alert, Button, Checkbox, Drawer, Form, Input, InputNumber, Modal, Popconfirm, Progress, Select, Space, Switch, Table, Tag, Typography } from 'antd';
+import { useEffect, useRef, useState } from 'react';
 import { get, post } from '@/api/client';
 import { useAction } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
 import ListPage from '@/components/ListPage';
+import SignaturePad from '@/components/SignaturePad';
+import { compressImage } from '@/lib/image';
 import { fmtDate } from '@/lib/format';
+import { useAuth } from '@/auth/AuthContext';
 
 type TripStatus = 'PLANNED' | 'ON_ROUTE' | 'COMPLETED' | 'CANCELLED';
 interface Trip {
@@ -35,9 +38,32 @@ interface Stop {
   address: string | null;
   phone: string | null;
   hasGeo: boolean;
+  hasPhoto: boolean;
+  hasSignature: boolean;
+  resultDistanceM: number | null;
+  farFromCustomer: boolean;
 }
 interface TripDetail extends Omit<Trip, 'stops' | 'delivered' | 'failed' | 'pending'> {
   stops: Stop[];
+  vehicleId: string | null;
+  distanceM: number | null;
+  distanceSource: 'JALAN' | 'LURUS' | null;
+  lastLat: string | null;
+  lastLng: string | null;
+  lastPositionAt: string | null;
+  overCapacityReason: string | null;
+  loadKg: number;
+  capacityKg: number | null;
+  overCapacity: boolean;
+  unweightedProducts: number;
+}
+interface Vehicle {
+  id: string;
+  plate: string;
+  name: string | null;
+  capacityKg: string | null;
+  defaultDriver: string | null;
+  isActive: boolean;
 }
 interface Unscheduled {
   id: string;
@@ -50,6 +76,7 @@ interface Controls {
   unscheduledOlder: Unscheduled[];
   tripsNotCompleted: { id: string; number: string; date: string }[];
   failedNotRescheduled: { number: string; trip: string; reason: string | null }[];
+  farDelivered: { number: string; trip: string; customer: string; distanceM: number }[];
 }
 const TRIP_STATUS: Record<TripStatus, { label: string; color: string }> = {
   PLANNED: { label: 'Direncanakan', color: 'blue' },
@@ -66,18 +93,32 @@ export default function DeliveryTripsPage() {
   const trips = useQuery({ queryKey: [KEY], queryFn: () => get<Trip[]>('/delivery-trips') });
   const unscheduled = useQuery({ queryKey: [KEY, 'unscheduled'], queryFn: () => get<Unscheduled[]>('/delivery-trips/unscheduled') });
   const controls = useQuery({ queryKey: [KEY, 'controls'], queryFn: () => get<Controls>('/delivery-trips/controls'), retry: false });
+  const { me } = useAuth();
+  const canOverride = me?.role === 'OWNER' || me?.role === 'ADMIN';
+  const vehicles = useQuery({ queryKey: [KEY, 'vehicles'], queryFn: () => get<Vehicle[]>('/delivery-vehicles') });
   const [open, setOpen] = useState<string | null>(null);
   const detail = useQuery({ queryKey: [KEY, 'detail', open], queryFn: () => get<TripDetail>(`/delivery-trips/${open}`), enabled: !!open });
   const [creating, setCreating] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
-  const [form] = Form.useForm<{ date?: string; vehicle?: string; driverName?: string; notes?: string }>();
+  const [form] = Form.useForm<{ date?: string; vehicleId?: string; vehicle?: string; driverName?: string; notes?: string }>();
+  const [vehOpen, setVehOpen] = useState(false);
+  const [vehForm] = Form.useForm<{ plate: string; name?: string; capacityKg?: number; defaultDriver?: string }>();
+  const [overOpen, setOverOpen] = useState(false);
+  const [overForm] = Form.useForm<{ reason: string }>();
+  const [photo, setPhoto] = useState<string>();
+  const [signature, setSignature] = useState<string>();
+  const [geo, setGeo] = useState<{ lat: number; lng: number; acc: number } | null>(null);
+  const [proofOf, setProofOf] = useState<{ stop: Stop } | null>(null);
+  const proof = useQuery({ queryKey: [KEY, 'proof', open, proofOf?.stop.id], queryFn: () => get<{ photo: string | null; signature: string | null }>(`/delivery-trips/${open}/stops/${proofOf!.stop.id}/proof`), enabled: !!proofOf && !!open });
+  const [sharing, setSharing] = useState(false);
+  const lastPing = useRef(0);
   const [result, setResult] = useState<{ stop: Stop; result: 'DELIVERED' | 'FAILED' } | null>(null);
   const [resForm] = Form.useForm<{ receivedBy?: string; failReason?: string; note?: string }>();
   const [cancelling, setCancelling] = useState(false);
   const [cancelForm] = Form.useForm<{ reason: string }>();
 
   const refresh = [KEY];
-  const create = useAction((v: { date?: string; vehicle?: string; driverName?: string; notes?: string }) => post<{ id: string }>('/delivery-trips', { ...v, deliveryIds: picked }), {
+  const create = useAction((v: { date?: string; vehicleId?: string; vehicle?: string; driverName?: string; notes?: string }) => post<{ id: string }>('/delivery-trips', { ...v, deliveryIds: picked }), {
     success: 'Rute dibuat',
     invalidate: refresh,
     onSuccess: (t) => {
@@ -86,13 +127,16 @@ export default function DeliveryTripsPage() {
     },
   });
   const act = (path: (id: string) => string, success: string) => useAction((id: string) => post(path(id)), { success, invalidate: refresh });
-  const depart = act((id) => `/delivery-trips/${id}/depart`, 'Rute berangkat');
+  const depart = useAction((v: { id: string; reason?: string }) => post(`/delivery-trips/${v.id}/depart`, v.reason ? { acceptOverCapacity: true, reason: v.reason } : {}), { success: 'Rute berangkat', invalidate: refresh, onSuccess: () => setOverOpen(false) });
+  const createVehicle = useAction((v: { plate: string; name?: string; capacityKg?: number; defaultDriver?: string }) => post('/delivery-vehicles', { ...v, capacityKg: v.capacityKg == null ? undefined : String(v.capacityKg) }), { success: 'Kendaraan ditambahkan', invalidate: refresh });
+  const toggleVehicle = useAction((v: Vehicle) => post(`/delivery-vehicles/${v.id}`, { plate: v.plate, isActive: !v.isActive }), { invalidate: refresh });
+  const ping = useAction((v: { id: string; lat: number; lng: number }) => post(`/delivery-trips/${v.id}/position`, { lat: v.lat, lng: v.lng }), { invalidate: refresh });
   const complete = act((id) => `/delivery-trips/${id}/complete`, 'Rute selesai');
   const optimize = act((id) => `/delivery-trips/${id}/optimize`, 'Stop diurutkan dari titik terdekat');
   const reorder = useAction((v: { id: string; stopIds: string[] }) => post(`/delivery-trips/${v.id}/reorder`, { stopIds: v.stopIds }), { invalidate: refresh });
   const removeStop = useAction((v: { id: string; stopId: string }) => post(`/delivery-trips/${v.id}/stops/${v.stopId}/remove`), { success: 'Stop dilepas', invalidate: refresh });
   const addStops = useAction((v: { id: string; ids: string[] }) => post(`/delivery-trips/${v.id}/stops`, { deliveryIds: v.ids }), { success: 'Stop ditambahkan', invalidate: refresh });
-  const markStop = useAction((v: { id: string; stopId: string; body: object }) => post(`/delivery-trips/${v.id}/stops/${v.stopId}/result`, v.body), { success: 'Hasil dicatat', invalidate: refresh, onSuccess: () => setResult(null) });
+  const markStop = useAction((v: { id: string; stopId: string; body: object }) => post(`/delivery-trips/${v.id}/stops/${v.stopId}/result`, v.body), { success: 'Hasil dicatat', invalidate: refresh, onSuccess: () => { setResult(null); setPhoto(undefined); setSignature(undefined); setGeo(null); } });
   const cancel = useAction((v: { id: string; reason: string }) => post(`/delivery-trips/${v.id}/cancel`, { reason: v.reason }), { success: 'Rute dibatalkan', invalidate: refresh, onSuccess: () => { setCancelling(false); setOpen(null); } });
 
   const move = (stops: Stop[], i: number, dir: -1 | 1) => {
@@ -101,16 +145,37 @@ export default function DeliveryTripsPage() {
     reorder.mutate({ id: open!, stopIds: ids });
   };
   const d = detail.data;
+  // bagikan lokasi petugas selama rute berjalan dan tombol "Bagikan lokasi" menyala (paling sering tiap 45 detik)
+  useEffect(() => {
+    if (!sharing || !open || d?.status !== 'ON_ROUTE' || !navigator.geolocation) return;
+    const id = navigator.geolocation.watchPosition(
+      (p) => {
+        if (Date.now() - lastPing.current < 45_000) return;
+        lastPing.current = Date.now();
+        ping.mutate({ id: open, lat: p.coords.latitude, lng: p.coords.longitude });
+      },
+      () => setSharing(false),
+      { enableHighAccuracy: true, maximumAge: 15_000 },
+    );
+    return () => navigator.geolocation.clearWatch(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharing, open, d?.status]);
+  // baca lokasi saat petugas membuka pencatatan hasil
+  useEffect(() => {
+    if (!result || !navigator.geolocation) return;
+    setGeo(null);
+    navigator.geolocation.getCurrentPosition((p) => setGeo({ lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) }), () => undefined, { enableHighAccuracy: true, timeout: 8000 });
+  }, [result]);
   const planned = d?.status === 'PLANNED';
   const onRoute = d?.status === 'ON_ROUTE';
   const c = controls.data;
-  const warnings = c ? c.unscheduledOlder.length + c.tripsNotCompleted.length + c.failedNotRescheduled.length : 0;
+  const warnings = c ? c.unscheduledOlder.length + c.tripsNotCompleted.length + c.failedNotRescheduled.length + (c.farDelivered?.length ?? 0) : 0;
 
   return (
     <>
       <ListPage<Trip>
         title="Rute pengiriman"
-        actions={can('POST', '/delivery-trips') && <Button type="primary" icon={<PlusOutlined />} onClick={() => { setPicked([]); setCreating(true); }}>Rute baru</Button>}
+        actions={<Space>{can('POST', '/delivery-vehicles') && <Button onClick={() => setVehOpen(true)}>Kendaraan</Button>}{can('POST', '/delivery-trips') && <Button type="primary" icon={<PlusOutlined />} onClick={() => { setPicked([]); setCreating(true); }}>Rute baru</Button>}</Space>}
         rows={trips.data}
         loading={trips.isLoading}
         views={[
@@ -136,6 +201,7 @@ export default function DeliveryTripsPage() {
                     {c.unscheduledOlder.length > 0 && <li>{c.unscheduledOlder.length} surat jalan dari hari sebelumnya belum dijadwalkan</li>}
                     {c.tripsNotCompleted.length > 0 && <li>Rute berangkat tetapi belum selesai: {c.tripsNotCompleted.map((t) => t.number).join(', ')}</li>}
                     {c.failedNotRescheduled.length > 0 && <li>Gagal kirim belum dijadwalkan ulang: {c.failedNotRescheduled.map((f) => `${f.number} (${f.reason ?? '-'})`).join(', ')}</li>}
+                    {(c.farDelivered?.length ?? 0) > 0 && <li>Dicatat terkirim jauh dari alamat pelanggan (&gt; 300 m): {c.farDelivered.map((f) => `${f.number} (${f.distanceM} m)`).join(', ')}</li>}
                   </ul>
                 }
               />
@@ -154,7 +220,10 @@ export default function DeliveryTripsPage() {
         <Form form={form} name="trip-new" layout="vertical" onFinish={(v) => create.mutate(v)}>
           <Space wrap>
             <Form.Item name="date" label="Tanggal"><Input type="date" /></Form.Item>
-            <Form.Item name="vehicle" label="Kendaraan"><Input placeholder="B 1234 XY" maxLength={60} /></Form.Item>
+            <Form.Item name="vehicleId" label="Kendaraan terdaftar">
+              <Select allowClear style={{ minWidth: 200 }} placeholder="Pilih kendaraan" options={(vehicles.data ?? []).filter((v) => v.isActive).map((v) => ({ value: v.id, label: `${v.plate}${v.capacityKg ? ` (${Number(v.capacityKg)} kg)` : ''}` }))} />
+            </Form.Item>
+            <Form.Item name="vehicle" label="Atau ketik plat"><Input placeholder="B 1234 XY" maxLength={60} /></Form.Item>
             <Form.Item name="driverName" label="Pengemudi"><Input maxLength={100} /></Form.Item>
           </Space>
           <Form.Item name="notes" label="Catatan"><Input maxLength={300} /></Form.Item>
@@ -180,10 +249,25 @@ export default function DeliveryTripsPage() {
               <span><CarOutlined /> {d.vehicle ?? '-'} · {d.driverName ?? '-'}</span>
               {d.notes && <Typography.Text type="secondary">{d.notes}</Typography.Text>}
             </Space>
+            {d.capacityKg != null && (
+              <div>
+                <Typography.Text type="secondary">Muatan {d.loadKg.toLocaleString('id-ID')} kg dari kapasitas {d.capacityKg.toLocaleString('id-ID')} kg</Typography.Text>
+                <Progress percent={Math.min(100, Math.round((d.loadKg / d.capacityKg) * 100))} status={d.overCapacity ? 'exception' : 'normal'} size="small" />
+              </div>
+            )}
+            {d.overCapacity && <Alert type="error" showIcon message="Muatan melebihi kapasitas kendaraan" description={d.overCapacityReason ? `Diizinkan dengan alasan: ${d.overCapacityReason}` : 'Keberangkatan diblok; hanya Pemilik/Admin yang dapat mengizinkan dengan alasan tertulis.'} />}
+            {d.unweightedProducts > 0 && <Alert type="warning" showIcon message={`${d.unweightedProducts} produk di rute ini belum punya berat; dihitung 0 kg`} />}
+            {d.distanceM != null && <Typography.Text type="secondary">Perkiraan jarak {(d.distanceM / 1000).toFixed(1)} km <Tag>{d.distanceSource === 'JALAN' ? 'jarak jalan' : 'garis lurus'}</Tag></Typography.Text>}
+            {onRoute && (
+              <Space wrap>
+                <Button icon={<EnvironmentOutlined />} type={sharing ? 'primary' : 'default'} onClick={() => setSharing((x) => !x)}>{sharing ? 'Berhenti bagikan lokasi' : 'Bagikan lokasi'}</Button>
+                {d.lastPositionAt && <Typography.Text type="secondary">Lokasi terakhir {new Date(d.lastPositionAt).toLocaleTimeString('id-ID')} ({Number(d.lastLat).toFixed(4)}, {Number(d.lastLng).toFixed(4)})</Typography.Text>}
+              </Space>
+            )}
             {d.status === 'CANCELLED' && <Alert type="info" showIcon message={`Dibatalkan: ${d.cancelReason ?? '-'}`} />}
             <Space wrap>
               {planned && can('POST', '/delivery-trips/:id/optimize') && <Button loading={optimize.isPending} onClick={() => optimize.mutate(d.id)} disabled={d.stops.length < 2}>Urutkan dari titik terdekat</Button>}
-              {planned && can('POST', '/delivery-trips/:id/depart') && <Button type="primary" loading={depart.isPending} onClick={() => depart.mutate(d.id)} disabled={!d.stops.length}>Berangkat</Button>}
+              {planned && can('POST', '/delivery-trips/:id/depart') && <Button type="primary" loading={depart.isPending} onClick={() => (d.overCapacity ? setOverOpen(true) : depart.mutate({ id: d.id }))} disabled={!d.stops.length || (d.overCapacity && !canOverride)}>Berangkat</Button>}
               {onRoute && can('POST', '/delivery-trips/:id/complete') && <Button type="primary" loading={complete.isPending} onClick={() => complete.mutate(d.id)} disabled={d.stops.some((s) => s.status === 'PENDING')}>Selesaikan rute</Button>}
               {planned && can('POST', '/delivery-trips/:id/cancel') && <Button danger onClick={() => { setCancelling(true); }}>Batalkan rute</Button>}
             </Space>
@@ -198,7 +282,7 @@ export default function DeliveryTripsPage() {
                 { title: '#', dataIndex: 'sequence', width: 44 },
                 { title: 'Pelanggan', render: (_: unknown, s: Stop) => <div>{s.customerName}<div style={{ fontSize: 12, color: '#64748b' }}>{s.address ?? ''}{s.phone ? ` · ${s.phone}` : ''}</div></div> },
                 { title: 'Surat jalan', dataIndex: 'deliveryNumber' },
-                { title: 'Status', render: (_: unknown, s: Stop) => <div><Tag color={STOP_STATUS[s.status].color}>{STOP_STATUS[s.status].label}</Tag>{s.receivedBy && <div style={{ fontSize: 12 }}>Penerima: {s.receivedBy}</div>}{s.failReason && <div style={{ fontSize: 12 }}>{s.failReason}</div>}{s.note && <div style={{ fontSize: 12, color: '#64748b' }}>{s.note}</div>}</div> },
+                { title: 'Status', render: (_: unknown, s: Stop) => <div><Tag color={STOP_STATUS[s.status].color}>{STOP_STATUS[s.status].label}</Tag>{s.receivedBy && <div style={{ fontSize: 12 }}>Penerima: {s.receivedBy}</div>}{s.farFromCustomer && <Tag color="orange">Jauh dari alamat ({s.resultDistanceM} m)</Tag>}{(s.hasPhoto || s.hasSignature) && <Button size="small" type="link" onClick={() => setProofOf({ stop: s })}>Lihat bukti</Button>}{s.failReason && <div style={{ fontSize: 12 }}>{s.failReason}</div>}{s.note && <div style={{ fontSize: 12, color: '#64748b' }}>{s.note}</div>}</div> },
                 {
                   title: '',
                   render: (_: unknown, s: Stop, i: number) =>
@@ -235,7 +319,7 @@ export default function DeliveryTripsPage() {
       </Drawer>
 
       <Modal title={result?.result === 'DELIVERED' ? 'Catat terkirim (bukti terima)' : 'Catat gagal kirim'} open={!!result} onCancel={() => setResult(null)} onOk={() => resForm.submit()} confirmLoading={markStop.isPending} okText="Simpan" okButtonProps={{ danger: result?.result === 'FAILED' }} destroyOnHidden>
-        <Form form={resForm} name="trip-result" layout="vertical" onFinish={(v) => markStop.mutate({ id: open!, stopId: result!.stop.id, body: { result: result!.result, ...v } })}>
+        <Form form={resForm} name="trip-result" layout="vertical" onFinish={(v) => markStop.mutate({ id: open!, stopId: result!.stop.id, body: { result: result!.result, ...v, ...(geo ? { lat: String(geo.lat), lng: String(geo.lng) } : {}), ...(result!.result === 'DELIVERED' ? { photo, signature } : {}) } })}>
           <Typography.Paragraph>{result?.stop.customerName} · {result?.stop.deliveryNumber}</Typography.Paragraph>
           {result?.result === 'DELIVERED' ? (
             <Form.Item name="receivedBy" label="Nama penerima" rules={[{ required: true, min: 2, message: 'Nama penerima wajib diisi' }]}><Input maxLength={120} /></Form.Item>
@@ -243,6 +327,42 @@ export default function DeliveryTripsPage() {
             <Form.Item name="failReason" label="Alasan gagal" rules={[{ required: true, min: 3, message: 'Alasan wajib diisi' }]}><Input maxLength={300} placeholder="mis. toko tutup, alamat tidak ditemukan" /></Form.Item>
           )}
           <Form.Item name="note" label="Catatan"><Input maxLength={300} /></Form.Item>
+          {result?.result === 'DELIVERED' && (
+            <>
+              <Form.Item label="Foto bukti (opsional)">
+                <input type="file" accept="image/*" capture="environment" onChange={async (e) => { const f = e.target.files?.[0]; if (f) { try { setPhoto(await compressImage(f)); } catch { setPhoto(undefined); } } }} />
+                {photo && <img src={photo} alt="Foto bukti" style={{ display: 'block', maxWidth: 200, marginTop: 6 }} />}
+              </Form.Item>
+              <Form.Item label="Tanda tangan penerima (opsional)"><SignaturePad onChange={setSignature} /></Form.Item>
+            </>
+          )}
+          <Typography.Text type="secondary">{geo ? `Lokasi terbaca (akurasi ±${geo.acc} m) dan disimpan sebagai bukti.` : 'Lokasi tidak terbaca; hasil tetap bisa disimpan tanpa lokasi.'}</Typography.Text>
+        </Form>
+      </Modal>
+      <Modal title="Izinkan berangkat melebihi kapasitas" open={overOpen} onCancel={() => setOverOpen(false)} onOk={() => overForm.submit()} confirmLoading={depart.isPending} okText="Berangkat" destroyOnHidden>
+        <Form form={overForm} name="trip-over" layout="vertical" onFinish={(v) => depart.mutate({ id: open!, reason: v.reason })}>
+          <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="Tindakan ini dicatat di jejak audit." />
+          <Form.Item name="reason" label="Alasan" rules={[{ required: true, min: 5, message: 'Alasan wajib diisi (min. 5 huruf)' }]}><Input maxLength={300} /></Form.Item>
+        </Form>
+      </Modal>
+      <Modal title="Bukti terima" open={!!proofOf} onCancel={() => setProofOf(null)} footer={null} destroyOnHidden>
+        {proof.isLoading && <Typography.Text type="secondary">Memuat…</Typography.Text>}
+        {proof.data?.photo && <img src={proof.data.photo} alt="Foto bukti" style={{ maxWidth: '100%' }} />}
+        {proof.data?.signature && <img src={proof.data.signature} alt="Tanda tangan" style={{ maxWidth: '100%', background: '#fff', border: '1px solid #e2e8f0', marginTop: 8 }} />}
+        {proof.data && !proof.data.photo && !proof.data.signature && <Typography.Text type="secondary">Tidak ada bukti tersimpan.</Typography.Text>}
+      </Modal>
+      <Modal title="Kendaraan pengiriman" open={vehOpen} onCancel={() => setVehOpen(false)} footer={null} destroyOnHidden>
+        <Table<Vehicle> size="small" rowKey="id" pagination={false} dataSource={vehicles.data ?? []} columns={[
+          { title: 'Plat', dataIndex: 'plate' },
+          { title: 'Kapasitas', render: (_: unknown, v: Vehicle) => (v.capacityKg ? `${Number(v.capacityKg)} kg` : '-') },
+          { title: 'Pengemudi', dataIndex: 'defaultDriver' },
+          { title: '', render: (_: unknown, v: Vehicle) => <Switch size="small" checked={v.isActive} onChange={() => toggleVehicle.mutate(v)} aria-label="Aktif" /> },
+        ]} />
+        <Form form={vehForm} name="vehicle-new" layout="inline" style={{ marginTop: 12, rowGap: 8 }} onFinish={(v) => createVehicle.mutate(v, { onSuccess: () => vehForm.resetFields() })}>
+          <Form.Item name="plate" rules={[{ required: true }]}><Input placeholder="Plat" maxLength={20} style={{ width: 110 }} /></Form.Item>
+          <Form.Item name="capacityKg"><InputNumber placeholder="Kapasitas kg" min={0} style={{ width: 120 }} /></Form.Item>
+          <Form.Item name="defaultDriver"><Input placeholder="Pengemudi" maxLength={100} style={{ width: 120 }} /></Form.Item>
+          <Button htmlType="submit" type="primary" loading={createVehicle.isPending}>Tambah</Button>
         </Form>
       </Modal>
       <Modal title="Batalkan rute" open={cancelling} onCancel={() => setCancelling(false)} onOk={() => cancelForm.submit()} confirmLoading={cancel.isPending} okText="Batalkan rute" okButtonProps={{ danger: true }} destroyOnHidden>

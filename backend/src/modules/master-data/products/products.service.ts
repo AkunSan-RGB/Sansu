@@ -246,6 +246,7 @@ export class ProductsService {
           inventoryKind: dto.inventoryKind ?? 'GOODS',
           madeToOrder: dto.madeToOrder ?? false,
           shelfLifeDays: dto.shelfLifeDays ?? null,
+          weightKg: dto.weightKg ?? null,
         })
         .returning({ id: products.id });
       if (dto.uoms?.length) {
@@ -288,6 +289,7 @@ export class ProductsService {
           inventoryKind: dto.inventoryKind,
           madeToOrder: dto.madeToOrder,
           shelfLifeDays: dto.shelfLifeDays,
+          weightKg: dto.weightKg,
           isActive: dto.isActive,
         })
         .where(eq(products.id, id));
