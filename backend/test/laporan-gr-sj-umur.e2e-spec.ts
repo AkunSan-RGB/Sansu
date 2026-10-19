@@ -9,7 +9,7 @@ import { configureApp } from '../src/bootstrap';
 import { todayJakarta } from '../src/common/utils/dates';
 
 type Rec = { key: string; ok: boolean; diff: number; left: { value: number }; right: { value: number } };
-type Rep = { reconciliation: Rec[]; sections: { key: string; tables: { rows: (string | number | null)[][]; total?: (string | number | null)[] }[] }[] };
+type Rep = { conclusion: { status: string; findings: { level: string; title: string }[] }; reconciliation: Rec[]; sections: { key: string; tables: { rows: (string | number | null)[][]; total?: (string | number | null)[] }[] }[] };
 
 describe('Laporan pendukung dagang: GRNI, surat jalan, umur (e2e)', () => {
   let app: INestApplication;
@@ -65,6 +65,7 @@ describe('Laporan pendukung dagang: GRNI, surat jalan, umur (e2e)', () => {
     expect(aging.rows).toHaveLength(1);
     expect(aging.rows[0][0]).toBe('Pemasok Uji');
     expect(aging.rows[0][6]).toBeGreaterThan(0);
+    expect(r.conclusion.findings.map((f) => f.title).join('|')).toContain('1 penerimaan barang belum ditagih Rp500.000');
     expect(r.reconciliation.every((x) => x.ok)).toBe(true);
   });
 
@@ -78,6 +79,7 @@ describe('Laporan pendukung dagang: GRNI, surat jalan, umur (e2e)', () => {
     expect(aging.rows[0][0]).toBe('Pelanggan Uji');
     expect(aging.rows[0][1]).toBe(Math.round(5 * 20000 * 1.11)); // belum jatuh tempo
     expect(aging.rows[0][6]).toBe(aging.rows[0][1]);
+    expect(r.conclusion.findings.map((f) => f.title).join('|')).toContain('1 surat jalan belum difaktur (HPP Rp100.000)');
     expect(r.reconciliation.every((x) => x.ok)).toBe(true);
   });
 });

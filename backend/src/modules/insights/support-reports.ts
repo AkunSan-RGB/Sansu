@@ -8,6 +8,7 @@ import { sql } from 'drizzle-orm';
 import { addDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
+import { conclude } from './support-insights';
 
 type Cell = string | number | null;
 export interface SupportTable {
@@ -82,7 +83,8 @@ export class SupportReportsService {
     if (from > to) throw new BadRequestException('Tanggal awal tidak boleh setelah tanggal akhir');
     const out = await (this[kind] as (t: string, f: string, e: string) => Promise<{ title: string; summary: string; sections: SupportSection[]; reconciliation: Reconciliation[] }>).call(this, tenantId, from, to);
     for (const sec of out.sections) if (sec.tables.some((t) => t.rows.length >= CAP)) sec.paragraphs = [...sec.paragraphs, `Tabel dipotong pada ${CAP} baris pertama; persempit periode untuk melihat sisanya.`];
-    return { kind, ...out, period: { from, to }, generatedAt: new Date().toISOString(), today: todayJakarta() };
+    const period = { from, to };
+    return { kind, ...out, period, conclusion: conclude(kind, { ...out, period }), generatedAt: new Date().toISOString(), today: todayJakarta() };
   }
 
   // ------------------------------------------------------------------ Penjualan

@@ -1371,6 +1371,20 @@ export interface SupportReconciliation {
   ok: boolean;
   note?: string;
 }
+export type SupportFindingLevel = 'ok' | 'info' | 'warning' | 'danger';
+export interface SupportFinding {
+  level: SupportFindingLevel;
+  title: string;
+  detail: string;
+  /** Saran tindak lanjut */
+  action?: string;
+}
+/** Kesimpulan otomatis dari angka yang tersaji pada laporan */
+export interface SupportConclusion {
+  status: SupportFindingLevel;
+  summary: string;
+  findings: SupportFinding[];
+}
 export interface SupportReport {
   kind: 'sales' | 'purchases' | 'inventory' | 'cash' | 'other' | 'pos' | 'fnb' | 'fmcg' | 'mfg' | 'jasa' | 'utility';
   title: string;
@@ -1378,6 +1392,7 @@ export interface SupportReport {
   period: { from: string; to: string };
   generatedAt: string;
   reconciliation: SupportReconciliation[];
+  conclusion: SupportConclusion;
   sections: { key: string; number: string; title: string; paragraphs: string[]; tables: NoteTable[] }[];
 }
 

@@ -12,7 +12,7 @@ import { DB, Db } from '../src/db/db';
 import { todayJakarta } from '../src/common/utils/dates';
 
 type Rec = { key: string; ok: boolean; diff: number; left: { value: number }; right: { value: number } };
-type Rep = { reconciliation: Rec[]; sections: { key: string; tables: { rows: (string | number | null)[][]; total?: (string | number | null)[] }[] }[] };
+type Rep = { conclusion: { status: string; summary: string; findings: { level: string; title: string; action?: string }[] }; reconciliation: Rec[]; sections: { key: string; tables: { rows: (string | number | null)[][]; total?: (string | number | null)[] }[] }[] };
 
 describe('Laporan pendukung FMCG (e2e)', () => {
   let app: INestApplication;
@@ -118,6 +118,11 @@ describe('Laporan pendukung FMCG (e2e)', () => {
     expect(comm[5]).toBe(125); // capaian 125%
     const cv = r.sections.find((s) => s.key === 'fmcg-canvass')!.tables[0].rows[0];
     expect(cv.slice(0, 5)).toEqual(['sls', 1, 5000, 4000, 1000]);
+    const titles = r.conclusion.findings.map((f) => f.title).join('|');
+    expect(titles).toContain('Kurang setor kanvas Rp1.000');
+    expect(titles).toContain('klaim prinsipal disetujui belum cair');
+    expect(r.conclusion.status).toBe('warning');
+    expect(r.conclusion.findings.every((f) => f.level === 'ok' || f.level === 'info' || f.action)).toBe(true);
   });
 
   it('pencocokan saldo dihitung per tanggal akhir: sebelum komisi ditutup semuanya nol, dan tetap cocok', async () => {

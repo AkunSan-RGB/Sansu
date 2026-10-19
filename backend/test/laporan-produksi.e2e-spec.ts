@@ -10,7 +10,7 @@ import { configureApp } from '../src/bootstrap';
 import { todayJakarta } from '../src/common/utils/dates';
 
 type Rec = { key: string; ok: boolean; diff: number; left: { value: number }; right: { value: number } };
-type Rep = { reconciliation: Rec[]; sections: { key: string; tables: { rows: (string | number | null)[][]; total?: (string | number | null)[] }[] }[] };
+type Rep = { conclusion: { status: string; findings: { level: string; title: string }[] }; reconciliation: Rec[]; sections: { key: string; tables: { rows: (string | number | null)[][]; total?: (string | number | null)[] }[] }[] };
 
 describe('Laporan pendukung produksi (e2e)', () => {
   let app: INestApplication;
@@ -62,6 +62,8 @@ describe('Laporan pendukung produksi (e2e)', () => {
     const wip = r.sections.find((s) => s.key === 'mfg-wip')!.tables[0].rows;
     expect(wip).toHaveLength(1);
     expect(wip[0][4]).toBe(300_000);
+    expect(r.conclusion.findings.find((f) => f.title.includes('Biaya konversi'))!.level).toBe('info');
+    expect(r.conclusion.findings.map((f) => f.title).join('|')).toContain('Rendemen produksi baik (rata-rata 90%)'); // hasil 9 dari 10 = tepat 90%
     const usage = r.sections.find((s) => s.key === 'mfg-usage')!.tables[0].rows;
     expect(usage[0].slice(0, 5)).toEqual(['KAIN', 'Kain', 45, 45, 0]);
   });

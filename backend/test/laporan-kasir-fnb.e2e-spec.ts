@@ -10,7 +10,7 @@ import { configureApp } from '../src/bootstrap';
 import { todayJakarta } from '../src/common/utils/dates';
 
 type Rec = { key: string; ok: boolean; diff: number; left: { value: number }; right: { value: number } };
-type Rep = { reconciliation: Rec[]; sections: { key: string; tables: { rows: (string | number | null)[][]; total?: (string | number | null)[] }[] }[] };
+type Rep = { conclusion: { status: string; summary: string; findings: { level: string; title: string }[] }; reconciliation: Rec[]; sections: { key: string; tables: { rows: (string | number | null)[][]; total?: (string | number | null)[] }[] }[] };
 
 describe('Laporan pendukung kasir & F&B (e2e)', () => {
   let app: INestApplication;
@@ -69,6 +69,8 @@ describe('Laporan pendukung kasir & F&B (e2e)', () => {
     const sess = r.sections.find((s) => s.key === 'pos-session')!.tables[0].rows[0];
     expect(sess[9]).toBe(-5000);
     expect(rec(r, 'pos-cash-diff').left.value).toBe(-5000);
+    expect(r.conclusion.summary).toContain('Semua 4 pencocokan buku besar cocok');
+    expect(r.conclusion.findings.map((f) => f.title).join('|')).toContain('1 sesi uang laci kurang (Rp5.000)');
   });
 
   it('F&B: menu, pajak daerah, piutang platform, HPP, dan bahan sesuai resep', async () => {
