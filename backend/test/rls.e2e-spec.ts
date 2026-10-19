@@ -55,7 +55,9 @@ const inScope = <T>(tenantId: string | undefined, fn: () => PromiseLike<T>): Pro
           SELECT 1 FROM information_schema.columns k WHERE k.table_schema = 'public' AND k.table_name = c.relname AND k.column_name = 'tenant_id')`)
     ).rows;
     expect(rows.length).toBeGreaterThan(30);
-    expect(rows.filter((r) => !r.rls || r.pol !== 'tenant_isolation').map((r) => r.t)).toEqual([]);
+    // data_erasure_log: bukti penghapusan tanpa FK; kebijakan 'platform_only' (hanya bypass) lebih ketat daripada tenant_isolation
+    expect(rows.filter((r) => r.t !== 'data_erasure_log' && (!r.rls || r.pol !== 'tenant_isolation')).map((r) => r.t)).toEqual([]);
+    expect(rows.find((r) => r.t === 'data_erasure_log')?.rls).toBe(true);
   });
 
   it('di dalam lingkup perusahaan A, query tanpa filter hanya melihat baris A', async () => {

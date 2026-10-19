@@ -16,6 +16,8 @@ Dokumen ini ringkasan kontrol keamanan SANSU yang ada di kode, cara memeriksanya
 | Hak akses | Peran + matriks rute tunggal; OWNER selalu boleh; peran khusus hanya mempersempit; pemisahan fungsi (pembuat ≠ penyetuju) | `common/auth/route-matrix.ts`, tes `segregation` |
 | Validasi masukan | `whitelist` + `forbidNonWhitelisted` (menolak bidang tak dikenal), tipe divalidasi | `bootstrap.ts` |
 | Header | CSP ketat (`default-src 'self'`, tanpa skrip sebaris), `frame-ancestors 'none'`, HSTS, `nosniff`, tanpa `x-powered-by`; Caddy menambah CSP yang sama di instalasi VPS | `bootstrap.ts`, `deploy/Caddyfile` |
+| Postur database | Saat start dan tiap 24 jam: peran aplikasi tunduk RLS, semua tabel data perusahaan ber-RLS, uji isolasi langsung; produksi menolak start bila gagal | `modules/data-rights/security-posture.ts`, `docs/DATA-PERUSAHAAN.md` |
+| Hak data klien | Ekspor seluruh data (verifikasi ulang, sekali pakai, tanpa rahasia) dan penghapusan terjadwal bermasa tenggang dengan pemeriksaan jumlah baris | `modules/data-rights`, `docs/DATA-PERUSAHAAN.md` |
 | Jejak audit | Perubahan penting dicatat (siapa, kapan, sebelum/sesudah); periode pembukuan bisa dikunci | modul `audit` |
 | Pemantauan | Galat 5xx dikirim ke Telegram | `docs/OPERASIONAL.md` |
 

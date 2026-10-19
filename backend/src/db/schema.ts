@@ -801,6 +801,64 @@ export const tradeAccrualSettlements = pgTable(
   (t) => [index('trade_accrual_settlements_accrual_idx').on(t.accrualId, t.date)],
 );
 
+/** Token sekali pakai untuk mengunduh ekspor seluruh data perusahaan: hanya hash yang disimpan, berlaku singkat, sekali pakai */
+export const dataExportTokens = pgTable(
+  'data_export_tokens',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    userId: uuid('user_id').notNull(),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('data_export_tokens_hash_uq').on(t.tokenHash)],
+);
+
+/** Permintaan penghapusan seluruh data perusahaan oleh pemilik: dijadwalkan dengan masa tenggang, dapat dibatalkan atau ditahan sebelum dieksekusi */
+export const dataDeletionRequests = pgTable(
+  'data_deletion_requests',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    requestedById: uuid('requested_by_id').notNull(),
+    requestedByEmail: text('requested_by_email').notNull(),
+    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+    scheduledFor: date('scheduled_for').notNull(),
+    status: text('status').$type<'SCHEDULED' | 'ON_HOLD' | 'CANCELLED' | 'EXECUTED'>().notNull().default('SCHEDULED'),
+    reason: text('reason'),
+    /** Pemilik menyatakan memahami kewajiban menyimpan pembukuan/dokumen pajak dan menanggung penyimpanannya sendiri */
+    ackRetention: boolean('ack_retention').notNull().default(false),
+    /** true = pemilik memilih menghapus tanpa mengunduh ekspor; false = penghapusan menunggu ekspor diunduh */
+    exportWaived: boolean('export_waived').notNull().default(false),
+    holdReason: text('hold_reason'),
+    heldBy: text('held_by'),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    cancelledBy: text('cancelled_by'),
+    lastReminderAt: timestamp('last_reminder_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('data_deletion_active_uq').on(t.tenantId).where(sql`status IN ('SCHEDULED', 'ON_HOLD')`)],
+);
+
+/**
+ * Bukti penghapusan data perusahaan (akuntabilitas): sengaja TANPA foreign key dan tanpa isi data bisnis,
+ * hanya identitas perusahaan, kapan, siapa yang meminta, dan jumlah baris yang dihapus per tabel.
+ */
+export const dataErasureLog = pgTable('data_erasure_log', {
+  id: id(),
+  tenantId: uuid('tenant_id').notNull(),
+  companyName: text('company_name').notNull(),
+  requestedByEmail: text('requested_by_email').notNull(),
+  requestedAt: timestamp('requested_at', { withTimezone: true }).notNull(),
+  executedAt: timestamp('executed_at', { withTimezone: true }).notNull().defaultNow(),
+  exportWaived: boolean('export_waived').notNull(),
+  rowsDeleted: integer('rows_deleted').notNull(),
+  tablesTouched: integer('tables_touched').notNull(),
+  detail: jsonb('detail').$type<Record<string, number>>().notNull(),
+});
+
 /** Lot yang ikut berpindah saat transfer gudang: dicatat saat barang keluar, dipakai lagi saat barang masuk di gudang tujuan */
 export const stockLotTransit = pgTable(
   'stock_lot_transit',
