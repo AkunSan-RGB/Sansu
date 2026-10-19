@@ -39,6 +39,18 @@ Yang dilakukan SANSU dengan laporannya: menyimpannya, menampilkannya di Panel, d
 Memulihkan dari salinan (darurat): unduh berkas `sansu-*.dump.enc` dari bucket, lalu
 `openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:BACKUP_PASSPHRASE -in sansu-….dump.enc -out pulih.dump` dan `pg_restore --no-owner -d <database-baru> pulih.dump` (pastikan peran `sansu_app` ada; jalankan migrasi aplikasi sesudahnya bila versi aplikasi lebih baru dari backup). Skrip yang sama dipakai backup di server sendiri, jadi format dan kata sandinya seragam.
 
+#### Alternatif tanpa GitHub Actions (Docker di komputer/server Anda)
+Bila kuota atau pembayaran GitHub Actions bermasalah (job gagal dengan pesan *recent account payments have failed or your spending limit needs to be increased*), jalankan skrip yang sama lewat Docker. Cocok untuk server yang selalu menyala (VPS kecil); komputer pribadi yang sering mati akan melewatkan backup, dan Panel SANSU lalu menandainya basi.
+
+1. Pasang Docker (Linux: Docker Engine; Windows: Docker Desktop, dibiarkan berjalan).
+2. Di folder `deploy/backup`: salin `backup.env.example` menjadi `backup.env` dan isi (nilainya sama dengan daftar secret di atas; format `NAMA=nilai` tanpa tanda kutip). Berkas ini berisi kunci ke seluruh data: batasi aksesnya (`chmod 600 backup.env`) dan jangan di-commit (sudah di `.gitignore`).
+3. Uji sekali: Linux `./run-external.sh dump`; Windows PowerShell `.\run-external.ps1 dump`. Lalu lihat Panel SANSU › Keamanan data › Backup database: harus **Baik**. Ulangi dengan `restore-test`.
+4. Jadwalkan:
+   - Linux (cron): `30 1 * * * /jalur/ke/deploy/backup/run-external.sh dump >> /var/log/sansu-backup.log 2>&1` dan `0 3 2 * * /jalur/ke/deploy/backup/run-external.sh restore-test >> /var/log/sansu-backup.log 2>&1`.
+   - Windows: *Task Scheduler* › Create Task › Trigger harian 01:30 › Action: `powershell.exe` dengan argumen `-ExecutionPolicy Bypass -File "C:\jalur\deploy\backup\run-external.ps1" dump`; buat tugas kedua bulanan untuk `restore-test`.
+
+Pembungkus Docker ini baru diuji sebagian (skrip backupnya diuji nyata; pembungkus `run-external.sh/.ps1` dan image-nya belum dijalankan karena tidak ada Docker di lingkungan pengembangan). Jalankan `dump` dan `restore-test` sekali dan pantau hasilnya sebelum mengandalkannya.
+
 Batasan jujur:
 - GitHub Actions bisa terlambat atau dilewati (jadwal GitHub tidak dijamin tepat waktu, dan dihentikan otomatis pada repositori yang tidak aktif 60 hari). Karena itu SANSU memeriksa **kesegaran laporan**, bukan hanya menunggu kabar gagal.
 - `BACKUP_DATABASE_URL` adalah kunci ke seluruh data klien dan tersimpan di GitHub secrets. Pakai repositori privat, batasi siapa yang bisa mengubah workflow, dan putar (ganti) kata sandinya bila ada orang keluar. Alternatif: jalankan skrip yang sama dari cron di server milik Anda.

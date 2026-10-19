@@ -15,3 +15,6 @@ coverage/
 
 # salinan lama proyek (tidak dipakai; riwayatnya sudah ada di repo ini) — aman dihapus manual
 /Sansu/
+
+# kunci backup lokal
+deploy/backup/backup.env

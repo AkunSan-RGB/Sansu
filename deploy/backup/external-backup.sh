@@ -25,7 +25,8 @@ START=$(date +%s)
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
-json_escape() { python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()[:480]))'; }
+# string JSON tanpa python (tidak ada di semua image): buang karakter kontrol, escape \ dan ", potong 480 karakter
+json_escape() { printf '"%s"' "$(tr '\n\r\t' '   ' | tr -d '\000-\037' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | cut -c1-480)"; }
 
 # report <kind> <OK|FAILED> [json tambahan tanpa kurung kurawal, mis. "sizeBytes":1]
 report() {
