@@ -132,6 +132,8 @@ const MENU: Group[] = [
       { key: '/pos/tables', label: 'Meja & pesanan', models: ['FNB'], roles: ['OWNER', 'CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/pos/kitchen', label: 'Layar dapur', models: ['FNB'], roles: ['OWNER', 'CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/pos/online', label: 'Pesanan online', models: ['FNB'], roles: ['ADMIN', 'FINANCE'] },
+      { key: '/pos/loyalty', label: 'Program loyalitas', models: ['RITEL', 'FNB'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+      { key: '/pos/settlements', label: 'Pencairan QRIS/kartu', models: ['RITEL', 'FNB'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/pos/sessions', label: 'Riwayat sesi kasir', roles: ['OWNER', 'CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/support-reports?kind=pos', label: 'Laporan kasir', models: ['RITEL', 'FNB'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/support-reports?kind=fnb', label: 'Laporan F&B', models: ['FNB'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
