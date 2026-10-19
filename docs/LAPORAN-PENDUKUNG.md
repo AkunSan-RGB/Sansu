@@ -62,7 +62,7 @@ Pencocokan buku besar: tagihan vs akun pendapatan; pemakaian pada catatan meter 
 
 Piutang usaha dan piutang lain dipisahkan: akun Piutang Usaha hanya berisi piutang dari faktur (jurnal manual ke akun itu ditolak), sehingga Laporan utilitas mencocokkan sisa semua faktur dengan akun tersebut dan memisahkan tagihan utilitas dari faktur lain. Piutang lain (karyawan, platform, klaim prinsipal, retensi, antar cabang, dan akun piutang lain) dilaporkan sendiri di Laporan akun lainnya, bagian "Piutang lain-lain", terpisah dari aset lain.
 
-Batasan Jasa dan Utilitas: jam kerja dan upah jasa tidak masuk laporan ini (ada di Upah jasa); piutang valas tidak ikut pencocokan piutang usaha.
+Batasan Jasa dan Utilitas: jam kerja dan upah jasa tidak masuk laporan ini (ada di Upah jasa); piutang valas ikut pencocokan piutang usaha pada nilai rupiah tercatat.
 
 ## Alur surat jalan dan penerimaan barang (Dagang dan jenis usaha yang membeli/menjual barang)
 
@@ -70,3 +70,21 @@ Batasan Jasa dan Utilitas: jam kerja dan upah jasa tidak masuk laporan ini (ada 
 - **Laporan pembelian**: bagian P4 umur utang usaha per pemasok, P5 barang diterima belum ditagih, dan pencocokan baru "Barang diterima belum ditagih vs akun GRNI" (penerimaan − yang sudah ditagih vs saldo akun Barang Diterima Belum Ditagih).
 
 Batasan: pencocokan GRNI dan daftar penerimaan dibandingkan per hari ini karena status penagihan penerimaan tidak menyimpan riwayat; surat jalan belum difaktur tidak punya akun buku besar sendiri sehingga hanya berupa daftar, bukan pencocokan.
+
+## Penanganan batasan (pembaruan)
+
+| Batasan sebelumnya | Sekarang |
+|---|---|
+| Piutang/utang valas tidak ikut pencocokan dan umur | Ikut, memakai nilai rupiah tercatat (piutang/utang usaha dibawa pada kurs faktur; penilaian ulang kurs memakai akun terpisah) |
+| Pendapatan kasir/jasa/lain tanpa rincian di laporan penjualan | Bagian P7 menampilkan pendapatan menurut sumber jurnal dengan pencocokan ke seluruh akun pendapatan |
+| Daftar dipotong 100/300/500 baris | Tabel "teratas" menggabungkan sisanya jadi satu baris Lainnya sehingga jumlah tetap lengkap; tabel lain memuat sampai 2.000 baris dan diberi catatan bila terpotong |
+| Pencocokan komisi dan klaim prinsipal hanya per hari ini | Dihitung per tanggal akhir dari tanggal jurnal (termasuk pembalikan dan pembayaran) |
+| Bahan terpakai F&B memakai resep saat ini; retur tidak dikurangkan | Memakai resep yang berlaku saat pesanan dibuat; retur memang tidak mengembalikan bahan (sudah diolah), jadi tidak dikurangkan |
+| Konsinyasi tanpa nilai rupiah | Menampilkan nilai pada harga pokok rata-rata |
+| Barang setengah jadi tidak diuraikan | Kolom Induk pada perintah produksi selesai |
+| Jam kerja/upah jasa tidak masuk | Bagian J4 (menunggu persetujuan, disetujui belum digaji, sudah digaji) |
+| Surat jalan belum difaktur tanpa pencocokan | Pencocokan baru HPP surat jalan vs akun HPP; daftar belum difaktur tetap berupa daftar karena tidak ada akun tersendiri |
+
+Batasan yang masih ada:
+- Pencocokan "barang diterima belum ditagih" (GRNI) dan "rebate outlet belum dilunasi" dibandingkan per hari ini: penagihan penerimaan dan pelunasan rebate hanya menyimpan angka kumulatif, bukan riwayat per tanggal. Menghitungnya per tanggal memerlukan tabel riwayat baru.
+- Laporan ini belum ditinjau akuntan eksternal.
