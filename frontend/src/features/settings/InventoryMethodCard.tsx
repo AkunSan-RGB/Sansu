@@ -1,10 +1,12 @@
 import { FRAMEWORK_REFS, type InventoryMethod, type ReportingFramework } from '@sansu/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Card, Radio, Space, Tag, Typography } from 'antd';
+import { InboxOutlined } from '@ant-design/icons';
+import { Alert, Button, Tag } from 'antd';
 import { useEffect, useState } from 'react';
 import { get, put } from '@/api/client';
 import { useAction } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
+import PolicyCard, { ChoiceCards } from './PolicyCard';
 
 interface MethodInfo {
   method: InventoryMethod;
@@ -31,29 +33,29 @@ export default function InventoryMethodCard() {
   if (!data) return null;
   const std = FRAMEWORK_REFS[data.framework].inventory;
   return (
-    <Card title="Metode biaya persediaan" extra={<Tag color="blue">{std}</Tag>}>
-      <Typography.Paragraph type="secondary">
-        Menentukan biaya barang yang keluar (harga pokok penjualan) dan nilai stok akhir. Berlaku untuk seluruh persediaan perusahaan dan tercantum otomatis di
-        kebijakan akuntansi (CALK). Beralih metode tidak mengubah nilai stok yang sudah ada; metode baru dipakai untuk transaksi berikutnya.
-      </Typography.Paragraph>
-      <Radio.Group value={value} onChange={(e) => setValue(e.target.value)} disabled={!isAdmin} style={{ width: '100%' }}>
-        <Space direction="vertical" style={{ width: '100%' }}>
-          {data.options.map((o) => (
-            <Radio key={o.key} value={o.key} style={{ alignItems: 'flex-start' }}>
-              <div style={{ fontWeight: 600 }}>
-                {o.label} {data.guide.recommended === o.key && <Tag color="green">Disarankan</Tag>}
-              </div>
-              <div style={{ color: '#5B6477' }}>{o.how}</div>
-            </Radio>
-          ))}
-        </Space>
-      </Radio.Group>
-      <Alert type="info" showIcon style={{ marginTop: 12 }} message={data.guide.notes.map((n) => <div key={n}>{n}</div>)} />
-      {isAdmin && (
-        <Button type="primary" style={{ marginTop: 16 }} disabled={value === data.method} loading={save.isPending} onClick={() => save.mutate(value)}>
-          Simpan metode
-        </Button>
-      )}
-    </Card>
+    <PolicyCard
+      id="kebijakan-persediaan"
+      icon={<InboxOutlined />}
+      title="Metode biaya persediaan"
+      tag={<Tag color="blue">{std}</Tag>}
+      desc="Cara menghitung biaya barang yang keluar (harga pokok penjualan) dan nilai stok akhir. Tercantum otomatis di CALK. Beralih metode tidak mengubah nilai stok yang sudah ada; metode baru dipakai untuk transaksi berikutnya."
+      footer={
+        isAdmin ? (
+          <Button type="primary" disabled={value === data.method} loading={save.isPending} onClick={() => save.mutate(value)}>
+            Simpan metode
+          </Button>
+        ) : (
+          <span style={{ opacity: 0.7 }}>Hanya Pemilik/Admin yang dapat mengubah.</span>
+        )
+      }
+    >
+      <ChoiceCards
+        value={value}
+        onChange={setValue}
+        disabled={!isAdmin}
+        options={data.options.map((o) => ({ value: o.key, title: o.label, desc: o.how, badge: data.guide.recommended === o.key ? <Tag color="green">Disarankan</Tag> : undefined }))}
+      />
+      <Alert type="info" showIcon style={{ marginTop: 14 }} message={data.guide.notes.map((n) => <div key={n}>{n}</div>)} />
+    </PolicyCard>
   );
 }

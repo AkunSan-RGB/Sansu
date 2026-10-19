@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { canBookkeep, LEGAL_FORM_LABELS, REPORTING_FRAMEWORK_LABELS, REPORTING_FRAMEWORK_SHORT, TAX_SCHEME_LABELS, toOptions } from '@sansu/shared';
+import { canBookkeep, LEGAL_FORM_LABELS, REPORTING_FRAMEWORK_SHORT, TAX_SCHEME_LABELS, toOptions } from '@sansu/shared';
 import {
   AuditOutlined,
   BankOutlined,
@@ -26,8 +26,7 @@ import BrandingCard from './BrandingCard';
 import BranchFeatureCard from './BranchFeatureCard';
 import RecipeTermCard from './RecipeTermCard';
 import BusinessModelCard from './BusinessModelCard';
-import InventoryMethodCard from './InventoryMethodCard';
-import PettyCashPolicyCard from './PettyCashPolicyCard';
+import AccountingPolicyTab from './AccountingPolicyTab';
 import ReminderSettingsCard from './ReminderSettingsCard';
 import EntityProfileWizard from './EntityProfileWizard';
 import { t } from '@/lib/terms';
@@ -206,7 +205,6 @@ export default function CompanySettingsPage() {
   const [payroll] = Form.useForm<PayrollSettings>();
   const [reporting] = Form.useForm<ReportingSettings>();
   const [policy] = Form.useForm<ReportingSettings>();
-  const framework = Form.useWatch('framework', policy);
   const scheme = Form.useWatch('taxScheme', reporting);
   const pkp = Form.useWatch('pkp', tax) ?? true;
   const localTax = Form.useWatch('localTaxEnabled', tax) ?? false;
@@ -417,39 +415,14 @@ export default function CompanySettingsPage() {
             label: 'Kebijakan akuntansi',
             icon: <SolutionOutlined />,
             children: (
-              <Space direction="vertical" size={16} style={{ ...wide, width: '100%' }}>
-                <Card>
-                  <Form form={policy} layout="vertical" onFinish={(v) => saveReporting.mutate({ framework: v.framework, capitalizationThreshold: v.capitalizationThreshold } as ReportingSettings)} requiredMark={false}>
-                  <Section title="Standar akuntansi" desc="Mengubah susunan laporan, catatan (CALK), akun yang ditampilkan, dan fitur yang tersedia.">
-                    <Form.Item
-                      name="framework"
-                      extra={
-                        framework === 'SAK_EMKM'
-                          ? 'SAK EMKM: untuk usaha mikro/kecil — laporan posisi keuangan, laba rugi, dan CALK; aset tetap dengan biaya historis.'
-                          : framework === 'IFRS'
-                            ? 'IFRS (standar akuntansi umum, di Indonesia berbentuk PSAK berbasis IFRS): untuk entitas akuntabilitas publik, afiliasi grup asing, atau bila bank/investor mensyaratkannya — 5 laporan lengkap dengan judul dwibahasa dan CALK dengan pengungkapan IFRS (risiko keuangan, manajemen modal, sewa, instrumen keuangan). Pengungkapan khusus seperti laba per saham dan segmen operasi belum tercakup.'
-                            : 'SAK EP (berlaku sejak 1 Januari 2025): untuk entitas tanpa akuntabilitas publik — 5 laporan lengkap dengan pembanding.'
-                      }
-                    >
-                      <Radio.Group optionType="button" buttonStyle="solid" options={toOptions(REPORTING_FRAMEWORK_LABELS)} />
-                    </Form.Item>
-                  </Section>
-                    <Divider />
-                  <Section title="Aset tetap">
-                    <Form.Item
-                      name="capitalizationThreshold"
-                      label="Batas kapitalisasi (per unit)"
-                      extra="Pembelian di bawah batas ini langsung dibebankan ke 'Beban Peralatan Kecil', tidak didaftarkan sebagai aset. Isi 0 untuk mengapitalisasi semuanya. Tanah selalu dikapitalisasi."
-                    >
-                      <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%', maxWidth: 320 }} prefix="Rp" />
-                    </Form.Item>
-                  </Section>
-                    {canBookkeep(me?.role) && <SaveBar loading={saveReporting.isPending} />}
-                  </Form>
-                </Card>
-                <InventoryMethodCard />
-                {can('cash') && <PettyCashPolicyCard />}
-              </Space>
+              <AccountingPolicyTab
+                policy={policy}
+                saved={data?.reporting}
+                canEdit={canBookkeep(me?.role)}
+                saving={saveReporting.isPending}
+                onSave={(v) => saveReporting.mutate(v)}
+                showCash={can('cash')}
+              />
             ),
           },
         ]
