@@ -29,24 +29,27 @@ const KINDS: { key: SupportReport['kind']; label: string; hint: string; models?:
   { key: 'other', label: 'Akun lainnya', hint: 'Aset lain, liabilitas, ekuitas, pendapatan/beban lain, dan saldo pajak.' },
 ];
 
+/** Paragraf rata kiri-kanan; pemenggalan kata otomatis (bahasa Indonesia) menjaga jarak antarkata tetap rapat di layar sempit */
+const JUSTIFY = { textAlign: 'justify', hyphens: 'auto' } as const;
+
 /** Kesimpulan dan saran otomatis, ditulis sebagai paragraf bernomor di akhir laporan */
 function ConclusionSection({ c }: { c: SupportConclusion }) {
   const groups = conclusionGroups(c);
   return (
     <section style={{ marginTop: 8, paddingTop: 20, borderTop: '2px solid #d9dde6', breakInside: 'avoid-page' }}>
       <Typography.Title level={5} style={{ margin: '0 0 8px' }}>Kesimpulan dan saran</Typography.Title>
-      <Typography.Paragraph>{c.summary}</Typography.Paragraph>
+      <Typography.Paragraph style={JUSTIFY}>{c.summary}</Typography.Paragraph>
       {groups.map((g) => (
         <div key={g.heading} style={{ marginBottom: 12 }}>
           <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>{g.heading}</Typography.Text>
           {g.items.map((i) => (
-            <Typography.Paragraph key={i.no} style={{ margin: '0 0 8px', paddingLeft: 24, textIndent: -24 }}>
+            <Typography.Paragraph key={i.no} style={{ ...JUSTIFY, margin: '0 0 8px', paddingLeft: 24, textIndent: -24 }}>
               {i.no}.&nbsp;&nbsp;<b>{i.lead}</b> {i.body}
             </Typography.Paragraph>
           ))}
         </div>
       ))}
-      <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '12px 0 0' }}>
+      <Typography.Paragraph type="secondary" style={{ ...JUSTIFY, fontSize: 12, margin: '12px 0 0' }}>
         Kesimpulan di atas dihasilkan otomatis dari angka pada laporan ini dengan ambang yang dapat diatur di Pengaturan perusahaan; bukan pengganti pertimbangan akuntan.
       </Typography.Paragraph>
     </section>
@@ -99,7 +102,7 @@ export default function SupportReportsPage() {
           className="no-print"
           items={kinds.map((k) => ({ key: k.key, label: k.label }))}
         />
-        <Typography.Paragraph type="secondary" className="no-print">
+        <Typography.Paragraph type="secondary" className="no-print" style={JUSTIFY}>
           {kinds.find((k) => k.key === kind)?.hint} Angka dihitung ulang dari pembukuan setiap dibuka.
         </Typography.Paragraph>
         <Space wrap size={[8, 8]} className="no-print" style={{ marginBottom: 16 }}>
@@ -111,9 +114,9 @@ export default function SupportReportsPage() {
         {from > to && <Alert type="warning" showIcon message="Tanggal awal tidak boleh setelah tanggal akhir" style={{ marginBottom: 16 }} />}
         <QueryState q={q}>
           {(d) => (
-            <div className="calk" style={{ maxWidth: 1000, margin: '0 auto' }}>
+            <div className="calk" lang="id" style={{ maxWidth: 1000, margin: '0 auto' }}>
               <Typography.Title level={4} style={{ margin: '0 0 2px' }}>{d.title}</Typography.Title>
-              <Typography.Paragraph type="secondary">
+              <Typography.Paragraph type="secondary" style={JUSTIFY}>
                 Periode {fmtDate(d.period.from)} s/d {fmtDate(d.period.to)}. {d.summary}
               </Typography.Paragraph>
 
@@ -154,7 +157,7 @@ export default function SupportReportsPage() {
                     {s.number}. {s.title}
                   </Typography.Title>
                   {s.paragraphs.map((p, i) => (
-                    <Typography.Paragraph key={i} type="secondary" style={{ margin: '4px 0' }}>
+                    <Typography.Paragraph key={i} type="secondary" style={{ ...JUSTIFY, margin: '4px 0' }}>
                       {p}
                     </Typography.Paragraph>
                   ))}
