@@ -121,6 +121,22 @@ export class SupportReportsService {
       FROM invoices i WHERE i.tenant_id = ${tenantId} AND i.date <= ${to} AND i.currency = 'IDR'`);
     const arGl = await this.glBalance(tenantId, to, sql`a.system_key = 'AR'`);
 
+
+    const arAging = await this.rows<{ name: string; b0: string; b1: string; b2: string; b3: string; b4: string }>(sql`
+      SELECT x.name, COALESCE(SUM(x.open) FILTER (WHERE x.late <= 0), 0)::text AS b0, COALESCE(SUM(x.open) FILTER (WHERE x.late BETWEEN 1 AND 30), 0)::text AS b1,
+        COALESCE(SUM(x.open) FILTER (WHERE x.late BETWEEN 31 AND 60), 0)::text AS b2, COALESCE(SUM(x.open) FILTER (WHERE x.late BETWEEN 61 AND 90), 0)::text AS b3, COALESCE(SUM(x.open) FILTER (WHERE x.late > 90), 0)::text AS b4
+      FROM (SELECT c.name, (${to}::date - i.due_date) AS late,
+          i.total - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.invoice_id = i.id AND p.date <= ${to}), 0)
+                  - COALESCE((SELECT SUM(r.total) FROM sales_returns r WHERE r.invoice_id = i.id AND r.date <= ${to}), 0) AS open
+        FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.tenant_id = ${tenantId} AND i.date <= ${to} AND i.currency = 'IDR') x
+      WHERE x.open > 0.5 GROUP BY x.name ORDER BY SUM(x.open) DESC LIMIT 200`);
+    const agingRows: Cell[][] = arAging.map((r) => [r.name, num(r.b0), num(r.b1), num(r.b2), num(r.b3), num(r.b4), num(r.b0) + num(r.b1) + num(r.b2) + num(r.b3) + num(r.b4)]);
+    const unbilled = await this.rows<{ number: string; d: string; customer: string; so: string; cogs: string; age: number }>(sql`
+      SELECT d.number, d.date::text AS d, c.name AS customer, o.number AS so, d.cogs_amount::text AS cogs, (${to}::date - d.date)::int AS age
+      FROM delivery_orders d JOIN customers c ON c.id = d.customer_id JOIN sales_orders o ON o.id = d.sales_order_id LEFT JOIN invoices i ON i.id = d.invoice_id
+      WHERE d.tenant_id = ${tenantId} AND d.status = 'DELIVERED' AND d.date <= ${to} AND (d.invoice_id IS NULL OR i.date > ${to}) ORDER BY d.date LIMIT 300`);
+    const unbilledRows: Cell[][] = unbilled.map((r) => [r.number, r.d, r.customer, r.so, r.age, num(r.cogs)]);
+
     const totRow = (rows: Cell[][], idx: number[]) => ['Jumlah', ...rows[0]?.slice(1).map((_, k) => (idx.includes(k + 1) ? sum(rows, k + 1) : null)) ?? []];
     return {
       title: 'Laporan Pendukung Penjualan',
@@ -134,6 +150,8 @@ export class SupportReportsService {
         { key: 'sales-customer', number: 'P2', title: 'Penjualan per pelanggan (100 terbesar)', paragraphs: [], tables: [{ columns: ['Pelanggan', 'Faktur', 'Penjualan (DPP)', 'Retur (DPP)', 'Neto'], align: [L, R, R, R, R], rows: customerRows, total: customerRows.length ? totRow(customerRows, [1, 2, 3, 4]) : undefined }] },
         { key: 'sales-product', number: 'P3', title: 'Penjualan per produk (100 terbesar)', paragraphs: ['Jumlah dalam satuan dasar.'], tables: [{ columns: ['SKU', 'Produk', 'Jumlah', 'Penjualan', 'Harga rata-rata'], align: [L, L, R, R, R], rows: productRows, total: productRows.length ? ['Jumlah', null, sum(productRows, 2), sum(productRows, 3), null] : undefined }] },
         { key: 'sales-list', number: 'P4', title: 'Daftar faktur penjualan', paragraphs: list.length >= 500 ? ['Menampilkan 500 faktur pertama pada periode ini.'] : [], tables: [{ columns: ['Nomor', 'Tanggal', 'Pelanggan', 'DPP', 'PPN', 'Total', 'Status'], align: [L, L, L, R, R, R, L], rows: listRows, total: listRows.length ? ['Jumlah', null, null, sum(listRows, 3), sum(listRows, 4), sum(listRows, 5), null] : undefined }] },
+        { key: 'sales-aging', number: 'P5', title: 'Umur piutang usaha per pelanggan', paragraphs: ['Sisa tagihan faktur rupiah per tanggal akhir menurut jatuh tempo. Totalnya sama dengan sisi dokumen pada pencocokan piutang usaha.'], tables: [{ columns: ['Pelanggan', 'Belum jatuh tempo', '1–30 hari', '31–60 hari', '61–90 hari', '> 90 hari', 'Total'], align: [L, R, R, R, R, R, R], rows: agingRows, total: agingRows.length ? ['Jumlah', sum(agingRows, 1), sum(agingRows, 2), sum(agingRows, 3), sum(agingRows, 4), sum(agingRows, 5), sum(agingRows, 6)] : undefined }] },
+        { key: 'sales-unbilled', number: 'P6', title: 'Surat jalan belum difaktur', paragraphs: ['Barang sudah keluar dan HPP sudah dijurnal, tetapi pendapatan baru muncul saat faktur terbit. Status belum difaktur dihitung sampai tanggal akhir.'], tables: [{ columns: ['Surat jalan', 'Tanggal', 'Pelanggan', 'Pesanan', 'Umur (hari)', 'Nilai HPP'], align: [L, L, L, L, R, R], rows: unbilledRows, total: unbilledRows.length ? ['Jumlah', null, null, null, null, sum(unbilledRows, 5)] : undefined }] },
       ],
     };
   }
@@ -172,17 +190,41 @@ export class SupportReportsService {
           - COALESCE((SELECT SUM(r.total) FROM purchase_returns r WHERE r.purchase_invoice_id = i.id AND r.date <= ${to}), 0)), 0)::text AS v
       FROM purchase_invoices i WHERE i.tenant_id = ${tenantId} AND i.date <= ${to} AND i.currency = 'IDR'`);
     const apGl = -(await this.glBalance(tenantId, to, sql`a.system_key = 'AP'`));
+
+    const apAging = await this.rows<{ name: string; b0: string; b1: string; b2: string; b3: string; b4: string }>(sql`
+      SELECT x.name, COALESCE(SUM(x.open) FILTER (WHERE x.late <= 0), 0)::text AS b0, COALESCE(SUM(x.open) FILTER (WHERE x.late BETWEEN 1 AND 30), 0)::text AS b1,
+        COALESCE(SUM(x.open) FILTER (WHERE x.late BETWEEN 31 AND 60), 0)::text AS b2, COALESCE(SUM(x.open) FILTER (WHERE x.late BETWEEN 61 AND 90), 0)::text AS b3, COALESCE(SUM(x.open) FILTER (WHERE x.late > 90), 0)::text AS b4
+      FROM (SELECT s.name, (${to}::date - i.due_date) AS late,
+          i.total - COALESCE((SELECT SUM(p.amount) FROM supplier_payments p WHERE p.purchase_invoice_id = i.id AND p.status = 'POSTED' AND p.date <= ${to}), 0)
+                  - COALESCE((SELECT SUM(r.total) FROM purchase_returns r WHERE r.purchase_invoice_id = i.id AND r.date <= ${to}), 0) AS open
+        FROM purchase_invoices i JOIN suppliers s ON s.id = i.supplier_id WHERE i.tenant_id = ${tenantId} AND i.date <= ${to} AND i.currency = 'IDR') x
+      WHERE x.open > 0.5 GROUP BY x.name ORDER BY SUM(x.open) DESC LIMIT 200`);
+    const agingRows: Cell[][] = apAging.map((r) => [r.name, num(r.b0), num(r.b1), num(r.b2), num(r.b3), num(r.b4), num(r.b0) + num(r.b1) + num(r.b2) + num(r.b3) + num(r.b4)]);
+    const today = todayJakarta();
+    const grni = await this.rows<{ number: string; d: string; supplier: string; po: string; value: string; billed: string; age: number }>(sql`
+      SELECT g.number, g.date::text AS d, s.name AS supplier, o.number AS po, g.value::text AS value, COALESCE((SELECT SUM(l.billed_value) FROM goods_receipt_lines l WHERE l.receipt_id = g.id), 0)::text AS billed, (${today}::date - g.date)::int AS age
+      FROM goods_receipts g JOIN suppliers s ON s.id = g.supplier_id JOIN purchase_orders o ON o.id = g.purchase_order_id
+      WHERE g.tenant_id = ${tenantId} AND g.status = 'RECEIVED' AND g.date <= ${today}
+        AND g.value - COALESCE((SELECT SUM(l.billed_value) FROM goods_receipt_lines l WHERE l.receipt_id = g.id), 0) > 0.5 ORDER BY g.date LIMIT 300`);
+    const grniRows: Cell[][] = grni.map((r) => [r.number, r.d, r.supplier, r.po, r.age, num(r.value), num(r.billed), num(r.value) - num(r.billed)]);
+    const [grniDoc] = await this.rows<{ v: string }>(sql`
+      SELECT COALESCE(SUM(g.value - COALESCE((SELECT SUM(l.billed_value) FROM goods_receipt_lines l WHERE l.receipt_id = g.id), 0)), 0)::text AS v
+      FROM goods_receipts g WHERE g.tenant_id = ${tenantId} AND g.status = 'RECEIVED' AND g.date <= ${today}`);
+    const grniGl = -(await this.glBalance(tenantId, today, sql`a.system_key = 'GRNI'`));
     return {
       title: 'Laporan Pendukung Pembelian',
       summary: 'Rincian pembelian dari faktur pemasok dan retur, dicocokkan dengan akun utang usaha di buku besar.',
       reconciliation: [
         this.recon('purchases-ap-credit', 'Faktur pembelian vs kredit utang usaha', { label: 'Total faktur pemasok (dokumen)', value: Number(docs.tot) }, { label: 'Kredit akun Utang Usaha pada jurnal faktur', value: Number(gl.v) }, 'Selisih berarti jurnal faktur diubah di luar dokumen.'),
         this.recon('purchases-ap-balance', 'Sisa tagihan pemasok vs saldo utang usaha', { label: 'Sisa tagihan per faktur (rupiah)', value: Number(ap.v) }, { label: 'Saldo akun Utang Usaha di buku besar', value: apGl }, 'Selisih biasanya dari jurnal manual ke akun utang, faktur valas, atau utang tanpa faktur.'),
+        this.recon('purchases-grni', 'Barang diterima belum ditagih vs akun GRNI', { label: 'Penerimaan barang dikurangi yang sudah ditagih (per hari ini)', value: Number(grniDoc.v) }, { label: 'Saldo akun Barang Diterima Belum Ditagih per hari ini', value: grniGl }, 'Dibandingkan per hari ini karena status penagihan penerimaan tidak menyimpan riwayat. Selisih berarti jurnal manual ke akun GRNI atau penerimaan yang diubah di luar dokumen.'),
       ],
       sections: [
         { key: 'purchases-monthly', number: 'P1', title: 'Rekap pembelian per bulan', paragraphs: ['Menurut faktur pemasok pada periode, dikurangi retur pembelian.'], tables: [{ columns: ['Bulan', 'Faktur', 'Pembelian (DPP)', 'PPN masukan', 'PPh dipotong', 'Total dibayar', 'Retur (DPP)', 'Pembelian neto'], align: [L, R, R, R, R, R, R, R], rows: monthRows, total: monthRows.length ? ['Jumlah', sum(monthRows, 1), sum(monthRows, 2), sum(monthRows, 3), sum(monthRows, 4), sum(monthRows, 5), sum(monthRows, 6), sum(monthRows, 7)] : undefined }] },
         { key: 'purchases-supplier', number: 'P2', title: 'Pembelian per pemasok (100 terbesar)', paragraphs: [], tables: [{ columns: ['Pemasok', 'Faktur', 'DPP', 'PPN', 'Total'], align: [L, R, R, R, R], rows: supplierRows, total: supplierRows.length ? ['Jumlah', sum(supplierRows, 1), sum(supplierRows, 2), sum(supplierRows, 3), sum(supplierRows, 4)] : undefined }] },
         { key: 'purchases-list', number: 'P3', title: 'Daftar faktur pembelian', paragraphs: list.length >= 500 ? ['Menampilkan 500 faktur pertama pada periode ini.'] : [], tables: [{ columns: ['Nomor', 'No. faktur pemasok', 'Tanggal', 'Pemasok', 'Jenis', 'DPP', 'PPN', 'Total', 'Status'], align: [L, L, L, L, L, R, R, R, L], rows: listRows, total: listRows.length ? ['Jumlah', null, null, null, null, sum(listRows, 5), sum(listRows, 6), sum(listRows, 7), null] : undefined }] },
+        { key: 'purchases-aging', number: 'P4', title: 'Umur utang usaha per pemasok', paragraphs: ['Sisa tagihan faktur pemasok rupiah per tanggal akhir menurut jatuh tempo.'], tables: [{ columns: ['Pemasok', 'Belum jatuh tempo', '1–30 hari', '31–60 hari', '61–90 hari', '> 90 hari', 'Total'], align: [L, R, R, R, R, R, R], rows: agingRows, total: agingRows.length ? ['Jumlah', sum(agingRows, 1), sum(agingRows, 2), sum(agingRows, 3), sum(agingRows, 4), sum(agingRows, 5), sum(agingRows, 6)] : undefined }] },
+        { key: 'purchases-grni', number: 'P5', title: 'Barang diterima belum ditagih', paragraphs: ['Penerimaan barang yang belum (seluruhnya) difaktur pemasok, per hari ini. Umur panjang menandakan faktur pemasok belum diterima atau belum diinput.'], tables: [{ columns: ['Penerimaan', 'Tanggal', 'Pemasok', 'PO', 'Umur (hari)', 'Nilai', 'Sudah ditagih', 'Belum ditagih'], align: [L, L, L, L, R, R, R, R], rows: grniRows, total: grniRows.length ? ['Jumlah', null, null, null, null, sum(grniRows, 5), sum(grniRows, 6), sum(grniRows, 7)] : undefined }] },
       ],
     };
   }

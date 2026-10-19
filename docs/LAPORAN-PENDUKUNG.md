@@ -63,3 +63,10 @@ Pencocokan buku besar: tagihan vs akun pendapatan; pemakaian pada catatan meter 
 Piutang usaha dan piutang lain dipisahkan: akun Piutang Usaha hanya berisi piutang dari faktur (jurnal manual ke akun itu ditolak), sehingga Laporan utilitas mencocokkan sisa semua faktur dengan akun tersebut dan memisahkan tagihan utilitas dari faktur lain. Piutang lain (karyawan, platform, klaim prinsipal, retensi, antar cabang, dan akun piutang lain) dilaporkan sendiri di Laporan akun lainnya, bagian "Piutang lain-lain", terpisah dari aset lain.
 
 Batasan Jasa dan Utilitas: jam kerja dan upah jasa tidak masuk laporan ini (ada di Upah jasa); piutang valas tidak ikut pencocokan piutang usaha.
+
+## Alur surat jalan dan penerimaan barang (Dagang dan jenis usaha yang membeli/menjual barang)
+
+- **Laporan penjualan**: bagian P5 umur piutang usaha per pelanggan (belum jatuh tempo, 1–30, 31–60, 61–90, > 90 hari; rupiah) dan P6 surat jalan belum difaktur beserta nilai HPP. Barang yang sudah keluar tetapi belum ditagih sudah menanggung HPP, tetapi pendapatannya belum diakui.
+- **Laporan pembelian**: bagian P4 umur utang usaha per pemasok, P5 barang diterima belum ditagih, dan pencocokan baru "Barang diterima belum ditagih vs akun GRNI" (penerimaan − yang sudah ditagih vs saldo akun Barang Diterima Belum Ditagih).
+
+Batasan: pencocokan GRNI dan daftar penerimaan dibandingkan per hari ini karena status penagihan penerimaan tidak menyimpan riwayat; surat jalan belum difaktur tidak punya akun buku besar sendiri sehingga hanya berupa daftar, bukan pencocokan.
