@@ -15,156 +15,22 @@ import { BUSINESS_MODEL_BY_KEY } from '@sansu/shared';
 import { Alert, Button, Card, Col, Divider, Form, Grid, Input, InputNumber, Radio, Row, Select, Space, Switch, Tabs, Tag, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { get, patch, put } from '@/api/client';
+import { get, patch } from '@/api/client';
 import { useAction } from '@/api/queries';
 import type { CompanySettings, PayrollSettings, ReportingSettings } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useApps } from '@/lib/apps';
 import PageHeader from '@/layout/PageHeader';
-import { rupiahInput } from '@/lib/format';
 import BrandingCard from './BrandingCard';
 import BranchFeatureCard from './BranchFeatureCard';
 import RecipeTermCard from './RecipeTermCard';
 import BusinessModelCard from './BusinessModelCard';
 import AccountingPolicyTab from './AccountingPolicyTab';
+import ApprovalPolicyTab from './ApprovalPolicyTab';
+import PayrollSettingsTab from './PayrollSettingsTab';
 import ReminderSettingsCard from './ReminderSettingsCard';
 import EntityProfileWizard from './EntityProfileWizard';
 import { t } from '@/lib/terms';
-
-/** SOP kas & bank: bukti wajib, blokir saldo negatif, batas simpanan kas tunai */
-function CashControlCard() {
-  type Cfg = { evidenceFrom: number; blockNegative: boolean; maxCashBalance: number };
-  const [form] = Form.useForm<Cfg>();
-  const cfg = useQuery({ queryKey: ['cash', 'settings'], queryFn: () => get<Cfg>('/cash/settings') });
-  useEffect(() => {
-    if (cfg.data) form.setFieldsValue(cfg.data);
-  }, [cfg.data, form]);
-  const save = useAction((v: Cfg) => put('/cash/settings', v), { success: 'Pengaturan kontrol kas disimpan', invalidate: ['cash'] });
-  return (
-    <Card title="Kontrol kas & bank (SOP)" style={{ marginTop: 16 }}>
-      <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)} initialValues={{ evidenceFrom: 0, blockNegative: false, maxCashBalance: 0 }}>
-        <Form.Item name="evidenceFrom" label="Nomor bukti wajib untuk uang keluar mulai dari" extra="Kas keluar/transfer di atas nilai ini harus diisi nomor referensi (kuitansi, nota, bukti transfer). 0 = tidak wajib.">
-          <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={100_000} style={{ width: '100%' }} prefix="Rp" />
-        </Form.Item>
-        <Form.Item name="blockNegative" label="Tolak uang keluar yang membuat saldo negatif" valuePropName="checked" extra="Mencegah kas keluar melebihi saldo akun kas/bank.">
-          <Switch />
-        </Form.Item>
-        <Form.Item name="maxCashBalance" label="Peringatan bila saldo kas melebihi" extra="Batas simpanan tunai yang aman di kantor. Di atas batas, muncul peringatan agar disetor ke bank. 0 = nonaktif.">
-          <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={1_000_000} style={{ width: '100%' }} prefix="Rp" />
-        </Form.Item>
-        <Button type="primary" htmlType="submit" loading={save.isPending}>
-          Simpan
-        </Button>
-      </Form>
-    </Card>
-  );
-}
-
-/** Batas nilai yang memerlukan persetujuan pemilik / admin (0 = nonaktif) */
-function ApprovalPolicyCard() {
-  type Policy = { purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number; priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; blindReceiving: boolean; blindDelivery: boolean; salesOrder: number; salesDiscountMaxPct: number; salesReturn: number; salesBelowCost: boolean; salesSeparateDuties: boolean; stockAlertValue: number; stockCountSod: boolean; blindCount: boolean; stockInCostTolerancePct: number; transferSod: boolean; bankChangeHoldDays: number; budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK'; telegramLinkHours: number };
-  const [form] = Form.useForm<Policy>();
-  const policy = useQuery({ queryKey: ['approvals', 'policy'], queryFn: () => get<Policy>('/approvals/policy') });
-  useEffect(() => {
-    if (policy.data) form.setFieldsValue(policy.data);
-  }, [policy.data, form]);
-  const save = useAction((v: Policy) => put('/approvals/policy', v), { success: 'Batas persetujuan disimpan', invalidate: ['approvals'] });
-  return (
-    <Card title="Persetujuan transaksi besar">
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="Transaksi bernilai di atas batas dari peran selain pemilik dan admin menunggu persetujuan. Isi 0 untuk mematikan."
-      />
-      <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)} initialValues={{ purchaseOrder: 0, manualJournal: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, budgetControl: 'OFF', telegramLinkHours: 72 }}>
-        <Form.Item name="purchaseOrder" label="Pesanan pembelian dengan total mulai dari" extra="Konfirmasi pesanan oleh keuangan menunggu persetujuan.">
-          <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
-        </Form.Item>
-        <Form.Item
-          name="purchaseRequestAuto"
-          label="Permintaan pembelian disetujui otomatis sampai"
-          extra="Permintaan dari gudang/divisi dengan perkiraan nilai sampai batas ini langsung disetujui tanpa menunggu (harga harus diketahui). Isi 0 bila semua permintaan harus diputuskan."
-        >
-          <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
-        </Form.Item>
-        <Typography.Title level={5} style={{ marginTop: 8 }}>
-          Pengendalian harga faktur supplier (anti-fraud)
-        </Typography.Title>
-        <Form.Item name="priceControl" valuePropName="checked" extra="Selisih harga faktur terhadap PO wajib beralasan dan tercatat. Kenaikan di atas toleransi atau jauh di atas harga pasar harus disetujui pemilik/admin sebelum faktur dicatat.">
-          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
-        </Form.Item>
-        <Form.Item name="priceTolerancePct" label="Toleransi kenaikan harga faktur vs PO (%)" extra="Per baris barang. Di atas ini perlu persetujuan.">
-          <InputNumber min={0} max={1000} step={1} style={{ width: '100%' }} suffix="%" />
-        </Form.Item>
-        <Form.Item name="priceBenchmarkPct" label="Toleransi di atas rata-rata harga beli 90 hari (%)" extra="Harga faktur yang melebihi rata-rata harga beli 90 hari terakhir sebesar ini juga perlu persetujuan, walau PO-nya sudah mahal.">
-          <InputNumber min={0} max={1000} step={1} style={{ width: '100%' }} suffix="%" />
-        </Form.Item>
-        <Form.Item name="firstSupplierPayment" label="Pembayaran pertama ke supplier wajib disetujui" valuePropName="checked" extra="Anti pemasok fiktif: staf (selain pemilik dan admin) yang membayar supplier untuk pertama kali menunggu persetujuan. Pembayaran berikutnya ke supplier yang sama berjalan biasa.">
-          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
-        </Form.Item>
-        <Form.Item name="blindReceiving" label="Penerimaan buta (Gudang menghitung sendiri)" valuePropName="checked" extra="Gudang tidak melihat jumlah yang dipesan dan wajib mengisi hasil hitungannya. Selisih terhadap pesanan langsung dikabarkan ke Pembelian, Admin, dan Pemilik.">
-          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
-        </Form.Item>
-        <Form.Item name="salesOrder" label="Pesanan penjualan dengan total mulai dari" extra="Konfirmasi pesanan oleh staf (Sales/Keuangan) menunggu persetujuan Pemilik/Admin. 0 = tanpa persetujuan.">
-          <InputNumber min={0} step={1_000_000} style={{ width: '100%' }} prefix="Rp" />
-        </Form.Item>
-        <Form.Item name="salesDiscountMaxPct" label="Diskon per baris di atas (%) butuh persetujuan" extra="Pesanan dengan diskon di atas persen ini, saat dikonfirmasi staf, menunggu persetujuan Pemilik/Admin. 0 = tanpa batas.">
-          <InputNumber min={0} max={100} step={1} precision={0} style={{ width: '100%' }} suffix="%" />
-        </Form.Item>
-        <Form.Item name="salesReturn" label="Retur penjualan bernilai mulai dari" extra="Retur (kredit nota) oleh staf menunggu persetujuan Pemilik/Admin sebelum piutang dikurangi. 0 = tanpa persetujuan.">
-          <InputNumber min={0} step={1_000_000} style={{ width: '100%' }} prefix="Rp" />
-        </Form.Item>
-        <Form.Item name="salesBelowCost" label="Penjualan di bawah harga pokok butuh persetujuan" valuePropName="checked" extra="Pesanan dengan harga jual (setelah diskon) di bawah harga pokok rata-rata gudang, saat dikonfirmasi staf, menunggu persetujuan Pemilik/Admin. Menutup celah menembus batas diskon lewat harga yang diketik langsung.">
-          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
-        </Form.Item>
-        <Form.Item name="salesSeparateDuties" label="Pemisahan fungsi penjualan (pembuat faktur ≠ pencatat pembayaran/retur)" valuePropName="checked" extra="Bila menyala, pembayaran pelanggan atau retur atas faktur oleh orang yang membuat faktur itu sendiri (selain Pemilik/Admin) menunggu persetujuan. Cocok bila ada lebih dari satu Keuangan; bila hanya satu Keuangan, semua pembayaran akan menunggu persetujuan.">
-          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
-        </Form.Item>
-        <Form.Item name="stockAlertValue" label="Beri tahu Pemilik bila penyesuaian stok keluar / selisih opname mulai dari" extra="Pemilik menerima Telegram/email saat penyesuaian stok keluar atau selisih stock opname bernilai di atas ini (kecuali ia sendiri pelakunya). Bawaan Rp5 juta; 0 = tidak diberi tahu.">
-          <InputNumber min={0} step={1_000_000} style={{ width: '100%' }} prefix="Rp" />
-        </Form.Item>
-        <Form.Item name="stockInCostTolerancePct" label="Harga pokok penyesuaian stok MASUK di atas rata-rata (%) butuh persetujuan" extra="Penyesuaian stok masuk (di luar saldo awal) oleh staf dengan harga pokok lebih tinggi dari rata-rata stok sebesar ini menunggu persetujuan Pemilik/Admin. Mencegah penggelembungan nilai persediaan. 0 = tidak dicek.">
-          <InputNumber min={0} max={1000} step={5} precision={0} style={{ width: '100%' }} suffix="%" />
-        </Form.Item>
-        <Form.Item name="transferSod" label="Pembuat transfer gudang ≠ penerima" valuePropName="checked" extra="Yang membuat transfer antar gudang tidak boleh menerimanya sendiri (selain Pemilik). Nyalakan bila ada lebih dari satu orang Gudang/Admin.">
-          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
-        </Form.Item>
-        <Form.Item name="stockCountSod" label="Penghitung ≠ pemosting selisih opname" valuePropName="checked" extra="Yang mengisi jumlah fisik opname tidak boleh memposting selisihnya sendiri (selain Pemilik). Nyalakan bila ada lebih dari satu Admin/Keuangan.">
-          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
-        </Form.Item>
-        <Form.Item name="blindCount" label="Opname buta (penghitung tidak melihat stok sistem)" valuePropName="checked" extra="Gudang yang menghitung tidak melihat stok sistem selama opname berjalan, sehingga tidak sekadar menyalin angka sistem.">
-          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
-        </Form.Item>
-        <Form.Item name="blindDelivery" label="Pengiriman buta (Gudang mengisi jumlah kemas sendiri)" valuePropName="checked" extra="Gudang tidak melihat jumlah pesanan dan wajib mengisi jumlah yang dikemas. Bila tidak sama dengan pesanan, pengiriman ditahan dan Penjualan, Admin, dan Pemilik diberi tahu.">
-          <Switch checkedChildren="Aktif" unCheckedChildren="Mati" />
-        </Form.Item>
-        <Form.Item name="bankChangeHoldDays" label="Tahan pembayaran setelah rekening supplier diubah (hari)" extra="Pembayaran oleh staf ke supplier yang rekeningnya baru diubah menunggu persetujuan Pemilik/Admin. 0 = tidak ditahan.">
-          <InputNumber min={0} max={60} step={1} precision={0} style={{ width: '100%' }} suffix="hari" />
-        </Form.Item>
-        <Form.Item name="telegramLinkHours" label="Masa berlaku tautan persetujuan lewat Telegram (jam)" extra="1–72 jam. Lebih pendek = lebih aman bila chat terbaca orang lain, tetapi pemberi persetujuan harus memutuskan lebih cepat. Tautan lewat email tetap 72 jam.">
-          <InputNumber min={1} max={72} step={1} precision={0} style={{ width: '100%' }} suffix="jam" />
-        </Form.Item>
-        <Form.Item name="manualJournal" label="Jurnal manual dengan total debit mulai dari" extra="Jurnal baru diposting setelah disetujui.">
-          <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
-        </Form.Item>
-        <Form.Item name="cashOut" label="Kas keluar / transfer dengan nilai mulai dari" extra="Uang keluar oleh staf (selain pemilik dan admin) di atas batas, termasuk pembayaran ke supplier, menunggu persetujuan lalu diposting setelah disetujui. 0 = tidak perlu persetujuan.">
-          <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
-        </Form.Item>
-        <Form.Item name="stockAdjustment" label="Penyesuaian stok / selisih opname bernilai mulai dari" extra="Penyesuaian stok (masuk + keluar) dan selisih stock opname oleh Gudang di atas batas menunggu persetujuan; stok berubah setelah disetujui. 0 = tidak perlu persetujuan.">
-          <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
-        </Form.Item>
-        <Form.Item name="assetDisposal" label="Pelepasan aset tetap dengan harga perolehan mulai dari" extra="Penjualan/penghapusan aset oleh staf (selain pemilik dan admin) menunggu persetujuan. 0 = tidak perlu persetujuan.">
-          <InputNumber {...rupiahInput} min={0} max={1_000_000_000_000} step={500_000} style={{ width: '100%' }} prefix="Rp" />
-        </Form.Item>
-        <Button type="primary" htmlType="submit" loading={save.isPending}>
-          Simpan
-        </Button>
-      </Form>
-    </Card>
-  );
-}
-
 
 /** Kelompok isian dengan judul dan penjelasan singkat, agar form panjang mudah dipindai */
 function Section({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
@@ -525,10 +391,7 @@ export default function CompanySettingsPage() {
       label: 'Persetujuan',
       icon: <FileProtectOutlined />,
       children: (
-        <div style={wide}>
-          <ApprovalPolicyCard />
-          <CashControlCard />
-        </div>
+        <ApprovalPolicyTab />
       ),
     },
     ...(can('payroll')
@@ -538,55 +401,7 @@ export default function CompanySettingsPage() {
             label: 'Penggajian & BPJS',
             icon: <TeamOutlined />,
             children: (
-              <Card style={wide}>
-                <Alert
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: 20 }}
-                  message="Nilai bawaan mengikuti ketentuan 2026. Perbarui bila pemerintah mengubah batas upah atau kelompok risiko JKK perusahaan Anda berbeda."
-                />
-                <Form form={payroll} layout="vertical" onFinish={(v) => savePayroll.mutate(v)} requiredMark={false}>
-                  <Section title="Jam kerja">
-                    <Form.Item name="workDaysPerWeek" label="Hari kerja">
-                      <Radio.Group
-                        options={[
-                          { value: 6, label: 'Senin–Sabtu (6 hari)' },
-                          { value: 5, label: 'Senin–Jumat (5 hari)' },
-                        ]}
-                      />
-                    </Form.Item>
-                    <Form.Item name="overtimeDivisor" label="Pembagi upah lembur" extra="Ketentuan: 1/173 upah sebulan" style={{ maxWidth: 240 }}>
-                      <InputNumber min={1} style={{ width: '100%' }} />
-                    </Form.Item>
-                  </Section>
-                  <Divider />
-                  <Section title="BPJS" desc="Batas upah dan tarif iuran perusahaan.">
-                    <Row gutter={16}>
-                      <Col xs={24} md={12}>
-                        <Form.Item name="bpjsKesCap" label="Batas upah BPJS Kesehatan">
-                          <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Form.Item name="jpCap" label="Batas upah Jaminan Pensiun">
-                          <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} md={8}>
-                        <Form.Item name="jkkRate" label="Tarif JKK">
-                          <InputNumber min={0} max={5} step={0.01} suffix="%" style={{ width: '100%' }} />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} md={8}>
-                        <Form.Item name="jkmRate" label="Tarif JKM">
-                          <InputNumber min={0} max={5} step={0.01} suffix="%" style={{ width: '100%' }} />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  </Section>
-                  <SaveBar loading={savePayroll.isPending} />
-                </Form>
-              </Card>
+              <PayrollSettingsTab form={payroll} saving={savePayroll.isPending} onSave={(v) => savePayroll.mutate(v)} />
             ),
           },
         ]
