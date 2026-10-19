@@ -38,6 +38,7 @@ import { HrModule } from './modules/hr/hr.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
 import { AssetsModule } from './modules/assets/assets.module';
 import { InsightsModule } from './modules/insights/insights.module';
+import { DeptReportsModule } from './modules/dept-reports/dept-reports.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { WorkflowModule } from './modules/workflow/workflow.module';
 import { UtilityModule } from './modules/utility/utility.module';
@@ -101,6 +102,7 @@ import { DataRightsModule } from './modules/data-rights/data-rights.module';
     AutoBookkeepingModule,
     AssetsModule,
     InsightsModule,
+    DeptReportsModule,
     OnboardingModule,
     WorkflowModule,
     UtilityModule,

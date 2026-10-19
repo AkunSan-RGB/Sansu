@@ -44,7 +44,7 @@ export default function SalesOrderDetailPage() {
   return (
     <>
       <PageHeader
-        title={<Space wrap>{o ? `Sales Order ${o.number}` : 'Sales Order'}{o && <WorkflowBadge type="SALES_ORDER" id={o.id} />}</Space>}
+        title={<Space wrap>{o ? `${t('Sales Order')} ${o.number}` : t('Sales Order')}{o && <WorkflowBadge type="SALES_ORDER" id={o.id} />}</Space>}
         extra={
           o && (
             <Space wrap>

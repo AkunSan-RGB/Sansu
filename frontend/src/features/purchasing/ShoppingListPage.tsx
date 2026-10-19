@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Empty, Space, Table, Tag, Typography } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { get, post } from '@/api/client';
+import { t } from '@/lib/terms';
 import { useAction } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
@@ -46,7 +47,7 @@ export default function ShoppingListPage() {
                 { title: 'Harga terakhir', align: 'right' as const, render: (_: unknown, l: Line) => (l.lastPrice != null ? fmtMoney(l.lastPrice) : <Typography.Text type="secondary">belum ada</Typography.Text>) },
               ]}
             />
-            {!g.supplierId && <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>Barang ini belum pernah dibeli. Buat Purchase Order manual dan pilih pemasoknya.</Typography.Paragraph>}
+            {!g.supplierId && <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>{`Barang ini belum pernah dibeli. Buat ${t('Purchase Order')} manual dan pilih pemasoknya.`}</Typography.Paragraph>}
           </Card>
         ))}
       </Space>

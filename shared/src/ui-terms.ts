@@ -14,11 +14,17 @@ interface Terms {
 
 const TERMS: Record<BusinessModel, Terms> = {
   DAGANG: {
-    words: [['Produk', 'Barang']],
+    words: [
+      ['Produk', 'Barang'],
+      ['Sales Order', 'Pesanan penjualan'],
+      ['Purchase Order', 'Pesanan pembelian'],
+    ],
     exact: {},
   },
   RITEL: {
     words: [
+      ['Sales Order', 'Pesanan penjualan'],
+      ['Purchase Order', 'Pesanan pembelian'],
       ['Produk', 'Barang'],
       ['Gudang', 'Toko'],
     ],
@@ -31,6 +37,7 @@ const TERMS: Record<BusinessModel, Terms> = {
       ['Faktur terbaru', 'Tagihan terbaru'],
       ['Nilai persediaan', 'Nilai bahan jaringan'],
       ['Sales Order', 'Pesanan pasang baru'],
+      ['Purchase Order', 'Pesanan bahan'],
       ['Supplier', 'Pemasok'],
       ['Produk', 'Layanan & bahan'],
       ['Gudang', 'Gudang bahan'],
@@ -44,6 +51,7 @@ const TERMS: Record<BusinessModel, Terms> = {
       ['Faktur terbaru', 'Tagihan terbaru'],
       ['Nilai persediaan', 'Nilai bahan kerja'],
       ['Sales Order', 'Pesanan kerja'],
+      ['Purchase Order', 'Pesanan pembelian'],
       ['Supplier', 'Pemasok & subkontraktor'],
       ['Pelanggan', 'Klien'],
       ['Produk', 'Jasa & bahan'],
@@ -71,6 +79,8 @@ const TERMS: Record<BusinessModel, Terms> = {
   },
   FMCG: {
     words: [
+      ['Sales Order', 'Pesanan outlet'],
+      ['Purchase Order', 'Pesanan ke prinsipal'],
       ['Pelanggan', 'Outlet'],
       ['Produk', 'Produk (SKU)'],
       ['Supplier', 'Prinsipal / pemasok'],
@@ -80,6 +90,7 @@ const TERMS: Record<BusinessModel, Terms> = {
   },
   MANUFAKTUR: {
     words: [
+      ['Sales Order', 'Pesanan pelanggan'],
       ['Purchase Order', 'Pesanan bahan'],
       ['Nilai persediaan', 'Nilai persediaan bahan, barang setengah jadi & barang jadi'],
       ['Supplier', 'Pemasok bahan'],
@@ -90,6 +101,7 @@ const TERMS: Record<BusinessModel, Terms> = {
   },
   FNB: {
     words: [
+      ['Sales Order', 'Pesanan katering'],
       ['Purchase Order', 'Pesanan bahan'],
       ['Nilai persediaan', 'Nilai persediaan bahan & menu'],
       ['Supplier', 'Pemasok bahan'],

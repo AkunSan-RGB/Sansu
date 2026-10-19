@@ -108,6 +108,7 @@ import DepositsPage from './features/services/DepositsPage';
 import TimesheetPage from './features/services/TimesheetPage';
 import SchedulePage from './features/services/SchedulePage';
 import RetainersPage from './features/services/RetainersPage';
+import DeptReportPage from './features/laporan/DeptReportPage';
 import WithheldPage from './features/services/WithheldPage';
 import ProductsPage from './features/products/ProductsPage';
 import DocumentViewPage from './features/accounting/DocumentViewPage';
@@ -216,6 +217,7 @@ export default function App() {
           <Route path="finance-controls" element={<FinanceControlsPage />} />
           <Route path="accounting-controls" element={<AccountingControlsPage />} />
           <Route path="support-reports" element={<SupportReportsPage />} />
+          <Route path="laporan/:dept" element={<DeptReportPage />} />
           <Route path="inventory-controls" element={<InventoryControlsPage />} />
           <Route path="tasks" element={<TasksPage />} />
           <Route path="shopping-list" element={<ShoppingListPage />} />

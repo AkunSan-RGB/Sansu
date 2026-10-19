@@ -21,7 +21,7 @@ export default function QuotationDetailPage() {
   const send = useAction(() => post(`/crm/quotations/${id}/send`), { success: 'Penawaran ditandai terkirim', invalidate: refresh });
   const reject = useAction(() => post(`/crm/quotations/${id}/reject`), { success: 'Penawaran ditolak', invalidate: refresh });
   const convert = useAction(() => post<{ salesOrder: SalesOrder }>(`/crm/quotations/${id}/convert`), {
-    success: (r) => `Sales Order ${r.salesOrder.number} dibuat`,
+    success: (r) => `${t('Sales Order')} ${r.salesOrder.number} dibuat`,
     invalidate: refresh,
     onSuccess: (r) => navigate(`/sales-orders/${r.salesOrder.id}`),
   });
@@ -53,7 +53,7 @@ export default function QuotationDetailPage() {
                 <>
                   <Popconfirm title={t('Pelanggan setuju? Sales Order draft akan dibuat dengan harga yang sama.')} onConfirm={() => convert.mutate(undefined)}>
                     <Button type="primary" loading={convert.isPending}>
-                      Disetujui → buat Sales Order
+                      {`Disetujui → buat ${t('Sales Order')}`}
                     </Button>
                   </Popconfirm>
                   <Popconfirm title="Tandai penawaran ditolak?" onConfirm={() => reject.mutate(undefined)}>
