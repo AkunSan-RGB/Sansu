@@ -249,6 +249,7 @@ describe('Mata uang asing (e2e)', () => {
     const mk = async (price = '1') => {
       const po = (await post('/api/purchase-orders', { supplierId: supp, warehouseId: wh, currency: 'USD', fxRate: '16000', lines: [{ productId: prod, qty: '10', price }] }).expect(201)).body;
       await post(`/api/purchase-orders/${po.id}/confirm`).expect(201);
+      await post(`/api/purchase-orders/${po.id}/receipts`, {}).expect(201); // faktur pemasok baru boleh dicatat setelah barang diterima Gudang
       return po;
     };
     const a = await mk();

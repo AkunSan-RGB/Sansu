@@ -191,7 +191,7 @@ describe('Usaha jasa: termin, uang muka, PPh dipotong pelanggan (e2e)', () => {
   });
 
   it('cek kesehatan, rekonsiliasi fiskal, dan Coretax (jasa = Opt B)', async () => {
-    const health = (await get('/api/accounting/health').expect(200)).body.checks as { key: string; status: string }[];
+    const health = (await get('/api/accounting/health?asOf=2026-12-31').expect(200)).body.checks as { key: string; status: string }[];
     expect(health.find((c) => c.key === 'customer-deposits')?.status).toBe('OK');
     expect(health.find((c) => c.key === 'ar')?.status).toBe('OK');
 
