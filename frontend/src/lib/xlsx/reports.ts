@@ -548,7 +548,20 @@ export function supportSheet(r: SupportReport, framework: FinancialNotes['framew
       },
     ],
   };
-  return documentSheet('Pendukung', r.title, { framework, period: r.period, company: { name: company ?? '' }, sections: [recon, ...r.sections] } as unknown as DocLike, company, [`Periode ${tgl(r.period.from)} s/d ${tgl(r.period.to)}`, RP]);
+  const LEVEL = { ok: 'Baik', info: 'Info', warning: 'Perhatian', danger: 'Kritis' };
+  const conclusion = {
+    number: '',
+    title: 'Kesimpulan dan saran',
+    paragraphs: [r.conclusion.summary],
+    tables: [
+      {
+        columns: ['Temuan', 'Tingkat', 'Keterangan', 'Saran'],
+        align: ['left', 'left', 'left', 'left'] as ('left' | 'right')[],
+        rows: r.conclusion.findings.map((f) => [f.title, LEVEL[f.level], f.detail, f.action ?? '']),
+      },
+    ],
+  };
+  return documentSheet('Pendukung', r.title, { framework, period: r.period, company: { name: company ?? '' }, sections: [conclusion, recon, ...r.sections] } as unknown as DocLike, company, [`Periode ${tgl(r.period.from)} s/d ${tgl(r.period.to)}`, RP]);
 }
 
 function documentSheet(sheetName: string, docTitle: string, nt: DocLike, company?: string, subtitle?: string[]): SheetSpec[] {

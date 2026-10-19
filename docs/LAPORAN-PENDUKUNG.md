@@ -88,3 +88,26 @@ Batasan: pencocokan GRNI dan daftar penerimaan dibandingkan per hari ini karena 
 Batasan yang masih ada:
 - Pencocokan "barang diterima belum ditagih" (GRNI) dan "rebate outlet belum dilunasi" dibandingkan per hari ini: penagihan penerimaan dan pelunasan rebate hanya menyimpan angka kumulatif, bukan riwayat per tanggal. Menghitungnya per tanggal memerlukan tabel riwayat baru.
 - Laporan ini belum ditinjau akuntan eksternal.
+
+## Kesimpulan dan saran otomatis
+
+Setiap laporan pendukung dibuka dengan bagian **Kesimpulan dan saran**: satu kalimat ringkasan (berapa pencocokan buku besar cocok, berapa temuan kritis/perlu perhatian) diikuti daftar temuan berurutan dari yang terparah. Tiap temuan berisi judul, keterangan dengan angka, dan saran tindak lanjut. Tingkatnya: Kritis (merah), Perhatian (oranye), Info (biru), Baik (hijau).
+
+Semuanya dihitung otomatis dari angka yang tersaji pada laporan itu sendiri dengan aturan tetap (`backend/src/modules/insights/support-insights.ts`), tanpa data tambahan dan tanpa AI. Bagian ini ikut tercetak dan diekspor ke Excel (bagian pertama lembar laporan).
+
+| Laporan | Contoh aturan |
+|---|---|
+| Semua | Selisih pencocokan buku besar = kritis (selisih biaya konversi produksi hanya info) |
+| Penjualan | Piutang lewat 90 hari ≥ 20% (perhatian) / ≥ 40% (kritis), konsentrasi piutang/penjualan, margin kotor tipis atau negatif, retur ≥ 5%, surat jalan belum difaktur > 14 hari, pendapatan dari jurnal manual |
+| Pembelian | Utang lewat 90 hari, konsentrasi pemasok, retur ≥ 5%, barang diterima belum ditagih > 30 hari |
+| Persediaan | Saldo stok negatif, stok tidak bergerak |
+| Kas & bank | Saldo kas negatif, rekening koran berselisih/belum cocok/belum diimpor |
+| Akun lainnya | Saldo tidak sesuai sifat akun, ekuitas negatif, piutang lain |
+| Kasir | Selisih uang laci (kurang/lebih, % dari penjualan), selisih berulang pada satu kasir, sesi terbuka lama, retur kasir ≥ 3% |
+| F&B | Bahan menyimpang > 5% dari resep, pesanan online belum cair, selisih pencairan platform |
+| FMCG | Capaian di bawah target, uang kanvas di tangan sales/kurang setor/ditolak, klaim prinsipal tertahan atau ditolak, rebate belum dilunasi, tukar-guling ≥ 2% penjualan |
+| Produksi | Rendemen < 90%, bahan melebihi resep, barang dalam proses > 30/60 hari |
+| Jasa | Proyek tanpa catatan kemajuan, ditagih melebihi kontrak, pekerjaan lebih cepat dari tagihan, uang muka belum terpakai, upah menunggu persetujuan |
+| Utilitas | Catatan meter janggal ≥ 10%, tingkat pembayaran < 70%, tunggakan > 90 hari |
+
+Batasan: ambang di atas bersifat umum dan belum dapat diubah per perusahaan; kesimpulan membantu menemukan hal yang perlu diperiksa, bukan pengganti pertimbangan akuntan.
