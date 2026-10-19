@@ -40,6 +40,40 @@ interface Erased {
   rowsDeleted: number;
   tablesTouched: number;
 }
+interface BackupEntry {
+  kind: 'DUMP' | 'RESTORE_TEST';
+  status: 'OK' | 'FAILED';
+  source: string;
+  at: string;
+  sizeBytes?: number;
+  durationSec?: number;
+  offsite?: boolean;
+  encrypted?: boolean;
+  note?: string;
+  detail?: Record<string, number>;
+}
+interface BackupKindStatus {
+  state: 'NEVER' | 'OK' | 'FAILED' | 'STALE';
+  last: BackupEntry | null;
+  lastOk: BackupEntry | null;
+  ageHours: number | null;
+}
+interface BackupOverview {
+  configured: boolean;
+  maxAgeHours: number;
+  restoreMaxAgeDays: number;
+  dump: BackupKindStatus;
+  restoreTest: BackupKindStatus;
+  history: BackupEntry[];
+}
+const BK_STATE: Record<BackupKindStatus['state'], { label: string; color: string }> = {
+  OK: { label: 'Baik', color: 'green' },
+  STALE: { label: 'Basi', color: 'orange' },
+  FAILED: { label: 'Gagal', color: 'red' },
+  NEVER: { label: 'Belum ada laporan', color: 'default' },
+};
+const fmtSize = (n?: number) => (n === undefined ? '-' : n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
+const fmtAge = (h: number | null) => (h === null ? '-' : h < 1 ? '< 1 jam lalu' : h < 48 ? `${Math.floor(h)} jam lalu` : `${Math.floor(h / 24)} hari lalu`);
 interface Deletions {
   requests: Req[];
   erased: Erased[];
@@ -55,6 +89,7 @@ const STATUS: Record<Req['status'], { label: string; color: string }> = {
 /** Panel SANSU: postur keamanan database klien dan pengelolaan permintaan penghapusan data */
 export default function DataSecurityTab() {
   const posture = useQuery({ queryKey: [KEY, 'posture'], queryFn: () => get<Posture>('/platform-admin/security-posture') });
+  const backups = useQuery({ queryKey: [KEY, 'backups'], queryFn: () => get<BackupOverview>('/platform-admin/backups') });
   const del = useQuery({ queryKey: [KEY, 'deletions'], queryFn: () => get<Deletions>('/platform-admin/data-deletions') });
   const [holding, setHolding] = useState<Req | null>(null);
   const [form] = Form.useForm<{ reason: string }>();
@@ -101,6 +136,72 @@ export default function DataSecurityTab() {
                   { title: 'Keterangan', dataIndex: 'detail' },
                 ]}
               />
+            </>
+          )}
+        </QueryState>
+      </Card>
+
+      <Card
+        title="Backup database"
+        extra={
+          <Button icon={<ReloadOutlined />} loading={backups.isFetching} onClick={() => backups.refetch()}>
+            Muat ulang
+          </Button>
+        }
+      >
+        <QueryState q={backups}>
+          {(b) => (
+            <>
+              {!b.configured ? (
+                <Alert
+                  showIcon
+                  type="warning"
+                  message="Pelaporan backup belum diaktifkan"
+                  description="Isi BACKUP_REPORT_TOKEN di server lalu pasang pelaksana backup (GitHub Actions untuk Neon, atau layanan backup di server sendiri). Panduan: docs/OPERASIONAL.md. Tanpa ini SANSU tidak tahu apakah backup berjalan."
+                />
+              ) : (
+                <Table<{ key: string; title: string; s: BackupKindStatus; limit: string }>
+                  size="small"
+                  rowKey="key"
+                  pagination={false}
+                  scroll={{ x: 'max-content' }}
+                  dataSource={[
+                    { key: 'dump', title: 'Backup harian', s: b.dump, limit: `batas ${b.maxAgeHours} jam` },
+                    { key: 'restore', title: 'Uji pemulihan', s: b.restoreTest, limit: `batas ${b.restoreMaxAgeDays} hari` },
+                  ]}
+                  columns={[
+                    { title: 'Jenis', dataIndex: 'title' },
+                    { title: 'Status', render: (_, r) => <Tag color={BK_STATE[r.s.state].color}>{BK_STATE[r.s.state].label}</Tag> },
+                    { title: 'Sukses terakhir', render: (_, r) => (r.s.lastOk ? `${fmtDate(r.s.lastOk.at)} · ${fmtAge(r.s.ageHours)}` : '-') },
+                    { title: 'Ukuran', render: (_, r) => fmtSize(r.s.lastOk?.sizeBytes) },
+                    { title: 'Di luar penyedia', render: (_, r) => (r.key === 'dump' && r.s.lastOk ? (r.s.lastOk.offsite ? <Tag color="green">Ada</Tag> : <Tag color="red">Tidak ada</Tag>) : '-') },
+                    { title: 'Terenkripsi', render: (_, r) => (r.key === 'dump' && r.s.lastOk ? (r.s.lastOk.encrypted ? 'Ya' : <Tag color="orange">Tidak</Tag>) : '-') },
+                    { title: 'Keterangan', render: (_, r) => (r.s.state === 'FAILED' ? r.s.last?.note ?? 'Gagal' : r.s.lastOk?.detail ? Object.entries(r.s.lastOk.detail).map(([k, v]) => `${k}: ${v}`).join(', ') : r.limit) },
+                  ]}
+                />
+              )}
+              {b.history.length > 0 && (
+                <>
+                  <Typography.Title level={5} style={{ marginTop: 16 }}>
+                    Riwayat laporan terakhir
+                  </Typography.Title>
+                  <Table<BackupEntry>
+                    size="small"
+                    rowKey={(r) => `${r.kind}-${r.at}`}
+                    pagination={{ pageSize: 8, hideOnSinglePage: true }}
+                    dataSource={b.history}
+                    scroll={{ x: 'max-content' }}
+                    columns={[
+                      { title: 'Waktu', dataIndex: 'at', render: (v: string) => fmtDate(v) },
+                      { title: 'Jenis', dataIndex: 'kind', render: (v: string) => (v === 'DUMP' ? 'Backup' : 'Uji pemulihan') },
+                      { title: 'Hasil', dataIndex: 'status', render: (v: string) => <Tag color={v === 'OK' ? 'green' : 'red'}>{v === 'OK' ? 'Sukses' : 'Gagal'}</Tag> },
+                      { title: 'Sumber', dataIndex: 'source' },
+                      { title: 'Ukuran', dataIndex: 'sizeBytes', render: (v?: number) => fmtSize(v) },
+                      { title: 'Catatan', dataIndex: 'note', render: (v?: string) => v ?? '' },
+                    ]}
+                  />
+                </>
+              )}
             </>
           )}
         </QueryState>

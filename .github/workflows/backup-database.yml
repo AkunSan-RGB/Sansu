@@ -1,0 +1,74 @@
+# Backup terjadwal database SANSU yang berada di luar server (mis. Neon pada jalur Railway) + uji pemulihan bulanan.
+# Panduan lengkap dan daftar secret: docs/OPERASIONAL.md bagian "Backup database Neon".
+# Tidak berjalan sebelum Anda mengisi secret BACKUP_DATABASE_URL (otomatis dilewati bila kosong), sehingga aman di repositori lain.
+name: Backup database
+
+on:
+  schedule:
+    - cron: '30 18 * * *' # setiap hari 01:30 WIB
+    - cron: '0 20 2 * *' # uji pemulihan: tanggal 2 tiap bulan, 03:00 WIB
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'dump = backup sekarang; restore-test = uji pemulihan sekarang'
+        type: choice
+        options: [dump, restore-test]
+        default: dump
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-database
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Backup / uji pemulihan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      scratch:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: scratch
+          POSTGRES_DB: scratch
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+      RCLONE_REMOTE: ${{ secrets.RCLONE_REMOTE }}
+      RCLONE_CONFIG_OFFSITE_TYPE: s3
+      RCLONE_CONFIG_OFFSITE_PROVIDER: ${{ secrets.S3_PROVIDER || 'Other' }}
+      RCLONE_CONFIG_OFFSITE_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+      RCLONE_CONFIG_OFFSITE_REGION: ${{ secrets.S3_REGION }}
+      RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
+      RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_KEY }}
+      BACKUP_REPORT_URL: ${{ secrets.BACKUP_REPORT_URL }}
+      BACKUP_REPORT_TOKEN: ${{ secrets.BACKUP_REPORT_TOKEN }}
+      RESTORE_TARGET_URL: postgresql://postgres:scratch@localhost:5432/scratch
+      SOURCE_LABEL: github-actions
+    steps:
+      - name: Periksa konfigurasi
+        id: cfg
+        run: |
+          if [ -z "$DATABASE_URL" ]; then echo "BACKUP_DATABASE_URL belum diisi: backup dilewati."; echo "run=false" >> "$GITHUB_OUTPUT"; else echo "run=true" >> "$GITHUB_OUTPUT"; fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "0 20 2 * *" ]; then echo "mode=restore-test" >> "$GITHUB_OUTPUT"
+          else echo "mode=dump" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.cfg.outputs.run == 'true'
+      - name: Pasang klien PostgreSQL 18 dan rclone
+        if: steps.cfg.outputs.run == 'true'
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-18 rclone
+          pg_dump --version
+      - name: Jalankan
+        if: steps.cfg.outputs.run == 'true'
+        run: bash deploy/backup/external-backup.sh "${{ steps.cfg.outputs.mode }}"

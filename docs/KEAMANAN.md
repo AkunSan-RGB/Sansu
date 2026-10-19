@@ -19,6 +19,7 @@ Dokumen ini ringkasan kontrol keamanan SANSU yang ada di kode, cara memeriksanya
 | Postur database | Saat start dan tiap 24 jam: peran aplikasi tunduk RLS, semua tabel data perusahaan ber-RLS, uji isolasi langsung; produksi menolak start bila gagal | `modules/data-rights/security-posture.ts`, `docs/DATA-PERUSAHAAN.md` |
 | Hak data klien | Ekspor seluruh data (verifikasi ulang, sekali pakai, tanpa rahasia) dan penghapusan terjadwal bermasa tenggang dengan pemeriksaan jumlah baris | `modules/data-rights`, `docs/DATA-PERUSAHAAN.md` |
 | Enkripsi kolom | NIK, NPWP (pelanggan, pemasok, karyawan) dan nomor rekening (pemasok, karyawan) tersimpan terenkripsi AES-256-GCM; jejak audit hanya memuat 4 karakter terakhir; data lama dienkripsi otomatis saat start | `common/utils/secret.ts`, `modules/data-rights/field-encryption.ts`, `docs/DATA-PERUSAHAAN.md` |
+| Status backup | Pelaksana backup (skrip VPS / GitHub Actions) melapor dengan token khusus; Panel menampilkan sukses terakhir, salinan di luar penyedia, enkripsi, dan uji pemulihan; Telegram bila gagal/basi | `modules/data-rights/backup-status.ts`, `deploy/backup/external-backup.sh`, `docs/OPERASIONAL.md` |
 | Jejak audit | Perubahan penting dicatat (siapa, kapan, sebelum/sesudah); periode pembukuan bisa dikunci | modul `audit` |
 | Pemantauan | Galat 5xx dikirim ke Telegram | `docs/OPERASIONAL.md` |
 
@@ -29,7 +30,7 @@ Dokumen ini ringkasan kontrol keamanan SANSU yang ada di kode, cara memeriksanya
 - [ ] `CORS_ORIGIN` hanya alamat aplikasi sendiri.
 - [ ] Koneksi ke database memakai TLS, dan **enkripsi saat disimpan (at rest)** aktif di penyedia database. Hanya kolom identitas/rekening yang dienkripsi per kolom (lihat di atas); data bisnis lainnya bergantung pada ini.
 - [ ] Aplikasi tersambung ke database sebagai peran `sansu_app`, bukan superuser/pemilik (jika tidak, RLS terlewati). Periksa: `SELECT current_user, rolbypassrls FROM pg_roles WHERE rolname = current_user;` harus `false`.
-- [ ] Backup: jendela pemulihan sesuai paket berbayar, salinan terenkripsi di luar penyedia, dan **uji pemulihan tercatat** (lihat `docs/OPERASIONAL.md`).
+- [ ] Backup: jendela pemulihan sesuai paket berbayar, salinan terenkripsi di luar penyedia, dan **uji pemulihan tercatat** (lihat `docs/OPERASIONAL.md`; status tampil di Panel SANSU › Keamanan data bila `BACKUP_REPORT_TOKEN` diisi).
 - [ ] HTTPS dipaksa dan sertifikat valid; header diperiksa dengan `curl -sI https://<domain>/`.
 - [ ] Akun pemilik layanan memakai 2FA; `PLATFORM_ADMIN_EMAILS` hanya orang yang berwenang.
 - [ ] Pemantauan 5xx dan uptime aktif; ada prosedur insiden (siapa dihubungi, kapan klien diberi tahu).
