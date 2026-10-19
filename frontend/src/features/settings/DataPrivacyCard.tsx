@@ -10,6 +10,7 @@ import PolicyCard from './PolicyCard';
 
 interface Status {
   graceDays: number;
+  backupNote?: string;
   lastExportAt: string | null;
   deletion: { id: string; status: 'SCHEDULED' | 'ON_HOLD' | 'CANCELLED' | 'EXECUTED'; requestedAt: string; requestedByEmail: string; scheduledFor: string; exportWaived: boolean; exportDone: boolean; holdReason: string | null } | null;
 }
@@ -80,7 +81,7 @@ export default function DataPrivacyCard({ companyName }: { companyName: string }
         icon={<DeleteOutlined />}
         title="Hapus seluruh data perusahaan"
         tag={req ? <Tag color={req.status === 'ON_HOLD' ? 'orange' : 'red'}>{req.status === 'ON_HOLD' ? 'Ditahan' : 'Terjadwal'}</Tag> : undefined}
-        desc={`Penghapusan bersifat permanen dan tidak dapat dipulihkan. Ada masa tenggang ${data?.graceDays ?? 30} hari yang dapat dibatalkan, dan penghapusan baru berjalan setelah Anda mengunduh ekspor data (kecuali Anda memilih melewatinya).`}
+        desc={`Penghapusan bersifat permanen dan tidak dapat dipulihkan. Ada masa tenggang ${data?.graceDays ?? 30} hari yang dapat dibatalkan, dan penghapusan baru berjalan setelah Anda mengunduh ekspor data (kecuali Anda memilih melewatinya). ${data?.backupNote ?? ''}`}
       >
         {req ? (
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -143,7 +144,7 @@ export default function DataPrivacyCard({ companyName }: { companyName: string }
         width={560}
       >
         <Form name="data-deletion" form={deleteForm} layout="vertical" requiredMark={false} onFinish={(v) => request.mutate({ ...v, exportWaived: !!v.exportWaived, ackRetention: !!v.ackRetention })} initialValues={{ exportWaived: false, ackRetention: false }}>
-          <Alert type="error" showIcon style={{ marginBottom: 16 }} message="Seluruh data akan hilang permanen" description={`Setelah ${data?.graceDays ?? 30} hari, semua transaksi, jurnal, stok, pelanggan, karyawan, dan pengguna perusahaan ini dihapus dan tidak dapat dipulihkan. Anda dan admin akan diberi tahu lewat email, dan dapat membatalkan sebelum tanggal itu.`} />
+          <Alert type="error" showIcon style={{ marginBottom: 16 }} message="Seluruh data akan hilang permanen" description={`Setelah ${data?.graceDays ?? 30} hari, semua transaksi, jurnal, stok, pelanggan, karyawan, dan pengguna perusahaan ini dihapus dan tidak dapat dipulihkan. Anda dan admin akan diberi tahu lewat email, dan dapat membatalkan sebelum tanggal itu. ${data?.backupNote ?? ''}`} />
           <Form.Item name="confirmName" label={`Ketik nama perusahaan untuk melanjutkan: ${name}`} rules={[{ required: true, message: 'Wajib diisi' }]}>
             <Input placeholder={name} autoComplete="off" />
           </Form.Item>

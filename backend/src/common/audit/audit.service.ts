@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { auditLogs } from '../../db/schema';
 import { auditContext } from './audit-context';
+import { maskIdentity } from './mask';
 
 @Injectable()
 export class AuditService {
@@ -18,7 +19,7 @@ export class AuditService {
       action: entry.action,
       entity: entry.entity,
       entityId: entry.entityId,
-      data: entry.data ?? null,
+      data: entry.data === undefined ? null : maskIdentity(entry.data),
     });
   }
 }

@@ -37,6 +37,25 @@ Jaminan:
 
 Tetap bisa dipakai walau langganan habis atau email belum diverifikasi: data adalah milik klien.
 
+## 3b. Enkripsi per kolom (NIK, NPWP, nomor rekening)
+
+Kolom identitas dan rekening disimpan **terenkripsi** (AES-256-GCM, kunci `DATA_ENCRYPTION_KEY`) sehingga orang yang hanya memegang salinan database atau cadangan mentah tidak membaca nilainya:
+
+| Tabel | Kolom |
+|---|---|
+| `employees` (karyawan) | `nik`, `npwp`, `bank_account` |
+| `suppliers` (pemasok) | `npwp`, `bank_account_no` |
+| `customers` (pelanggan) | `npwp` |
+
+Salinan nilai yang sama di `employee_change_requests.changes` dan payload persetujuan ubah rekening pemasok juga dienkripsi. Jejak audit hanya menyimpan 4 karakter terakhir (••••1234).
+
+Cara kerja dan akibatnya:
+- **Transparan untuk aplikasi:** tipe kolom `encryptedText` (di `db/schema.ts`) mengenkripsi saat menulis dan membuka saat membaca; layar, laporan pajak, e-Faktur/rekap, dan ekspor klien tetap menampilkan nilai asli. Kueri SQL mentah yang membaca kolom ini harus memakai `decryptField` (sudah dipasang di laporan PPN, PPh 23, PPh 21, BPJS).
+- **Tidak bisa dicari/diurutkan di SQL:** enkripsinya acak. Pencocokan ganda (NIK/NPWP/rekening) dilakukan di aplikasi.
+- **Data lama:** diisi ulang otomatis saat aplikasi start (di latar belakang, aman diulang). Pemeriksaan "NIK, NPWP, dan nomor rekening tersimpan terenkripsi" di Panel SANSU › Keamanan data menampilkan peringatan selama masih ada yang berteks biasa. Matikan pengisian ulang dengan `FIELD_ENCRYPTION_BACKFILL=off`.
+- **Kunci adalah satu-satunya jalan membuka data:** kunci `DATA_ENCRYPTION_KEY` hilang atau berganti = kolom ini tidak terbaca lagi (satu-satunya kunci cadangan adalah turunan `JWT_SECRET` lama). Simpan salinan kunci di tempat aman yang terpisah dari server. Rotasi kunci (enkripsi ulang) belum tersedia.
+- **Yang tidak dienkripsi:** gaji, transaksi, nama, alamat, telepon, dan data bisnis lain; NPWP perusahaan sendiri; judul permintaan persetujuan ubah rekening pemasok (memuat nomor agar penyetuju bisa membandingkan).
+
 ## 4. Penghapusan seluruh data perusahaan
 
 Karena tidak dapat dibatalkan, penghapusan memiliki banyak pengaman:
@@ -56,7 +75,7 @@ Karena tidak dapat dibatalkan, penghapusan memiliki banyak pengaman:
 Diuji pada data demo yang kaya (puluhan tabel): perusahaan lain tetap identik jumlah barisnya dan tidak ada baris anak yatim.
 
 ### Yang tidak dicakup penghapusan
-- **Cadangan:** salinan di cadangan database (mis. jendela pemulihan Neon, backup VPS) tetap ada sampai masa retensinya habis. Atur retensi cadangan dan beri tahu klien lamanya.
+- **Cadangan:** salinan di cadangan database (mis. jendela pemulihan Neon, backup VPS) tetap ada sampai masa retensinya habis. Isi `BACKUP_RETENTION_DAYS` (hari) sesuai retensi yang Anda atur di penyedia: angka itu ditampilkan ke klien di layar penghapusan dan di email, misalnya "hilang otomatis paling lama 30 hari setelah penghapusan". Bila kosong, teks yang tampil menyebut "sesuai siklus penyimpanan cadangan penyedia". Sistem tidak dapat menghapus data dari cadangan di sisi penyedia; angka itu hanya benar bila retensi di penyedia memang sama.
 - **Salinan klien:** arsip ekspor yang diunduh adalah tanggung jawab klien.
 - **Catatan akuntabilitas:** `data_erasure_log` menyimpan nama perusahaan dan email peminta sebagai bukti.
 - **Penghapusan data per orang** (mis. satu pelanggan yang meminta dilupakan) belum ada: pembukuan wajib dipertahankan, dan nama muncul juga di teks bebas dokumen sehingga anonimisasi parsial tidak bisa dijamin lengkap.

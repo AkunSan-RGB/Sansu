@@ -45,3 +45,26 @@ export function decrypt(blob: string): string {
   }
   throw lastError;
 }
+
+/**
+ * Enkripsi per kolom untuk data identitas/rekening (NIK, NPWP, nomor rekening): di database tersimpan `enc1:<ciphertext>`.
+ * Nilai kosong tidak dienkripsi; nilai lama yang masih teks biasa tetap terbaca (diselesaikan oleh pengisi ulang saat start).
+ * Enkripsi acak (IV berbeda tiap kali), sehingga kolom ini tidak bisa dicari/diurutkan di SQL; pencocokan dilakukan di aplikasi.
+ */
+export const FIELD_PREFIX = 'enc1:';
+export const FIELD_TOKEN = /enc1:v1\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+/g;
+export const isEncryptedField = (v: unknown): v is string => typeof v === 'string' && v.startsWith(FIELD_PREFIX);
+export function encryptField(v: string | null | undefined): string | null {
+  if (v === null || v === undefined) return null;
+  if (v.trim() === '' || isEncryptedField(v)) return v;
+  return FIELD_PREFIX + encrypt(v);
+}
+export function decryptField(v: string | null | undefined): string | null {
+  if (v === null || v === undefined) return null;
+  return isEncryptedField(v) ? decrypt(v.slice(FIELD_PREFIX.length)) : v;
+}
+/** Menyamarkan nilai identitas untuk jejak audit/log: hanya 4 karakter terakhir yang tampak */
+export function maskField(v: unknown): string {
+  const plain = typeof v === 'string' ? (decryptField(v) ?? '') : String(v ?? '');
+  return plain.length > 4 ? `••••${plain.slice(-4)}` : plain ? '••••' : '';
+}

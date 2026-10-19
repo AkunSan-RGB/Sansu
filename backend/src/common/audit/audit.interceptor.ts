@@ -7,6 +7,7 @@ import { InjectDb } from '../../db/db.module';
 import { auditLogs } from '../../db/schema';
 import { AuthUser } from '../auth/auth-user';
 import { auditContext } from './audit-context';
+import { maskIdentity } from './mask';
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 /** Permintaan yang tidak mengubah data atau tidak perlu dicatat */
@@ -37,7 +38,7 @@ export function sanitize(v: unknown, depth = 0): unknown {
   }
   const out: Record<string, unknown> = {};
   for (const [k, x] of Object.entries(v)) out[k] = SECRET.test(k) ? '***' : sanitize(x, depth + 1);
-  return out;
+  return depth === 0 ? maskIdentity(out) : out;
 }
 
 /**

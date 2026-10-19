@@ -31,6 +31,7 @@ import { PostingService } from '../accounting/posting.service';
 import { FiscalService } from '../insights/fiscal.service';
 import { InsightsModule } from '../insights/insights.module';
 import { yearQuery } from '../../common/pipes/year.pipe';
+import { decryptField } from '../../common/utils/secret';
 
 // ---------- DTO ----------
 export class CreateTaxPaymentDto {
@@ -518,6 +519,7 @@ export class TaxService {
         WHERE pi.tenant_id = ${tenantId} AND pi.withholding_amount > 0 AND pi.date BETWEEN ${from} AND ${to}
         ORDER BY pi.withholding_type, pi.date, pi.number`)
     ).rows;
+    for (const r of rows) r.supplierNpwp = decryptField(r.supplierNpwp);
     const keys = await this.keyAccounts(this.db, tenantId);
     const sums = await sumByAccount(this.db, tenantId, { from, to, excludeSources: ['TAX_PAYMENT', 'CLOSING'] });
     const gl = (key: SystemKey) => {

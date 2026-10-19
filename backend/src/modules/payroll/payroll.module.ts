@@ -35,6 +35,7 @@ import { computePayslip, PayslipCalc } from './compute';
 import { generateShiftPremiums } from '../hr/shifts';
 import { assertServiceEntriesMatch, attachServiceEntries, ServiceWorkController, ServiceWorkService } from './service-work';
 import { yearQuery } from '../../common/pipes/year.pipe';
+import { decryptField } from '../../common/utils/secret';
 
 // ---------- DTO ----------
 export class CreateRunDto {
@@ -304,7 +305,7 @@ export class PayrollService {
       GROUP BY r.period ORDER BY r.period`);
     return {
       year,
-      employees: res.rows.map((r) => ({ ...r, gross: money(r.gross).toFixed(2), pension: money(r.pension).toFixed(2), pph21: money(r.pph21).toFixed(2) })),
+      employees: res.rows.map((r) => ({ ...r, npwp: decryptField(r.npwp), nik: decryptField(r.nik), gross: money(r.gross).toFixed(2), pension: money(r.pension).toFixed(2), pph21: money(r.pph21).toFixed(2) })),
       monthly: monthly.rows.map((m) => ({ ...m, gross: money(m.gross).toFixed(2), pph21: money(m.pph21).toFixed(2) })),
     };
   }
@@ -347,7 +348,7 @@ export class PayrollService {
     return {
       period,
       run: run ?? null,
-      rows: res.rows,
+      rows: res.rows.map((r) => ({ ...r, nik: decryptField(r.nik) })),
       totals,
       kesehatan: kes.toFixed(2),
       ketenagakerjaan: tk.toFixed(2),

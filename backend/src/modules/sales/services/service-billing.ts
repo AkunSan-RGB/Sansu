@@ -64,6 +64,7 @@ import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { documentTotals, inclusiveDocument } from '../pricing';
 import { projectCostsSql } from './project-costs';
+import { decryptField } from '../../../common/utils/secret';
 
 // ---------- DTO ----------
 export class ServiceLineDto {
@@ -428,7 +429,7 @@ export class ServiceBillingService {
         number: r.number,
         date: r.date,
         customer: r.customer,
-        customerNpwp: r.npwp,
+        customerNpwp: decryptField(r.npwp),
         type: r.type,
         rate: D(r.rate).toFixed(2),
         base: D(r.base).toFixed(2),
