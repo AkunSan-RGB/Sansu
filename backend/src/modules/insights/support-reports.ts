@@ -8,7 +8,8 @@ import { sql } from 'drizzle-orm';
 import { addDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { conclude } from './support-insights';
+import { SettingsService } from '../../common/settings.service';
+import { conclude, DEFAULT_THRESHOLDS, type InsightThresholds } from './support-insights';
 
 type Cell = string | number | null;
 export interface SupportTable {
@@ -56,7 +57,18 @@ export const withRest = (rows: Cell[][], n: number, sumIdx: number[]): Cell[][] 
 
 @Injectable()
 export class SupportReportsService {
-  constructor(@InjectDb() private readonly db: Db) {}
+  constructor(
+    @InjectDb() private readonly db: Db,
+    private readonly settings: SettingsService,
+  ) {}
+
+  thresholds(tenantId: string): Promise<InsightThresholds> {
+    return this.settings.section(this.db, tenantId, 'supportInsights', DEFAULT_THRESHOLDS);
+  }
+
+  saveThresholds(tenantId: string, value: InsightThresholds): Promise<InsightThresholds> {
+    return this.settings.saveSection(this.db, tenantId, 'supportInsights', DEFAULT_THRESHOLDS, value);
+  }
 
   private async rows<T extends Record<string, unknown>>(q: ReturnType<typeof sql>) {
     return (await this.db.execute<T>(q)).rows;
@@ -84,7 +96,7 @@ export class SupportReportsService {
     const out = await (this[kind] as (t: string, f: string, e: string) => Promise<{ title: string; summary: string; sections: SupportSection[]; reconciliation: Reconciliation[] }>).call(this, tenantId, from, to);
     for (const sec of out.sections) if (sec.tables.some((t) => t.rows.length >= CAP)) sec.paragraphs = [...sec.paragraphs, `Tabel dipotong pada ${CAP} baris pertama; persempit periode untuk melihat sisanya.`];
     const period = { from, to };
-    return { kind, ...out, period, conclusion: conclude(kind, { ...out, period }), generatedAt: new Date().toISOString(), today: todayJakarta() };
+    return { kind, ...out, period, conclusion: conclude(kind, { ...out, period }, await this.thresholds(tenantId)), generatedAt: new Date().toISOString(), today: todayJakarta() };
   }
 
   // ------------------------------------------------------------------ Penjualan
