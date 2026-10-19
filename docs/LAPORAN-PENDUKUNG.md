@@ -18,3 +18,16 @@ Menu **Akuntansi › Laporan › Laporan pendukung** (`/support-reports`; API `G
 - Daftar dipotong 100 teratas (pelanggan/pemasok/produk) dan 500 faktur pertama per periode.
 - Daftar umur piutang/utang dan daftar aset tetap tetap ada di Lampiran Laporan Keuangan.
 - Laporan ini belum ditinjau akuntan eksternal; format dan batas toleransi (Rp1) dapat disesuaikan.
+
+## Letak di menu
+
+Setiap laporan ada di menu bidangnya, tepat di atas menu kontrolnya: Penjualan › Laporan penjualan (di atas Kontrol penjualan), Pembelian › Laporan pembelian, Inventori › Laporan persediaan, Kas & Bank › Laporan kas & bank, Akuntansi › Laporan akun lainnya. Halaman Akuntansi › Laporan pendukung (semua) tetap ada sebagai ringkasan semua tab. Peran yang boleh membuka: Pemilik, Admin, Keuangan, Akuntan.
+
+## Laporan khusus jenis usaha
+
+| Laporan | Untuk | Isi | Pencocokan buku besar |
+|---|---|---|---|
+| Kasir (Kasir (POS) › Laporan kasir) | Ritel, F&B | Penjualan per kasir, per metode bayar, per sesi (uang seharusnya, dihitung, selisih) | Penjualan neto vs akun pendapatan; pembayaran vs total pesanan; pembayaran tunai/non-tunai vs debit laci kas & rekening; selisih sesi vs akun Selisih Kas Kasir |
+| F&B (Kasir (POS) › Laporan F&B) | F&B | Penjualan per menu dan jenis pesanan, pajak (PB1/PBJT atau PPN), pesanan online per kanal dan pencairan, bahan terpakai vs resep | Pajak daerah vs akun pajak daerah; pesanan online belum cair vs Piutang Platform; HPP pesanan vs akun HPP; jumlah bahan yang pemakaiannya sama dengan resep |
+
+Batasan: bahan terpakai dihitung dengan resep aktif saat laporan dibuka (resep yang diubah setelah penjualan menimbulkan selisih), dan retur kasir tidak dikurangkan dari pemakaian bahan. Jenis usaha lain (Jasa, FMCG, Manufaktur, Utilitas) belum punya laporan khusus.
