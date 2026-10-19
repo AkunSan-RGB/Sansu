@@ -112,6 +112,7 @@ const MENU: Group[] = [
       { key: '/trade', label: 'Modern trade & klaim prinsipal', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/sales-targets', label: 'Target & komisi sales', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
       // Menu Marketplace disembunyikan dulu (halamannya tetap ada di /integrations?tab=marketplace)
+      { key: '/support-reports?kind=sales', label: 'Laporan penjualan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA', 'RITEL', 'FNB', 'UTILITAS'] },
       { key: '/sales-controls', label: 'Kontrol penjualan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA', 'RITEL', 'FNB', 'UTILITAS'] },
       { section: 'Data', items: [{ key: '/customers', label: t('Pelanggan') }] },
     ],
@@ -128,6 +129,8 @@ const MENU: Group[] = [
       { key: '/pos/kitchen', label: 'Layar dapur', models: ['FNB'], roles: ['OWNER', 'CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/pos/online', label: 'Pesanan online', models: ['FNB'], roles: ['ADMIN', 'FINANCE'] },
       { key: '/pos/sessions', label: 'Riwayat sesi kasir', roles: ['OWNER', 'CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT'] },
+      { key: '/support-reports?kind=pos', label: 'Laporan kasir', models: ['RITEL', 'FNB'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+      { key: '/support-reports?kind=fnb', label: 'Laporan F&B', models: ['FNB'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
     ],
   },
 
@@ -148,6 +151,7 @@ const MENU: Group[] = [
       { key: '/price-agreements', label: 'Kontrak harga prinsipal', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING'] },
       { key: '/price-agreements', label: 'Harga pemasok bahan', models: ['FNB'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING'] },
       { key: '/price-agreements', label: 'Kontrak harga pemasok', models: ['DAGANG', 'RITEL', 'MANUFAKTUR', 'UTILITAS'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING'] },
+      { key: '/support-reports?kind=purchases', label: 'Laporan pembelian', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA'] },
       { key: '/purchase-controls', label: 'Kontrol pembelian', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA'] },
       { section: 'Data', items: [{ key: '/suppliers', label: t('Supplier') }] },
     ],
@@ -167,6 +171,7 @@ const MENU: Group[] = [
       { key: '/inventory/lot-trace', label: 'Telusuri lot (recall)', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE', 'SALES', 'ACCOUNTANT'] },
       { key: '/inventory/movement', label: t('Perputaran persediaan'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT'] },
       { key: '/inventory/writedowns', label: 'Penurunan nilai', epOnly: true, hideFor: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+      { key: '/support-reports?kind=inventory', label: 'Laporan persediaan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA'] },
       { key: '/inventory-controls', label: 'Kontrol persediaan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE'], hideFor: ['JASA'] },
       {
         section: 'Data',
@@ -205,6 +210,7 @@ const MENU: Group[] = [
     children: [
       { key: '/cash', label: 'Kas, kas kecil & opname' },
       { key: '/bank', label: 'Cocokkan dengan bank' },
+      { key: '/support-reports?kind=cash', label: 'Laporan kas & bank', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/finance-controls', label: 'Kontrol keuangan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
     ],
   },
@@ -241,7 +247,8 @@ const MENU: Group[] = [
           { key: '/trial-balance', label: 'Neraca saldo' },
           { key: '/worksheet', label: 'Neraca lajur' },
           { key: '/reports', label: 'Laporan keuangan' },
-          { key: '/support-reports', label: 'Laporan pendukung' },
+          { key: '/support-reports', label: 'Laporan pendukung (semua)' },
+          { key: '/support-reports?kind=other', label: 'Laporan akun lainnya' },
           { key: '/health', label: 'Cek kesehatan' },
           { key: '/accounting-controls', label: 'Kontrol pembukuan & pajak', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
         ],

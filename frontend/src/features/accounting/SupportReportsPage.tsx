@@ -14,11 +14,13 @@ import { fmtDate, fmtMoney } from '@/lib/format';
 import { supportSheet } from '@/lib/xlsx/reports';
 import { NoteTableView } from './statements/NotesView';
 
-const KINDS: { key: SupportReport['kind']; label: string; hint: string }[] = [
+const KINDS: { key: SupportReport['kind']; label: string; hint: string; models?: string[] }[] = [
   { key: 'sales', label: 'Penjualan', hint: 'Faktur dan retur, dicocokkan dengan akun pendapatan dan piutang.' },
   { key: 'purchases', label: 'Pembelian', hint: 'Faktur pemasok dan retur, dicocokkan dengan akun utang usaha.' },
   { key: 'inventory', label: 'Persediaan', hint: 'Kartu stok per produk, dicocokkan dengan akun persediaan.' },
   { key: 'cash', label: 'Kas & Bank', hint: 'Mutasi per akun dan sumber, dicocokkan dengan rekening koran.' },
+  { key: 'pos', label: 'Kasir', models: ['RITEL', 'FNB'], hint: 'Penjualan per kasir, sesi, dan metode bayar, selisih uang di laci, dicocokkan dengan pendapatan, kas, dan bank.' },
+  { key: 'fnb', label: 'F&B', models: ['FNB'], hint: 'Penjualan per menu dan jenis pesanan, pajak restoran daerah, pencairan platform, dan bahan terpakai dibanding resep.' },
   { key: 'other', label: 'Akun lainnya', hint: 'Aset lain, liabilitas, ekuitas, pendapatan/beban lain, dan saldo pajak.' },
 ];
 
@@ -28,8 +30,9 @@ const KINDS: { key: SupportReport['kind']; label: string; hint: string }[] = [
  */
 export default function SupportReportsPage() {
   const [params, setParams] = useSearchParams();
-  const kind = (KINDS.find((k) => k.key === params.get('kind'))?.key ?? 'sales') as SupportReport['kind'];
   const { me } = useAuth();
+  const kinds = KINDS.filter((k) => !k.models || (me && k.models.includes(me.businessModel)));
+  const kind = (kinds.find((k) => k.key === params.get('kind'))?.key ?? 'sales') as SupportReport['kind'];
   const [from, setFrom] = useState(dayjs().startOf('month').format('YYYY-MM-DD'));
   const [to, setTo] = useState(dayjs().format('YYYY-MM-DD'));
   const fw = useQuery({ queryKey: ['framework'], queryFn: () => get<{ framework: 'SAK_EP' | 'SAK_EMKM' | 'IFRS' }>('/accounting/statements/framework') });
@@ -65,10 +68,10 @@ export default function SupportReportsPage() {
           activeKey={kind}
           onChange={(k) => setParams({ kind: k }, { replace: true })}
           className="no-print"
-          items={KINDS.map((k) => ({ key: k.key, label: k.label }))}
+          items={kinds.map((k) => ({ key: k.key, label: k.label }))}
         />
         <Typography.Paragraph type="secondary" className="no-print">
-          {KINDS.find((k) => k.key === kind)?.hint} Angka dihitung ulang dari pembukuan setiap dibuka.
+          {kinds.find((k) => k.key === kind)?.hint} Angka dihitung ulang dari pembukuan setiap dibuka.
         </Typography.Paragraph>
         <Space wrap size={[8, 8]} className="no-print" style={{ marginBottom: 16 }}>
           <Typography.Text type="secondary">Periode:</Typography.Text>
