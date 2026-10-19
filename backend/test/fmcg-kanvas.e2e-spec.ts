@@ -157,7 +157,7 @@ describe('FMCG: kanvas (e2e)', () => {
   });
 
   it('rute & kunjungan: jadwal hari ini, kunjungan sekali per outlet per hari, jarak dari koordinat outlet menandai kunjungan jauh', async () => {
-    const weekday = ((new Date().getUTCDay() + 6) % 7) + 1;
+    const weekday = ((new Date(Date.now() + 7 * 3600_000).getUTCDay() + 6) % 7) + 1; // hari Jakarta, sama dengan layanan
     expect((await post('/api/canvass/routes', { name: 'Rute Depok', salespersonId: tok.sls.id, weekday, customerIds: [cust] }, tok.sls.token)).status).toBe(403);
     await post('/api/canvass/routes', { name: 'Rute Depok', salespersonId: tok.sls.id, weekday, customerIds: [cust] }, tok.adm.token).expect(201);
     expect((await post('/api/canvass/routes', { name: 'rute depok', salespersonId: tok.sls.id, customerIds: [] }, tok.adm.token)).status).toBe(400); // nama kembar
