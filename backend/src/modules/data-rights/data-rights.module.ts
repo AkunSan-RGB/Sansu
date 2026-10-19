@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Module, Param, ParseUUIDPipe, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Headers, Delete, Get, HttpCode, Module, Param, ParseUUIDPipe, Post, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
@@ -9,6 +9,7 @@ import { AllowWhenLocked, PlatformAdminGuard } from '../../common/auth/platform-
 import { DeletionService } from './deletion';
 import { TenantExportService } from './export';
 import { ReauthService } from './reauth';
+import { BackupReportDto, BackupStatusService } from './backup-status';
 import { FieldEncryptionService } from './field-encryption';
 import { SecurityPostureService } from './security-posture';
 
@@ -93,7 +94,13 @@ export class DataRightsAdminController {
   constructor(
     private readonly posture: SecurityPostureService,
     private readonly deletion: DeletionService,
+    private readonly backups: BackupStatusService,
   ) {}
+
+  @Get('backups')
+  backupOverview() {
+    return this.backups.overview();
+  }
 
   @Get('security-posture')
   security() {
@@ -118,9 +125,26 @@ export class DataRightsAdminController {
   }
 }
 
+/** Laporan dari pelaksana backup (skrip VPS / GitHub Actions). Dilindungi token khusus BACKUP_REPORT_TOKEN, bukan login pengguna. */
+@ApiTags('Backup')
+@Controller('backup-report')
+export class BackupReportController {
+  constructor(private readonly backups: BackupStatusService) {}
+
+  @Public()
+  @Throttle({ default: { limit: 60, ttl: 3_600_000 } })
+  @HttpCode(200)
+  @Post()
+  async report(@Headers('x-backup-token') token: string | undefined, @Body() dto: BackupReportDto) {
+    this.backups.authorize(token);
+    const e = await this.backups.report(dto);
+    return { ok: true, at: e.at };
+  }
+}
+
 @Module({
-  controllers: [CompanyDataController, DataRightsAdminController],
-  providers: [TenantExportService, DeletionService, ReauthService, SecurityPostureService, FieldEncryptionService, PlatformAdminGuard],
+  controllers: [CompanyDataController, DataRightsAdminController, BackupReportController],
+  providers: [TenantExportService, DeletionService, ReauthService, SecurityPostureService, FieldEncryptionService, BackupStatusService, PlatformAdminGuard],
   exports: [SecurityPostureService],
 })
 export class DataRightsModule {}

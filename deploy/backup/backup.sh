@@ -22,6 +22,19 @@ notify() {
     --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" --data-urlencode "text=$1" >/dev/null || true
 }
 
+# Lapor ke SANSU (Panel SANSU › Keamanan data › Backup database). Aktif bila BACKUP_REPORT_TOKEN diisi; gagal melapor tidak menggagalkan backup.
+report() { # report <OK|FAILED> [ukuran_byte] [offsite true|false] [encrypted true|false] [catatan]
+  [ -n "${BACKUP_REPORT_TOKEN:-}" ] || return 0
+  local note; note=$(printf '%s' "${5:-}" | tr -d '"\\' | tr '\n' ' ' | cut -c1-300)
+  local body="{\"kind\":\"DUMP\",\"status\":\"$1\",\"source\":\"vps:$(hostname)\""
+  [ -n "${2:-}" ] && body="$body,\"sizeBytes\":$2"
+  [ -n "${3:-}" ] && body="$body,\"offsite\":$3"
+  [ -n "${4:-}" ] && body="$body,\"encrypted\":$4"
+  [ -n "$note" ] && body="$body,\"note\":\"$note\""
+  printf 'header = "x-backup-token: %s"\n' "$BACKUP_REPORT_TOKEN" \
+    | curl -fsS -m 20 -K - -H 'content-type: application/json' -d "$body}" "${BACKUP_REPORT_URL:-http://api:3000/api/backup-report}" >/dev/null || log "PERINGATAN: laporan ke SANSU gagal"
+}
+
 prune() { # prune <folder> <jumlah disimpan>
   ls -1t "$DIR/$1"/sansu-*.dump 2>/dev/null | tail -n +$(($2 + 1)) | xargs -r rm -f
 }
@@ -49,25 +62,32 @@ run_backup() {
   if ! pg_dump -Fc -Z 6 -f "$f.tmp"; then
     rm -f "$f.tmp"; log "GAGAL: pg_dump"; date -Iseconds > "$DIR/last-failure"
     notify "⚠️ Backup SANSU GAGAL ($(hostname)) pada $(date '+%d/%m/%Y %H:%M'). Periksa: ./sansu.sh logs backup"
+    report FAILED "" "" "" "pg_dump gagal"
     return 1
   fi
   # verifikasi: file harus bisa dibaca pg_restore
   if ! pg_restore --list "$f.tmp" >/dev/null; then
     rm -f "$f.tmp"; log "GAGAL: file backup rusak"; date -Iseconds > "$DIR/last-failure"
     notify "⚠️ Backup SANSU rusak saat diverifikasi ($(hostname))."
+    report FAILED "" "" "" "file backup rusak saat diverifikasi"
     return 1
   fi
   mv "$f.tmp" "$f"
   [ "$(date +%u)" = 7 ] && cp "$f" "$DIR/weekly/"
   [ "$(date +%d)" = 01 ] && cp "$f" "$DIR/monthly/"
   prune daily "$KEEP_D"; prune weekly "$KEEP_W"; prune monthly "$KEEP_M"
-  if ! offsite "$f"; then
-    log "PERINGATAN: salinan offsite gagal"
-    notify "⚠️ Backup SANSU tersimpan di server, tetapi salinan offsite GAGAL ($(hostname))."
+  local off=false enc=false
+  if [ -n "${RCLONE_REMOTE:-}" ]; then
+    if offsite "$f"; then off=true; [ -n "${BACKUP_PASSPHRASE:-}" ] && enc=true
+    else
+      log "PERINGATAN: salinan offsite gagal"
+      notify "⚠️ Backup SANSU tersimpan di server, tetapi salinan offsite GAGAL ($(hostname))."
+    fi
   fi
   date -Iseconds > "$DIR/last-success"
   rm -f "$DIR/last-failure"
   log "Selesai: $(du -h "$f" | cut -f1)"
+  report OK "$(stat -c %s "$f")" "$off" "$enc" ""
   return 0
 }
 

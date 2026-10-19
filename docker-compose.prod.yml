@@ -73,6 +73,8 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       BACKUP_DIR: /backups
+      BACKUP_REPORT_TOKEN: ${BACKUP_REPORT_TOKEN:-}
+      BACKUP_MAX_AGE_HOURS: ${BACKUP_MAX_AGE_HOURS:-26}
     volumes:
       - ${BACKUP_DIR:-./backups}:/backups:ro
     depends_on:
@@ -140,6 +142,7 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       HEALTH_URL: http://api:3000/api/health
+      BACKUP_REPORT_TOKEN: ${BACKUP_REPORT_TOKEN:-}
       WEB_URL: http://web/
       DISK_ALERT_PCT: ${DISK_ALERT_PCT:-85}
     volumes:

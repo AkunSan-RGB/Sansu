@@ -16,6 +16,7 @@ Tanpa nginx, tanpa CORS, tanpa pengalihan `/api`. Berkas yang dipakai: `railway.
    | `JWT_SECRET` | teks acak ≥ 32 karakter: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` |
    | `DATA_ENCRYPTION_KEY` | **wajib** (aplikasi menolak start tanpanya): kunci enkripsi token pihak ketiga, acak ≥ 32 karakter dan **berbeda** dari `JWT_SECRET`: `openssl rand -base64 48`. Simpan di tempat aman (salinan terpisah dari server) dan jangan diubah setelah diisi: kunci ini juga mengenkripsi NIK, NPWP, dan nomor rekening, yang **tidak terbaca lagi** bila kuncinya hilang atau berganti. Data yang sudah terenkripsi dengan kunci lama (turunan `JWT_SECRET`) tetap terbaca. |
    | `BACKUP_RETENTION_DAYS` | opsional: lama (hari) cadangan database menyimpan data; ditampilkan ke klien saat meminta penghapusan data. Samakan dengan jendela pemulihan/retensi backup di Neon atau server. |
+   | `BACKUP_REPORT_TOKEN` | opsional tetapi disarankan: acak ≥ 24 karakter; mengaktifkan laporan status backup ke Panel SANSU dan peringatan Telegram bila backup gagal/basi. Pelaksana backup (GitHub Actions): lihat `docs/OPERASIONAL.md`. |
    | `APP_URL` | alamat publik layanan, mis. `https://sansu-production.up.railway.app` (diisi setelah langkah 4) |
    | `CORS_ORIGIN` | sama dengan `APP_URL` |
    | `PLATFORM_ADMIN_EMAILS` | email pemilik layanan (akses panel pemilik) |

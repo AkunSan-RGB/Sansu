@@ -5,6 +5,7 @@
  */
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
+import { BackupStatusService } from './backup-status';
 import { FieldEncryptionService } from './field-encryption';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
@@ -59,7 +60,7 @@ export class SecurityPostureService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   last?: Posture;
 
-  constructor(@InjectDb() private readonly db: Db, private readonly fields: FieldEncryptionService) {}
+  constructor(@InjectDb() private readonly db: Db, private readonly fields: FieldEncryptionService, private readonly backups: BackupStatusService) {}
 
   private async rows<T extends Record<string, unknown>>(q: ReturnType<typeof sql>) {
     return (await this.db.execute<T>(q)).rows;
@@ -129,6 +130,17 @@ export class SecurityPostureService implements OnModuleInit, OnModuleDestroy {
       add('field-encryption', 'NIK, NPWP, dan nomor rekening tersimpan terenkripsi', plain === 0, plain === 0 ? 'Semua nilai terenkripsi (AES-256-GCM)' : `${plain} nilai masih teks biasa; dienkripsi otomatis saat aplikasi start (lihat log "Enkripsi")`, 'warning');
     } catch (e) {
       add('field-encryption', 'NIK, NPWP, dan nomor rekening tersimpan terenkripsi', false, `Pemeriksaan gagal: ${(e as Error).message}`, 'warning');
+    }
+
+    // 7. Backup database tercatat segar (peringatan; hanya bermakna bila pelaksana backup melapor lewat BACKUP_REPORT_TOKEN)
+    try {
+      const o = await this.backups.overview();
+      const d = o.dump;
+      add('backup-fresh', 'Backup database terbaru dan sukses', o.configured && d.state === 'OK',
+        !o.configured ? 'Pelaporan backup belum diaktifkan (isi BACKUP_REPORT_TOKEN dan pasang pelaksana backup; lihat docs/OPERASIONAL.md)'
+          : d.state === 'OK' ? `Backup sukses terakhir ${Math.floor(d.ageHours ?? 0)} jam lalu` : d.state === 'NEVER' ? 'Belum ada laporan backup' : d.state === 'FAILED' ? 'Backup terakhir gagal' : `Backup sukses terakhir sudah ${Math.floor(d.ageHours ?? 0)} jam lalu`, 'warning');
+    } catch (e) {
+      add('backup-fresh', 'Backup database terbaru dan sukses', false, `Pemeriksaan gagal: ${(e as Error).message}`, 'warning');
     }
 
     const posture: Posture = { ok: checks.every((c) => c.ok || c.severity !== 'critical'), checkedAt: new Date().toISOString(), checks };
