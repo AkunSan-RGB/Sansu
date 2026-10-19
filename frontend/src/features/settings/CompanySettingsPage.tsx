@@ -8,6 +8,7 @@ import {
   BellOutlined,
   FileProtectOutlined,
   PercentageOutlined,
+  SafetyCertificateOutlined,
   SolutionOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
@@ -30,6 +31,7 @@ import ApprovalPolicyTab from './ApprovalPolicyTab';
 import PayrollSettingsTab from './PayrollSettingsTab';
 import ReminderSettingsCard from './ReminderSettingsCard';
 import SupportThresholdsCard from './SupportThresholdsCard';
+import DataPrivacyCard from './DataPrivacyCard';
 import EntityProfileWizard from './EntityProfileWizard';
 import { t } from '@/lib/terms';
 
@@ -397,6 +399,20 @@ export default function CompanySettingsPage() {
         <ApprovalPolicyTab />
       ),
     },
+    ...(me?.role === 'OWNER' || me?.role === 'ADMIN'
+      ? [
+          {
+            key: 'data',
+            label: 'Data & privasi',
+            icon: <SafetyCertificateOutlined />,
+            children: (
+              <div style={wide}>
+                <DataPrivacyCard companyName={data?.name ?? me?.tenantName ?? ''} />
+              </div>
+            ),
+          },
+        ]
+      : []),
     ...(can('payroll')
       ? [
           {

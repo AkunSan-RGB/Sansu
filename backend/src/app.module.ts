@@ -52,6 +52,7 @@ import { BillingModule } from './modules/billing/billing.module';
 import { MarketplaceSyncModule } from './modules/integrations/marketplace/sync';
 import { ProductionModule } from './modules/production/production.module';
 import { MailModule } from './mail/mail.module';
+import { DataRightsModule } from './modules/data-rights/data-rights.module';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { MailModule } from './mail/mail.module';
     AccountingModule,
     InventoryModule,
     ProductionModule,
+    DataRightsModule,
     SalesModule,
     PurchasingModule,
     FxModule,
