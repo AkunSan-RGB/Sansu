@@ -3911,6 +3911,10 @@ export const utilityReadings = pgTable(
     verifiedAt: timestamp('verified_at', { withTimezone: true }),
     verifyNote: text('verify_note'),
     billId: uuid('bill_id').references(() => utilityBills.id),
+    source: text('source').$type<'MANUAL' | 'LAPANGAN' | 'IMPORT' | 'API'>().notNull().default('MANUAL'),
+    lat: numeric('lat', { precision: 9, scale: 6 }),
+    lng: numeric('lng', { precision: 9, scale: 6 }),
+    photo: text('photo'),
   },
   (t) => [uniqueIndex('utility_readings_period_uq').on(t.connectionId, t.period).where(sql`status <> 'REJECTED'`), index('utility_readings_status_idx').on(t.tenantId, t.status, t.period)],
 );
@@ -3930,4 +3934,66 @@ export const utilityLateFees = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('utility_late_fees_invoice_uq').on(t.invoiceId)],
+);
+
+/** Kunci API untuk alat/gateway meter yang mengirim angka meter; hanya hash yang disimpan */
+export const utilityIngestKeys = pgTable(
+  'utility_ingest_keys',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    name: text('name').notNull(),
+    keyHash: text('key_hash').notNull(),
+    keyPrefix: text('key_prefix').notNull(),
+    createdById: uuid('created_by_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [uniqueIndex('utility_ingest_keys_hash_uq').on(t.keyHash)],
+);
+
+/** Setoran harian kas loket: petugas menyetor total penerimaan tunainya, dikonfirmasi orang lain */
+export const utilityRemittances = pgTable(
+  'utility_remittances',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    date: date('date').notNull(),
+    collectorId: uuid('collector_id').notNull(),
+    expected: money('expected').notNull(),
+    counted: money('counted').notNull(),
+    difference: money('difference').notNull(),
+    receiptCount: integer('receipt_count').notNull(),
+    status: text('status').$type<'SUBMITTED' | 'CONFIRMED' | 'DISPUTED'>().notNull().default('SUBMITTED'),
+    note: text('note'),
+    decidedById: uuid('decided_by_id'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('utility_remittances_number_uq').on(t.tenantId, t.number)],
+);
+
+/** Pembayaran tagihan utilitas yang diterima di loket (menunggu disetor) */
+export const utilityCounterReceipts = pgTable(
+  'utility_counter_receipts',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    paymentId: uuid('payment_id')
+      .notNull()
+      .references(() => payments.id),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => invoices.id),
+    collectorId: uuid('collector_id').notNull(),
+    amount: money('amount').notNull(),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+    remittanceId: uuid('remittance_id').references(() => utilityRemittances.id),
+  },
+  (t) => [uniqueIndex('utility_counter_receipts_payment_uq').on(t.paymentId)],
 );
