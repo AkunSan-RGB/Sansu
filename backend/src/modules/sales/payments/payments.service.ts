@@ -36,7 +36,7 @@ export class PaymentsService {
   }
 
   /** Pelunasan piutang: Dr Kas/Bank | Cr Piutang Usaha */
-  async create(user: AuthUser, dto: CreatePaymentDto, opts: { approved?: boolean } = {}) {
+  async create(user: AuthUser, dto: CreatePaymentDto, opts: { approved?: boolean; inTx?: (tx: Parameters<Parameters<Db['transaction']>[0]>[0], payment: { id: string; number: string; amount: string }) => Promise<void> } = {}) {
     const date = toDocDate(dto.date);
     const amount = money(dto.amount);
     if (amount.lte(0)) throw new BadRequestException('Jumlah pembayaran harus > 0');
@@ -117,6 +117,8 @@ export class PaymentsService {
         .where(eq(invoices.id, inv.id));
       await tx.update(payments).set({ journalId: journal.id }).where(eq(payments.id, payment.id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'Payment', entityId: payment.id });
+      // pekerjaan tambahan milik pemanggil (mis. catatan penerimaan loket) ikut transaksi: sama-sama tersimpan atau sama-sama batal
+      await opts.inTx?.(tx, { id: payment.id, number: payment.number, amount: payment.amount });
 
       return { ...payment, journalId: journal.id, journalNumber: journal.number };
     });
