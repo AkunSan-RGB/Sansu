@@ -60,4 +60,6 @@ Isi: pencatatan meter per periode (dicatat, terverifikasi, ditagih, ditolak, dit
 
 Pencocokan buku besar: tagihan vs akun pendapatan; pemakaian pada catatan meter vs pemakaian pada tagihan; denda ditagih vs akun pendapatan denda.
 
-Batasan Jasa dan Utilitas: jam kerja dan upah jasa tidak masuk laporan ini (ada di Upah jasa); piutang utilitas tidak dicocokkan dengan akun piutang karena akun itu dapat memuat piutang lain.
+Piutang usaha dan piutang lain dipisahkan: akun Piutang Usaha hanya berisi piutang dari faktur (jurnal manual ke akun itu ditolak), sehingga Laporan utilitas mencocokkan sisa semua faktur dengan akun tersebut dan memisahkan tagihan utilitas dari faktur lain. Piutang lain (karyawan, platform, klaim prinsipal, retensi, antar cabang, dan akun piutang lain) dilaporkan sendiri di Laporan akun lainnya, bagian "Piutang lain-lain", terpisah dari aset lain.
+
+Batasan Jasa dan Utilitas: jam kerja dan upah jasa tidak masuk laporan ini (ada di Upah jasa); piutang valas tidak ikut pencocokan piutang usaha.
