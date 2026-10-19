@@ -53,7 +53,6 @@ export const DOC_PREFIX = {
   WORKFLOW_CASE: 'WF',
   UTILITY_CONNECTION: 'SBG',
   DELIVERY_TRIP: 'RTE',
-  UTILITY_REMITTANCE: 'STL',
 } as const;
 
 export type DocType = keyof typeof DOC_PREFIX;
