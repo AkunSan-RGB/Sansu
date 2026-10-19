@@ -280,17 +280,18 @@ export class SupportReportsService {
 
   // ------------------------------------------------------------------ Akun lainnya
   private async other(tenantId: string, from: string, to: string) {
-    const acc = await this.rows<{ code: string; name: string; type: string; sk: string | null; cash: boolean; o: string; dr: string; cr: string; c: string }>(sql`
-      SELECT a.code, a.name, a.type::text AS type, a.system_key AS sk, a.is_cash_account AS cash,
+    const acc = await this.rows<{ code: string; name: string; type: string; sk: string | null; cash: boolean; grp: string | null; o: string; dr: string; cr: string; c: string }>(sql`
+      SELECT a.code, a.name, a.type::text AS type, a.system_key AS sk, a.is_cash_account AS cash, a.report_group AS grp,
         COALESCE(SUM(l.debit - l.credit) FILTER (WHERE j.date < ${from}), 0)::text AS o,
         COALESCE(SUM(l.debit) FILTER (WHERE j.date BETWEEN ${from} AND ${to}), 0)::text AS dr,
         COALESCE(SUM(l.credit) FILTER (WHERE j.date BETWEEN ${from} AND ${to}), 0)::text AS cr,
         COALESCE(SUM(l.debit - l.credit) FILTER (WHERE j.date <= ${to}), 0)::text AS c
       FROM accounts a LEFT JOIN journal_lines l ON l.account_id = a.id LEFT JOIN journal_entries j ON j.id = l.journal_id AND j.tenant_id = a.tenant_id
-      WHERE a.tenant_id = ${tenantId} GROUP BY a.id, a.code, a.name, a.type, a.system_key, a.is_cash_account ORDER BY a.code`);
+      WHERE a.tenant_id = ${tenantId} GROUP BY a.id, a.code, a.name, a.type, a.system_key, a.is_cash_account, a.report_group ORDER BY a.code`);
     const covered = (x: (typeof acc)[number]) => x.cash || ['AR', 'AP', 'INVENTORY', 'INVENTORY_SEMI', 'SALES', 'SALES_RETURN', 'COGS'].includes(x.sk ?? '');
     const active = (x: (typeof acc)[number]) => Number(x.o) !== 0 || Number(x.dr) !== 0 || Number(x.cr) !== 0 || Number(x.c) !== 0;
-    const groups: { key: string; title: string; types: string[]; credit: boolean }[] = [
+    const groups: { key: string; title: string; types: string[]; credit: boolean; group?: string }[] = [
+      { key: 'other-receivables', title: 'Piutang lain-lain (di luar piutang usaha)', types: ['ASSET'], credit: false, group: 'OTHER_RECEIVABLE' },
       { key: 'other-assets', title: 'Aset lain', types: ['ASSET'], credit: false },
       { key: 'other-liabilities', title: 'Liabilitas', types: ['LIABILITY'], credit: true },
       { key: 'other-equity', title: 'Ekuitas', types: ['EQUITY'], credit: true },
@@ -298,14 +299,14 @@ export class SupportReportsService {
       { key: 'other-expense', title: 'Beban', types: ['EXPENSE'], credit: false },
     ];
     const sections: SupportSection[] = groups.map((g, i) => {
-      const list = acc.filter((x) => g.types.includes(x.type) && !covered(x) && active(x));
+      const list = acc.filter((x) => g.types.includes(x.type) && !covered(x) && active(x) && (g.group ? x.grp === g.group : !(g.types[0] === 'ASSET' && x.grp === 'OTHER_RECEIVABLE')));
       const sign = g.credit ? -1 : 1;
       const rows: Cell[][] = list.map((x) => [x.code, x.name, num(sign * Number(x.o)), num(g.credit ? x.cr : x.dr), num(g.credit ? x.dr : x.cr), num(sign * Number(x.c))]);
       return {
         key: g.key,
         number: `P${i + 1}`,
         title: g.title,
-        paragraphs: i === 0 ? ['Seluruh akun di luar kas/bank, piutang, utang usaha, persediaan, dan penjualan/HPP (yang punya laporan pendukung sendiri). Daftar aset tetap dan umur piutang/utang ada di Lampiran Laporan Keuangan.'] : [],
+        paragraphs: i === 0 ? ['Piutang usaha (faktur penjualan) dilaporkan di laporan penjualan; piutang lain seperti karyawan, platform, klaim, retensi, dan antar cabang dipisahkan di bagian ini. Seluruh akun di luar kas/bank, piutang, utang usaha, persediaan, dan penjualan/HPP (yang punya laporan pendukung sendiri). Daftar aset tetap dan umur piutang/utang ada di Lampiran Laporan Keuangan.'] : [],
         tables: [{ columns: ['Kode', 'Akun', 'Saldo awal', g.credit ? 'Kredit' : 'Debit', g.credit ? 'Debit' : 'Kredit', 'Saldo akhir'], align: [L, L, R, R, R, R], rows, total: rows.length ? ['Jumlah', null, sum(rows, 2), sum(rows, 3), sum(rows, 4), sum(rows, 5)] : undefined }],
       };
     });
@@ -715,19 +716,31 @@ export class SupportReportsService {
              (SELECT COALESCE(SUM(l.credit - l.debit), 0) FROM journal_lines l JOIN accounts a ON a.id = l.account_id
                 WHERE a.system_key = 'UTILITY_LATE_FEE_REVENUE' AND l.journal_id IN (SELECT i.journal_id FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id WHERE b.tenant_id = ${tenantId} AND i.date BETWEEN ${from} AND ${to} AND i.journal_id IS NOT NULL))::text AS late_gl`);
 
+    const arOpen = await this.rows<{ util: string; other: string }>(sql`
+      SELECT COALESCE(SUM(x.open) FILTER (WHERE x.util), 0)::text AS util, COALESCE(SUM(x.open) FILTER (WHERE NOT x.util), 0)::text AS other FROM (
+        SELECT i.total
+          - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.invoice_id = i.id AND p.date <= ${to}), 0)
+          - COALESCE((SELECT SUM(r.total) FROM sales_returns r WHERE r.invoice_id = i.id AND r.date <= ${to}), 0) AS open,
+          EXISTS (SELECT 1 FROM utility_bills b WHERE b.invoice_id = i.id) AS util
+        FROM invoices i WHERE i.tenant_id = ${tenantId} AND i.date <= ${to} AND i.currency = 'IDR') x`);
+    const arGl = await this.glBalance(tenantId, to, sql`a.system_key = 'AR'`);
+    const arRows: Cell[][] = [['Tagihan utilitas', num(arOpen[0].util)], ['Faktur penjualan lain', num(arOpen[0].other)]];
+
     return {
       title: 'Laporan Pendukung Utilitas',
       summary: 'Pencatatan meter, tagihan pelanggan, denda, tunggakan, dan sambungan, dicocokkan dengan pendapatan di buku besar.',
       reconciliation: [
         this.recon('util-revenue', 'Tagihan pelanggan vs akun pendapatan', { label: 'Faktur tagihan utilitas pada periode (DPP)', value: Number(c.sub) }, { label: 'Akun pendapatan pada jurnal faktur tersebut', value: Number(c.rev) }, 'Selisih berarti jurnal tagihan diubah di luar dokumen.'),
         this.recon('util-usage', 'Pemakaian meter vs pemakaian ditagih', { label: 'Pemakaian pada catatan meter yang ditagih', value: Number(c.read_usage) }, { label: 'Pemakaian pada tagihan', value: Number(c.bill_usage) }, 'Pencatatan meter dan tagihan harus sama; selisih menunjukkan tagihan yang tidak berasal dari catatan meter terverifikasi.'),
+        this.recon('util-ar', 'Piutang usaha: sisa faktur vs saldo piutang usaha', { label: 'Sisa tagihan semua faktur (rupiah)', value: Number(arOpen[0].util) + Number(arOpen[0].other) }, { label: 'Saldo akun Piutang Usaha di buku besar', value: arGl }, 'Akun piutang usaha hanya berisi piutang dari faktur; piutang lain (karyawan, klaim, dan sebagainya) ada di Akuntansi › Laporan akun lainnya.'),
         this.recon('util-late', 'Denda ditagih vs akun pendapatan denda', { label: 'Denda pada tagihan', value: Number(c.late) }, { label: 'Akun Pendapatan Denda pada jurnal tagihan', value: Number(c.late_gl) }),
       ],
       sections: [
         { key: 'util-readings', number: 'U1', title: 'Pencatatan meter per periode', paragraphs: ['"Ditandai" = catatan dengan tanda lonjakan, meter diganti, atau janggal lain yang wajib diperiksa.'], tables: [{ columns: ['Periode', 'Dicatat', 'Terverifikasi', 'Ditagih', 'Ditolak', 'Ditandai', 'Pemakaian ditagih'], align: [L, R, R, R, R, R, R], rows: periodRows, total: periodRows.length ? ['Jumlah', sum(periodRows, 1), sum(periodRows, 2), sum(periodRows, 3), sum(periodRows, 4), sum(periodRows, 5), sum(periodRows, 6)] : undefined }] },
         { key: 'util-bills', number: 'U2', title: 'Tagihan per periode', paragraphs: ['Faktur yang terbit pada rentang laporan, dikelompokkan menurut periode tagihan.'], tables: [{ columns: ['Periode', 'Tagihan', 'Pemakaian', 'Subtotal (DPP)', 'Denda', 'Total', 'Dibayar', 'Sisa'], align: [L, R, R, R, R, R, R, R], rows: billRows, total: billRows.length ? ['Jumlah', sum(billRows, 1), sum(billRows, 2), sum(billRows, 3), sum(billRows, 4), sum(billRows, 5), sum(billRows, 6), sum(billRows, 7)] : undefined }] },
         { key: 'util-arrears', number: 'U3', title: 'Tunggakan per tanggal akhir', paragraphs: ['Tagihan yang lewat jatuh tempo dan belum lunas.'], tables: [{ columns: ['Sambungan', 'Pelanggan', 'Periode', 'Jatuh tempo', 'Terlambat (hari)', 'Total', 'Sisa'], align: [L, L, L, L, R, R, R], rows: arrearRows, total: arrearRows.length ? ['Jumlah', null, null, null, null, sum(arrearRows, 5), sum(arrearRows, 6)] : undefined }] },
-        { key: 'util-connections', number: 'U4', title: 'Sambungan per tarif', paragraphs: [], tables: [{ columns: ['Tarif', 'Aktif', 'Ditangguhkan', 'Diputus'], align: [L, R, R, R], rows: connRows, total: connRows.length ? ['Jumlah', sum(connRows, 1), sum(connRows, 2), sum(connRows, 3)] : undefined }] },
+        { key: 'util-ar', number: 'U4', title: 'Piutang usaha per tanggal akhir', paragraphs: ['Sisa tagihan faktur dipisahkan antara tagihan utilitas dan faktur penjualan lain. Piutang non-faktur tidak termasuk di sini.'], tables: [{ columns: ['Sumber', 'Sisa tagihan'], align: [L, R], rows: arRows, total: ['Jumlah', sum(arRows, 1)] }] },
+        { key: 'util-connections', number: 'U5', title: 'Sambungan per tarif', paragraphs: [], tables: [{ columns: ['Tarif', 'Aktif', 'Ditangguhkan', 'Diputus'], align: [L, R, R, R], rows: connRows, total: connRows.length ? ['Jumlah', sum(connRows, 1), sum(connRows, 2), sum(connRows, 3)] : undefined }] },
       ],
     };
   }
