@@ -260,6 +260,7 @@ describe('Jasa: lembar waktu + penjadwalan (e2e)', () => {
       const past = new Date(Date.now() - 3 * 3600_000);
       const s = past.toISOString();
       const e = new Date(past.getTime() + 2 * 3600_000).toISOString();
+      await db.execute(sql`DELETE FROM time_entries WHERE employee_id = ${empA}`); // agar tes tidak bergantung jam (tanggal kerja bisa sama dengan catatan tes lain)
       await db.execute(sql`INSERT INTO resource_bookings (tenant_id, resource_id, customer_id, title, starts_at, ends_at, created_by_id) SELECT tenant_id, id, ${cu}, 'Sesi konsultasi lalu', ${s}, ${e}, '00000000-0000-0000-0000-000000000000' FROM scheduling_resources WHERE id = ${person}`);
       const id = (await get(fin, `/api/scheduling/bookings?resourceId=${person}`).expect(200)).body[0].id;
       const te = (await post(fin, `/api/scheduling/bookings/${id}/time-entry`).expect(201)).body;
