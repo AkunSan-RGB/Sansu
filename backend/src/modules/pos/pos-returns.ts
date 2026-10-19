@@ -6,7 +6,6 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { CONTROL_PROFILES } from '@sansu/shared';
 import { SettingsService } from '../../common/settings.service';
 import { RequireApp } from '../../common/apps/app.guard';
-import { LoyaltyService } from './loyalty.module';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
@@ -49,7 +48,6 @@ export class PosReturnsService {
     private readonly stock: StockService,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
-    private readonly loyalty: LoyaltyService,
   ) {}
 
   async create(user: AuthUser, orderId: string, dto: CreatePosReturnDto) {
@@ -147,30 +145,6 @@ export class PosReturnsService {
       }
       cogs = money(cogs);
 
-      // Loyalitas: balik poin yang diperoleh, kembalikan poin yang dipakai (uang kembali hanya untuk bagian yang dibayar nyata)
-      let refundShare = ZERO;
-      let loyaltyLines: { key: typeof SYS.LOYALTY_LIABILITY | typeof SYS.LOYALTY_EXPENSE; debit?: Dec; credit?: Dec }[] = [];
-      if (order.customerId && (order.loyaltyEarnedPoints > 0 || order.loyaltyRedeemedPoints > 0)) {
-        const lr = await this.loyalty.returnTx(tx, user, {
-          customerId: order.customerId,
-          orderId,
-          earned: order.loyaltyEarnedPoints,
-          redeemed: order.loyaltyRedeemedPoints,
-          redeemedValue: order.loyaltyRedeemedValue,
-          ratio: D(order.total).isZero() ? 0 : total.div(order.total).toNumber(),
-          final: completes,
-          settings: await this.loyalty.settings(user.tenantId, tx),
-        });
-        if (lr.reverseValue.gt(0)) loyaltyLines.push({ key: SYS.LOYALTY_LIABILITY, debit: lr.reverseValue }, { key: SYS.LOYALTY_EXPENSE, credit: lr.reverseValue });
-        if (lr.refundPts > 0) {
-          refundShare = lr.refundValue;
-          loyaltyLines.push({ key: SYS.LOYALTY_LIABILITY, credit: lr.refundLotValue });
-          const d = lr.refundValue.minus(lr.refundLotValue);
-          if (d.gt(0)) loyaltyLines.push({ key: SYS.LOYALTY_EXPENSE, credit: d });
-          else if (d.lt(0)) loyaltyLines.push({ key: SYS.LOYALTY_EXPENSE, debit: d.abs() });
-        }
-      }
-      const cashRefund = total.minus(refundShare);
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
         date,
@@ -181,13 +155,12 @@ export class PosReturnsService {
         lines: [
           { key: SYS.SALES_RETURN, debit: subtotal },
           { key: order.taxKind === 'LOCAL' ? SYS.LOCAL_TAX : SYS.VAT_OUT, debit: tax },
-          { accountId: refundAccount, credit: cashRefund },
-          ...loyaltyLines,
+          { accountId: refundAccount, credit: total },
           { key: SYS.INVENTORY, debit: cogs },
           { key: SYS.COGS, credit: cogs },
         ],
       });
-      await tx.update(posReturns).set({ cogsAmount: cogs.toFixed(2), pointsRefund: refundShare.toFixed(2), journalId: journal.id }).where(eq(posReturns.id, ret.id));
+      await tx.update(posReturns).set({ cogsAmount: cogs.toFixed(2), journalId: journal.id }).where(eq(posReturns.id, ret.id));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PosReturn', entityId: ret.id, data: { order: order.number, total: total.toFixed(2), reason } });
       return ret.id;
     });
