@@ -22,3 +22,4 @@ export * from './tax-focus.js';
 export * from './barcode.js';
 export * from './utility.js';
 export * from './cash-sources.js';
+export * from './loyalty.js';
