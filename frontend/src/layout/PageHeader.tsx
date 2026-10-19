@@ -9,7 +9,8 @@ import { PAGE_HINTS } from './pageHints';
 export default function PageHeader({ title, extra, subtitle }: { title: ReactNode; extra?: ReactNode; /** Keterangan singkat di bawah judul: halaman ini untuk apa */ subtitle?: ReactNode }) {
   const { me } = useAuth();
   const { pathname } = useLocation();
-  const hint = subtitle ?? PAGE_HINTS[pathname.replace(/\/+$/, '') || '/'];
+  const rawHint = subtitle ?? PAGE_HINTS[pathname.replace(/\/+$/, '') || '/'];
+  const hint = typeof rawHint === 'string' ? localize(rawHint, me?.businessModel) : rawHint;
   return (
     <Flex className="no-print" justify="space-between" align="center" wrap gap={12} style={{ marginBottom: 16 }}>
       <div style={{ minWidth: 0 }}>

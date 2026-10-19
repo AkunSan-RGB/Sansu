@@ -99,7 +99,7 @@ export default function PurchaseOrderDetailPage() {
   return (
     <>
       <PageHeader
-        title={<Space wrap>{o ? `Purchase Order ${o.number}` : 'Purchase Order'}{o && <WorkflowBadge type="PURCHASE_ORDER" id={o.id} />}</Space>}
+        title={<Space wrap>{o ? `${t('Purchase Order')} ${o.number}` : t('Purchase Order')}{o && <WorkflowBadge type="PURCHASE_ORDER" id={o.id} />}</Space>}
         extra={
           o && (
             <Space wrap>

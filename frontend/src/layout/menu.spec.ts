@@ -8,7 +8,7 @@ const read = (p: string) => readFileSync(resolve(__dirname, p), 'utf8');
 describe('menu sidebar', () => {
   const app = read('../App.tsx');
   const routes = [...app.matchAll(/<Route path="([^"]+)"/g)].map((m) => m[1].replace(/^\/|\/$/g, ''));
-  const keys = [...new Set([...read('./AppLayout.tsx').matchAll(/\{ key: '(\/[^']*)'/g)].map((m) => m[1]))];
+  const keys = [...new Set([...read('./menuData.tsx').matchAll(/\{ key: '(\/[^']*)'/g)].map((m) => m[1]))];
   const hasRoute = (key: string) => {
     const p = key.split('?')[0].replace(/^\/|\/$/g, '');
     if (p === '' || p === 'pos') return true; // rute indeks di dalam layout / kasir

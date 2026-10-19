@@ -9,6 +9,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import PageHeader from '@/layout/PageHeader';
+import { t } from '@/lib/terms';
 import { fmtDate, fmtMoney } from '@/lib/format';
 
 interface Agreement {
@@ -40,7 +41,7 @@ export default function PriceAgreementsPage() {
   return (
     <>
       <PageHeader title={TITLE[me?.businessModel ?? 'DAGANG']} extra={can('POST', '/price-agreements') && <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setCreating(true); }}>Kontrak baru</Button>} />
-      <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Harga per satuan dasar, sebelum PPN. Kontrak baru berlaku setelah disetujui orang lain (Keuangan/Admin). Purchase Order di atas harga kontrak aktif ditolak; hanya Admin/Pemilik yang boleh melewatinya dan tercatat di jejak audit." />
+      <Alert type="info" showIcon style={{ marginBottom: 12 }} message={`Harga per satuan dasar, sebelum PPN. Kontrak baru berlaku setelah disetujui orang lain (Keuangan/Admin). ${t('Purchase Order')} di atas harga kontrak aktif ditolak; hanya Admin/Pemilik yang boleh melewatinya dan tercatat di jejak audit.`} />
       <ResponsiveTable<Agreement> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={{ pageSize: 15 }} scroll={{ x: 900 }} locale={{ emptyText: 'Belum ada kontrak harga' }}
         columns={[
           { title: 'Pemasok', dataIndex: 'supplierName' },

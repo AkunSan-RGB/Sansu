@@ -494,6 +494,21 @@ export const HELP_ARTICLES: HelpArticle[] = [
     keywords: 'laporan laba rugi neraca posisi keuangan arus kas excel ekspor calk',
   },
   {
+    id: 'laporan-bagian',
+    category: 'Akuntansi & Pajak',
+    title: 'Laporan tiap bagian dan laporan pendukung',
+    summary: 'Laporan kerja ada di menu tiap bagian; laporan pendukung pembukuan hanya satu menu di Akuntansi.',
+    paths: ['/laporan/sales', '/laporan/purchases', '/laporan/inventory', '/laporan/cash', '/laporan/pos', '/laporan/fnb', '/laporan/fmcg', '/laporan/mfg', '/laporan/jasa', '/laporan/utility', '/laporan/hr', '/support-reports', '/health'],
+    steps: [
+      'Untuk mengelola sebuah bagian (penjualan, pembelian, persediaan, kas & bank, kasir, produksi, jasa, SDM, dst.), buka menu bagian itu lalu pilih "Laporan ..." di judul kecil Laporan & kontrol.',
+      'Tiap halaman punya ringkasan angka di atas dan tab rincian (per periode, per pelanggan/pemasok/produk, umur piutang/utang, hal yang menggantung). Pilih rentang tanggal lalu unduh Excel/CSV atau cetak.',
+      'Untuk mencocokkan angka dengan buku besar, buka Akuntansi › Laporan pendukung (tab per bidang). Itu laporan untuk akuntan, bukan laporan kerja bagian.',
+      'Cek kesehatan ada di menu sendiri tepat di bawah Dashboard: pemeriksaan otomatis pembukuan sebelum tutup buku.',
+    ],
+    keywords: 'laporan penjualan pembelian persediaan kasir produksi jasa sdm bagian departemen pendukung umur piutang utang',
+    link: { label: 'Buka laporan penjualan', to: '/laporan/sales' },
+  },
+  {
     id: 'pajak',
     category: 'Akuntansi & Pajak',
     title: 'PPN, e-Faktur Coretax, dan PPh',

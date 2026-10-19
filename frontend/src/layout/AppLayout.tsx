@@ -1,8 +1,8 @@
 import { taskCountByPath, useTasks } from './useTasks';
 import ApprovalAssignListener from '@/features/approvals/ApprovalAssignListener';
 import { rememberReturnTo } from '@/auth/returnTo';
-import { AppstoreOutlined, AuditOutlined, CheckSquareOutlined, CrownOutlined, MenuOutlined, SettingOutlined } from '@ant-design/icons';
-import { BUSINESS_MODELS, localize, type AppKey, type BusinessModel } from '@sansu/shared';
+import { AppstoreOutlined, CrownOutlined, MenuOutlined, SettingOutlined } from '@ant-design/icons';
+import { BUSINESS_MODELS, localize, type BusinessModel } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Badge, Button, Checkbox, Drawer, Grid, Layout, Menu, type MenuProps, message, Segmented, Spin, Typography } from 'antd';
 import { useEffect, useState } from 'react';
@@ -16,33 +16,9 @@ import AccountStatusBanner from '@/components/AccountStatusBanner';
 import AccountMenu from '@/components/AccountMenu';
 import ReminderBell from '@/components/ReminderBell';
 import { HelpButton } from '@/features/help/HelpCenter';
-import { APP_ICONS, useApps } from '@/lib/apps';
-import { t } from '@/lib/terms';
+import { useApps } from '@/lib/apps';
+import { type Group, type Item, menuFor, subItems } from './menuData';
 
-/** `app`: item hanya tampil bila aplikasi itu aktif (mis. menu pajak yang butuh aplikasi Penjualan) */
-type Item = { key: string; label: string; /** Hanya untuk peran ini (OWNER selalu boleh) */ roles?: string[]; /** Hanya tampil bila fitur langganan dinyalakan di Panel SANSU */ billing?: boolean; /** Hanya untuk SAK EP (tidak diakui SAK EMKM) */ epOnly?: boolean; app?: AppKey; /** Disembunyikan untuk jenis usaha ini (mis. surat jalan untuk usaha jasa murni) */ hideFor?: BusinessModel[]; /** Hanya tampil untuk jenis usaha ini */ models?: BusinessModel[]; /** Hanya tampil bila perusahaan punya cabang usaha */ branch?: boolean; /** Hanya tampil bila perusahaan sudah membuat anggaran */ budget?: boolean; /** Hanya tampil bila fitur pajak ini relevan (lihat taxFeatures di @sansu/shared) */ tax?: 'vat' | 'coretax' | 'withheldByCustomers' | 'fiscalReconciliation' };
-/** Menu pembukuan: Keuangan (pemegang uang) tidak memilikinya; OWNER selalu boleh */
-const BOOKKEEPING = ['ADMIN', 'ACCOUNTANT'];
-/** Submenu boleh dikelompokkan dengan judul kecil (mis. "Akhir periode") */
-type Sub = Item | { section: string; items: Item[] };
-type Group = {
-  key: string;
-  app?: AppKey;
-  /** Hanya tampil untuk model bisnis tertentu (mis. Produksi) */
-  models?: BusinessModel[];
-  admin?: boolean;
-  label: string;
-  icon: React.ReactNode;
-  children?: Sub[];
-  to?: string;
-  /** Judul bagian di sidebar (Penjualan, Pembelian, Persediaan, Produksi, Keuangan, Pembukuan & pajak, SDM, Administrasi) */
-  part: string;
-  /** Peran yang hanya melihat menu ini (tanpa hak mengubah): diberi keterangan "lihat" pada judul grup */
-  readOnlyFor?: string[];
-  /** Menu inti: tampil untuk peran di `roles` tanpa syarat aplikasi */
-  core?: boolean;
-  roles?: string[];
-};
 const PART_STYLE: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 600,
@@ -51,295 +27,6 @@ const PART_STYLE: React.CSSProperties = {
   color: '#7c8aa5',
 };
 const SECTION_STYLE: React.CSSProperties = { fontSize: 11, letterSpacing: 0.6, color: '#8b97ad' };
-const subItems = (c: Sub[] = []): Item[] => c.flatMap((x) => ('section' in x ? x.items : [x]));
-
-/**
- * Sidebar disusun mengikuti alur kerja usaha:
- * jual (calon pelanggan → pesanan → faktur → retur) → beli & stok → uang masuk/keluar →
- * pembukuan (persiapan → harian → aset & penyusutan → akhir periode) → pajak → SDM → administrasi.
- * Submenu juga berurutan dari langkah pertama ke terakhir; data master di akhir.
- */
-const MENU: Group[] = [
-  { part: '', key: '/dashboard', label: 'Dashboard', icon: APP_ICONS.dashboard, to: '/dashboard' },
-  { part: '', key: '/tasks', label: 'Tugas saya', icon: <CheckSquareOutlined />, to: '/tasks', core: true, roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'PURCHASING', 'WAREHOUSE', 'CASHIER', 'HR'] },
-
-  // ---------- Penjualan ----------
-  {
-    part: 'Penjualan',
-    key: 'crm',
-    app: 'crm',
-    label: 'CRM',
-    icon: APP_ICONS.crm,
-    children: [
-      { key: '/crm', label: t('Pipeline calon pelanggan') },
-      { key: '/quotations', label: 'Penawaran harga' },
-    ],
-  },
-  {
-    part: 'Penjualan',
-    key: 'utility',
-    app: 'utility',
-    label: 'Layanan utilitas',
-    icon: APP_ICONS.utility,
-    children: [
-      { key: '/utility/ringkasan', label: 'Ringkasan' },
-      { key: '/utility/sambungan', label: 'Sambungan pelanggan' },
-      { key: '/utility/meter', label: 'Catat & verifikasi meter' },
-      { key: '/utility/tagihan', label: 'Tagihan bulanan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/utility/tunggakan', label: 'Tunggakan & pemutusan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/utility/tarif', label: 'Tarif & aturan' },
-      { key: '/support-reports?kind=utility', label: 'Laporan utilitas', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/utility/kontrol', label: 'Kontrol kebocoran', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-    ],
-  },
-  {
-    part: 'Penjualan',
-    key: 'sales',
-    app: 'sales',
-    label: t('Penjualan'),
-    icon: APP_ICONS.sales,
-    children: [
-      { key: '/sales-orders', label: t('Sales Order') },
-      { key: '/customer-deposits', label: t('Uang muka pelanggan'), hideFor: ['RITEL'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
-      { key: '/projects', label: 'Proyek & termin', models: ['JASA'] },
-      { key: '/timesheets', label: 'Lembar waktu', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
-      { key: '/scheduling', label: 'Jadwal sumber daya', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
-      { key: '/retainers', label: 'Retainer', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/support-reports?kind=jasa', label: 'Laporan jasa & proyek', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/deliveries', label: 'Surat jalan', hideFor: ['JASA', 'RITEL', 'FNB', 'UTILITAS'] },
-      { key: '/delivery-trips', label: 'Rute pengiriman', models: ['DAGANG', 'FMCG', 'MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
-      { key: '/invoices', label: t('Faktur & piutang'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
-      { key: '/returns?tab=sales', label: t('Retur penjualan'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT', 'WAREHOUSE'] },
-      { key: '/price-lists', label: 'Daftar harga', models: ['FMCG', 'DAGANG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
-      { key: '/promos', label: 'Promo & bonus barang', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/consignments', label: 'Konsinyasi (titipan outlet)', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
-      { key: '/goods-swaps', label: 'Tukar-guling', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
-      { key: '/canvass', label: 'Kanvas (van sales)', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
-      { key: '/trade', label: 'Modern trade & klaim prinsipal', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/sales-targets', label: 'Target & komisi sales', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
-      // Menu Marketplace disembunyikan dulu (halamannya tetap ada di /integrations?tab=marketplace)
-      { key: '/support-reports?kind=sales', label: 'Laporan penjualan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA', 'RITEL', 'FNB', 'UTILITAS'] },
-      { key: '/support-reports?kind=fmcg', label: 'Laporan FMCG', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/sales-controls', label: 'Kontrol penjualan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA', 'RITEL', 'FNB', 'UTILITAS'] },
-      { section: 'Data', items: [{ key: '/customers', label: t('Pelanggan') }] },
-    ],
-  },
-  {
-    part: 'Penjualan',
-    key: 'pos',
-    app: 'pos',
-    label: 'Kasir (POS)',
-    icon: APP_ICONS.pos,
-    children: [
-      { key: '/pos', label: 'Layar kasir', roles: ['OWNER', 'CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/pos/tables', label: 'Meja & pesanan', models: ['FNB'], roles: ['OWNER', 'CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/pos/kitchen', label: 'Layar dapur', models: ['FNB'], roles: ['OWNER', 'CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/pos/online', label: 'Pesanan online', models: ['FNB'], roles: ['ADMIN', 'FINANCE'] },
-      { key: '/pos/loyalty', label: 'Program loyalitas', models: ['RITEL', 'FNB'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/pos/settlements', label: 'Pencairan QRIS/kartu', models: ['RITEL', 'FNB'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/pos/sessions', label: 'Riwayat sesi kasir', roles: ['OWNER', 'CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/support-reports?kind=pos', label: 'Laporan kasir', models: ['RITEL', 'FNB'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/support-reports?kind=fnb', label: 'Laporan F&B', models: ['FNB'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-    ],
-  },
-
-  // ---------- Pembelian & stok ----------
-  {
-    part: 'Pembelian',
-    key: 'purchase',
-    app: 'purchase',
-    label: t('Pembelian'),
-    icon: APP_ICONS.purchase,
-    children: [
-      { key: '/purchase-requests', label: 'Permintaan beli' },
-      { key: '/shopping-list', label: 'Daftar belanja harian', hideFor: ['JASA', 'UTILITAS'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING', 'WAREHOUSE'] },
-      { key: '/purchase-orders', label: t('Purchase Order') },
-      { key: '/goods-receipts', label: 'Penerimaan barang', hideFor: ['JASA'] },
-      { key: '/purchase-invoices', label: t('Faktur & hutang') },
-      { key: '/returns?tab=purchase', label: t('Retur pembelian'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE'] },
-      { key: '/price-agreements', label: 'Kontrak harga prinsipal', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING'] },
-      { key: '/price-agreements', label: 'Harga pemasok bahan', models: ['FNB'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING'] },
-      { key: '/price-agreements', label: 'Kontrak harga pemasok', models: ['DAGANG', 'RITEL', 'MANUFAKTUR', 'UTILITAS'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING'] },
-      { key: '/support-reports?kind=purchases', label: 'Laporan pembelian', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA'] },
-      { key: '/purchase-controls', label: 'Kontrol pembelian', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA'] },
-      { section: 'Data', items: [{ key: '/suppliers', label: t('Supplier') }] },
-    ],
-  },
-  {
-    part: 'Persediaan',
-    key: 'inventory',
-    app: 'inventory',
-    label: t('Inventori'),
-    icon: APP_ICONS.inventory,
-    children: [
-      { key: '/inventory', label: t('Persediaan & mutasi') },
-      { key: '/inventory/warehouses', label: t('Persediaan per gudang') },
-      { key: '/inventory/transfers', label: t('Transfer gudang') },
-      { key: '/inventory/counts', label: 'Stock opname' },
-      { key: '/inventory/expiry', label: 'Kedaluwarsa bahan', hideFor: ['JASA', 'UTILITAS'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT'] },
-      { key: '/inventory/lot-trace', label: 'Telusuri lot (recall)', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE', 'SALES', 'ACCOUNTANT'] },
-      { key: '/inventory/movement', label: t('Perputaran persediaan'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT'] },
-      { key: '/inventory/writedowns', label: 'Penurunan nilai', epOnly: true, hideFor: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/support-reports?kind=inventory', label: 'Laporan persediaan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA'] },
-      { key: '/inventory-controls', label: 'Kontrol persediaan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE'], hideFor: ['JASA'] },
-      {
-        section: 'Data',
-        items: [
-          { key: '/products', label: t('Produk') },
-          { key: '/warehouses', label: t('Gudang') },
-        ],
-      },
-    ],
-  },
-
-  {
-    part: 'Produksi',
-    key: 'production',
-    app: 'inventory',
-    models: ['MANUFAKTUR', 'FNB'],
-    label: 'Produksi',
-    icon: APP_ICONS.production,
-    children: [
-      { key: '/production/boms', label: t('Resep (BOM)'), roles: ['OWNER', 'ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/production/requirements', label: 'Kebutuhan bahan (MRP)', models: ['MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/production/orders', label: 'Perintah produksi', roles: ['OWNER', 'ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/production/work-centers', label: 'Pusat kerja & jadwal mesin', models: ['MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/production/qc', label: 'Pengendalian mutu (QC)', models: ['MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/production/report', label: 'Harga pokok produksi', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/production/variance', label: 'Analisis selisih', models: ['MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/support-reports?kind=mfg', label: 'Laporan produksi', models: ['MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-    ],
-  },
-
-  // ---------- Keuangan ----------
-  {
-    part: 'Keuangan',
-    key: 'cash',
-    app: 'cash',
-    label: 'Kas & Bank',
-    icon: APP_ICONS.cash,
-    readOnlyFor: ['ACCOUNTANT'],
-    children: [
-      { key: '/cash', label: 'Kas, kas kecil & opname' },
-      { key: '/bank', label: 'Cocokkan dengan bank' },
-      { key: '/support-reports?kind=cash', label: 'Laporan kas & bank', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/finance-controls', label: 'Kontrol keuangan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-    ],
-  },
-  {
-    part: 'Pembukuan & pajak',
-    key: 'accounting',
-    app: 'accounting',
-    label: 'Akuntansi',
-    icon: APP_ICONS.accounting,
-    readOnlyFor: ['FINANCE'],
-    // Urut mengikuti alur kerja pembukuan. Yang memegang uang (Keuangan) hanya melihat pencatatan dan laporan,
-    // sedangkan persiapan dan tutup periode khusus yang membukukan (Akuntan/Admin/Pemilik).
-    children: [
-      {
-        section: 'Persiapan',
-        items: [
-          { key: '/accounts', label: 'Bagan akun', roles: BOOKKEEPING },
-          { key: '/opening-balance', label: 'Saldo awal', roles: BOOKKEEPING },
-        ],
-      },
-      {
-        section: 'Pencatatan',
-        items: [
-          { key: '/journals', label: 'Jurnal umum' },
-          { key: '/adjustments', label: 'Jurnal penyesuaian', roles: BOOKKEEPING },
-          { key: '/fixed-assets', label: 'Aset tetap' },
-          { key: '/fx', label: 'Mata uang asing' },
-        ],
-      },
-      {
-        section: 'Laporan',
-        items: [
-          { key: '/ledger', label: 'Buku besar' },
-          { key: '/trial-balance', label: 'Neraca saldo' },
-          { key: '/worksheet', label: 'Neraca lajur' },
-          { key: '/reports', label: 'Laporan keuangan' },
-          { key: '/support-reports', label: 'Laporan pendukung (semua)' },
-          { key: '/support-reports?kind=other', label: 'Laporan akun lainnya' },
-          { key: '/health', label: 'Cek kesehatan' },
-          { key: '/accounting-controls', label: 'Kontrol pembukuan & pajak', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-        ],
-      },
-      {
-        section: 'Akhir periode',
-        items: [
-          { key: '/closing', label: 'Tutup buku', roles: BOOKKEEPING },
-          { key: '/settings/company?tab=pelaporan', label: 'Pelaporan keuangan', roles: BOOKKEEPING },
-        ],
-      },
-    ],
-  },
-  {
-    part: 'Pembukuan & pajak',
-    key: 'tax',
-    app: 'accounting',
-    label: 'Pajak',
-    icon: APP_ICONS.tax,
-    children: [
-      { key: '/vat', label: 'Rekap PPN', tax: 'vat' },
-      { key: '/integrations?tab=coretax', label: t('e-Faktur Coretax'), tax: 'coretax' },
-      { key: '/tax', label: 'Setoran pajak & BPJS' },
-      { key: '/tax/recap', label: 'Rekap pajak & BPJS' },
-      { key: '/tax/withheld', label: t('PPh dipotong pelanggan'), app: 'sales', tax: 'withheldByCustomers' },
-      { key: '/fiscal', label: 'Rekonsiliasi fiskal', tax: 'fiscalReconciliation', roles: BOOKKEEPING },
-    ],
-  },
-
-  // ---------- SDM ----------
-  {
-    part: 'SDM',
-    key: 'hr',
-    app: 'hr',
-    label: 'Karyawan',
-    icon: APP_ICONS.hr,
-    children: [
-      { key: '/employees', label: 'Data karyawan', roles: ['OWNER', 'HR', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/employees/controls', label: 'Persetujuan & peringatan', models: ['JASA'], roles: ['OWNER', 'HR', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/attendance', label: 'Absensi', roles: ['OWNER', 'HR'] },
-      { key: '/shifts', label: 'Jadwal shift', models: ['RITEL', 'FNB', 'MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'HR', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/leaves', label: 'Cuti', roles: ['OWNER', 'HR'] },
-    ],
-  },
-  {
-    part: 'SDM',
-    key: 'payroll',
-    app: 'payroll',
-    label: 'Penggajian',
-    icon: APP_ICONS.payroll,
-    children: [
-      { key: '/payroll', label: 'Proses gaji' },
-      { key: '/payroll/jasa', label: 'Upah jasa (jam, sesi, komisi)', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'HR', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/payroll/jasa', label: 'Premi shift & borongan', models: ['RITEL', 'FNB'], roles: ['OWNER', 'ADMIN', 'HR', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/payroll/jasa', label: 'Upah borongan & per hasil', models: ['MANUFAKTUR', 'DAGANG', 'FMCG'], roles: ['OWNER', 'ADMIN', 'HR', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/payroll/pph21', label: 'Rekap PPh 21' },
-      { key: '/payroll/bpjs', label: 'Rekap BPJS' },
-    ],
-  },
-
-  // ---------- Administrasi ----------
-  { part: 'Administrasi', key: '/approvals', label: 'Persetujuan', icon: <AuditOutlined />, to: '/approvals' },
-  {
-    part: 'Administrasi',
-    key: 'settings',
-    admin: true,
-    label: 'Pengaturan',
-    icon: APP_ICONS.settings,
-    children: [
-      { key: '/settings/company', label: 'Perusahaan' },
-      { key: '/settings/users', label: 'Pengguna' },
-      { key: '/settings/branches', label: 'Cabang & toko', branch: true },
-      { key: '/settings/apps', label: 'Aplikasi' },
-      { key: '/settings/import', label: 'Impor data (Excel)' },
-      { key: '/billing', label: 'Langganan', billing: true },
-      { key: '/settings/audit', label: 'Jejak audit' },
-    ],
-  },
-];
 
 export default function AppLayout() {
   const { me, loading, logout, startDemo } = useAuth();
@@ -408,11 +95,12 @@ export default function AppLayout() {
   // Dashboard memuat angka penjualan/keuangan: hanya untuk peran yang berhak melihatnya (sama dengan aturan di server)
   const dashboardRole = ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'].includes(me.role);
   // Akuntan bekerja di pembukuan: Akuntansi dan Pajak lebih dulu, Kas & Bank (hanya lihat) sesudahnya
+  const byModel = menuFor(me.businessModel);
   const ordered = (() => {
-    if (me.role !== 'ACCOUNTANT') return MENU;
-    const rest = MENU.filter((g) => g.key !== 'cash');
+    if (me.role !== 'ACCOUNTANT') return byModel;
+    const rest = byModel.filter((g) => g.key !== 'cash');
     const at = rest.findIndex((g) => g.key === 'tax');
-    return [...rest.slice(0, at + 1), ...MENU.filter((g) => g.key === 'cash'), ...rest.slice(at + 1)];
+    return [...rest.slice(0, at + 1), ...byModel.filter((g) => g.key === 'cash'), ...rest.slice(at + 1)];
   })();
   const visible = ordered.filter(
     (g) =>

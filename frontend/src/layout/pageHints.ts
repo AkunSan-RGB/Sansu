@@ -45,7 +45,7 @@ export const PAGE_HINTS: Record<string, string> = {
   '/price-agreements': 'Harga yang disepakati dengan pemasok; pesanan di atas harga ini ditahan.',
   '/inventory-controls': 'Peringatan persediaan yang janggal: penyesuaian stok besar atau berulang, selisih opname, gudang lama tidak dihitung, transfer menggantung.',
   '/sales-controls': 'Peringatan penjualan yang janggal: pesanan atau surat jalan dibatalkan, diskon besar, barang keluar belum ditagih.',
-  '/support-reports': 'Rincian pendukung laporan keuangan per bidang (penjualan, pembelian, persediaan, kas, akun lain) yang dicocokkan dengan buku besar, supaya angkanya bisa dipertanggungjawabkan.',
+  '/support-reports': 'Laporan pendukung pembukuan: rincian per bidang (penjualan, pembelian, persediaan, kas, akun lain) yang dicocokkan dengan buku besar. Untuk laporan kerja tiap bagian, buka menu "Laporan" di bagian itu.',
   '/accounting-controls': 'Satu daftar temuan pembukuan dan pajak: pemeriksaan kesehatan yang bermasalah, butir pajak yang perlu dilengkapi, dan jurnal yang dibuat jauh setelah tanggal transaksinya.',
   '/finance-controls': 'Peringatan keuangan yang janggal: uang keluar tanpa bukti atau dipecah, saldo negatif, selisih hitung kas, dan jurnal manual yang berisiko.',
   '/purchase-controls': 'Peringatan pembelian yang janggal: harga naik, barang belum ditagih, dan sejenisnya.',
