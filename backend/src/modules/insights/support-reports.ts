@@ -33,7 +33,7 @@ export interface Reconciliation {
   ok: boolean;
   note?: string;
 }
-export const SUPPORT_KINDS = ['sales', 'purchases', 'inventory', 'cash', 'other', 'pos', 'fnb', 'fmcg', 'mfg'] as const;
+export const SUPPORT_KINDS = ['sales', 'purchases', 'inventory', 'cash', 'other', 'pos', 'fnb', 'fmcg', 'mfg', 'jasa', 'utility'] as const;
 export type SupportKind = (typeof SUPPORT_KINDS)[number];
 
 const L = 'left' as const;
@@ -620,6 +620,114 @@ export class SupportReportsService {
         { key: 'mfg-done', number: 'M1', title: 'Perintah produksi selesai', paragraphs: ['Rendemen = hasil ÷ rencana. Biaya/unit = total biaya ÷ hasil.'], tables: [{ columns: ['Nomor', 'SKU', 'Produk', 'Selesai', 'Rencana', 'Hasil', 'Rendemen %', 'Bahan', 'Upah', 'Overhead', 'Total', 'Biaya/unit'], align: [L, L, L, L, R, R, R, R, R, R, R, R], rows: doneRows, total: doneRows.length ? ['Jumlah', null, null, null, sum(doneRows, 4), sum(doneRows, 5), null, sum(doneRows, 7), sum(doneRows, 8), sum(doneRows, 9), sum(doneRows, 10), null] : undefined }] },
         { key: 'mfg-usage', number: 'M2', title: 'Pemakaian bahan vs resep', paragraphs: ['Perintah yang dimulai pada periode. Selisih positif = bahan terpakai lebih banyak dari resep. Nilai selisih = nilai keluar − kebutuhan resep pada harga yang sama.'], tables: [{ columns: ['SKU', 'Bahan', 'Menurut resep', 'Dikeluarkan', 'Selisih jumlah', 'Selisih nilai'], align: [L, L, R, R, R, R], rows: usageRows, total: usageRows.length ? ['Jumlah', null, null, null, null, sum(usageRows, 5)] : undefined }] },
         { key: 'mfg-wip', number: 'M3', title: 'Barang dalam proses per tanggal akhir', paragraphs: ['Perintah yang sudah mengeluarkan bahan tetapi belum selesai atau dibatalkan. Umur panjang menandakan produksi macet atau lupa diselesaikan.'], tables: [{ columns: ['Nomor', 'Produk', 'Mulai', 'Umur (hari)', 'Nilai bahan'], align: [L, L, L, R, R], rows: wipRows, total: wipRows.length ? ['Jumlah', null, null, null, sum(wipRows, 4)] : undefined }] },
+      ],
+    };
+  }
+
+  // ------------------------------------------------------------------ Jasa
+  private async jasa(tenantId: string, from: string, to: string) {
+    const projects = await this.rows<{ code: string; name: string; customer: string; contract: string; status: string; pct: string | null; earned: string | null; accrual: string | null; billed: string }>(sql`
+      SELECT p.code, p.name, c.name AS customer, p.contract_value::text AS contract, p.status, g.percent::text AS pct, g.earned::text AS earned, g.accrual_after::text AS accrual,
+        COALESCE((SELECT SUM(i.subtotal) FROM invoices i WHERE i.project_id = p.id AND i.tenant_id = ${tenantId} AND i.date <= ${to}), 0)::text AS billed
+      FROM projects p JOIN customers c ON c.id = p.customer_id
+      LEFT JOIN LATERAL (SELECT percent, earned, accrual_after FROM project_progress WHERE project_id = p.id AND date <= ${to} ORDER BY date DESC, number DESC LIMIT 1) g ON TRUE
+      WHERE p.tenant_id = ${tenantId} AND (p.status = 'ACTIVE' OR g.percent IS NOT NULL OR EXISTS (SELECT 1 FROM invoices i WHERE i.project_id = p.id AND i.date BETWEEN ${from} AND ${to}))
+      ORDER BY p.code LIMIT 300`);
+    const STATUS: Record<string, string> = { ACTIVE: 'Berjalan', DONE: 'Selesai', CANCELLED: 'Batal' };
+    const projectRows: Cell[][] = projects.map((r) => [r.code, r.name, r.customer, num(r.contract), r.pct === null ? null : num(r.pct), r.earned === null ? null : num(r.earned), num(r.billed), num(r.contract) - num(r.billed), r.accrual === null ? null : num(r.accrual), STATUS[r.status] ?? r.status]);
+    const invoices = await this.rows<{ number: string; d: string; customer: string; project: string | null; sub: string; tax: string; tot: string; status: string }>(sql`
+      SELECT i.number, i.date::text AS d, c.name AS customer, p.code AS project, i.subtotal::text AS sub, i.tax_amount::text AS tax, i.total::text AS tot, i.status::text AS status
+      FROM invoices i JOIN customers c ON c.id = i.customer_id LEFT JOIN projects p ON p.id = i.project_id
+      WHERE i.tenant_id = ${tenantId} AND i.project_id IS NOT NULL AND i.date BETWEEN ${from} AND ${to} ORDER BY i.date, i.number LIMIT 300`);
+    const invoiceRows: Cell[][] = invoices.map((r) => [r.number, r.d, r.customer, r.project, num(r.sub), num(r.tax), num(r.tot), r.status === 'PAID' ? 'Lunas' : r.status === 'PARTIAL' ? 'Sebagian' : 'Belum bayar']);
+    const deposits = await this.rows<{ number: string; d: string; customer: string; project: string | null; dpp: string; tax: string; applied: string }>(sql`
+      SELECT d.number, d.date::text AS d, c.name AS customer, p.code AS project, d.dpp::text AS dpp, d.tax_amount::text AS tax,
+        COALESCE((SELECT SUM(a.dpp) FROM deposit_applications a WHERE a.deposit_id = d.id AND a.date <= ${to}), 0)::text AS applied
+      FROM customer_deposits d JOIN customers c ON c.id = d.customer_id LEFT JOIN projects p ON p.id = d.project_id
+      WHERE d.tenant_id = ${tenantId} AND d.date <= ${to} ORDER BY d.date, d.number LIMIT 300`);
+    const depositRows: Cell[][] = deposits.filter((r) => num(r.dpp) - num(r.applied) !== 0 || r.d >= from).map((r) => [r.number, r.d, r.customer, r.project, num(r.dpp), num(r.tax), num(r.applied), num(r.dpp) - num(r.applied)]);
+
+    const [c] = await this.rows<{ contract: string; dep: string }>(sql`
+      SELECT (SELECT COALESCE(SUM(g.accrual_after), 0) FROM projects p
+              JOIN LATERAL (SELECT accrual_after FROM project_progress WHERE project_id = p.id AND date <= ${to} ORDER BY date DESC, number DESC LIMIT 1) g ON TRUE
+              WHERE p.tenant_id = ${tenantId})::text AS contract,
+             ((SELECT COALESCE(SUM(dpp), 0) FROM customer_deposits WHERE tenant_id = ${tenantId} AND date <= ${to})
+              - (SELECT COALESCE(SUM(dpp), 0) FROM deposit_applications WHERE tenant_id = ${tenantId} AND date <= ${to}))::text AS dep`);
+    const glContract = (await this.glBalance(tenantId, to, sql`a.system_key = 'UNBILLED_REVENUE'`)) + (await this.glBalance(tenantId, to, sql`a.system_key = 'CONTRACT_LIABILITY'`));
+    const glDep = -(await this.glBalance(tenantId, to, sql`a.system_key = 'CUSTOMER_DEPOSIT'`));
+    const [rev] = await this.rows<{ doc: string; gl: string }>(sql`
+      SELECT (SELECT COALESCE(SUM(subtotal), 0) FROM invoices WHERE tenant_id = ${tenantId} AND project_id IS NOT NULL AND date BETWEEN ${from} AND ${to} AND journal_id IS NOT NULL)::text AS doc,
+             (SELECT COALESCE(SUM(l.credit - l.debit), 0) FROM journal_lines l JOIN accounts a ON a.id = l.account_id
+              WHERE a.type = 'REVENUE' AND l.journal_id IN (SELECT journal_id FROM invoices WHERE tenant_id = ${tenantId} AND project_id IS NOT NULL AND date BETWEEN ${from} AND ${to} AND journal_id IS NOT NULL))::text AS gl`);
+
+    return {
+      title: 'Laporan Pendukung Jasa & Proyek',
+      summary: 'Proyek dan termin, kemajuan pekerjaan, serta uang muka pelanggan, dicocokkan dengan pendapatan, aset/liabilitas kontrak, dan uang muka di buku besar.',
+      reconciliation: [
+        this.recon('jasa-revenue', 'Faktur proyek vs akun pendapatan', { label: 'Faktur proyek pada periode (DPP)', value: Number(rev.doc) }, { label: 'Akun pendapatan pada jurnal faktur tersebut', value: Number(rev.gl) }, 'Faktur yang melunasi uang muka dapat memuat pembalikan uang muka sehingga berbeda dari pendapatan.'),
+        this.recon('jasa-contract', 'Kemajuan pekerjaan vs aset/liabilitas kontrak', { label: 'Aset (+) / liabilitas (−) kontrak dari catatan kemajuan terakhir', value: Number(c.contract) }, { label: 'Pendapatan Belum Ditagih − Pendapatan Diterima Dimuka di buku besar', value: glContract }),
+        this.recon('jasa-deposit', 'Uang muka pelanggan vs saldo uang muka', { label: 'Uang muka diterima − dipakai (DPP)', value: Number(c.dep) }, { label: 'Saldo akun Uang Muka Pelanggan', value: glDep }),
+      ],
+      sections: [
+        { key: 'jasa-project', number: 'J1', title: 'Proyek: kontrak, kemajuan, dan tagihan', paragraphs: ['Pendapatan diakui = nilai kontrak × % selesai (catatan kemajuan terakhir). Aset kontrak positif = pekerjaan lebih cepat dari tagihan; negatif = tagihan lebih cepat dari pekerjaan.'], tables: [{ columns: ['Kode', 'Proyek', 'Pelanggan', 'Kontrak', '% selesai', 'Pendapatan diakui', 'Ditagih (DPP)', 'Sisa kontrak', 'Aset/(liab.) kontrak', 'Status'], align: [L, L, L, R, R, R, R, R, R, L], rows: projectRows, total: projectRows.length ? ['Jumlah', null, null, sum(projectRows, 3), null, sum(projectRows, 5), sum(projectRows, 6), sum(projectRows, 7), sum(projectRows, 8), null] : undefined }] },
+        { key: 'jasa-invoice', number: 'J2', title: 'Faktur termin dan jasa proyek', paragraphs: [], tables: [{ columns: ['Nomor', 'Tanggal', 'Pelanggan', 'Proyek', 'DPP', 'PPN', 'Total', 'Status'], align: [L, L, L, L, R, R, R, L], rows: invoiceRows, total: invoiceRows.length ? ['Jumlah', null, null, null, sum(invoiceRows, 4), sum(invoiceRows, 5), sum(invoiceRows, 6), null] : undefined }] },
+        { key: 'jasa-deposit', number: 'J3', title: 'Uang muka pelanggan', paragraphs: ['Sisa uang muka adalah kewajiban ke pelanggan sampai dipakai melunasi faktur.'], tables: [{ columns: ['Nomor', 'Tanggal', 'Pelanggan', 'Proyek', 'DPP', 'PPN', 'Dipakai', 'Sisa'], align: [L, L, L, L, R, R, R, R], rows: depositRows, total: depositRows.length ? ['Jumlah', null, null, null, sum(depositRows, 4), sum(depositRows, 5), sum(depositRows, 6), sum(depositRows, 7)] : undefined }] },
+      ],
+    };
+  }
+
+  // ------------------------------------------------------------------ Utilitas
+  private async utility(tenantId: string, from: string, to: string) {
+    const p1 = from.slice(0, 7);
+    const p2 = to.slice(0, 7);
+    const periods = await this.rows<{ period: string; n: number; verified: number; billed: number; rejected: number; flagged: number; usage: string }>(sql`
+      SELECT period, COUNT(*)::int AS n, COUNT(*) FILTER (WHERE status = 'VERIFIED')::int AS verified, COUNT(*) FILTER (WHERE status = 'BILLED')::int AS billed,
+        COUNT(*) FILTER (WHERE status = 'REJECTED')::int AS rejected, COUNT(*) FILTER (WHERE cardinality(flags) > 0)::int AS flagged,
+        COALESCE(SUM(usage) FILTER (WHERE status = 'BILLED'), 0)::text AS usage
+      FROM utility_readings WHERE tenant_id = ${tenantId} AND period BETWEEN ${p1} AND ${p2} GROUP BY period ORDER BY period`);
+    const periodRows: Cell[][] = periods.map((r) => [r.period, r.n, r.verified, r.billed, r.rejected, r.flagged, num(r.usage)]);
+    const bills = await this.rows<{ period: string; n: number; usage: string; sub: string; late: string; tot: string; paid: string }>(sql`
+      SELECT b.period, COUNT(*)::int AS n, COALESCE(SUM(b.usage), 0)::text AS usage, COALESCE(SUM(i.subtotal), 0)::text AS sub, COALESCE(SUM(b.late_fee), 0)::text AS late,
+        COALESCE(SUM(i.total), 0)::text AS tot, COALESCE(SUM(i.paid_amount), 0)::text AS paid
+      FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id
+      WHERE b.tenant_id = ${tenantId} AND i.date BETWEEN ${from} AND ${to} GROUP BY b.period ORDER BY b.period`);
+    const billRows: Cell[][] = bills.map((r) => [r.period, r.n, num(r.usage), num(r.sub), num(r.late), num(r.tot), num(r.paid), num(r.tot) - num(r.paid)]);
+    const arrears = await this.rows<{ conn: string; customer: string; period: string; due: string; tot: string; open: string; age: number }>(sql`
+      SELECT c.number AS conn, cu.name AS customer, b.period, i.due_date::text AS due, i.total::text AS tot, (i.total - i.paid_amount - i.returned_amount)::text AS open, (${to}::date - i.due_date)::int AS age
+      FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id JOIN utility_connections c ON c.id = b.connection_id JOIN customers cu ON cu.id = c.customer_id
+      WHERE b.tenant_id = ${tenantId} AND i.date <= ${to} AND i.total - i.paid_amount - i.returned_amount > 0.5 AND i.due_date < ${to} ORDER BY i.due_date LIMIT 300`);
+    const arrearRows: Cell[][] = arrears.map((r) => [r.conn, r.customer, r.period, r.due, r.age, num(r.tot), num(r.open)]);
+    const conns = await this.rows<{ tariff: string; active: number; suspended: number; off: number }>(sql`
+      SELECT t.name AS tariff, COUNT(*) FILTER (WHERE c.status = 'ACTIVE')::int AS active, COUNT(*) FILTER (WHERE c.status = 'SUSPENDED')::int AS suspended,
+        COUNT(*) FILTER (WHERE c.status = 'DISCONNECTED')::int AS off
+      FROM utility_connections c JOIN utility_tariffs t ON t.id = c.tariff_id WHERE c.tenant_id = ${tenantId} AND c.installed_at <= ${to} GROUP BY t.name ORDER BY t.name`);
+    const connRows: Cell[][] = conns.map((r) => [r.tariff, r.active, r.suspended, r.off]);
+
+    const [c] = await this.rows<{ read_usage: string; bill_usage: string; sub: string; rev: string; late: string; late_gl: string }>(sql`
+      SELECT (SELECT COALESCE(SUM(usage), 0) FROM utility_readings WHERE tenant_id = ${tenantId} AND status = 'BILLED' AND period BETWEEN ${p1} AND ${p2}
+                AND bill_id IN (SELECT b.id FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id WHERE b.tenant_id = ${tenantId} AND i.date BETWEEN ${from} AND ${to}))::text AS read_usage,
+             (SELECT COALESCE(SUM(b.usage), 0) FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id WHERE b.tenant_id = ${tenantId} AND i.date BETWEEN ${from} AND ${to}
+                AND EXISTS (SELECT 1 FROM utility_readings r WHERE r.bill_id = b.id))::text AS bill_usage,
+             (SELECT COALESCE(SUM(i.subtotal), 0) FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id WHERE b.tenant_id = ${tenantId} AND i.date BETWEEN ${from} AND ${to} AND i.journal_id IS NOT NULL)::text AS sub,
+             (SELECT COALESCE(SUM(l.credit - l.debit), 0) FROM journal_lines l JOIN accounts a ON a.id = l.account_id
+                WHERE a.type = 'REVENUE' AND l.journal_id IN (SELECT i.journal_id FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id WHERE b.tenant_id = ${tenantId} AND i.date BETWEEN ${from} AND ${to} AND i.journal_id IS NOT NULL))::text AS rev,
+             (SELECT COALESCE(SUM(b.late_fee), 0) FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id WHERE b.tenant_id = ${tenantId} AND i.date BETWEEN ${from} AND ${to} AND i.journal_id IS NOT NULL)::text AS late,
+             (SELECT COALESCE(SUM(l.credit - l.debit), 0) FROM journal_lines l JOIN accounts a ON a.id = l.account_id
+                WHERE a.system_key = 'UTILITY_LATE_FEE_REVENUE' AND l.journal_id IN (SELECT i.journal_id FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id WHERE b.tenant_id = ${tenantId} AND i.date BETWEEN ${from} AND ${to} AND i.journal_id IS NOT NULL))::text AS late_gl`);
+
+    return {
+      title: 'Laporan Pendukung Utilitas',
+      summary: 'Pencatatan meter, tagihan pelanggan, denda, tunggakan, dan sambungan, dicocokkan dengan pendapatan di buku besar.',
+      reconciliation: [
+        this.recon('util-revenue', 'Tagihan pelanggan vs akun pendapatan', { label: 'Faktur tagihan utilitas pada periode (DPP)', value: Number(c.sub) }, { label: 'Akun pendapatan pada jurnal faktur tersebut', value: Number(c.rev) }, 'Selisih berarti jurnal tagihan diubah di luar dokumen.'),
+        this.recon('util-usage', 'Pemakaian meter vs pemakaian ditagih', { label: 'Pemakaian pada catatan meter yang ditagih', value: Number(c.read_usage) }, { label: 'Pemakaian pada tagihan', value: Number(c.bill_usage) }, 'Pencatatan meter dan tagihan harus sama; selisih menunjukkan tagihan yang tidak berasal dari catatan meter terverifikasi.'),
+        this.recon('util-late', 'Denda ditagih vs akun pendapatan denda', { label: 'Denda pada tagihan', value: Number(c.late) }, { label: 'Akun Pendapatan Denda pada jurnal tagihan', value: Number(c.late_gl) }),
+      ],
+      sections: [
+        { key: 'util-readings', number: 'U1', title: 'Pencatatan meter per periode', paragraphs: ['"Ditandai" = catatan dengan tanda lonjakan, meter diganti, atau janggal lain yang wajib diperiksa.'], tables: [{ columns: ['Periode', 'Dicatat', 'Terverifikasi', 'Ditagih', 'Ditolak', 'Ditandai', 'Pemakaian ditagih'], align: [L, R, R, R, R, R, R], rows: periodRows, total: periodRows.length ? ['Jumlah', sum(periodRows, 1), sum(periodRows, 2), sum(periodRows, 3), sum(periodRows, 4), sum(periodRows, 5), sum(periodRows, 6)] : undefined }] },
+        { key: 'util-bills', number: 'U2', title: 'Tagihan per periode', paragraphs: ['Faktur yang terbit pada rentang laporan, dikelompokkan menurut periode tagihan.'], tables: [{ columns: ['Periode', 'Tagihan', 'Pemakaian', 'Subtotal (DPP)', 'Denda', 'Total', 'Dibayar', 'Sisa'], align: [L, R, R, R, R, R, R, R], rows: billRows, total: billRows.length ? ['Jumlah', sum(billRows, 1), sum(billRows, 2), sum(billRows, 3), sum(billRows, 4), sum(billRows, 5), sum(billRows, 6), sum(billRows, 7)] : undefined }] },
+        { key: 'util-arrears', number: 'U3', title: 'Tunggakan per tanggal akhir', paragraphs: ['Tagihan yang lewat jatuh tempo dan belum lunas.'], tables: [{ columns: ['Sambungan', 'Pelanggan', 'Periode', 'Jatuh tempo', 'Terlambat (hari)', 'Total', 'Sisa'], align: [L, L, L, L, R, R, R], rows: arrearRows, total: arrearRows.length ? ['Jumlah', null, null, null, null, sum(arrearRows, 5), sum(arrearRows, 6)] : undefined }] },
+        { key: 'util-connections', number: 'U4', title: 'Sambungan per tarif', paragraphs: [], tables: [{ columns: ['Tarif', 'Aktif', 'Ditangguhkan', 'Diputus'], align: [L, R, R, R], rows: connRows, total: connRows.length ? ['Jumlah', sum(connRows, 1), sum(connRows, 2), sum(connRows, 3)] : undefined }] },
       ],
     };
   }

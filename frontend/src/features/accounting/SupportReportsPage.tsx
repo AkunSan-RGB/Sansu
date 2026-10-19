@@ -23,6 +23,8 @@ const KINDS: { key: SupportReport['kind']; label: string; hint: string; models?:
   { key: 'fnb', label: 'F&B', models: ['FNB'], hint: 'Penjualan per menu dan jenis pesanan, pajak restoran daerah, pencairan platform, dan bahan terpakai dibanding resep.' },
   { key: 'fmcg', label: 'FMCG', models: ['FMCG'], hint: 'Penjualan per sales, komisi, promo dan klaim prinsipal, rebate outlet, tukar-guling, konsinyasi, dan setoran kanvas.' },
   { key: 'mfg', label: 'Produksi', models: ['MANUFAKTUR'], hint: 'Hasil dan biaya per perintah, pemakaian bahan dibanding resep, barang dalam proses, dan biaya konversi.' },
+  { key: 'jasa', label: 'Jasa & proyek', models: ['JASA'], hint: 'Proyek, termin, kemajuan pekerjaan, dan uang muka pelanggan.' },
+  { key: 'utility', label: 'Utilitas', models: ['UTILITAS'], hint: 'Pencatatan meter, tagihan, denda, tunggakan, dan sambungan.' },
   { key: 'other', label: 'Akun lainnya', hint: 'Aset lain, liabilitas, ekuitas, pendapatan/beban lain, dan saldo pajak.' },
 ];
 

@@ -47,3 +47,17 @@ Isi: perintah produksi selesai (rencana, hasil, rendemen, bahan, upah, overhead,
 Pencocokan buku besar: bahan masuk produksi vs debit Barang Dalam Proses; biaya perintah selesai vs jurnal selesai; perintah berjalan vs saldo Barang Dalam Proses; biaya konversi dibebankan vs upah dan overhead aktual. Yang terakhir selisihnya wajar (selisih biaya produksi, dianalisis di Analisis selisih), bukan kesalahan pembukuan.
 
 Batasan: pemakaian bahan memakai kebutuhan resep yang tersimpan pada perintah; barang setengah jadi berjenjang tidak diuraikan per tingkat.
+
+### Jasa (Penjualan › Laporan jasa & proyek)
+
+Isi: proyek (kontrak, % selesai, pendapatan diakui, ditagih, sisa kontrak, aset/liabilitas kontrak), faktur termin, dan uang muka pelanggan (diterima, dipakai, sisa).
+
+Pencocokan buku besar: faktur proyek vs akun pendapatan; kemajuan pekerjaan vs Pendapatan Belum Ditagih/Diterima Dimuka; uang muka vs saldo Uang Muka Pelanggan.
+
+### Utilitas (Utilitas › Laporan utilitas)
+
+Isi: pencatatan meter per periode (dicatat, terverifikasi, ditagih, ditolak, ditandai), tagihan per periode, tunggakan per tanggal akhir, dan sambungan per tarif.
+
+Pencocokan buku besar: tagihan vs akun pendapatan; pemakaian pada catatan meter vs pemakaian pada tagihan; denda ditagih vs akun pendapatan denda.
+
+Batasan Jasa dan Utilitas: jam kerja dan upah jasa tidak masuk laporan ini (ada di Upah jasa); piutang utilitas tidak dicocokkan dengan akun piutang karena akun itu dapat memuat piutang lain.
