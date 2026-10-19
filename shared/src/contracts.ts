@@ -1372,7 +1372,7 @@ export interface SupportReconciliation {
   note?: string;
 }
 export interface SupportReport {
-  kind: 'sales' | 'purchases' | 'inventory' | 'cash' | 'other' | 'pos' | 'fnb';
+  kind: 'sales' | 'purchases' | 'inventory' | 'cash' | 'other' | 'pos' | 'fnb' | 'fmcg';
   title: string;
   summary: string;
   period: { from: string; to: string };

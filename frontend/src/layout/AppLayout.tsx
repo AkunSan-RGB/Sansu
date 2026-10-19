@@ -113,6 +113,7 @@ const MENU: Group[] = [
       { key: '/sales-targets', label: 'Target & komisi sales', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
       // Menu Marketplace disembunyikan dulu (halamannya tetap ada di /integrations?tab=marketplace)
       { key: '/support-reports?kind=sales', label: 'Laporan penjualan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA', 'RITEL', 'FNB', 'UTILITAS'] },
+      { key: '/support-reports?kind=fmcg', label: 'Laporan FMCG', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/sales-controls', label: 'Kontrol penjualan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], hideFor: ['JASA', 'RITEL', 'FNB', 'UTILITAS'] },
       { section: 'Data', items: [{ key: '/customers', label: t('Pelanggan') }] },
     ],
