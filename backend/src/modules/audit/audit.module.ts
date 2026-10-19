@@ -32,6 +32,7 @@ const NOUN: Record<string, [string, Category]> = {
   // entitas dari catatan rinci
   SalesOrder: ['sales order', 'sales'],
   DeliveryTrip: ['rute pengiriman', 'sales'],
+  DeliveryVehicle: ['kendaraan pengiriman', 'sales'],
   Invoice: ['faktur penjualan', 'sales'],
   Payment: ['pembayaran pelanggan', 'sales'],
   SalesReturn: ['retur penjualan', 'sales'],
