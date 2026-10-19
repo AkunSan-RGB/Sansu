@@ -39,6 +39,8 @@ export interface MoveInput {
   lot?: LotInput;
   /** Barang keluar: kurangi hanya lot ini (membuang lot tertentu); bawaan FEFO */
   lotId?: string;
+  /** Hanya modul QC: boleh mengeluarkan stok dari gudang karantina (lolos QC dipindah, gagal dibuang) */
+  fromQc?: boolean;
 }
 
 export interface MoveResult {
@@ -93,6 +95,10 @@ export class StockService {
     if (qty.isPositive()) {
       const [w] = await tx.select({ isActive: warehouses.isActive, name: warehouses.name }).from(warehouses).where(eq(warehouses.id, m.warehouseId));
       if (w && !w.isActive) throw new BadRequestException(`Gudang ${w.name} sudah nonaktif — aktifkan dulu di Inventori › Gudang.`);
+    } else if (!m.fromQc) {
+      // stok karantina hanya keluar lewat keputusan QC (tidak bisa dijual, dipakai produksi, atau dipindah begitu saja)
+      const [w] = await tx.select({ q: warehouses.isQuarantine, name: warehouses.name }).from(warehouses).where(eq(warehouses.id, m.warehouseId));
+      if (w?.q) throw new BadRequestException(`Stok di gudang karantina ${w.name} belum lolos QC dan tidak dapat dikeluarkan; selesaikan inspeksi QC-nya.`);
     }
 
     await tx.execute(sql`

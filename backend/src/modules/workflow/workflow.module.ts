@@ -522,7 +522,7 @@ export class WorkflowService {
       const subjectCol = o.subject === 'customer' ? 'd.customer_id' : o.subject === 'supplier' ? 'd.supplier_id' : 'NULL::uuid';
       const docs = await this.db.execute<{ id: string; number: string; status: string; subject_id: string | null }>(sql.raw(`
         SELECT d.id, ${s.number('d')} AS number, ${s.status('d')} AS status, ${subjectCol} AS subject_id FROM "${s.table}" d
-        WHERE d.tenant_id = '${tenantId}' AND d."${s.created}"::date >= '${since}' ${o.where ? `AND ${o.where}` : ''}
+        WHERE d.tenant_id = '${tenantId}' AND (d."${s.created}" AT TIME ZONE 'Asia/Jakarta')::date >= '${since}' ${o.where ? `AND ${o.where}` : ''}
           AND NOT EXISTS (SELECT 1 FROM workflow_links l WHERE l.tenant_id = d.tenant_id AND l.link_type = '${o.link}' AND l.doc_id = d.id)
         ORDER BY d."${s.created}" LIMIT 50`));
       for (const d of docs.rows.filter((x) => !DEAD.has(x.status))) {

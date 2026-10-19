@@ -82,6 +82,8 @@ import UtilityPage from './features/utility/UtilityPage';
 import BranchesPage from './features/accounting/BranchesPage';
 import KitchenPage from './features/pos/KitchenPage';
 import OnlineOrdersPage from './features/pos/OnlineOrdersPage';
+import LoyaltyPage from './features/pos/LoyaltyPage';
+import CardSettlementPage from './features/pos/CardSettlementPage';
 import TablesPage from './features/pos/TablesPage';
 import ExpiryPage from './features/inventory/ExpiryPage';
 import LotTracePage from './features/inventory/LotTracePage';
@@ -94,6 +96,8 @@ import PromosPage from './features/pricing/PromosPage';
 import SalesTargetsPage from './features/pricing/SalesTargetsPage';
 import MovementPage from './features/inventory/MovementPage';
 import BomsPage from './features/production/BomsPage';
+import WorkCentersPage from './features/production/WorkCentersPage';
+import QcPage from './features/production/QcPage';
 import MaterialRequirementsPage from './features/production/MaterialRequirementsPage';
 import ProductionVariancePage from './features/production/ProductionVariancePage';
 import ProductionOrdersPage from './features/production/ProductionOrdersPage';
@@ -101,6 +105,8 @@ import ProductionReportPage from './features/production/ProductionReportPage';
 import ServiceInvoiceFormPage from './features/services/ServiceInvoiceFormPage';
 import ProjectsPage, { ProjectDetailPage } from './features/services/ProjectsPage';
 import DepositsPage from './features/services/DepositsPage';
+import TimesheetPage from './features/services/TimesheetPage';
+import SchedulePage from './features/services/SchedulePage';
 import WithheldPage from './features/services/WithheldPage';
 import ProductsPage from './features/products/ProductsPage';
 import DocumentViewPage from './features/accounting/DocumentViewPage';
@@ -163,6 +169,8 @@ export default function App() {
           <Route path="deliveries/:id" element={<DeliveryDetailPage />} />
           <Route path="invoices/:id" element={<InvoiceDetailPage />} />
           <Route path="projects" element={<ProjectsPage />} />
+          <Route path="timesheets" element={<TimesheetPage />} />
+          <Route path="scheduling" element={<SchedulePage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="customer-deposits" element={<DepositsPage />} />
           <Route path="tax/withheld" element={<WithheldPage />} />
@@ -178,6 +186,8 @@ export default function App() {
           <Route path="pos/tables" element={<TablesPage />} />
           <Route path="pos/kitchen" element={<KitchenPage />} />
           <Route path="pos/online" element={<OnlineOrdersPage />} />
+          <Route path="pos/loyalty" element={<LoyaltyPage />} />
+          <Route path="pos/settlements" element={<CardSettlementPage />} />
         </Route>
         <Route element={<AppGate app="purchase" />}>
           <Route path="goods-receipts" element={<GoodsReceiptsPage />} />
@@ -224,6 +234,8 @@ export default function App() {
           <Route path="sales-targets" element={<SalesTargetsPage />} />
           <Route path="production/boms" element={<BomsPage />} />
           <Route path="production/orders" element={<ProductionOrdersPage />} />
+          <Route path="production/work-centers" element={<WorkCentersPage />} />
+          <Route path="production/qc" element={<QcPage />} />
           <Route path="production/report" element={<ProductionReportPage />} />
           <Route path="production/requirements" element={<MaterialRequirementsPage />} />
           <Route path="production/variance" element={<ProductionVariancePage />} />

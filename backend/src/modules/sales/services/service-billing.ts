@@ -212,7 +212,7 @@ export class ServiceBillingService {
 
   // ================= Faktur jasa =================
 
-  async createInvoice(user: AuthUser, dto: CreateServiceInvoiceDto) {
+  async createInvoice(user: AuthUser, dto: CreateServiceInvoiceDto, opts: { inTx?: (tx: Tx, invoice: { id: string; number: string }) => Promise<void> } = {}) {
     const date = toDocDate(dto.date);
     const result = await this.db.transaction(async (tx) => {
       const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
@@ -357,6 +357,8 @@ export class ServiceBillingService {
         entityId: invoice.id,
         data: { number, total: doc.total.toFixed(2), withholding: withholding.toFixed(2), journal: journal.number },
       });
+      // pekerjaan tambahan milik pemanggil (mis. menandai catatan waktu tertagih) ikut transaksi: sama-sama tersimpan atau sama-sama batal
+      await opts.inTx?.(tx, { id: invoice.id, number });
       return { id: invoice.id, number, journalNumber: journal.number };
     });
     return result;

@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayMinSize, IsIn, IsNumberString, IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from 'class-validator';
+import { ArrayMinSize, IsIn, IsInt, IsNumberString, Min, IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from 'class-validator';
 import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { POS_ORDER_TYPES, POS_PAYMENT_METHODS, type PosOrderType, type PosPaymentMethod } from '@sansu/shared';
 import { RequireApp } from '../../common/apps/app.guard';
@@ -37,6 +37,8 @@ import { StockService } from '../inventory/stock.service';
 import { inventoryLines, semiSet } from '../inventory/inventory-accounts';
 import { componentNeeds, portionsAvailable, recipesFor } from './recipe-issue';
 import { PosControlsService, PosReturnsController, PosReturnsService } from './pos-returns';
+import { LoyaltyModule, LoyaltyService } from './loyalty.module';
+import { earnPoints } from '@sansu/shared';
 import { buildLines } from '../master-data/products/line-builder';
 import { documentTotals, inclusiveTotals } from '../sales/pricing';
 
@@ -71,6 +73,7 @@ export class CreatePosOrderDto {
   @ApiPropertyOptional({ enum: POS_ORDER_TYPES, description: 'Jenis pesanan (usaha makanan & minuman): makan di tempat, bawa pulang, antar' }) @IsOptional() @IsIn(POS_ORDER_TYPES) orderType?: PosOrderType;
   @ApiPropertyOptional({ example: 'Meja 5', description: 'Nomor meja atau nama pemesan' }) @IsOptional() @IsString() @MaxLength(40) tableLabel?: string;
   @ApiPropertyOptional({ description: 'Pelanggan terdaftar (opsional)' }) @IsOptional() @IsUUID() customerId?: string;
+  @ApiPropertyOptional({ description: 'Poin loyalitas yang ditukar menjadi potongan pembayaran (wajib bersama pelanggan terdaftar)' }) @IsOptional() @IsInt() @Min(1) redeemPoints?: number;
   @ApiProperty({ type: [PosLineDto] }) @ValidateNested({ each: true }) @Type(() => PosLineDto) @ArrayMinSize(1) lines: PosLineDto[];
   @ApiProperty({ type: [PosPaymentDto] }) @ValidateNested({ each: true }) @Type(() => PosPaymentDto) @ArrayMinSize(1) payments: PosPaymentDto[];
 }
@@ -89,6 +92,7 @@ export class PosService {
     private readonly stock: StockService,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
+    private readonly loyalty: LoyaltyService,
   ) {}
 
   /** Produk untuk layar kasir: harga, satuan, barcode, dan stok di gudang sesi */
@@ -232,6 +236,14 @@ export class PosService {
     const payments: { method: PosPaymentMethod; amount: string }[] = online ? [{ method: 'PLATFORM', amount: totals.total.toFixed(2) }] : dto.payments;
     if (!payments?.length) throw new BadRequestException('Pembayaran wajib diisi');
     const platformFee = online ? money(totals.subtotal.times(online.feePct).div(100)) : ZERO;
+    // tukar poin loyalitas (nilai potongan dihitung dari aturan; keabsahan diperiksa saat saldo dikunci setelah transaksi dibuat)
+    const loyalty = await this.loyalty.settings(user.tenantId, tx);
+    if (dto.redeemPoints) {
+      if (!dto.customerId) throw new BadRequestException('Tukar poin membutuhkan pelanggan terdaftar');
+      if (online) throw new BadRequestException('Pesanan online tidak dapat memakai poin');
+      if (!loyalty.enabled) throw new BadRequestException('Program loyalitas belum diaktifkan');
+    }
+    const redeemValue = dto.redeemPoints ? money(D(dto.redeemPoints).times(loyalty.pointValueRp)) : ZERO;
     let nonCash: Dec = ZERO;
     let cashIn: Dec = ZERO;
     for (const p of payments) {
@@ -240,12 +252,13 @@ export class PosService {
       if (p.method === 'CASH') cashIn = cashIn.plus(amt);
       else nonCash = nonCash.plus(amt);
     }
-    if (nonCash.gt(totals.total)) throw new BadRequestException('Pembayaran non-tunai melebihi total belanja');
-    const tendered = cashIn.plus(nonCash);
+    if (nonCash.plus(redeemValue).gt(totals.total)) throw new BadRequestException('Pembayaran non-tunai dan poin melebihi total belanja');
+    const tendered = cashIn.plus(nonCash).plus(redeemValue);
     if (tendered.lt(totals.total)) {
       throw new BadRequestException(`Pembayaran kurang ${totals.total.minus(tendered).toFixed(0)}`);
     }
     const change = tendered.minus(totals.total);
+    if (change.gt(cashIn)) throw new BadRequestException('Kembalian tidak boleh melebihi uang tunai yang diterima');
     const cashNet = cashIn.minus(change);
 
     const number = await this.seq.next(tx, user.tenantId, 'POS_ORDER', date);
@@ -335,6 +348,24 @@ export class PosService {
     }
     cogs = money(cogs);
 
+    // Loyalitas: tukar poin (pembayaran non-kas), lalu poin baru dari jumlah yang dibayar nyata
+    let loyaltyLines: { key: typeof SYS.LOYALTY_LIABILITY | typeof SYS.LOYALTY_EXPENSE; debit?: Dec; credit?: Dec }[] = [];
+    if (dto.customerId && loyalty.enabled && !online) {
+      if (dto.redeemPoints) {
+        const r = await this.loyalty.redeemTx(tx, user, { customerId: dto.customerId, orderId: order.id, points: dto.redeemPoints, totalRp: totals.total.toNumber(), settings: loyalty });
+        const diff = r.discount.minus(r.liability);
+        loyaltyLines.push({ key: SYS.LOYALTY_LIABILITY, debit: r.liability });
+        if (diff.gt(0)) loyaltyLines.push({ key: SYS.LOYALTY_EXPENSE, debit: diff });
+        else if (diff.lt(0)) loyaltyLines.push({ key: SYS.LOYALTY_EXPENSE, credit: diff.abs() });
+      }
+      const pts = earnPoints(totals.total.minus(redeemValue).toNumber(), loyalty);
+      if (pts > 0) {
+        const v = await this.loyalty.earnTx(tx, { tenantId: user.tenantId, customerId: dto.customerId, orderId: order.id, points: pts, settings: loyalty, userId: user.sub });
+        loyaltyLines.push({ key: SYS.LOYALTY_EXPENSE, debit: v }, { key: SYS.LOYALTY_LIABILITY, credit: v });
+      }
+      await tx.update(posOrders).set({ loyaltyEarnedPoints: pts, loyaltyRedeemedPoints: dto.redeemPoints ?? 0, loyaltyRedeemedValue: redeemValue.toFixed(2) }).where(eq(posOrders.id, order.id));
+    }
+
     // Gabungkan pembayaran per metode (tunai bersih setelah kembalian)
     const byMethod = new Map<PosPaymentMethod, Dec>();
     for (const p of payments) if (p.method !== 'CASH') byMethod.set(p.method, (byMethod.get(p.method) ?? ZERO).plus(money(p.amount)));
@@ -361,6 +392,7 @@ export class PosService {
             ]),
         { key: SYS.SALES, credit: totals.subtotal },
         { key: local.enabled ? SYS.LOCAL_TAX : SYS.VAT_OUT, credit: totals.taxAmount },
+        ...loyaltyLines,
         { key: SYS.COGS, debit: cogs },
         ...inventoryLines(issued, await semiSet(tx, user.tenantId, issued.map((i) => i.productId)), 'credit'),
       ],
@@ -473,7 +505,7 @@ export class PosService {
     const byMethod = Object.fromEntries(POS_PAYMENT_METHODS.map((m) => [m, '0.00'])) as Record<PosPaymentMethod, string>;
     res.rows.forEach((r) => (byMethod[r.method] = D(r.amount).toFixed(2)));
     // uang tunai yang dikembalikan dari laci sesi ini (retur kasir oleh supervisor)
-    const [ref] = (await db.execute<{ total: string }>(sql`SELECT COALESCE(SUM(total), 0) AS total FROM pos_returns WHERE session_id = ${sessionId} AND refund_method = 'CASH'`)).rows;
+    const [ref] = (await db.execute<{ total: string }>(sql`SELECT COALESCE(SUM(total - points_refund), 0) AS total FROM pos_returns WHERE session_id = ${sessionId} AND refund_method = 'CASH'`)).rows;
     return {
       orderCount: agg.n,
       totalSales: D(agg.total).toFixed(2),
@@ -556,7 +588,7 @@ export class PosController {
 }
 
 @Module({
-  imports: [AccountingModule, InventoryModule],
+  imports: [AccountingModule, InventoryModule, LoyaltyModule],
   controllers: [PosController, PosReturnsController],
   providers: [PosService, PosReturnsService, PosControlsService],
   exports: [PosService],

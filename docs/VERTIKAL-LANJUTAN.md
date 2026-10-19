@@ -91,3 +91,55 @@ Foto meter utilitas serta foto dan tanda tangan bukti kirim tidak lagi harus dis
 - **Penghapusan data perusahaan:** setelah basis data terhapus, seluruh berkas berawalan ID perusahaan ikut dihapus; kegagalan dicatat dan dikirim ke Telegram.
 - **Gambar lama:** `npm run storage:migrate -w backend` (`--dry-run` untuk menghitung). Tiap gambar diunggah, dibaca ulang dan dibandingkan sebelum kolom diganti rujukan; aman diulang; gambar rusak dilewati dan dilaporkan. Di produksi: `npm run storage:migrate:prod -w backend`.
 - **Batasan:** ekspor data perusahaan (ZIP CSV) memuat rujukan, bukan isi gambar; konektivitas ke bucket sungguhan baru teruji dengan peladen S3 tiruan, jadi uji sekali dengan bucket Anda setelah variabel diisi (catat satu foto lalu buka lagi).
+
+## Ritel — program loyalitas dan pencairan QRIS/debit (`backend/src/modules/pos/loyalty.module.ts`, `pos-settlement.module.ts`)
+Menu: Kasir (POS) › *Program loyalitas* dan *Pencairan QRIS/kartu* (Ritel dan F&B).
+
+**Program loyalitas**
+- **Aturan** (Admin/Pemilik, tercatat sebelum/sesudah): belanja per 1 poin, nilai 1 poin, minimum tukar, batas potongan (% total belanja), masa berlaku (bulan). Nilai yang membuat pengembalian ≥ 100% ditolak.
+- **Diperoleh** dari jumlah yang dibayar nyata (setelah potongan poin) untuk pelanggan terdaftar; satu transaksi memberi poin sekali (indeks unik). **Ditukar** di layar bayar kasir sebagai bagian pembayaran: saldo dikunci, dipakai FIFO dari lot yang paling cepat kedaluwarsa, dibatasi saldo/minimum/persentase.
+- **Akuntansi:** poin dicatat sebagai kewajiban saat diberikan — Dr *Beban Program Loyalitas* | Cr *Utang Poin Loyalitas*; saat ditukar Dr Utang Poin (selisih nilai ke beban); saat kedaluwarsa Dr Utang Poin | Cr Beban. Ringkasan mencocokkan buku poin dengan saldo akun Utang Poin di akuntansi dan menandai selisihnya.
+- **Retur transaksi:** poin yang diperoleh dibalik, poin yang dipakai dikembalikan secara proporsional (lot baru), uang kembali hanya untuk bagian yang dibayar nyata; kas laci tetap cocok. Saldo bisa negatif bila poin sudah terpakai (tampil di kontrol).
+- **Kedaluwarsa:** poin lewat tanggal tidak tampil tersedia dan tidak dapat ditukar; diproses otomatis per pelanggan saat tukar, dan massal lewat tombol Admin/Keuangan.
+- **Penyesuaian manual:** hanya Admin/Pemilik, alasan wajib, dijurnal, tampil di kontrol dan jejak audit.
+- **Belum ada:** tingkat/tier member, poin ganda/promo musiman, kartu member fisik/QR, pengiriman notifikasi poin ke pelanggan, penukaran hadiah barang (hanya potongan rupiah), poin pada pesanan online dan penjualan faktur (hanya kasir).
+
+**Pencairan QRIS/debit**
+- Penjualan non-tunai kasir langsung masuk bank sebesar penuh. Untuk tiap pencairan penyelenggara: pilih pembayaran yang dicairkan, isi uang bersih menurut rekening koran. Sistem menghitung MDR kontrak (%, diatur Admin), membandingkan, dan menjurnal Dr Beban MDR (QRIS/Kartu) ; Dr/Cr Beban Administrasi Bank (selisih dari hitungan) | Cr Bank (kotor − diterima).
+- Satu pembayaran hanya satu pencairan; selisih wajib penjelasan; selisih di atas toleransi hanya Admin/Pemilik; pembatalan oleh Admin dengan alasan membalik jurnal dan membebaskan pembayaran. Kontrol: belum cair lewat N hari, pencairan berselisih, MDR efektif > kontrak + 0,5 poin persen.
+- **Batasan:** tidak ada integrasi otomatis ke penyelenggara/bank/EDC (jumlah dimasukkan manual dari rekening koran); retur atas penjualan non-tunai hanya diberi penanda pada daftar (pengembalian lewat penyelenggara perlu dicatat dalam selisih); satu pencairan hanya untuk satu rekening bank.
+
+## Jasa — lembar waktu yang dapat ditagih dan jadwal sumber daya (`backend/src/modules/sales/services/timesheets.ts`, `scheduling.ts`)
+Menu: Pendapatan jasa › *Lembar waktu* dan *Jadwal sumber daya*. Lembar waktu membutuhkan data karyawan (aplikasi SDM/Penggajian aktif); akun pengguna dihubungkan ke karyawan agar staf mencatat untuk dirinya.
+
+**Lembar waktu**
+- **Alur:** Draf → Diajukan → Disetujui → Tertagih (atau Ditolak → diperbaiki, Disetujui → Dihapus-tagih). Catatan: karyawan, tanggal, jam (≤ 16 per catatan dan per hari per karyawan), klien/proyek, uraian, dapat ditagih atau tidak.
+- **Tarif per jam:** daftar tarif berlaku sejak tanggal; paling spesifik menang (proyek+karyawan > proyek > karyawan > umum). Catatan tanpa tarif tidak dapat disetujui. Mengubah tarif saat persetujuan hanya Admin/Pemilik dengan alasan.
+- **Penagihan:** pilih catatan disetujui milik satu klien (dan satu proyek) → faktur jasa dibuat otomatis (satu baris per karyawan dan tarif, satuan Jam). Faktur dan penandaan "tertagih" **satu transaksi**; dua penagihan bersamaan hanya satu yang berhasil. Batas nilai kontrak proyek tetap berlaku.
+- **Pencegahan kecurangan:** staf hanya mencatat untuk dirinya; mundur > 31 hari hanya Admin/Keuangan; persetujuan oleh orang lain dari pencatat dan karyawannya (Pemilik dikecualikan); hapus-tagih hanya Admin dengan alasan; semua tercatat di jejak audit.
+- **Kontrol:** menunggu persetujuan > 3 hari, disetujui belum ditagih > 30 hari (kebocoran pendapatan), tanpa tarif, hari > 12 jam, tarif diubah manual, hapus-tagih; utilisasi per karyawan (jam dicatat vs dapat ditagih, nilai tertagih, belum ditagih).
+
+**Jadwal sumber daya**
+- Sumber daya orang (opsional terkait karyawan), ruang, dan peralatan (Admin). Pemesanan untuk rentang waktu dengan klien/proyek.
+- **Bentrok ditolak** (409, dengan daftar pemesanan yang bertabrakan), termasuk saat pemesanan bersamaan (baris sumber daya dikunci dalam transaksi); bersebelahan tepat (akhir = mulai) diperbolehkan. Pindah memeriksa ulang bentrok; batal membebaskan slot dengan alasan.
+- Pencarian slot kosong pada jam kerja 08.00–17.00 WIB (Senin–Sabtu). Pemesanan orang yang sudah berlangsung dapat dijadikan **draf catatan waktu** sekali saja.
+- Kontrol: orang dijadwalkan > 10 jam sehari; pemesanan lewat > 1 hari belum diselesaikan.
+- **Belum ada:** penjadwalan berulang, sinkronisasi kalender (Google/Outlook), memeriksa bentrok dengan cuti/hari libur karyawan, pengaturan jam kerja per sumber daya (jam kerja tetap 08–17 WIB), penagihan berdasarkan tarif paket/retainer, timer otomatis (jam diisi manual).
+
+## Manufaktur — pengendalian mutu, jadwal mesin, biaya per operasi (`backend/src/modules/production/work-centers.ts`, `qc.ts`)
+Menu: Produksi › *Pusat kerja & jadwal mesin* dan *Pengendalian mutu (QC)*; operasi muncul di rincian Resep dan Perintah produksi.
+
+**Pusat kerja, jadwal mesin, biaya per operasi**
+- **Pusat kerja** (mesin/lini/stasiun, Admin): tarif upah dan overhead per jam, kapasitas jam/hari, jadwal mesin mati/perawatan.
+- **Operasi resep:** urutan operasi (pusat kerja + menit per batch). Perintah produksi menyalin operasinya (menit × batch).
+- **Jadwal mesin:** bentrok antar operasi atau dengan mesin mati ditolak (409, dengan daftar yang bertabrakan), termasuk penjadwalan bersamaan (baris pusat kerja dikunci); urutan operasi dijaga (tidak boleh mulai sebelum operasi sebelumnya selesai).
+- **Pelaksanaan:** operasi dimulai setelah operasi sebelumnya selesai dan perintah dimulai; satu pusat kerja satu operasi berjalan; aktual > 150% rencana wajib catatan; koreksi hanya Admin dengan alasan dan hanya sebelum perintah selesai.
+- **Biaya:** upah dan overhead operasi = jam aktual × tarif pusat kerja (snapshot saat selesai). Bila resep beroperasi, biaya konversi perintah dihitung dari operasi dan **tidak boleh diketik**; perintah tidak bisa diselesaikan sebelum semua operasinya selesai. Rincian biaya per operasi di endpoint `/production/orders/:id/costing`.
+- **Kontrol:** hari melebihi kapasitas, operasi lewat jadwal belum dimulai, dijadwalkan saat mesin mati, aktual > 150% rencana, perintah tak terjadwal; pemakaian pusat kerja (jam aktual vs rencana, biaya).
+
+**Pengendalian mutu (QC)**
+- **Rencana QC** per produk (Admin): parameter angka (batas min/maks) atau lulus/gagal, boleh kritis. Produk ditandai *wajib QC*.
+- **Karantina:** hasil produksi produk wajib QC masuk gudang Karantina (disiapkan sekali) dan inspeksi dibuat otomatis. Stok karantina **tidak bisa dijual, dipakai produksi, dikoreksi, atau dipindah** (dijaga di inti mutasi stok); keluar hanya lewat keputusan QC.
+- **Keputusan:** nilai lulus/gagal dihitung **server** dari angka ukur; parameter kritis gagal = seluruh lot gagal; sebagian lolos wajib catatan. Lolos dipindah ke gudang tujuan pada harga pokok yang sama. Inspektur harus orang lain dari yang menyelesaikan produksi (Pemilik dikecualikan).
+- **Lot gagal** tetap di karantina; dibuang (scrap) hanya oleh Admin, orang lain dari inspektur, dengan alasan, dan dijurnal sebagai selisih persediaan. Kontrol: inspeksi menunggu > 1 hari, lot gagal di karantina, tingkat gagal per produk.
+- **Belum ada:** pengambilan sampel statistik (AQL), sertifikat analisis/lampiran foto, inspeksi barang masuk dari pemasok, rework (perbaikan lalu inspeksi ulang), penjadwalan beban terbatas otomatis (jadwal diatur manual), shift dan kalender kerja per mesin (kapasitas hanya jam/hari).

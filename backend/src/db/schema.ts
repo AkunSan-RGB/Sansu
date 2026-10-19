@@ -207,6 +207,8 @@ export const warehouses = pgTable(
     kind: text('kind').$type<'MAIN' | 'CONSIGNMENT' | 'VAN'>().notNull().default('MAIN'),
     consigneeCustomerId: uuid('consignee_customer_id'),
     vanUserId: uuid('van_user_id'),
+    /** Gudang karantina: hasil produksi yang wajib QC menunggu di sini; stoknya tidak bisa dijual/dipakai sebelum lolos QC */
+    isQuarantine: boolean('is_quarantine').notNull().default(false),
   },
   (t) => [
     uniqueIndex('warehouses_code_uq').on(t.tenantId, t.code),
@@ -251,6 +253,8 @@ export const products = pgTable(
     madeToOrder: boolean('made_to_order').notNull().default(false),
     /** Umur simpan (hari): hasil produksi barang ini otomatis mendapat lot dengan tanggal kedaluwarsa = tanggal selesai + umur simpan */
     shelfLifeDays: integer('shelf_life_days'),
+    /** Hasil produksi barang ini wajib diinspeksi QC (masuk karantina dulu) */
+    qcRequired: boolean('qc_required').notNull().default(false),
     /** Berat per satuan dasar (kg): dasar muatan rute pengiriman; kosong = belum diisi */
     weightKg: numeric('weight_kg', { precision: 18, scale: 3 }),
     isActive: boolean('is_active').notNull().default(true),
@@ -1960,6 +1964,10 @@ export const posOrders = pgTable(
     externalRef: text('external_ref'),
     platformFee: money('platform_fee').notNull().default('0'),
     settlementId: uuid('settlement_id'),
+    /** Program loyalitas: poin yang diperoleh / dipakai pada transaksi ini */
+    loyaltyEarnedPoints: integer('loyalty_earned_points').notNull().default(0),
+    loyaltyRedeemedPoints: integer('loyalty_redeemed_points').notNull().default(0),
+    loyaltyRedeemedValue: money('loyalty_redeemed_value').notNull().default('0'),
     tableLabel: text('table_label'),
     journalId: uuid('journal_id'),
     createdAt: createdAt(),
@@ -2151,6 +2159,8 @@ export const posReturns = pgTable(
     taxAmount: money('tax_amount').notNull(),
     total: money('total').notNull(),
     cogsAmount: money('cogs_amount').notNull(),
+    /** Bagian retur yang dikembalikan sebagai poin loyalitas (bukan uang) */
+    pointsRefund: money('points_refund').notNull().default('0'),
     journalId: uuid('journal_id'),
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
@@ -4000,4 +4010,160 @@ export const utilityCounterReceipts = pgTable(
     remittanceId: uuid('remittance_id').references(() => utilityRemittances.id),
   },
   (t) => [uniqueIndex('utility_counter_receipts_payment_uq').on(t.paymentId)],
+);
+
+/** Buku besar poin loyalitas: tiap perubahan poin satu baris; baris EARN/REFUND adalah "lot" dengan sisa dan tanggal kedaluwarsa (FIFO) */
+export const loyaltyLedger = pgTable(
+  'loyalty_ledger',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    kind: text('kind').$type<'EARN' | 'REDEEM' | 'EXPIRE' | 'ADJUST' | 'REVERSE' | 'REFUND'>().notNull(),
+    /** Perubahan poin (+ menambah, - mengurangi) */
+    points: integer('points').notNull(),
+    /** Perubahan nilai kewajiban (Rp) yang menyertai poin ini */
+    value: money('value').notNull(),
+    orderId: uuid('order_id').references(() => posOrders.id),
+    expiresOn: date('expires_on'),
+    remaining: integer('remaining'),
+    note: text('note'),
+    createdById: uuid('created_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('loyalty_ledger_customer_idx').on(t.tenantId, t.customerId, t.createdAt)],
+);
+
+/** Rekonsiliasi pencairan QRIS/kartu debit dari penyelenggara: penjualan non-tunai (sudah masuk bank penuh) dicocokkan dengan uang bersih yang diterima */
+export const posCardSettlements = pgTable(
+  'pos_card_settlements',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    date: date('date').notNull(),
+    method: text('method').$type<'QRIS' | 'DEBIT'>().notNull(),
+    bankAccountId: uuid('bank_account_id')
+      .notNull()
+      .references(() => accounts.id),
+    gross: money('gross').notNull(),
+    mdrPct: numeric('mdr_pct', { precision: 6, scale: 3 }).notNull(),
+    mdrExpected: money('mdr_expected').notNull(),
+    received: money('received').notNull(),
+    difference: money('difference').notNull(),
+    itemCount: integer('item_count').notNull(),
+    status: text('status').$type<'POSTED' | 'CANCELLED'>().notNull().default('POSTED'),
+    note: text('note'),
+    journalId: uuid('journal_id').references(() => journalEntries.id),
+    reverseJournalId: uuid('reverse_journal_id').references(() => journalEntries.id),
+    cancelReason: text('cancel_reason'),
+    createdById: uuid('created_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('pos_card_settlements_number_uq').on(t.tenantId, t.number)],
+);
+
+export const posCardSettlementItems = pgTable(
+  'pos_card_settlement_items',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    settlementId: uuid('settlement_id')
+      .notNull()
+      .references(() => posCardSettlements.id, { onDelete: 'cascade' }),
+    paymentId: uuid('payment_id')
+      .notNull()
+      .references(() => posPayments.id, { onDelete: 'cascade' }),
+    amount: money('amount').notNull(),
+  },
+  (t) => [uniqueIndex('pos_card_settlement_items_payment_uq').on(t.paymentId)],
+);
+
+/** Tarif tagih per jam: paling spesifik menang (proyek+karyawan > proyek > karyawan > umum), berlaku sejak tanggal tertentu */
+export const billingRates = pgTable(
+  'billing_rates',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    employeeId: uuid('employee_id').references(() => employees.id),
+    projectId: uuid('project_id').references(() => projects.id),
+    rate: money('rate').notNull(),
+    validFrom: date('valid_from').notNull(),
+    note: text('note'),
+    createdById: uuid('created_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('billing_rates_lookup_idx').on(t.tenantId, t.projectId, t.employeeId, t.validFrom)],
+);
+
+/** Catatan waktu yang dapat ditagih: DRAFT → SUBMITTED → APPROVED → BILLED (atau REJECTED / WRITTEN_OFF) */
+export const timeEntries = pgTable(
+  'time_entries',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => employees.id),
+    projectId: uuid('project_id').references(() => projects.id),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    workDate: date('work_date').notNull(),
+    hours: numeric('hours', { precision: 5, scale: 2 }).notNull(),
+    description: text('description').notNull(),
+    billable: boolean('billable').notNull().default(true),
+    rate: money('rate'),
+    rateNote: text('rate_note'),
+    status: text('status').$type<'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'BILLED' | 'REJECTED' | 'WRITTEN_OFF'>().notNull().default('DRAFT'),
+    createdById: uuid('created_by_id').notNull(),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    decidedById: uuid('decided_by_id'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
+    invoiceId: uuid('invoice_id').references(() => invoices.id),
+    bookingId: uuid('booking_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('time_entries_emp_date_idx').on(t.tenantId, t.employeeId, t.workDate), index('time_entries_status_idx').on(t.tenantId, t.status, t.customerId)],
+);
+
+/** Sumber daya yang dijadwalkan: orang (opsional terkait karyawan), ruang, atau peralatan */
+export const schedulingResources = pgTable(
+  'scheduling_resources',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    name: text('name').notNull(),
+    kind: text('kind').$type<'PERSON' | 'ROOM' | 'EQUIPMENT'>().notNull(),
+    employeeId: uuid('employee_id').references(() => employees.id),
+    note: text('note'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('scheduling_resources_name_uq').on(t.tenantId, sql`lower(${t.name})`)],
+);
+
+export const resourceBookings = pgTable(
+  'resource_bookings',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    resourceId: uuid('resource_id')
+      .notNull()
+      .references(() => schedulingResources.id),
+    projectId: uuid('project_id').references(() => projects.id),
+    customerId: uuid('customer_id').references(() => customers.id),
+    title: text('title').notNull(),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    status: text('status').$type<'BOOKED' | 'DONE' | 'CANCELLED'>().notNull().default('BOOKED'),
+    note: text('note'),
+    cancelReason: text('cancel_reason'),
+    createdById: uuid('created_by_id').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('resource_bookings_range_idx').on(t.tenantId, t.resourceId, t.startsAt)],
 );

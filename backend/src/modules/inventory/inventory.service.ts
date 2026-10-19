@@ -76,7 +76,7 @@ export class InventoryService {
    * Penyesuaian stok (saldo awal, hasil stock opname, barang rusak).
    * Membuat mutasi stok + jurnal persediaan dalam satu transaksi.
    */
-  async adjust(user: AuthUser, dto: StockAdjustmentDto, outerTx?: Tx, opts: { approved?: boolean; special?: boolean } = {}) {
+  async adjust(user: AuthUser, dto: StockAdjustmentDto, outerTx?: Tx, opts: { approved?: boolean; special?: boolean; qc?: boolean } = {}) {
     const date = toDocDate(dto.date);
     let gate: { limit: number; total: number; costHigh?: number } | null = null;
     const run = async (tx: Tx) => {
@@ -124,6 +124,7 @@ export class InventoryService {
           unitCost: line.unitCost,
           lot: qty.isPositive() ? { lotNo: line.lotNo, expiryDate: line.expiryDate } : undefined,
           lotId: line.lotId,
+          fromQc: opts.qc,
           refType: 'STOCK_ADJUSTMENT',
           refId: id,
           refNumber: number,

@@ -30,6 +30,7 @@ import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtMoney, fmtQty } from '@/lib/format';
 import { t } from '@/lib/terms';
+import { BomOperationsEditor } from './OperationsPanels';
 
 type FormV = {
   code?: string;
@@ -149,6 +150,7 @@ export default function BomsPage() {
     </>
   );
 }
+
 
 function BomDrawer({ bom, onClose }: { bom: Bom | null; onClose: () => void }) {
   const can = useCan();
@@ -291,6 +293,7 @@ function BomDrawer({ bom, onClose }: { bom: Bom | null; onClose: () => void }) {
         <Form.Item name="notes" label="Catatan" style={{ marginTop: 16 }}>
           <Input.TextArea rows={2} placeholder="Langkah kerja, ukuran, standar mutu" />
         </Form.Item>
+        {bom && <BomOperationsEditor bomId={bom.id} />}
         {bom && (
           <Typography.Paragraph type="secondary">
             Taksiran saat ini: bahan {fmtMoney(bom.estimate.material)} + upah & overhead{' '}
