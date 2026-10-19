@@ -197,6 +197,7 @@ const MENU: Group[] = [
       { key: '/production/orders', label: 'Perintah produksi', roles: ['OWNER', 'ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/production/report', label: 'Harga pokok produksi', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/production/variance', label: 'Analisis selisih', models: ['MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+      { key: '/support-reports?kind=mfg', label: 'Laporan produksi', models: ['MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
     ],
   },
 

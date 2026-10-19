@@ -39,3 +39,11 @@ Isi: penjualan per sales, target dan komisi, pemakaian promo dan klaim prinsipal
 Pencocokan buku besar: komisi ditutup pada periode vs beban komisi; komisi belum dibayar vs utang komisi; sisa rebate outlet vs utang rebate; klaim disetujui belum cair vs piutang prinsipal; biaya tukar-guling vs akun kerugian; kurang setor kanvas vs piutang karyawan.
 
 Batasan: pencocokan saldo (utang komisi, utang rebate, piutang klaim) dibandingkan per hari ini karena status dokumen tidak menyimpan riwayat; sisa titipan konsinyasi memakai saldo stok gudang konsinyasi tanpa nilai rupiah.
+
+### Manufaktur (Produksi › Laporan produksi)
+
+Isi: perintah produksi selesai (rencana, hasil, rendemen, bahan, upah, overhead, biaya per unit), pemakaian bahan vs resep per bahan (jumlah dan nilai), dan barang dalam proses per tanggal akhir beserta umurnya.
+
+Pencocokan buku besar: bahan masuk produksi vs debit Barang Dalam Proses; biaya perintah selesai vs jurnal selesai; perintah berjalan vs saldo Barang Dalam Proses; biaya konversi dibebankan vs upah dan overhead aktual. Yang terakhir selisihnya wajar (selisih biaya produksi, dianalisis di Analisis selisih), bukan kesalahan pembukuan.
+
+Batasan: pemakaian bahan memakai kebutuhan resep yang tersimpan pada perintah; barang setengah jadi berjenjang tidak diuraikan per tingkat.
