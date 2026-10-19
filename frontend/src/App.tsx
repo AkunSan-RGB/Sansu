@@ -82,8 +82,6 @@ import UtilityPage from './features/utility/UtilityPage';
 import BranchesPage from './features/accounting/BranchesPage';
 import KitchenPage from './features/pos/KitchenPage';
 import OnlineOrdersPage from './features/pos/OnlineOrdersPage';
-import LoyaltyPage from './features/pos/LoyaltyPage';
-import CardSettlementPage from './features/pos/CardSettlementPage';
 import TablesPage from './features/pos/TablesPage';
 import ExpiryPage from './features/inventory/ExpiryPage';
 import LotTracePage from './features/inventory/LotTracePage';
@@ -180,8 +178,6 @@ export default function App() {
           <Route path="pos/tables" element={<TablesPage />} />
           <Route path="pos/kitchen" element={<KitchenPage />} />
           <Route path="pos/online" element={<OnlineOrdersPage />} />
-          <Route path="pos/loyalty" element={<LoyaltyPage />} />
-          <Route path="pos/settlements" element={<CardSettlementPage />} />
         </Route>
         <Route element={<AppGate app="purchase" />}>
           <Route path="goods-receipts" element={<GoodsReceiptsPage />} />

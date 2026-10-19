@@ -645,13 +645,6 @@
       "when": 1796236686484,
       "tag": "0091_utilitas_lapangan",
       "breakpoints": true
-    },
-    {
-      "idx": 92,
-      "version": "7",
-      "when": 1796323086484,
-      "tag": "0092_ritel_loyalitas_settlement",
-      "breakpoints": true
     }
   ]
 }

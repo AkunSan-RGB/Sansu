@@ -198,8 +198,6 @@ function CloseSession({ session, open, onClose }: { session: PosSession; open: b
   );
 }
 
-interface LoyaltyCfg { enabled: boolean; earnPerRp: number; pointValueRp: number; minRedeemPoints: number; maxRedeemPct: number; expiryMonths: number }
-
 // ---------- Layar kasir ----------
 function Register({ session }: { session: PosSession }) {
   const { me } = useAuth();
@@ -218,9 +216,6 @@ function Register({ session }: { session: PosSession }) {
   const [paying, setPaying] = useState(false);
   const [method, setMethod] = useState<PosPaymentMethod>('CASH');
   const [amount, setAmount] = useState<number | null>(null);
-  const [redeem, setRedeem] = useState<number | null>(null);
-  const loyaltyCfg = useQuery({ queryKey: ['loyalty-settings'], queryFn: () => get<LoyaltyCfg>('/loyalty/settings'), staleTime: 60_000 });
-  const member = useQuery({ queryKey: ['loyalty-member', customerId], queryFn: () => get<{ balance: number; valueRp: number }>(`/loyalty/members/${customerId}`), enabled: !!customerId && !!loyaltyCfg.data?.enabled });
   const [receipt, setReceipt] = useState<PosOrder | null>(null);
   const [closing, setClosing] = useState(false);
   const { data: customers } = useCustomers();
@@ -267,26 +262,17 @@ function Register({ session }: { session: PosSession }) {
     ppnRate,
     inclusive,
   );
-  // poin loyalitas: potongan dihitung dari aturan; server memeriksa ulang saldo dan batas
-  const cfg = loyaltyCfg.data;
-  const balance = member.data?.balance ?? 0;
-  const maxRedeem = cfg?.enabled && customerId ? Math.max(0, Math.min(balance, Math.floor((total * (cfg.maxRedeemPct / 100)) / cfg.pointValueRp))) : 0;
-  const redeemPts = redeem && cfg && redeem >= cfg.minRedeemPoints && redeem <= maxRedeem ? redeem : 0;
-  const redeemValue = redeemPts * (cfg?.pointValueRp ?? 0);
-  const payable = total - redeemValue;
-  const willEarn = cfg?.enabled && customerId ? Math.floor(payable / cfg.earnPerRp) : 0;
-  const change = method === 'CASH' ? Math.max(0, (amount ?? 0) - payable) : 0;
-  const enough = method === 'CASH' ? (amount ?? 0) >= payable : true;
+  const change = method === 'CASH' ? Math.max(0, (amount ?? 0) - total) : 0;
+  const enough = method === 'CASH' ? (amount ?? 0) >= total : true;
 
   const pay = useAction(
     () =>
       post<PosOrder>('/pos/orders', {
         sessionId: session.id,
         customerId,
-        redeemPoints: redeemPts || undefined,
         ...(fnb ? { orderType, tableLabel: tableLabel.trim() || undefined } : {}),
         lines: cart.map((l) => ({ productId: l.product.id, uom: l.uom, qty: String(l.qty), price: String(l.unitPrice), discountPct: String(l.discountPct) })),
-        payments: [{ method, amount: (method === 'CASH' ? (amount ?? 0) : payable).toFixed(2) }],
+        payments: [{ method, amount: (method === 'CASH' ? (amount ?? 0) : total).toFixed(2) }],
       }),
     {
       invalidate: ['pos-products', 'stock', ...LEDGER_KEYS],
@@ -296,11 +282,7 @@ function Register({ session }: { session: PosSession }) {
         setCustomerId(undefined);
         setTableLabel('');
         setReceipt(o);
-        setRedeem(null);
-        const earned = (o as { loyaltyEarnedPoints?: number }).loyaltyEarnedPoints;
-        if (earned) message.success(`Pelanggan memperoleh ${earned} poin`);
         qc.invalidateQueries({ queryKey: ['pos-session'] });
-        qc.invalidateQueries({ queryKey: ['loyalty-member'] });
       },
     },
   );
@@ -342,11 +324,10 @@ function Register({ session }: { session: PosSession }) {
         optionFilterProp="label"
         placeholder={t('Pelanggan umum')}
         value={customerId}
-        onChange={(v) => { setCustomerId(v); setRedeem(null); }}
+        onChange={setCustomerId}
         options={customers?.filter((c) => c.isActive).map((c) => ({ value: c.id, label: `${c.code} · ${c.name}` }))}
         style={{ marginBottom: 8 }}
       />
-      {cfg?.enabled && customerId && member.data && <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>Poin tersedia {member.data.balance} (≈ {fmtMoney(member.data.valueRp)})</Typography.Text>}
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 120 }}>
         {cart.length === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('Scan barcode atau klik produk')} />
@@ -495,15 +476,8 @@ function Register({ session }: { session: PosSession }) {
 
       <Modal title="Pembayaran" open={paying} onCancel={() => setPaying(false)} footer={null} width={460} destroyOnHidden>
         <Typography.Title level={2} style={{ textAlign: 'center', margin: '4px 0 16px', color: BRAND.colors.primary }}>
-          {fmtMoney(payable)}
+          {fmtMoney(total)}
         </Typography.Title>
-        {redeemPts > 0 && <Typography.Paragraph type="secondary" style={{ textAlign: 'center', marginTop: -12 }}>Total {fmtMoney(total)} − poin {fmtMoney(redeemValue)}</Typography.Paragraph>}
-        {cfg?.enabled && customerId && maxRedeem >= cfg.minRedeemPoints && (
-          <div style={{ marginBottom: 12 }}>
-            <InputNumber min={0} max={maxRedeem} precision={0} value={redeem} onChange={(v) => setRedeem(v)} style={{ width: '100%' }} prefix="Tukar poin" suffix={`maks ${maxRedeem}`} />
-            {redeem != null && redeem > 0 && redeemPts === 0 && <Typography.Text type="danger" style={{ fontSize: 12 }}>Minimal tukar {cfg.minRedeemPoints} poin, maksimal {maxRedeem}</Typography.Text>}
-          </div>
-        )}
         <Segmented
           block
           size="large"
@@ -525,8 +499,8 @@ function Register({ session }: { session: PosSession }) {
               onPressEnter={() => enough && pay.mutate(undefined)}
             />
             <Space wrap style={{ margin: '10px 0' }}>
-              <Button onClick={() => setAmount(payable)}>Uang pas</Button>
-              {QUICK_CASH.filter((q) => q >= payable || q === 100_000).map((q) => (
+              <Button onClick={() => setAmount(total)}>Uang pas</Button>
+              {QUICK_CASH.filter((q) => q >= total || q === 100_000).map((q) => (
                 <Button key={q} onClick={() => setAmount(q)}>
                   {fmtMoney(q)}
                 </Button>
@@ -535,13 +509,12 @@ function Register({ session }: { session: PosSession }) {
             <Alert
               type={enough ? 'success' : 'warning'}
               showIcon
-              message={enough ? `Kembalian ${fmtMoney(change)}` : `Kurang ${fmtMoney(payable - (amount ?? 0))}`}
+              message={enough ? `Kembalian ${fmtMoney(change)}` : `Kurang ${fmtMoney(total - (amount ?? 0))}`}
             />
           </>
         ) : (
-          <Alert type="info" showIcon message={`Pastikan pembayaran ${POS_PAYMENT_LABELS[method]} sebesar ${fmtMoney(payable)} sudah masuk.`} />
+          <Alert type="info" showIcon message={`Pastikan pembayaran ${POS_PAYMENT_LABELS[method]} sebesar ${fmtMoney(total)} sudah masuk.`} />
         )}
-        {willEarn > 0 && <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8 }}>Pelanggan akan memperoleh {willEarn} poin</Typography.Text>}
         <Button type="primary" size="large" block style={{ marginTop: 16, height: 52 }} disabled={!enough} loading={pay.isPending} onClick={() => pay.mutate(undefined)}>
           Selesaikan transaksi
         </Button>
