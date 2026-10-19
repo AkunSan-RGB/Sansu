@@ -38,6 +38,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { SequenceService } from '../../common/sequence/sequence.service';
+import { StorageService } from '../../common/storage/storage.service';
 import { SettingsService } from '../../common/settings.service';
 import { addDays, diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D } from '../../common/utils/money';
@@ -148,6 +149,7 @@ export class UtilityService {
     private readonly settings: SettingsService,
     private readonly approvals: ApprovalsService,
     private readonly billing: ServiceBillingService,
+    private readonly storage: StorageService,
   ) {}
 
   // ---------- aturan ----------
@@ -361,7 +363,9 @@ export class UtilityService {
     if ((dto.lat == null) !== (dto.lng == null)) throw new BadRequestException('Lintang dan bujur harus diisi bersamaan');
     const rules = await this.rules(u.tenantId);
     if (dto.period > todayJakarta().slice(0, 7)) throw new BadRequestException('Periode pencatatan tidak boleh di masa depan');
-    const result = await this.db.transaction(async (tx) => {
+    // foto meter diunggah lebih dulu (isinya divalidasi); bila pencatatan gagal, berkas yatim dihapus lagi
+    const photoRef = await this.storage.store(u.tenantId, 'meter', dto.photo);
+    const result = await this.storage.guard([photoRef], () => this.db.transaction(async (tx) => {
       const c = await this.lockConnection(tx, u.tenantId, dto.connectionId);
       if (c.status !== 'ACTIVE') throw new BadRequestException('Sambungan tidak aktif');
       const [t] = await tx.select().from(utilityTariffs).where(eq(utilityTariffs.id, c.tariff_id));
@@ -394,7 +398,7 @@ export class UtilityService {
       try {
         const [row] = await tx
           .insert(utilityReadings)
-          .values({ tenantId: u.tenantId, connectionId: c.id, period: dto.period, previous: prev.toString(), current: cur.toString(), usage: usage.toString(), meterReplaced: !!dto.meterReplaced, flags, note: dto.note?.trim() || null, enteredById: u.sub, source, lat: dto.lat != null ? String(dto.lat) : null, lng: dto.lng != null ? String(dto.lng) : null, photo: dto.photo ?? null })
+          .values({ tenantId: u.tenantId, connectionId: c.id, period: dto.period, previous: prev.toString(), current: cur.toString(), usage: usage.toString(), meterReplaced: !!dto.meterReplaced, flags, note: dto.note?.trim() || null, enteredById: u.sub, source, lat: dto.lat != null ? String(dto.lat) : null, lng: dto.lng != null ? String(dto.lng) : null, photo: photoRef })
           .returning();
         await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityReading', entityId: row.id, data: { connection: c.number, period: dto.period, usage: row.usage, flags } });
         return { row, flags };
@@ -402,8 +406,8 @@ export class UtilityService {
         if (isUnique(e)) throw new BadRequestException('Periode ini sudah dicatat');
         throw e;
       }
-    });
-    return { ...result.row, flags: result.flags };
+    }));
+    return { ...result.row, flags: result.flags, photo: undefined, hasPhoto: !!photoRef };
   }
 
   private async lockReading(tx: Db | Parameters<Parameters<Db['transaction']>[0]>[0], tenantId: string, id: string) {

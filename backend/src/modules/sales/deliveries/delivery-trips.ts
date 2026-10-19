@@ -16,6 +16,7 @@ import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestj
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsIn, IsLatitude, IsLongitude, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
 import { and, asc, desc, eq, gte, inArray, lte, notInArray, sql } from 'drizzle-orm';
 import { RequireApp } from '../../../common/apps/app.guard';
+import { StorageService } from '../../../common/storage/storage.service';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../../common/auth/decorators';
@@ -142,6 +143,7 @@ export class DeliveryTripsService {
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
     private readonly routing: RoutingService,
+    private readonly storage: StorageService,
   ) {}
 
   private async trip(tenantId: string, id: string) {
@@ -397,7 +399,10 @@ export class DeliveryTripsService {
     if (dto.result === 'FAILED' && (!failReason || failReason.length < 3)) throw new BadRequestException('Alasan gagal kirim wajib diisi');
     if ((dto.lat === undefined) !== (dto.lng === undefined)) throw new BadRequestException('Lintang dan bujur harus diisi bersamaan');
     if (dto.result === 'FAILED' && (dto.photo || dto.signature)) throw new BadRequestException('Foto dan tanda tangan hanya untuk pengiriman yang terkirim');
-    await this.db.transaction(async (tx) => {
+    // gambar diunggah lebih dulu (isinya divalidasi); bila pencatatan gagal, berkas yatim dihapus lagi
+    const photoRef = await this.storage.store(u.tenantId, 'bukti-kirim', dto.photo);
+    const signatureRef = await this.storage.store(u.tenantId, 'tanda-tangan', dto.signature);
+    await this.storage.guard([photoRef, signatureRef], () => this.db.transaction(async (tx) => {
       const [t] = await tx.select().from(deliveryTrips).where(and(eq(deliveryTrips.id, id), eq(deliveryTrips.tenantId, u.tenantId))).for('update');
       if (!t) throw new NotFoundException('Rute pengiriman tidak ditemukan');
       if (t.status !== 'ON_ROUTE') throw new BadRequestException('Hasil pengiriman hanya bisa dicatat saat rute sedang berjalan');
@@ -418,11 +423,11 @@ export class DeliveryTripsService {
         resultLat: dto.lat !== undefined ? dto.lat.toFixed(6) : null,
         resultLng: dto.lng !== undefined ? dto.lng.toFixed(6) : null,
         resultDistanceM: distance,
-        proofPhoto: dto.photo ?? null,
-        proofSignature: dto.signature ?? null,
+        proofPhoto: photoRef,
+        proofSignature: signatureRef,
       }).where(eq(deliveryTripStops.id, stopId));
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: dto.result === 'DELIVERED' ? 'STOP_DELIVERED' : 'STOP_FAILED', entity: 'DeliveryTrip', entityId: id, data: { number: t.number, stop: s.sequence, receivedBy, failReason, distanceM: distance, photo: !!dto.photo, signature: !!dto.signature } });
-    });
+    }));
     return this.get(u.tenantId, id);
   }
 
@@ -431,7 +436,7 @@ export class DeliveryTripsService {
     await this.trip(tenantId, id);
     const [s] = await this.db.select({ photo: deliveryTripStops.proofPhoto, signature: deliveryTripStops.proofSignature }).from(deliveryTripStops).where(and(eq(deliveryTripStops.id, stopId), eq(deliveryTripStops.tripId, id)));
     if (!s) throw new NotFoundException('Stop tidak ditemukan');
-    return s;
+    return { photo: await this.storage.load(tenantId, s.photo), signature: await this.storage.load(tenantId, s.signature) };
   }
 
   async complete(u: AuthUser, id: string) {

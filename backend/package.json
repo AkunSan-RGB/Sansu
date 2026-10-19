@@ -13,9 +13,12 @@
     "test:e2e": "dotenv -e .env.test -- ts-node src/db/migrate.ts --reset && dotenv -e .env.test -- jest --config test/jest-e2e.json --runInBand",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dev": "nest start --watch",
-    "db:migrate:prod": "node dist/db/migrate.js"
+    "db:migrate:prod": "node dist/db/migrate.js",
+    "storage:migrate": "ts-node src/db/migrate-storage.ts",
+    "storage:migrate:prod": "node dist/db/migrate-storage.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1152.0",
     "@nestjs/common": "^11.2.7",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.2.7",

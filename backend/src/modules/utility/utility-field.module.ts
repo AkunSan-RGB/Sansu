@@ -22,6 +22,7 @@ import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Public, Roles } from '../../common/auth/decorators';
 import { SubscriptionService } from '../../common/billing/subscription.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
+import { StorageService } from '../../common/storage/storage.service';
 import { toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, money } from '../../common/utils/money';
 import { Db } from '../../db/db';
@@ -80,6 +81,7 @@ export class UtilityFieldService {
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
     private readonly posting: PostingService,
+    private readonly storage: StorageService,
   ) {}
 
   /** Cari sambungan menurut nomor (kunci unik per perusahaan) */
@@ -295,7 +297,7 @@ export class UtilityFieldService {
   async photo(tenantId: string, id: string) {
     const r = await this.db.execute<{ photo: string | null }>(sql`SELECT photo FROM utility_readings WHERE id = ${id} AND tenant_id = ${tenantId}`);
     if (!r.rows.length) throw new NotFoundException('Pencatatan tidak ditemukan');
-    return { photo: r.rows[0].photo };
+    return { photo: await this.storage.load(tenantId, r.rows[0].photo) };
   }
 }
 

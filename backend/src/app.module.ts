@@ -42,6 +42,7 @@ import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { WorkflowModule } from './modules/workflow/workflow.module';
 import { UtilityModule } from './modules/utility/utility.module';
 import { UtilityFieldModule } from './modules/utility/utility-field.module';
+import { StorageModule } from './common/storage/storage.service';
 import { BankModule } from './modules/bank/bank.module';
 import { BranchesModule } from './modules/branches/branches.module';
 import { DemoModule } from './modules/demo/demo.module';
@@ -103,6 +104,7 @@ import { DataRightsModule } from './modules/data-rights/data-rights.module';
     WorkflowModule,
     UtilityModule,
     UtilityFieldModule,
+    StorageModule,
     TaxModule,
     BankModule,
     BranchesModule,
