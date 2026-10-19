@@ -18,6 +18,7 @@ import { addDays, todayJakarta } from '../../common/utils/dates';
 import { createDb, createPool, Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { auditLogs, dataDeletionRequests, dataErasureLog, tenants, users } from '../../db/schema';
+import { StorageService } from '../../common/storage/storage.service';
 import { eraseTenant } from './erase';
 import { ReauthService } from './reauth';
 
@@ -57,6 +58,7 @@ export class DeletionService implements OnModuleInit, OnModuleDestroy {
     private readonly audit: AuditService,
     private readonly reauth: ReauthService,
     private readonly mail: MailService,
+    private readonly storage: StorageService,
   ) {}
 
   /** Penerima pemberitahuan: pemilik dan admin aktif perusahaan */
@@ -209,6 +211,14 @@ export class DeletionService implements OnModuleInit, OnModuleDestroy {
       throw e;
     } finally {
       await pool.end();
+    }
+    // gambar bukti di penyimpanan objek ikut dihapus; gagal tidak membatalkan penghapusan basis data (sudah selesai) tetapi dilaporkan
+    try {
+      const files = await this.storage.deleteTenant(r.tenantId);
+      if (files) this.logger.log(`${files} berkas gambar perusahaan ${r.tenantId} dihapus dari penyimpanan`);
+    } catch (e) {
+      this.logger.error(`Gagal menghapus berkas gambar perusahaan ${r.tenantId}: ${(e as Error).message}`);
+      void telegram(`⚠️ Berkas gambar perusahaan ${company.name} (${r.tenantId}) belum terhapus dari penyimpanan: ${(e as Error).message}`).catch(() => undefined);
     }
     this.logger.log(`Data perusahaan ${r.tenantId} dihapus: ${res.rowsDeleted} baris, ${res.tablesTouched} tabel`);
     for (const email of to) {
