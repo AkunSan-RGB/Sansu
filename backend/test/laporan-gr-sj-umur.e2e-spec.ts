@@ -82,4 +82,28 @@ describe('Laporan pendukung dagang: GRNI, surat jalan, umur (e2e)', () => {
     expect(r.conclusion.findings.map((f) => f.title).join('|')).toContain('1 surat jalan belum difaktur (HPP Rp100.000)');
     expect(r.reconciliation.every((x) => x.ok)).toBe(true);
   });
+
+  it('GRNI per tanggal: penerimaan dan faktur bertanggal mundur dihitung pada tanggalnya masing-masing', async () => {
+    const back = (n: number) => { const x = new Date(`${day}T00:00:00Z`); x.setUTCDate(x.getUTCDate() - n); return x.toISOString().slice(0, 10); };
+    const wh = (await get('/api/warehouses').expect(200)).body[0].id;
+    const sup = (await post('/api/suppliers', { code: 'S2', name: 'Pemasok Mundur', paymentTermDays: 30 }).expect(201)).body.id;
+    const prod = (await post('/api/products', { sku: 'D-2', name: 'Barang Mundur', baseUom: 'PCS', sellPrice: '20000' }).expect(201)).body.id;
+    const po = (await post('/api/purchase-orders', { supplierId: sup, warehouseId: wh, date: back(10), lines: [{ productId: prod, qty: '40', price: '5000' }] }).expect(201)).body;
+    await post(`/api/purchase-orders/${po.id}/confirm`).expect(201);
+    const full = (await get(`/api/purchase-orders/${po.id}`).expect(200)).body as { lines: { id: string }[] };
+    await post(`/api/purchase-orders/${po.id}/receipts`, { date: back(8), lines: [{ orderLineId: full.lines[0].id, qty: '40' }] }).expect(201);
+    await post('/api/purchase-invoices', { purchaseOrderId: po.id, supplierInvoiceNo: 'MUNDUR-1', date: back(4), lines: [{ orderLineId: full.lines[0].id, qty: '10' }] }).expect(201);
+    const at = async (to: string) => {
+      const r = (await get(`/api/accounting/support/purchases?from=${back(30)}&to=${to}`).expect(200)).body as Rep;
+      return r.reconciliation.find((x) => x.key === 'purchases-grni')!;
+    };
+    const before = await at(back(9)); // sebelum barang diterima
+    expect({ ok: before.ok, left: before.left.value }).toEqual({ ok: true, left: 0 });
+    const received = await at(back(6)); // sudah diterima, belum difaktur
+    expect({ ok: received.ok, left: received.left.value, right: received.right.value }).toEqual({ ok: true, left: 200_000, right: 200_000 });
+    const billed = await at(back(3)); // difaktur 10 dari 40
+    expect({ ok: billed.ok, left: billed.left.value }).toEqual({ ok: true, left: 150_000 });
+    const rep = (await get(`/api/accounting/support/purchases?from=${back(30)}&to=${back(6)}`).expect(200)).body as Rep;
+    expect(sec(rep, 'purchases-grni').rows.some((r) => r[7] === 200_000 && r[4] === 2)).toBe(true); // umur dihitung sampai tanggal akhir
+  });
 });

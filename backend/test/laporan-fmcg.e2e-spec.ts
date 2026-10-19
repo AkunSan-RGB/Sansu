@@ -130,6 +130,20 @@ describe('Laporan pendukung FMCG (e2e)', () => {
     for (const x of early.reconciliation.filter((y) => ['fmcg-commission-payable', 'fmcg-claim'].includes(y.key))) expect({ key: x.key, ok: x.ok, left: x.left.value, right: x.right.value }).toEqual({ key: x.key, ok: true, left: 0, right: 0 });
   });
 
+  it('rebate outlet per tanggal akhir: sebelum pelunasan masih utang penuh, sesudahnya berkurang, keduanya cocok dengan buku besar', async () => {
+    const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 0)).toISOString().slice(0, 10); // akhir bulan lalu (tanggal jurnal rebate)
+    const before = (await get(`/api/accounting/support/fmcg?from=${period}-01&to=${lastDay}`).expect(200)).body as Rep;
+    const t0 = before.reconciliation.find((x) => x.key === 'fmcg-trade')!;
+    expect({ ok: t0.ok, left: t0.left.value, right: t0.right.value }).toEqual({ ok: true, left: 20_000, right: 20_000 }); // pelunasan 5.000 baru hari ini
+    const now = (await get(`/api/accounting/support/fmcg?from=${period}-01&to=${day}`).expect(200)).body as Rep;
+    const t1 = now.reconciliation.find((x) => x.key === 'fmcg-trade')!;
+    expect({ ok: t1.ok, left: t1.left.value }).toEqual({ ok: true, left: 15_000 });
+    const row = now.sections.find((s) => s.key === 'fmcg-trade')!.tables[0].rows[0];
+    expect(row.slice(5, 9)).toEqual([20_000, 5_000, 15_000, 'Utang']);
+    const rowBefore = before.sections.find((s) => s.key === 'fmcg-trade')!.tables[0].rows[0];
+    expect(rowBefore.slice(5, 9)).toEqual([20_000, 0, 20_000, 'Utang']);
+  });
+
   it('akses: sales tidak boleh membuka laporan', async () => {
     await get(`/api/accounting/support/fmcg?from=${from}&to=${day}`, tok.sls.token).expect(403);
   });

@@ -22,7 +22,7 @@ import { toDocDate, todayJakarta } from '../../../common/utils/dates';
 import { D, money } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, invoices, payments, principalClaimLines, principalClaims, suppliers, tradeAccruals, tradeTerms } from '../../../db/schema';
+import { customers, invoices, payments, principalClaimLines, principalClaims, suppliers, tradeAccruals, tradeAccrualSettlements, tradeTerms } from '../../../db/schema';
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 
@@ -178,6 +178,7 @@ export class TradeService {
       const remaining = D(a.amount).minus(a.settledAmount);
       if (amount.gt(remaining)) throw new BadRequestException(`Jumlah melebihi sisa utang rebate (${remaining.toFixed(2)})`);
       let journalNumber: string;
+      let settleJournalId: string | null = null;
       if (dto.mode === 'DEDUCT') {
         if (!dto.invoiceId) throw new BadRequestException('Pilih faktur yang dipotong');
         await tx.execute(sql`SELECT id FROM invoices WHERE id = ${dto.invoiceId} AND tenant_id = ${u.tenantId} FOR UPDATE`);
@@ -199,6 +200,7 @@ export class TradeService {
           lines: [{ key: SYS.TRADE_ACCRUAL_PAYABLE, debit: amount }, { key: SYS.AR, credit: amount }],
         });
         await tx.update(payments).set({ journalId: journal.id }).where(eq(payments.id, pay.id));
+        settleJournalId = journal.id;
         const paid = D(inv.paidAmount).plus(amount);
         await tx.update(invoices).set({ paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' }).where(eq(invoices.id, inv.id));
         journalNumber = journal.number;
@@ -213,8 +215,10 @@ export class TradeService {
           createdById: u.sub,
           lines: [{ key: SYS.TRADE_ACCRUAL_PAYABLE, debit: amount }, { accountId: cash.id, credit: amount, ...(cash.branchId ? { branchId: cash.branchId } : {}) }],
         });
+        settleJournalId = journal.id;
         journalNumber = journal.number;
       }
+      await tx.insert(tradeAccrualSettlements).values({ tenantId: u.tenantId, accrualId: a.id, date, amount: amount.toFixed(2), mode: dto.mode, journalId: settleJournalId });
       const settled = D(a.settledAmount).plus(amount);
       await tx.update(tradeAccruals).set({ settledAmount: settled.toFixed(2), status: settled.gte(a.amount) ? 'SETTLED' : 'ACCRUED' }).where(eq(tradeAccruals.id, id));
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'SETTLE', entity: 'TradeAccrual', entityId: id, data: { number: a.number, mode: dto.mode, amount: amount.toFixed(2), journal: journalNumber } });

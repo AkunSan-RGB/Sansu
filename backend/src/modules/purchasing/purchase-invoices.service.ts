@@ -15,6 +15,7 @@ import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import {
   accounts,
+  goodsReceiptBillings,
   goodsReceiptLines,
   goodsReceipts,
   purchaseInvoiceLines,
@@ -443,6 +444,7 @@ export class PurchaseInvoicesService {
     let grni: Dec = ZERO;
     let capitalized = false;
     const invLines: { line: (typeof order.lines)[number]; q: Dec; dpp: Dec; poDpp: Dec; value: Dec; baseQty: Dec }[] = [];
+    const billings: { receiptId: string; receiptLineId: string; qty: Dec; value: Dec }[] = [];
     for (const { line, q } of items) {
       let need = q;
       let value: Dec = ZERO;
@@ -460,6 +462,7 @@ export class PurchaseInvoicesService {
           .update(goodsReceiptLines)
           .set({ billedQty: sql`${goodsReceiptLines.billedQty} + ${take.toFixed(4)}`, billedValue: sql`${goodsReceiptLines.billedValue} + ${chunk.toFixed(2)}` })
           .where(eq(goodsReceiptLines.id, r.rl.id));
+        billings.push({ receiptId: r.rl.receiptId, receiptLineId: r.rl.id, qty: take, value: chunk });
         r.rl.billedQty = D(r.rl.billedQty).plus(take).toFixed(4);
         r.rl.billedValue = D(r.rl.billedValue).plus(chunk).toFixed(2);
       }
@@ -509,6 +512,7 @@ export class PurchaseInvoicesService {
         ...this.fxFields(order, { rate: pr.rate, tax, lineForeign: invLines.reduce<Dec>((a, x) => a.plus(lineTotal({ qty: x.q, price: pr.foreignPrice.get(x.line.id) ?? 0, discountPct: x.line.discountPct })), ZERO) }),
       })
       .returning();
+    if (billings.length) await tx.insert(goodsReceiptBillings).values(billings.map((b) => ({ tenantId: user.tenantId, receiptId: b.receiptId, receiptLineId: b.receiptLineId, invoiceId: invoice.id, date, qty: b.qty.toFixed(4), value: b.value.toFixed(2) })));
 
     // Biaya perolehan mengikuti harga faktur: selisih harga dibagi ke stok yang masih ada (persediaan) dan ke barang yang sudah terjual (HPP)
     const capFactor = capitalized && D(order.subtotal).gt(0) ? D(order.total).div(order.subtotal) : D(1);
