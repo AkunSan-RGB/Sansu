@@ -1361,6 +1361,26 @@ export interface FinancialNotes {
 }
 
 /** Lampiran laporan keuangan: daftar rincian pendukung (umur piutang/utang, aset tetap, persediaan, neraca saldo) */
+/** Laporan pendukung per bidang beserta pencocokan dengan buku besar */
+export interface SupportReconciliation {
+  key: string;
+  title: string;
+  left: { label: string; value: number };
+  right: { label: string; value: number };
+  diff: number;
+  ok: boolean;
+  note?: string;
+}
+export interface SupportReport {
+  kind: 'sales' | 'purchases' | 'inventory' | 'cash' | 'other';
+  title: string;
+  summary: string;
+  period: { from: string; to: string };
+  generatedAt: string;
+  reconciliation: SupportReconciliation[];
+  sections: { key: string; number: string; title: string; paragraphs: string[]; tables: NoteTable[] }[];
+}
+
 export interface FinancialAppendix {
   year: number;
   framework: ReportingFramework;

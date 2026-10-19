@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Module, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Module, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsNumberString, IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -11,6 +11,7 @@ import { AssetsModule } from '../assets/assets.module';
 import { FiscalService } from './fiscal.service';
 import { HealthService } from './health.service';
 import { AppendixService } from './appendix.service';
+import { SUPPORT_KINDS, type SupportKind, SupportReportsService } from './support-reports';
 import { ApplyEntityProfileDto, EntityAnswersDto, EntityProfileService } from './entity-profile.service';
 import { NotesService } from './notes.service';
 import { ThresholdsService } from './thresholds.service';
@@ -47,6 +48,7 @@ export class InsightsController {
     private readonly fiscal: FiscalService,
     private readonly notes: NotesService,
     private readonly appendix: AppendixService,
+    private readonly support: SupportReportsService,
     private readonly profile: EntityProfileService,
     private readonly thresholds: ThresholdsService,
   ) {}
@@ -112,6 +114,14 @@ export class InsightsController {
     return this.profile.apply(u, dto);
   }
 
+  /** Laporan pendukung per bidang (penjualan, pembelian, persediaan, kas, lainnya) beserta pencocokan buku besar */
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
+  @Get('support/:kind')
+  supportReport(@CurrentUser() u: AuthUser, @Param('kind') kind: string, @Query('from') from?: string, @Query('to') to?: string) {
+    if (!(SUPPORT_KINDS as readonly string[]).includes(kind)) throw new BadRequestException('Jenis laporan pendukung tidak dikenal');
+    return this.support.build(u.tenantId, kind as SupportKind, isDocDate(from) ? from : undefined, isDocDate(to) ? to : undefined);
+  }
+
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('appendix/:year')
   getAppendix(@CurrentUser() u: AuthUser, @Param('year', YearPipe) year: number) {
@@ -133,7 +143,7 @@ export class InsightsController {
 @Module({
   imports: [AccountingModule, AssetsModule, FxModule],
   controllers: [InsightsController],
-  providers: [HealthService, FiscalService, NotesService, AppendixService, EntityProfileService, ThresholdsService],
+  providers: [HealthService, FiscalService, NotesService, AppendixService, SupportReportsService, EntityProfileService, ThresholdsService],
   exports: [FiscalService, HealthService, EntityProfileService, ThresholdsService],
 })
 export class InsightsModule {}

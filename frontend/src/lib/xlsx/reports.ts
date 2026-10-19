@@ -2,6 +2,7 @@
  * Lembar Excel untuk setiap laporan SANSU. Semua fungsi murni: data API → SheetSpec.
  * Angka turunan ditulis sebagai rumus (dengan nilai hasil), angka sumber sebagai nilai.
  */
+import type { SupportReport } from '@sansu/shared';
 import {
   CASH_DENOMINATIONS,
   FISCAL_ASSET_GROUP_INFO,
@@ -533,7 +534,24 @@ export function appendixSheet(ap: FinancialAppendix, company?: string): SheetSpe
   return documentSheet('Lampiran', 'Lampiran Laporan Keuangan', ap, company);
 }
 
-function documentSheet(sheetName: string, docTitle: string, nt: DocLike, company?: string): SheetSpec[] {
+/** Laporan pendukung (penjualan, pembelian, persediaan, kas, akun lain) beserta tabel pencocokan buku besar */
+export function supportSheet(r: SupportReport, framework: FinancialNotes['framework'], company?: string): SheetSpec[] {
+  const recon = {
+    number: '',
+    title: 'Pencocokan dengan buku besar',
+    paragraphs: [],
+    tables: [
+      {
+        columns: ['Pencocokan', 'Rincian (dokumen/kartu)', 'Buku besar', 'Selisih', 'Status'],
+        align: ['left', 'right', 'right', 'right', 'left'] as ('left' | 'right')[],
+        rows: r.reconciliation.map((x) => [x.title, x.left.value, x.right.value, x.diff, x.ok ? 'Cocok' : 'Selisih']),
+      },
+    ],
+  };
+  return documentSheet('Pendukung', r.title, { framework, period: r.period, company: { name: company ?? '' }, sections: [recon, ...r.sections] } as unknown as DocLike, company, [`Periode ${tgl(r.period.from)} s/d ${tgl(r.period.to)}`, RP]);
+}
+
+function documentSheet(sheetName: string, docTitle: string, nt: DocLike, company?: string, subtitle?: string[]): SheetSpec[] {
   const width = Math.max(
     3,
     ...nt.sections.flatMap((x) => [
@@ -544,7 +562,7 @@ function documentSheet(sheetName: string, docTitle: string, nt: DocLike, company
   const s = new SheetBuilder(sheetName, {
     company: company ?? nt.company.name,
     title: docTitle,
-    subtitle: [`Untuk tahun yang berakhir ${tgl(nt.period.to)}`, `${basis(nt.framework)} · ${RP}`],
+    subtitle: subtitle ?? [`Untuk tahun yang berakhir ${tgl(nt.period.to)}`, `${basis(nt.framework)} · ${RP}`],
     columns: [
       { key: 'c0', header: 'Uraian', width: 50 },
       ...Array.from({ length: width - 1 }, (_, i) => money(`c${i + 1}`, '', 18)),

@@ -241,6 +241,7 @@ const MENU: Group[] = [
           { key: '/trial-balance', label: 'Neraca saldo' },
           { key: '/worksheet', label: 'Neraca lajur' },
           { key: '/reports', label: 'Laporan keuangan' },
+          { key: '/support-reports', label: 'Laporan pendukung' },
           { key: '/health', label: 'Cek kesehatan' },
           { key: '/accounting-controls', label: 'Kontrol pembukuan & pajak', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
         ],
