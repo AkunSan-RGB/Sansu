@@ -57,6 +57,7 @@ import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import ExportButtons from '@/components/ExportButtons';
 import { subscriptionVatSheet } from '@/lib/xlsx/reports';
+import DataSecurityTab from './DataSecurityTab';
 import BillingInvoiceModal from '../billing/BillingInvoiceDoc';
 import { SUB_COLOR } from '../billing/BillingPage';
 import { t } from '@/lib/terms';
@@ -140,6 +141,7 @@ export default function PlatformAdminPage() {
           { key: 'vat', label: 'Laporan PPN', children: <VatTab /> },
         ]
       : []),
+    { key: 'data', label: 'Keamanan data', children: <DataSecurityTab /> },
     { key: 'system', label: 'Sistem', children: <SystemTab /> },
     { key: 'settings', label: 'Pengaturan', children: <SettingsTab /> },
   ];
