@@ -91,9 +91,9 @@ Batasan yang masih ada:
 
 ## Kesimpulan dan saran otomatis
 
-Setiap laporan pendukung dibuka dengan bagian **Kesimpulan dan saran**: satu kalimat ringkasan (berapa pencocokan buku besar cocok, berapa temuan kritis/perlu perhatian) diikuti daftar temuan berurutan dari yang terparah. Tiap temuan berisi judul, keterangan dengan angka, dan saran tindak lanjut. Tingkatnya: Kritis (merah), Perhatian (oranye), Info (biru), Baik (hijau).
+Setiap laporan pendukung ditutup dengan bagian **Kesimpulan dan saran** di bagian paling bawah, setelah seluruh tabel: satu kalimat ringkasan (berapa pencocokan buku besar cocok, berapa temuan kritis/perlu perhatian) diikuti uraian bernomor dalam paragraf, dikelompokkan menjadi "Perlu ditindaklanjuti" (kritis dan perhatian), "Catatan", dan "Kondisi baik". Tiap uraian berisi temuan, keterangan dengan angka, dan saran tindak lanjut.
 
-Semuanya dihitung otomatis dari angka yang tersaji pada laporan itu sendiri dengan aturan tetap (`backend/src/modules/insights/support-insights.ts`), tanpa data tambahan dan tanpa AI. Bagian ini ikut tercetak dan diekspor ke Excel (bagian pertama lembar laporan).
+Semuanya dihitung otomatis dari angka yang tersaji pada laporan itu sendiri dengan aturan tetap (`backend/src/modules/insights/support-insights.ts`), tanpa data tambahan dan tanpa AI. Bagian ini ikut tercetak dan diekspor ke Excel (bagian terakhir lembar laporan).
 
 | Laporan | Contoh aturan |
 |---|---|

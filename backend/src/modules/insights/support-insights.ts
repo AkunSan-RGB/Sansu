@@ -116,10 +116,8 @@ class Builder {
 function reconciliation(b: Builder, recs: Reconciliation[]) {
   const bad = recs.filter((x) => !x.ok);
   if (!recs.length) return;
-  if (!bad.length) {
-    b.add('ok', `Semua ${recs.length} pencocokan buku besar cocok`, 'Angka rincian pada laporan ini sama dengan saldo/mutasi akun terkait di buku besar.');
-    return;
-  }
+  // Bila semuanya cocok, ringkasan di awal sudah menyatakannya; tidak perlu temuan terpisah
+  if (!bad.length) return;
   for (const x of bad) {
     if (x.key === 'mfg-conversion') {
       b.add('info', 'Biaya konversi tidak sama dengan biaya aktual', `Upah dan overhead yang dibebankan ke hasil produksi ${rp(x.left.value)}, sedangkan biaya aktual di buku besar ${rp(x.right.value)} (selisih ${rp(Math.abs(x.diff))}, ${x.diff > 0 ? 'lebih dibebankan' : 'kurang dibebankan'}).`, 'Ini selisih biaya produksi, bukan salah catat. Tinjau tarif standar upah/overhead di resep dan analisis selisih di menu Analisis selisih.');

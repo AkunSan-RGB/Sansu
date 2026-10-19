@@ -1,15 +1,16 @@
-import { CheckCircleFilled, CloseCircleFilled, ExclamationCircleFilled, InfoCircleFilled } from '@ant-design/icons';
+import { CheckCircleFilled, ExclamationCircleFilled } from '@ant-design/icons';
 import type { SupportConclusion, SupportReport } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Col, Input, Row, Space, Tabs, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
-import { type ReactNode, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { get } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import ExportButtons from '@/components/ExportButtons';
 import QueryState from '@/components/QueryState';
 import PageHeader from '@/layout/PageHeader';
+import { conclusionGroups } from '@/lib/conclusionText';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { supportSheet } from '@/lib/xlsx/reports';
 import { NoteTableView } from './statements/NotesView';
@@ -28,37 +29,25 @@ const KINDS: { key: SupportReport['kind']; label: string; hint: string; models?:
   { key: 'other', label: 'Akun lainnya', hint: 'Aset lain, liabilitas, ekuitas, pendapatan/beban lain, dan saldo pajak.' },
 ];
 
-const LEVELS: Record<SupportConclusion['status'], { label: string; color: string; alert: 'success' | 'info' | 'warning' | 'error'; icon: ReactNode }> = {
-  ok: { label: 'Baik', color: 'green', alert: 'success', icon: <CheckCircleFilled style={{ color: '#2e9d5b' }} /> },
-  info: { label: 'Info', color: 'blue', alert: 'info', icon: <InfoCircleFilled style={{ color: '#1677ff' }} /> },
-  warning: { label: 'Perhatian', color: 'orange', alert: 'warning', icon: <ExclamationCircleFilled style={{ color: '#d9822b' }} /> },
-  danger: { label: 'Kritis', color: 'red', alert: 'error', icon: <CloseCircleFilled style={{ color: '#d4380d' }} /> },
-};
-
-/** Kesimpulan, temuan, dan saran otomatis yang diturunkan dari angka pada laporan */
-function ConclusionPanel({ c }: { c: SupportConclusion }) {
+/** Kesimpulan dan saran otomatis, ditulis sebagai paragraf bernomor di akhir laporan */
+function ConclusionSection({ c }: { c: SupportConclusion }) {
+  const groups = conclusionGroups(c);
   return (
-    <section style={{ marginBottom: 24 }}>
-      <Typography.Title level={5} style={{ margin: '12px 0 8px' }}>Kesimpulan dan saran</Typography.Title>
-      <Alert type={LEVELS[c.status].alert} showIcon message={c.summary} style={{ marginBottom: 8 }} />
-      <Space direction="vertical" size={8} style={{ width: '100%' }}>
-        {c.findings.map((f, i) => (
-          <Card key={i} size="small">
-            <Space align="start">
-              <span style={{ fontSize: 18, marginTop: 2 }}>{LEVELS[f.level].icon}</span>
-              <div>
-                <div style={{ fontWeight: 600 }}>
-                  {f.title} <Tag color={LEVELS[f.level].color}>{LEVELS[f.level].label}</Tag>
-                </div>
-                <div style={{ fontSize: 13, marginTop: 2 }}>{f.detail}</div>
-                {f.action && <div style={{ fontSize: 13, marginTop: 4, color: '#555' }}><b>Saran:</b> {f.action}</div>}
-              </div>
-            </Space>
-          </Card>
-        ))}
-      </Space>
-      <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '8px 0 0' }}>
-        Kesimpulan dihasilkan otomatis dari angka pada laporan ini dengan aturan tetap; bukan pengganti pertimbangan akuntan.
+    <section style={{ marginTop: 8, paddingTop: 20, borderTop: '2px solid #d9dde6', breakInside: 'avoid-page' }}>
+      <Typography.Title level={5} style={{ margin: '0 0 8px' }}>Kesimpulan dan saran</Typography.Title>
+      <Typography.Paragraph>{c.summary}</Typography.Paragraph>
+      {groups.map((g) => (
+        <div key={g.heading} style={{ marginBottom: 12 }}>
+          <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>{g.heading}</Typography.Text>
+          {g.items.map((i) => (
+            <Typography.Paragraph key={i.no} style={{ margin: '0 0 8px', paddingLeft: 24, textIndent: -24 }}>
+              {i.no}.&nbsp;&nbsp;<b>{i.lead}</b> {i.body}
+            </Typography.Paragraph>
+          ))}
+        </div>
+      ))}
+      <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '12px 0 0' }}>
+        Kesimpulan di atas dihasilkan otomatis dari angka pada laporan ini dengan ambang yang dapat diatur di Pengaturan perusahaan; bukan pengganti pertimbangan akuntan.
       </Typography.Paragraph>
     </section>
   );
@@ -129,7 +118,6 @@ export default function SupportReportsPage() {
               </Typography.Paragraph>
 
 
-              <ConclusionPanel c={d.conclusion} />
 
               <Typography.Title level={5} style={{ margin: '12px 0 8px' }}>Pencocokan dengan buku besar</Typography.Title>
               <Row gutter={[12, 12]} style={{ marginBottom: 24 }}>
@@ -177,6 +165,8 @@ export default function SupportReportsPage() {
                   ))}
                 </section>
               ))}
+
+              <ConclusionSection c={d.conclusion} />
             </div>
           )}
         </QueryState>
