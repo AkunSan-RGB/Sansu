@@ -624,6 +624,13 @@
       "when": 1795977486484,
       "tag": "0088_hak_data_perusahaan",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1796063886484,
+      "tag": "0089_rute_pengiriman",
+      "breakpoints": true
     }
   ]
 }

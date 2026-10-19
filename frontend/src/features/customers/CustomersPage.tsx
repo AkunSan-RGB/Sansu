@@ -33,7 +33,9 @@ export default function CustomersPage() {
   const can = useCan();
   const { me } = useAuth();
   const isFmcg = me?.businessModel === 'FMCG';
-  const { data: priceLists } = useQuery({ queryKey: ['price-lists'], queryFn: () => get<{ id: string; name: string; isActive: boolean }[]>('/price-lists'), enabled: isFmcg });
+  const usesPriceList = isFmcg || me?.businessModel === 'DAGANG';
+  const usesGeo = usesPriceList || me?.businessModel === 'MANUFAKTUR';
+  const { data: priceLists } = useQuery({ queryKey: ['price-lists'], queryFn: () => get<{ id: string; name: string; isActive: boolean }[]>('/price-lists'), enabled: usesPriceList });
   const { data, isLoading } = useCustomers();
   const [editing, setEditing] = useState<Customer | 'new' | null>(null);
   const [form] = Form.useForm<FormValues>();
@@ -153,7 +155,7 @@ export default function CustomersPage() {
           <Form.Item name="address" label="Alamat">
             <Input.TextArea rows={2} />
           </Form.Item>
-          {isFmcg && (
+          {usesPriceList && (
             <Form.Item name="priceListId" label="Daftar harga (segmen)" extra="Harga di pesanan penjualan mengikuti daftar ini. Kosong = harga jual master.">
               <Select allowClear options={(priceLists ?? []).filter((l) => l.isActive).map((l) => ({ value: l.id, label: l.name }))} placeholder="Tanpa daftar harga" />
             </Form.Item>
@@ -163,11 +165,13 @@ export default function CustomersPage() {
               <Form.Item name="requirePo" label="Peritel modern (wajib nomor PO outlet)" valuePropName="checked" extra="Setiap pesanan harus membawa nomor PO outlet yang unik; mencegah satu PO ditagih dua kali.">
                 <Switch />
               </Form.Item>
-              <Space wrap>
-                <Form.Item name="geoLat" label="Lintang outlet" extra="Untuk memeriksa kunjungan kanvas"><InputNumber min={-90} max={90} step={0.000001} style={{ width: 160 }} placeholder="-6.200000" /></Form.Item>
-                <Form.Item name="geoLng" label="Bujur outlet"><InputNumber min={-180} max={180} step={0.000001} style={{ width: 160 }} placeholder="106.800000" /></Form.Item>
-              </Space>
             </>
+          )}
+          {usesGeo && (
+            <Space wrap>
+                <Form.Item name="geoLat" label="Lintang outlet" extra={isFmcg ? 'Untuk memeriksa kunjungan kanvas dan mengurutkan rute pengiriman' : 'Untuk mengurutkan rute pengiriman'}><InputNumber min={-90} max={90} step={0.000001} style={{ width: 160 }} placeholder="-6.200000" /></Form.Item>
+                <Form.Item name="geoLng" label="Bujur outlet"><InputNumber min={-180} max={180} step={0.000001} style={{ width: 160 }} placeholder="106.800000" /></Form.Item>
+            </Space>
           )}
           <Space wrap>
             <Form.Item name="creditLimit" label="Limit kredit (0 = tanpa batas)">

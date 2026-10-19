@@ -52,6 +52,7 @@ export const DOC_PREFIX = {
   PRINCIPAL_CLAIM: 'KLP',
   WORKFLOW_CASE: 'WF',
   UTILITY_CONNECTION: 'SBG',
+  DELIVERY_TRIP: 'RTE',
 } as const;
 
 export type DocType = keyof typeof DOC_PREFIX;

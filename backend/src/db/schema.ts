@@ -1071,6 +1071,52 @@ export const deliveryOrderLines = pgTable('delivery_order_lines', {
   unitCost: numeric('unit_cost', { precision: 18, scale: 4 }).notNull(),
 });
 
+/** Rute pengiriman: satu kendaraan/pengemudi membawa beberapa surat jalan pada satu tanggal */
+export const deliveryTrips = pgTable(
+  'delivery_trips',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    date: date('date').notNull(),
+    vehicle: text('vehicle'),
+    driverName: text('driver_name'),
+    status: text('status').$type<'PLANNED' | 'ON_ROUTE' | 'COMPLETED' | 'CANCELLED'>().notNull().default('PLANNED'),
+    notes: text('notes'),
+    departedAt: timestamp('departed_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    cancelReason: text('cancel_reason'),
+    createdById: uuid('created_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('delivery_trips_number_uq').on(t.tenantId, t.number), index('delivery_trips_date_idx').on(t.tenantId, t.date)],
+);
+
+export const deliveryTripStops = pgTable(
+  'delivery_trip_stops',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    tripId: uuid('trip_id')
+      .notNull()
+      .references(() => deliveryTrips.id, { onDelete: 'cascade' }),
+    deliveryId: uuid('delivery_id')
+      .notNull()
+      .references(() => deliveryOrders.id),
+    sequence: integer('sequence').notNull(),
+    status: text('status').$type<'PENDING' | 'DELIVERED' | 'FAILED'>().notNull().default('PENDING'),
+    receivedBy: text('received_by'),
+    receivedAt: timestamp('received_at', { withTimezone: true }),
+    failReason: text('fail_reason'),
+    note: text('note'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('delivery_trip_stops_active_uq').on(t.deliveryId).where(sql`${t.status} IN ('PENDING', 'DELIVERED')`),
+    index('delivery_trip_stops_trip_idx').on(t.tripId, t.sequence),
+  ],
+);
+
 export const invoices = pgTable(
   'invoices',
   {

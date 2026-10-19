@@ -176,9 +176,10 @@ export const BUSINESS_MODELS: BusinessModelInfo[] = [
     name: 'Dagang',
     summary: 'Membeli barang lalu menjualnya kembali ke pelanggan usaha',
     examples: 'Distributor, grosir, toko bangunan, suku cadang, alat kesehatan, ATK, penjual online',
-    flow: ['Pembelian', 'Stok gudang', 'Penjualan & faktur', 'Piutang', 'Laporan & pajak'],
+    flow: ['Pembelian', 'Stok gudang', 'Penjualan & faktur', 'Surat jalan & rute pengiriman', 'Piutang', 'Laporan & pajak'],
     apps: ['sales', 'purchase', 'inventory', 'accounting', 'cash'],
     ready: true,
+    note: 'Atur daftar harga per segmen pelanggan di Penjualan › Daftar harga (grosir, toko, proyek, dst.) dan pilih segmennya di data pelanggan. Isi lintang/bujur pelanggan agar rute pengiriman dapat diurutkan dari titik terdekat. Surat jalan dijadwalkan ke kendaraan di Penjualan › Rute pengiriman; bukti terima dicatat per stop.',
   },
   {
     key: 'RITEL',
