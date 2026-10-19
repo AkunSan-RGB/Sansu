@@ -1,3 +1,4 @@
+import { encryptField, maskField } from '../../common/utils/secret';
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuthUser } from '../../common/auth/auth-user';
 import { and, asc, eq, ilike, ne, or, sql } from 'drizzle-orm';
@@ -106,7 +107,7 @@ export class SuppliersService {
           refId: id,
           title: `Ubah rekening supplier ${cur.code} ${cur.name}: ${cur.bankName ?? ''} ${cur.bankAccountNo} → ${bank.bankName ?? cur.bankName ?? ''} ${bank.bankAccountNo ?? cur.bankAccountNo}`,
           amount: 0,
-          payload: { supplierId: id, ...bank },
+          payload: { supplierId: id, ...bank, ...(bank.bankAccountNo ? { bankAccountNo: encryptField(bank.bankAccountNo) } : {}) }, // nomor rekening di payload terenkripsi; kolom ikut terenkripsi saat diterapkan
         });
         pending = req;
       }
@@ -131,7 +132,7 @@ export class SuppliersService {
 
   /** Rekening berubah: tercatat di jejak audit dan Pemilik diberi tahu (kecuali dia sendiri pelakunya) */
   private async bankChanged(u: AuthUser, row: { id: string; code: string; name: string }, before: { bankName: string | null; bankAccountNo: string | null }, action: string) {
-    await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action, entity: 'Supplier', entityId: row.id, data: { before: { bank: before.bankName, no: before.bankAccountNo } } });
+    await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action, entity: 'Supplier', entityId: row.id, data: { before: { bank: before.bankName, no: maskField(before.bankAccountNo) } } });
     void this.approvals.notifyRoles(u.tenantId, { roles: ['OWNER'], excludeUserId: u.sub, info: true, title: `Rekening supplier ${row.code} ${row.name} diubah`, lines: ['Pembayaran ke supplier ini ditahan untuk persetujuan beberapa hari sesuai kebijakan.'], path: '/suppliers' });
   }
 

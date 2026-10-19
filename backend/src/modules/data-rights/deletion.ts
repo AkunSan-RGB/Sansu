@@ -22,6 +22,17 @@ import { eraseTenant } from './erase';
 import { ReauthService } from './reauth';
 
 export const GRACE_DAYS = () => Math.max(7, Number(process.env.DATA_DELETION_GRACE_DAYS ?? 30) || 30);
+/** Lama salinan cadangan menyimpan data setelah penghapusan (BACKUP_RETENTION_DAYS = jendela pemulihan/retensi backup yang Anda atur di penyedia database); kosong = belum ditetapkan */
+export const BACKUP_RETENTION_DAYS = (): number | null => {
+  const n = Math.floor(Number(process.env.BACKUP_RETENTION_DAYS));
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+export const backupNote = (): string => {
+  const n = BACKUP_RETENTION_DAYS();
+  return n
+    ? `Salinan cadangan sistem tidak ikut terhapus saat itu dan hilang otomatis paling lama ${n} hari setelah penghapusan.`
+    : 'Salinan cadangan sistem tidak ikut terhapus saat itu dan hilang sesuai siklus penyimpanan cadangan penyedia; lama pastinya diberitahukan atas permintaan.';
+};
 const REMIND_EVERY_DAYS = 3;
 const REMIND_WITHIN_DAYS = 7;
 
@@ -72,7 +83,7 @@ export class DeletionService implements OnModuleInit, OnModuleDestroy {
     const [active] = await this.db.select().from(dataDeletionRequests).where(and(eq(dataDeletionRequests.tenantId, tenantId), inArray(dataDeletionRequests.status, ['SCHEDULED', 'ON_HOLD'])));
     const [lastExport] = await this.db.select({ at: auditLogs.createdAt }).from(auditLogs).where(and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.action, 'DATA_EXPORT'))).orderBy(desc(auditLogs.createdAt)).limit(1);
     const exported = active ? await this.hasExport(tenantId, active.requestedAt) : false;
-    return { graceDays: GRACE_DAYS(), lastExportAt: lastExport?.at ?? null, deletion: this.view(active, exported) };
+    return { graceDays: GRACE_DAYS(), backupRetentionDays: BACKUP_RETENTION_DAYS(), backupNote: backupNote(), lastExportAt: lastExport?.at ?? null, deletion: this.view(active, exported) };
   }
 
   async request(u: AuthUser, dto: DeletionDto) {
@@ -97,6 +108,7 @@ export class DeletionService implements OnModuleInit, OnModuleDestroy {
       `${u.email} meminta penghapusan PERMANEN seluruh data perusahaan ${company.name} di SANSU.`,
       `Penghapusan dijadwalkan pada ${scheduledFor}. Sebelum tanggal itu Anda dapat membatalkannya kapan saja di Pengaturan › Data & privasi.`,
       dto.exportWaived ? 'Pemilik memilih menghapus tanpa mengunduh ekspor data.' : 'Penghapusan hanya dijalankan setelah ekspor data diunduh.',
+      backupNote(),
       'Jika ini bukan permintaan Anda, segera batalkan, ganti kata sandi, dan hubungi dukungan SANSU.',
     ]);
     void telegram(`🗑️ Permintaan penghapusan data: ${company.name} (dijadwalkan ${scheduledFor})`).catch(() => undefined);
@@ -200,7 +212,7 @@ export class DeletionService implements OnModuleInit, OnModuleDestroy {
     }
     this.logger.log(`Data perusahaan ${r.tenantId} dihapus: ${res.rowsDeleted} baris, ${res.tablesTouched} tabel`);
     for (const email of to) {
-      await this.mail.send({ to: email, subject: 'Data perusahaan Anda telah dihapus', heading: 'Penghapusan data selesai', paragraphs: [`Seluruh data perusahaan ${company.name} telah dihapus permanen dari SANSU sesuai permintaan.`, 'Salinan yang masih ada di cadangan sistem akan hilang sendiri sesuai siklus penyimpanan cadangan.', 'Terima kasih telah memakai SANSU.'] });
+      await this.mail.send({ to: email, subject: 'Data perusahaan Anda telah dihapus', heading: 'Penghapusan data selesai', paragraphs: [`Seluruh data perusahaan ${company.name} telah dihapus permanen dari SANSU sesuai permintaan.`, backupNote(), 'Terima kasih telah memakai SANSU.'] });
     }
     void telegram(`🗑️ Data perusahaan dihapus: ${company.name} (${res.rowsDeleted} baris)`).catch(() => undefined);
   }

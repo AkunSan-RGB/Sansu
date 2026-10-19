@@ -9,6 +9,7 @@ import { AllowWhenLocked, PlatformAdminGuard } from '../../common/auth/platform-
 import { DeletionService } from './deletion';
 import { TenantExportService } from './export';
 import { ReauthService } from './reauth';
+import { FieldEncryptionService } from './field-encryption';
 import { SecurityPostureService } from './security-posture';
 
 export class ExportDto {
@@ -119,7 +120,7 @@ export class DataRightsAdminController {
 
 @Module({
   controllers: [CompanyDataController, DataRightsAdminController],
-  providers: [TenantExportService, DeletionService, ReauthService, SecurityPostureService, PlatformAdminGuard],
+  providers: [TenantExportService, DeletionService, ReauthService, SecurityPostureService, FieldEncryptionService, PlatformAdminGuard],
   exports: [SecurityPostureService],
 })
 export class DataRightsModule {}

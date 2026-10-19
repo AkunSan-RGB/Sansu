@@ -23,6 +23,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  customType,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import {
@@ -44,6 +45,14 @@ import {
   STOCK_MOVE_TYPES,
 } from '@sansu/shared';
 
+import { decryptField, encryptField } from '../common/utils/secret';
+
+/** Kolom identitas/rekening: terenkripsi AES-256-GCM di database, otomatis dibuka/ditutup saat dibaca/ditulis (lihat secret.ts) */
+const encryptedText = customType<{ data: string | null; driverData: string | null }>({
+  dataType: () => 'text',
+  toDriver: (v) => encryptField(v),
+  fromDriver: (v) => decryptField(v),
+});
 const money = (name: string) => numeric(name, { precision: 18, scale: 2 });
 const qty = (name: string) => numeric(name, { precision: 18, scale: 4 });
 /** UUIDv7 (bawaan PostgreSQL 18): berurutan waktu → indeks B-tree lebih rapat & insert lebih cepat */
@@ -278,7 +287,7 @@ export const customers = pgTable(
     /** Alamat email untuk pengingat tagihan otomatis */
     email: text('email'),
     address: text('address'),
-    npwp: text('npwp'),
+    npwp: encryptedText('npwp'),
     /** 0 = tanpa batas */
     creditLimit: money('credit_limit').notNull().default('0'),
     paymentTermDays: integer('payment_term_days').notNull().default(30),
@@ -1271,7 +1280,7 @@ export const suppliers = pgTable(
     name: text('name').notNull(),
     phone: text('phone'),
     address: text('address'),
-    npwp: text('npwp'),
+    npwp: encryptedText('npwp'),
     paymentTermDays: integer('payment_term_days').notNull().default(30),
     isActive: boolean('is_active').notNull().default(true),
     /** Supplier favorit: PO / permintaan pembelian sampai batas ini disetujui otomatis (0 = tidak ada) */
@@ -1279,7 +1288,7 @@ export const suppliers = pgTable(
     autoApproveLimit: money('auto_approve_limit').notNull().default('0'),
     /** Rekening pembayaran. Perubahan rekening yang sudah terisi wajib disetujui orang lain (anti pengalihan pembayaran) */
     bankName: text('bank_name'),
-    bankAccountNo: text('bank_account_no'),
+    bankAccountNo: encryptedText('bank_account_no'),
     bankAccountName: text('bank_account_name'),
     bankChangedAt: timestamp('bank_changed_at', { withTimezone: true }),
     createdAt: createdAt(),
@@ -2205,8 +2214,8 @@ export const employees = pgTable(
     tenantId: tenantId(),
     code: text('code').notNull(),
     name: text('name').notNull(),
-    nik: text('nik'),
-    npwp: text('npwp'),
+    nik: encryptedText('nik'),
+    npwp: encryptedText('npwp'),
     ptkp: text('ptkp').notNull().default('TK/0'),
     jobTitle: text('job_title'),
     department: text('department'),
@@ -2216,7 +2225,7 @@ export const employees = pgTable(
     email: text('email'),
     address: text('address'),
     bankName: text('bank_name'),
-    bankAccount: text('bank_account'),
+    bankAccount: encryptedText('bank_account'),
     baseSalary: money('base_salary').notNull().default('0'),
     /** Tunjangan tetap bulanan (ikut dasar BPJS) */
     fixedAllowance: money('fixed_allowance').notNull().default('0'),

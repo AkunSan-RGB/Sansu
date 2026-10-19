@@ -18,6 +18,7 @@ Dokumen ini ringkasan kontrol keamanan SANSU yang ada di kode, cara memeriksanya
 | Header | CSP ketat (`default-src 'self'`, tanpa skrip sebaris), `frame-ancestors 'none'`, HSTS, `nosniff`, tanpa `x-powered-by`; Caddy menambah CSP yang sama di instalasi VPS | `bootstrap.ts`, `deploy/Caddyfile` |
 | Postur database | Saat start dan tiap 24 jam: peran aplikasi tunduk RLS, semua tabel data perusahaan ber-RLS, uji isolasi langsung; produksi menolak start bila gagal | `modules/data-rights/security-posture.ts`, `docs/DATA-PERUSAHAAN.md` |
 | Hak data klien | Ekspor seluruh data (verifikasi ulang, sekali pakai, tanpa rahasia) dan penghapusan terjadwal bermasa tenggang dengan pemeriksaan jumlah baris | `modules/data-rights`, `docs/DATA-PERUSAHAAN.md` |
+| Enkripsi kolom | NIK, NPWP (pelanggan, pemasok, karyawan) dan nomor rekening (pemasok, karyawan) tersimpan terenkripsi AES-256-GCM; jejak audit hanya memuat 4 karakter terakhir; data lama dienkripsi otomatis saat start | `common/utils/secret.ts`, `modules/data-rights/field-encryption.ts`, `docs/DATA-PERUSAHAAN.md` |
 | Jejak audit | Perubahan penting dicatat (siapa, kapan, sebelum/sesudah); periode pembukuan bisa dikunci | modul `audit` |
 | Pemantauan | Galat 5xx dikirim ke Telegram | `docs/OPERASIONAL.md` |
 
@@ -26,7 +27,7 @@ Dokumen ini ringkasan kontrol keamanan SANSU yang ada di kode, cara memeriksanya
 - [ ] `JWT_SECRET` dan `DATA_ENCRYPTION_KEY` acak ≥ 32 karakter, **berbeda satu sama lain**, tersimpan hanya di variabel server (bukan di repositori/chat). Aplikasi menolak start bila salah satunya lemah.
 - [ ] `NODE_ENV=production`; `SWAGGER` tidak diisi `true` (dokumentasi API menampilkan seluruh rute).
 - [ ] `CORS_ORIGIN` hanya alamat aplikasi sendiri.
-- [ ] Koneksi ke database memakai TLS, dan **enkripsi saat disimpan (at rest)** aktif di penyedia database. Data bisnis tidak dienkripsi per kolom; perlindungannya bergantung pada ini.
+- [ ] Koneksi ke database memakai TLS, dan **enkripsi saat disimpan (at rest)** aktif di penyedia database. Hanya kolom identitas/rekening yang dienkripsi per kolom (lihat di atas); data bisnis lainnya bergantung pada ini.
 - [ ] Aplikasi tersambung ke database sebagai peran `sansu_app`, bukan superuser/pemilik (jika tidak, RLS terlewati). Periksa: `SELECT current_user, rolbypassrls FROM pg_roles WHERE rolname = current_user;` harus `false`.
 - [ ] Backup: jendela pemulihan sesuai paket berbayar, salinan terenkripsi di luar penyedia, dan **uji pemulihan tercatat** (lihat `docs/OPERASIONAL.md`).
 - [ ] HTTPS dipaksa dan sertifikat valid; header diperiksa dengan `curl -sI https://<domain>/`.
@@ -55,6 +56,8 @@ Dokumen ini ringkasan kontrol keamanan SANSU yang ada di kode, cara memeriksanya
 | JWT berlaku 12 jam tanpa refresh | Token curian berlaku sampai kedaluwarsa kecuali pengguna ganti kata sandi/"keluar dari semua perangkat" | Perpendek masa berlaku untuk peran sensitif atau tambah refresh token |
 | bcrypt cost 10 | Cukup, tetapi di bawah rekomendasi terkini untuk perangkat keras baru | Naikkan ke 12 (hash lama tetap berlaku) |
 | CSP memakai `style-src 'unsafe-inline'` | Diperlukan Ant Design; membuka injeksi gaya (bukan skrip) | Pantau; pertimbangkan nonce gaya bila pustaka mendukung |
-| Data bisnis tidak dienkripsi per kolom | Bocornya cadangan/disk berarti data terbaca | Pastikan enkripsi at rest dan backup terenkripsi |
+| Hanya NIK, NPWP, dan nomor rekening yang dienkripsi per kolom | Data bisnis lain (transaksi, gaji, nama, alamat) terbaca bila cadangan/disk bocor | Pastikan enkripsi at rest dan backup terenkripsi |
+| Kunci enkripsi tunggal tanpa rotasi otomatis | Kunci hilang/berganti = kolom terenkripsi tak terbaca; kunci bocor + cadangan bocor = terbaca | Simpan salinan kunci terpisah; rotasi kunci (enkripsi ulang) belum ada |
+| Judul permintaan persetujuan ubah rekening supplier memuat nomor rekening | Persetujuan perlu menampilkan nomor agar bisa dibandingkan; tersimpan teks biasa di judul | Pertimbangkan menyamarkan sebagian dan menampilkan penuh hanya di layar penyetuju |
 | Belum ada uji penetrasi independen | Keyakinan berasal dari tinjauan kode dan tes otomatis | Lakukan sebelum layanan berbayar |
 | Pengaman ini belum ditinjau untuk UU PDP | Kewajiban hukum belum dipastikan | Tinjau advokat bersama Syarat Layanan dan Kebijakan Privasi |

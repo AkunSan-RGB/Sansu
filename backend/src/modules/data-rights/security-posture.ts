@@ -5,6 +5,7 @@
  */
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
+import { FieldEncryptionService } from './field-encryption';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { APP_ROLE } from '../../db/tenant-pool';
@@ -58,7 +59,7 @@ export class SecurityPostureService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   last?: Posture;
 
-  constructor(@InjectDb() private readonly db: Db) {}
+  constructor(@InjectDb() private readonly db: Db, private readonly fields: FieldEncryptionService) {}
 
   private async rows<T extends Record<string, unknown>>(q: ReturnType<typeof sql>) {
     return (await this.db.execute<T>(q)).rows;
@@ -121,6 +122,14 @@ export class SecurityPostureService implements OnModuleInit, OnModuleDestroy {
     // 5. Koneksi ke database terenkripsi (peringatan: jaringan privat Docker memang tanpa TLS)
     const [ssl] = await this.rows<{ ssl: boolean | null }>(sql`SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()`);
     add('db-tls', 'Koneksi aplikasi ke database memakai TLS', ssl?.ssl === true, ssl?.ssl === true ? 'TLS aktif' : 'Tanpa TLS. Wajar bila database di jaringan privat yang sama; wajib TLS bila lewat internet (mis. Neon)', 'warning');
+
+    // 6. Kolom identitas/rekening terenkripsi (peringatan: pengisian ulang data lama berjalan di latar belakang saat start)
+    try {
+      const plain = await this.fields.plaintextCount();
+      add('field-encryption', 'NIK, NPWP, dan nomor rekening tersimpan terenkripsi', plain === 0, plain === 0 ? 'Semua nilai terenkripsi (AES-256-GCM)' : `${plain} nilai masih teks biasa; dienkripsi otomatis saat aplikasi start (lihat log "Enkripsi")`, 'warning');
+    } catch (e) {
+      add('field-encryption', 'NIK, NPWP, dan nomor rekening tersimpan terenkripsi', false, `Pemeriksaan gagal: ${(e as Error).message}`, 'warning');
+    }
 
     const posture: Posture = { ok: checks.every((c) => c.ok || c.severity !== 'critical'), checkedAt: new Date().toISOString(), checks };
     this.last = posture;

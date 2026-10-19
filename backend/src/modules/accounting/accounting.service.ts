@@ -26,6 +26,7 @@ import { BudgetService } from './budget';
 import { PostingService } from './posting.service';
 import { loadSourceDocument } from './source-document';
 import { resolveSourceRoutes } from './source-route';
+import { decryptField } from '../../common/utils/secret';
 
 interface BalanceRow {
   id: string;
@@ -966,7 +967,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       vatIn: vatIn.toFixed(2),
       net: net.toFixed(2),
       status: net.isPositive() ? 'KURANG_BAYAR' : net.isNegative() ? 'LEBIH_BAYAR' : 'NIHIL',
-      documents: docs.rows.map((d) => ({ ...d, dpp: D(d.dpp).toFixed(2), ppn: D(d.ppn).toFixed(2) })),
+      documents: docs.rows.map((d) => ({ ...d, npwp: decryptField(d.npwp), dpp: D(d.dpp).toFixed(2), ppn: D(d.ppn).toFixed(2) })),
     };
   }
 

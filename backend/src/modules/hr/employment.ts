@@ -22,6 +22,7 @@ import { addDays, todayJakarta } from '../../common/utils/dates';
 import { D } from '../../common/utils/money';
 import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
+import { decryptField, encryptField } from '../../common/utils/secret';
 import { employeeChangeRequests, employees } from '../../db/schema';
 
 export const EMPLOYMENT_TYPES = ['TETAP', 'KONTRAK', 'HARIAN', 'TENAGA_LEPAS', 'MAGANG', 'MITRA'] as const;
@@ -43,6 +44,14 @@ export const SENSITIVE_FIELDS = [
   'bpjsKes', 'bpjsTk', 'bpjsJp', 'ptkp', 'nik', 'npwp', 'reactivate',
 ] as const;
 const DIGITS = (v: unknown) => String(v ?? '').replace(/\D/g, '');
+
+type Changes = Record<string, { from: unknown; to: unknown }>;
+const ID_FIELDS = ['nik', 'npwp', 'bankAccount'];
+/** Nilai identitas pada permintaan perubahan ikut terenkripsi di database (kolom jsonb), sama seperti kolom aslinya */
+const sealChanges = (c: Changes): Changes =>
+  Object.fromEntries(Object.entries(c).map(([k, v]) => [k, ID_FIELDS.includes(k) ? { from: typeof v.from === 'string' ? encryptField(v.from) : v.from, to: typeof v.to === 'string' ? encryptField(v.to) : v.to } : v]));
+const openChanges = (c: Changes): Changes =>
+  Object.fromEntries(Object.entries(c).map(([k, v]) => [k, ID_FIELDS.includes(k) ? { from: typeof v.from === 'string' ? decryptField(v.from) : v.from, to: typeof v.to === 'string' ? decryptField(v.to) : v.to } : v]));
 
 export interface EmpShape {
   joinDate: string;
@@ -130,13 +139,14 @@ export class EmploymentService {
 
   /** NIK / NPWP / rekening yang sama dengan karyawan aktif lain ditolak (cegah karyawan ganda & rekening dialihkan) */
   async assertNoDuplicates(db: DbOrTx, tenantId: string, selfId: string | null, v: { nik?: string | null; npwp?: string | null; bankAccount?: string | null }) {
-    for (const [col, label, raw] of [['nik', 'NIK', v.nik], ['npwp', 'NPWP', v.npwp], ['bank_account', 'Nomor rekening', v.bankAccount]] as const) {
+    // kolom identitas terenkripsi (acak) → dibandingkan di aplikasi, bukan di SQL
+    const active = await db.select({ id: employees.id, code: employees.code, name: employees.name, nik: employees.nik, npwp: employees.npwp, bankAccount: employees.bankAccount })
+      .from(employees).where(and(eq(employees.tenantId, tenantId), eq(employees.isActive, true)));
+    for (const [col, label, raw] of [['nik', 'NIK', v.nik], ['npwp', 'NPWP', v.npwp], ['bankAccount', 'Nomor rekening', v.bankAccount]] as const) {
       const d = DIGITS(raw);
       if (!d) continue;
-      const r = await db.execute<{ code: string; name: string }>(sql`
-        SELECT code, name FROM employees WHERE tenant_id = ${tenantId} AND is_active AND regexp_replace(coalesce(${sql.raw(col)}, ''), '\\D', '', 'g') = ${d}
-          ${selfId ? sql`AND id <> ${selfId}` : sql``} LIMIT 1`);
-      if (r.rows.length) throw new BadRequestException(`${label} sudah dipakai karyawan aktif lain (${r.rows[0].code} · ${r.rows[0].name})`);
+      const hit = active.find((e) => e.id !== selfId && DIGITS(e[col]) === d);
+      if (hit) throw new BadRequestException(`${label} sudah dipakai karyawan aktif lain (${hit.code} · ${hit.name})`);
     }
   }
 
@@ -174,7 +184,7 @@ export class EmploymentService {
     await this.assertNoDuplicates(this.db, user.tenantId, emp.id, { nik: merged.nik as string, npwp: merged.npwp as string, bankAccount: merged.bankAccount as string });
     const [pending] = await this.db.select({ id: employeeChangeRequests.id }).from(employeeChangeRequests).where(and(eq(employeeChangeRequests.employeeId, emp.id), eq(employeeChangeRequests.status, 'PENDING')));
     if (pending) throw new BadRequestException('Masih ada permintaan perubahan yang menunggu persetujuan untuk karyawan ini');
-    const [req] = await this.db.insert(employeeChangeRequests).values({ tenantId: user.tenantId, employeeId: emp.id, changes, reason: reason ?? null, requestedById: user.sub }).returning();
+    const [req] = await this.db.insert(employeeChangeRequests).values({ tenantId: user.tenantId, employeeId: emp.id, changes: sealChanges(changes), reason: reason ?? null, requestedById: user.sub }).returning();
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'REQUEST', entity: 'EmployeeChange', entityId: req.id, data: { employee: emp.code, fields: Object.keys(changes) } });
     void this.approvals.notifyRoles(user.tenantId, { roles: ['FINANCE', 'ADMIN', 'OWNER'], excludeUserId: user.sub, title: `Perubahan data karyawan ${emp.code} menunggu persetujuan`, lines: [`Bidang: ${Object.keys(changes).join(', ')}`], path: '/employees/controls' });
     return { direct, request: { id: req.id, fields: Object.keys(changes) } };
@@ -195,7 +205,7 @@ export class EmploymentService {
       LEFT JOIN users ru ON ru.id = c.requested_by_id LEFT JOIN users du ON du.id = c.decided_by_id
       WHERE c.tenant_id = ${u.tenantId} ${q.status ? sql`AND c.status = ${q.status}` : sql``}
       ORDER BY c.created_at DESC LIMIT 300`);
-    return rows.rows;
+    return rows.rows.map((r) => ({ ...r, changes: openChanges(r.changes as Changes) }));
   }
 
   async approveChange(u: AuthUser, id: string, dto: DecideChangeDto) {
@@ -204,25 +214,26 @@ export class EmploymentService {
       if (!c) throw new NotFoundException('Permintaan tidak ditemukan');
       if (c.status !== 'PENDING') throw new BadRequestException('Permintaan ini sudah diputuskan');
       await this.assertCanDecide(tx, u, c.requestedById, c.employeeId);
+      const changes = openChanges(c.changes);
       const [emp] = await tx.select().from(employees).where(eq(employees.id, c.employeeId)).for('update');
       // data harus masih sama seperti saat diajukan (cegah menimpa perubahan lain)
-      for (const [k, ch] of Object.entries(c.changes)) {
+      for (const [k, ch] of Object.entries(changes)) {
         const cur = (emp as Record<string, unknown>)[k] ?? null;
         const same = String(cur ?? '') === String(ch.from ?? '') || (cur !== null && ch.from !== null && /^-?\d+(\.\d+)?$/.test(String(cur)) && D(String(cur)).eq(D(String(ch.from))));
         if (!same) throw new BadRequestException(`Data ${k} sudah berubah sejak diajukan; minta HR mengajukan ulang`);
       }
       const merged = { ...emp } as Record<string, unknown>;
-      for (const [k, ch] of Object.entries(c.changes)) merged[k] = ch.to;
+      for (const [k, ch] of Object.entries(changes)) merged[k] = ch.to;
       applyEmploymentRules('JASA', merged as unknown as EmpShape);
       await this.assertNoDuplicates(tx, u.tenantId, emp.id, { nik: merged.nik as string, npwp: merged.npwp as string, bankAccount: merged.bankAccount as string });
       const patch: Record<string, unknown> = {};
-      for (const [k, ch] of Object.entries(c.changes)) patch[k] = ch.to;
+      for (const [k, ch] of Object.entries(changes)) patch[k] = ch.to;
       // aturan status dapat menormalkan nilai (mis. BPJS mati untuk tenaga lepas)
       const norm = applyEmploymentRules('JASA', merged as unknown as EmpShape) as unknown as Record<string, unknown>;
       for (const k of ['bpjsKes', 'bpjsTk', 'bpjsJp'] as const) if (norm[k] !== merged[k]) patch[k] = norm[k];
       await tx.update(employees).set(patch).where(eq(employees.id, emp.id));
       await tx.update(employeeChangeRequests).set({ status: 'APPROVED', decidedById: u.sub, decidedAt: new Date(), decisionNote: dto.note ?? null }).where(eq(employeeChangeRequests.id, id));
-      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'APPROVE', entity: 'EmployeeChange', entityId: id, data: { employee: emp.code, changes: c.changes, requestedBy: c.requestedById } });
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'APPROVE', entity: 'EmployeeChange', entityId: id, data: { employee: emp.code, changes, requestedBy: c.requestedById } });
       return { id, status: 'APPROVED' };
     });
   }
