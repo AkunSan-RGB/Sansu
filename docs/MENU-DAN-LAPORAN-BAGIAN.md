@@ -47,8 +47,13 @@ Menu "Laporan <bagian>" membuka **laporan kerja bagian itu**, bukan laporan pend
 | Utilitas | Sambungan per status · tagihan per periode · tunggakan · pemakaian per tarif · temuan pencatatan meter |
 | SDM | Karyawan per bagian · status · absensi · cuti · penggajian · rekap PPh 21/BPJS |
 
-Berbeda dari usulan awal: laporan FMCG tetap menu sendiri di samping Laporan penjualan; "Harga pokok produksi" dan "Analisis selisih" tetap menu di Produksi (halaman rincian standar); "Perputaran persediaan" kini tab di Laporan persediaan (halamannya masih ada); Laporan utilitas tidak memuat kehilangan per zona (data zona belum ada); Laporan F&B memuat bahan terpakai tetapi perbandingan dengan resep standar tetap di Laporan pendukung F&B.
+Berbeda dari usulan awal: laporan FMCG tetap menu sendiri di samping Laporan penjualan; "Harga pokok produksi" dan "Analisis selisih" tetap menu di Produksi (halaman rincian standar); "Perputaran persediaan" kini tab di Laporan persediaan (halamannya masih ada); Laporan utilitas kini memuat kehilangan per zona (lihat bawah); Laporan F&B memuat bahan terpakai dan bagian "Selisih bahan vs resep".
 
 ## Laporan pendukung dan Cek kesehatan
 - **Laporan pendukung** kini hanya satu menu di Akuntansi › Laporan (tepat sesudah Laporan keuangan). Tab per bidang ada di dalam halamannya; "Laporan akun lainnya" menjadi tab. Tiap halaman Laporan bagian punya tautan ke tab pendukung yang sesuai.
 - **Cek kesehatan** menjadi menu mandiri di bawah Dashboard untuk Pemilik, Admin, Keuangan, dan Akuntan.
+
+## Lanjutan: zona utilitas, selisih bahan F&B, istilah
+- **Kehilangan per zona (Utilitas)**: sambungan diberi *zona* (mis. Zona A). Admin/Keuangan mengisi *pasokan* tiap zona per bulan (angka meter induk/sumber) di tab "Zona & kehilangan". Kehilangan = pasokan − pemakaian terverifikasi/tertagih; di atas 20% ditandai tinggi, pemakaian melebihi pasokan ditandai janggal, dan zona dengan catatan belum terverifikasi/belum dicatat ditandai belum lengkap. Zona dengan satuan layanan berbeda ditolak. Muncul di Laporan utilitas dan tab Kontrol; perubahan pasokan masuk jejak audit. Pencatat meter tidak bisa mengisi pasokan (pemisahan tugas).
+- **Selisih bahan vs resep (F&B)**: Laporan F&B membandingkan bahan yang seharusnya terpakai menurut resep dan penjualan menu dengan bahan yang benar-benar keluar lewat kasir, plus susut (penyesuaian keluar).
+- **Istilah**: satu-satunya teks server yang masih memuat "Purchase Order" (saran stok) kini "pesanan pembelian".

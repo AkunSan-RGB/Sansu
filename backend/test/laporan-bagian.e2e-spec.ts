@@ -191,4 +191,29 @@ describe('Laporan bagian (e2e)', () => {
       expect(Number((sec(r, 'perintah').rows[0] as { yield: string }).yield)).toBe(100);
     });
   });
+
+  describe('F&B: selisih bahan terhadap resep', () => {
+    it('bahan yang dibuang tampil sebagai susut terhadap kebutuhan resep', async () => {
+      const fnb = (await http.post('/api/auth/register').send({ companyName: 'Kedai Laporan', name: 'Pemilik', email: `lb-f-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'FNB' }).expect(201)).body.accessToken;
+      await post(fnb, '/api/apps/pos/install').expect(201);
+      const w = (await get(fnb, '/api/warehouses').expect(200)).body[0].id;
+      const kopi = (await post(fnb, '/api/products', { sku: 'F-KOPI', name: 'Biji Kopi', baseUom: 'GRAM', sellPrice: '0' }).expect(201)).body.id;
+      const menu = (await post(fnb, '/api/products', { sku: 'F-MENU', name: 'Kopi Susu', baseUom: 'PCS', sellPrice: '24000', madeToOrder: true }).expect(201)).body.id;
+      await post(fnb, '/api/production/boms', { name: 'Resep Kopi Susu', productId: menu, outputQty: '1', laborCost: '0', overheadCost: '0', lines: [{ productId: kopi, qty: '18' }] }).expect(201);
+      await post(fnb, '/api/inventory/adjustments', { warehouseId: w, reason: 'OPENING', date: today, lines: [{ productId: kopi, qty: '1000', unitCost: '140' }] }).expect(201);
+      const kasir = await (async () => { await post(fnb, '/api/users', { name: 'Kasir', email: `lb-fk-${stamp}@uji.id`, password: 'rahasia12345', role: 'CASHIER' }).expect(201); return login(`lb-fk-${stamp}@uji.id`); })();
+      const session = (await post(kasir, '/api/pos/sessions', { warehouseId: w, openingCash: '0' }).expect(201)).body.id;
+      await post(kasir, '/api/pos/orders', { sessionId: session, lines: [{ productId: menu, qty: '10', price: '24000' }], payments: [{ method: 'CASH', amount: '300000' }] }).expect(201);
+      await post(fnb, '/api/inventory/adjustments', { warehouseId: w, reason: 'DAMAGED', date: today, lines: [{ productId: kopi, qty: '-90' }] }).expect(201);
+      const r = await report(fnb, 'fnb');
+      const row = sec(r, 'selisih').rows[0] as { ingredient: string; expected: string; pos_used: string; waste: string; waste_pct: string; waste_value: string };
+      expect(row.ingredient).toBe('Biji Kopi');
+      expect(Number(row.expected)).toBe(180); // 10 menu × 18 gr
+      expect(Number(row.pos_used)).toBe(180);
+      expect(Number(row.waste)).toBe(90);
+      expect(Number(row.waste_pct)).toBe(50);
+      expect(Number(row.waste_value)).toBe(12600); // 90 gr × Rp140
+      expect(kpi(r, 'Susut bahan (penyesuaian keluar)')).toBe(12600);
+    });
+  });
 });
