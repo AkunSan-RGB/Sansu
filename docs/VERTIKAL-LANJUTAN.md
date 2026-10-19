@@ -108,3 +108,20 @@ Menu: Kasir (POS) › *Program loyalitas* dan *Pencairan QRIS/kartu* (Ritel dan 
 - Penjualan non-tunai kasir langsung masuk bank sebesar penuh. Untuk tiap pencairan penyelenggara: pilih pembayaran yang dicairkan, isi uang bersih menurut rekening koran. Sistem menghitung MDR kontrak (%, diatur Admin), membandingkan, dan menjurnal Dr Beban MDR (QRIS/Kartu) ; Dr/Cr Beban Administrasi Bank (selisih dari hitungan) | Cr Bank (kotor − diterima).
 - Satu pembayaran hanya satu pencairan; selisih wajib penjelasan; selisih di atas toleransi hanya Admin/Pemilik; pembatalan oleh Admin dengan alasan membalik jurnal dan membebaskan pembayaran. Kontrol: belum cair lewat N hari, pencairan berselisih, MDR efektif > kontrak + 0,5 poin persen.
 - **Batasan:** tidak ada integrasi otomatis ke penyelenggara/bank/EDC (jumlah dimasukkan manual dari rekening koran); retur atas penjualan non-tunai hanya diberi penanda pada daftar (pengembalian lewat penyelenggara perlu dicatat dalam selisih); satu pencairan hanya untuk satu rekening bank.
+
+## Jasa — lembar waktu yang dapat ditagih dan jadwal sumber daya (`backend/src/modules/sales/services/timesheets.ts`, `scheduling.ts`)
+Menu: Pendapatan jasa › *Lembar waktu* dan *Jadwal sumber daya*. Lembar waktu membutuhkan data karyawan (aplikasi SDM/Penggajian aktif); akun pengguna dihubungkan ke karyawan agar staf mencatat untuk dirinya.
+
+**Lembar waktu**
+- **Alur:** Draf → Diajukan → Disetujui → Tertagih (atau Ditolak → diperbaiki, Disetujui → Dihapus-tagih). Catatan: karyawan, tanggal, jam (≤ 16 per catatan dan per hari per karyawan), klien/proyek, uraian, dapat ditagih atau tidak.
+- **Tarif per jam:** daftar tarif berlaku sejak tanggal; paling spesifik menang (proyek+karyawan > proyek > karyawan > umum). Catatan tanpa tarif tidak dapat disetujui. Mengubah tarif saat persetujuan hanya Admin/Pemilik dengan alasan.
+- **Penagihan:** pilih catatan disetujui milik satu klien (dan satu proyek) → faktur jasa dibuat otomatis (satu baris per karyawan dan tarif, satuan Jam). Faktur dan penandaan "tertagih" **satu transaksi**; dua penagihan bersamaan hanya satu yang berhasil. Batas nilai kontrak proyek tetap berlaku.
+- **Pencegahan kecurangan:** staf hanya mencatat untuk dirinya; mundur > 31 hari hanya Admin/Keuangan; persetujuan oleh orang lain dari pencatat dan karyawannya (Pemilik dikecualikan); hapus-tagih hanya Admin dengan alasan; semua tercatat di jejak audit.
+- **Kontrol:** menunggu persetujuan > 3 hari, disetujui belum ditagih > 30 hari (kebocoran pendapatan), tanpa tarif, hari > 12 jam, tarif diubah manual, hapus-tagih; utilisasi per karyawan (jam dicatat vs dapat ditagih, nilai tertagih, belum ditagih).
+
+**Jadwal sumber daya**
+- Sumber daya orang (opsional terkait karyawan), ruang, dan peralatan (Admin). Pemesanan untuk rentang waktu dengan klien/proyek.
+- **Bentrok ditolak** (409, dengan daftar pemesanan yang bertabrakan), termasuk saat pemesanan bersamaan (baris sumber daya dikunci dalam transaksi); bersebelahan tepat (akhir = mulai) diperbolehkan. Pindah memeriksa ulang bentrok; batal membebaskan slot dengan alasan.
+- Pencarian slot kosong pada jam kerja 08.00–17.00 WIB (Senin–Sabtu). Pemesanan orang yang sudah berlangsung dapat dijadikan **draf catatan waktu** sekali saja.
+- Kontrol: orang dijadwalkan > 10 jam sehari; pemesanan lewat > 1 hari belum diselesaikan.
+- **Belum ada:** penjadwalan berulang, sinkronisasi kalender (Google/Outlook), memeriksa bentrok dengan cuti/hari libur karyawan, pengaturan jam kerja per sumber daya (jam kerja tetap 08–17 WIB), penagihan berdasarkan tarif paket/retainer, timer otomatis (jam diisi manual).
