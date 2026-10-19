@@ -107,6 +107,7 @@ import ProjectsPage, { ProjectDetailPage } from './features/services/ProjectsPag
 import DepositsPage from './features/services/DepositsPage';
 import TimesheetPage from './features/services/TimesheetPage';
 import SchedulePage from './features/services/SchedulePage';
+import RetainersPage from './features/services/RetainersPage';
 import WithheldPage from './features/services/WithheldPage';
 import ProductsPage from './features/products/ProductsPage';
 import DocumentViewPage from './features/accounting/DocumentViewPage';
@@ -171,6 +172,7 @@ export default function App() {
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="timesheets" element={<TimesheetPage />} />
           <Route path="scheduling" element={<SchedulePage />} />
+          <Route path="retainers" element={<RetainersPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="customer-deposits" element={<DepositsPage />} />
           <Route path="tax/withheld" element={<WithheldPage />} />

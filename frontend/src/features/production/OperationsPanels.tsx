@@ -66,13 +66,16 @@ export function OrderOperations({ orderId }: { orderId: string }) {
   const [fin, setFin] = useState<OrderOp | null>(null);
   const [corr, setCorr] = useState<OrderOp | null>(null);
   const [conflicts, setConflicts] = useState<string[]>([]);
-  const [sf] = Form.useForm<{ range: [dayjs.Dayjs, dayjs.Dayjs] }>();
+  const [sf] = Form.useForm<{ range: [dayjs.Dayjs, dayjs.Dayjs]; offShiftReason?: string }>();
+  const [offShift, setOffShift] = useState(false);
+  const canOverride = useCan()('POST', '/production/operations/:id/correct');
   const [ff] = Form.useForm<{ actualMinutes?: number; note?: string }>();
   const [cf] = Form.useForm<{ actualMinutes: number; reason: string }>();
   const KEYS = ['order-ops', 'production'];
-  const schedule = useAction(async (v: { range: [dayjs.Dayjs, dayjs.Dayjs] }) => {
+  const schedule = useAction(async (v: { range: [dayjs.Dayjs, dayjs.Dayjs]; offShiftReason?: string }) => {
     setConflicts([]);
-    try { return await post(`/production/operations/${sched!.id}/schedule`, { startsAt: v.range[0].toISOString(), endsAt: v.range[1].toISOString() }); } catch (e) {
+    try { return await post(`/production/operations/${sched!.id}/schedule`, { startsAt: v.range[0].toISOString(), endsAt: v.range[1].toISOString(), offShiftReason: v.offShiftReason?.trim() || undefined }); } catch (e) {
+      if (e instanceof ApiError && e.status === 400 && /luar shift/i.test(e.message)) setOffShift(true);
       if (e instanceof ApiError && e.status === 409) { const d = e.data as { conflicts?: { type: string; title: string; startsAt: string; endsAt: string }[] } | undefined; setConflicts((d?.conflicts ?? []).map((c) => `${c.type === 'MESIN_MATI' ? 'Mesin mati' : 'Operasi'}: ${c.title} (${dayjs(c.startsAt).format('D MMM HH:mm')}–${dayjs(c.endsAt).format('HH:mm')})`)); }
       throw e;
     }
@@ -98,7 +101,7 @@ export function OrderOperations({ orderId }: { orderId: string }) {
           { title: 'Status', render: (_: unknown, o: OrderOp) => <Tag color={OP[o.status].color}>{OP[o.status].label}</Tag> },
           { render: (_: unknown, o: OrderOp) => manage && (
             <Space wrap>
-              {o.status === 'PENDING' && <Button size="small" onClick={() => { sf.setFieldsValue({ range: o.scheduledStart ? [dayjs(o.scheduledStart), dayjs(o.scheduledEnd)] : undefined }); setConflicts([]); setSched(o); }}>Jadwalkan</Button>}
+              {o.status === 'PENDING' && <Button size="small" onClick={() => { sf.setFieldsValue({ range: o.scheduledStart ? [dayjs(o.scheduledStart), dayjs(o.scheduledEnd)] : undefined, offShiftReason: undefined }); setConflicts([]); setOffShift(false); setSched(o); }}>Jadwalkan</Button>}
               {o.status === 'PENDING' && o.scheduledStart && <Button size="small" onClick={() => unsched.mutate(o.id)}>Lepas jadwal</Button>}
               {o.status === 'PENDING' && <Button size="small" type="primary" onClick={() => start.mutate(o.id)}>Mulai</Button>}
               {o.status === 'RUNNING' && <Button size="small" type="primary" onClick={() => { ff.resetFields(); setFin(o); }}>Selesai</Button>}
@@ -109,7 +112,12 @@ export function OrderOperations({ orderId }: { orderId: string }) {
       <Typography.Paragraph type="secondary" style={{ marginTop: 6 }}>Biaya operasi selesai: upah {fmtMoney(labor)} + overhead {fmtMoney(overhead)}. Biaya konversi perintah ini dihitung dari operasi.</Typography.Paragraph>
       <Modal title={`Jadwalkan ${sched?.name ?? ''}`} open={!!sched} onCancel={() => setSched(null)} onOk={() => sf.submit()} confirmLoading={schedule.isPending} okText="Jadwalkan" destroyOnHidden>
         {conflicts.length > 0 && <Alert type="error" showIcon style={{ marginBottom: 12 }} message="Bentrok" description={conflicts.join('; ')} />}
-        <Form form={sf} layout="vertical" onFinish={(v) => schedule.mutate(v)}><Form.Item name="range" label="Waktu di pusat kerja" rules={[{ required: true }]}><DatePicker.RangePicker showTime={{ format: 'HH:mm', minuteStep: 15 }} format="D MMM YYYY HH:mm" style={{ width: '100%' }} /></Form.Item></Form>
+        <Form form={sf} layout="vertical" onFinish={(v) => schedule.mutate(v)}>
+          <Form.Item name="range" label="Waktu di pusat kerja" rules={[{ required: true }]}><DatePicker.RangePicker showTime={{ format: 'HH:mm', minuteStep: 15 }} format="D MMM YYYY HH:mm" style={{ width: '100%' }} /></Form.Item>
+          {offShift && (canOverride
+            ? <Form.Item name="offShiftReason" label="Alasan di luar shift (hanya Admin; ditandai di kontrol)" rules={[{ required: true, min: 5 }]}><Input maxLength={255} /></Form.Item>
+            : <Alert type="warning" showIcon message="Di luar shift pusat kerja ini. Pilih waktu di dalam satu shift, atau minta Admin menjadwalkannya." />)}
+        </Form>
       </Modal>
       <Modal title={`Selesaikan ${fin?.name ?? ''}`} open={!!fin} onCancel={() => setFin(null)} onOk={() => ff.submit()} confirmLoading={finish.isPending} okText="Selesai" destroyOnHidden>
         <Form form={ff} layout="vertical" onFinish={(v) => finish.mutate(v)}>

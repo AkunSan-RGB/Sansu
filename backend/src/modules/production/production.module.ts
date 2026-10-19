@@ -616,7 +616,7 @@ export class ProductionService {
           completeJournalId: j.id,
         })
         .where(eq(productionOrders.id, id));
-      if (quarantineId) await this.qc.createForOrderTx(tx, user, { orderId: o.id, productId: o.productId, warehouseId: quarantineId, releaseWarehouseId: o.warehouseId, qty: out.toFixed(4), unitCost: unitCost.toFixed(4) });
+      if (quarantineId) await this.qc.createForOrderTx(tx, user, { orderId: o.id, productId: o.productId, warehouseId: quarantineId, releaseWarehouseId: o.warehouseId, qty: out.toFixed(4), unitCost: unitCost.toFixed(4), lot: prod?.shelf ? { lotNo: o.number, expiryDate: addDays(date, prod.shelf) } : undefined });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,
@@ -869,5 +869,6 @@ export class ProductionController {
   imports: [AccountingModule, InventoryModule],
   controllers: [ProductionController, WorkCenterController, QcController],
   providers: [ProductionService, ManufacturingService, WorkCenterService, QcService],
+  exports: [QcService],
 })
 export class ProductionModule {}

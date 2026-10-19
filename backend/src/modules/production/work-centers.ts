@@ -9,10 +9,10 @@
  *   = jam aktual × tarif pusat kerja (snapshot). Aktual > 150% rencana wajib catatan. Koreksi operasi selesai hanya Admin dengan alasan.
  * - Biaya konversi perintah produksi dihitung dari biaya operasi (bukan diketik) bila resepnya punya operasi.
  */
-import { BadRequestException, Body, ConflictException, Controller, Get, Injectable, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Injectable, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { sql } from 'drizzle-orm';
 import { RequireApp } from '../../common/apps/app.guard';
 import { AuditService } from '../../common/audit/audit.service';
@@ -21,6 +21,9 @@ import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { addDays, todayJakarta } from '../../common/utils/dates';
 import { D, money } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
+const WIB_MS = 7 * 3600_000;
+const toMin = (t: string) => (t === '24:00' ? 1440 : Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)));
+const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 import { InjectDb } from '../../db/db.module';
 
 const KINDS = ['MACHINE', 'LINE', 'STATION'] as const;
@@ -53,6 +56,15 @@ export class BomOpsDto {
 export class ScheduleDto {
   @ApiProperty() @IsDateString() startsAt: string;
   @ApiProperty() @IsDateString() endsAt: string;
+  @ApiPropertyOptional({ description: 'Hanya Admin: izinkan di luar shift pusat kerja dengan alasan (ditandai di kontrol)' }) @IsOptional() @IsString() @MaxLength(255) offShiftReason?: string;
+}
+export class ShiftDto {
+  @ApiProperty({ description: '1 = Senin … 7 = Minggu' }) @IsInt() @Min(1) @Max(7) weekday: number;
+  @ApiProperty({ example: '07:00' }) @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'Jam berformat HH:MM' }) start: string;
+  @ApiProperty({ example: '15:00' }) @Matches(/^(([01]\d|2[0-3]):[0-5]\d|24:00)$/, { message: 'Jam berformat HH:MM' }) end: string;
+}
+export class ShiftsDto {
+  @ApiProperty({ type: [ShiftDto], description: 'Kalender shift mingguan (menggantikan yang lama); kosong = tanpa kalender (hanya kapasitas jam/hari)' }) @IsArray() @ArrayMaxSize(28) @ValidateNested({ each: true }) @Type(() => ShiftDto) shifts: ShiftDto[];
 }
 export class FinishOpDto {
   @ApiPropertyOptional({ description: 'Menit aktual; kosong = selisih waktu mulai–selesai' }) @IsOptional() @IsNumber() @Min(1) @Max(1440) actualMinutes?: number;
@@ -115,6 +127,42 @@ export class WorkCenterService {
     });
     // jadwal operasi yang kini bertabrakan dengan mesin mati dilaporkan di kontrol; tidak dibatalkan otomatis
     return { ok: true };
+  }
+
+  // ---------- kalender shift mesin ----------
+  shifts(tenantId: string, workCenterId: string) {
+    return this.db.execute(sql`SELECT weekday, start_minute AS "startMinute", end_minute AS "endMinute" FROM work_center_shifts WHERE tenant_id = ${tenantId} AND work_center_id = ${workCenterId} ORDER BY weekday, start_minute`).then((r) => r.rows.map((x) => ({ weekday: Number(x.weekday), start: hhmm(Number(x.startMinute)), end: hhmm(Number(x.endMinute)) })));
+  }
+
+  /** Kalender mingguan (menggantikan yang lama). Kosong = tanpa kalender. Shift pada hari yang sama tidak boleh saling tumpang tindih. */
+  async setShifts(u: AuthUser, workCenterId: string, dto: ShiftsDto) {
+    const rows = dto.shifts.map((x) => ({ weekday: x.weekday, s: toMin(x.start), e: toMin(x.end) }));
+    for (const r of rows) if (r.s >= r.e) throw new BadRequestException('Jam selesai shift harus setelah jam mulai');
+    for (let d = 1; d <= 7; d++) {
+      const day = rows.filter((r) => r.weekday === d).sort((a, b) => a.s - b.s);
+      for (let i = 1; i < day.length; i++) if (day[i].s < day[i - 1].e) throw new BadRequestException(`Shift hari ke-${d} saling tumpang tindih`);
+    }
+    await this.db.transaction(async (tx) => {
+      await this.lockWc(tx, u.tenantId, workCenterId, false);
+      await tx.execute(sql`DELETE FROM work_center_shifts WHERE work_center_id = ${workCenterId} AND tenant_id = ${u.tenantId}`);
+      for (const r of rows) await tx.execute(sql`INSERT INTO work_center_shifts (tenant_id, work_center_id, weekday, start_minute, end_minute) VALUES (${u.tenantId}, ${workCenterId}, ${r.weekday}, ${r.s}, ${r.e})`);
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'WorkCenterShifts', entityId: workCenterId, data: { shifts: dto.shifts } });
+    });
+    return this.shifts(u.tenantId, workCenterId);
+  }
+
+  /** Apakah rentang berada di dalam satu shift (waktu Jakarta)? Tanpa kalender selalu benar. */
+  private async withinShift(tx: DbOrTx, tenantId: string, workCenterId: string, s: Date, e: Date) {
+    const cal = (await tx.execute<{ weekday: number; start_minute: number; end_minute: number }>(sql`SELECT weekday, start_minute, end_minute FROM work_center_shifts WHERE tenant_id = ${tenantId} AND work_center_id = ${workCenterId}`)).rows;
+    if (!cal.length) return { hasCalendar: false, ok: true };
+    const ls = new Date(s.getTime() + WIB_MS);
+    const le = new Date(e.getTime() + WIB_MS);
+    const sameDay = ls.toISOString().slice(0, 10) === new Date(e.getTime() - 1 + WIB_MS).toISOString().slice(0, 10);
+    if (!sameDay) return { hasCalendar: true, ok: false };
+    const weekday = ls.getUTCDay() === 0 ? 7 : ls.getUTCDay();
+    const sm = ls.getUTCHours() * 60 + ls.getUTCMinutes();
+    const em = (le.getUTCHours() * 60 + le.getUTCMinutes()) || 1440;
+    return { hasCalendar: true, ok: cal.some((c) => Number(c.weekday) === weekday && sm >= c.start_minute && em <= c.end_minute) };
   }
 
   private async lockWc(tx: Tx, tenantId: string, id: string, mustBeActive = true) {
@@ -202,6 +250,15 @@ export class WorkCenterService {
       if (!['PENDING'].includes(op.status)) throw new BadRequestException('Hanya operasi yang belum dimulai yang dapat dijadwalkan');
       if (!['DRAFT', 'IN_PROGRESS'].includes(op.order_status)) throw new BadRequestException('Perintah produksi sudah selesai/batal');
       await this.lockWc(tx, u.tenantId, op.work_center_id);
+      const shift = await this.withinShift(tx, u.tenantId, op.work_center_id, s, e);
+      let offShift = false;
+      if (shift.hasCalendar && !shift.ok) {
+        const reason = (dto.offShiftReason ?? '').trim();
+        if (!reason) throw new BadRequestException('Jadwal di luar shift pusat kerja ini (harus di dalam satu shift pada hari yang sama). Admin dapat mengizinkan dengan alasan.');
+        if (u.role !== 'OWNER' && u.role !== 'ADMIN') throw new ForbiddenException('Hanya Admin/Pemilik yang dapat menjadwalkan di luar shift');
+        if (reason.length < 5) throw new BadRequestException('Alasan di luar shift minimal 5 huruf');
+        offShift = true;
+      }
       const clash = await this.clashes(tx, u.tenantId, op.work_center_id, s, e, opId);
       if (clash.length) throw new ConflictException({ message: `Jadwal bentrok dengan ${clash.length} jadwal lain di pusat kerja ini`, conflicts: clash });
       // urutan: operasi tidak boleh mulai sebelum operasi sebelumnya (jadwal) selesai
@@ -209,8 +266,8 @@ export class WorkCenterService {
       if (prev?.scheduled_end && s < new Date(prev.scheduled_end)) throw new BadRequestException(`Operasi ini tidak boleh mulai sebelum "${prev.name}" selesai (${new Date(prev.scheduled_end).toISOString()})`);
       const next = (await tx.execute<{ name: string; scheduled_start: Date | null }>(sql`SELECT name, scheduled_start FROM production_order_operations WHERE order_id = ${op.order_id} AND sequence > ${op.sequence} AND status <> 'CANCELLED' AND scheduled_start IS NOT NULL ORDER BY sequence LIMIT 1`)).rows[0];
       if (next?.scheduled_start && e > new Date(next.scheduled_start)) throw new BadRequestException(`Operasi ini harus selesai sebelum "${next.name}" dimulai`);
-      await tx.execute(sql`UPDATE production_order_operations SET scheduled_start = ${s.toISOString()}, scheduled_end = ${e.toISOString()} WHERE id = ${opId}`);
-      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'ProductionOperation', entityId: opId, data: { scheduledStart: s, scheduledEnd: e } });
+      await tx.execute(sql`UPDATE production_order_operations SET scheduled_start = ${s.toISOString()}, scheduled_end = ${e.toISOString()}, off_shift = ${offShift} WHERE id = ${opId}`);
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'ProductionOperation', entityId: opId, data: { scheduledStart: s, scheduledEnd: e, offShift, offShiftReason: offShift ? dto.offShiftReason : undefined } });
     });
     return { ok: true };
   }
@@ -219,7 +276,7 @@ export class WorkCenterService {
     await this.db.transaction(async (tx) => {
       const op = await this.lockOp(tx, u.tenantId, opId);
       if (op.status !== 'PENDING') throw new BadRequestException('Hanya operasi yang belum dimulai');
-      await tx.execute(sql`UPDATE production_order_operations SET scheduled_start = NULL, scheduled_end = NULL WHERE id = ${opId}`);
+      await tx.execute(sql`UPDATE production_order_operations SET scheduled_start = NULL, scheduled_end = NULL, off_shift = false WHERE id = ${opId}`);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'ProductionOperation', entityId: opId, data: { unscheduled: true } });
     });
     return { ok: true };
@@ -306,17 +363,26 @@ export class WorkCenterService {
 
   async controls(tenantId: string) {
     const q = async (t: ReturnType<typeof sql>) => (await this.db.execute(t)).rows;
-    const overbooked = await q(sql`
-      SELECT w.code, w.name, to_char((o.scheduled_start AT TIME ZONE 'Asia/Jakarta')::date, 'YYYY-MM-DD') AS day, ROUND(SUM(EXTRACT(EPOCH FROM (o.scheduled_end - o.scheduled_start)) / 3600)::numeric, 1) AS hours, w.capacity_hours AS capacity
+    // kapasitas harian: dari kalender shift bila ada (jumlah jam shift pada hari itu), selain itu kapasitas jam/hari
+    const days = await q(sql`
+      SELECT w.id AS wid, w.code, w.name, to_char((o.scheduled_start AT TIME ZONE 'Asia/Jakarta')::date, 'YYYY-MM-DD') AS day, ROUND(SUM(EXTRACT(EPOCH FROM (o.scheduled_end - o.scheduled_start)) / 3600)::numeric, 1) AS hours, w.capacity_hours AS capacity
       FROM production_order_operations o JOIN work_centers w ON w.id = o.work_center_id
       WHERE o.tenant_id = ${tenantId} AND o.status IN ('PENDING', 'RUNNING') AND o.scheduled_start > now() - interval '2 days'
-      GROUP BY w.code, w.name, w.capacity_hours, (o.scheduled_start AT TIME ZONE 'Asia/Jakarta')::date
-      HAVING SUM(EXTRACT(EPOCH FROM (o.scheduled_end - o.scheduled_start)) / 3600) > w.capacity_hours ORDER BY 3 LIMIT 50`);
+      GROUP BY w.id, w.code, w.name, w.capacity_hours, (o.scheduled_start AT TIME ZONE 'Asia/Jakarta')::date ORDER BY 3 LIMIT 200`);
+    const cal = await q(sql`SELECT work_center_id AS wid, weekday, SUM(end_minute - start_minute)::int AS minutes FROM work_center_shifts WHERE tenant_id = ${tenantId} GROUP BY work_center_id, weekday`);
+    const capOf = (wid: string, day: string, fallback: number) => {
+      const mine = cal.filter((c) => c.wid === wid);
+      if (!mine.length) return fallback;
+      const wd = new Date(`${day}T12:00:00+07:00`).getUTCDay() || 7;
+      return Number(mine.find((c) => Number(c.weekday) === wd)?.minutes ?? 0) / 60;
+    };
+    const overbooked = days.map((d) => ({ code: d.code, name: d.name, day: d.day, hours: d.hours, capacity: capOf(String(d.wid), String(d.day), Number(d.capacity)) })).filter((d) => Number(d.hours) > d.capacity).slice(0, 50);
+    const offShift = await q(sql`SELECT p.number AS "orderNumber", o.name, w.code AS "workCenter", o.scheduled_start AS "scheduledStart" FROM production_order_operations o JOIN production_orders p ON p.id = o.order_id JOIN work_centers w ON w.id = o.work_center_id WHERE o.tenant_id = ${tenantId} AND o.off_shift AND o.status IN ('PENDING', 'RUNNING') AND o.scheduled_end > now() ORDER BY o.scheduled_start LIMIT 50`);
     const late = await q(sql`SELECT o.id, o.name, p.number AS "orderNumber", w.code AS "workCenter", o.scheduled_end AS "scheduledEnd" FROM production_order_operations o JOIN production_orders p ON p.id = o.order_id JOIN work_centers w ON w.id = o.work_center_id WHERE o.tenant_id = ${tenantId} AND o.status = 'PENDING' AND o.scheduled_end < now() ORDER BY o.scheduled_end LIMIT 50`);
     const overrun = await q(sql`SELECT p.number AS "orderNumber", o.name, o.planned_minutes AS planned, o.actual_minutes AS actual, o.note FROM production_order_operations o JOIN production_orders p ON p.id = o.order_id WHERE o.tenant_id = ${tenantId} AND o.status = 'DONE' AND o.actual_minutes > o.planned_minutes * ${OVERRUN} AND o.finished_at > now() - interval '60 days' ORDER BY o.finished_at DESC LIMIT 50`);
     const downtimeClash = await q(sql`SELECT p.number AS "orderNumber", o.name, w.code AS "workCenter", d.reason FROM production_order_operations o JOIN production_orders p ON p.id = o.order_id JOIN work_centers w ON w.id = o.work_center_id JOIN work_center_downtime d ON d.work_center_id = o.work_center_id AND d.starts_at < o.scheduled_end AND d.ends_at > o.scheduled_start WHERE o.tenant_id = ${tenantId} AND o.status = 'PENDING' AND o.scheduled_start IS NOT NULL AND o.scheduled_end > now() LIMIT 50`);
     const unscheduled = await q(sql`SELECT p.number AS "orderNumber", COUNT(*)::int AS operations FROM production_order_operations o JOIN production_orders p ON p.id = o.order_id WHERE o.tenant_id = ${tenantId} AND o.status = 'PENDING' AND o.scheduled_start IS NULL AND p.status IN ('DRAFT', 'IN_PROGRESS') AND p.created_at < now() - interval '1 day' GROUP BY p.number ORDER BY p.number LIMIT 50`);
-    return { overbookedDays: overbooked, overdueNotStarted: late, overruns: overrun, scheduledDuringDowntime: downtimeClash, unscheduledOrders: unscheduled };
+    return { overbookedDays: overbooked, overdueNotStarted: late, overruns: overrun, scheduledDuringDowntime: downtimeClash, scheduledOffShift: offShift, unscheduledOrders: unscheduled };
   }
 
   /** Pemakaian pusat kerja: jam aktual dan biaya per pusat kerja dalam periode */
@@ -345,6 +411,8 @@ export class WorkCenterController {
   @Get('work-centers') list(@CurrentUser() u: AuthUser) { return this.svc.list(u.tenantId); }
   @Roles('ADMIN') @Post('work-centers') create(@CurrentUser() u: AuthUser, @Body() dto: WorkCenterDto) { return this.svc.save(u, dto); }
   @Roles('ADMIN') @Put('work-centers/:id') update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: WorkCenterDto) { return this.svc.save(u, dto, id); }
+  @Get('work-centers/:id/shifts') shifts(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) { return this.svc.shifts(u.tenantId, id); }
+  @Roles('ADMIN') @Put('work-centers/:id/shifts') setShifts(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ShiftsDto) { return this.svc.setShifts(u, id, dto); }
   @Get('work-centers/:id/downtime') downtimes(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) { return this.svc.downtimes(u.tenantId, id); }
   @Roles('ADMIN', 'WAREHOUSE') @Post('work-centers/:id/downtime') addDowntime(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: DowntimeDto) { return this.svc.addDowntime(u, id, dto); }
 

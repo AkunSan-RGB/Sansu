@@ -32,6 +32,7 @@ import { SYS } from '../accounting/default-coa';
 import { BudgetService } from '../accounting/budget';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
+import { QcService } from '../production/qc';
 import { GoodsReceiptsService, QTY_EPS } from './goods-receipts.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { CreateBillDto, CreatePurchaseInvoiceDto, CreateSupplierPaymentDto, PurchaseInvoiceQueryDto } from './purchasing.dto';
@@ -55,6 +56,7 @@ export class PurchaseInvoicesService {
     private readonly workflow: WorkflowService,
     private readonly fx: FxService,
     private readonly budget: BudgetService,
+    private readonly qc: QcService,
   ) {}
 
   list(tenantId: string, q: PurchaseInvoiceQueryDto) {
@@ -340,14 +342,19 @@ export class PurchaseInvoicesService {
     let stockValue: Dec = ZERO;
     const values = new Map<string, { unitCost: Dec; value: Dec }>();
     const lotOf = new Map((dto.lots ?? []).map((l) => [l.orderLineId, { lotNo: l.lotNo, expiryDate: l.expiryDate }]));
+    // Barang wajib QC tidak boleh lolos ke gudang lewat jalur faktur langsung: masuk karantina dan diinspeksi
+    const quarantine = await this.qc.inboundQuarantine(tx, user.tenantId, [...new Set(order.lines.map((l) => l.productId))]);
+    const qcItems: { productId: string; qty: string; unitCost: string; lot?: { lotNo?: string; expiryDate?: string } }[] = [];
     for (const line of order.lines) {
       const baseQty = D(line.qty).times(line.uomFactor);
       const dpp = dppOf(line);
       const unitCost = qty4(dpp.times(factor).div(baseQty));
+      const toQc = !!quarantine.warehouseId && quarantine.required.has(line.productId) && quarantine.warehouseId !== order.warehouseId;
       const moved = await this.stock.move(tx, {
         tenantId: user.tenantId,
         productId: line.productId,
-        warehouseId: order.warehouseId,
+        warehouseId: toQc ? quarantine.warehouseId! : order.warehouseId,
+        skipAccessCheck: toQc,
         type: 'PURCHASE',
         qty: baseQty,
         unitCost,
@@ -359,6 +366,7 @@ export class PurchaseInvoicesService {
       });
       stockValue = stockValue.plus(moved.value);
       values.set(line.id, { unitCost, value: moved.value });
+      if (toQc) qcItems.push({ productId: line.productId, qty: baseQty.toFixed(4), unitCost: unitCost.toFixed(4), lot: lotOf.get(line.id) });
       await tx.insert(purchaseInvoiceLines).values({
         invoiceId: invoice.id,
         productId: line.productId,
@@ -392,7 +400,8 @@ export class PurchaseInvoicesService {
       ],
     });
 
-    await this.receipts.recordWithInvoice(tx, user, { order, date, invoiceId: invoice.id, capitalize, values });
+    const autoReceipt = await this.receipts.recordWithInvoice(tx, user, { order, date, invoiceId: invoice.id, capitalize, values });
+    for (const it of qcItems) await this.qc.createForReceiptTx(tx, user, { receiptId: autoReceipt.id, productId: it.productId, warehouseId: quarantine.warehouseId!, releaseWarehouseId: order.warehouseId, qty: it.qty, unitCost: it.unitCost, lot: it.lot });
     await tx.update(purchaseOrders).set({ status: 'BILLED' }).where(eq(purchaseOrders.id, order.id));
     await tx.update(purchaseInvoices).set({ journalId: journal.id }).where(eq(purchaseInvoices.id, invoice.id));
     await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PurchaseInvoice', entityId: invoice.id, data: { number, journal: journal.number } });

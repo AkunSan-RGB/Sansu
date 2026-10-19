@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Checkbox, DatePicker, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tabs, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { get, post, put } from '@/api/client';
 import { useAction, useCustomers } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
@@ -41,7 +41,7 @@ export default function TimesheetPage() {
           </ul>} />
       )}
       <Tabs destroyOnHidden items={[
-        { key: 'catatan', label: 'Catatan waktu', children: <Entries /> },
+        { key: 'catatan', label: 'Catatan waktu', children: <><TimerCard /><Entries /></> },
         ...(canApprove ? [{ key: 'setuju', label: 'Persetujuan', children: <Approvals /> }] : []),
         ...(canBill ? [{ key: 'tagih', label: 'Penagihan', children: <Billing /> }] : []),
         { key: 'tarif', label: 'Tarif', children: <Rates /> },
@@ -56,6 +56,51 @@ function useProjects() {
 }
 function useEmployees() {
   return useQuery({ queryKey: [...KEY, 'employees'], queryFn: () => get<Emp[]>('/hr/employees'), retry: false, staleTime: 60_000 });
+}
+
+interface TimerRow { id: string; customerName: string; description: string; startedAt: string; elapsedSeconds: number; billable: boolean }
+
+/** Timer jam kerja: jam tidak diketik; dihentikan menjadi draf catatan waktu (dibulatkan ke atas per 15 menit) */
+function TimerCard() {
+  const can = useCan();
+  const timer = useQuery({ queryKey: [...KEY, 'timer'], queryFn: () => get<TimerRow | null>('/timesheets/timer'), retry: false, refetchInterval: 60_000 });
+  const customers = useCustomers();
+  const projects = useProjects();
+  const [f] = Form.useForm<{ customerId?: string; projectId?: string; description: string }>();
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const start = useAction((v: { customerId?: string; projectId?: string; description: string }) => post('/timesheets/timer/start', v), { invalidate: KEY, success: 'Timer dimulai', onSuccess: () => f.resetFields() });
+  const stop = useAction(() => post('/timesheets/timer/stop'), { invalidate: KEY, success: 'Timer dihentikan; draf catatan waktu dibuat' });
+  const [discarding, setDiscarding] = useState(false);
+  const [df] = Form.useForm<{ reason: string }>();
+  const discard = useAction((v: { reason: string }) => post('/timesheets/timer/discard', v), { invalidate: KEY, success: 'Timer dibuang', onSuccess: () => setDiscarding(false) });
+  if (!can('POST', '/timesheets/timer/start')) return null;
+  const t = timer.data && 'id' in timer.data ? timer.data : null;
+  const secs = t ? Math.max(0, Math.floor((now - new Date(t.startedAt).getTime()) / 1000)) : 0;
+  const clock = `${String(Math.floor(secs / 3600)).padStart(2, '0')}:${String(Math.floor((secs % 3600) / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
+  return (
+    <Card size="small" style={{ marginBottom: 12 }} title="Timer">
+      {t ? (
+        <Space wrap>
+          <Typography.Title level={3} style={{ margin: 0, fontVariantNumeric: 'tabular-nums' }}>{clock}</Typography.Title>
+          <span>{t.description} · {t.customerName}</span>
+          <Button type="primary" danger onClick={() => stop.mutate()} loading={stop.isPending}>Hentikan</Button>
+          <Button onClick={() => { df.resetFields(); setDiscarding(true); }}>Buang</Button>
+        </Space>
+      ) : (
+        <Form form={f} layout="inline" onFinish={(v) => start.mutate(v)} style={{ rowGap: 8 }}>
+          <Form.Item name="description" rules={[{ required: true, min: 3 }]}><Input placeholder="Sedang mengerjakan apa?" maxLength={300} style={{ width: 240 }} /></Form.Item>
+          <Form.Item name="projectId"><Select allowClear showSearch optionFilterProp="label" placeholder="Proyek" style={{ width: 200 }} options={(projects.data ?? []).filter((p) => p.status === 'ACTIVE').map((p) => ({ value: p.id, label: `${p.code} · ${p.name}` }))} /></Form.Item>
+          <Form.Item name="customerId"><Select allowClear showSearch optionFilterProp="label" placeholder="Klien (bila tanpa proyek)" style={{ width: 220 }} options={(customers.data ?? []).filter((c) => c.isActive).map((c) => ({ value: c.id, label: `${c.code} · ${c.name}` }))} /></Form.Item>
+          <Button htmlType="submit" type="primary" loading={start.isPending}>Mulai</Button>
+        </Form>
+      )}
+      <Modal title="Buang timer" open={discarding} onCancel={() => setDiscarding(false)} onOk={() => df.submit()} confirmLoading={discard.isPending} okText="Buang" okButtonProps={{ danger: true }} destroyOnHidden>
+        <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Waktu timer ini tidak dicatat. Alasan tersimpan di jejak audit; catat jamnya manual bila perlu." />
+        <Form form={df} layout="vertical" onFinish={(v) => discard.mutate(v)}><Form.Item name="reason" label="Alasan" rules={[{ required: true, min: 5 }]}><Input maxLength={255} /></Form.Item></Form>
+      </Modal>
+    </Card>
+  );
 }
 
 function Entries() {
