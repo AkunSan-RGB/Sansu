@@ -18,7 +18,7 @@ Semua klien berbagi satu database PostgreSQL. Setiap baris membawa penanda perus
 | Uji langsung isolasi | ya | dengan lingkup satu perusahaan, baris perusahaan lain harus tidak terlihat; perusahaan tak dikenal melihat 0 baris |
 | Koneksi database memakai TLS | peringatan | wajar tanpa TLS di jaringan privat; wajib TLS bila lewat internet |
 
-Dijalankan saat aplikasi start (**produksi menolak start bila ada pemeriksaan kritis yang gagal**), setiap 24 jam (kegagalan dicatat sebagai galat), dan dapat dibaca pemilik layanan di `GET /api/platform-admin/security-posture`. Tabel baru yang lupa diberi RLS otomatis membuat pemeriksaan ini gagal.
+Dijalankan saat aplikasi start (**produksi menolak start bila ada pemeriksaan kritis yang gagal**), setiap 24 jam (kegagalan dicatat sebagai galat), dan dapat dibaca pemilik layanan di Panel SANSU › **Keamanan data** (atau `GET /api/platform-admin/security-posture`). Tabel baru yang lupa diberi RLS otomatis membuat pemeriksaan ini gagal.
 
 ## 3. Ekspor seluruh data (hak portabilitas)
 
@@ -44,7 +44,7 @@ Karena tidak dapat dibatalkan, penghapusan memiliki banyak pengaman:
 1. Hanya **OWNER**, dengan verifikasi ulang (sama seperti ekspor), mengetik **nama perusahaan**, dan menyatakan memahami kewajiban menyimpan pembukuan/dokumen pajak.
 2. **Masa tenggang** (bawaan 30 hari, `DATA_DELETION_GRACE_DAYS`, minimal 7). Pemilik dan admin diberi email saat permintaan dibuat, diingatkan tiap 3 hari dalam 7 hari terakhir, dan dapat **membatalkan** kapan saja (OWNER atau ADMIN).
 3. Penghapusan **menunggu ekspor data diunduh**, kecuali pemilik secara eksplisit memilih "hapus tanpa menunggu ekspor". Bila jatuh tempo tanpa ekspor, data **tidak** dihapus dan pemilik diingatkan.
-4. **Penahanan oleh pemilik layanan** (mis. sengketa atau permintaan hukum): `POST /api/platform-admin/data-deletions/:id/hold` dengan alasan; `.../release` untuk melepas. `GET /api/platform-admin/data-deletions` menampilkan permintaan dan bukti penghapusan.
+4. **Penahanan oleh pemilik layanan** (mis. sengketa atau permintaan hukum) di Panel SANSU › **Keamanan data** (tombol Tahan/Lepas, alasan wajib), atau lewat API: `POST /api/platform-admin/data-deletions/:id/hold` dengan alasan; `.../release` untuk melepas. `GET /api/platform-admin/data-deletions` menampilkan permintaan dan bukti penghapusan.
 5. Perusahaan yang memuat akun pemilik layanan tidak dapat dihapus lewat jalur ini.
 6. Eksekusi oleh penjadwal (cek tiap 6 jam), dalam **satu transaksi** di koneksi admin:
    - tabel yang dihapus ditentukan dari katalog database (tabel ber-`tenant_id` dan seluruh turunannya lewat foreign key), anak lebih dulu;
