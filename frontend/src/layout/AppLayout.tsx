@@ -102,6 +102,8 @@ const MENU: Group[] = [
       { key: '/sales-orders', label: t('Sales Order') },
       { key: '/customer-deposits', label: t('Uang muka pelanggan'), hideFor: ['RITEL'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
       { key: '/projects', label: 'Proyek & termin', models: ['JASA'] },
+      { key: '/timesheets', label: 'Lembar waktu', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
+      { key: '/scheduling', label: 'Jadwal sumber daya', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
       { key: '/support-reports?kind=jasa', label: 'Laporan jasa & proyek', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/deliveries', label: 'Surat jalan', hideFor: ['JASA', 'RITEL', 'FNB', 'UTILITAS'] },
       { key: '/delivery-trips', label: 'Rute pengiriman', models: ['DAGANG', 'FMCG', 'MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },

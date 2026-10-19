@@ -652,6 +652,13 @@
       "when": 1796323086484,
       "tag": "0092_ritel_loyalitas_settlement",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1796409486484,
+      "tag": "0093_jasa_timesheet_jadwal",
+      "breakpoints": true
     }
   ]
 }
