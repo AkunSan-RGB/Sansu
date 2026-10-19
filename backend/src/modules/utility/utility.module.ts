@@ -17,6 +17,7 @@ import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestj
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsNumber, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { and, eq, sql } from 'drizzle-orm';
+import { haversineM } from '../sales/canvass/canvass';
 import {
   computeBill,
   DEFAULT_UTILITY_RULES,
@@ -48,6 +49,8 @@ import { ServiceBillingService } from '../sales/services/service-billing';
 import { SalesModule } from '../sales/sales.module';
 
 const SECTION = 'utility';
+/** Pencatatan lebih dari ini dari lokasi pelanggan ditandai janggal */
+export const FAR_READING_M = 500;
 const num = (v: unknown) => Number(v ?? 0);
 const isUnique = (e: unknown) => ['23505'].includes((e as { code?: string }).code ?? (e as { cause?: { code?: string } }).cause?.code ?? '');
 const rp = (n: number) => `Rp${Math.round(n).toLocaleString('id-ID')}`;
@@ -84,6 +87,9 @@ export class ReadingDto {
   @ApiPropertyOptional({ description: 'Meter diganti: angka akhir meter LAMA' }) @IsOptional() @IsNumberString() oldMeterFinal?: string;
   @ApiPropertyOptional({ description: 'Meter diganti: angka awal meter BARU' }) @IsOptional() @IsNumberString() newMeterStart?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) note?: string;
+  @ApiPropertyOptional({ description: 'Lokasi petugas saat mencatat (lintang)' }) @IsOptional() @IsNumber() lat?: number;
+  @ApiPropertyOptional({ description: 'Lokasi petugas saat mencatat (bujur)' }) @IsOptional() @IsNumber() lng?: number;
+  @ApiPropertyOptional({ description: 'Foto meter (data URL png/jpeg/webp)' }) @IsOptional() @IsString() @MaxLength(450_000) @Matches(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/) photo?: string;
 }
 export class VerifyDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) note?: string;
@@ -330,7 +336,7 @@ export class UtilityService {
     const r = await this.db.execute<Record<string, unknown>>(sql`
       SELECT r.id, r.period, r.previous, r.current, r.usage, r.status, r.flags, r.meter_replaced AS "meterReplaced", r.note, r.verify_note AS "verifyNote",
              r.connection_id AS "connectionId", c.number AS "connectionNumber", c.meter_no AS "meterNo", cu.name AS "customerName", t.unit,
-             eu.name AS "enteredByName", r.entered_by_id AS "enteredById", vu.name AS "verifiedByName", r.entered_at AS "enteredAt"
+             eu.name AS "enteredByName", r.entered_by_id AS "enteredById", vu.name AS "verifiedByName", r.entered_at AS "enteredAt", r.source, (r.photo IS NOT NULL) AS "hasPhoto"
       FROM utility_readings r JOIN utility_connections c ON c.id = r.connection_id JOIN customers cu ON cu.id = c.customer_id JOIN utility_tariffs t ON t.id = c.tariff_id
       LEFT JOIN users eu ON eu.id = r.entered_by_id LEFT JOIN users vu ON vu.id = r.verified_by_id
       WHERE r.tenant_id = ${tenantId} ${q.period ? sql`AND r.period = ${q.period}` : sql``} ${q.status ? sql`AND r.status = ${q.status}` : sql``} ${q.connectionId ? sql`AND r.connection_id = ${q.connectionId}` : sql``}
@@ -351,7 +357,8 @@ export class UtilityService {
     return r.rows;
   }
 
-  async enterReading(u: AuthUser, dto: ReadingDto) {
+  async enterReading(u: AuthUser, dto: ReadingDto, source: 'MANUAL' | 'LAPANGAN' | 'IMPORT' | 'API' = 'MANUAL') {
+    if ((dto.lat == null) !== (dto.lng == null)) throw new BadRequestException('Lintang dan bujur harus diisi bersamaan');
     const rules = await this.rules(u.tenantId);
     if (dto.period > todayJakarta().slice(0, 7)) throw new BadRequestException('Periode pencatatan tidak boleh di masa depan');
     const result = await this.db.transaction(async (tx) => {
@@ -379,10 +386,15 @@ export class UtilityService {
       }
       const hist = (await tx.execute<{ usage: string }>(sql`SELECT usage FROM utility_readings WHERE connection_id = ${c.id} AND status <> 'REJECTED' ORDER BY period DESC LIMIT 3`)).rows.map((x) => num(x.usage));
       const flags = flagReading(usage.toNumber(), hist, rules, !!dto.meterReplaced);
+      // lokasi pencatat jauh dari lokasi pelanggan → tandai agar pemeriksa mengecek (foto/cek ulang)
+      if (dto.lat != null && dto.lng != null) {
+        const [cu] = await tx.select({ lat: customers.geoLat, lng: customers.geoLng }).from(customers).where(eq(customers.id, c.customer_id));
+        if (cu?.lat && cu?.lng && haversineM(dto.lat, dto.lng, Number(cu.lat), Number(cu.lng)) > FAR_READING_M) flags.push('JAUH_DARI_LOKASI');
+      }
       try {
         const [row] = await tx
           .insert(utilityReadings)
-          .values({ tenantId: u.tenantId, connectionId: c.id, period: dto.period, previous: prev.toString(), current: cur.toString(), usage: usage.toString(), meterReplaced: !!dto.meterReplaced, flags, note: dto.note?.trim() || null, enteredById: u.sub })
+          .values({ tenantId: u.tenantId, connectionId: c.id, period: dto.period, previous: prev.toString(), current: cur.toString(), usage: usage.toString(), meterReplaced: !!dto.meterReplaced, flags, note: dto.note?.trim() || null, enteredById: u.sub, source, lat: dto.lat != null ? String(dto.lat) : null, lng: dto.lng != null ? String(dto.lng) : null, photo: dto.photo ?? null })
           .returning();
         await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityReading', entityId: row.id, data: { connection: c.number, period: dto.period, usage: row.usage, flags } });
         return { row, flags };

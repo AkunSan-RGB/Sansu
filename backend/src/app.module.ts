@@ -41,6 +41,7 @@ import { InsightsModule } from './modules/insights/insights.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { WorkflowModule } from './modules/workflow/workflow.module';
 import { UtilityModule } from './modules/utility/utility.module';
+import { UtilityFieldModule } from './modules/utility/utility-field.module';
 import { BankModule } from './modules/bank/bank.module';
 import { BranchesModule } from './modules/branches/branches.module';
 import { DemoModule } from './modules/demo/demo.module';
@@ -101,6 +102,7 @@ import { DataRightsModule } from './modules/data-rights/data-rights.module';
     OnboardingModule,
     WorkflowModule,
     UtilityModule,
+    UtilityFieldModule,
     TaxModule,
     BankModule,
     BranchesModule,
