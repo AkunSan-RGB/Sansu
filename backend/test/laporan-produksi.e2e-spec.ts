@@ -57,8 +57,8 @@ describe('Laporan pendukung produksi (e2e)', () => {
     expect(rec(r, 'mfg-wip').left.value).toBe(300_000);
     const done = r.sections.find((s) => s.key === 'mfg-done')!.tables[0].rows;
     expect(done).toHaveLength(1);
-    expect(done[0][6]).toBe(90); // rendemen 9 / 10
-    expect(done[0][10]).toBe(300_000);
+    expect(done[0][7]).toBe(90); // rendemen 9 / 10
+    expect(done[0][11]).toBe(300_000);
     const wip = r.sections.find((s) => s.key === 'mfg-wip')!.tables[0].rows;
     expect(wip).toHaveLength(1);
     expect(wip[0][4]).toBe(300_000);

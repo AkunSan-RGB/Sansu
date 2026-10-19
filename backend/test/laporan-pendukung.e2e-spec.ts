@@ -49,7 +49,7 @@ describe('Laporan pendukung (e2e)', () => {
 
   it('penjualan: rekap, rincian, dan pencocokan buku besar cocok', async () => {
     const r = await report('sales');
-    expect(r.reconciliation.map((x) => x.key)).toEqual(['sales-revenue', 'sales-ar']);
+    expect(r.reconciliation.map((x) => x.key)).toEqual(['sales-revenue', 'sales-revenue-all', 'sales-delivery-cogs', 'sales-ar']);
     expect(r.reconciliation.every((x) => x.ok)).toBe(true);
     const monthly = r.sections.find((s) => s.key === 'sales-monthly')!.tables[0];
     expect(monthly.total?.[2]).toBe(200000); // 10 × 20.000

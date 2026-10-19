@@ -120,6 +120,11 @@ describe('Laporan pendukung FMCG (e2e)', () => {
     expect(cv.slice(0, 5)).toEqual(['sls', 1, 5000, 4000, 1000]);
   });
 
+  it('pencocokan saldo dihitung per tanggal akhir: sebelum komisi ditutup semuanya nol, dan tetap cocok', async () => {
+    const early = (await get(`/api/accounting/support/fmcg?from=${period}-01&to=${period}-02`).expect(200)).body as Rep;
+    for (const x of early.reconciliation.filter((y) => ['fmcg-commission-payable', 'fmcg-claim'].includes(y.key))) expect({ key: x.key, ok: x.ok, left: x.left.value, right: x.right.value }).toEqual({ key: x.key, ok: true, left: 0, right: 0 });
+  });
+
   it('akses: sales tidak boleh membuka laporan', async () => {
     await get(`/api/accounting/support/fmcg?from=${from}&to=${day}`, tok.sls.token).expect(403);
   });
