@@ -1960,6 +1960,10 @@ export const posOrders = pgTable(
     externalRef: text('external_ref'),
     platformFee: money('platform_fee').notNull().default('0'),
     settlementId: uuid('settlement_id'),
+    /** Program loyalitas: poin yang diperoleh / dipakai pada transaksi ini */
+    loyaltyEarnedPoints: integer('loyalty_earned_points').notNull().default(0),
+    loyaltyRedeemedPoints: integer('loyalty_redeemed_points').notNull().default(0),
+    loyaltyRedeemedValue: money('loyalty_redeemed_value').notNull().default('0'),
     tableLabel: text('table_label'),
     journalId: uuid('journal_id'),
     createdAt: createdAt(),
@@ -2151,6 +2155,8 @@ export const posReturns = pgTable(
     taxAmount: money('tax_amount').notNull(),
     total: money('total').notNull(),
     cogsAmount: money('cogs_amount').notNull(),
+    /** Bagian retur yang dikembalikan sebagai poin loyalitas (bukan uang) */
+    pointsRefund: money('points_refund').notNull().default('0'),
     journalId: uuid('journal_id'),
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
@@ -4000,4 +4006,73 @@ export const utilityCounterReceipts = pgTable(
     remittanceId: uuid('remittance_id').references(() => utilityRemittances.id),
   },
   (t) => [uniqueIndex('utility_counter_receipts_payment_uq').on(t.paymentId)],
+);
+
+/** Buku besar poin loyalitas: tiap perubahan poin satu baris; baris EARN/REFUND adalah "lot" dengan sisa dan tanggal kedaluwarsa (FIFO) */
+export const loyaltyLedger = pgTable(
+  'loyalty_ledger',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    kind: text('kind').$type<'EARN' | 'REDEEM' | 'EXPIRE' | 'ADJUST' | 'REVERSE' | 'REFUND'>().notNull(),
+    /** Perubahan poin (+ menambah, - mengurangi) */
+    points: integer('points').notNull(),
+    /** Perubahan nilai kewajiban (Rp) yang menyertai poin ini */
+    value: money('value').notNull(),
+    orderId: uuid('order_id').references(() => posOrders.id),
+    expiresOn: date('expires_on'),
+    remaining: integer('remaining'),
+    note: text('note'),
+    createdById: uuid('created_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('loyalty_ledger_customer_idx').on(t.tenantId, t.customerId, t.createdAt)],
+);
+
+/** Rekonsiliasi pencairan QRIS/kartu debit dari penyelenggara: penjualan non-tunai (sudah masuk bank penuh) dicocokkan dengan uang bersih yang diterima */
+export const posCardSettlements = pgTable(
+  'pos_card_settlements',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: text('number').notNull(),
+    date: date('date').notNull(),
+    method: text('method').$type<'QRIS' | 'DEBIT'>().notNull(),
+    bankAccountId: uuid('bank_account_id')
+      .notNull()
+      .references(() => accounts.id),
+    gross: money('gross').notNull(),
+    mdrPct: numeric('mdr_pct', { precision: 6, scale: 3 }).notNull(),
+    mdrExpected: money('mdr_expected').notNull(),
+    received: money('received').notNull(),
+    difference: money('difference').notNull(),
+    itemCount: integer('item_count').notNull(),
+    status: text('status').$type<'POSTED' | 'CANCELLED'>().notNull().default('POSTED'),
+    note: text('note'),
+    journalId: uuid('journal_id').references(() => journalEntries.id),
+    reverseJournalId: uuid('reverse_journal_id').references(() => journalEntries.id),
+    cancelReason: text('cancel_reason'),
+    createdById: uuid('created_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('pos_card_settlements_number_uq').on(t.tenantId, t.number)],
+);
+
+export const posCardSettlementItems = pgTable(
+  'pos_card_settlement_items',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    settlementId: uuid('settlement_id')
+      .notNull()
+      .references(() => posCardSettlements.id, { onDelete: 'cascade' }),
+    paymentId: uuid('payment_id')
+      .notNull()
+      .references(() => posPayments.id, { onDelete: 'cascade' }),
+    amount: money('amount').notNull(),
+  },
+  (t) => [uniqueIndex('pos_card_settlement_items_payment_uq').on(t.paymentId)],
 );

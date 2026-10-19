@@ -91,3 +91,20 @@ Foto meter utilitas serta foto dan tanda tangan bukti kirim tidak lagi harus dis
 - **Penghapusan data perusahaan:** setelah basis data terhapus, seluruh berkas berawalan ID perusahaan ikut dihapus; kegagalan dicatat dan dikirim ke Telegram.
 - **Gambar lama:** `npm run storage:migrate -w backend` (`--dry-run` untuk menghitung). Tiap gambar diunggah, dibaca ulang dan dibandingkan sebelum kolom diganti rujukan; aman diulang; gambar rusak dilewati dan dilaporkan. Di produksi: `npm run storage:migrate:prod -w backend`.
 - **Batasan:** ekspor data perusahaan (ZIP CSV) memuat rujukan, bukan isi gambar; konektivitas ke bucket sungguhan baru teruji dengan peladen S3 tiruan, jadi uji sekali dengan bucket Anda setelah variabel diisi (catat satu foto lalu buka lagi).
+
+## Ritel — program loyalitas dan pencairan QRIS/debit (`backend/src/modules/pos/loyalty.module.ts`, `pos-settlement.module.ts`)
+Menu: Kasir (POS) › *Program loyalitas* dan *Pencairan QRIS/kartu* (Ritel dan F&B).
+
+**Program loyalitas**
+- **Aturan** (Admin/Pemilik, tercatat sebelum/sesudah): belanja per 1 poin, nilai 1 poin, minimum tukar, batas potongan (% total belanja), masa berlaku (bulan). Nilai yang membuat pengembalian ≥ 100% ditolak.
+- **Diperoleh** dari jumlah yang dibayar nyata (setelah potongan poin) untuk pelanggan terdaftar; satu transaksi memberi poin sekali (indeks unik). **Ditukar** di layar bayar kasir sebagai bagian pembayaran: saldo dikunci, dipakai FIFO dari lot yang paling cepat kedaluwarsa, dibatasi saldo/minimum/persentase.
+- **Akuntansi:** poin dicatat sebagai kewajiban saat diberikan — Dr *Beban Program Loyalitas* | Cr *Utang Poin Loyalitas*; saat ditukar Dr Utang Poin (selisih nilai ke beban); saat kedaluwarsa Dr Utang Poin | Cr Beban. Ringkasan mencocokkan buku poin dengan saldo akun Utang Poin di akuntansi dan menandai selisihnya.
+- **Retur transaksi:** poin yang diperoleh dibalik, poin yang dipakai dikembalikan secara proporsional (lot baru), uang kembali hanya untuk bagian yang dibayar nyata; kas laci tetap cocok. Saldo bisa negatif bila poin sudah terpakai (tampil di kontrol).
+- **Kedaluwarsa:** poin lewat tanggal tidak tampil tersedia dan tidak dapat ditukar; diproses otomatis per pelanggan saat tukar, dan massal lewat tombol Admin/Keuangan.
+- **Penyesuaian manual:** hanya Admin/Pemilik, alasan wajib, dijurnal, tampil di kontrol dan jejak audit.
+- **Belum ada:** tingkat/tier member, poin ganda/promo musiman, kartu member fisik/QR, pengiriman notifikasi poin ke pelanggan, penukaran hadiah barang (hanya potongan rupiah), poin pada pesanan online dan penjualan faktur (hanya kasir).
+
+**Pencairan QRIS/debit**
+- Penjualan non-tunai kasir langsung masuk bank sebesar penuh. Untuk tiap pencairan penyelenggara: pilih pembayaran yang dicairkan, isi uang bersih menurut rekening koran. Sistem menghitung MDR kontrak (%, diatur Admin), membandingkan, dan menjurnal Dr Beban MDR (QRIS/Kartu) ; Dr/Cr Beban Administrasi Bank (selisih dari hitungan) | Cr Bank (kotor − diterima).
+- Satu pembayaran hanya satu pencairan; selisih wajib penjelasan; selisih di atas toleransi hanya Admin/Pemilik; pembatalan oleh Admin dengan alasan membalik jurnal dan membebaskan pembayaran. Kontrol: belum cair lewat N hari, pencairan berselisih, MDR efektif > kontrak + 0,5 poin persen.
+- **Batasan:** tidak ada integrasi otomatis ke penyelenggara/bank/EDC (jumlah dimasukkan manual dari rekening koran); retur atas penjualan non-tunai hanya diberi penanda pada daftar (pengembalian lewat penyelenggara perlu dicatat dalam selisih); satu pencairan hanya untuk satu rekening bank.
