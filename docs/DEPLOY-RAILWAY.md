@@ -14,6 +14,7 @@ Tanpa nginx, tanpa CORS, tanpa pengalihan `/api`. Berkas yang dipakai: `railway.
    | --- | --- |
    | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (pilih lewat menu "Add Reference") |
    | `JWT_SECRET` | teks acak ≥ 32 karakter: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` |
+   | `DATA_ENCRYPTION_KEY` | **wajib** (aplikasi menolak start tanpanya): kunci enkripsi token pihak ketiga, acak ≥ 32 karakter dan **berbeda** dari `JWT_SECRET`: `openssl rand -base64 48`. Simpan di tempat aman dan jangan diubah setelah diisi. Data yang sudah terenkripsi dengan kunci lama (turunan `JWT_SECRET`) tetap terbaca. |
    | `APP_URL` | alamat publik layanan, mis. `https://sansu-production.up.railway.app` (diisi setelah langkah 4) |
    | `CORS_ORIGIN` | sama dengan `APP_URL` |
    | `PLATFORM_ADMIN_EMAILS` | email pemilik layanan (akses panel pemilik) |
