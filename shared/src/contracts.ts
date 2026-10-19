@@ -260,6 +260,30 @@ export interface RemindersResponse {
   snoozedCount: number;
   counts: Record<ReminderLevel, number>;
 }
+/** Ambang yang menentukan kapan angka pada laporan pendukung dianggap temuan (per perusahaan) */
+export interface SupportInsightThresholds {
+  agingWarnPct: number;
+  agingDangerPct: number;
+  lateSharePct: number;
+  receivableConcentrationPct: number;
+  concentrationPct: number;
+  marginWarnPct: number;
+  returnPct: number;
+  deliveryDays: number;
+  grniDays: number;
+  posShortWarnPct: number;
+  posShortDangerPct: number;
+  posRepeatSessions: number;
+  posReturnPct: number;
+  fnbUsagePct: number;
+  swapPct: number;
+  yieldPct: number;
+  wipWarnDays: number;
+  wipDangerDays: number;
+  utilFlaggedPct: number;
+  utilCollectionPct: number;
+  utilArrearsDays: number;
+}
 export interface ReminderSettings {
   enabled: boolean;
   arLeadDays: number;

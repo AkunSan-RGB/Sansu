@@ -11,6 +11,7 @@ import { AssetsModule } from '../assets/assets.module';
 import { FiscalService } from './fiscal.service';
 import { HealthService } from './health.service';
 import { AppendixService } from './appendix.service';
+import { DEFAULT_THRESHOLDS, mergeThresholds } from './support-insights';
 import { SUPPORT_KINDS, type SupportKind, SupportReportsService } from './support-reports';
 import { ApplyEntityProfileDto, EntityAnswersDto, EntityProfileService } from './entity-profile.service';
 import { NotesService } from './notes.service';
@@ -140,9 +141,34 @@ export class InsightsController {
   }
 }
 
+/** Ambang yang dipakai kesimpulan otomatis laporan pendukung; diatur per perusahaan */
+@ApiTags('Analisis & pajak')
+@ApiBearerAuth()
+@Controller('settings/support-insights')
+export class SupportInsightsSettingsController {
+  constructor(private readonly support: SupportReportsService) {}
+
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
+  @Get()
+  async get(@CurrentUser() u: AuthUser) {
+    return { values: await this.support.thresholds(u.tenantId), defaults: DEFAULT_THRESHOLDS };
+  }
+
+  /** Mengubah sebagian atau seluruh ambang; kirim `reset: true` untuk kembali ke standar */
+  @Roles('ADMIN', 'ACCOUNTANT')
+  @Put()
+  async put(@CurrentUser() u: AuthUser, @Body() body: Record<string, unknown>) {
+    const { reset, ...patch } = body ?? {};
+    const current = reset === true ? DEFAULT_THRESHOLDS : await this.support.thresholds(u.tenantId);
+    const { value, error } = mergeThresholds(current, patch);
+    if (error) throw new BadRequestException(error);
+    return { values: await this.support.saveThresholds(u.tenantId, value), defaults: DEFAULT_THRESHOLDS };
+  }
+}
+
 @Module({
   imports: [AccountingModule, AssetsModule, FxModule],
-  controllers: [InsightsController],
+  controllers: [InsightsController, SupportInsightsSettingsController],
   providers: [HealthService, FiscalService, NotesService, AppendixService, SupportReportsService, EntityProfileService, ThresholdsService],
   exports: [FiscalService, HealthService, EntityProfileService, ThresholdsService],
 })

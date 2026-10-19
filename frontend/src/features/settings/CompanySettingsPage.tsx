@@ -29,6 +29,7 @@ import AccountingPolicyTab from './AccountingPolicyTab';
 import ApprovalPolicyTab from './ApprovalPolicyTab';
 import PayrollSettingsTab from './PayrollSettingsTab';
 import ReminderSettingsCard from './ReminderSettingsCard';
+import SupportThresholdsCard from './SupportThresholdsCard';
 import EntityProfileWizard from './EntityProfileWizard';
 import { t } from '@/lib/terms';
 
@@ -361,6 +362,8 @@ export default function CompanySettingsPage() {
                   </Section>
                   {canBookkeep(me?.role) && <SaveBar loading={saveReporting.isPending} />}
                 </Form>
+                <Divider />
+                <SupportThresholdsCard canEdit={canBookkeep(me?.role)} />
               </Card>
             ),
           },

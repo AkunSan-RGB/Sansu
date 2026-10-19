@@ -23,6 +23,72 @@ interface ReportLike {
   period: { from: string; to: string };
 }
 
+/** Ambang yang menentukan kapan sebuah angka dianggap temuan; dapat diatur per perusahaan */
+export interface InsightThresholds {
+  /** Piutang/utang lewat 90 hari: persen dari total yang jadi perhatian / kritis */
+  agingWarnPct: number;
+  agingDangerPct: number;
+  /** Persen piutang/utang lewat jatuh tempo yang jadi perhatian */
+  lateSharePct: number;
+  /** Persen piutang pada satu pelanggan yang jadi perhatian */
+  receivableConcentrationPct: number;
+  /** Persen penjualan/pembelian pada satu pihak yang jadi perhatian */
+  concentrationPct: number;
+  /** Margin kotor di bawah persen ini jadi perhatian */
+  marginWarnPct: number;
+  /** Retur penjualan/pembelian dari total, persen */
+  returnPct: number;
+  /** Surat jalan belum difaktur lebih dari ... hari */
+  deliveryDays: number;
+  /** Barang diterima belum ditagih lebih dari ... hari */
+  grniDays: number;
+  /** Uang laci kurang dari penjualan kasir: perhatian / kritis, persen */
+  posShortWarnPct: number;
+  posShortDangerPct: number;
+  /** Selisih kurang pada kasir yang sama di sekian sesi atau lebih */
+  posRepeatSessions: number;
+  /** Retur kasir per kasir dari penjualannya, persen */
+  posReturnPct: number;
+  /** Penyimpangan pemakaian bahan dari resep, persen */
+  fnbUsagePct: number;
+  /** Tukar-guling dari penjualan neto, persen */
+  swapPct: number;
+  /** Rendemen produksi di bawah persen ini */
+  yieldPct: number;
+  /** Barang dalam proses lebih dari ... hari: perhatian / kritis */
+  wipWarnDays: number;
+  wipDangerDays: number;
+  /** Catatan meter ditandai janggal dari seluruh catatan, persen */
+  utilFlaggedPct: number;
+  /** Pembayaran terkumpul dari tagihan di bawah persen ini */
+  utilCollectionPct: number;
+  /** Tunggakan utilitas lebih dari ... hari */
+  utilArrearsDays: number;
+}
+export const DEFAULT_THRESHOLDS: InsightThresholds = {
+  agingWarnPct: 20,
+  agingDangerPct: 40,
+  lateSharePct: 50,
+  receivableConcentrationPct: 50,
+  concentrationPct: 40,
+  marginWarnPct: 10,
+  returnPct: 5,
+  deliveryDays: 14,
+  grniDays: 30,
+  posShortWarnPct: 0.5,
+  posShortDangerPct: 1,
+  posRepeatSessions: 3,
+  posReturnPct: 3,
+  fnbUsagePct: 5,
+  swapPct: 2,
+  yieldPct: 90,
+  wipWarnDays: 30,
+  wipDangerDays: 60,
+  utilFlaggedPct: 10,
+  utilCollectionPct: 70,
+  utilArrearsDays: 90,
+};
+
 type Row = (string | number | null)[];
 const ORDER: Record<FindingLevel, number> = { ok: 0, info: 1, warning: 2, danger: 3 };
 
@@ -34,7 +100,7 @@ const sumCol = (rows: Row[], i: number) => rows.reduce((a, r) => a + n(r[i]), 0)
 
 class Builder {
   findings: SupportFinding[] = [];
-  constructor(readonly r: ReportLike) {}
+  constructor(readonly r: ReportLike, readonly t: InsightThresholds) {}
   table(key: string, idx = 0): SupportTable | undefined {
     return this.r.sections.find((s) => s.key === key)?.tables[idx];
   }
@@ -77,18 +143,18 @@ function aging(b: Builder, key: string, what: 'piutang' | 'utang') {
   const who = what === 'piutang' ? 'pelanggan' : 'pemasok';
   if (over90 > 0) {
     b.add(
-      sharePay >= 0.4 ? 'danger' : sharePay >= 0.2 ? 'warning' : 'info',
+      sharePay * 100 >= b.t.agingDangerPct ? 'danger' : sharePay * 100 >= b.t.agingWarnPct ? 'warning' : 'info',
       `${what === 'piutang' ? 'Piutang' : 'Utang'} lewat 90 hari ${rp(over90)} (${pct(sharePay * 100)})`,
       `Dari total ${rp(total)}, ${rp(late)} (${pct(shareLate * 100)}) sudah lewat jatuh tempo. Terbesar lewat 90 hari: ${names(worst)}.`,
       what === 'piutang' ? 'Tagih atau buat perjanjian cicilan dengan pelanggan di atas; bila hampir pasti tak tertagih, pertimbangkan penyisihan kerugian piutang atau penghapusan lewat persetujuan.' : 'Jadwalkan pelunasan atau konfirmasi saldo dengan pemasok di atas untuk menghindari denda dan terhentinya pasokan.',
     );
-  } else if (shareLate >= 0.5) {
+  } else if (shareLate * 100 >= b.t.lateSharePct) {
     b.add('warning', `${pct(shareLate * 100)} ${what} sudah lewat jatuh tempo`, `${rp(late)} dari ${rp(total)} lewat jatuh tempo, tetapi belum ada yang lewat 90 hari.`, what === 'piutang' ? 'Kirim pengingat tagihan sebelum menjadi menunggak lama.' : 'Prioritaskan pembayaran yang paling lama jatuh tempo.');
   } else {
     b.add('ok', `Umur ${what} sehat`, `${pct((1 - shareLate) * 100)} dari ${rp(total)} belum jatuh tempo dan tidak ada yang lewat 90 hari.`);
   }
   const top = [...rows].sort((a, c) => n(c[6]) - n(a[6]))[0];
-  if (top && rows.length > 1 && n(top[6]) / total > 0.5) {
+  if (top && rows.length > 1 && (n(top[6]) / total) * 100 > b.t.receivableConcentrationPct) {
     b.add('warning', `${pct((n(top[6]) / total) * 100)} ${what} terkonsentrasi pada satu ${who}`, `${String(top[0])} menyumbang ${rp(n(top[6]))} dari ${rp(total)}.`, what === 'piutang' ? 'Tinjau batas kredit dan syarat pembayaran pelanggan ini; risiko gagal bayar satu pihak berdampak besar.' : 'Ketergantungan pada satu pemasok berisiko; pertimbangkan pemasok alternatif.');
   }
 }
@@ -100,7 +166,7 @@ function concentration(b: Builder, key: string, idx: number, what: string) {
   if (rows.length < 2 || total <= 0) return;
   const top = [...rows].sort((a, c) => n(c[idx]) - n(a[idx]))[0];
   const share = n(top[idx]) / total;
-  if (share >= 0.4) b.add('warning', `${pct(share * 100)} ${what} bergantung pada satu pihak`, `${String(top[0])} sebesar ${rp(n(top[idx]))} dari ${rp(total)}.`, 'Pantau risiko ketergantungan; kehilangan pihak ini akan berdampak besar.');
+  if (share * 100 >= b.t.concentrationPct) b.add('warning', `${pct(share * 100)} ${what} bergantung pada satu pihak`, `${String(top[0])} sebesar ${rp(n(top[idx]))} dari ${rp(total)}.`, 'Pantau risiko ketergantungan; kehilangan pihak ini akan berdampak besar.');
 }
 
 // ------------------------------------------------------------------ per jenis
@@ -113,9 +179,9 @@ function sales(b: Builder) {
     const gp = sumCol(m, 7);
     if (net > 0) {
       const margin = gp / net;
-      b.add(margin < 0 ? 'danger' : margin < 0.1 ? 'warning' : 'info', `Penjualan neto ${rp(net)}, laba kotor ${rp(gp)} (${pct(margin * 100)})`, margin < 0 ? 'HPP lebih besar dari penjualan: barang dijual di bawah harga pokok.' : margin < 0.1 ? 'Margin kotor tipis; kenaikan biaya kecil saja dapat membuat rugi.' : `Dari ${m.reduce((a, r) => a + n(r[1]), 0)} faktur pada periode ini.`, margin < 0.1 ? 'Tinjau harga jual dan diskon pada produk dengan margin terendah (lihat P3).' : undefined);
+      b.add(margin < 0 ? 'danger' : margin * 100 < b.t.marginWarnPct ? 'warning' : 'info', `Penjualan neto ${rp(net)}, laba kotor ${rp(gp)} (${pct(margin * 100)})`, margin < 0 ? 'HPP lebih besar dari penjualan: barang dijual di bawah harga pokok.' : margin * 100 < b.t.marginWarnPct ? 'Margin kotor tipis; kenaikan biaya kecil saja dapat membuat rugi.' : `Dari ${m.reduce((a, r) => a + n(r[1]), 0)} faktur pada periode ini.`, margin * 100 < b.t.marginWarnPct ? 'Tinjau harga jual dan diskon pada produk dengan margin terendah (lihat P3).' : undefined);
     }
-    if (dpp > 0 && ret / dpp >= 0.05) b.add('warning', `Retur ${pct((ret / dpp) * 100)} dari penjualan`, `Retur ${rp(ret)} dari penjualan ${rp(dpp)}.`, 'Cari penyebab retur terbanyak (kualitas, salah kirim) dan pelanggan yang paling sering meretur.');
+    if (dpp > 0 && (ret / dpp) * 100 >= b.t.returnPct) b.add('warning', `Retur ${pct((ret / dpp) * 100)} dari penjualan`, `Retur ${rp(ret)} dari penjualan ${rp(dpp)}.`, 'Cari penyebab retur terbanyak (kualitas, salah kirim) dan pelanggan yang paling sering meretur.');
     if (m.length >= 2) {
       const last = n(m[m.length - 1][5]);
       const prev = n(m[m.length - 2][5]);
@@ -126,8 +192,8 @@ function sales(b: Builder) {
   aging(b, 'sales-aging', 'piutang');
   const unb = b.rows('sales-unbilled');
   if (unb.length) {
-    const old = unb.filter((r) => n(r[4]) > 14);
-    b.add(old.length ? 'warning' : 'info', `${unb.length} surat jalan belum difaktur (HPP ${rp(sumCol(unb, 5))})`, `Barang sudah keluar dan HPP sudah tercatat, tetapi pendapatan belum diakui.${old.length ? ` ${old.length} di antaranya lebih dari 14 hari: ${names(old)}.` : ''}`, 'Terbitkan faktur atas surat jalan tersebut, atau selidiki bila pengiriman ditolak/dikembalikan.');
+    const old = unb.filter((r) => n(r[4]) > b.t.deliveryDays);
+    b.add(old.length ? 'warning' : 'info', `${unb.length} surat jalan belum difaktur (HPP ${rp(sumCol(unb, 5))})`, `Barang sudah keluar dan HPP sudah tercatat, tetapi pendapatan belum diakui.${old.length ? ` ${old.length} di antaranya lebih dari ${b.t.deliveryDays} hari: ${names(old)}.` : ''}`, 'Terbitkan faktur atas surat jalan tersebut, atau selidiki bila pengiriman ditolak/dikembalikan.');
   }
   const man = b.rows('sales-source').find((r) => String(r[0]) === 'Jurnal manual');
   if (man && n(man[2]) !== 0) b.add('warning', `Pendapatan ${rp(n(man[2]))} berasal dari jurnal manual`, 'Pendapatan ini tidak punya faktur atau transaksi kasir sebagai dasar.', 'Pastikan ada bukti pendukung dan persetujuan; pendapatan sebaiknya dicatat lewat dokumen penjualan.');
@@ -139,14 +205,14 @@ function purchases(b: Builder) {
     const dpp = sumCol(m, 2);
     const ret = sumCol(m, 6);
     b.add('info', `Pembelian neto ${rp(sumCol(m, 7))}`, `${m.reduce((a, r) => a + n(r[1]), 0)} faktur, PPN masukan ${rp(sumCol(m, 3))}.`);
-    if (dpp > 0 && ret / dpp >= 0.05) b.add('warning', `Retur pembelian ${pct((ret / dpp) * 100)}`, `Retur ${rp(ret)} dari pembelian ${rp(dpp)}.`, 'Tinjau kualitas barang dari pemasok yang paling sering diretur dan bicarakan syarat retur/penggantian.');
+    if (dpp > 0 && (ret / dpp) * 100 >= b.t.returnPct) b.add('warning', `Retur pembelian ${pct((ret / dpp) * 100)}`, `Retur ${rp(ret)} dari pembelian ${rp(dpp)}.`, 'Tinjau kualitas barang dari pemasok yang paling sering diretur dan bicarakan syarat retur/penggantian.');
   }
   concentration(b, 'purchases-supplier', 2, 'pembelian');
   aging(b, 'purchases-aging', 'utang');
   const g = b.rows('purchases-grni');
   if (g.length) {
-    const old = g.filter((r) => n(r[4]) > 30);
-    b.add(old.length ? 'warning' : 'info', `${g.length} penerimaan barang belum ditagih ${rp(sumCol(g, 7))}`, `Barang sudah diterima tetapi belum difaktur pemasok.${old.length ? ` ${old.length} lebih dari 30 hari: ${names(old, 0)}.` : ''}`, 'Minta faktur pemasok atau input faktur yang sudah diterima; utang yang belum dicatat membuat laporan keuangan terlalu bagus.');
+    const old = g.filter((r) => n(r[4]) > b.t.grniDays);
+    b.add(old.length ? 'warning' : 'info', `${g.length} penerimaan barang belum ditagih ${rp(sumCol(g, 7))}`, `Barang sudah diterima tetapi belum difaktur pemasok.${old.length ? ` ${old.length} lebih dari ${b.t.grniDays} hari: ${names(old, 0)}.` : ''}`, 'Minta faktur pemasok atau input faktur yang sudah diterima; utang yang belum dicatat membuat laporan keuangan terlalu bagus.');
   }
 }
 
@@ -198,28 +264,28 @@ function pos(b: Builder) {
   if (short.length || over.length) {
     const lack = Math.abs(sumCol(short, 9));
     const ratio = salesTotal > 0 ? lack / salesTotal : 0;
-    b.add(ratio >= 0.01 ? 'danger' : ratio >= 0.005 ? 'warning' : 'info', `${short.length} sesi uang laci kurang (${rp(lack)}), ${over.length} sesi lebih (${rp(sumCol(over, 9))})`, `Kekurangan ${pct(ratio * 100)} dari penjualan kasir ${rp(salesTotal)}.`, 'Periksa sesi dengan selisih terbesar; selisih berulang pada kasir yang sama patut diselidiki (lihat peringatan berikut).');
+    b.add(ratio * 100 >= b.t.posShortDangerPct ? 'danger' : ratio * 100 >= b.t.posShortWarnPct ? 'warning' : 'info', `${short.length} sesi uang laci kurang (${rp(lack)}), ${over.length} sesi lebih (${rp(sumCol(over, 9))})`, `Kekurangan ${pct(ratio * 100)} dari penjualan kasir ${rp(salesTotal)}.`, 'Periksa sesi dengan selisih terbesar; selisih berulang pada kasir yang sama patut diselidiki (lihat peringatan berikut).');
     const per = new Map<string, number>();
     for (const r of short) per.set(String(r[1]), (per.get(String(r[1])) ?? 0) + 1);
-    const repeat = [...per].filter(([, c]) => c >= 3);
-    if (repeat.length) b.add('warning', `Selisih kurang berulang pada ${repeat.map(([k, c]) => `${k} (${c} sesi)`).join(', ')}`, 'Selisih kurang pada tiga sesi atau lebih untuk kasir yang sama.', 'Lakukan hitung kas mendadak dan tinjau cara kasir menerima uang/kembalian.');
+    const repeat = [...per].filter(([, c]) => c >= b.t.posRepeatSessions);
+    if (repeat.length) b.add('warning', `Selisih kurang berulang pada ${repeat.map(([k, c]) => `${k} (${c} sesi)`).join(', ')}`, `Selisih kurang pada ${b.t.posRepeatSessions} sesi atau lebih untuk kasir yang sama.`, 'Lakukan hitung kas mendadak dan tinjau cara kasir menerima uang/kembalian.');
   } else if (closed.length) b.add('ok', 'Uang laci cocok pada semua sesi yang ditutup', `${closed.length} sesi ditutup tanpa selisih.`);
   const open = sess.filter((r) => String(r[4]) === 'Terbuka' && String(r[2]).slice(0, 10) < b.r.period.to);
   if (open.length) b.add('warning', `${open.length} sesi kasir masih terbuka dari hari sebelumnya`, `${names(open, 0)}.`, 'Tutup sesi dan hitung uang laci agar selisih tercatat pada hari yang benar.');
   for (const r of b.rows('pos-cashier')) {
     const t = n(r[4]);
-    if (t > 0 && n(r[5]) / t >= 0.03) b.add('warning', `Retur kasir ${String(r[0])} ${pct((n(r[5]) / t) * 100)} dari penjualannya`, `${rp(n(r[5]))} dari ${rp(t)}.`, 'Pembatalan penjualan sering menjadi celah penggelapan; tinjau alasan dan persetujuan retur kasir ini.');
+    if (t > 0 && (n(r[5]) / t) * 100 >= b.t.posReturnPct) b.add('warning', `Retur kasir ${String(r[0])} ${pct((n(r[5]) / t) * 100)} dari penjualannya`, `${rp(n(r[5]))} dari ${rp(t)}.`, 'Pembatalan penjualan sering menjadi celah penggelapan; tinjau alasan dan persetujuan retur kasir ini.');
   }
 }
 
 function fnb(b: Builder) {
   const use = b.rows('fnb-usage');
   if (use.length) {
-    const off = use.filter((r) => n(r[2]) > 0 && Math.abs(n(r[4])) / n(r[2]) > 0.05);
+    const off = use.filter((r) => n(r[2]) > 0 && (Math.abs(n(r[4])) / n(r[2])) * 100 > b.t.fnbUsagePct);
     if (off.length) {
       const boros = off.filter((r) => n(r[4]) > 0).sort((a, c) => n(c[4]) - n(a[4]));
-      b.add('warning', `${off.length} bahan menyimpang lebih dari 5% dari resep`, `${boros.length ? `Lebih banyak keluar dari resep: ${names(boros, 1)}.` : ''}${off.length > boros.length ? ' Sebagian keluar lebih sedikit dari resep (resep terlalu besar atau penjualan tidak tercatat).' : ''}`, 'Periksa porsi, pemborosan/susut, dan kemungkinan bahan keluar tanpa penjualan; sesuaikan resep bila standar sudah berubah.');
-    } else b.add('ok', 'Pemakaian bahan sesuai resep', `${use.length} bahan dicek, semuanya dalam 5% dari resep.`);
+      b.add('warning', `${off.length} bahan menyimpang lebih dari ${pct(b.t.fnbUsagePct)} dari resep`, `${boros.length ? `Lebih banyak keluar dari resep: ${names(boros, 1)}.` : ''}${off.length > boros.length ? ' Sebagian keluar lebih sedikit dari resep (resep terlalu besar atau penjualan tidak tercatat).' : ''}`, 'Periksa porsi, pemborosan/susut, dan kemungkinan bahan keluar tanpa penjualan; sesuaikan resep bila standar sudah berubah.');
+    } else b.add('ok', 'Pemakaian bahan sesuai resep', `${use.length} bahan dicek, semuanya dalam ${pct(b.t.fnbUsagePct)} dari resep.`);
   }
   const ch = b.rows('fnb-platform', 0);
   const open = sumCol(ch, 6);
@@ -249,7 +315,7 @@ function fmcg(b: Builder) {
   if (openTrade > 0) b.add('info', `Rebate outlet ${rp(openTrade)} belum dilunasi`, 'Kewajiban kepada outlet modern trade.', 'Jadwalkan pelunasan atau potong dari tagihan sesuai perjanjian.');
   const swap = sumCol(b.rows('fmcg-swap'), 2);
   const net = sumCol(b.rows('fmcg-sales'), 4);
-  if (swap > 0 && net > 0) b.add(swap / net >= 0.02 ? 'warning' : 'info', `Tukar-guling ${rp(swap)} (${pct((swap / net) * 100)} dari penjualan neto)`, 'Biaya barang rusak/kedaluwarsa/recall yang ditukar.', swap / net >= 0.02 ? 'Tinjau perputaran stok dan kondisi barang di outlet penyebab terbanyak.' : undefined);
+  if (swap > 0 && net > 0) b.add((swap / net) * 100 >= b.t.swapPct ? 'warning' : 'info', `Tukar-guling ${rp(swap)} (${pct((swap / net) * 100)} dari penjualan neto)`, 'Biaya barang rusak/kedaluwarsa/recall yang ditukar.', (swap / net) * 100 >= b.t.swapPct ? 'Tinjau perputaran stok dan kondisi barang di outlet penyebab terbanyak.' : undefined);
   const cs = sumCol(b.rows('fmcg-consign'), 4);
   if (cs > 0) b.add('info', `Stok titipan di outlet bernilai ${rp(cs)}`, 'Masih milik perusahaan sampai dilaporkan terjual.', 'Lakukan opname titipan berkala di outlet.');
 }
@@ -257,9 +323,9 @@ function fmcg(b: Builder) {
 function mfg(b: Builder) {
   const done = b.rows('mfg-done');
   if (done.length) {
-    const low = done.filter((r) => r[7] !== null && n(r[7]) < 90);
+    const low = done.filter((r) => r[7] !== null && n(r[7]) < b.t.yieldPct);
     const avg = done.reduce((a, r) => a + n(r[7]), 0) / done.length;
-    if (low.length) b.add('warning', `${low.length} perintah produksi rendemen di bawah 90%`, `Rata-rata rendemen ${pct(avg)}. Terendah: ${names([...low].sort((a, c) => n(a[7]) - n(c[7])), 0)}.`, 'Periksa susut/rusak pada perintah tersebut dan tinjau standar rendemen di resep.');
+    if (low.length) b.add('warning', `${low.length} perintah produksi rendemen di bawah ${pct(b.t.yieldPct)}`, `Rata-rata rendemen ${pct(avg)}. Terendah: ${names([...low].sort((a, c) => n(a[7]) - n(c[7])), 0)}.`, 'Periksa susut/rusak pada perintah tersebut dan tinjau standar rendemen di resep.');
     else b.add('ok', `Rendemen produksi baik (rata-rata ${pct(avg)})`, `${done.length} perintah selesai.`);
   }
   const use = b.rows('mfg-usage');
@@ -267,8 +333,8 @@ function mfg(b: Builder) {
   if (over.length) b.add('warning', `Bahan terpakai lebih dari resep senilai ${rp(sumCol(over, 5))}`, `Terbesar: ${names(over, 1)}.`, 'Selidiki pemborosan, susut, atau resep yang sudah usang; perbarui standar bila perlu.');
   const wip = b.rows('mfg-wip');
   if (wip.length) {
-    const old = wip.filter((r) => n(r[3]) > 30);
-    b.add(old.some((r) => n(r[3]) > 60) ? 'danger' : old.length ? 'warning' : 'info', `${wip.length} perintah masih berjalan (barang dalam proses ${rp(sumCol(wip, 4))})`, old.length ? `${old.length} perintah lebih dari 30 hari: ${names(old, 0)}.` : 'Semua berumur di bawah 30 hari.', old.length ? 'Selesaikan atau batalkan perintah yang macet; modal tertahan dan nilai bahan bisa tidak terserap.' : undefined);
+    const old = wip.filter((r) => n(r[3]) > b.t.wipWarnDays);
+    b.add(old.some((r) => n(r[3]) > b.t.wipDangerDays) ? 'danger' : old.length ? 'warning' : 'info', `${wip.length} perintah masih berjalan (barang dalam proses ${rp(sumCol(wip, 4))})`, old.length ? `${old.length} perintah lebih dari ${b.t.wipWarnDays} hari: ${names(old, 0)}.` : `Semua berumur di bawah ${b.t.wipWarnDays} hari.`, old.length ? 'Selesaikan atau batalkan perintah yang macet; modal tertahan dan nilai bahan bisa tidak terserap.' : undefined);
   }
 }
 
@@ -296,7 +362,7 @@ function utility(b: Builder) {
   if (rd.length) {
     const total = sumCol(rd, 1);
     const flagged = sumCol(rd, 5);
-    if (total > 0 && flagged / total >= 0.1) b.add('warning', `${pct((flagged / total) * 100)} catatan meter ditandai janggal`, `${flagged} dari ${total} catatan (lonjakan, meter diganti, dan sebagainya).`, 'Periksa petugas dan sambungan dengan tanda terbanyak; kebocoran pendapatan sering lewat pencatatan meter.');
+    if (total > 0 && (flagged / total) * 100 >= b.t.utilFlaggedPct) b.add('warning', `${pct((flagged / total) * 100)} catatan meter ditandai janggal`, `${flagged} dari ${total} catatan (lonjakan, meter diganti, dan sebagainya).`, 'Periksa petugas dan sambungan dengan tanda terbanyak; kebocoran pendapatan sering lewat pencatatan meter.');
     const rejected = sumCol(rd, 4);
     if (rejected > 0) b.add('info', `${rejected} catatan meter ditolak`, 'Perlu dicatat ulang oleh petugas.');
     const backlog = sumCol(rd, 1) - sumCol(rd, 3) - rejected;
@@ -306,17 +372,17 @@ function utility(b: Builder) {
   const tot = sumCol(bills, 5);
   if (tot > 0) {
     const rate = sumCol(bills, 6) / tot;
-    b.add(rate < 0.7 ? 'warning' : 'info', `Pembayaran terkumpul ${pct(rate * 100)} dari tagihan ${rp(tot)}`, `Sisa belum dibayar ${rp(sumCol(bills, 7))}.`, rate < 0.7 ? 'Intensifkan penagihan; pertimbangkan penangguhan sambungan yang menunggak lama sesuai aturan.' : undefined);
+    b.add(rate * 100 < b.t.utilCollectionPct ? 'warning' : 'info', `Pembayaran terkumpul ${pct(rate * 100)} dari tagihan ${rp(tot)}`, `Sisa belum dibayar ${rp(sumCol(bills, 7))}.`, rate * 100 < b.t.utilCollectionPct ? 'Intensifkan penagihan; pertimbangkan penangguhan sambungan yang menunggak lama sesuai aturan.' : undefined);
   }
   const ar = b.rows('util-arrears');
   if (ar.length) {
-    const old = ar.filter((r) => n(r[4]) > 90);
-    b.add(old.length ? 'warning' : 'info', `${ar.length} tagihan menunggak (${rp(sumCol(ar, 6))})`, old.length ? `${old.length} lebih dari 90 hari: ${names(old, 1)}.` : 'Belum ada yang lewat 90 hari.', old.length ? 'Tangguhkan/putus sambungan sesuai prosedur dan siapkan penyisihan piutang.' : 'Kirim pengingat sebelum menunggak lama.');
+    const old = ar.filter((r) => n(r[4]) > b.t.utilArrearsDays);
+    b.add(old.length ? 'warning' : 'info', `${ar.length} tagihan menunggak (${rp(sumCol(ar, 6))})`, old.length ? `${old.length} lebih dari ${b.t.utilArrearsDays} hari: ${names(old, 1)}.` : `Belum ada yang lewat ${b.t.utilArrearsDays} hari.`, old.length ? 'Tangguhkan/putus sambungan sesuai prosedur dan siapkan penyisihan piutang.' : 'Kirim pengingat sebelum menunggak lama.');
   }
 }
 
-export function conclude(kind: SupportKind, report: ReportLike): SupportConclusion {
-  const b = new Builder(report);
+export function conclude(kind: SupportKind, report: ReportLike, thresholds: InsightThresholds = DEFAULT_THRESHOLDS): SupportConclusion {
+  const b = new Builder(report, thresholds);
   reconciliation(b, report.reconciliation);
   const body: Record<SupportKind, (b: Builder) => void> = { sales, purchases, inventory, cash, other, pos, fnb, fmcg, mfg, jasa, utility };
   body[kind](b);
@@ -329,4 +395,45 @@ export function conclude(kind: SupportKind, report: ReportLike): SupportConclusi
   const head = recs.length ? (badRecs ? `${badRecs} dari ${recs.length} pencocokan buku besar berselisih` : `Semua ${recs.length} pencocokan buku besar cocok`) : 'Tidak ada pencocokan buku besar pada laporan ini';
   const tail = danger || warning ? `; ada ${[danger ? `${danger} temuan kritis` : '', warning ? `${warning} perlu perhatian` : ''].filter(Boolean).join(' dan ')}.` : '; tidak ada temuan yang perlu ditindaklanjuti.';
   return { status, summary: `${head}${tail}`, findings };
+}
+
+/** Rentang yang diizinkan per ambang: [min, maks, satuan] */
+export const THRESHOLD_RANGES: Record<keyof InsightThresholds, [number, number, 'persen' | 'hari' | 'sesi']> = {
+  agingWarnPct: [1, 100, 'persen'],
+  agingDangerPct: [1, 100, 'persen'],
+  lateSharePct: [1, 100, 'persen'],
+  receivableConcentrationPct: [1, 100, 'persen'],
+  concentrationPct: [1, 100, 'persen'],
+  marginWarnPct: [0, 100, 'persen'],
+  returnPct: [0.1, 100, 'persen'],
+  deliveryDays: [1, 365, 'hari'],
+  grniDays: [1, 365, 'hari'],
+  posShortWarnPct: [0.01, 100, 'persen'],
+  posShortDangerPct: [0.01, 100, 'persen'],
+  posRepeatSessions: [2, 50, 'sesi'],
+  posReturnPct: [0.1, 100, 'persen'],
+  fnbUsagePct: [0.1, 100, 'persen'],
+  swapPct: [0.1, 100, 'persen'],
+  yieldPct: [1, 100, 'persen'],
+  wipWarnDays: [1, 365, 'hari'],
+  wipDangerDays: [1, 730, 'hari'],
+  utilFlaggedPct: [0.1, 100, 'persen'],
+  utilCollectionPct: [1, 100, 'persen'],
+  utilArrearsDays: [1, 365, 'hari'],
+};
+
+/** Menggabungkan perubahan dengan nilai sekarang; mengembalikan pesan kesalahan bila ada yang tidak sah */
+export function mergeThresholds(current: InsightThresholds, patch: Record<string, unknown>): { value: InsightThresholds; error?: string } {
+  const value = { ...current };
+  for (const [k, v] of Object.entries(patch)) {
+    const range = THRESHOLD_RANGES[k as keyof InsightThresholds];
+    if (!range) return { value, error: `Ambang "${k}" tidak dikenal` };
+    const num = Number(v);
+    if (!Number.isFinite(num) || num < range[0] || num > range[1]) return { value, error: `Nilai harus ${range[0]}–${range[1]} ${range[2]} (${k})` };
+    value[k as keyof InsightThresholds] = num;
+  }
+  if (value.agingDangerPct < value.agingWarnPct) return { value, error: 'Batas kritis umur piutang tidak boleh lebih kecil dari batas perhatian' };
+  if (value.posShortDangerPct < value.posShortWarnPct) return { value, error: 'Batas kritis selisih kas tidak boleh lebih kecil dari batas perhatian' };
+  if (value.wipDangerDays < value.wipWarnDays) return { value, error: 'Batas kritis barang dalam proses tidak boleh lebih kecil dari batas perhatian' };
+  return { value };
 }

@@ -111,3 +111,7 @@ Semuanya dihitung otomatis dari angka yang tersaji pada laporan itu sendiri deng
 | Utilitas | Catatan meter janggal ≥ 10%, tingkat pembayaran < 70%, tunggakan > 90 hari |
 
 Batasan: ambang di atas bersifat umum dan belum dapat diubah per perusahaan; kesimpulan membantu menemukan hal yang perlu diperiksa, bukan pengganti pertimbangan akuntan.
+
+### Ambang dapat diatur per perusahaan
+
+Ambang kesimpulan di atas (mis. 20% piutang lewat 90 hari, retur 5%, surat jalan 14 hari) dapat diubah di **Pengaturan perusahaan › Pelaporan & PPh › Ambang kesimpulan laporan pendukung**. Perubahan berlaku langsung di semua laporan perusahaan itu. Pemilik, Admin, dan Akuntan dapat mengubah; Keuangan hanya melihat. Setiap ambang dibatasi rentang yang wajar (mis. persen 0,1–100, hari 1–365), batas kritis tidak boleh lebih kecil dari batas perhatian, dan tombol "Kembalikan semua ke standar" tersedia. Tersimpan di pengaturan perusahaan (`supportInsights`), terisolasi antar perusahaan.

@@ -1,4 +1,4 @@
-import { conclude } from './support-insights';
+import { conclude, DEFAULT_THRESHOLDS, mergeThresholds } from './support-insights';
 import type { Reconciliation, SupportSection } from './support-reports';
 
 const period = { from: '2026-10-01', to: '2026-10-19' };
@@ -110,5 +110,32 @@ describe('conclude', () => {
   it('stok negatif', () => {
     const c = conclude('inventory', { reconciliation: [], sections: [sec('inventory-card', [['A', 'Barang A', 'PCS', 0, 0, 5, -5]])], period });
     expect(c.findings[0].level).toBe('danger');
+  });
+});
+
+describe('ambang yang dapat diatur', () => {
+  const monthly = [['2026-10', 5, 1000, 110, 0, 1000, 500, 500]];
+  const base = { reconciliation: [], sections: [sec('sales-monthly', monthly)], period };
+  const margin = (t = DEFAULT_THRESHOLDS) => conclude('sales', base, t).findings.find((f) => f.title.startsWith('Penjualan neto'))!.level;
+
+  it('ambang margin mengubah tingkat temuan yang sama', () => {
+    expect(margin()).toBe('info'); // margin 50%
+    expect(margin({ ...DEFAULT_THRESHOLDS, marginWarnPct: 60 })).toBe('warning');
+  });
+
+  it('ambang hari memengaruhi surat jalan yang dianggap lama', () => {
+    const rep = { reconciliation: [], sections: [sec('sales-unbilled', [['SJ/1', '2026-10-10', 'PT A', 'SO/1', 8, 500]])], period };
+    expect(conclude('sales', rep).findings[0].level).toBe('info'); // 8 hari ≤ 14
+    const strict = conclude('sales', rep, { ...DEFAULT_THRESHOLDS, deliveryDays: 5 });
+    expect(strict.findings[0].level).toBe('warning');
+    expect(strict.findings[0].detail).toContain('lebih dari 5 hari');
+  });
+
+  it('mergeThresholds menerima nilai sah dan menolak yang tidak', () => {
+    expect(mergeThresholds(DEFAULT_THRESHOLDS, { marginWarnPct: 15 }).value.marginWarnPct).toBe(15);
+    expect(mergeThresholds(DEFAULT_THRESHOLDS, { marginWarnPct: 150 }).error).toBeTruthy();
+    expect(mergeThresholds(DEFAULT_THRESHOLDS, { deliveryDays: 0 }).error).toBeTruthy();
+    expect(mergeThresholds(DEFAULT_THRESHOLDS, { foo: 1 }).error).toContain('tidak dikenal');
+    expect(mergeThresholds(DEFAULT_THRESHOLDS, { wipWarnDays: 90 }).error).toContain('kritis');
   });
 });
