@@ -1,4 +1,4 @@
-import { Card, Space, Typography } from 'antd';
+import { Button, Card, Space, Typography } from 'antd';
 import type { ReactNode } from 'react';
 
 /**
@@ -97,6 +97,62 @@ export function ChoiceCards<T extends string>({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * Satu baris pengaturan: nama + penjelasan di kiri, kontrol (saklar / angka) di kanan.
+ * Di layar sempit kontrol pindah ke bawah. Kontrol dibungkus <Form.Item noStyle name="...">.
+ */
+export function SettingRow({ label, desc, children, dim }: { label: ReactNode; desc?: ReactNode; children: ReactNode; dim?: boolean }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: 16,
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '12px 0',
+        borderBottom: '1px solid var(--ant-color-border-secondary, #eceff4)',
+        opacity: dim ? 0.55 : 1,
+      }}
+    >
+      <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+        <div style={{ fontWeight: 600 }}>{label}</div>
+        {desc && <div style={{ fontSize: 13, opacity: 0.7, marginTop: 2 }}>{desc}</div>}
+      </div>
+      <div style={{ flex: '0 0 220px', maxWidth: '100%' }}>{children}</div>
+    </div>
+  );
+}
+
+/** Batang simpan melayang di bawah layar untuk form panjang yang terdiri dari beberapa kartu */
+export function StickySave({ loading, label = 'Simpan perubahan', note }: { loading: boolean; label?: string; note?: ReactNode }) {
+  return (
+    <div
+      style={{
+        position: 'sticky',
+        bottom: 12,
+        zIndex: 5,
+        display: 'flex',
+        gap: 12,
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        flexWrap: 'wrap',
+        padding: '10px 16px',
+        borderRadius: 12,
+        background: 'rgba(255,255,255,.94)',
+        backdropFilter: 'blur(8px)',
+        border: '1px solid var(--ant-color-border-secondary, #eceff4)',
+        boxShadow: '0 4px 16px rgba(20,30,60,.08)',
+      }}
+    >
+      {note && <span style={{ opacity: 0.7 }}>{note}</span>}
+      <Button type="primary" htmlType="submit" loading={loading}>
+        {label}
+      </Button>
     </div>
   );
 }
