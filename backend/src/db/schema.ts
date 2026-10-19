@@ -4051,6 +4051,8 @@ export const posCardSettlements = pgTable(
     gross: money('gross').notNull(),
     mdrPct: numeric('mdr_pct', { precision: 6, scale: 3 }).notNull(),
     mdrExpected: money('mdr_expected').notNull(),
+    /** Retur non-tunai yang dipotongkan penyelenggara dari pencairan ini (tidak termasuk gross) */
+    returnsTotal: money('returns_total').notNull().default('0'),
     received: money('received').notNull(),
     difference: money('difference').notNull(),
     itemCount: integer('item_count').notNull(),

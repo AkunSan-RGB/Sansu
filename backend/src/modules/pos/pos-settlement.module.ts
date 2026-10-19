@@ -8,10 +8,15 @@
  * Admin/Pemilik; pencairan dapat dibatalkan (jurnal dibalik) hanya oleh Admin/Pemilik dengan alasan; kontrol menandai pembayaran yang
  * belum cair melewati batas hari, selisih, dan MDR efektif yang melonjak. Tidak ada integrasi otomatis ke penyelenggara/bank (input manual
  * dari rekening koran).
+ *
+ * Lanjutan: (1) retur atas penjualan non-tunai yang dikembalikan lewat rekening dapat dipotongkan dari pencairan (returnIds): dasar MDR
+ * adalah penjualan bersih (kotor − retur) dan satu retur hanya sekali dipotongkan (indeks unik); (2) satu pencairan dapat mencakup beberapa
+ * rekening bank (bankReceipts: uang masuk per rekening), selisih dihitung dan dijelaskan per rekening.
  */
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsDateString, IsIn, IsInt, IsNumber, IsNumberString, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsDateString, IsIn, IsInt, IsNumber, IsNumberString, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { type CardSettlementSettings, DEFAULT_CARD_SETTLEMENT, mdrAmount, validateCardSettlement } from '@sansu/shared';
@@ -40,10 +45,16 @@ export class CardSettingsDto implements CardSettlementSettings {
   @ApiProperty({ example: 4 }) @IsInt() @Min(1) @Max(30) lateAfterDays: number;
   @ApiProperty({ example: 5000 }) @IsNumber() @Min(0) @Max(10_000_000) toleranceRp: number;
 }
+export class BankReceiptDto {
+  @ApiProperty() @IsUUID() bankAccountId: string;
+  @ApiProperty({ example: '1985000' }) @IsNumberString() received: string;
+}
 export class SettleDto {
   @ApiProperty({ enum: METHODS }) @IsIn(METHODS) method: 'QRIS' | 'DEBIT';
   @ApiProperty({ type: [String] }) @IsArray() @ArrayMinSize(1) @ArrayMaxSize(1000) @IsUUID('all', { each: true }) paymentIds: string[];
-  @ApiProperty({ example: '1985000', description: 'Uang bersih yang benar-benar masuk menurut rekening koran' }) @IsNumberString() received: string;
+  @ApiPropertyOptional({ type: [String], description: 'Retur non-tunai (refund lewat rekening) yang dipotongkan penyelenggara dari pencairan ini' }) @IsOptional() @IsArray() @ArrayMaxSize(1000) @IsUUID('all', { each: true }) returnIds?: string[];
+  @ApiPropertyOptional({ example: '1985000', description: 'Uang bersih yang benar-benar masuk menurut rekening koran (satu rekening)' }) @IsOptional() @IsNumberString() received?: string;
+  @ApiPropertyOptional({ type: [BankReceiptDto], description: 'Wajib bila pembayaran/retur menyangkut lebih dari satu rekening bank: uang masuk per rekening' }) @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({ each: true }) @Type(() => BankReceiptDto) bankReceipts?: BankReceiptDto[];
   @ApiPropertyOptional() @IsOptional() @IsDateString() date?: string;
   @ApiPropertyOptional({ description: 'Wajib bila ada selisih dari perhitungan MDR kontrak' }) @IsOptional() @IsString() @MaxLength(255) note?: string;
 }
@@ -92,15 +103,27 @@ export class CardSettlementService {
     return r.rows;
   }
 
+  /** Retur non-tunai (refund lewat rekening) yang belum dipotongkan dari pencairan; hanya dari pesanan yang seluruhnya dibayar dengan metode ini */
+  async unsettledReturns(tenantId: string, method?: string) {
+    const r = await this.db.execute(sql`
+      SELECT r.id, r.number, r.date, r.total, o.number AS "orderNumber", s.bank_account_id AS "bankAccountId", pm.method
+      FROM pos_returns r JOIN pos_orders o ON o.id = r.order_id JOIN pos_sessions s ON s.id = o.session_id
+      JOIN LATERAL (SELECT MIN(p.method) AS method, COUNT(DISTINCT p.method) AS n FROM pos_payments p WHERE p.order_id = o.id) pm ON pm.n = 1
+      WHERE r.tenant_id = ${tenantId} AND r.refund_method = 'BANK' AND pm.method IN ('QRIS', 'DEBIT') ${method ? sql`AND pm.method = ${method}` : sql``}
+        AND NOT EXISTS (SELECT 1 FROM pos_card_settlement_returns x WHERE x.return_id = r.id)
+      ORDER BY r.date, r.number LIMIT 500`);
+    return r.rows;
+  }
+
   list(tenantId: string) {
-    return this.db.execute(sql`SELECT id, number, date, method, gross, mdr_pct AS "mdrPct", mdr_expected AS "mdrExpected", received, difference, item_count AS "itemCount", status, note, cancel_reason AS "cancelReason", created_at AS "createdAt" FROM pos_card_settlements WHERE tenant_id = ${tenantId} ORDER BY created_at DESC LIMIT 200`).then((r) => r.rows);
+    return this.db.execute(sql`SELECT id, number, date, method, gross, returns_total AS "returnsTotal", mdr_pct AS "mdrPct", mdr_expected AS "mdrExpected", received, difference, item_count AS "itemCount", status, note, cancel_reason AS "cancelReason", created_at AS "createdAt" FROM pos_card_settlements WHERE tenant_id = ${tenantId} ORDER BY created_at DESC LIMIT 200`).then((r) => r.rows);
   }
 
   async create(u: AuthUser, dto: SettleDto) {
     const ids = [...new Set(dto.paymentIds)];
     if (ids.length !== dto.paymentIds.length) throw new BadRequestException('Pembayaran yang sama dipilih lebih dari sekali');
-    const received = money(dto.received);
-    if (received.lt(0)) throw new BadRequestException('Jumlah diterima tidak valid');
+    const retIds = [...new Set(dto.returnIds ?? [])];
+    if (retIds.length !== (dto.returnIds ?? []).length) throw new BadRequestException('Retur yang sama dipilih lebih dari sekali');
     const s = await this.settings(u.tenantId);
     const date = toDocDate(dto.date);
     const id = await this.db.transaction(async (tx) => {
@@ -113,25 +136,65 @@ export class CardSettlementService {
       if (rows.some((r) => r.method !== dto.method)) throw new BadRequestException(`Semua pembayaran harus bermetode ${dto.method}`);
       const used = await tx.execute(sql`SELECT 1 FROM pos_card_settlement_items WHERE payment_id IN (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)}) LIMIT 1`);
       if (used.rows.length) throw new BadRequestException('Ada pembayaran yang sudah masuk pencairan lain');
-      const banks = [...new Set(rows.map((r) => r.bank))];
-      if (banks.length !== 1) throw new BadRequestException('Pembayaran berasal dari rekening bank yang berbeda; cairkan terpisah per rekening');
-      const gross = rows.reduce((a, r) => a.plus(r.amount), D(0));
+      // retur non-tunai yang dipotongkan: refund lewat rekening, pesanan seluruhnya dibayar dengan metode ini, belum pernah dipotongkan
+      const rets = retIds.length ? (await tx.execute<{ id: string; total: string; bank: string }>(sql`
+        SELECT r.id, r.total, s.bank_account_id AS bank
+        FROM pos_returns r JOIN pos_orders o ON o.id = r.order_id JOIN pos_sessions s ON s.id = o.session_id
+        WHERE r.id IN (${sql.join(retIds.map((i) => sql`${i}::uuid`), sql`, `)}) AND r.tenant_id = ${u.tenantId} AND r.refund_method = 'BANK'
+          AND (SELECT COUNT(DISTINCT p.method) FROM pos_payments p WHERE p.order_id = o.id) = 1
+          AND (SELECT MIN(p.method) FROM pos_payments p WHERE p.order_id = o.id) = ${dto.method}
+        FOR UPDATE OF r`)).rows : [];
+      if (rets.length !== retIds.length) throw new BadRequestException('Ada retur yang tidak ditemukan, bukan refund lewat rekening, atau pesanannya tidak seluruhnya dibayar dengan metode ini');
+      if (retIds.length) {
+        const dup = await tx.execute(sql`SELECT 1 FROM pos_card_settlement_returns WHERE return_id IN (${sql.join(retIds.map((i) => sql`${i}::uuid`), sql`, `)}) LIMIT 1`);
+        if (dup.rows.length) throw new BadRequestException('Ada retur yang sudah dipotongkan dari pencairan lain');
+      }
+      // per rekening: penjualan kotor, retur, penjualan bersih
+      const per = new Map<string, { gross: ReturnType<typeof D>; ret: ReturnType<typeof D> }>();
+      const slot = (b: string) => { if (!per.has(b)) per.set(b, { gross: D(0), ret: D(0) }); return per.get(b)!; };
+      for (const r of rows) slot(r.bank).gross = slot(r.bank).gross.plus(r.amount);
+      for (const r of rets) slot(r.bank).ret = slot(r.bank).ret.plus(r.total);
+      const banks = [...per.keys()];
+      let receivedBy: Map<string, ReturnType<typeof money>>;
+      if (dto.bankReceipts?.length) {
+        receivedBy = new Map(dto.bankReceipts.map((b) => [b.bankAccountId, money(b.received)]));
+        if (receivedBy.size !== dto.bankReceipts.length) throw new BadRequestException('Satu rekening tercantum lebih dari sekali');
+        if (receivedBy.size !== banks.length || banks.some((b) => !receivedBy.has(b))) throw new BadRequestException('Rincian uang masuk harus mencakup tepat rekening yang terkait pembayaran dan retur ini');
+      } else {
+        if (banks.length !== 1) throw new BadRequestException('Pembayaran/retur menyangkut lebih dari satu rekening bank; isi uang masuk per rekening (bankReceipts)');
+        if (dto.received == null) throw new BadRequestException('Isi uang bersih yang masuk');
+        receivedBy = new Map([[banks[0], money(dto.received)]]);
+      }
       const pct = dto.method === 'QRIS' ? s.qrisPct : s.debitPct;
-      const mdr = D(mdrAmount(gross.toNumber(), pct));
-      const expectedNet = gross.minus(mdr);
+      let gross = D(0), retTotal = D(0), mdr = D(0), received = D(0), maxAbsDiff = D(0);
+      const detail: { bank: string; gross: ReturnType<typeof D>; ret: ReturnType<typeof D>; mdr: ReturnType<typeof D>; received: ReturnType<typeof D>; diff: ReturnType<typeof D> }[] = [];
+      for (const [bank, v] of per) {
+        const base = v.gross.minus(v.ret);
+        if (base.lt(0)) throw new BadRequestException('Retur melebihi penjualan pada salah satu rekening; cairkan bersama penjualan aslinya');
+        const rec = receivedBy.get(bank)!;
+        if (rec.lt(0)) throw new BadRequestException('Jumlah diterima tidak valid');
+        if (rec.gt(base)) throw new BadRequestException('Uang diterima tidak boleh melebihi penjualan bersih (kotor − retur)');
+        const m = D(mdrAmount(base.toNumber(), pct));
+        const diff = rec.minus(base.minus(m));
+        detail.push({ bank, gross: v.gross, ret: v.ret, mdr: m, received: rec, diff });
+        gross = gross.plus(v.gross); retTotal = retTotal.plus(v.ret); mdr = mdr.plus(m); received = received.plus(rec);
+        if (diff.abs().gt(maxAbsDiff)) maxAbsDiff = diff.abs();
+      }
+      const net = gross.minus(retTotal);
+      const expectedNet = net.minus(mdr);
       const diff = received.minus(expectedNet);
-      if (received.gt(gross)) throw new BadRequestException('Uang diterima tidak boleh melebihi penjualan kotor');
-      if (!diff.isZero() && (dto.note ?? '').trim().length < 5) throw new BadRequestException(`Uang diterima berbeda ${diff.toFixed(0)} dari hitungan MDR ${pct}% (seharusnya ${expectedNet.toFixed(0)}); tulis penjelasannya.`);
-      if (diff.abs().gt(s.toleranceRp) && u.role !== 'OWNER' && u.role !== 'ADMIN') throw new ForbiddenException(`Selisih di atas toleransi Rp${s.toleranceRp.toLocaleString('id-ID')} hanya boleh dicatat Admin/Pemilik`);
+      if (detail.some((d) => !d.diff.isZero()) && (dto.note ?? '').trim().length < 5) throw new BadRequestException(`Uang diterima berbeda ${diff.toFixed(0)} dari hitungan MDR ${pct}% (seharusnya ${expectedNet.toFixed(0)}); tulis penjelasannya.`);
+      if (maxAbsDiff.gt(s.toleranceRp) && u.role !== 'OWNER' && u.role !== 'ADMIN') throw new ForbiddenException(`Selisih di atas toleransi Rp${s.toleranceRp.toLocaleString('id-ID')} hanya boleh dicatat Admin/Pemilik`);
       const number = await this.seq.next(tx, u.tenantId, 'POS_CARD_SETTLEMENT', date);
       const [st] = await tx
         .insert(posCardSettlements)
-        .values({ tenantId: u.tenantId, number, date, method: dto.method, bankAccountId: banks[0], gross: gross.toFixed(2), mdrPct: String(pct), mdrExpected: mdr.toFixed(2), received: received.toFixed(2), difference: diff.toFixed(2), itemCount: ids.length, note: dto.note?.trim() || null, createdById: u.sub })
+        .values({ tenantId: u.tenantId, number, date, method: dto.method, bankAccountId: banks[0], gross: gross.toFixed(2), returnsTotal: retTotal.toFixed(2), mdrPct: String(pct), mdrExpected: mdr.toFixed(2), received: received.toFixed(2), difference: diff.toFixed(2), itemCount: ids.length, note: dto.note?.trim() || null, createdById: u.sub })
         .returning();
       await tx.insert(posCardSettlementItems).values(rows.map((r) => ({ tenantId: u.tenantId, settlementId: st.id, paymentId: r.id, amount: money(r.amount).toFixed(2) })));
-      // bank sudah didebit penuh saat penjualan; kurangi sebesar yang tidak sampai (MDR + selisih)
-      const deduction = gross.minus(received);
-      const extra = deduction.minus(mdr); // > 0: potongan lebih besar dari hitungan kontrak; < 0: lebih kecil
+      for (const r of rets) await tx.execute(sql`INSERT INTO pos_card_settlement_returns (tenant_id, settlement_id, return_id, amount) VALUES (${u.tenantId}, ${st.id}, ${r.id}, ${money(r.total).toFixed(2)})`);
+      for (const d of detail) await tx.execute(sql`INSERT INTO pos_card_settlement_banks (tenant_id, settlement_id, bank_account_id, gross, returns_total, received) VALUES (${u.tenantId}, ${st.id}, ${d.bank}, ${d.gross.toFixed(2)}, ${d.ret.toFixed(2)}, ${d.received.toFixed(2)})`);
+      // Bank sudah didebit penuh saat penjualan dan dikredit saat retur; kurangi sebesar yang tidak sampai dari penjualan bersih (MDR + selisih) per rekening
+      const extra = detail.reduce((a, d) => a.plus(d.gross.minus(d.ret).minus(d.received).minus(d.mdr)), D(0)); // > 0: potongan lebih besar dari hitungan kontrak
       const j = await this.posting.post(tx, {
         tenantId: u.tenantId,
         date,
@@ -142,11 +205,11 @@ export class CardSettlementService {
         lines: [
           { key: dto.method === 'QRIS' ? SYS.MDR_QRIS : SYS.MDR_CARD, debit: mdr },
           ...(extra.gt(0) ? [{ key: SYS.BANK_CHARGES, debit: extra }] : extra.lt(0) ? [{ key: SYS.BANK_CHARGES, credit: extra.abs() }] : []),
-          { accountId: banks[0], credit: deduction },
+          ...detail.map((d) => ({ accountId: d.bank, credit: d.gross.minus(d.ret).minus(d.received) })),
         ],
       });
       await tx.update(posCardSettlements).set({ journalId: j.id }).where(sql`${posCardSettlements.id} = ${st.id}`);
-      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'PosCardSettlement', entityId: st.id, data: { number, method: dto.method, gross: gross.toFixed(2), expectedNet: expectedNet.toFixed(2), received: received.toFixed(2), difference: diff.toFixed(2) } });
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'PosCardSettlement', entityId: st.id, data: { number, method: dto.method, gross: gross.toFixed(2), returns: retTotal.toFixed(2), expectedNet: expectedNet.toFixed(2), received: received.toFixed(2), difference: diff.toFixed(2), banks: detail.length } });
       return st.id;
     });
     return (await this.db.execute(sql`SELECT * FROM pos_card_settlements WHERE id = ${id}`)).rows[0];
@@ -170,6 +233,7 @@ export class CardSettlementService {
         lines: lines.map((l) => ({ accountId: l.account_id, debit: D(l.credit), credit: D(l.debit) })),
       });
       await tx.execute(sql`DELETE FROM pos_card_settlement_items WHERE settlement_id = ${id}`);
+      await tx.execute(sql`DELETE FROM pos_card_settlement_returns WHERE settlement_id = ${id}`); // retur dapat dipotongkan lagi dari pencairan lain
       await tx.execute(sql`UPDATE pos_card_settlements SET status = 'CANCELLED', cancel_reason = ${dto.reason}, reverse_journal_id = ${rev.id} WHERE id = ${id}`);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CANCEL', entity: 'PosCardSettlement', entityId: id, data: { number: st.number, reason: dto.reason } });
     });
@@ -187,9 +251,9 @@ export class CardSettlementService {
       GROUP BY p.method`);
     const diffs = await this.db.execute(sql`SELECT number, date, method, difference, note FROM pos_card_settlements WHERE tenant_id = ${tenantId} AND status = 'POSTED' AND difference <> 0 AND date >= (CURRENT_DATE - 60) ORDER BY date DESC LIMIT 30`);
     const high = await this.db.execute(sql`
-      SELECT number, date, method, mdr_pct AS "contractPct", ROUND((gross - received) / NULLIF(gross, 0) * 100, 3) AS "effectivePct"
+      SELECT number, date, method, mdr_pct AS "contractPct", ROUND((gross - returns_total - received) / NULLIF(gross - returns_total, 0) * 100, 3) AS "effectivePct"
       FROM pos_card_settlements WHERE tenant_id = ${tenantId} AND status = 'POSTED' AND date >= (CURRENT_DATE - 60)
-        AND (gross - received) / NULLIF(gross, 0) * 100 > mdr_pct + 0.5 ORDER BY date DESC LIMIT 30`);
+        AND (gross - returns_total - received) / NULLIF(gross - returns_total, 0) * 100 > mdr_pct + 0.5 ORDER BY date DESC LIMIT 30`);
     return { settings: s, notSettledLate: late.rows, withDifference: diffs.rows, highEffectiveMdr: high.rows };
   }
 }
@@ -205,6 +269,7 @@ export class CardSettlementController {
   @Get('settings') settings(@CurrentUser() u: AuthUser) { return this.svc.settings(u.tenantId); }
   @Roles('ADMIN') @Put('settings') save(@CurrentUser() u: AuthUser, @Body() dto: CardSettingsDto) { return this.svc.saveSettings(u, dto); }
   @Get('unsettled') unsettled(@CurrentUser() u: AuthUser, @Query() q: UnsettledQuery) { return this.svc.unsettled(u.tenantId, q.method); }
+  @Get('unsettled-returns') unsettledReturns(@CurrentUser() u: AuthUser, @Query() q: UnsettledQuery) { return this.svc.unsettledReturns(u.tenantId, q.method); }
   @Get() list(@CurrentUser() u: AuthUser) { return this.svc.list(u.tenantId); }
   @Get('controls') controls(@CurrentUser() u: AuthUser) { return this.svc.controls(u.tenantId); }
   @Roles('ADMIN', 'FINANCE') @Post() create(@CurrentUser() u: AuthUser, @Body() dto: SettleDto) { return this.svc.create(u, dto); }

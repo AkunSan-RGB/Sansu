@@ -680,6 +680,13 @@
       "when": 1796668686484,
       "tag": "0096_manufaktur_lanjutan",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1796755086484,
+      "tag": "0097_ritel_pencairan_lanjutan",
+      "breakpoints": true
     }
   ]
 }
