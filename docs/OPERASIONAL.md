@@ -5,8 +5,10 @@ Dokumen ini untuk **pemilik layanan**. Semua langkah dilakukan di Railway, Neon,
 ## 1. Backup database
 Data pelanggan ada di Postgres (Neon). Backup yang tidak pernah diuji pemulihannya belum bisa disebut backup.
 
+**Keputusan saat ini (pemilik):** seluruh database hanya di Neon, **tanpa salinan offsite** (workflow GitHub di bawah tidak dipasang; secret `S3_*` dan `BACKUP_*` tidak diisi). Foto dan file bukti disimpan di R2 (lihat bagian berikutnya), bukan di database. Perlindungan data bergantung pada fitur Neon saja: jendela pemulihan (point-in-time), *branch* sebelum migrasi, dan uji pemulihan bulanan. Risikonya: bila akun atau proyek Neon bermasalah (tertutup, terhapus, tagihan gagal), tidak ada salinan lain. Keputusan ini bisa diubah kapan saja dengan memasang workflow di bawah, tanpa mengubah aplikasi.
+
 - [ ] **Neon:** buka *Project → Settings → Storage / Restore window*; atur jendela pemulihan (point-in-time restore) selama mungkin sesuai paket (paket berbayar bisa sampai 30 hari). Paket gratis hanya beberapa jam–1 hari: **tidak cukup untuk produk berbayar**.
-- [ ] **Salinan di luar Neon:** jadwalkan `pg_dump` mingguan (atau harian) ke penyimpanan lain (mis. Cloudflare R2/Wasabi/Google Drive) memakai `DATABASE_URL` dari komputer/CI Anda. Simpan minimal 30 hari. Enkripsi file bila berisi data pelanggan.
+- [ ] *(tidak dipakai saat ini, lihat keputusan di atas)* **Salinan di luar Neon:** jadwalkan `pg_dump` mingguan (atau harian) ke penyimpanan lain (mis. Cloudflare R2/Wasabi/Google Drive) memakai `DATABASE_URL` dari komputer/CI Anda. Simpan minimal 30 hari. Enkripsi file bila berisi data pelanggan.
 - [ ] **Uji pemulihan** (sekali sebulan): buat *branch* Neon dari titik waktu kemarin, jalankan aplikasi ke branch itu, pastikan login dan laporan terbuka. Catat tanggal dan hasilnya di bawah.
 - [ ] Sebelum setiap rilis yang mengubah database (migrasi): buat *branch* Neon sebagai titik kembali.
 - Backup VPS (bila memakai `docker-compose.prod.yml`) sudah otomatis; lihat `docs/PANDUAN-SERVER.md` bagian 4.
@@ -52,7 +54,7 @@ Foto meter, bukti kirim, dan PDF lampiran bisa disimpan di bucket S3-compatible 
 - [ ] Setelah variabel terisi dan layanan deploy ulang: `npm run storage:migrate:prod -w backend` sekali untuk memindahkan gambar lama dari database (aman diulang; `--dry-run` untuk menghitung).
 - [ ] Tes: unggah satu foto baru, pastikan tampil.
 - [ ] **File di bucket tidak ikut backup database dan tidak punya salinan lain.** Aktifkan perlindungan hapus atau versi objek di bucket supaya foto tidak hilang karena salah hapus.
-- Bila database hanya mengandalkan Neon (tanpa backup offsite GitHub), pastikan paket Neon punya jendela pemulihan yang cukup sebelum menerima pelanggan berbayar; lihat daftar periksa bagian 5.
+- Database hanya di Neon (tanpa backup offsite), jadi paket Neon harus punya jendela pemulihan yang cukup sebelum menerima pelanggan berbayar, dan uji pemulihan bulanan tetap dijalankan.
 
 ## 2. Pemantauan error dan ketersediaan
 Bawaan aplikasi: setiap galat server (5xx) dicatat di tabel `error_logs` (disimpan 30 hari) dan dikirim ke pemilik layanan lewat Telegram dan email dengan pembatasan agar tidak membanjir. Lihat di **Panel SANSU**.
