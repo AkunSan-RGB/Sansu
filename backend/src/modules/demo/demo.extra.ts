@@ -1,8 +1,8 @@
 import { CRM_PROFILES } from '@sansu/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import { addDays } from '../../common/utils/dates';
-import { assetCategories, crmStages, journalEntries, journalLines, leads, suppliers, warehouses } from '../../db/schema';
-import { Demo, receive } from './demo.kit';
+import { assetCategories, crmStages, journalEntries, journalLines, leads, suppliers, users, warehouses } from '../../db/schema';
+import { Demo, receive, sell } from './demo.kit';
 
 /** Isi pelengkap yang khas tiap jenis usaha (supaya contoh tidak seragam) */
 const FLAVOR: Record<string, {
@@ -408,3 +408,49 @@ export async function deposit(c: Demo, customerId: string, amount: number, note:
 }
 
 export { receive };
+
+/**
+ * Contoh "kebocoran" distribusi untuk diagnosis penjualan (FMCG): sales kanvas dengan kurang setor yang tercatat sebagai
+ * Piutang Karyawan, setoran yang menunggu verifikasi, dan retur berulang dari satu outlet. Stok selisih, barang hampir kedaluwarsa,
+ * dan piutang jatuh tempo sudah ada dari data FMCG lainnya.
+ */
+export async function distributionLeaks(c: Demo, ids: Map<string, string>, cu: Map<string, string>) {
+  // sales kanvas contoh (tidak bisa masuk: tanpa kata sandi yang valid)
+  const [sp] = (await c.step('sales kanvas', () =>
+    c.db.insert(users).values({ tenantId: c.tenantId, email: `andi.kanvas@demo-${c.tenantId.slice(0, 8)}.id`, name: 'Andi Pratama (sales kanvas)', passwordHash: '!', role: 'SALES', isActive: true }).returning(),
+  )) ?? [];
+  if (sp) {
+    const van = await c.step('mobil kanvas', () => c.svc.canvass.createVan(c.admin as never, { userId: sp.id } as never));
+    if (van) {
+      await c.step('muat mobil', () =>
+        c.svc.canvass.moveVan(c.admin as never, van.id, { warehouseId: c.wh, date: c.ago(3), notes: 'Muat pagi untuk rute Depok–Bogor', lines: [{ productId: ids.get('FM-MIE')!, qty: '30' }, { productId: ids.get('FM-TEH')!, qty: '20' }, { productId: ids.get('FM-KOPI')!, qty: '120' }] } as never, 'LOAD'),
+      );
+      const salesUser = { sub: sp.id, tenantId: c.tenantId, role: 'SALES', email: sp.email, emailVerified: true, warehouseIds: [] };
+      const run = async (code: string, lines: { productId: string; qty: string }[]) => {
+        const sale = await c.step(`kanvas ${code}`, () => c.svc.canvass.sale(salesUser as never, { customerId: cu.get(code)!, lines } as never));
+        if (!sale) return undefined;
+        const col = await c.step(`setor ${code}`, () => c.svc.canvass.collect(salesUser as never, { invoiceId: sale.invoiceId, amount: String(sale.total), method: 'CASH' } as never));
+        return col as { id: string } | undefined;
+      };
+      const a = await run('OTL-WARUNG2', [{ productId: ids.get('FM-MIE')!, qty: '6' }, { productId: ids.get('FM-KOPI')!, qty: '30' }]);
+      const b = await run('OTL-WARUNG1', [{ productId: ids.get('FM-TEH')!, qty: '4' }, { productId: ids.get('FM-KOPI')!, qty: '20' }]);
+      await run('OTL-KOP', [{ productId: ids.get('FM-MIE')!, qty: '10' }]); // dibiarkan menunggu verifikasi Keuangan
+      if (a) {
+        const row = (await c.db.execute<{ amount: string }>(sql`SELECT amount FROM canvass_collections WHERE id = ${a.id}`)).rows[0];
+        // uang yang sampai ke Keuangan lebih kecil dari yang dicatat sales → selisih menjadi Piutang Karyawan atas nama sales
+        if (row) await c.step('verifikasi setoran kurang', () => c.svc.canvass.verify(c.admin as never, a.id, { receivedAmount: String(Math.max(0, Number(row.amount) - 180_000)), date: c.ago(1) } as never));
+      }
+      if (b) {
+        const row = (await c.db.execute<{ amount: string }>(sql`SELECT amount FROM canvass_collections WHERE id = ${b.id}`)).rows[0];
+        if (row) await c.step('verifikasi setoran pas', () => c.svc.canvass.verify(c.admin as never, b.id, { receivedAmount: row.amount, date: c.ago(1) } as never));
+      }
+    }
+  }
+  // retur berulang dari satu outlet (pola yang dicari saat audit): tiga faktur berbeda belum lunas, alasan seragam
+  for (const [i, ago] of [12, 9, 6].entries()) {
+    const invId = await c.step(`jual grosir ${i + 1}`, () => sell(c, cu.get('OTL-GROSIR')!, ago, [{ productId: ids.get('FM-AIR')!, qty: 10 }]));
+    if (!invId) continue;
+    const full = (await c.svc.inv.get(c.tenantId, invId)) as { lines: { id: string }[] };
+    if (full.lines[0]) await c.step(`retur grosir ${i + 1}`, () => c.svc.returns.createSales(c.admin as never, { invoiceId: invId, date: c.ago(ago - 3), reason: 'Barang rusak di perjalanan', lines: [{ invoiceLineId: full.lines[0].id, qty: 2 }] } as never));
+  }
+}

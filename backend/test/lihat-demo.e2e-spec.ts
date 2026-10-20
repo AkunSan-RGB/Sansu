@@ -84,6 +84,13 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(s('FMCG'), 'promos')).toBe(2);
     expect(await count(s('FMCG'), 'trade_terms')).toBe(3);
     expect(await count(s('FMCG'), 'stock_lot_issues')).toBeGreaterThan(5);
+    // contoh kebocoran untuk diagnosis: kurang setor kanvas jadi Piutang Karyawan, satu setoran menunggu, retur berulang satu outlet
+    const col = (await db.execute<{ status: string; shortage: string }>(sql`SELECT status, shortage FROM canvass_collections WHERE tenant_id = ${s('FMCG')} ORDER BY number`)).rows;
+    expect(col.map((x) => x.status).sort()).toEqual(['PENDING', 'VERIFIED', 'VERIFIED']);
+    expect(col.filter((x) => Number(x.shortage) === 180000)).toHaveLength(1);
+    const emp = (await db.execute<{ d: string }>(sql`SELECT COALESCE(SUM(l.debit), 0)::text AS d FROM journal_lines l JOIN accounts a ON a.id = l.account_id WHERE a.tenant_id = ${s('FMCG')} AND a.code = '1-1600'`)).rows[0];
+    expect(Number(emp.d)).toBeGreaterThanOrEqual(180000);
+    expect(await count(s('FMCG'), 'sales_returns')).toBeGreaterThanOrEqual(4);
     expect(await count(s('RITEL'), 'price_lists')).toBe(0);
     expect(await count(s('MANUFAKTUR'), 'production_orders')).toBeGreaterThan(2);
     expect(await count(s('RITEL'), 'production_orders')).toBe(0);

@@ -460,6 +460,7 @@ async function seedFmcg(c: Demo) {
   await X.attendance(c);
   await X.deposit(c, cu.get('OTL-SUPER')!, 20_000_000, 'Uang muka pesanan musiman (lebaran)');
   await X.stockOps(c, ids, FMCG.map((p) => p.sku), { saleInvoiceId: unpaidInv, billId: c.last.bill, supplierId: sup.get('PRI-PANGAN') });
+  await X.distributionLeaks(c, ids, cu);
 }
 
 const FURNITUR_RAW: Prod[] = [
