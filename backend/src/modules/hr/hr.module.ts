@@ -11,7 +11,10 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
+  ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -107,6 +110,10 @@ export class CreateEmployeeDto {
   @IsUUID()
   branchId?: string | null;
 }
+export class LinkAccountDto {
+  @ApiPropertyOptional({ description: 'Akun pengguna yang dihubungkan; null = lepaskan' }) @IsOptional() @IsUUID() userId?: string | null;
+  @ApiPropertyOptional({ description: 'Wajib saat mengganti atau melepas hubungan yang sudah ada' }) @IsOptional() @IsString() @MaxLength(255) reason?: string;
+}
 export class UpdateEmployeeDto extends PartialType(CreateEmployeeDto) {
   @ApiPropertyOptional({ description: 'Usaha jasa: alasan perubahan data sensitif (tampil bagi penyetuju)' }) @IsOptional() @IsString() @MaxLength(255) reason?: string;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() isActive?: boolean;
@@ -163,6 +170,37 @@ export class HrService {
     const [e] = await db.select().from(employees).where(and(eq(employees.id, id), eq(employees.tenantId, tenantId)));
     if (!e) throw new NotFoundException('Karyawan tidak ditemukan');
     return { ...e, leave: await this.leaveBalance(tenantId, e.id, e.annualLeave, db) };
+  }
+
+  /** Akun pengguna yang bisa dihubungkan ke karyawan, beserta karyawan yang sudah memakainya */
+  async accounts(tenantId: string) {
+    const r = await this.db.execute(sql`SELECT u.id, u.name, u.email, u.role, e.id AS "employeeId", e.name AS "employeeName" FROM users u LEFT JOIN employees e ON e.user_id = u.id AND e.tenant_id = u.tenant_id WHERE u.tenant_id = ${tenantId} AND u.is_active ORDER BY u.name`);
+    return r.rows;
+  }
+
+  /**
+   * Hubungkan/lepaskan akun pengguna dari data karyawan. Hubungan ini yang membuat karyawan bisa mencatat jam kerja, melihat jadwal, dan
+   * cuti atas namanya sendiri. Satu akun hanya satu karyawan; menghubungkan akun sendiri hanya boleh Pemilik (agar pencatat tidak bisa
+   * menjadikan dirinya "orang lain" di pemisahan fungsi); mengganti/melepas wajib beralasan dan tercatat.
+   */
+  async linkAccount(u: AuthUser, id: string, dto: LinkAccountDto) {
+    const userId = dto.userId ?? null;
+    return this.db.transaction(async (tx) => {
+      const [e] = await tx.select().from(employees).where(and(eq(employees.id, id), eq(employees.tenantId, u.tenantId))).for('update');
+      if (!e) throw new NotFoundException('Karyawan tidak ditemukan');
+      if (e.userId === userId) return { ok: true, userId };
+      if (e.userId && (dto.reason?.trim().length ?? 0) < 5) throw new BadRequestException('Mengganti atau melepas hubungan akun wajib menyertakan alasan (minimal 5 huruf)');
+      if (userId) {
+        if (userId === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Anda tidak dapat menghubungkan akun Anda sendiri ke data karyawan; minta Pemilik atau pengguna lain');
+        const usr = (await tx.execute<{ id: string }>(sql`SELECT id FROM users WHERE id = ${userId} AND tenant_id = ${u.tenantId} AND is_active`)).rows[0];
+        if (!usr) throw new BadRequestException('Akun pengguna tidak ditemukan atau nonaktif');
+        const taken = (await tx.execute<{ name: string }>(sql`SELECT name FROM employees WHERE tenant_id = ${u.tenantId} AND user_id = ${userId} AND id <> ${id}`)).rows[0];
+        if (taken) throw new ConflictException(`Akun ini sudah terhubung dengan karyawan ${taken.name}`);
+      }
+      await tx.update(employees).set({ userId }).where(eq(employees.id, id));
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'EmployeeAccountLink', entityId: id, data: { before: e.userId, after: userId, reason: dto.reason?.trim() } });
+      return { ok: true, userId };
+    });
   }
 
   private async assertProject(tenantId: string, projectId?: string | null) {
@@ -430,6 +468,14 @@ export class HrController {
   @Roles('HR', 'FINANCE', 'ACCOUNTANT')
   employee(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.getEmployee(u.tenantId, id);
+  }
+  @Get('employee-accounts')
+  accounts(@CurrentUser() u: AuthUser) {
+    return this.svc.accounts(u.tenantId);
+  }
+  @Put('employees/:id/account')
+  linkAccount(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: LinkAccountDto) {
+    return this.svc.linkAccount(u, id, dto);
   }
   @Post('employees')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreateEmployeeDto) {

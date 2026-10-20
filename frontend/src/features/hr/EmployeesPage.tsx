@@ -3,7 +3,7 @@ import { isProductionModel, PTKP_STATUSES } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Checkbox, Col, Drawer, Form, Input, InputNumber, Popconfirm, Row, Select, Switch, Tag, Typography } from 'antd';
 import { useState } from 'react';
-import { get, patch, post } from '@/api/client';
+import { get, patch, post, put } from '@/api/client';
 import { useAction, useBranches } from '@/api/queries';
 import type { Employee, Project } from '@/api/types';
 import { useApps } from '@/lib/apps';
@@ -132,6 +132,7 @@ export default function EmployeesPage() {
           </Button>
         }
       >
+        {editing && editing !== 'new' && canDo('PUT', '/hr/employees/:id/account') && <AccountLink employeeId={editing.id} userId={(detail.data as { userId?: string | null } | undefined)?.userId ?? null} />}
         {detail.data?.leave && (
           <Tag color="blue" style={{ marginBottom: 12 }}>
             Sisa cuti tahunan {detail.data.leave.year}: {detail.data.leave.remaining} dari {detail.data.leave.quota} hari
@@ -344,5 +345,34 @@ function VerifyButton({ id, onDone }: { id: string; onDone: () => void }) {
     <Popconfirm title="Verifikasi karyawan ini? Periksa nama, status, gaji, dan rekening dulu." onConfirm={() => verify.mutate(undefined)}>
       <Button size="small" type="primary" loading={verify.isPending}>Verifikasi</Button>
     </Popconfirm>
+  );
+}
+
+interface Account { id: string; name: string; email: string; role: string; employeeId: string | null; employeeName: string | null }
+
+/** Hubungan akun login ↔ data karyawan: syarat agar karyawan bisa mencatat jam kerja, melihat jadwal, dan mengajukan cuti atas namanya */
+function AccountLink({ employeeId, userId }: { employeeId: string; userId: string | null }) {
+  const accounts = useQuery({ queryKey: ['employees', 'accounts'], queryFn: () => get<Account[]>('/hr/employee-accounts') });
+  const [sel, setSel] = useState<string | null | undefined>(undefined);
+  const [reason, setReason] = useState('');
+  const current = accounts.data?.find((a) => a.id === userId);
+  const save = useAction((v: { userId: string | null; reason?: string }) => put(`/hr/employees/${employeeId}/account`, v), { success: 'Hubungan akun tersimpan', invalidate: ['employees'], onSuccess: () => { setSel(undefined); setReason(''); } });
+  const value = sel === undefined ? userId : sel;
+  const changed = sel !== undefined && sel !== userId;
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <Typography.Text strong>Akun pengguna</Typography.Text>
+      <Typography.Paragraph type="secondary" style={{ margin: '2px 0 8px' }}>
+        {current ? `Terhubung dengan ${current.name} (${current.email}).` : 'Belum terhubung. Hubungkan agar karyawan ini bisa mencatat jam kerja, melihat jadwal, dan mengajukan cuti atas namanya sendiri.'}
+      </Typography.Paragraph>
+      <Select showSearch allowClear optionFilterProp="label" style={{ width: '100%' }} placeholder="Pilih akun pengguna" value={value ?? undefined} onChange={(v) => setSel(v ?? null)}
+        options={(accounts.data ?? []).map((a) => ({ value: a.id, label: `${a.name} · ${a.email}${a.employeeId && a.employeeId !== employeeId ? ` (sudah dipakai ${a.employeeName})` : ''}`, disabled: !!a.employeeId && a.employeeId !== employeeId }))} />
+      {changed && (
+        <div style={{ marginTop: 8 }}>
+          {userId && <Input placeholder="Alasan mengganti/melepas (min. 5 huruf)" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={255} style={{ marginBottom: 8 }} />}
+          <Button type="primary" loading={save.isPending} disabled={!!userId && reason.trim().length < 5} onClick={() => save.mutate({ userId: sel ?? null, reason: reason.trim() || undefined })}>Simpan hubungan akun</Button>
+        </div>
+      )}
+    </div>
   );
 }
