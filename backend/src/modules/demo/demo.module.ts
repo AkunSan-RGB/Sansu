@@ -70,7 +70,7 @@ export class DemoService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     if (process.env.NODE_ENV === 'test') return;
-    const run = () => void this.purgeExpired().then((n) => n && this.logger.log(`${n} perusahaan demo kedaluwarsa dihapus`)).catch((e) => this.logger.error(`Pembersihan demo gagal: ${(e as Error).message}`));
+    const run = () => void this.purgeExpired().then((n) => n && this.logger.log(`${n} perusahaan demo kedaluwarsa dihapus`)).catch((e) => this.logger.error(`Pembersihan demo gagal: ${(e as Error).message}${(e as { cause?: Error }).cause ? ` — penyebab: ${(e as { cause?: Error }).cause!.message}` : ''}`));
     setTimeout(run, 180_000).unref();
     this.timer = setInterval(run, 6 * 60 * 60_000);
     this.timer.unref();

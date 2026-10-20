@@ -206,7 +206,8 @@ export class ReminderMailer {
   async runAll() {
     const hour = new Date(Date.now() + 7 * 3600_000).getUTCHours();
     if (hour < DIGEST_HOUR_WIB) return { digests: 0, customers: 0 };
-    const tenants = (await this.db.execute<{ id: string }>(sql`SELECT id FROM tenants`)).rows;
+    // perusahaan demo tidak diberi pengingat: alamat emailnya fiktif dan datanya sementara
+    const tenants = (await this.db.execute<{ id: string }>(sql`SELECT id FROM tenants WHERE NOT (settings ? 'demo')`)).rows;
     let digests = 0;
     let customers = 0;
     for (const t of tenants) {
@@ -215,7 +216,8 @@ export class ReminderMailer {
         customers += (await this.runCustomerReminders(t.id)).sent;
         await this.runBankEscalation(t.id);
       } catch (e) {
-        this.logger.error(`Pengingat perusahaan ${t.id}: ${(e as Error).message}`);
+        const err = e as Error & { cause?: { message?: string; code?: string } };
+        this.logger.error(`Pengingat perusahaan ${t.id}: ${err.message}${err.cause ? ` — penyebab: ${err.cause.code ?? ''} ${err.cause.message ?? ''}` : ''}`);
       }
     }
     return { digests, customers };

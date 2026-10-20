@@ -8,7 +8,9 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 import { MailService, type Mail } from '../src/common/mail/mail.service';
-import { customerStage } from '../src/modules/reminders/reminder-mailer.service';
+import { sql } from 'drizzle-orm';
+import { DB, Db } from '../src/db/db';
+import { ReminderMailer, customerStage } from '../src/modules/reminders/reminder-mailer.service';
 
 const shift = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
 
@@ -184,5 +186,26 @@ describe('Pengingat otomatis (e2e)', () => {
     // bagian warehouse tidak boleh mengirim
     await http.post(`/api/reminders/invoices/${inv.id}/customer`).set(as(warehouseUser)).send({}).expect(403);
     await http.put('/api/settings/reminders').set(as(owner)).send({ customerReminders: false }).expect(200);
+  });
+
+  it('penjadwal tidak mengirim ringkasan ke perusahaan demo (alamat fiktif, data sementara)', async () => {
+    const db = app.get<Db>(DB);
+    const tenantId = (await get('/api/auth/me').expect(200)).body.tenantId;
+    const t0 = Date.now();
+    const spy = jest.spyOn(Date, 'now').mockReturnValue(t0 - (new Date(t0 + 7 * 3600_000).getUTCHours() - 9) * 3600_000); // pukul 09.00 WIB
+    try {
+      await db.execute(sql`DELETE FROM reminder_log WHERE tenant_id = ${tenantId} AND kind = 'DIGEST'`);
+      await db.execute(sql`UPDATE tenants SET settings = settings || '{"demo": true}'::jsonb WHERE id = ${tenantId}`);
+      sent.length = 0;
+      await app.get(ReminderMailer).runAll();
+      expect(sent.some((m) => m.to === `rm-${stamp}@uji.id`)).toBe(false);
+      // pembanding: perusahaan biasa tetap menerima
+      await db.execute(sql`UPDATE tenants SET settings = settings - 'demo' WHERE id = ${tenantId}`);
+      await app.get(ReminderMailer).runAll();
+      expect(sent.some((m) => m.to === `rm-${stamp}@uji.id`)).toBe(true);
+    } finally {
+      spy.mockRestore();
+      await db.execute(sql`UPDATE tenants SET settings = settings - 'demo' WHERE id = ${tenantId}`);
+    }
   });
 });
