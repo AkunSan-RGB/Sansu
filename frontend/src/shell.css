@@ -95,3 +95,6 @@
   .ant-form-inline { flex-direction: column; align-items: stretch; }
   .ant-form-inline .ant-form-item { margin-inline-end: 0; width: 100%; }
 }
+
+/* Lencana angka di menu samping: warna teks mengikuti menu (bawaan Badge gelap → label hampir tak terbaca di sisi gelap) */
+.ant-layout-sider .ant-menu .ant-badge { color: inherit; }
