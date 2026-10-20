@@ -44,8 +44,45 @@ export default function SchedulePage() {
         { key: 'jadwal', label: 'Jadwal', children: <Grid /> },
         { key: 'slot', label: 'Cari slot kosong', children: <Slots /> },
         { key: 'sumber', label: 'Sumber daya', children: <Resources canEdit={can('POST', '/scheduling/resources')} /> },
+        ...(can('POST', '/scheduling/feeds') ? [{ key: 'kalender', label: 'Kalender (iCal)', children: <Feeds /> }] : []),
       ]} />
     </>
+  );
+}
+
+interface Feed { id: string; name: string; tokenPrefix: string; resourceName: string | null; createdAt: string; lastUsedAt: string | null; revokedAt: string | null }
+
+/** Tautan langganan kalender (Google Calendar/Outlook/Apple): satu arah, hanya waktu dan judul; token tampil sekali dan bisa dicabut */
+function Feeds() {
+  const { message } = App.useApp();
+  const feeds = useQuery({ queryKey: [...KEY, 'feeds'], queryFn: () => get<Feed[]>('/scheduling/feeds') });
+  const resources = useResources();
+  const [form] = Form.useForm<{ name: string; resourceId?: string }>();
+  const [link, setLink] = useState<string | null>(null);
+  const create = useAction((v: { name: string; resourceId?: string }) => post<{ path: string }>('/scheduling/feeds', v), { invalidate: [...KEY, 'feeds'], onSuccess: (r) => { form.resetFields(); setLink(`${window.location.origin}${(r as { path: string }).path}`); } });
+  const revoke = useAction((id: string) => post(`/scheduling/feeds/${id}/revoke`), { invalidate: [...KEY, 'feeds'], success: 'Tautan dicabut' });
+  return (
+    <Space direction="vertical" style={{ width: '100%' }}>
+      <Alert type="info" showIcon message="Tempel tautan di Google Calendar (Tambah kalender → Dari URL), Outlook, atau Apple Calendar. Searah: perubahan di kalender tidak masuk ke SANSU, dan aplikasi kalender memperbarui tiap beberapa jam. Isinya hanya judul dan waktu pemesanan aktif, tanpa nama pelanggan. Siapa pun yang memegang tautan bisa melihatnya, jadi cabut bila bocor." />
+      <Form form={form} layout="inline" onFinish={(v) => create.mutate(v)}>
+        <Form.Item name="name" rules={[{ required: true, min: 2, message: 'Beri nama' }]}><Input placeholder="Nama tautan, mis. Kalender tim" maxLength={80} style={{ width: 240 }} /></Form.Item>
+        <Form.Item name="resourceId"><Select allowClear placeholder="Semua sumber daya" style={{ width: 220 }} options={(resources.data ?? []).filter((r) => r.isActive).map((r) => ({ value: r.id, label: r.name }))} /></Form.Item>
+        <Button type="primary" htmlType="submit" loading={create.isPending}>Buat tautan</Button>
+      </Form>
+      <Table size="small" rowKey="id" pagination={false} loading={feeds.isLoading} dataSource={feeds.data} locale={{ emptyText: 'Belum ada tautan' }}
+        columns={[
+          { title: 'Nama', dataIndex: 'name' },
+          { title: 'Sumber daya', dataIndex: 'resourceName', render: (v: string | null) => v ?? 'Semua' },
+          { title: 'Token', dataIndex: 'tokenPrefix', render: (v: string) => `${v}…` },
+          { title: 'Dibuka terakhir', dataIndex: 'lastUsedAt', render: (v: string | null) => (v ? fmtDate(v) : 'belum pernah') },
+          { title: 'Status', render: (_: unknown, f: Feed) => (f.revokedAt ? <Tag>Dicabut</Tag> : <Tag color="green">Aktif</Tag>) },
+          { render: (_: unknown, f: Feed) => !f.revokedAt && <Button size="small" danger onClick={() => revoke.mutate(f.id)}>Cabut</Button> },
+        ]} />
+      <Modal open={!!link} title="Tautan kalender" onCancel={() => setLink(null)} footer={<Button type="primary" onClick={() => { void navigator.clipboard?.writeText(link ?? '').then(() => message.success('Tautan disalin'), () => undefined); }}>Salin tautan</Button>} destroyOnHidden>
+        <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="Simpan sekarang: tautan ini tidak akan ditampilkan lagi." />
+        <Typography.Paragraph copyable code style={{ wordBreak: 'break-all' }}>{link}</Typography.Paragraph>
+      </Modal>
+    </Space>
   );
 }
 

@@ -21,13 +21,14 @@ import { SalesCommissionsController, SalesCommissionsService } from './targets/s
 import { SalesTargetsController, SalesTargetsService } from './targets/sales-targets';
 import { ServiceBillingController, ServiceBillingService } from './services/service-billing';
 import { TimesheetController, TimesheetService } from './services/timesheets';
+import { CalendarFeedController, CalendarFeedService, CalendarPublicController } from './services/calendar-feed';
 import { SchedulingController, SchedulingService } from './services/scheduling';
 import { RetainerController, RetainerService } from './services/retainers';
 
 @Module({
   imports: [AccountingModule, InventoryModule, FxModule],
-  controllers: [SalesControlsController, SalesOrdersController, DeliveriesController, InvoicesController, PaymentsController, ServiceBillingController, PricingController, SalesTargetsController, SalesCommissionsController, ConsignmentsController, CanvassController, DeliveryTripsController, DeliveryVehiclesController, TradeController, TimesheetController, SchedulingController, RetainerController],
-  providers: [RoutingService, DeliveryVehiclesService, DeliveryTripsService, SalesControlsService, TradeService, CanvassService, ConsignmentsService, PricingService, SalesTargetsService, SalesCommissionsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService, TimesheetService, SchedulingService, RetainerService],
+  controllers: [SalesControlsController, SalesOrdersController, DeliveriesController, InvoicesController, PaymentsController, ServiceBillingController, PricingController, SalesTargetsController, SalesCommissionsController, ConsignmentsController, CanvassController, DeliveryTripsController, DeliveryVehiclesController, TradeController, TimesheetController, SchedulingController, CalendarFeedController, CalendarPublicController, RetainerController],
+  providers: [RoutingService, DeliveryVehiclesService, DeliveryTripsService, SalesControlsService, TradeService, CanvassService, ConsignmentsService, PricingService, SalesTargetsService, SalesCommissionsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService, TimesheetService, SchedulingService, CalendarFeedService, RetainerService],
   exports: [SalesOrdersService, InvoicesService, PricingService, ServiceBillingService, PaymentsService],
 })
 export class SalesModule {}
