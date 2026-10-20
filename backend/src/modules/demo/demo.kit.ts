@@ -33,6 +33,7 @@ import { PosService } from '../pos/pos.module';
 import { ProductionService } from '../production/production.module';
 import { PurchaseInvoicesService } from '../purchasing/purchase-invoices.service';
 import { PurchaseOrdersService } from '../purchasing/purchase-orders.service';
+import { CanvassService } from '../sales/canvass/canvass';
 import { InvoicesService } from '../sales/invoices/invoices.service';
 import { SalesOrdersService } from '../sales/orders/sales-orders.service';
 import { PaymentsService } from '../sales/payments/payments.service';
@@ -85,6 +86,7 @@ export interface Demo {
     writedown: WritedownService;
     cashCount: CashCountService;
     utility: UtilityService;
+    canvass: CanvassService;
   };
   acc: (code: string) => string;
   kas: string;
@@ -195,6 +197,7 @@ export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: 
       writedown: get(WritedownService),
       cashCount: get(CashCountService),
       utility: get(UtilityService),
+      canvass: get(CanvassService),
     },
     acc: (code) => acc.get(code)!,
     kas: acc.get('1-1100')!,
