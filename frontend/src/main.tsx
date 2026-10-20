@@ -26,6 +26,8 @@ let lastToast = { text: '', at: 0 };
 const queryCache = new QueryCache({
   onError: (err) => {
     if (err instanceof ApiError && (err.status === 401 || err.status === 503)) return;
+    // 403: peran ini memang tidak boleh membaca data itu (umumnya data pelengkap halaman); halaman utama menampilkan pesannya sendiri lewat QueryState
+    if (err instanceof ApiError && err.status === 403) return;
     const text = `Data gagal dimuat: ${err.message}`;
     if (text === lastToast.text && Date.now() - lastToast.at < 8000) return;
     lastToast = { text, at: Date.now() };
