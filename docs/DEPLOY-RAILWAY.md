@@ -13,6 +13,7 @@ Tanpa nginx, tanpa CORS, tanpa pengalihan `/api`. Berkas yang dipakai: `railway.
    | Variabel | Nilai |
    | --- | --- |
    | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (pilih lewat menu "Add Reference") |
+   | `DATABASE_URL` (bila database di Neon) | alamat **langsung (unpooled)**, bukan `-pooler`: isolasi antar perusahaan memakai pengaturan sesi yang tidak dijamin lewat pooler Neon. Integrasi Neon biasanya memberi `DATABASE_URL` (pooled) dan `DATABASE_URL_UNPOOLED`; isi `DATABASE_URL` aplikasi dengan nilai yang langsung (host tanpa `-pooler`). Panel › Keamanan data memperingatkan bila masih pooler. |
    | `JWT_SECRET` | teks acak ≥ 32 karakter: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` |
    | `DATA_ENCRYPTION_KEY` | **wajib** (aplikasi menolak start tanpanya): kunci enkripsi token pihak ketiga, acak ≥ 32 karakter dan **berbeda** dari `JWT_SECRET`: `openssl rand -base64 48`. Simpan di tempat aman (salinan terpisah dari server) dan jangan diubah setelah diisi: kunci ini juga mengenkripsi NIK, NPWP, dan nomor rekening, yang **tidak terbaca lagi** bila kuncinya hilang atau berganti. Data yang sudah terenkripsi dengan kunci lama (turunan `JWT_SECRET`) tetap terbaca. |
    | `BACKUP_RETENTION_DAYS` | opsional: lama (hari) cadangan database menyimpan data; ditampilkan ke klien saat meminta penghapusan data. Samakan dengan jendela pemulihan/retensi backup di Neon atau server. |
