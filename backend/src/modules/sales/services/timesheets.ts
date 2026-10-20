@@ -153,7 +153,7 @@ export class TimesheetService {
   async create(u: AuthUser, dto: TimeEntryDto) {
     const own = await this.ownEmployee(this.db, u);
     const employeeId = dto.employeeId ?? own;
-    if (!employeeId) throw new BadRequestException('Akun Anda belum terhubung dengan data karyawan; pilih karyawan atau minta Admin menghubungkannya');
+    if (!employeeId) throw new BadRequestException('Akun Anda belum terhubung dengan data karyawan; minta bagian SDM atau Pemilik menghubungkannya di Karyawan › Hubungkan akun (aplikasi Karyawan harus aktif)');
     if (employeeId !== own && !isPriv(u)) throw new ForbiddenException('Anda hanya dapat mencatat waktu untuk diri sendiri');
     const hours = this.checkHours(dto.hours);
     const date = this.checkDate(u, dto.workDate);
@@ -382,7 +382,7 @@ export class TimesheetService {
   private async timerOwner(u: AuthUser, employeeId?: string) {
     const own = await this.ownEmployee(this.db, u);
     const emp = employeeId ?? own;
-    if (!emp) throw new BadRequestException('Akun Anda belum terhubung dengan data karyawan; pilih karyawan atau minta Admin menghubungkannya');
+    if (!emp) throw new BadRequestException('Akun Anda belum terhubung dengan data karyawan; minta bagian SDM atau Pemilik menghubungkannya di Karyawan › Hubungkan akun (aplikasi Karyawan harus aktif)');
     if (emp !== own && !isPriv(u)) throw new ForbiddenException('Anda hanya dapat memakai timer untuk diri sendiri');
     return emp;
   }
