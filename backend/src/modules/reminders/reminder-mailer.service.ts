@@ -202,12 +202,16 @@ export class ReminderMailer {
     return { notified: true };
   }
 
+  /** Perusahaan yang diberi pengingat otomatis: perusahaan demo dilewati (alamat emailnya fiktif dan datanya sementara) */
+  async schedulableTenants() {
+    return (await this.db.execute<{ id: string }>(sql`SELECT id FROM tenants WHERE NOT (settings ? 'demo')`)).rows;
+  }
+
   /** Satu putaran penjadwal untuk semua perusahaan: ringkasan harian (setelah pukul 07.00 WIB) dan pengingat pelanggan */
   async runAll() {
     const hour = new Date(Date.now() + 7 * 3600_000).getUTCHours();
     if (hour < DIGEST_HOUR_WIB) return { digests: 0, customers: 0 };
-    // perusahaan demo tidak diberi pengingat: alamat emailnya fiktif dan datanya sementara
-    const tenants = (await this.db.execute<{ id: string }>(sql`SELECT id FROM tenants WHERE NOT (settings ? 'demo')`)).rows;
+    const tenants = await this.schedulableTenants();
     let digests = 0;
     let customers = 0;
     for (const t of tenants) {

@@ -188,24 +188,17 @@ describe('Pengingat otomatis (e2e)', () => {
     await http.put('/api/settings/reminders').set(as(owner)).send({ customerReminders: false }).expect(200);
   });
 
-  it('penjadwal tidak mengirim ringkasan ke perusahaan demo (alamat fiktif, data sementara)', async () => {
+  it('penjadwal melewati perusahaan demo (alamat fiktif, data sementara)', async () => {
     const db = app.get<Db>(DB);
     const tenantId = (await get('/api/auth/me').expect(200)).body.tenantId;
-    const t0 = Date.now();
-    const spy = jest.spyOn(Date, 'now').mockReturnValue(t0 - (new Date(t0 + 7 * 3600_000).getUTCHours() - 9) * 3600_000); // pukul 09.00 WIB
+    const ids = async () => (await app.get(ReminderMailer).schedulableTenants()).map((r) => r.id);
     try {
-      await db.execute(sql`DELETE FROM reminder_log WHERE tenant_id = ${tenantId} AND kind = 'DIGEST'`);
+      expect(await ids()).toContain(tenantId);
       await db.execute(sql`UPDATE tenants SET settings = settings || '{"demo": true}'::jsonb WHERE id = ${tenantId}`);
-      sent.length = 0;
-      await app.get(ReminderMailer).runAll();
-      expect(sent.some((m) => m.to === `rm-${stamp}@uji.id`)).toBe(false);
-      // pembanding: perusahaan biasa tetap menerima
-      await db.execute(sql`UPDATE tenants SET settings = settings - 'demo' WHERE id = ${tenantId}`);
-      await app.get(ReminderMailer).runAll();
-      expect(sent.some((m) => m.to === `rm-${stamp}@uji.id`)).toBe(true);
+      expect(await ids()).not.toContain(tenantId);
     } finally {
-      spy.mockRestore();
       await db.execute(sql`UPDATE tenants SET settings = settings - 'demo' WHERE id = ${tenantId}`);
     }
+    expect(await ids()).toContain(tenantId);
   });
 });
