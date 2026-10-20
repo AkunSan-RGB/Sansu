@@ -701,6 +701,13 @@
       "when": 1796927886484,
       "tag": "0099_jadwal_kalender",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1797014286484,
+      "tag": "0100_akun_karyawan_unik",
+      "breakpoints": true
     }
   ]
 }

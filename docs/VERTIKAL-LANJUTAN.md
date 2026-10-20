@@ -160,3 +160,7 @@ Menu: Produksi › *Pusat kerja & jadwal mesin* dan *Pengendalian mutu (QC)*; op
 - Admin membuat tautan di Jadwal sumber daya › Kalender (iCal), untuk semua sumber daya atau satu sumber daya. Tempel di Google Calendar (Tambah kalender → Dari URL), Outlook, atau Apple Calendar.
 - Searah (SANSU → kalender); aplikasi kalender memperbarui tiap beberapa jam. Isi: judul, waktu, dan nama sumber daya pemesanan aktif (30 hari lalu s/d 180 hari ke depan). Nama pelanggan dan catatan tidak dikeluarkan; pemesanan batal tidak ikut.
 - Token rahasia hanya disimpan sebagai hash dan tampil sekali. Tautan dapat dicabut (jejak audit buat/cabut). Token tidak valid, dicabut, atau aplikasi nonaktif sama-sama 404. Alamat publik: `GET /api/calendar/<token>.ics`. Migrasi `0099_jadwal_kalender`.
+
+## Hubungkan akun pengguna ke karyawan
+- Lembar waktu, jadwal pribadi, dan cuti atas nama sendiri butuh akun pengguna yang terhubung ke data karyawan. Sebelumnya hubungan ini belum bisa diatur dari aplikasi; kini di Karyawan › (buka karyawan) › Akun pengguna. Hanya aplikasi **Karyawan** (HR) yang perlu aktif; Penggajian tidak wajib.
+- Yang boleh: bagian SDM dan Pemilik (Admin dan Akuntan tidak). Satu akun satu karyawan (dijaga juga oleh indeks unik di database, migrasi `0100_akun_karyawan_unik`). Menghubungkan akun sendiri hanya boleh Pemilik; mengganti atau melepas hubungan wajib beralasan; semua tercatat di jejak audit.
