@@ -44,17 +44,33 @@ export const fnbReport: Builder = async (c) => {
   const tax = await rows(c, sql`SELECT CASE o.tax_kind WHEN 'LOCAL' THEN 'Pajak restoran daerah (PB1)' ELSE 'PPN' END AS kind, COUNT(*)::int AS orders, SUM(o.subtotal) AS base, SUM(o.tax_amount) AS tax FROM pos_orders o WHERE ${orders(c)} GROUP BY o.tax_kind ORDER BY 1`);
   const online = await rows(c, sql`SELECT COALESCE(o.channel, 'Kasir sendiri') AS channel, COUNT(*)::int AS orders, SUM(o.total) AS total, SUM(o.platform_fee) AS fee FROM pos_orders o WHERE ${orders(c)} GROUP BY 1 ORDER BY SUM(o.total) DESC`);
   const ingredients = await rows(c, sql`SELECT pr.sku, pr.name AS ingredient, SUM(-m.qty) AS qty, SUM(-m.qty * m.unit_cost) AS value FROM stock_moves m JOIN products pr ON pr.id = m.product_id WHERE m.tenant_id = ${c.tenantId} AND m.ref_type = 'POS_ORDER' AND m.qty < 0 AND m.date BETWEEN ${c.from}::date AND ${c.to}::date GROUP BY pr.sku, pr.name ORDER BY SUM(-m.qty * m.unit_cost) DESC LIMIT 200`);
+  // Selisih bahan: kebutuhan menurut resep (menu terjual × resep yang berlaku saat pesanan) vs yang sungguh keluar dari stok. Yang keluar =
+  // pemakaian kasir + penyesuaian keluar (susut, rusak, kurang saat opname). Selisih tinggi = pemborosan atau resep tidak dijalankan.
+  const variance = await rows(c, sql`
+    WITH menu_line AS (
+      SELECT DISTINCT ON (l.id) l.id, l.qty * l.uom_factor AS q, b.id AS bom_id, b.output_qty
+      FROM pos_order_lines l JOIN pos_orders o ON o.id = l.order_id
+      JOIN boms b ON b.tenant_id = ${c.tenantId} AND b.product_id = l.product_id AND b.created_at <= o.created_at
+      WHERE ${orders(c)} AND l.from_recipe ORDER BY l.id, b.created_at DESC),
+    need AS (SELECT bl.product_id, SUM(m.q * bl.qty / NULLIF(m.output_qty, 0)) AS expected FROM menu_line m JOIN bom_lines bl ON bl.bom_id = m.bom_id GROUP BY bl.product_id),
+    pos_used AS (SELECT sm.product_id, SUM(-sm.qty) AS q FROM stock_moves sm JOIN pos_orders o ON o.id::text = sm.ref_id WHERE sm.tenant_id = ${c.tenantId} AND sm.ref_type = 'POS_ORDER' AND sm.qty < 0 AND ${orders(c)} GROUP BY sm.product_id),
+    waste AS (SELECT sm.product_id, SUM(-sm.qty) AS q, SUM(-sm.qty * sm.unit_cost) AS v FROM stock_moves sm WHERE sm.tenant_id = ${c.tenantId} AND sm.type = 'ADJUSTMENT_OUT' AND sm.date BETWEEN ${c.from}::date AND ${c.to}::date GROUP BY sm.product_id)
+    SELECT p.sku, p.name AS ingredient, need.expected, COALESCE(pos_used.q, 0) AS pos_used, COALESCE(waste.q, 0) AS waste, COALESCE(waste.v, 0) AS waste_value,
+      CASE WHEN need.expected > 0 THEN ROUND(COALESCE(waste.q, 0) / need.expected * 100, 1) ELSE NULL END AS waste_pct
+    FROM need JOIN products p ON p.id = need.product_id LEFT JOIN pos_used ON pos_used.product_id = need.product_id LEFT JOIN waste ON waste.product_id = need.product_id
+    ORDER BY COALESCE(waste.v, 0) DESC, p.name LIMIT 200`);
   const [tot] = await rows<{ total: string; n: string }>(c, sql`SELECT COALESCE(SUM(o.total), 0) AS total, COUNT(*)::text AS n FROM pos_orders o WHERE ${orders(c)}`);
   const [pb1] = await rows<{ tax: string }>(c, sql`SELECT COALESCE(SUM(o.tax_amount) FILTER (WHERE o.tax_kind = 'LOCAL'), 0) AS tax FROM pos_orders o WHERE ${orders(c)}`);
   const onlineTotal = online.filter((r) => r.channel !== 'Kasir sendiri').reduce((a, r) => a + num(r.total), 0);
   return {
-    kpis: [{ label: 'Penjualan', value: tot.total, type: 'money' }, { label: 'Transaksi', value: num(tot.n), type: 'int' }, { label: 'Pajak restoran daerah (PB1)', value: pb1.tax, type: 'money' }, { label: 'Pesanan online', value: onlineTotal, type: 'money' }],
+    kpis: [{ label: 'Penjualan', value: tot.total, type: 'money' }, { label: 'Transaksi', value: num(tot.n), type: 'int' }, { label: 'Pajak restoran daerah (PB1)', value: pb1.tax, type: 'money' }, { label: 'Pesanan online', value: onlineTotal, type: 'money' }, { label: 'Susut bahan (penyesuaian keluar)', value: variance.reduce((a, r) => a + num(r.waste_value), 0), type: 'money', tone: variance.some((r) => num(r.waste_value) > 0) ? 'warn' : 'ok' }],
     sections: [
       { key: 'menu', title: 'Per menu', note: 'Laba kasar = penjualan − harga pokok bahan menurut resep.', columns: [{ key: 'sku', label: 'Kode' }, { key: 'menu', label: 'Menu' }, { key: 'qty', label: 'Terjual', type: 'qty' }, { key: 'sales', label: 'Penjualan', type: 'money' }, { key: 'margin', label: 'Laba kasar', type: 'money' }], rows: byMenu },
       { key: 'jenis', title: 'Jenis pesanan', columns: [{ key: 'type', label: 'Jenis' }, { key: 'orders', label: 'Transaksi', type: 'int' }, { key: 'total', label: 'Penjualan', type: 'money' }], rows: types.map((r) => ({ ...r, type: typeLabel[String(r.type)] ?? r.type })) },
       { key: 'pajak', title: 'Pajak restoran', columns: [{ key: 'kind', label: 'Jenis pajak' }, { key: 'orders', label: 'Transaksi', type: 'int' }, { key: 'base', label: 'Dasar', type: 'money' }, { key: 'tax', label: 'Pajak', type: 'money' }], rows: tax },
       { key: 'online', title: 'Saluran penjualan', note: 'Pesanan lewat GoFood/GrabFood/ShopeeFood dan lainnya; biaya platform adalah potongan komisi.', columns: [{ key: 'channel', label: 'Saluran' }, { key: 'orders', label: 'Transaksi', type: 'int' }, { key: 'total', label: 'Penjualan', type: 'money' }, { key: 'fee', label: 'Biaya platform', type: 'money' }], rows: online },
-      { key: 'bahan', title: 'Bahan terpakai', note: 'Bahan yang dipotong otomatis dari stok saat menu terjual. Perbandingan terhadap resep standar ada di Laporan pendukung F&B (Akuntansi).', columns: [{ key: 'sku', label: 'Kode' }, { key: 'ingredient', label: 'Bahan' }, { key: 'qty', label: 'Terpakai', type: 'qty' }, { key: 'value', label: 'Nilai', type: 'money' }], rows: ingredients },
+      { key: 'selisih', title: 'Selisih bahan vs resep', note: 'Seharusnya = menu terjual × kebutuhan bahan menurut resep. Susut = penyesuaian keluar (rusak, kedaluwarsa, kurang saat opname) pada rentang ini. % susut terhadap kebutuhan resep yang tinggi menandakan pemborosan, porsi tidak sesuai resep, atau pencatatan stok yang bermasalah.', columns: [{ key: 'sku', label: 'Kode' }, { key: 'ingredient', label: 'Bahan' }, { key: 'expected', label: 'Seharusnya (resep)', type: 'qty' }, { key: 'pos_used', label: 'Keluar lewat kasir', type: 'qty' }, { key: 'waste', label: 'Susut/penyesuaian keluar', type: 'qty' }, { key: 'waste_pct', label: '% susut', type: 'pct' }, { key: 'waste_value', label: 'Nilai susut', type: 'money' }], rows: variance, empty: 'Belum ada penjualan menu beresep pada rentang ini' },
+      { key: 'bahan', title: 'Bahan terpakai', note: 'Bahan yang dipotong otomatis dari stok saat menu terjual. Pencocokan dengan buku besar ada di Laporan pendukung F&B (Akuntansi).', columns: [{ key: 'sku', label: 'Kode' }, { key: 'ingredient', label: 'Bahan' }, { key: 'qty', label: 'Terpakai', type: 'qty' }, { key: 'value', label: 'Nilai', type: 'money' }], rows: ingredients },
     ],
   };
 };

@@ -43,6 +43,7 @@ import { SettingsService } from '../../common/settings.service';
 import { addDays, diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D } from '../../common/utils/money';
 import { Db } from '../../db/db';
+import { LOSS_WARN_PCT, ZONE_STATUS_LABEL, zoneLoss } from './zones';
 import { InjectDb } from '../../db/db.module';
 import { accounts, customers, utilityBills, utilityConnections, utilityLateFees, utilityReadings, utilityTariffs } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
@@ -53,6 +54,8 @@ const SECTION = 'utility';
 /** Pencatatan lebih dari ini dari lokasi pelanggan ditandai janggal */
 export const FAR_READING_M = 500;
 const num = (v: unknown) => Number(v ?? 0);
+/** Nama zona dirapikan: spasi ganda dibuang agar "Zona  A" dan "Zona A" tidak terpisah */
+const normZone = (z?: string) => z?.trim().replace(/\s+/g, ' ') || null;
 const isUnique = (e: unknown) => ['23505'].includes((e as { code?: string }).code ?? (e as { cause?: { code?: string } }).cause?.code ?? '');
 const rp = (n: number) => `Rp${Math.round(n).toLocaleString('id-ID')}`;
 
@@ -79,6 +82,16 @@ export class ConnectionDto {
   @ApiProperty() @IsString() @MinLength(5) @MaxLength(300) address: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() installedAt?: string;
   @ApiPropertyOptional({ example: '0', description: 'Angka meter saat dipasang' }) @IsOptional() @IsNumberString() initialReading?: string;
+  @ApiPropertyOptional({ example: 'Zona A', description: 'Zona/wilayah layanan (untuk menghitung kehilangan)' }) @IsOptional() @IsString() @MaxLength(60) zone?: string;
+}
+export class ZoneDto {
+  @ApiPropertyOptional({ description: 'Kosong = keluarkan dari zona' }) @IsOptional() @IsString() @MaxLength(60) zone?: string;
+}
+export class ZoneSupplyDto {
+  @ApiProperty({ example: 'Zona A' }) @IsString() @MinLength(1) @MaxLength(60) zone: string;
+  @ApiProperty({ example: '2026-10' }) @Matches(/^\d{4}-(0[1-9]|1[0-2])$/) period: string;
+  @ApiProperty({ example: '12500', description: 'Jumlah yang masuk ke zona menurut meter induk/sumber (satuan sama dengan tarif zona itu)' }) @IsNumberString() supplied: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) note?: string;
 }
 export class ReadingDto {
   @ApiProperty() @IsUUID() connectionId: string;
@@ -222,7 +235,7 @@ export class UtilityService {
   // ---------- sambungan ----------
   async connections(tenantId: string, q: { status?: string; search?: string }) {
     const r = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT c.id, c.number, c.status, c.meter_no AS "meterNo", c.address, c.installed_at::text AS "installedAt", c.status_note AS "statusNote",
+      SELECT c.id, c.number, c.status, c.meter_no AS "meterNo", c.address, c.zone, c.installed_at::text AS "installedAt", c.status_note AS "statusNote",
              c.customer_id AS "customerId", cu.name AS "customerName", c.tariff_id AS "tariffId", t.name AS "tariffName", t.service_type AS "serviceType", t.unit, t.metered,
              (SELECT r.current FROM utility_readings r WHERE r.connection_id = c.id AND r.status <> 'REJECTED' ORDER BY r.period DESC LIMIT 1) AS "lastReading",
              (SELECT r.period FROM utility_readings r WHERE r.connection_id = c.id AND r.status <> 'REJECTED' ORDER BY r.period DESC LIMIT 1) AS "lastPeriod"
@@ -267,7 +280,7 @@ export class UtilityService {
       const number = await this.seq.next(tx, u.tenantId, 'UTILITY_CONNECTION', installed);
       const [row] = await tx
         .insert(utilityConnections)
-        .values({ tenantId: u.tenantId, number, customerId: dto.customerId, tariffId: dto.tariffId, meterNo, address: dto.address.trim(), installedAt: installed, initialReading: initial.toString(), createdById: u.sub })
+        .values({ tenantId: u.tenantId, number, customerId: dto.customerId, tariffId: dto.tariffId, meterNo, address: dto.address.trim(), zone: normZone(dto.zone), installedAt: installed, initialReading: initial.toString(), createdById: u.sub })
         .returning();
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityConnection', entityId: row.id, data: { number, meterNo, tariff: t.name } });
       return row;
@@ -329,6 +342,39 @@ export class UtilityService {
       if (await this.unpaidOf(tx, u.tenantId, id)) throw new BadRequestException('Masih ada tagihan yang belum lunas. Lunasi atau selesaikan dulu sebelum sambungan dibongkar.');
       await tx.update(utilityConnections).set({ status: 'DISCONNECTED', statusChangedById: u.sub, statusChangedAt: new Date(), statusNote: dto.reason }).where(eq(utilityConnections.id, id));
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'DISCONNECT', entity: 'UtilityConnection', entityId: id, data: { number: c.number, reason: dto.reason } });
+      return { ok: true };
+    });
+  }
+
+  // ---------- zona dan kehilangan ----------
+  async setZone(u: AuthUser, id: string, dto: ZoneDto) {
+    return this.db.transaction(async (tx) => {
+      const c = await this.lockConnection(tx, u.tenantId, id);
+      const zone = normZone(dto.zone);
+      await tx.update(utilityConnections).set({ zone }).where(eq(utilityConnections.id, id));
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'UtilityConnection', entityId: id, data: { number: c.number, zone } });
+      return { ok: true, zone };
+    });
+  }
+
+  /** Pasokan zona per periode dan kehilangannya (pasokan − pemakaian terverifikasi) */
+  async zones(tenantId: string, period?: string) {
+    const p = period && /^\d{4}-(0[1-9]|1[0-2])$/.test(period) ? period : todayJakarta().slice(0, 7);
+    return { period: p, warnPct: LOSS_WARN_PCT, rows: await zoneLoss(this.db, tenantId, p, p, true) };
+  }
+
+  async saveSupply(u: AuthUser, dto: ZoneSupplyDto) {
+    const zone = normZone(dto.zone)!;
+    const supplied = D(dto.supplied);
+    if (!supplied.isFinite() || supplied.lt(0)) throw new BadRequestException('Jumlah pasokan tidak valid');
+    if (dto.period > todayJakarta().slice(0, 7)) throw new BadRequestException('Periode di masa depan belum dapat diisi');
+    return this.db.transaction(async (tx) => {
+      const z = await tx.execute<{ units: string[] | null; n: number }>(sql`SELECT array_agg(DISTINCT t.unit) AS units, COUNT(*)::int AS n FROM utility_connections c JOIN utility_tariffs t ON t.id = c.tariff_id WHERE c.tenant_id = ${u.tenantId} AND c.zone = ${zone} AND t.metered`);
+      if (!z.rows[0]?.n) throw new BadRequestException('Zona belum punya sambungan terukur; isi zona pada sambungan lebih dulu');
+      if ((z.rows[0].units ?? []).length > 1) throw new BadRequestException('Zona ini memuat layanan dengan satuan berbeda; pisahkan zona per layanan');
+      const before = await tx.execute<{ supplied: string }>(sql`SELECT supplied FROM utility_zone_supply WHERE tenant_id = ${u.tenantId} AND zone = ${zone} AND period = ${dto.period}`);
+      await tx.execute(sql`INSERT INTO utility_zone_supply (tenant_id, zone, period, supplied, note, entered_by_id) VALUES (${u.tenantId}, ${zone}, ${dto.period}, ${supplied.toFixed(3)}, ${dto.note?.trim() || null}, ${u.sub}) ON CONFLICT (tenant_id, zone, period) DO UPDATE SET supplied = EXCLUDED.supplied, note = EXCLUDED.note, entered_by_id = EXCLUDED.entered_by_id, updated_at = now()`);
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: before.rows.length ? 'UPDATE' : 'CREATE', entity: 'UtilityZoneSupply', entityId: `${zone}:${dto.period}`, data: { zone, period: dto.period, before: before.rows[0]?.supplied ?? null, after: supplied.toFixed(3), note: dto.note } });
       return { ok: true };
     });
   }
@@ -609,7 +655,10 @@ export class UtilityService {
     const selfVerified = await q(sql`
       SELECT c.number, cu.name AS customer, r.period, u.name AS "userName" FROM utility_readings r JOIN utility_connections c ON c.id = r.connection_id JOIN customers cu ON cu.id = c.customer_id JOIN users u ON u.id = r.entered_by_id
       WHERE r.tenant_id = ${tenantId} AND r.verified_by_id = r.entered_by_id AND r.status IN ('VERIFIED','BILLED') ORDER BY r.verified_at DESC LIMIT 100`);
+    const zoneRows = (await zoneLoss(this.db, tenantId, prev2, period)).filter((z) => z.status === 'HIGH' || z.status === 'NEGATIVE');
+    const highLoss = zoneRows.map((z) => ({ zone: z.zone, period: z.period, supplied: z.supplied, usage: z.usage, lossPct: z.lossPct, status: ZONE_STATUS_LABEL[z.status] }));
     return [
+      { key: 'ZONE_LOSS', title: `Zona dengan kehilangan tinggi atau pemakaian melebihi pasokan (> ${LOSS_WARN_PCT}%)`, severity: 'high', items: highLoss },
       { key: 'NO_READING', title: 'Sambungan aktif tanpa pencatatan 2+ bulan (pendapatan bocor?)', severity: 'high', items: noReading },
       { key: 'ZERO_USAGE', title: 'Pemakaian nol 3 bulan berturut-turut (meter macet / sambungan ilegal?)', severity: 'medium', items: zero },
       { key: 'STALE', title: 'Pencatatan menunggu verifikasi lebih dari 5 hari', severity: 'medium', items: stale },
@@ -657,6 +706,10 @@ export class UtilityController {
   @Roles('ADMIN', 'FINANCE') @Post('connections/:id/suspend') suspend(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: SuspendDto) { return this.svc.suspend(u, id, dto); }
   @Roles('ADMIN', 'FINANCE') @Post('connections/:id/reconnect') reconnect(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto) { return this.svc.reconnect(u, id, dto); }
   @Roles('ADMIN') @Post('connections/:id/disconnect') disconnect(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto) { return this.svc.disconnect(u, id, dto); }
+
+  @Get('zones') zones(@CurrentUser() u: AuthUser, @Query('period') period?: string) { return this.svc.zones(u.tenantId, period); }
+  @Roles('ADMIN', 'FINANCE') @Put('zones/supply') saveSupply(@CurrentUser() u: AuthUser, @Body() dto: ZoneSupplyDto) { return this.svc.saveSupply(u, dto); }
+  @Roles('ADMIN', 'FINANCE') @Put('connections/:id/zone') setZone(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ZoneDto) { return this.svc.setZone(u, id, dto); }
 
   @Get('readings') readings(@CurrentUser() u: AuthUser, @Query('period') period?: string, @Query('status') status?: string, @Query('connectionId') connectionId?: string) { return this.svc.readings(u.tenantId, { period, status, connectionId }); }
   @Get('readings/due') due(@CurrentUser() u: AuthUser, @Query('period') period: string) { return this.svc.due(u.tenantId, period); }

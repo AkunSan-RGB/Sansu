@@ -3873,6 +3873,8 @@ export const utilityConnections = pgTable(
     statusChangedById: uuid('status_changed_by_id'),
     statusChangedAt: timestamp('status_changed_at', { withTimezone: true }),
     statusNote: text('status_note'),
+    /** Zona/wilayah layanan (untuk menghitung kehilangan: pasokan zona − pemakaian pelanggan) */
+    zone: text('zone'),
     createdById: uuid('created_by_id').notNull(),
     createdAt: createdAt(),
   },

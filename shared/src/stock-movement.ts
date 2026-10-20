@@ -57,7 +57,7 @@ export const MOVEMENT_PROFILES: Record<BusinessModel, MovementProfile> = {
       FAST: 'Pertahankan stok pengaman dan negosiasi harga beli lebih baik (volume tinggi).',
       SLOW: 'Tawarkan promo ke pelanggan langganan; tahan pembelian berikutnya.',
       DEAD: 'Obral atau retur ke pemasok; pertimbangkan penurunan nilai persediaan.',
-      OUT: 'Segera buat Purchase Order: barang laku tetapi stok habis.',
+      OUT: 'Segera buat pesanan pembelian: barang laku tetapi stok habis.',
     },
   },
   FMCG: {

@@ -11,19 +11,21 @@ import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import PageHeader from '@/layout/PageHeader';
-import { fmtDate, fmtMoney } from '@/lib/format';
+import { fmtDate, fmtMoney, fmtQty } from '@/lib/format';
 import { CounterTab, FieldTab, ImportTab } from './UtilityFieldTabs';
 
 const SEV: Record<string, string> = { high: 'red', medium: 'orange' };
 const STATUS_COLOR: Record<UtilityConnectionStatus, string> = { ACTIVE: 'green', SUSPENDED: 'orange', DISCONNECTED: 'default' };
 const READ_COLOR: Record<UtilityReadingStatus, string> = { ENTERED: 'gold', VERIFIED: 'blue', BILLED: 'green', REJECTED: 'red' };
-const COL: Record<string, string> = { number: 'Sambungan', customer: 'Pelanggan', address: 'Alamat', lastPeriod: 'Pencatatan terakhir', period: 'Periode', days: 'Hari', usage: 'Pemakaian', flags: 'Tanda', userName: 'Petugas', service: 'Layanan', n: 'Jumlah', numbers: 'Nomor sambungan' };
+const COL: Record<string, string> = { number: 'Sambungan', customer: 'Pelanggan', address: 'Alamat', lastPeriod: 'Pencatatan terakhir', period: 'Periode', days: 'Hari', usage: 'Pemakaian', flags: 'Tanda', userName: 'Petugas', service: 'Layanan', n: 'Jumlah', numbers: 'Nomor sambungan', zone: 'Zona', supplied: 'Pasokan', lossPct: 'Kehilangan (%)', loss: 'Kehilangan', status: 'Keterangan' };
+const ZONE_STATUS: Record<string, { label: string; color: string }> = { NO_SUPPLY: { label: 'Pasokan belum diisi', color: 'default' }, INCOMPLETE: { label: 'Belum lengkap', color: 'gold' }, HIGH: { label: 'Kehilangan tinggi', color: 'red' }, OK: { label: 'Wajar', color: 'green' }, NEGATIVE: { label: 'Pemakaian melebihi pasokan', color: 'volcano' } };
 const SOURCE_LABEL: Record<string, string> = { LAPANGAN: 'Lapangan', IMPORT: 'Impor', API: 'Alat meter' };
 const thisMonth = () => dayjs().format('YYYY-MM');
 
 interface Summary { period: string; active: number; suspended: number; awaitingVerification: number; readyToBill: number; missingReadings: number; overdueCount: number; overdueTotal: number; suggestSuspend: number }
 interface Tariff { id: string; name: string; serviceType: UtilityServiceType; unit: string; metered: boolean; fixedFee: string; adminFee: string; minUsage: string; blocks: { upTo: number | null; price: number }[]; vatable: boolean; isActive: boolean; connections: number }
-interface Connection { id: string; number: string; status: UtilityConnectionStatus; meterNo: string | null; address: string; installedAt: string; statusNote: string | null; customerName: string; tariffName: string; serviceType: UtilityServiceType; unit: string; metered: boolean; lastReading: string | null; lastPeriod: string | null }
+interface Connection { id: string; number: string; status: UtilityConnectionStatus; meterNo: string | null; address: string; installedAt: string; statusNote: string | null; customerName: string; tariffName: string; serviceType: UtilityServiceType; unit: string; metered: boolean; lastReading: string | null; lastPeriod: string | null; zone?: string | null }
+interface ZoneRow { zone: string; period: string; unit: string | null; mixedUnits: boolean; connections: number; supplied: number | null; usage: number; loss: number | null; lossPct: number | null; unverified: number; missing: number; note: string | null; status: string }
 interface Reading { id: string; period: string; previous: string; current: string; usage: string; status: UtilityReadingStatus; flags: ReadingFlag[]; meterReplaced: boolean; note: string | null; verifyNote: string | null; connectionNumber: string; meterNo: string | null; customerName: string; unit: string; enteredByName: string | null; enteredById: string; verifiedByName: string | null; source?: string; hasPhoto?: boolean }
 interface Due { id: string; number: string; meterNo: string | null; address: string; customerName: string; unit: string; previous: string }
 interface Preview {
@@ -49,6 +51,7 @@ export default function UtilityPage() {
     ...(can('POST', '/utility/field/readings') ? [{ key: 'lapangan', label: 'Petugas lapangan', children: <FieldTab /> }] : []),
     ...(can('POST', '/utility/readings/import') || can('POST', '/utility/ingest-keys') ? [{ key: 'impor', label: 'Impor & alat meter', children: <ImportTab /> }] : []),
     ...(can('POST', '/utility/counter/pay') || can('POST', '/utility/counter/remit') ? [{ key: 'loket', label: 'Loket', children: <CounterTab /> }] : []),
+    ...(fin ? [{ key: 'zona', label: 'Zona & kehilangan', children: <ZonesTab /> }] : []),
     { key: 'meter', label: `Catat meter${summary.data?.awaitingVerification ? ` (${summary.data.awaitingVerification})` : ''}`, children: <ReadingsTab /> },
     ...(fin ? [{ key: 'tagihan', label: 'Tagihan bulanan', children: <BillingTab /> }, { key: 'tunggakan', label: `Tunggakan${summary.data?.overdueCount ? ` (${summary.data.overdueCount})` : ''}`, children: <OverdueTab /> }] : []),
     { key: 'tarif', label: 'Tarif & aturan', children: <TariffsTab /> },
@@ -96,10 +99,13 @@ function ConnectionsTab() {
   const [detail, setDetail] = useState<string | null>(null);
   const [act, setAct] = useState<{ c: Connection; mode: 'suspend' | 'reconnect' | 'disconnect' } | null>(null);
   const [form] = Form.useForm();
+  const [zf] = Form.useForm<{ zone?: string }>();
+  const [zoneOf, setZoneOf] = useState<Connection | null>(null);
   const [af] = Form.useForm<{ reason: string; onRequest?: boolean }>();
   const tariffId = Form.useWatch('tariffId', form);
   const metered = tariffs.data?.find((t) => t.id === tariffId)?.metered;
   const create = useAction((v: Record<string, unknown>) => post('/utility/connections', { ...v, installedAt: (v.installedAt as dayjs.Dayjs | undefined)?.format('YYYY-MM-DD') }), { success: 'Sambungan didaftarkan', invalidate: ['utility'], onSuccess: () => setCreating(false) });
+  const saveZone = useAction((v: { id: string; zone?: string }) => put(`/utility/connections/${v.id}/zone`, { zone: v.zone ?? '' }), { success: 'Zona tersimpan', invalidate: ['utility'], onSuccess: () => setZoneOf(null) });
   const doAct = useAction((v: { id: string; mode: string; reason: string; onRequest?: boolean }) => post(`/utility/connections/${v.id}/${v.mode}`, { reason: v.reason, onRequest: v.onRequest }), { success: 'Tersimpan', invalidate: ['utility'], onSuccess: () => setAct(null) });
   const TITLE = { suspend: 'Putus sementara', reconnect: 'Sambung kembali', disconnect: 'Bongkar sambungan (permanen)' } as const;
   return (
@@ -114,6 +120,7 @@ function ConnectionsTab() {
           { title: 'No. sambungan', dataIndex: 'number', render: (v: string, c: Connection) => <a onClick={() => setDetail(c.id)}>{v}</a> },
           { title: 'Pelanggan', dataIndex: 'customerName' },
           { title: 'Alamat', dataIndex: 'address', ellipsis: true },
+          { title: 'Zona', dataIndex: 'zone', render: (v: string | null, c: Connection) => (can('PUT', '/utility/connections/:id/zone') ? <a onClick={() => { zf.setFieldsValue({ zone: v ?? '' }); setZoneOf(c); }}>{v || 'atur'}</a> : v || '-') },
           { title: 'Layanan', render: (_: unknown, c: Connection) => `${c.tariffName}${c.meterNo ? ` · meter ${c.meterNo}` : ''}` },
           { title: 'Meter terakhir', render: (_: unknown, c: Connection) => (c.metered ? `${c.lastReading ?? '-'} ${c.unit}${c.lastPeriod ? ` (${c.lastPeriod})` : ''}` : 'tarif tetap') },
           { title: 'Status', render: (_: unknown, c: Connection) => <Tag color={STATUS_COLOR[c.status]}>{UTILITY_CONNECTION_LABELS[c.status]}</Tag> },
@@ -136,6 +143,7 @@ function ConnectionsTab() {
           <Form.Item name="address" label="Alamat pemasangan" rules={[{ required: true, min: 5 }]}><Input maxLength={300} /></Form.Item>
           {metered && <Form.Item name="meterNo" label="Nomor meter" rules={[{ required: true }]}><Input maxLength={60} /></Form.Item>}
           {metered && <Form.Item name="initialReading" label="Angka meter saat dipasang"><InputNumber min={0} style={{ width: 200 }} /></Form.Item>}
+          <Form.Item name="zone" label="Zona (opsional)" extra="Wilayah/jaringan untuk menghitung kehilangan, mis. Zona A."><Input maxLength={60} /></Form.Item>
           <Form.Item name="installedAt" label="Tanggal pasang"><DatePicker disabledDate={(d) => d.isAfter(dayjs())} /></Form.Item>
         </Form>
       </Modal>
@@ -144,6 +152,11 @@ function ConnectionsTab() {
         <Form form={af} layout="vertical" onFinish={(v) => doAct.mutate({ id: act!.c.id, mode: act!.mode, ...v })}>
           <Form.Item name="reason" label="Alasan / dasar" rules={[{ required: true, min: 5, message: 'Minimal 5 huruf' }]}><Input.TextArea rows={3} maxLength={255} /></Form.Item>
           {act?.mode === 'suspend' && <Form.Item name="onRequest" valuePropName="checked"><Checkbox>Atas permintaan pelanggan (tanpa tunggakan)</Checkbox></Form.Item>}
+        </Form>
+      </Modal>
+      <Modal title={zoneOf ? `Zona — ${zoneOf.number}` : ''} open={!!zoneOf} onCancel={() => setZoneOf(null)} onOk={() => zf.submit()} confirmLoading={saveZone.isPending} okText="Simpan" destroyOnHidden>
+        <Form form={zf} layout="vertical" onFinish={(v) => saveZone.mutate({ id: zoneOf!.id, zone: v.zone })}>
+          <Form.Item name="zone" label="Zona" extra="Kosongkan untuk mengeluarkan dari zona."><Input maxLength={60} /></Form.Item>
         </Form>
       </Modal>
       <ConnectionDrawer id={detail} onClose={() => setDetail(null)} />
@@ -464,9 +477,42 @@ function ControlsTab() {
       {(data ?? []).filter((c) => c.items.length).map((c) => (
         <Card key={c.key} size="small" style={{ marginBottom: 12 }} title={<span><Tag color={SEV[c.severity]}>{c.items.length}</Tag> {c.title}</span>}>
           <Table size="small" rowKey={(r) => JSON.stringify(r)} pagination={{ pageSize: 5 }} dataSource={c.items}
-            columns={Object.keys(c.items[0]).map((k) => ({ title: COL[k] ?? k, dataIndex: k, render: (v: unknown) => (Array.isArray(v) ? v.map((f) => READING_FLAG_LABELS[f as ReadingFlag] ?? String(f)).join(', ') : k === 'service' ? UTILITY_SERVICE_LABELS[v as UtilityServiceType] ?? String(v) : String(v ?? '-')) }))} />
+            columns={Object.keys(c.items[0]).map((k) => ({ title: COL[k] ?? k, dataIndex: k, render: (v: unknown) => (Array.isArray(v) ? v.map((f) => READING_FLAG_LABELS[f as ReadingFlag] ?? String(f)).join(', ') : k === 'status' && ZONE_STATUS[String(v)] ? ZONE_STATUS[String(v)].label : k === 'service' ? UTILITY_SERVICE_LABELS[v as UtilityServiceType] ?? String(v) : String(v ?? '-')) }))} />
         </Card>
       ))}
+    </>
+  );
+}
+
+// ---------- Zona & kehilangan ----------
+function ZonesTab() {
+  const can = useCan();
+  const [period, setPeriod] = useState(thisMonth());
+  const { data, isLoading } = useQuery({ queryKey: ['utility', 'zones', period], queryFn: () => get<{ period: string; warnPct: number; rows: ZoneRow[] }>(`/utility/zones?period=${period}`) });
+  const [row, setRow] = useState<ZoneRow | null>(null);
+  const [f] = Form.useForm<{ supplied: number; note?: string }>();
+  const save = useAction((v: { zone: string; supplied: number; note?: string }) => put('/utility/zones/supply', { zone: v.zone, period, supplied: String(v.supplied), note: v.note }), { success: 'Pasokan tersimpan', invalidate: ['utility'], onSuccess: () => setRow(null) });
+  return (
+    <>
+      <Alert type="info" showIcon style={{ marginBottom: 12 }} message={`Kehilangan = jumlah masuk zona (meter induk/sumber) dikurangi pemakaian pelanggan terverifikasi. Di atas ${data?.warnPct ?? 20}% perlu dicek: kebocoran, sambungan liar, atau meter rusak. Pasokan diisi Admin/Keuangan, pencatat meter orang lain.`} />
+      <Space style={{ marginBottom: 12 }}><span>Periode</span><DatePicker picker="month" allowClear={false} value={dayjs(`${period}-01`)} onChange={(d) => d && setPeriod(d.format('YYYY-MM'))} disabledDate={(d) => d.isAfter(dayjs())} /></Space>
+      <ResponsiveTable<ZoneRow> rowKey="zone" size="small" loading={isLoading} dataSource={data?.rows} pagination={false} locale={{ emptyText: 'Belum ada zona. Isi zona pada sambungan di tab Sambungan.' }}
+        columns={[
+          { title: 'Zona', dataIndex: 'zone' },
+          { title: 'Sambungan', dataIndex: 'connections', align: 'right' },
+          { title: 'Pasokan', align: 'right', render: (_: unknown, r: ZoneRow) => (r.supplied == null ? '-' : `${fmtQty(r.supplied)} ${r.unit ?? ''}`) },
+          { title: 'Pemakaian', align: 'right', render: (_: unknown, r: ZoneRow) => `${fmtQty(r.usage)} ${r.unit ?? ''}` },
+          { title: 'Kehilangan', align: 'right', render: (_: unknown, r: ZoneRow) => (r.loss == null ? '-' : `${fmtQty(r.loss)} ${r.unit ?? ''} (${r.lossPct ?? 0}%)`) },
+          { title: 'Keterangan', render: (_: unknown, r: ZoneRow) => <Space direction="vertical" size={0}><Tag color={ZONE_STATUS[r.status]?.color}>{ZONE_STATUS[r.status]?.label ?? r.status}</Tag>{(r.unverified > 0 || r.missing > 0) && <Typography.Text type="secondary">{r.unverified} belum diverifikasi, {r.missing} belum dicatat</Typography.Text>}{r.mixedUnits && <Typography.Text type="danger">Satuan layanan berbeda dalam satu zona</Typography.Text>}</Space> },
+          { render: (_: unknown, r: ZoneRow) => can('PUT', '/utility/zones/supply') && !r.mixedUnits && <Button size="small" onClick={() => { f.setFieldsValue({ supplied: r.supplied ?? undefined, note: r.note ?? undefined }); setRow(r); }}>Isi pasokan</Button> },
+        ]}
+      />
+      <Modal title={row ? `Pasokan ${row.zone} — ${period}` : ''} open={!!row} onCancel={() => setRow(null)} onOk={() => f.submit()} confirmLoading={save.isPending} okText="Simpan" destroyOnHidden>
+        <Form form={f} layout="vertical" onFinish={(v) => save.mutate({ zone: row!.zone, ...v })}>
+          <Form.Item name="supplied" label={`Jumlah masuk zona${row?.unit ? ` (${row.unit})` : ''}`} rules={[{ required: true }]}><InputNumber min={0} style={{ width: 220 }} /></Form.Item>
+          <Form.Item name="note" label="Catatan / sumber angka"><Input maxLength={255} /></Form.Item>
+        </Form>
+      </Modal>
     </>
   );
 }
