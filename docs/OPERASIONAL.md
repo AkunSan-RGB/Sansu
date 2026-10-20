@@ -46,6 +46,14 @@ Batasan jujur:
 - Uji pemulihan memeriksa struktur dan keterbacaan, bukan kebenaran setiap angka transaksi. Sesekali buka salinan hasil pulih dan cocokkan beberapa laporan.
 - Backup server sendiri (VPS) melapor ke SANSU bila `BACKUP_REPORT_TOKEN` diisi di `.env`; uji pemulihannya tetap manual lewat `./sansu.sh restore`.
 
+## Penyimpanan foto dan bukti (R2) — terpisah dari backup database
+Foto meter, bukti kirim, dan PDF lampiran bisa disimpan di bucket S3-compatible (mis. Cloudflare R2) lewat variabel Railway `STORAGE_ENDPOINT`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY` (lihat `docs/DEPLOY-RAILWAY.md`). Ini **bukan backup**: ini tempat file sehari-hari supaya database (Neon) tidak penuh. Pengaturan ini tidak memakai secret GitHub `S3_*`; secret itu hanya untuk backup database offsite di atas.
+- [ ] Bucket **privat**; token khusus bucket itu dengan izin baca/tulis objek saja. Jangan memakai kunci yang sama dengan backup database.
+- [ ] Setelah variabel terisi dan layanan deploy ulang: `npm run storage:migrate:prod -w backend` sekali untuk memindahkan gambar lama dari database (aman diulang; `--dry-run` untuk menghitung).
+- [ ] Tes: unggah satu foto baru, pastikan tampil.
+- [ ] **File di bucket tidak ikut backup database dan tidak punya salinan lain.** Aktifkan perlindungan hapus atau versi objek di bucket supaya foto tidak hilang karena salah hapus.
+- Bila database hanya mengandalkan Neon (tanpa backup offsite GitHub), pastikan paket Neon punya jendela pemulihan yang cukup sebelum menerima pelanggan berbayar; lihat daftar periksa bagian 5.
+
 ## 2. Pemantauan error dan ketersediaan
 Bawaan aplikasi: setiap galat server (5xx) dicatat di tabel `error_logs` (disimpan 30 hari) dan dikirim ke pemilik layanan lewat Telegram dan email dengan pembatasan agar tidak membanjir. Lihat di **Panel SANSU**.
 
