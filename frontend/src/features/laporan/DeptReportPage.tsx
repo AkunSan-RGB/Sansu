@@ -66,7 +66,7 @@ function SectionTable({ s }: { s: Section }) {
   return (
     <>
       {s.note && <Typography.Paragraph type="secondary" style={{ textAlign: 'justify' }}>{s.note}</Typography.Paragraph>}
-      <Table size="small" rowKey={(_, i) => String(i)} columns={columns} dataSource={s.rows} pagination={s.rows.length > 20 ? { pageSize: 20, showSizeChanger: false } : false} scroll={{ x: 'max-content' }} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={s.empty ?? 'Tidak ada data pada rentang ini'} /> }} />
+      <Table size="small" rowKey="__k" columns={columns} dataSource={s.rows.map((r, i) => ({ ...r, __k: i }))} pagination={s.rows.length > 20 ? { pageSize: 20, showSizeChanger: false } : false} scroll={{ x: 'max-content' }} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={s.empty ?? 'Tidak ada data pada rentang ini'} /> }} />
     </>
   );
 }
