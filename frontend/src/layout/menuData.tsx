@@ -188,6 +188,7 @@ export const MENU: Group[] = [
           { key: '/shopping-list', label: 'Daftar belanja harian', hideFor: ['JASA', 'UTILITAS'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING', 'WAREHOUSE'] },
           { key: '/purchase-requests', label: 'Permintaan beli' },
           { key: '/purchase-orders', label: t('Purchase Order') },
+          { key: '/supplier-advances', label: 'Uang muka pemasok', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING'] },
           { key: '/goods-receipts', label: 'Penerimaan barang', hideFor: ['JASA'] },
           { key: '/purchase-invoices', label: t('Faktur & hutang') },
           { key: '/returns?tab=purchase', label: t('Retur pembelian'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },

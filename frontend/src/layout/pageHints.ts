@@ -39,6 +39,7 @@ export const PAGE_HINTS: Record<string, string> = {
   '/purchase-orders/new': 'Buat pesanan ke pemasok: pilih pemasok, barang, jumlah, dan harga.',
   '/purchase-orders/quick': 'Pembelian cepat: catat belanja yang sudah terjadi tanpa menunggu proses permintaan.',
   '/goods-receipts': 'Penerimaan barang dari pemasok: jumlah dan kondisi dicek gudang.',
+  '/supplier-advances': 'Uang muka (DP) ke pemasok sebelum barang datang: perhitungkan ke faktur atau catat pengembaliannya.',
   '/purchase-invoices': 'Tagihan dari pemasok dan hutang yang harus dibayar.',
   '/suppliers': 'Data pemasok: kontak dan termin pembayaran.',
   '/shopping-list': 'Daftar bahan yang perlu dibeli hari ini, lengkap dengan harga terakhir.',

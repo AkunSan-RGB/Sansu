@@ -39,6 +39,7 @@ import CashCountsPage from './features/cash/CashCountsPage';
 import PurchaseInvoicesPage from './features/purchasing/PurchaseInvoicesPage';
 import PurchaseOrderDetailPage from './features/purchasing/PurchaseOrderDetailPage';
 import PurchaseOrderFormPage from './features/purchasing/PurchaseOrderFormPage';
+import SupplierAdvancesPage from './features/purchasing/SupplierAdvancesPage';
 import PurchaseOrdersPage from './features/purchasing/PurchaseOrdersPage';
 import PurchaseRequestDetailPage from './features/purchasing/PurchaseRequestDetailPage';
 import PurchaseRequestFormPage from './features/purchasing/PurchaseRequestFormPage';
@@ -202,6 +203,7 @@ export default function App() {
           <Route path="purchase-requests/new" element={<PurchaseRequestFormPage />} />
           <Route path="purchase-requests/:id" element={<PurchaseRequestDetailPage />} />
           <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
+          <Route path="supplier-advances" element={<SupplierAdvancesPage />} />
           <Route path="purchase-orders/new" element={<PurchaseOrderFormPage />} />
           <Route path="purchase-orders/quick" element={<QuickPurchasePage />} />
           <Route path="purchase-orders/:id" element={<PurchaseOrderDetailPage />} />

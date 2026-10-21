@@ -302,6 +302,27 @@ export const HELP_ARTICLES: HelpArticle[] = [
     link: { label: 'Buka Daftar harga', to: '/price-lists' },
   },
   {
+    id: 'uang-muka-pemasok',
+    category: 'Pembelian & Stok',
+    title: 'Uang muka (DP) ke pemasok',
+    summary: 'Catat uang yang dibayarkan ke pemasok sebelum barang datang, lalu perhitungkan ke faktur atau catat pengembaliannya.',
+    paths: ['/supplier-advances', '/purchase-invoices', '/purchase-orders'],
+    steps: [
+      'Pembelian › Uang muka pemasok › Bayar uang muka: pilih pemasok, pilih pesanan pembelian yang sudah dikonfirmasi (dianjurkan), isi jumlah dan rekening yang dipakai. Uang muka dicatat sebagai aset (Uang Muka Pembelian), bukan biaya.',
+      'Saat faktur pemasok datang, buka uang muka itu › Perhitungkan ke faktur. Hutang faktur berkurang sebesar yang dipakai; sisa faktur dibayar seperti biasa.',
+      'Bila pemasok mengembalikan sisa uang (pesanan batal sebagian), buka uang muka › Pemasok mengembalikan, isi jumlah, rekening penerima, dan alasan.',
+      'Salah catat? Pemilik/Admin dapat membatalkan uang muka yang belum dipakai atau dikembalikan; jurnalnya dibalik.',
+    ],
+    tips: [
+      'Uang muka tanpa pesanan pembelian, atau di atas 30% nilai pesanan, oleh staf menunggu persetujuan Pemilik/Admin. Nilai besar, pemasok baru, dan rekening pemasok yang baru diubah juga ditahan seperti pembayaran hutang.',
+      'Uang muka untuk satu pesanan hanya bisa diperhitungkan ke faktur dari pesanan itu, dan total uang muka tidak boleh melebihi nilai pesanan.',
+      'Tab Kontrol menandai uang muka yang lama belum dipakai, tanpa pesanan, atau pada pesanan yang sudah difakturkan.',
+      'PPN masukan diakui pada faktur pembelian, bukan saat uang muka dibayar. Faktur mata uang asing belum mendukung uang muka.',
+    ],
+    keywords: 'uang muka pemasok dp pembelian down payment advance supplier bayar di muka perhitungkan faktur kembalikan',
+    link: { label: 'Buka Uang muka pemasok', to: '/supplier-advances' },
+  },
+  {
     id: 'fmcg-recall',
     category: 'Pembelian & Stok',
     title: 'FMCG: telusuri lot untuk penarikan produk (recall)',
