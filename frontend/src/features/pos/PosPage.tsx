@@ -79,7 +79,7 @@ function OpenSession() {
       <Card title="Buka kasir">
         <Typography.Paragraph type="secondary">Hitung uang modal di laci sebelum mulai berjualan.</Typography.Paragraph>
         <Form form={form} layout="vertical" initialValues={{ openingCash: 0 }} onFinish={(v) => open.mutate(v)}>
-          <Form.Item name="warehouseId" label={t('Toko / gudang (stok diambil dari sini)')} rules={[{ required: true }]}>
+          <Form.Item name="warehouseId" label={t('Gudang (stok diambil dari sini)')} rules={[{ required: true }]}>
             <Select options={warehouses?.map((w) => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
           </Form.Item>
           <Form.Item name="openingCash" label="Modal awal di laci">
@@ -243,6 +243,12 @@ function Register({ session }: { session: PosSession }) {
 
   const add = (p: PosProduct, uom = p.baseUom) => {
     const factor = uom === p.baseUom ? 1 : Number(p.uoms.find((u) => u.uom === uom)?.factor ?? 1);
+    // sama dengan aturan server: tidak boleh menjual melebihi stok; tegur sejak barang diklik, bukan saat membayar
+    const inCart = cart.filter((l) => l.product.id === p.id).reduce((a, l) => a + l.qty * l.factor, 0);
+    if (inCart + factor > Number(p.stock) + 1e-9) {
+      message.warning(`Stok ${p.name} tidak cukup (tersedia ${fmtQty(Number(p.stock))}${inCart ? `, sudah di keranjang ${fmtQty(inCart)}` : ''})`);
+      return;
+    }
     setCart((c) => {
       const i = c.findIndex((l) => l.product.id === p.id && l.uom === uom);
       if (i >= 0) return c.map((l, j) => (j === i ? { ...l, qty: l.qty + 1 } : l));

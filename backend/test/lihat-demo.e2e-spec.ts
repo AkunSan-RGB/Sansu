@@ -8,7 +8,8 @@ import { sql } from 'drizzle-orm';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
-import { DB, Db } from '../src/db/db';
+import { DB, Db, createDb, createPool } from '../src/db/db';
+import { removeTenant } from '../src/db/remove-tenant';
 import { DemoService } from '../src/modules/demo/demo.module';
 
 const MODELS = ['RITEL', 'DAGANG', 'JASA', 'FMCG', 'MANUFAKTUR', 'FNB', 'UTILITAS'] as const;
@@ -146,6 +147,22 @@ describe('Lihat Demo (e2e)', () => {
     const left = (await db.execute<{ id: string }>(sql`SELECT id FROM tenants WHERE id IN (${old}, ${keep})`)).rows.map((r) => r.id);
     expect(left).toEqual([keep]);
     expect(await count(old, 'journal_entries')).toBe(0);
+  });
+
+  it('penghapusan demo tetap jalan tanpa izin superuser (jalur cadangan menurut relasi), perusahaan lain tidak tersentuh', async () => {
+    const victim = sessions.get('FMCG')!.tenantId;
+    const keep = sessions.get('DAGANG')!.tenantId;
+    const pool = createPool();
+    try {
+      await removeTenant(createDb(pool), victim, { noReplica: true });
+    } finally {
+      await pool.end();
+    }
+    expect((await db.execute(sql`SELECT 1 FROM tenants WHERE id = ${victim}`)).rows).toHaveLength(0);
+    expect(await count(victim, 'journal_entries')).toBe(0);
+    expect(await count(victim, 'invoices')).toBe(0);
+    expect(await count(victim, 'canvass_collections')).toBe(0);
+    expect(await count(keep, 'journal_entries')).toBeGreaterThan(8);
   });
 
   it('produk dikelompokkan otomatis: bahan baku, produk jadi (dari resep), setengah jadi tidak bercampur', async () => {

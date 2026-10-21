@@ -54,6 +54,16 @@ export function tenantOwnedChildren(tenantTables: string[], noTenantTables: stri
   return [...result].sort();
 }
 
+/** Alamat database Neon: semua koneksi masuk wajib TLS, sehingga status TLS di sisi server (balik pooler) tidak mewakili koneksi aplikasi */
+/**
+ * Alamat Neon lewat pooler (host `…-pooler…neon.tech`, PgBouncer mode transaksi). Isolasi antar perusahaan memakai pengaturan SESI
+ * (SET ROLE, set_config) yang tidak dijamin bertahan lewat pooler seperti itu: pengaturan bisa hilang atau terbawa ke permintaan lain.
+ * Aplikasi harus memakai alamat langsung (unpooled).
+ */
+export const isNeonPooler = (url?: string) => /@[^/?#@]*-pooler[^/?#@]*\.neon\.tech(?::\d+)?(?:[/?#]|$)/i.test(url ?? '');
+
+export const isNeonUrl = (url?: string) => /@[^/?#@]+\.neon\.tech(?::\d+)?(?:[/?#]|$)/i.test(url ?? '');
+
 @Injectable()
 export class SecurityPostureService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger('Keamanan');
@@ -122,7 +132,16 @@ export class SecurityPostureService implements OnModuleInit, OnModuleDestroy {
 
     // 5. Koneksi ke database terenkripsi (peringatan: jaringan privat Docker memang tanpa TLS)
     const [ssl] = await this.rows<{ ssl: boolean | null }>(sql`SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()`);
-    add('db-tls', 'Koneksi aplikasi ke database memakai TLS', ssl?.ssl === true, ssl?.ssl === true ? 'TLS aktif' : 'Tanpa TLS. Wajar bila database di jaringan privat yang sama; wajib TLS bila lewat internet (mis. Neon)', 'warning');
+    add(
+      'db-pooler',
+      'Aplikasi memakai koneksi database langsung (bukan pooler)',
+      !isNeonPooler(process.env.DATABASE_URL),
+      isNeonPooler(process.env.DATABASE_URL)
+        ? 'DATABASE_URL memakai pooler Neon (-pooler). Isolasi antar perusahaan bergantung pada pengaturan sesi yang tidak dijamin lewat pooler. Ganti dengan alamat langsung (DATABASE_URL_UNPOOLED dari Neon)'
+        : 'Tidak memakai pooler',
+    );
+    const neonTls = isNeonUrl(process.env.DATABASE_URL);
+    add('db-tls', 'Koneksi aplikasi ke database memakai TLS', ssl?.ssl === true || neonTls, ssl?.ssl === true ? 'TLS aktif' : neonTls ? 'Neon mewajibkan TLS pada semua koneksi dari luar (pemeriksaan ini membaca sisi dalam pooler, bukan koneksi aplikasi)' : 'Tanpa TLS. Wajar bila database di jaringan privat yang sama; wajib TLS bila lewat internet (mis. Neon)', 'warning');
 
     // 6. Kolom identitas/rekening terenkripsi (peringatan: pengisian ulang data lama berjalan di latar belakang saat start)
     try {

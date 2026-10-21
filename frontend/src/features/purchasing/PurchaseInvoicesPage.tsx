@@ -8,6 +8,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
 import { useNavigate } from 'react-router-dom';
 import { get, post, qs } from '@/api/client';
+import { useHasRole } from '@/lib/roles';
 import { LEDGER_KEYS, useAction } from '@/api/queries';
 import type { AgingRow, PurchaseInvoice } from '@/api/types';
 import AgingTable from '@/components/AgingTable';
@@ -57,8 +58,8 @@ export default function PurchaseInvoicesPage() {
     queryKey: ['purchase-invoices', 'all'],
     queryFn: () => get<PurchaseInvoice[]>(`/purchase-invoices${qs({})}`),
   });
-  const aging = useQuery({ queryKey: ['purchase-invoices', 'aging'], queryFn: () => get<AgingRow[]>('/purchase-invoices/reports/ap-aging') });
-  const payments = useQuery({ queryKey: ['purchase-invoices', 'payments'], queryFn: () => get<SupplierPayment[]>('/purchase-invoices/payments') });
+  const aging = useQuery({ queryKey: ['purchase-invoices', 'aging'], enabled: useHasRole(['ADMIN', 'FINANCE', 'ACCOUNTANT']), queryFn: () => get<AgingRow[]>('/purchase-invoices/reports/ap-aging') });
+  const payments = useQuery({ queryKey: ['purchase-invoices', 'payments'], enabled: useHasRole(['ADMIN', 'FINANCE', 'ACCOUNTANT']), queryFn: () => get<SupplierPayment[]>('/purchase-invoices/payments') });
 
   const pay = useAction(
     (v: { amount: number; cashAccountId?: string; date: string; notes?: string; fxRate?: number }) =>
