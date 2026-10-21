@@ -7,6 +7,7 @@ import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { get, qs } from '@/api/client';
+import { useHasRole } from '@/lib/roles';
 import type { AgingRow, Invoice } from '@/api/types';
 import AgingTable from '@/components/AgingTable';
 import PageHeader from '@/layout/PageHeader';
@@ -28,7 +29,7 @@ export default function InvoicesPage() {
   const [paying, setPaying] = useState<Invoice | null>(null);
 
   const invoices = useQuery({ queryKey: ['invoices', 'all'], queryFn: () => get<Invoice[]>(`/invoices${qs({})}`) });
-  const aging = useQuery({ queryKey: ['invoices', 'aging'], queryFn: () => get<AgingRow[]>('/invoices/reports/ar-aging') });
+  const aging = useQuery({ queryKey: ['invoices', 'aging'], enabled: useHasRole(['ADMIN', 'FINANCE', 'ACCOUNTANT']), queryFn: () => get<AgingRow[]>('/invoices/reports/ar-aging') });
 
 
   const isOverdue = (i: Invoice) => i.status !== 'PAID' && i.dueDate < today();

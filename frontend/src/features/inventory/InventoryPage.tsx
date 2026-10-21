@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
 import { get, post, qs } from '@/api/client';
+import { useHasRole } from '@/lib/roles';
 import { useAction, useProducts, useWarehouses } from '@/api/queries';
 import type { StockBalance, StockMove } from '@/api/types';
 import ResponsiveTable from '@/components/ResponsiveTable';
@@ -46,6 +47,7 @@ export default function InventoryPage() {
   });
   const moves = useQuery({
     queryKey: ['stock-moves', warehouseId, productId],
+    enabled: useHasRole(['ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT']),
     queryFn: () => get<StockMove[]>(`/inventory/moves${qs({ warehouseId, productId })}`),
   });
 

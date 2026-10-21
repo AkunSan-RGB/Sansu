@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useHasRole } from '@/lib/roles';
 import { App } from 'antd';
 import { ApiError, get } from './client';
 import type { Account, CashAccount, Customer, Product, Supplier, Warehouse } from './types';
@@ -14,7 +15,7 @@ export const useWarehouses = (opts: { all?: boolean } = {}) =>
 export const useProducts = () => useQuery({ queryKey: ['products'], queryFn: () => get<Product[]>('/products') });
 export const useCustomers = () => useQuery({ queryKey: ['customers'], queryFn: () => get<Customer[]>('/customers') });
 export const useSuppliers = () => useQuery({ queryKey: ['suppliers'], queryFn: () => get<Supplier[]>('/suppliers') });
-export const useAccounts = () => useQuery({ queryKey: ['accounts'], queryFn: () => get<Account[]>('/accounting/accounts') });
+export const useAccounts = () => useQuery({ queryKey: ['accounts'], enabled: useHasRole(['ADMIN', 'FINANCE', 'ACCOUNTANT']), queryFn: () => get<Account[]>('/accounting/accounts') });
 /** Akun kas & bank beserta saldonya */
 export const useCashAccounts = () => useQuery({ queryKey: ['cash-accounts'], queryFn: () => get<CashAccount[]>('/cash/accounts') });
 
@@ -59,6 +60,7 @@ export interface BranchRow {
 export const useBranches = () =>
   useQuery({
     queryKey: ['branches'],
+    enabled: useHasRole(['ADMIN', 'FINANCE', 'WAREHOUSE', 'CASHIER', 'ACCOUNTANT']),
     queryFn: () => get<{ branches: BranchRow[]; unassignedWarehouses: { id: string; code: string; name: string }[]; cashAccounts?: { id: string; code: string; name: string; branchId: string | null }[] }>('/branches'),
     staleTime: 60_000,
   });
