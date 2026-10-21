@@ -85,6 +85,33 @@ export async function loadSourceDocument(db: Db, tenantId: string, sourceType: s
       if (!d) return null;
       return { title: 'Pembayaran utang pemasok', number: d.number, date: d.date, fields: [f('Pemasok', d.supplier), f('Faktur dibayar', d.invoice_number), f('Jumlah', d.amount, true), f('Dibayar dari', d.account), f('Catatan', d.notes)], table: null, related: [] };
     }
+    case 'SUPPLIER_ADVANCE': {
+      const d = await one(db, sql`
+        SELECT a.number, a.date::text, a.amount, a.applied_amount, a.refunded_amount, a.description, s.name AS supplier, po.number AS po_number, po.id AS po_id, c.name AS account
+        FROM supplier_advances a JOIN suppliers s ON s.id = a.supplier_id LEFT JOIN purchase_orders po ON po.id = a.purchase_order_id LEFT JOIN accounts c ON c.id = a.cash_account_id
+        WHERE a.tenant_id = ${tenantId} AND a.id = ${sourceId}`);
+      if (!d) return null;
+      return {
+        title: 'Uang muka pemasok', number: d.number, date: d.date,
+        fields: [f('Pemasok', d.supplier), f('Pesanan pembelian', d.po_number ?? 'tanpa pesanan'), f('Jumlah', d.amount, true), f('Sudah dipakai', d.applied_amount, true), f('Dikembalikan', d.refunded_amount, true), f('Dibayar dari', d.account), f('Keterangan', d.description)],
+        table: null,
+        related: [{ label: 'Uang muka pemasok', route: '/supplier-advances' }, ...(d.po_id ? [{ label: `Pesanan pembelian ${d.po_number}`, route: `/purchase-orders/${d.po_id}` }] : [])],
+      };
+    }
+    case 'SUPPLIER_ADVANCE_APPLY':
+    case 'SUPPLIER_ADVANCE_REFUND': {
+      const d = await one(db, sql`
+        SELECT m.number, m.date::text, m.amount, m.kind, m.note, a.number AS advance_number, s.name AS supplier, i.number AS invoice_number
+        FROM supplier_advance_movements m JOIN supplier_advances a ON a.id = m.advance_id JOIN suppliers s ON s.id = a.supplier_id LEFT JOIN purchase_invoices i ON i.id = m.purchase_invoice_id
+        WHERE m.tenant_id = ${tenantId} AND m.id = ${sourceId}`);
+      if (!d) return null;
+      return {
+        title: d.kind === 'APPLY' ? 'Pemakaian uang muka pemasok' : 'Pengembalian uang muka pemasok', number: d.number, date: d.date,
+        fields: [f('Pemasok', d.supplier), f('Uang muka', d.advance_number), ...(d.invoice_number ? [f('Faktur', d.invoice_number)] : []), f('Jumlah', d.amount, true), f('Catatan', d.note)],
+        table: null,
+        related: [{ label: 'Uang muka pemasok', route: '/supplier-advances' }],
+      };
+    }
     case 'PURCHASE_RETURN': {
       const d = await one(db, sql`
         SELECT r.number, r.date::text, r.subtotal, r.tax_amount, r.total, r.reason, s.name AS supplier, i.number AS invoice_number
@@ -271,4 +298,4 @@ export async function loadSourceDocument(db: Db, tenantId: string, sourceType: s
 }
 
 /** Jenis sumber yang dokumennya dapat dibuka di halaman rincian dokumen */
-export const DOCUMENT_VIEW_TYPES = new Set(['PURCHASE_INVOICE', 'SUPPLIER_PAYMENT', 'PURCHASE_RETURN', 'SALES_RETURN', 'STOCK_ADJUSTMENT', 'STOCK_TRANSFER', 'PRODUCTION', 'INVENTORY_WRITEDOWN', 'CASH_IN', 'CASH_OUT', 'TRANSFER', 'POS', 'POS_CLOSE', 'POS_RETURN', 'TAX_PAYMENT', 'CUSTOMER_DEPOSIT', 'DEPOSIT_APPLICATION', 'PROJECT_PROGRESS', 'CASH_COUNT', 'DEPRECIATION']);
+export const DOCUMENT_VIEW_TYPES = new Set(['PURCHASE_INVOICE', 'SUPPLIER_PAYMENT', 'SUPPLIER_ADVANCE', 'SUPPLIER_ADVANCE_APPLY', 'SUPPLIER_ADVANCE_REFUND', 'PURCHASE_RETURN', 'SALES_RETURN', 'STOCK_ADJUSTMENT', 'STOCK_TRANSFER', 'PRODUCTION', 'INVENTORY_WRITEDOWN', 'CASH_IN', 'CASH_OUT', 'TRANSFER', 'POS', 'POS_CLOSE', 'POS_RETURN', 'TAX_PAYMENT', 'CUSTOMER_DEPOSIT', 'DEPOSIT_APPLICATION', 'PROJECT_PROGRESS', 'CASH_COUNT', 'DEPRECIATION']);

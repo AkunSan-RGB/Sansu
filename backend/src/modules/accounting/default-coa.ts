@@ -58,6 +58,7 @@ export const SYS = {
   CONSTRUCTION_REVENUE: 'CONSTRUCTION_REVENUE',
   RENTAL_REVENUE: 'RENTAL_REVENUE',
   CUSTOMER_DEPOSIT: 'CUSTOMER_DEPOSIT',
+  SUPPLIER_ADVANCE: 'SUPPLIER_ADVANCE',
   FINAL_TAX_WITHHELD: 'FINAL_TAX_WITHHELD',
   UNBILLED_REVENUE: 'UNBILLED_REVENUE',
   CONTRACT_LIABILITY: 'CONTRACT_LIABILITY',
@@ -142,7 +143,7 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '1-1600', name: 'Piutang Karyawan (Kasbon)', type: 'ASSET', parent: '1-1000', key: SYS.EMPLOYEE_RECEIVABLE, group: 'OTHER_RECEIVABLE' },
   { code: '1-1700', name: 'Sewa Dibayar Dimuka', type: 'ASSET', parent: '1-1000', group: 'PREPAID' },
   { code: '1-1710', name: 'Asuransi Dibayar Dimuka', type: 'ASSET', parent: '1-1000', group: 'PREPAID' },
-  { code: '1-1720', name: 'Uang Muka Pembelian', type: 'ASSET', parent: '1-1000', group: 'PREPAID' },
+  { code: '1-1720', name: 'Uang Muka Pembelian', type: 'ASSET', parent: '1-1000', key: SYS.SUPPLIER_ADVANCE, group: 'PREPAID' },
 
   { code: '1-2000', name: 'Aset Tidak Lancar', type: 'ASSET', parent: '1-0000', header: true },
   { code: '1-2050', name: 'Tanah', type: 'ASSET', parent: '1-2000', group: 'FIXED_ASSET' },

@@ -141,6 +141,9 @@ export const JOURNAL_SOURCES = [
   'FX_REVAL',
   'CUSTOMER_DEPOSIT',
   'DEPOSIT_APPLICATION',
+  'SUPPLIER_ADVANCE',
+  'SUPPLIER_ADVANCE_APPLY',
+  'SUPPLIER_ADVANCE_REFUND',
   'PROJECT_PROGRESS',
   'PRODUCTION',
 ] as const;
@@ -182,6 +185,9 @@ export const JOURNAL_SOURCE_LABELS: Record<JournalSource, string> = {
   FX_REVAL: 'Penilaian ulang valas',
   CUSTOMER_DEPOSIT: 'Uang muka pelanggan',
   DEPOSIT_APPLICATION: 'Pemakaian uang muka',
+  SUPPLIER_ADVANCE: 'Uang muka pemasok',
+  SUPPLIER_ADVANCE_APPLY: 'Pemakaian uang muka pemasok',
+  SUPPLIER_ADVANCE_REFUND: 'Pengembalian uang muka pemasok',
   PROJECT_PROGRESS: 'Kemajuan proyek',
   PRODUCTION: 'Produksi',
 };

@@ -21,6 +21,7 @@ import { AccountingService } from '../accounting/accounting.service';
 import { CreateJournalDto } from '../accounting/dto/accounting.dto';
 import { PurchaseOrdersService } from '../purchasing/purchase-orders.service';
 import { PurchaseInvoicesService } from '../purchasing/purchase-invoices.service';
+import { CreateSupplierAdvanceDto, SupplierAdvancesService } from '../purchasing/supplier-advances';
 import { SuppliersService } from '../purchasing/suppliers.service';
 import { SalesOrdersService } from '../sales/orders/sales-orders.service';
 import { PaymentsService } from '../sales/payments/payments.service';
@@ -87,6 +88,7 @@ export class ApprovalRequestsService {
     private readonly approvals: ApprovalsService,
     private readonly orders: PurchaseOrdersService,
     private readonly invoices: PurchaseInvoicesService,
+    private readonly advances: SupplierAdvancesService,
     private readonly suppliers: SuppliersService,
     private readonly salesOrders: SalesOrdersService,
     private readonly paymentsSvc: PaymentsService,
@@ -214,6 +216,9 @@ export class ApprovalRequestsService {
         resultRef = (b as { number?: string }).number;
       } else if (req.kind === 'SUPPLIER_PAYMENT') {
         const r = await this.invoices.pay({ ...user, sub: req.requestedById }, req.payload as unknown as CreateSupplierPaymentDto, { approved: true });
+        resultRef = (r as { number?: string }).number;
+      } else if (req.kind === 'SUPPLIER_ADVANCE') {
+        const r = await this.advances.create({ ...user, sub: req.requestedById }, req.payload as unknown as CreateSupplierAdvanceDto, { approved: true });
         resultRef = (r as { number?: string }).number;
       } else if (req.kind === 'PETTY_REPLENISH') {
         // dijalankan atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit

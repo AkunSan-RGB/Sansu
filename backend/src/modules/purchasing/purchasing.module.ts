@@ -12,12 +12,13 @@ import { PurchaseInvoicesService } from './purchase-invoices.service';
 import { PurchaseRequestsService } from './purchase-requests.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { GoodsReceiptsController, PurchaseInvoicesController, PurchaseOrdersController, PurchaseRequestsController, SuppliersController } from './purchasing.controller';
+import { SupplierAdvancesController, SupplierAdvancesService } from './supplier-advances';
 import { SuppliersService } from './suppliers.service';
 
 @Module({
   imports: [AccountingModule, InventoryModule, AssetsModule, FxModule, ProductionModule],
-  controllers: [ShoppingListController, PriceAgreementsController, PurchaseControlsController, SuppliersController, PurchaseOrdersController, GoodsReceiptsController, PurchaseInvoicesController, PurchaseRequestsController],
-  providers: [ShoppingListService, PriceAgreementsService, PurchaseControlsService, SuppliersService, PurchaseOrdersService, GoodsReceiptsService, PurchaseInvoicesService, PurchaseRequestsService],
-  exports: [PurchaseOrdersService, PurchaseInvoicesService, PurchaseRequestsService, SuppliersService],
+  controllers: [SupplierAdvancesController, ShoppingListController, PriceAgreementsController, PurchaseControlsController, SuppliersController, PurchaseOrdersController, GoodsReceiptsController, PurchaseInvoicesController, PurchaseRequestsController],
+  providers: [SupplierAdvancesService, ShoppingListService, PriceAgreementsService, PurchaseControlsService, SuppliersService, PurchaseOrdersService, GoodsReceiptsService, PurchaseInvoicesService, PurchaseRequestsService],
+  exports: [SupplierAdvancesService, PurchaseOrdersService, PurchaseInvoicesService, PurchaseRequestsService, SuppliersService],
 })
 export class PurchasingModule {}

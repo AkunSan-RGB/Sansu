@@ -708,6 +708,13 @@
       "when": 1797014286484,
       "tag": "0100_akun_karyawan_unik",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1797100686484,
+      "tag": "0101_uang_muka_pemasok",
+      "breakpoints": true
     }
   ]
 }
