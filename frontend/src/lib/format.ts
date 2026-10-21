@@ -1,10 +1,14 @@
 import dayjs from 'dayjs';
 
-const rupiah = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0, maximumFractionDigits: 2 });
+const rupiahWhole = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const rupiahSen = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const number = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 4 });
 
-/** Rp 1.234.567 */
-export const fmtMoney = (v: string | number | null | undefined) => rupiah.format(Number(v ?? 0));
+/** Rp 1.234.567 (bulat) atau Rp 1.234.567,50 (bila ada sen: selalu dua digit, agar ",5" tidak terbaca 5 sen) */
+export const fmtMoney = (v: string | number | null | undefined) => {
+  const n = Math.round(Number(v ?? 0) * 100) / 100;
+  return (Number.isInteger(n) ? rupiahWhole : rupiahSen).format(n);
+};
 /** Nominal dalam mata uang dokumen, mis. US$1.234,50 (IDR memakai format Rupiah) */
 export const fmtCurrency = (v: string | number | null | undefined, code?: string | null) => {
   if (!code || code === 'IDR') return fmtMoney(v);

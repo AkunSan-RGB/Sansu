@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { App, Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Tag } from 'antd';
 import { useState } from 'react';
 import { ApiError, get, patch, post } from '@/api/client';
+import { useHasRole } from '@/lib/roles';
 import { useAction, useCustomers } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
@@ -35,7 +36,8 @@ export default function CustomersPage() {
   const isFmcg = me?.businessModel === 'FMCG';
   const usesPriceList = isFmcg || me?.businessModel === 'DAGANG';
   const usesGeo = usesPriceList || me?.businessModel === 'MANUFAKTUR';
-  const { data: priceLists } = useQuery({ queryKey: ['price-lists'], queryFn: () => get<{ id: string; name: string; isActive: boolean }[]>('/price-lists'), enabled: usesPriceList });
+  const canReadPriceLists = useHasRole(['ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT']);
+  const { data: priceLists } = useQuery({ queryKey: ['price-lists'], queryFn: () => get<{ id: string; name: string; isActive: boolean }[]>('/price-lists'), enabled: usesPriceList && canReadPriceLists });
   const { data, isLoading } = useCustomers();
   const [editing, setEditing] = useState<Customer | 'new' | null>(null);
   const [form] = Form.useForm<FormValues>();

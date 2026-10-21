@@ -5,6 +5,7 @@ import { Alert, Button, Card, Form, Input, Modal, Progress, Space, Switch, Tag, 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, patch, post } from '@/api/client';
+import { useHasRole } from '@/lib/roles';
 import { useAction, useWarehouses } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
 import ListPage from '@/components/ListPage';
@@ -17,7 +18,7 @@ export default function WarehousesPage() {
   const isAdmin = me?.role === 'OWNER' || me?.role === 'ADMIN';
   const navigate = useNavigate();
   const list = useWarehouses({ all: true });
-  const usage = useQuery({ queryKey: ['billing'], queryFn: () => get<{ usage: { warehouses: number } }>('/billing') });
+  const usage = useQuery({ queryKey: ['billing'], enabled: useHasRole(['ADMIN']), queryFn: () => get<{ usage: { warehouses: number } }>('/billing') });
   const [editing, setEditing] = useState<Partial<Warehouse> | null>(null);
   const [form] = Form.useForm();
   const keys = ['warehouses', 'billing', 'me'];

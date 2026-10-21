@@ -115,8 +115,8 @@ export const MENU: Group[] = [
           { key: '/delivery-trips', label: 'Rute pengiriman', models: ['DAGANG', 'FMCG', 'MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
           { key: '/canvass', label: 'Kanvas (van sales)', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
           { key: '/invoices', label: t('Faktur & piutang'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
-          { key: '/returns?tab=sales', label: t('Retur penjualan'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT', 'WAREHOUSE'] },
-          { key: '/goods-swaps', label: 'Tukar-guling', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
+          { key: '/returns?tab=sales', label: t('Retur penjualan'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/goods-swaps', label: 'Tukar-guling', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
           { key: '/consignments', label: 'Konsinyasi (titipan outlet)', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
           { key: '/trade', label: 'Modern trade & klaim prinsipal', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           // Menu Marketplace disembunyikan dulu (halamannya tetap ada di /integrations?tab=marketplace)
@@ -147,7 +147,7 @@ export const MENU: Group[] = [
       {
         section: SEC.proc,
         items: [
-          { key: '/pos', label: 'Layar kasir', roles: ['OWNER', 'CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/pos', label: 'Layar kasir', roles: ['OWNER', 'CASHIER', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/pos/tables', label: 'Meja & pesanan', models: ['FNB'], roles: ['OWNER', 'CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/pos/kitchen', label: 'Layar dapur', models: ['FNB'], roles: ['OWNER', 'CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/pos/online', label: 'Pesanan online', models: ['FNB'], roles: ['ADMIN', 'FINANCE'] },
@@ -190,7 +190,7 @@ export const MENU: Group[] = [
           { key: '/purchase-orders', label: t('Purchase Order') },
           { key: '/goods-receipts', label: 'Penerimaan barang', hideFor: ['JASA'] },
           { key: '/purchase-invoices', label: t('Faktur & hutang') },
-          { key: '/returns?tab=purchase', label: t('Retur pembelian'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE'] },
+          { key: '/returns?tab=purchase', label: t('Retur pembelian'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
         ],
       },
       {
@@ -338,7 +338,7 @@ export const MENU: Group[] = [
         section: 'Akhir periode',
         items: [
           { key: '/closing', label: 'Tutup buku', roles: BOOKKEEPING },
-          { key: '/settings/company?tab=pelaporan', label: 'Pelaporan keuangan', roles: BOOKKEEPING },
+          { key: '/settings/company?tab=pelaporan', label: 'Pelaporan keuangan', roles: ['OWNER', 'ADMIN'] },
         ],
       },
     ],

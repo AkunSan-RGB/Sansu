@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Checkbox, Drawer, Form, Input, InputNumber, Modal, Popconfirm, Progress, Select, Space, Switch, Table, Tag, Typography } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { get, post } from '@/api/client';
+import { useHasRole } from '@/lib/roles';
 import { useAction } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
 import ListPage from '@/components/ListPage';
@@ -92,7 +93,7 @@ export default function DeliveryTripsPage() {
   const can = useCan();
   const trips = useQuery({ queryKey: [KEY], queryFn: () => get<Trip[]>('/delivery-trips') });
   const unscheduled = useQuery({ queryKey: [KEY, 'unscheduled'], queryFn: () => get<Unscheduled[]>('/delivery-trips/unscheduled') });
-  const controls = useQuery({ queryKey: [KEY, 'controls'], queryFn: () => get<Controls>('/delivery-trips/controls'), retry: false });
+  const controls = useQuery({ queryKey: [KEY, 'controls'], enabled: useHasRole(['ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT']), queryFn: () => get<Controls>('/delivery-trips/controls'), retry: false });
   const { me } = useAuth();
   const canOverride = me?.role === 'OWNER' || me?.role === 'ADMIN';
   const vehicles = useQuery({ queryKey: [KEY, 'vehicles'], queryFn: () => get<Vehicle[]>('/delivery-vehicles') });

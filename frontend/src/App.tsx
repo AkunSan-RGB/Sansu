@@ -152,6 +152,9 @@ export default function App() {
           <Route path="dashboard" element={<DashboardPage />} />
         </Route>
         <Route path="approvals" element={<ApprovalsPage />} />
+        {/* tidak di bawah gerbang aplikasi tertentu: dipakai semua peran; hak akses per data dijaga server */}
+        <Route path="tasks" element={<TasksPage />} />
+        <Route path="laporan/:dept" element={<DeptReportPage />} />
         <Route path="workflow" element={<Navigate to="/tasks?tab=proses" replace />} />
         <Route path="documents/:id" element={<DocumentViewPage />} />
         <Route element={<AppGate app="crm" />}>
@@ -217,9 +220,7 @@ export default function App() {
           <Route path="finance-controls" element={<FinanceControlsPage />} />
           <Route path="accounting-controls" element={<AccountingControlsPage />} />
           <Route path="support-reports" element={<SupportReportsPage />} />
-          <Route path="laporan/:dept" element={<DeptReportPage />} />
           <Route path="inventory-controls" element={<InventoryControlsPage />} />
-          <Route path="tasks" element={<TasksPage />} />
           <Route path="shopping-list" element={<ShoppingListPage />} />
           <Route path="shifts" element={<ShiftRosterPage />} />
           <Route path="price-agreements" element={<PriceAgreementsPage />} />
