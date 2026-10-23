@@ -95,7 +95,7 @@ export class CashSettingsDto {
   @ApiPropertyOptional({ description: 'Tolak kas keluar/transfer yang membuat saldo akun kas/bank negatif' }) @IsOptional() @IsBoolean() blockNegative?: boolean;
   @ApiPropertyOptional({ description: 'Peringatkan bila saldo satu akun kas melebihi nilai ini (0 = nonaktif)' }) @IsOptional() @IsNumber({ maxDecimalPlaces: 0 }) @Min(0) @Max(1_000_000_000_000) maxCashBalance?: number;
 }
-export const DEFAULT_CASH_SETTINGS = { evidenceFrom: 0, blockNegative: false, maxCashBalance: 0 };
+export const DEFAULT_CASH_SETTINGS = { evidenceFrom: 0, blockNegative: true, maxCashBalance: 0 };
 
 const PREFIX = { IN: 'CASH_IN', OUT: 'CASH_OUT', TRANSFER: 'TRANSFER' } as const;
 const SOURCE = { IN: 'CASH_IN', OUT: 'CASH_OUT', TRANSFER: 'TRANSFER' } as const;

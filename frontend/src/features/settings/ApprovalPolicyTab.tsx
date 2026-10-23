@@ -47,7 +47,7 @@ function CashControlCard() {
   }, [cfg.data, form]);
   const save = useAction((v: Cfg) => put('/cash/settings', v), { success: 'Pengaturan kontrol kas disimpan', invalidate: ['cash'] });
   return (
-    <Form form={form} onFinish={(v) => save.mutate(v)} initialValues={{ evidenceFrom: 0, blockNegative: false, maxCashBalance: 0 }}>
+    <Form form={form} onFinish={(v) => save.mutate(v)} initialValues={{ evidenceFrom: 0, blockNegative: true, maxCashBalance: 0 }}>
       <PolicyCard
         icon={<BankOutlined />}
         title="Kontrol kas & bank (SOP)"

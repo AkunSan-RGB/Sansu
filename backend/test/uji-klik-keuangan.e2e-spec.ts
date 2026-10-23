@@ -46,6 +46,17 @@ describe('Temuan uji klik keuangan (e2e)', () => {
   });
   afterAll(() => app.close());
 
+  it('bawaan: kas keluar melebihi saldo ditolak; bisa dimatikan Pemilik lewat pengaturan', async () => {
+    const big = (amount: string) => post(fin, '/api/cash/transactions', { type: 'OUT', cashAccountId: cashId, date: todayJakarta(), description: 'Uji saldo', lines: [{ accountId: expA, amount }] });
+    const r = await big('5000000').expect(400);
+    expect(r.body.message).toContain('tidak cukup');
+    await http.put('/api/cash/settings').set(as(owner)).send({ blockNegative: false }).expect(200);
+    await big('5000000').expect(201);
+    await http.put('/api/cash/settings').set(as(owner)).send({ blockNegative: true }).expect(200);
+    await big('5000000').expect(400);
+    await http.put('/api/cash/settings').set(as(owner)).send({ blockNegative: false }).expect(200);
+  });
+
   const cashOut = (date: string) => post(fin, '/api/cash/transactions', { type: 'OUT', cashAccountId: cashId, date, description: 'Uji tanggal', lines: [{ accountId: expA, amount: '1000' }] });
 
   it('kas keluar: tahun salah ketik ditolak; beberapa hari ke depan masih wajar', async () => {

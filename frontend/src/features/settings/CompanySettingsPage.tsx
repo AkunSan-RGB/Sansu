@@ -446,7 +446,7 @@ export default function CompanySettingsPage() {
         tabPosition={screens.lg ? 'left' : 'top'}
         activeKey={tab}
         onChange={pickTab}
-        items={tabs}
+        items={tabs.map((t) => (['pajak', 'pelaporan', 'gaji'].includes(t.key) ? { ...t, forceRender: true } : t))}
         destroyInactiveTabPane={false}
       />
     </>

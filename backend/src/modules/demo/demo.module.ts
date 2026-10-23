@@ -11,6 +11,7 @@ import { Db, createDb, createPool } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { removeTenant } from '../../db/remove-tenant';
 import { AuthService } from '../auth/auth.service';
+import { CashService } from '../cash/cash.module';
 import { buildDemo } from './demo.kit';
 import { SEEDS } from './demo.seeds';
 
@@ -41,6 +42,9 @@ export class DemoService implements OnModuleInit, OnModuleDestroy {
 
     const { user, session } = await this.ref.get(AuthService, { strict: false }).createDemoAccount(model);
     const admin: AuthUser = { sub: user.id, tenantId: user.tenantId, role: user.role, email: user.email };
+    // Data contoh dibuat dengan tanggal mundur dan urutan yang tidak selalu menjaga saldo kas: larangan saldo negatif dimatikan hanya selama pengisian
+    const cash = this.ref.get(CashService, { strict: false });
+    await cash.saveCashSettings(user.tenantId, { blockNegative: false });
     try {
       const demo = await buildDemo(this.ref, this.db, admin, model);
       await SEEDS[model](demo);
@@ -48,6 +52,8 @@ export class DemoService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Data demo ${model} gagal: ${(e as Error).message}`);
       if (process.env.DEMO_STRICT === 'true') throw e;
       // akun tetap bisa dipakai walau sebagian data contoh gagal dibuat
+    } finally {
+      await cash.saveCashSettings(user.tenantId, { blockNegative: true });
     }
     return session;
   }

@@ -295,7 +295,7 @@ function JournalList() {
         onOk={() => form.submit()}
         confirmLoading={create.isPending}
         okText="Posting"
-        destroyOnHidden
+        forceRender
       >
         <Form form={form} layout="vertical" onFinish={(v) => create.mutate(v)}>
           <Space wrap>
@@ -451,7 +451,7 @@ function RecurringList() {
         onOk={() => form.submit()}
         confirmLoading={save.isPending}
         okText="Simpan"
-        destroyOnHidden
+        forceRender
       >
         <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
           <Space wrap>
