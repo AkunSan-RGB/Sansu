@@ -208,6 +208,7 @@ export default function InsightPanel() {
   const { me } = useAuth();
   const { data, isLoading, isError } = useQuery({ queryKey: ['dashboard', 'insights'], queryFn: () => get<Payload>('/dashboard/insights'), staleTime: 60_000 });
   const [filter, setFilter] = useState<'all' | Tone>('all');
+  const [expanded, setExpanded] = useState(false);
   const storeKey = `sansu.insight.hidden.${me?.id ?? 'x'}`;
   const [hidden, setHidden] = useState<Record<string, number>>({});
   useEffect(() => {
@@ -230,6 +231,9 @@ export default function InsightPanel() {
   };
 
   const visible = useMemo(() => (data?.insights ?? []).filter((x) => !hidden[x.id] && (filter === 'all' || x.tone === filter)), [data, hidden, filter]);
+  // ringkas dulu (satu baris kartu) agar bagian beranda lainnya (perlu perhatian, faktur terbaru) tetap dekat; semua saran lewat tombol
+  const COLLAPSED = 3;
+  const shown = expanded ? visible : visible.slice(0, COLLAPSED);
   const hiddenCount = (data?.insights ?? []).filter((x) => hidden[x.id]).length;
 
   if (isError) return null;
@@ -322,12 +326,19 @@ export default function InsightPanel() {
           </div>
           {visible.length ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 340px), 1fr))', gap: 14 }}>
-              {visible.map((i, idx) => (
+              {shown.map((i, idx) => (
                 <InsightCard key={i.id} i={i} index={idx} onHide={() => hide(i.id)} />
               ))}
             </div>
           ) : (
             <div style={{ textAlign: 'center', color: '#667085', padding: 24, background: '#fff', borderRadius: 16, border: '1px dashed #D0D5DD' }}>Tidak ada saran pada pilihan ini.</div>
+          )}
+          {visible.length > COLLAPSED && (
+            <div style={{ textAlign: 'center', marginTop: 12 }}>
+              <Button onClick={() => setExpanded(!expanded)} style={{ borderRadius: 999, fontWeight: 600 }}>
+                {expanded ? 'Ringkas saran' : `Lihat ${visible.length - COLLAPSED} saran lainnya`}
+              </Button>
+            </div>
           )}
         </>
       )}
