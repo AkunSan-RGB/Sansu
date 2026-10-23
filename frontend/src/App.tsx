@@ -68,6 +68,7 @@ import InventoryPage from './features/inventory/InventoryPage';
 import TransfersPage from './features/inventory/TransfersPage';
 import CountsPage, { CountDetailPage } from './features/inventory/CountsPage';
 import WarehouseStockPage from './features/inventory/WarehouseStockPage';
+import BinsPage from './features/inventory/BinsPage';
 import WritedownsPage from './features/inventory/WritedownsPage';
 import SalesControlsPage from './features/sales/SalesControlsPage';
 import InventoryControlsPage from './features/inventory/InventoryControlsPage';
@@ -216,6 +217,7 @@ export default function App() {
           <Route path="inventory/counts" element={<CountsPage />} />
           <Route path="inventory/counts/:id" element={<CountDetailPage />} />
           <Route path="inventory/warehouses" element={<WarehouseStockPage />} />
+          <Route path="inventory/bins" element={<BinsPage />} />
           <Route path="inventory/writedowns" element={<WritedownsPage />} />
           <Route path="purchase-controls" element={<PurchaseControlsPage />} />
           <Route path="sales-controls" element={<SalesControlsPage />} />

@@ -222,6 +222,7 @@ export const MENU: Group[] = [
         items: [
           { key: '/inventory', label: t('Persediaan & mutasi') },
           { key: '/inventory/warehouses', label: t('Persediaan per gudang') },
+          { key: '/inventory/bins', label: 'Rak gudang', hideFor: ['JASA', 'UTILITAS'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING', 'SALES'] },
           { key: '/inventory/transfers', label: t('Transfer gudang') },
           { key: '/inventory/counts', label: 'Stock opname' },
           { key: '/inventory/expiry', label: 'Kedaluwarsa bahan', hideFor: ['JASA', 'UTILITAS'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT'] },

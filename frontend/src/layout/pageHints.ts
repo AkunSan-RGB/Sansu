@@ -55,6 +55,7 @@ export const PAGE_HINTS: Record<string, string> = {
   '/inventory/warehouses': 'Jumlah stok setiap barang di tiap gudang.',
   '/inventory/transfers': 'Pemindahan barang antar gudang atau toko.',
   '/inventory/counts': 'Stock opname: cocokkan hitungan fisik dengan catatan sistem.',
+  '/inventory/bins': 'Letak barang di rak gudang: tata, pindahkan, dan cari barang ada di rak mana.',
   '/inventory/expiry': 'Barang yang mendekati atau sudah lewat tanggal kedaluwarsa.',
   '/inventory/lot-trace': 'Telusuri lot barang sampai ke pelanggan, berguna untuk penarikan produk.',
   '/inventory/movement': 'Barang mana yang cepat laku, lambat, atau tidak bergerak.',

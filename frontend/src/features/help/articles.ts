@@ -323,6 +323,28 @@ export const HELP_ARTICLES: HelpArticle[] = [
     link: { label: 'Buka Uang muka pemasok', to: '/supplier-advances' },
   },
   {
+    id: 'rak-gudang',
+    category: 'Pembelian & Stok',
+    title: 'Rak gudang: letak barang di gudang',
+    summary: 'Catat barang ada di rak mana (per lot), pindahkan antar rak, dan cari barang dengan cepat. Jumlah stok, HPP, dan jurnal tidak berubah.',
+    paths: ['/inventory/bins'],
+    steps: [
+      'Persediaan › Rak gudang › pilih gudang › Aktifkan lokasi rak (Admin/Keuangan). Stok yang ada masuk ke rak sistem BELUM-DITEMPATKAN.',
+      'Tambah rak: tulis kode satu per baris (mis. A-01-03) atau pakai "Buat deret" untuk lorong, nomor, dan level sekaligus.',
+      'Tab Isi rak: centang barang di BELUM-DITEMPATKAN lalu Pindahkan terpilih ke rak tujuan. Bisa memindah sebagian jumlah.',
+      'Barang yang baru diterima otomatis masuk BELUM-DITEMPATKAN; barang keluar (jual, transfer, penyesuaian) diambil dari rak secara otomatis mengikuti lot yang paling cepat kedaluwarsa.',
+      'Tab Cari barang: ketik kode, nama, atau barcode untuk melihat gudang, rak, dan lotnya.',
+    ],
+    tips: [
+      'Cocok untuk gudang besar dengan banyak jenis barang (distribusi, grosir, manufaktur). Toko kecil dan dapur biasanya cukup per gudang.',
+      'Mengeluarkan stok dari rak rusak/karantina hanya boleh oleh Pemilik atau Admin. Setiap perpindahan tercatat di tab Riwayat beserta pelakunya.',
+      'Tab Pemeriksaan memastikan jumlah di semua rak sama dengan stok gudang. Menonaktifkan rak gudang butuh semua stok sudah kembali ke BELUM-DITEMPATKAN.',
+      'Pemindaian rak, daftar ambil berurutan rak, dan stock opname per rak menyusul di tahap berikutnya.',
+    ],
+    keywords: 'rak bin lokasi gudang letak barang putaway pindah rak lorong zona picking telusur lokasi stok',
+    link: { label: 'Buka Rak gudang', to: '/inventory/bins' },
+  },
+  {
     id: 'fmcg-recall',
     category: 'Pembelian & Stok',
     title: 'FMCG: telusuri lot untuk penarikan produk (recall)',
