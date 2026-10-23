@@ -24,6 +24,7 @@ import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { InvoiceStatusTag } from '../sales/status';
 import { t } from '@/lib/terms';
+import InsightPanel from './InsightPanel';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -175,6 +176,7 @@ export default function DashboardPage() {
       </div>
       {mainShown.length > 0 && <SummaryCards items={mainShown} />}
       {secondShown.length > 0 && <SummaryCards items={secondShown} />}
+      {finance && !myBranches && <InsightPanel />}
       {finance && (
         <Card
           title="Perlu perhatian"

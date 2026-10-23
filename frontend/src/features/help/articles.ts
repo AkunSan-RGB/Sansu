@@ -323,6 +323,26 @@ export const HELP_ARTICLES: HelpArticle[] = [
     link: { label: 'Buka Uang muka pemasok', to: '/supplier-advances' },
   },
   {
+    id: 'insight-beranda',
+    category: 'Memulai',
+    title: 'Wawasan & saran di Beranda (untuk pimpinan)',
+    summary: 'Ringkasan kondisi usaha dan saran yang dihitung dari data pembukuan. Sifatnya masukan, bukan keharusan.',
+    paths: ['/dashboard'],
+    steps: [
+      'Buka Beranda (Pemilik, Admin, Keuangan, Akuntan). Panel biru "Wawasan & saran" merangkum kondisi bulan ini beserta grafik penjualan dan laba kotor 6 bulan.',
+      'Klik "perlu perhatian", "peluang", atau "kabar baik" untuk menyaring kartu. Tiap kartu memuat fakta berangka, nilai uang yang terkait, dan satu saran tindakan.',
+      'Tekan "Lihat data" pada kartu untuk membuka laporan atau daftar yang mendasarinya.',
+      'Saran yang sudah tidak relevan dapat disembunyikan (ikon mata); otomatis muncul lagi setelah 7 hari atau lewat "Tampilkan … saran yang disembunyikan".',
+    ],
+    tips: [
+      'Saran dihitung dengan aturan tetap dari pembukuan dan transaksi (kas, piutang, hutang, tren penjualan, margin, beban, stok tidak bergerak, kedaluwarsa, ketergantungan pada satu pelanggan, pelanggan yang lama tidak membeli, produk andalan). Bukan prediksi dan bukan nasihat keuangan profesional.',
+      'Angka penjualan dan laba kotor mengikuti Laporan Laba Rugi, termasuk penjualan kasir dan setelah retur.',
+      'Saran muncul bila datanya cukup (mis. perbandingan tren butuh sedikitnya 2 bulan penjualan). Usaha yang baru mulai akan melihat sedikit kartu.',
+    ],
+    keywords: 'beranda dashboard insight saran rekomendasi wawasan pimpinan keputusan tren kas piutang margin',
+    link: { label: 'Buka Beranda', to: '/dashboard' },
+  },
+  {
     id: 'rak-gudang',
     category: 'Pembelian & Stok',
     title: 'Rak gudang: letak barang di gudang',

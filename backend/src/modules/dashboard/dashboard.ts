@@ -12,6 +12,7 @@ import { accounts, invoices, journalLines, purchaseInvoices, salesOrders, stockB
 import { HealthService } from '../insights/health.service';
 import { InsightsModule } from '../insights/insights.module';
 import { TaxModule, TaxService, TAX_LABEL } from '../tax/tax.module';
+import { DashboardInsightsController, DashboardInsightsService } from './dashboard-insights';
 import { addDays } from '../../common/utils/dates';
 
 /** Bidang beranda yang boleh dilihat tiap peran (prinsip "perlu tahu"); selain itu dikirim null */
@@ -201,5 +202,5 @@ export class DashboardController {
   }
 }
 
-@Module({ imports: [InsightsModule, TaxModule], controllers: [DashboardController], providers: [DashboardService] })
+@Module({ imports: [InsightsModule, TaxModule], controllers: [DashboardController, DashboardInsightsController], providers: [DashboardService, DashboardInsightsService] })
 export class DashboardModule {}
