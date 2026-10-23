@@ -96,7 +96,7 @@ export default function BinsPage() {
           <Tabs
             activeKey={tab}
             onChange={setTab}
-            destroyInactiveTabPane
+            destroyOnHidden
             items={[
               { key: 'bins', label: 'Daftar rak', children: <BinsTab wid={wid} bins={bins} onOpen={(id) => { setBinFilter(id); setTab('stock'); }} /> },
               { key: 'stock', label: 'Isi rak', children: <StockTab wid={wid} bins={bins} binId={binFilter} setBinId={setBinFilter} /> },
