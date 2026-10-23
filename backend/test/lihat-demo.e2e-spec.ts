@@ -56,7 +56,7 @@ describe('Lihat Demo (e2e)', () => {
     expect(health.filter((h) => h.status === 'ERROR').map((h) => h.key)).toEqual([]);
     expect(await count(me.tenantId, 'journal_entries')).toBeGreaterThan(8);
     expect(await count(me.tenantId, 'employees')).toBeGreaterThan(0);
-  });
+  }, 90_000); // pembuatan demo F&B ±25 detik sendirian; beri ruang saat mesin sibuk
 
   it('data tiap jenis usaha berbeda (produk, pelanggan, jenis dokumen)', async () => {
     const names = async (model: string, table: string, col: string) => {
