@@ -47,6 +47,7 @@ describe('Batas kapitalisasi aset (e2e)', () => {
         .send({ companyName: 'CV Batas Aset', name: 'Pemilik', email: `cap-${stamp}@uji.id`, password: 'rahasia123' })
         .expect(201)
     ).body.accessToken;
+    await http.put('/api/cash/settings').set(as()).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     supplierId = (await post('/api/suppliers', { code: 'SUP-CAP', name: 'Toko Elektronik' }).expect(201)).body.id;
     for (const c of (await get('/api/assets/categories').expect(200)).body as { id: string; name: string }[]) cat[c.name] = c.id;
   });

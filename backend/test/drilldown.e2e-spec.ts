@@ -22,6 +22,7 @@ describe('Penelusuran laporan → buku besar → jurnal → dokumen asal (e2e)',
     await app.init();
     http = request(app.getHttpServer());
     token = (await http.post('/api/auth/register').send({ companyName: 'PT Telusur', name: 'P', email: `dd-${Date.now()}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
+    await http.put('/api/cash/settings').set(as()).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     const wh = (await get('/api/warehouses').expect(200)).body[0].id;
     const productId = (await post('/api/products', { sku: 'DD-1', name: 'Barang', sellPrice: '20000' }).expect(201)).body.id;
     const sup = (await post('/api/suppliers', { code: 'S', name: 'Pemasok' }).expect(201)).body.id;
