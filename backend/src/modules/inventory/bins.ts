@@ -268,7 +268,7 @@ export class BinsService {
     const term = q.q?.trim();
     const rows = await this.db.execute(sql`
       SELECT s.bin_id AS "binId", b.code AS "binCode", b.zone, b.kind AS "binKind", s.warehouse_id AS "warehouseId", w.code AS "warehouseCode",
-             s.product_id AS "productId", p.sku, p.name, p.base_uom AS uom, s.lot_id AS "lotId", l.lot_no AS "lotNo", l.expiry_date AS "expiryDate", s.qty
+             s.product_id AS "productId", p.sku, p.name, p.barcode, p.base_uom AS uom, s.lot_id AS "lotId", l.lot_no AS "lotNo", l.expiry_date AS "expiryDate", s.qty
       FROM stock_bin_balances s
       JOIN warehouse_bins b ON b.id = s.bin_id
       JOIN warehouses w ON w.id = s.warehouse_id

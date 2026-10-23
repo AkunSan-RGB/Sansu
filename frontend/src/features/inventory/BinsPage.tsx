@@ -11,6 +11,8 @@ import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtQty } from '@/lib/format';
 import { printDoc } from '@/lib/print';
+import { ControlsTab, ImportBinsModal, LabelsTab, QuickMoveTab } from './BinTools';
+import { useHasRole } from '@/lib/roles';
 import type { SalesOrder } from '@sansu/shared';
 
 const KEY = 'bins';
@@ -49,6 +51,7 @@ export default function BinsPage() {
   const deactivate = useAction(() => post('/inventory/bins/deactivate', { warehouseId: wid }), { success: 'Lokasi rak dinonaktifkan', invalidate: [KEY] });
   const unassigned = bins.find((b) => b.kind === 'UNASSIGNED');
   const placed = bins.filter((b) => b.kind !== 'UNASSIGNED');
+  const canControls = useHasRole(['ADMIN', 'FINANCE', 'ACCOUNTANT']);
 
   return (
     <>
@@ -103,10 +106,13 @@ export default function BinsPage() {
             destroyOnHidden
             items={[
               { key: 'bins', label: 'Daftar rak', children: <BinsTab wid={wid} bins={bins} onOpen={(id) => { setBinFilter(id); setTab('stock'); }} /> },
+              { key: 'quick', label: 'Pindah cepat', children: <QuickMoveTab wid={wid} warehouse={{ code: wh.code, name: wh.name }} bins={bins} /> },
               { key: 'stock', label: 'Isi rak', children: <StockTab wid={wid} bins={bins} binId={binFilter} setBinId={setBinFilter} /> },
               { key: 'pick', label: 'Daftar ambil', children: <PickTab wid={wid} warehouseLabel={`${wh.code} · ${wh.name}`} /> },
               { key: 'find', label: 'Cari barang', children: <FindTab /> },
               { key: 'history', label: 'Riwayat', children: <HistoryTab wid={wid} /> },
+              { key: 'label', label: 'Label rak', children: <LabelsTab bins={bins} warehouse={{ code: wh.code, name: wh.name }} /> },
+              ...(canControls ? [{ key: 'controls', label: 'Kontrol', children: <ControlsTab wid={wid} /> }] : []),
               { key: 'check', label: 'Pemeriksaan', children: <CheckTab wid={wid} /> },
             ]}
           />
@@ -119,10 +125,14 @@ export default function BinsPage() {
 function BinsTab({ wid, bins, onOpen }: { wid: string; bins: Bin[]; onOpen: (id: string) => void }) {
   const can = useCan();
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   const toggle = useAction((v: { id: string; isActive: boolean }) => patch(`/inventory/bins/${v.id}`, { isActive: v.isActive }), { success: 'Rak diperbarui', invalidate: [KEY] });
   return (
     <>
-      {can('POST', '/inventory/bins') && <Button type="primary" icon={<PlusOutlined />} style={{ marginBottom: 12 }} onClick={() => setAdding(true)}>Tambah rak</Button>}
+      <Space style={{ marginBottom: 12 }} wrap>
+        {can('POST', '/inventory/bins') && <Button type="primary" icon={<PlusOutlined />} onClick={() => setAdding(true)}>Tambah rak</Button>}
+        {can('POST', '/inventory/bins/import') && <Button onClick={() => setImporting(true)}>Impor dari berkas</Button>}
+      </Space>
       <ResponsiveTable<Bin>
         rowKey="id"
         size="small"
@@ -146,6 +156,7 @@ function BinsTab({ wid, bins, onOpen }: { wid: string; bins: Bin[]; onOpen: (id:
         ]}
       />
       <AddBinsModal open={adding} wid={wid} onClose={() => setAdding(false)} />
+      <ImportBinsModal open={importing} wid={wid} onClose={() => setImporting(false)} />
     </>
   );
 }

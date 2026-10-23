@@ -27,8 +27,18 @@ Rencana lengkap ada di `docs/RENCANA-LOKASI-RAK.md`. Dokumen ini menjelaskan yan
 - Urutan pengambilan di pembukuan (`takeFrom`) dan di daftar ambil memakai ketentuan yang sama (`BIN_PICK_TIER`), sehingga rak yang disarankan = rak yang berkurang.
 - Pembatalan surat jalan mengembalikan barang ke BELUM-DITEMPATKAN (bukan rak asal); tata ulang lewat Pindah rak.
 
-## Belum ada (tahap berikutnya)
-Stock opname per rak, persetujuan pindah bernilai besar, laporan kontrol (barang lama belum ditata, dsb.), label rak QR/barcode, pindai lewat HP, impor rak dari Excel, dan pilihan rak di jalur terima-dan-faktur sekaligus.
+## Tahap 3: opname dan kontrol
+- **Opname per rak** (Stock opname › Mulai › pilih Rak): lembar hanya berisi isi rak itu dan stok sistemnya adalah stok rak. Saat diposting, kekurangan dikurangi **tepat dari rak itu** (bagian tanpa lot dulu, lalu lot paling cepat kedaluwarsa; lot rak lain tidak tersentuh) dan kelebihan masuk ke rak itu, sehingga rak sama dengan hasil hitung. Jurnal dan persetujuan selisih memakai jalur opname yang sudah ada (penghitung ≠ pemosting, selisih besar butuh catatan/persetujuan). Satu opname berjalan per cakupan: opname gudang memblokir semuanya; opname rak memblokir rak yang sama dan opname gudang. Rak kosong tidak bisa dihitung (pindahkan dulu barang yang ditemukan ke rak itu).
+- **Persetujuan pindah rak:** nilai barang yang dipindah (jumlah × HPP rata-rata) yang mencapai batas persetujuan penyesuaian stok oleh peran selain Pemilik/Admin menunggu persetujuan (jenis "Pindah rak bernilai besar"); setelah disetujui, perpindahan dijalankan atas nama pemohon.
+- **Kontrol rak** (tab Kontrol, dan ikut di Kontrol persediaan): barang > 7 hari belum ditata, barang > 30 hari di rak rusak/karantina, rak dengan selisih opname berulang (≥ 2 kali dalam 90 hari), pindah rak ≥ 30 kali dalam 7 hari oleh satu orang, dan selisih stok rak vs stok gudang.
+
+## Tahap 4: lapangan
+- **Label rak** (tab Label rak): cetak label QR per rak (isi `RAK:<gudang>:<kode>`), dua kolom A4.
+- **Pindah cepat**: pindai rak asal → barang (barcode/kode) → rak tujuan; setiap pindai tujuan langsung memindahkan. Alat pemindai USB/Bluetooth bekerja seperti keyboard; di HP ikon kamera memakai BarcodeDetector bawaan peramban atau jsQR (hanya QR) bila tidak tersedia. Kamera butuh HTTPS.
+- **Impor rak dari berkas** (.xlsx/.csv: Kode, Zona, Jenis, Nama; maks 2.000 baris): diperiksa dulu baris demi baris; ada baris bermasalah = tidak ada yang disimpan; rak yang sudah ada dilewati.
+
+## Belum ada
+Pilihan rak di jalur terima-dan-faktur sekaligus, pengembalian surat jalan ke rak asal, aturan rak per jenis barang (mis. khusus dingin), dan kapasitas rak.
 
 ## Berkas
 Migrasi `0102_lokasi_rak.sql`; `backend/src/modules/inventory/bin-tracker.ts`, `bins.ts`; hook di `stock.service.ts`, `stock-lots.ts` (mengembalikan perubahan lot), `production/qc.ts`; tes `backend/test/lokasi-rak.e2e-spec.ts`; tampilan `frontend/src/features/inventory/BinsPage.tsx`.

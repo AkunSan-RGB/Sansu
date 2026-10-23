@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Select } from 'antd';
+import { Form, Select } from 'antd';
 import { get, qs } from '@/api/client';
 
 export interface BinOption { id: string; code: string; kind: string; isActive: boolean }
@@ -33,5 +33,16 @@ export default function BinSelect({ warehouseId, value, onChange, placeholder = 
       onChange={onChange}
       options={bins.map((b) => ({ value: b.id, label: `${b.code}${KIND[b.kind] ? ` · ${KIND[b.kind]}` : ''}` }))}
     />
+  );
+}
+
+/** Kolom form lengkap (label + pilihan rak); tidak muncul bila gudang tidak memakai rak */
+export function BinFormItem({ warehouseId, name, label = 'Rak (opsional)', extra, placeholder, width = 260 }: { warehouseId?: string; name: string | (string | number)[]; label?: string; extra?: string; placeholder?: string; width?: number }) {
+  const { enabled } = useWarehouseBins(warehouseId);
+  if (!enabled) return null;
+  return (
+    <Form.Item name={name} label={label} extra={extra}>
+      <BinSelect warehouseId={warehouseId} placeholder={placeholder} width={width} />
+    </Form.Item>
   );
 }
