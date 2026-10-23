@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRef } from 'react';
+import { enter, leave, type FlightState } from '@/lib/singleFlight';
 import { useHasRole } from '@/lib/roles';
 import { App } from 'antd';
 import { ApiError, get } from './client';
@@ -32,8 +34,16 @@ export function useAction<TVars, TResult = unknown>(
 ) {
   const qc = useQueryClient();
   const { message } = App.useApp();
-  return useMutation({
-    mutationFn: fn,
+  // Satu permintaan pada satu waktu: klik ganda sebelum layar sempat menampilkan "memproses" tidak mengirim transaksi dua kali
+  const flight = useRef<FlightState>({ busy: false });
+  const m = useMutation({
+    mutationFn: async (v: TVars) => {
+      try {
+        return await fn(v);
+      } finally {
+        leave(flight.current);
+      }
+    },
     onSuccess: (r) => {
       opts.invalidate?.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
       if (opts.success) message.success(typeof opts.success === 'function' ? opts.success(r) : opts.success);
@@ -46,6 +56,14 @@ export function useAction<TVars, TResult = unknown>(
       if (d?.code === 'APPROVAL_REQUIRED' && d.requestId) window.dispatchEvent(new CustomEvent('sansu:approval-required', { detail: { requestId: d.requestId } }));
     },
   });
+  const mutate = ((...args: Parameters<typeof m.mutate>) => {
+    if (enter(flight.current)) m.mutate(...args);
+  }) as typeof m.mutate;
+  const mutateAsync = ((...args: Parameters<typeof m.mutateAsync>) => {
+    if (!enter(flight.current)) return new Promise<TResult>(() => undefined);
+    return m.mutateAsync(...args);
+  }) as typeof m.mutateAsync;
+  return { ...m, mutate, mutateAsync };
 }
 
 export interface BranchRow {
