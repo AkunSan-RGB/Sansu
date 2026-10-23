@@ -33,6 +33,7 @@ import { todayJakarta } from '../../common/utils/dates';
 import { D, qty4 } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
+import { relabelAsLot } from '../inventory/bin-tracker';
 import { InventoryService } from '../inventory/inventory.service';
 import { StockService } from '../inventory/stock.service';
 
@@ -257,7 +258,8 @@ export class QcService {
         await this.stock.move(tx, { tenantId: u.tenantId, productId: i.product_id, warehouseId: i.release_warehouse_id, type: 'TRANSFER_IN', qty: qtyPass, unitCost: out.unitCost, writedownUnit: out.writedownUnit, refType: 'QC_INSPECTION', refId: i.id, refNumber: i.number, date: todayJakarta(), skipAccessCheck: true });
         // nomor lot dan kedaluwarsa ikut ke gudang tujuan (pencatatan lot tidak ikut mutasi QC secara otomatis)
         if (i.lot_no || i.expiry_date) {
-          await tx.execute(sql`INSERT INTO stock_lots (tenant_id, product_id, warehouse_id, lot_no, expiry_date, received_date, qty_received, qty_remaining, source_type, source_ref) VALUES (${u.tenantId}, ${i.product_id}, ${i.release_warehouse_id}, ${i.lot_no}, ${i.expiry_date}, ${todayJakarta()}, ${qtyPass.toFixed(4)}, ${qtyPass.toFixed(4)}, 'QC_INSPECTION', ${i.id})`);
+          const lot = await tx.execute<{ id: string }>(sql`INSERT INTO stock_lots (tenant_id, product_id, warehouse_id, lot_no, expiry_date, received_date, qty_received, qty_remaining, source_type, source_ref) VALUES (${u.tenantId}, ${i.product_id}, ${i.release_warehouse_id}, ${i.lot_no}, ${i.expiry_date}, ${todayJakarta()}, ${qtyPass.toFixed(4)}, ${qtyPass.toFixed(4)}, 'QC_INSPECTION', ${i.id}) RETURNING id`);
+          await relabelAsLot(tx, { tenantId: u.tenantId, warehouseId: i.release_warehouse_id, productId: i.product_id, lotId: lot.rows[0].id, qty: qtyPass });
         }
       }
       const status = qtyFail.isZero() ? 'PASSED' : qtyPass.isZero() ? 'FAILED' : 'PARTIAL';

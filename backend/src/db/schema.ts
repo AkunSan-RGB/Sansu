@@ -209,6 +209,8 @@ export const warehouses = pgTable(
     vanUserId: uuid('van_user_id'),
     /** Gudang karantina: hasil produksi yang wajib QC menunggu di sini; stoknya tidak bisa dijual/dipakai sebelum lolos QC */
     isQuarantine: boolean('is_quarantine').notNull().default(false),
+    /** Lokasi rak aktif: stok gudang ini juga dicatat per rak (lihat modules/inventory/bins.ts); mati = perilaku lama */
+    binsEnabled: boolean('bins_enabled').notNull().default(false),
   },
   (t) => [
     uniqueIndex('warehouses_code_uq').on(t.tenantId, t.code),

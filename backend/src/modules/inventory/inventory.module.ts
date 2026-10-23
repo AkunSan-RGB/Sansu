@@ -1,6 +1,7 @@
 import { InventoryControlsController, InventoryControlsService } from './inventory-controls';
 import { Module } from '@nestjs/common';
 import { AccountingModule } from '../accounting/accounting.module';
+import { BinsController, BinsService } from './bins';
 import { InventoryController } from './inventory.controller';
 import { InventoryMethodController, InventoryMethodService } from './inventory-method';
 import { InventoryService } from './inventory.service';
@@ -12,8 +13,8 @@ import { WritedownController, WritedownService } from './writedown';
 
 @Module({
   imports: [AccountingModule],
-  controllers: [InventoryControlsController, InventoryController, InventoryMethodController, WarehouseOpsController, WritedownController, MovementAnalysisController, LotsController],
-  providers: [InventoryControlsService, InventoryService, InventoryMethodService, StockService, WarehouseOpsService, WritedownService, MovementAnalysisService, LotsService],
+  controllers: [BinsController, InventoryControlsController, InventoryController, InventoryMethodController, WarehouseOpsController, WritedownController, MovementAnalysisController, LotsController],
+  providers: [BinsService, InventoryControlsService, InventoryService, InventoryMethodService, StockService, WarehouseOpsService, WritedownService, MovementAnalysisService, LotsService],
   exports: [StockService, InventoryService, WarehouseOpsService],
 })
 export class InventoryModule {}

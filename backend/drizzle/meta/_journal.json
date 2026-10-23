@@ -715,6 +715,13 @@
       "when": 1797100686484,
       "tag": "0101_uang_muka_pemasok",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1797187086484,
+      "tag": "0102_lokasi_rak",
+      "breakpoints": true
     }
   ]
 }

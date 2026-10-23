@@ -9,6 +9,7 @@ import { Tx } from '../../db/db';
 import { products, StockMoveType, stockLayers, stockMoves, warehouses } from '../../db/schema';
 import { isInventoryMethod, type InventoryMethod } from '@sansu/shared';
 import { consumeLayers, movingAverage } from './costing';
+import { trackBins } from './bin-tracker';
 import { type LotInput, trackLots } from './stock-lots';
 
 export interface MoveInput {
@@ -41,6 +42,8 @@ export interface MoveInput {
   lotId?: string;
   /** Hanya modul QC: boleh mengeluarkan stok dari gudang karantina (lolos QC dipindah, gagal dibuang) */
   fromQc?: boolean;
+  /** Gudang yang rak-nya aktif: rak tujuan (masuk, bawaan BELUM-DITEMPATKAN) atau rak yang diutamakan (keluar). Diabaikan bila rak tidak aktif. */
+  binId?: string;
 }
 
 export interface MoveResult {
@@ -212,7 +215,7 @@ export class StockService {
       date: m.date,
     });
 
-    await trackLots(tx, {
+    const lotDeltas = await trackLots(tx, {
       tenantId: m.tenantId,
       productId: m.productId,
       warehouseId: m.warehouseId,
@@ -226,6 +229,7 @@ export class StockService {
       excludeLotNos: m.excludeLotNos,
       reverseCost: m.reverseCost !== undefined,
     });
+    await trackBins(tx, { tenantId: m.tenantId, productId: m.productId, warehouseId: m.warehouseId, qty, refType: m.refType, refId: m.refId, binId: m.binId, lotDeltas });
 
     return { unitCost, value: fifoValue ?? money(qty.abs().times(unitCost)), balanceAfter, writedownUnit: moveWu };
   }
