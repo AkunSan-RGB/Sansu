@@ -217,6 +217,11 @@ export class PosService {
       for (const l of lines) {
         const p = m.get(l.productId)!;
         const master = money(D(p.sellPrice).times(l.uomFactor));
+        // barang tanpa harga jual (mis. bahan baku) tidak boleh "dijual" kasir: stoknya berkurang tanpa pendapatan (celah barang gratis)
+        if (master.lte(0)) {
+          const [pn] = await tx.select({ sku: products.sku, name: products.name }).from(products).where(eq(products.id, l.productId));
+          throw new BadRequestException(`Harga jual ${pn?.name ?? 'barang'} (${pn?.sku ?? ''}) belum diisi (Rp 0), jadi tidak bisa dijual di kasir. Isi harga jual di Produk, atau minta supervisor.`);
+        }
         if (!l.price.eq(master) || l.discountPct.gt(0)) {
           throw new ForbiddenException('Harga dan diskon hanya dapat diubah oleh supervisor (Pemilik, Admin, atau Keuangan). Kasir menjual dengan harga master.');
         }

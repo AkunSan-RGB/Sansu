@@ -242,6 +242,11 @@ function Register({ session }: { session: PosSession }) {
   }, [products.data, term, category]);
 
   const add = (p: PosProduct, uom = p.baseUom) => {
+    // sama dengan server: barang tanpa harga jual (mis. bahan baku) tidak bisa dijual di kasir
+    if (Number(p.sellPrice) <= 0) {
+      message.warning(`Harga jual ${p.name} belum diisi (Rp 0), jadi tidak bisa dijual di kasir. Isi harga di Produk, atau minta supervisor.`);
+      return;
+    }
     const factor = uom === p.baseUom ? 1 : Number(p.uoms.find((u) => u.uom === uom)?.factor ?? 1);
     // sama dengan aturan server: tidak boleh menjual melebihi stok; tegur sejak barang diklik, bukan saat membayar
     const inCart = cart.filter((l) => l.product.id === p.id).reduce((a, l) => a + l.qty * l.factor, 0);
@@ -476,11 +481,15 @@ function Register({ session }: { session: PosSession }) {
                   return (
                     <Col key={p.id} xs={12} sm={8} lg={6} xl={4}>
                       <Badge.Ribbon text={p.madeToOrder ? `${fmtQty(stock)} porsi` : fmtQty(stock)} color={stock > 0 ? 'cyan' : 'red'}>
-                        <Card hoverable size="small" onClick={() => add(p)} style={{ height: 104 }} styles={{ body: { padding: 10 } }}>
+                        <Card hoverable size="small" onClick={() => add(p)} style={{ height: 104, ...(Number(p.sellPrice) <= 0 ? { opacity: 0.55 } : {}) }} styles={{ body: { padding: 10 } }}>
                           <Typography.Paragraph strong ellipsis={{ rows: 2 }} style={{ marginBottom: 4, minHeight: 44, paddingRight: 24 }}>
                             {p.name}
                           </Typography.Paragraph>
-                          <Typography.Text style={{ color: BRAND.colors.primary, fontWeight: 600 }}>{fmtMoney(p.sellPrice)}</Typography.Text>
+                          {Number(p.sellPrice) <= 0 ? (
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>Belum ada harga</Typography.Text>
+                          ) : (
+                            <Typography.Text style={{ color: BRAND.colors.primary, fontWeight: 600 }}>{fmtMoney(p.sellPrice)}</Typography.Text>
+                          )}
                           <Typography.Text type="secondary" style={{ fontSize: 11 }}>
                             {' '}
                             /{p.baseUom}
