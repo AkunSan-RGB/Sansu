@@ -5,7 +5,7 @@ import { AuthUser } from '../../common/auth/auth-user';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { PeriodService } from '../../common/period/period.service';
-import { addDays, DocDate, toDocDate, todayJakarta } from '../../common/utils/dates';
+import { addDays, assertNotFarFuture, DocDate, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, DecValue, money, ZERO } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
@@ -192,6 +192,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
 
   /** Jurnal manual. Bernilai besar dari peran yang tidak berwenang: dikirim sebagai permintaan persetujuan dan baru diposting setelah disetujui. */
   async createManualJournal(user: AuthUser, dto: CreateJournalDto, opts: { approved?: boolean } = {}) {
+    assertNotFarFuture(toDocDate(dto.date), 'jurnal');
     await this.assertNoControlAccounts(user, dto.lines.map((l) => l.accountId), dto.controlOverrideReason);
     if (dto.autoReverse && !dto.adjustment) throw new BadRequestException('Balik otomatis hanya untuk jurnal penyesuaian');
     // Anggaran: jurnal manual yang membebankan biaya melebihi anggaran (jurnal penyesuaian akhir periode dikecualikan)
@@ -632,6 +633,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
   /** Kunci periode sampai tanggal tertentu. Membuka kembali (tanggal mundur) hanya untuk Pemilik. */
   async lockPeriod(user: AuthUser, until: string) {
     const date = toDocDate(until);
+    if (date > todayJakarta()) throw new BadRequestException('Periode yang belum berakhir tidak bisa dikunci: tanggal kunci paling lambat hari ini');
     const current = await this.period.lockedUntil(this.db, user.tenantId);
     if (current && date < current && user.role !== 'OWNER') {
       throw new ForbiddenException('Membuka kembali periode yang sudah ditutup hanya boleh dilakukan Pemilik');

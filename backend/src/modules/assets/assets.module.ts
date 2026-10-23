@@ -26,7 +26,7 @@ import { TelegramService } from '../../common/telegram/telegram.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { SettingsService } from '../../common/settings.service';
-import { addDays, diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
+import { addDays, assertNotFarFuture, diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
@@ -412,6 +412,7 @@ export class AssetsService {
         const [b] = (await tx.execute<{ id: string }>(sql`SELECT id FROM branches WHERE id = ${dto.branchId} AND tenant_id = ${user.tenantId} AND is_active`)).rows;
         if (!b) throw new BadRequestException('Cabang tidak ditemukan atau nonaktif');
       }
+      assertNotFarFuture(toDocDate(dto.acquisitionDate), 'perolehan aset');
       const cost = money(dto.cost);
       const residual = money(dto.residualValue ?? '0');
       if (cost.lte(0)) throw new BadRequestException('Harga perolehan harus > 0');

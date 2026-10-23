@@ -28,7 +28,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { SettingsService } from '../../common/settings.service';
 import { taxFindings } from './tax-controls';
 import { SequenceService } from '../../common/sequence/sequence.service';
-import { addDays, toDocDate, todayJakarta } from '../../common/utils/dates';
+import { addDays, assertNotFarFuture, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
@@ -214,6 +214,7 @@ export class CashService {
   async create(user: AuthUser, dto0: CreateCashTxDto, opts: { approved?: boolean; petty?: boolean; tx?: Tx } = {}) {
     const dto = await this.withSources(user, dto0);
     const date = toDocDate(dto.date);
+    assertNotFarFuture(date, 'transaksi kas');
     // ---- SOP: bukti wajib & persetujuan untuk uang keluar (kas keluar, transfer) di atas batas ----
     if (dto.type !== 'IN') {
       const gross = dto.type === 'TRANSFER' ? Number(dto.amount ?? 0) : (dto.lines ?? []).reduce((a, l) => a + Number(l.amount ?? 0), 0);

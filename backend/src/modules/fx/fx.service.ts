@@ -3,7 +3,7 @@ import { and, desc, eq, lte, sql } from 'drizzle-orm';
 import { BASE_CURRENCY, isForeignCurrency, isKnownForeignCurrency } from '@sansu/shared';
 import { AuthUser } from '../../common/auth/auth-user';
 import { AuditService } from '../../common/audit/audit.service';
-import { addDays, toDocDate, todayJakarta } from '../../common/utils/dates';
+import { addDays, assertNotFarFuture, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
@@ -78,6 +78,7 @@ export class FxService {
     const rate = D(dto.rate);
     if (rate.lte(0)) throw new BadRequestException('Kurs harus lebih dari 0');
     const date = toDocDate(dto.date);
+    assertNotFarFuture(date, 'kurs');
     const [row] = await this.db
       .insert(exchangeRates)
       .values({ tenantId: user.tenantId, currency: dto.currency, date, rate: rate.toFixed(6), note: dto.note })

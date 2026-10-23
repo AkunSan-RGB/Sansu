@@ -19,7 +19,7 @@ import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { SettingsService } from '../../common/settings.service';
-import { DocDate, toDocDate, todayJakarta } from '../../common/utils/dates';
+import { assertNotFarFuture, DocDate, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
@@ -283,6 +283,7 @@ export class TaxService {
 
   async create(user: AuthUser, dto: CreateTaxPaymentDto) {
     const date = toDocDate(dto.date);
+    assertNotFarFuture(date, 'setor pajak');
     if (date < `${dto.period}-01` && dto.type !== 'PPH25') throw new BadRequestException('Tanggal setor tidak boleh sebelum masa pajaknya');
     return this.db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`tax:${user.tenantId}`}))`);
