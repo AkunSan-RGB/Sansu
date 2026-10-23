@@ -47,6 +47,7 @@ describe('Uang muka pemasok (e2e)', () => {
     await app.init();
     http = request(app.getHttpServer());
     owner = (await http.post('/api/auth/register').send({ companyName: 'PT Uang Muka Beli', name: 'Pemilik', email: `ump-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${owner}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     fin = await mk('FINANCE', 'fin'); akt = await mk('ACCOUNTANT', 'akt'); wh = await mk('WAREHOUSE', 'wh'); sls = await mk('SALES', 'sls'); buy = await mk('PURCHASING', 'buy');
     expenseId = ((await get(owner, '/api/cash/counter-accounts').expect(200)).body as { id: string; type: string }[]).find((a) => a.type === 'EXPENSE')!.id;
     whId = (await get(owner, '/api/warehouses').expect(200)).body[0].id;

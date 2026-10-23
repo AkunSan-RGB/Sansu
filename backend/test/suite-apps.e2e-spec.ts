@@ -46,6 +46,7 @@ describe('Platform & aplikasi (e2e)', () => {
       .send({ companyName: 'PT Serba Aplikasi', name: 'Pemilik', email: `apps-${stamp}@uji.id`, password: 'rahasia123' })
       .expect(201);
     token = reg.body.accessToken;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${token}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     warehouseId = (await get('/api/warehouses')).body[0].id;
     accounts = (await get('/api/accounting/accounts')).body;
     productId = (await post('/api/products', { sku: 'POS-01', name: 'Kopi Botol', sellPrice: '10000', barcode: "5901234123457" }).expect(201)).body.id;

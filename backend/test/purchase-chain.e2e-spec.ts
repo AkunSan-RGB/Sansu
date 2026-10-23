@@ -44,6 +44,7 @@ describe('Rantai pembelian: pesanan → penerimaan → faktur (e2e)', () => {
     await app.init();
     http = request(app.getHttpServer());
     token = (await http.post('/api/auth/register').send({ companyName: 'CV Rantai Beli', name: 'Pemilik', email: `chain-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'DAGANG' }).expect(201)).body.accessToken;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${token}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     wh = (await get('/api/warehouses')).body[0].id;
     sup = (await post('/api/suppliers', { code: 'S1', name: 'PT Pemasok' }).expect(201)).body.id;
     prodA = (await post('/api/products', { sku: 'A', name: 'Barang A', sellPrice: '3000' }).expect(201)).body.id;

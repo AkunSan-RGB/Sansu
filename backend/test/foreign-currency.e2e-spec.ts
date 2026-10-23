@@ -38,6 +38,7 @@ describe('Mata uang asing (e2e)', () => {
     await app.init();
     http = request(app.getHttpServer());
     t = (await http.post('/api/auth/register').send({ companyName: 'PT Ekspor Impor', name: 'Pemilik', email: `fx-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'DAGANG' }).expect(201)).body.accessToken;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${t}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     await post('/api/users', { name: 'Gudang', email: `fx-g-${stamp}@uji.id`, password: 'gudang12345', role: 'WAREHOUSE' }).expect(201);
     gudang = (await http.post('/api/auth/login').send({ email: `fx-g-${stamp}@uji.id`, password: 'gudang12345' }).expect(200)).body.accessToken;
     wh = (await get('/api/warehouses').expect(200)).body[0].id;

@@ -48,6 +48,7 @@ describe('Multi-cabang (e2e)', () => {
     http = request(app.getHttpServer());
     const reg = (await http.post('/api/auth/register').send({ companyName: 'PT Dua Cabang', name: 'Pemilik', email: `cb-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body;
     owner = reg.accessToken;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${owner}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     tenantId = reg.user.tenantId;
     await post(owner, '/api/apps/pos/install').expect(201);
     await post(owner, '/api/users', { name: 'Kasir', email: `cb-k-${stamp}@uji.id`, password: 'kasir12345', role: 'CASHIER' }).expect(201);

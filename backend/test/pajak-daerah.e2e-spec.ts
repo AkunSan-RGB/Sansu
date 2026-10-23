@@ -35,6 +35,7 @@ describe('Pajak restoran daerah PB1 (e2e)', () => {
     await app.init();
     http = request(app.getHttpServer());
     owner = (await http.post('/api/auth/register').send({ companyName: 'PT Kafe Pajak', name: 'Pemilik', email: `pb1-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'FNB' }).expect(201)).body.accessToken;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${owner}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     W = (await get('/api/warehouses').expect(200)).body[0].id;
     menu = (await post('/api/products', { sku: 'BRG-1', name: 'Kopi Jadi', sellPrice: '20000' }).expect(201)).body.id;
     await post('/api/inventory/adjustments', { warehouseId: W, reason: 'OPENING', date: today, lines: [{ productId: menu, qty: '100', unitCost: '8000' }] }).expect(201);

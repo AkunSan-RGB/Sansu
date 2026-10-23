@@ -23,7 +23,7 @@ Dijalankan lewat browser (Playwright) dan API pada peran Pemilik, Keuangan, dan 
 Jumlah nol/negatif/teks ditolak server; kas keluar dari kas kecil, opname, dan akun induk dijaga; impor mutasi bank dengan periode yang sama ditolak; laporan konsisten di ketujuh jenis usaha.
 
 ## Belum dijaga
-Larangan saldo negatif belum berlaku di alur uang keluar lain: bayar pemasok, setoran pajak, uang muka pemasok, gaji. Menambahkannya mengubah banyak tes yang membayar dari saldo nol, jadi menunggu keputusan.
+Larangan saldo negatif kini berlaku di Kas Keluar, transfer, pembelian aset, bayar pemasok, setoran pajak, uang muka pemasok, dan gaji. Alur kecil lain (komisi sales, pengembalian pelanggan, kanvas) belum.
 
 ## Peringatan formulir AntD (diperbaiki)
 Jurnal manual/berulang (form dirender sejak awal sehingga nilai awal terisi), tab Pengaturan Perusahaan, dan Descriptions kas kecil.

@@ -32,6 +32,7 @@ describe('Batal pembayaran supplier (e2e)', () => {
     await app.init();
     http = request(app.getHttpServer());
     owner = (await http.post('/api/auth/register').send({ companyName: 'PT Batal Bayar', name: 'Pemilik', email: `bb-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${owner}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     await post(owner, '/api/users', { name: 'Keuangan', email: `bb-fin-${stamp}@uji.id`, password: 'keuangan123', role: 'FINANCE' }).expect(201);
     finance = (await http.post('/api/auth/login').send({ email: `bb-fin-${stamp}@uji.id`, password: 'keuangan123' }).expect(200)).body.accessToken;
     // yang diuji di sini adalah pembatalan, bukan persetujuan pembayaran pertama (bawaan perusahaan baru): matikan dulu

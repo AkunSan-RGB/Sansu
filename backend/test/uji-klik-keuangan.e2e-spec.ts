@@ -65,6 +65,18 @@ describe('Temuan uji klik keuangan (e2e)', () => {
     await asset().expect(201);
   });
 
+  it('bawaan: uang muka pemasok dan setoran pajak melebihi saldo ditolak; bisa dimatikan', async () => {
+    await http.put('/api/cash/settings').set(as(owner)).send({ blockNegative: true }).expect(200);
+    const sup = (await post(owner, '/api/suppliers', { code: 'SUP-TK', name: 'Pemasok Uji' }).expect(201)).body.id;
+    const advance = () => post(owner, '/api/supplier-advances', { supplierId: sup, cashAccountId: cashId, amount: '8000000000', date: todayJakarta() });
+    const tax = () => post(fin, '/api/tax/payments', { type: 'PPH21', period: todayJakarta().slice(0, 7), amount: '8000000000', date: todayJakarta(), cashAccountId: cashId });
+    expect((await advance().expect(400)).body.message).toContain('tidak cukup');
+    expect((await tax().expect(400)).body.message).toContain('tidak cukup');
+    await http.put('/api/cash/settings').set(as(owner)).send({ blockNegative: false }).expect(200);
+    await advance().expect(201);
+    await tax().expect(201);
+  });
+
   const cashOut = (date: string) => post(fin, '/api/cash/transactions', { type: 'OUT', cashAccountId: cashId, date, description: 'Uji tanggal', lines: [{ accountId: expA, amount: '1000' }] });
 
   it('kas keluar: tahun salah ketik ditolak; beberapa hari ke depan masih wajar', async () => {

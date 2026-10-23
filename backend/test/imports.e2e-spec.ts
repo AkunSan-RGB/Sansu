@@ -35,6 +35,7 @@ describe('Impor data awal (e2e)', () => {
         .send({ companyName: 'PT Pindahan', name: 'Pemilik', email: `imp-${Date.now()}@uji.id`, password: 'rahasia123' })
         .expect(201)
     ).body.accessToken;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${token}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
   });
   afterAll(() => app.close());
 
