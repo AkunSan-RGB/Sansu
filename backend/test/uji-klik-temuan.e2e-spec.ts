@@ -67,4 +67,15 @@ describe('Temuan uji klik (e2e)', () => {
     expect(closed.difference).toBe('-3000.00');
     expect(closed.journalNumber).toBeTruthy();
   });
+  it('dashboard: penjualan bulan ini mengikuti pembukuan (penjualan kasir ikut, sama dengan Laba Rugi)', async () => {
+    const dash = (await http.get('/api/dashboard').set(as(owner)).expect(200)).body;
+    const pl = (await http.get('/api/accounting/reports/profit-loss').set(as(owner)).expect(200)).body;
+    expect(Number(dash.salesMonth)).toBeGreaterThan(0); // seluruhnya dari kasir: tidak ada faktur
+    expect(dash.invoicesMonth).toBe(0);
+    expect(dash.posOrdersMonth).toBe(1);
+    expect(dash.salesMonth).toBe(Number(pl.totalRevenue).toFixed(2));
+    // laba kotor = penjualan − beban pokok (kelompok yang sama dengan laporan)
+    const cost = (pl.expense as { code: string; balance: string }[]).filter((r) => r.code === '5-1000').reduce((a, r) => a + Number(r.balance), 0);
+    expect(Number(dash.grossProfitMonth)).toBeCloseTo(Number(dash.salesMonth) - cost, 2);
+  });
 });

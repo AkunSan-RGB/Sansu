@@ -61,9 +61,9 @@ export default function DashboardPage() {
   const go = (to: string) => () => navigate(to);
   const main: (SummaryItem & { hidden?: boolean })[] = [
     {
-      label: t('Penjualan bulan ini (DPP)'),
+      label: t('Penjualan bulan ini'),
       value: val(fmtMoney(data?.salesMonth)),
-      hint: `${data?.invoicesMonth ?? 0} faktur`,
+      hint: `${data?.invoicesMonth ?? 0} faktur${data?.posOrdersMonth ? ` · ${data.posOrdersMonth} transaksi kasir` : ''} · neto setelah retur`,
       hidden: data?.salesMonth === null,
     },
     {

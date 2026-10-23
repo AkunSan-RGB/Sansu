@@ -15,7 +15,7 @@ import { TaxModule, TaxService, TAX_LABEL } from '../tax/tax.module';
 import { addDays } from '../../common/utils/dates';
 
 /** Bidang beranda yang boleh dilihat tiap peran (prinsip "perlu tahu"); selain itu dikirim null */
-const SALES_FIELDS = ['salesMonth', 'invoicesMonth', 'arOutstanding', 'arOverdue', 'overdueCount', 'ordersPending', 'recentInvoices'] as const;
+const SALES_FIELDS = ['salesMonth', 'invoicesMonth', 'posOrdersMonth', 'arOutstanding', 'arOverdue', 'overdueCount', 'ordersPending', 'recentInvoices'] as const;
 const WAREHOUSE_FIELDS = ['ordersPending'] as const;
 
 export function redactDashboard<T extends Record<string, unknown> & { recentInvoices: unknown[] }>(full: T, role: string) {
@@ -107,13 +107,13 @@ export class DashboardService {
     const cashBr = branchId ? sql`COALESCE(${journalLines.branchId}::text, 'NONE') = ${branchId}` : undefined;
     const outstanding = sql<string>`COALESCE(SUM(${invoices.total} - ${invoices.paidAmount} - ${invoices.returnedAmount}), 0)`;
 
+    // Penjualan dan laba kotor bulan ini diambil dari PEMBUKUAN (kelompok laporan yang sama dengan Laporan Laba Rugi), bukan dari faktur saja:
+    // penjualan kasir ikut terhitung, retur/potongan dikurangkan, dan pendapatan jasa/lainnya yang dijurnal ikut masuk.
+    const ledBr = branchId ? sql`AND COALESCE(jl.branch_id::text, 'NONE') = ${branchId}` : sql``;
+    const posBr = branchId ? sql`AND COALESCE((SELECT w.branch_id::text FROM pos_sessions s JOIN warehouses w ON w.id = s.warehouse_id WHERE s.id = po.session_id), 'NONE') = ${branchId}` : sql``;
     const [[sales], [ar], [overdue], [stock], [pending], recent, [ap], [cash]] = await Promise.all([
       this.db
-        .select({
-          sales: sql<string>`COALESCE(SUM(${invoices.subtotal}), 0)`,
-          cogs: sql<string>`COALESCE(SUM(${invoices.cogsAmount}), 0)`,
-          n: count(),
-        })
+        .select({ n: count() })
         .from(invoices)
         .where(and(eq(invoices.tenantId, tenantId), eq(invoices.isOpening, false), gte(invoices.date, monthStart(today)), lte(invoices.date, today), invBr)),
       this.db
@@ -151,13 +151,24 @@ export class DashboardService {
         .where(and(eq(accounts.tenantId, tenantId), eq(accounts.isCashAccount, true), cashBr)),
     ]);
 
-    const salesMonth = D(sales.sales);
-    const grossProfit = salesMonth.minus(sales.cogs);
+    const led = await this.db.execute<{ grp: string; v: string }>(sql`
+      SELECT a.report_group AS grp, COALESCE(SUM(jl.credit - jl.debit), 0) AS v
+      FROM journal_lines jl
+      JOIN journal_entries je ON je.id = jl.journal_id
+      JOIN accounts a ON a.id = jl.account_id
+      WHERE a.tenant_id = ${tenantId} AND je.date >= ${monthStart(today)} AND je.date <= ${today}
+        AND a.report_group IN ('SALES_REVENUE', 'SALES_DEDUCTION', 'COST_OF_SALES') ${ledBr}
+      GROUP BY a.report_group`);
+    const grp = (g: string) => D(led.rows.find((r) => r.grp === g)?.v ?? 0);
+    const salesMonth = grp('SALES_REVENUE').plus(grp('SALES_DEDUCTION'));
+    const grossProfit = salesMonth.plus(grp('COST_OF_SALES')); // beban pokok bersaldo debit → negatif pada credit−debit
+    const posN = (await this.db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM pos_orders po WHERE po.tenant_id = ${tenantId} AND po.date >= ${monthStart(today)} AND po.date <= ${today} ${posBr}`)).rows[0]?.n ?? 0;
     return redactDashboard({
       salesMonth: salesMonth.toFixed(2),
       grossProfitMonth: grossProfit.toFixed(2),
       grossMarginPct: salesMonth.isZero() ? '0' : grossProfit.div(salesMonth).times(100).toFixed(1),
       invoicesMonth: sales.n,
+      posOrdersMonth: posN,
       arOutstanding: D(ar.v).toFixed(2),
       arOverdue: D(overdue.v).toFixed(2),
       overdueCount: overdue.n,
