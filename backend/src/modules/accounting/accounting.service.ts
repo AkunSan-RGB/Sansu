@@ -659,6 +659,8 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
   async closeYear(user: AuthUser, dto: CloseYearDto) {
     const from = `${dto.year}-01-01`;
     const to = `${dto.year}-12-31`;
+    // Jurnal penutup bertanggal 31 Des dan (bila dikunci) mengunci sampai tanggal itu: tahun yang belum berakhir akan membekukan pembukuan sisa tahun
+    if (to >= todayJakarta()) throw new BadRequestException(`Tahun ${dto.year} belum berakhir; buku hanya bisa ditutup setelah 31 Desember ${dto.year}`);
     const result = await this.db.transaction(async (tx) => {
       // Satu penutupan pada satu waktu per perusahaan; saldo dibaca di dalam transaksi yang sama dengan jurnal penutupnya
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`close:${user.tenantId}`}))`);

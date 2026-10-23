@@ -2,6 +2,7 @@
  * Multi-cabang dalam satu perusahaan (e2e): cabang turun otomatis dari gudang/toko dan kas ke jurnal untuk semua sumber
  * (kasir, penjualan, pembelian, stok, kas, jurnal manual, jurnal balik); laba rugi per cabang; gabungan = laba rugi perusahaan.
  */
+import { closeYearLater } from './close-year-helper';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { sql } from 'drizzle-orm';
@@ -198,7 +199,7 @@ describe('Multi-cabang (e2e)', () => {
     }
 
     // tutup buku tahun berjalan: laba ditahan terbentuk per cabang; laporan per cabang tetap sama dan neraca tetap seimbang
-    await post(owner, '/api/accounting/period/close-year', { year: Number(day.slice(0, 4)), lock: false }).expect(201);
+    expect((await closeYearLater(app, owner, Number(day.slice(0, 4)), false)).status).toBe(201);
     const after1 = (await get(owner, `/api/accounting/statements/income?${q}&branchId=${B1}`).expect(200)).body;
     const after2 = (await get(owner, `/api/accounting/statements/income?${q}&branchId=${B2}`).expect(200)).body;
     expect(Number(after1.netProfit)).toBeCloseTo(Number(a1.netProfit), 2);

@@ -84,4 +84,13 @@ describe('Temuan uji klik keuangan (e2e)', () => {
     expect(r.body.message).toContain('belum berakhir');
     await post(acc, '/api/accounting/period/lock', { until: addDays(todayJakarta(), -400) }).expect(201);
   });
+
+  it('tutup buku tahun berjalan atau tahun depan ditolak (jurnal penutup tidak boleh bertanggal masa depan)', async () => {
+    const year = Number(todayJakarta().slice(0, 4));
+    for (const y of [year, year + 1]) {
+      const r = await post(acc, '/api/accounting/period/close-year', { year: y, lock: true }).expect(400);
+      expect(r.body.message).toContain('belum berakhir');
+    }
+    expect((await http.get('/api/accounting/period').set(as(acc)).expect(200)).body.closings).toEqual([]);
+  });
 });

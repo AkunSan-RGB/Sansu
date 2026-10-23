@@ -63,7 +63,7 @@ export default function ClosingPage() {
             </Typography.Paragraph>
             {bookkeeper ? (
             <Space wrap>
-              <Input type="date" value={until} onChange={(e) => setUntil(e.target.value)} style={{ width: 170 }} />
+              <Input type="date" value={until} max={dayjs().format("YYYY-MM-DD")} onChange={(e) => setUntil(e.target.value)} style={{ width: 170 }} />
               <Popconfirm
                 title={unlocking ? 'Buka kembali periode?' : 'Kunci periode?'}
                 description={unlocking ? 'Transaksi lama bisa diubah lagi. Hanya Pemilik yang boleh.' : `Semua transaksi sampai ${fmtDate(until)} dikunci.`}
@@ -89,7 +89,7 @@ export default function ClosingPage() {
             </Typography.Paragraph>
             {bookkeeper && (
             <Space wrap align="center">
-              <InputNumber value={year} min={2000} max={2100} onChange={(v) => v && setYear(v)} prefix="Tahun" style={{ width: 160 }} />
+              <InputNumber value={year} min={2000} max={dayjs().year() - 1} onChange={(v) => v && setYear(v)} prefix="Tahun" style={{ width: 160 }} />
               <Checkbox checked={lockYear} onChange={(e) => setLockYear(e.target.checked)}>
                 Sekaligus kunci sampai 31 Des
               </Checkbox>
