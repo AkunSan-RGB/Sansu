@@ -57,6 +57,13 @@ describe('Temuan uji klik keuangan (e2e)', () => {
     await http.put('/api/cash/settings').set(as(owner)).send({ blockNegative: false }).expect(200);
   });
 
+  it('bawaan: pembelian aset dari kas/bank melebihi saldo ditolak; bisa dimatikan', async () => {
+    const asset = () => post(acc, '/api/assets', { name: 'Mesin Uji Saldo', categoryId: catId, acquisitionDate: todayJakarta(), cost: '9000000000', funding: 'CASH', cashAccountId: cashId });
+    expect((await asset().expect(400)).body.message).toContain('tidak cukup');
+    await http.put('/api/cash/settings').set(as(owner)).send({ blockNegative: false }).expect(200);
+    await asset().expect(201);
+  });
+
   const cashOut = (date: string) => post(fin, '/api/cash/transactions', { type: 'OUT', cashAccountId: cashId, date, description: 'Uji tanggal', lines: [{ accountId: expA, amount: '1000' }] });
 
   it('kas keluar: tahun salah ketik ditolak; beberapa hari ke depan masih wajar', async () => {

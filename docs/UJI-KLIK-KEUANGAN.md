@@ -15,10 +15,15 @@ Dijalankan lewat browser (Playwright) dan API pada peran Pemilik, Keuangan, dan 
 | Kunci periode ke 2099-12-31 membekukan seluruh pembukuan; hanya Pemilik bisa membuka | Kunci paling lambat hari ini |
 | Tiga klik cepat pada Posting membuat tiga transaksi kas yang sama | `useAction` hanya menjalankan satu permintaan pada satu waktu |
 | Halaman Pajak di HP melebar 56 px | Kepala kartu membungkus di layar sempit |
+| Kas keluar melebihi saldo diizinkan secara bawaan | Kini ditolak secara bawaan (Pemilik/Admin bisa mematikan di Pengaturan); pembuatan data demo mematikannya hanya selama pengisian |
+| Tutup buku tahun berjalan: jurnal penutup bertanggal 31 Des (masa depan) lalu mengunci sisa tahun | Hanya tahun yang sudah berakhir yang bisa ditutup; input tahun dibatasi ke tahun lalu |
+| Aset senilai Rp9,9 miliar dibayar dari bank yang saldonya jauh lebih kecil lolos | Pembelian aset dari kas/bank memakai larangan saldo negatif yang sama |
 
 ## Yang sudah baik (tidak diubah)
 Jumlah nol/negatif/teks ditolak server; kas keluar dari kas kecil, opname, dan akun induk dijaga; impor mutasi bank dengan periode yang sama ditolak; laporan konsisten di ketujuh jenis usaha.
 
-## Catatan yang sengaja tidak diubah
-- Kas keluar melebihi saldo diizinkan secara bawaan (pengaturan "Tolak saldo negatif" opsional); saldo negatif tetap ditandai merah di Kontrol keuangan.
-- Peringatan dev AntD ("useForm tidak terhubung", `Descriptions span`) hanya muncul di mode pengembangan.
+## Belum dijaga
+Larangan saldo negatif belum berlaku di alur uang keluar lain: bayar pemasok, setoran pajak, uang muka pemasok, gaji. Menambahkannya mengubah banyak tes yang membayar dari saldo nol, jadi menunggu keputusan.
+
+## Peringatan formulir AntD (diperbaiki)
+Jurnal manual/berulang (form dirender sejak awal sehingga nilai awal terisi), tab Pengaturan Perusahaan, dan Descriptions kas kecil.

@@ -123,6 +123,8 @@ describe('Aset tetap dari Kas Keluar (e2e)', () => {
     const cat = cats.find((c) => c.method !== 'NONE')!;
     categoryId = cat.id;
     assetAccountId = cat.assetAccountId;
+    // perusahaan uji belum punya saldo kas; larangan saldo negatif (bawaan) dimatikan agar fokus ke kartu asetnya
+    await http.put('/api/cash/settings').set(auth()).send({ blockNegative: false }).expect(200);
     cashAccountId = ((await get('/api/cash/accounts').expect(200)).body as { id: string }[])[0].id;
     const counters = (await get('/api/cash/counter-accounts').expect(200)).body as { id: string; type: string }[];
     expenseAccountId = counters.find((a) => a.type === 'EXPENSE')!.id;

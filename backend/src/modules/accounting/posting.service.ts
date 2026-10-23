@@ -269,6 +269,19 @@ export class PostingService {
     return acc;
   }
 
+  /**
+   * Uang keluar dari akun kas/bank tidak boleh membuat saldonya negatif (pengaturan Kontrol kas "Tolak saldo negatif", bawaan aktif).
+   * Kas Keluar punya pemeriksaan sendiri; pembelian aset dari kas/bank memakai yang ini. Alur uang keluar lain (bayar pemasok, setoran pajak, uang muka, gaji) belum.
+   */
+  async assertCashCovers(tx: Tx, tenantId: string, cash: { id: string; name?: string | null }, amount: DecValue) {
+    const [t] = (await tx.execute<{ block: boolean | null }>(sql`SELECT (settings->'cashControl'->>'blockNegative')::boolean AS block FROM tenants WHERE id = ${tenantId}`)).rows;
+    if (t?.block === false) return;
+    const [b] = (await tx.execute<{ bal: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0) AS bal FROM journal_lines l WHERE l.account_id = ${cash.id}`)).rows;
+    if (D(b.bal).minus(D(amount)).lt(0)) {
+      throw new BadRequestException(`Saldo ${cash.name ?? 'akun kas'} tidak cukup (Rp${D(b.bal).toNumber().toLocaleString('id-ID')}); pengeluaran ini akan membuat saldo negatif`);
+    }
+  }
+
   private async resolveAccounts(tx: Tx, tenantId: string, lines: PostLine[]): Promise<string[]> {
     const keys = [...new Set(lines.filter((l) => l.key).map((l) => l.key!))];
     const ids = [...new Set(lines.filter((l) => l.accountId).map((l) => l.accountId!))];

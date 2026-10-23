@@ -451,6 +451,7 @@ export class AssetsService {
       });
       if (dto.funding !== 'EXISTING') {
         const cashAcc = dto.funding === 'CASH' ? await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'BANK') : undefined;
+        if (cashAcc) await this.posting.assertCashCovers(tx, user.tenantId, cashAcc, cost);
         const credit = cashAcc
           ? { accountId: cashAcc.id, credit: cost, branchId: cashAcc.branchId ?? dto.branchId ?? null }
           : { key: SYS.OTHER_PAYABLE, credit: cost, branchId: dto.branchId ?? null };
