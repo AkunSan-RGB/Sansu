@@ -38,6 +38,7 @@ import QueryState from '@/components/QueryState';
 import { cell, DocHeader, head, PrintSheet, Signatures } from '@/components/print/Letterhead';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
 import { printDoc } from '@/lib/print';
+import BinSelect from './BinSelect';
 
 type TransferStatus = 'IN_TRANSIT' | 'RECEIVED' | 'CANCELLED';
 const STATUS: Record<TransferStatus, { label: string; color: string }> = {
@@ -92,7 +93,7 @@ interface FormValues {
   toWarehouseId: string;
   date: string;
   notes?: string;
-  lines: { productId: string; qty: number }[];
+  lines: { productId: string; qty: number; fromBinId?: string; toBinId?: string }[];
 }
 
 const KEYS = ['transfers', 'stock', 'stock-moves', 'matrix', 'low-stock', 'dashboard', ...LEDGER_KEYS];
@@ -213,6 +214,7 @@ function NewTransfer({ open, onClose, onDone }: { open: boolean; onClose: () => 
   const { data: products } = useProducts();
   const from = Form.useWatch('fromWarehouseId', form);
   const mode = Form.useWatch('mode', form);
+  const to = Form.useWatch('toWarehouseId', form);
   const stock = useQuery({
     queryKey: ['stock', from],
     queryFn: () => get<StockBalance[]>(`/inventory/balances${qs({ warehouseId: from })}`),
@@ -223,7 +225,7 @@ function NewTransfer({ open, onClose, onDone }: { open: boolean; onClose: () => 
     (v: FormValues) =>
       post<{ id: string; number: string }>('/inventory/transfers', {
         ...v,
-        lines: v.lines.map((l) => ({ productId: l.productId, qty: String(l.qty) })),
+        lines: v.lines.map((l) => ({ productId: l.productId, qty: String(l.qty), fromBinId: l.fromBinId || undefined, toBinId: mode === 'IN_TRANSIT' ? undefined : l.toBinId || undefined })),
       }),
     {
       success: (r) =>
@@ -342,6 +344,14 @@ function NewTransfer({ open, onClose, onDone }: { open: boolean; onClose: () => 
                   >
                     <InputNumber min={0.0001} style={{ width: '100%' }} placeholder="Jumlah" />
                   </Form.Item>
+                  <Form.Item name={[f.name, 'fromBinId']} style={{ marginBottom: 0 }}>
+                    <BinSelect warehouseId={from} placeholder="Rak asal (otomatis)" width={170} />
+                  </Form.Item>
+                  {mode !== 'IN_TRANSIT' && (
+                    <Form.Item name={[f.name, 'toBinId']} style={{ marginBottom: 0 }}>
+                      <BinSelect warehouseId={to} placeholder="Rak tujuan (otomatis)" width={170} />
+                    </Form.Item>
+                  )}
                   {fields.length > 1 && <MinusCircleOutlined onClick={() => remove(f.name)} />}
                 </Space>
               ))}
@@ -527,6 +537,7 @@ function ReceiveModal({ t, open, onClose }: { t: TransferDetail; open: boolean; 
   const [qty, setQty] = useState<Record<string, number | null>>({});
   const [date, setDate] = useState(today());
   const [notes, setNotes] = useState('');
+  const [binOf, setBinOf] = useState<Record<string, string | undefined>>({});
   const got = (l: TransferDetail['lines'][number]) => qty[l.productId] ?? Number(l.qty);
   const short = t.lines.filter((l) => got(l) < Number(l.qty));
   const shortValue = short.reduce((a, l) => a + (Number(l.qty) - got(l)) * Number(l.unitCost), 0);
@@ -535,7 +546,7 @@ function ReceiveModal({ t, open, onClose }: { t: TransferDetail; open: boolean; 
       post<{ shortageValue: string }>(`/inventory/transfers/${t.id}/receive`, {
         date,
         notes: notes || undefined,
-        lines: t.lines.map((l) => ({ productId: l.productId, receivedQty: String(got(l)) })),
+        lines: t.lines.map((l) => ({ productId: l.productId, receivedQty: String(got(l)), binId: binOf[l.productId] || undefined })),
       }),
     {
       success: (r) =>
@@ -583,6 +594,7 @@ function ReceiveModal({ t, open, onClose }: { t: TransferDetail; open: boolean; 
               />
             ),
           },
+          { title: 'Rak', width: 170, render: (_, l) => <BinSelect warehouseId={t.to.id} value={binOf[l.productId]} onChange={(v) => setBinOf((b) => ({ ...b, [l.productId]: v }))} width={150} /> },
         ]}
       />
       {short.length > 0 && (

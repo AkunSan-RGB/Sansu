@@ -32,6 +32,7 @@ export interface ReceiveItem {
   qty: string;
   lotNo?: string;
   expiryDate?: string;
+  binId?: string;
 }
 
 /** Selisih kuantitas di bawah ini dianggap nol (pembulatan 4 desimal) */
@@ -76,7 +77,7 @@ export class GoodsReceiptsService {
       }
       const left = this.remaining(order);
       const picks: ReceiveItem[] = dto.lines ?? order.lines.map((l) => ({ orderLineId: l.id, qty: left.get(l.id)!.toString() }));
-      const items: { line: LockedOrder['lines'][number]; qty: Dec; lot?: { lotNo?: string; expiryDate?: string } }[] = [];
+      const items: { line: LockedOrder['lines'][number]; qty: Dec; lot?: { lotNo?: string; expiryDate?: string }; binId?: string }[] = [];
       const seen = new Set<string>();
       for (const p of picks) {
         const line = order.lines.find((l) => l.id === p.orderLineId);
@@ -89,7 +90,7 @@ export class GoodsReceiptsService {
         if (q.gt(left.get(line.id)!.plus(QTY_EPS))) {
           throw new BadRequestException(`Jumlah diterima melebihi sisa pesanan (sisa ${left.get(line.id)!.toString()} dari ${D(line.qty).toString()})`);
         }
-        items.push({ line, qty: q, lot: { lotNo: p.lotNo, expiryDate: p.expiryDate } });
+        items.push({ line, qty: q, lot: { lotNo: p.lotNo, expiryDate: p.expiryDate }, binId: p.binId });
       }
       if (!items.length) throw new BadRequestException('Tidak ada barang yang diterima: isi jumlah pada minimal satu baris');
       // Selisih terhadap sisa pesanan (kurang/lebih dari yang dipesan) dicatat untuk dikabarkan ke Pembelian dan Pemilik
@@ -124,7 +125,7 @@ export class GoodsReceiptsService {
     tx: Tx,
     user: AuthUser,
     order: LockedOrder,
-    items: { line: LockedOrder['lines'][number]; qty: Dec; lot?: { lotNo?: string; expiryDate?: string } }[],
+    items: { line: LockedOrder['lines'][number]; qty: Dec; lot?: { lotNo?: string; expiryDate?: string }; binId?: string }[],
     date: DocDate,
     o: { deliveryNo?: string; notes?: string },
   ) {
@@ -152,7 +153,7 @@ export class GoodsReceiptsService {
     // Barang wajib QC masuk karantina dulu (bukan gudang tujuan) dan diinspeksi; lolos → dipindah ke gudang tujuan PO
     const quarantine = await this.qc.inboundQuarantine(tx, user.tenantId, [...new Set(items.map((i) => i.line.productId))]);
     let total: Dec = ZERO;
-    for (const { line, qty, lot } of items) {
+    for (const { line, qty, lot, binId } of items) {
       const baseQty = qty.times(line.uomFactor);
       const net = D(line.lineTotal).times(qty).div(line.qty);
       const unitCost = qty4(net.times(factor).div(baseQty));
@@ -170,6 +171,7 @@ export class GoodsReceiptsService {
         refNumber: number,
         date,
         lot,
+        binId: toQc ? undefined : binId,
       });
       total = total.plus(moved.value);
       await tx.insert(goodsReceiptLines).values({

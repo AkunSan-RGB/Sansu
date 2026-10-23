@@ -65,6 +65,8 @@ import { StockService } from './stock.service';
 export class TransferLineDto {
   @ApiProperty() @IsUUID() productId: string;
   @ApiProperty({ example: '24', description: 'Satuan dasar' }) @IsNumberString() qty: string;
+  @ApiPropertyOptional({ description: 'Gudang asal memakai rak: rak yang diutamakan untuk diambil' }) @IsOptional() @IsUUID() fromBinId?: string;
+  @ApiPropertyOptional({ description: 'Kirim langsung ke gudang tujuan yang memakai rak: rak tujuan' }) @IsOptional() @IsUUID() toBinId?: string;
 }
 export class CreateTransferDto {
   @ApiProperty() @IsUUID() fromWarehouseId: string;
@@ -90,6 +92,7 @@ export class ReceiveLineDto {
   @ApiProperty({ example: '24', description: 'Jumlah yang benar-benar diterima (satuan dasar)' })
   @IsNumberString()
   receivedQty: string;
+  @ApiPropertyOptional({ description: 'Gudang tujuan memakai rak: rak tempat barang diletakkan' }) @IsOptional() @IsUUID() binId?: string;
 }
 export class ReceiveTransferDto {
   @ApiPropertyOptional() @IsOptional() @IsDateString() date?: string;
@@ -260,7 +263,9 @@ export class WarehouseOpsService {
     const transit = dto.mode === 'IN_TRANSIT';
     // gabungkan baris produk yang sama
     const merged = new Map<string, ReturnType<typeof D>>();
+    const binPick = new Map<string, { from?: string; to?: string }>();
     for (const l of dto.lines) {
+      binPick.set(l.productId, { from: l.fromBinId ?? binPick.get(l.productId)?.from, to: l.toBinId ?? binPick.get(l.productId)?.to });
       const q = D(l.qty);
       if (!q.isPositive()) throw new BadRequestException('Jumlah transfer harus lebih dari nol');
       merged.set(l.productId, (merged.get(l.productId) ?? ZERO).plus(q));
@@ -306,6 +311,7 @@ export class WarehouseOpsService {
           refId: id,
           refNumber: number,
           date,
+          binId: binPick.get(productId)?.from,
         });
         total = total.plus(out.value);
         sentItems.push({ productId, value: out.value });
@@ -328,6 +334,7 @@ export class WarehouseOpsService {
           refNumber: number,
           date,
           skipAccessCheck: true,
+          binId: binPick.get(productId)?.to,
         });
         await tx
           .insert(stockTransferLines)
@@ -418,10 +425,12 @@ export class WarehouseOpsService {
       const date = toDocDate(dto.date);
       if (date < t.date) throw new BadRequestException('Tanggal terima tidak boleh sebelum tanggal kirim');
       const given = new Map<string, ReturnType<typeof D>>();
+      const givenBin = new Map<string, string>();
       for (const l of dto.lines ?? []) {
         if (!lines.some((x) => x.productId === l.productId))
           throw new BadRequestException('Produk tidak ada di transfer ini');
         given.set(l.productId, D(l.receivedQty));
+        if (l.binId) givenBin.set(l.productId, l.binId);
       }
       let received = ZERO;
       let shortage = ZERO;
@@ -448,6 +457,7 @@ export class WarehouseOpsService {
             refNumber: t.number,
             date,
             skipAccessCheck: true,
+            binId: givenBin.get(l.productId),
           });
         }
         if (rq.lt(sent)) short.push(l.productId);

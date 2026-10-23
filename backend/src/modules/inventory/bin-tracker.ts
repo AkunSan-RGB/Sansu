@@ -16,6 +16,8 @@ import type { LotDelta } from './stock-lots';
 export const BIN_KINDS = ['STORAGE', 'STAGING', 'DAMAGED', 'QUARANTINE', 'UNASSIGNED'] as const;
 export type BinKind = (typeof BIN_KINDS)[number];
 export const UNASSIGNED_CODE = 'BELUM-DITEMPATKAN';
+/** Urutan prioritas rak saat mengambil barang (juga dipakai daftar ambil agar saran = pembukuan): simpan/penyiapan, lalu belum ditempatkan, lalu rusak/karantina */
+export const BIN_PICK_TIER = sql`CASE b.kind WHEN 'STORAGE' THEN 0 WHEN 'STAGING' THEN 0 WHEN 'UNASSIGNED' THEN 1 ELSE 2 END`;
 const NO_LOT = '00000000-0000-0000-0000-000000000000';
 
 export interface BinTrackInput {
@@ -81,8 +83,8 @@ async function takeFrom(tx: Tx, m: BinTrackInput, need: Dec, cond: ReturnType<ty
     SELECT s.id, s.bin_id, s.lot_id, s.qty FROM stock_bin_balances s JOIN warehouse_bins b ON b.id = s.bin_id
     WHERE s.warehouse_id = ${m.warehouseId} AND s.product_id = ${m.productId} AND s.qty > 0 AND ${cond}
     ORDER BY COALESCE(s.bin_id = ${prefer}::uuid, false) DESC,
-             CASE b.kind WHEN 'STORAGE' THEN 0 WHEN 'STAGING' THEN 0 WHEN 'UNASSIGNED' THEN 1 ELSE 2 END,
-             (s.lot_id IS NOT NULL) ASC, s.qty ASC, s.id
+             ${BIN_PICK_TIER},
+             (s.lot_id IS NOT NULL) ASC, s.qty ASC, b.code, s.id
     FOR UPDATE OF s`);
   let left = need;
   for (const r of rows.rows) {

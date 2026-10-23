@@ -12,10 +12,10 @@ import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { allowedWarehouses, assertWarehouseAccess } from '../../common/auth/warehouse-access';
-import { D, qty4 } from '../../common/utils/money';
+import { D, Dec, qty4 } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { addToBin, BIN_KINDS, logBinMove, UNASSIGNED_CODE } from './bin-tracker';
+import { addToBin, BIN_PICK_TIER, logBinMove, UNASSIGNED_CODE } from './bin-tracker';
 
 const CODE_RE = /^[A-Z0-9][A-Z0-9._/-]{0,29}$/;
 const CREATABLE_KINDS = ['STORAGE', 'STAGING', 'DAMAGED', 'QUARANTINE'] as const;
@@ -52,6 +52,12 @@ export class MoveBinsDto {
   @ApiProperty() @IsUUID() warehouseId: string;
   @ApiProperty({ type: [BinMoveLineDto] }) @IsArray() @ArrayMinSize(1) @ArrayMaxSize(100) @ValidateNested({ each: true }) @Type(() => BinMoveLineDto) lines: BinMoveLineDto[];
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(200) note?: string;
+}
+
+export class PickPlanQuery {
+  @ApiPropertyOptional({ description: 'Wajib bila tanpa pesanan penjualan' }) @IsOptional() @IsUUID() warehouseId?: string;
+  @ApiPropertyOptional({ description: 'Daftar kebutuhan: idBarang:jumlah,idBarang:jumlah (satuan dasar)' }) @IsOptional() @IsString() @MaxLength(6000) items?: string;
+  @ApiPropertyOptional({ description: 'Ambil kebutuhan dari sisa pesanan penjualan yang belum dikirim' }) @IsOptional() @IsUUID() salesOrderId?: string;
 }
 
 export class BinStockQuery {
@@ -296,6 +302,71 @@ export class BinsService {
     return { ok: true, moved: lines.length };
   }
 
+  /**
+   * Daftar ambil (picking list): lot yang paling cepat kedaluwarsa lebih dulu (FEFO), di rak yang akan dikurangi sistem saat barang keluar
+   * (urutan sama dengan pembukuan), lalu diurutkan menurut zona/kode rak agar petugas berjalan searah. Rak rusak/karantina tidak dipakai.
+   */
+  async pickPlan(u: AuthUser, q: PickPlanQuery) {
+    let warehouseId = q.warehouseId;
+    let order: { id: string; number: string } | null = null;
+    const need = new Map<string, Dec>();
+    if (q.salesOrderId) {
+      const o = (await this.db.execute<{ id: string; number: string; warehouse_id: string }>(sql`SELECT id, number, warehouse_id FROM sales_orders WHERE id = ${q.salesOrderId} AND tenant_id = ${u.tenantId}`)).rows[0];
+      if (!o) throw new NotFoundException('Pesanan penjualan tidak ditemukan');
+      warehouseId = o.warehouse_id;
+      order = { id: o.id, number: o.number };
+      const r = await this.db.execute<{ product_id: string; base: string }>(sql`
+        SELECT sol.product_id, SUM((sol.qty - COALESCE(dl.q, 0)) * sol.uom_factor)::text AS base
+        FROM sales_order_lines sol
+        LEFT JOIN (SELECT x.order_line_id, SUM(x.qty) AS q FROM delivery_order_lines x JOIN delivery_orders d ON d.id = x.delivery_id WHERE d.sales_order_id = ${q.salesOrderId} AND d.status = 'DELIVERED' GROUP BY x.order_line_id) dl ON dl.order_line_id = sol.id
+        WHERE sol.order_id = ${q.salesOrderId} GROUP BY sol.product_id HAVING SUM((sol.qty - COALESCE(dl.q, 0)) * sol.uom_factor) > 0`);
+      for (const x of r.rows) need.set(x.product_id, D(x.base));
+    } else {
+      if (!warehouseId) throw new BadRequestException('Pilih gudang atau pesanan penjualan');
+      for (const part of (q.items ?? '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 100)) {
+        const [pid, qty] = part.split(':');
+        if (!/^[0-9a-f-]{36}$/i.test(pid ?? '') || !/^\d+(\.\d{1,4})?$/.test(qty ?? '') || D(qty).lte(0)) throw new BadRequestException('Daftar kebutuhan tidak valid');
+        need.set(pid, (need.get(pid) ?? D(0)).plus(qty));
+      }
+    }
+    if (!need.size) throw new BadRequestException(q.salesOrderId ? 'Pesanan ini tidak punya barang yang belum dikirim' : 'Isi minimal satu barang');
+    assertWarehouseAccess(u, warehouseId!);
+    const w = await this.warehouse(this.db, u.tenantId, warehouseId!);
+    if (!w.bins_enabled) throw new BadRequestException(`Lokasi rak belum aktif di gudang ${w.name}`);
+    const lines: Record<string, unknown>[] = [];
+    const shortages: { productId: string; sku: string; name: string; needed: string; available: string }[] = [];
+    for (const [productId, want] of need) {
+      const p = (await this.db.execute<{ sku: string; name: string; base_uom: string }>(sql`SELECT sku, name, base_uom FROM products WHERE id = ${productId} AND tenant_id = ${u.tenantId}`)).rows[0];
+      if (!p) throw new BadRequestException('Ada barang yang tidak ditemukan');
+      const rows = await this.db.execute<{ bin_id: string; code: string; zone: string | null; kind: string; lot_id: string | null; lot_no: string | null; expiry_date: string | null; qty: string }>(sql`
+        SELECT s.bin_id, b.code, b.zone, b.kind, s.lot_id, l.lot_no, l.expiry_date, s.qty
+        FROM stock_bin_balances s JOIN warehouse_bins b ON b.id = s.bin_id LEFT JOIN stock_lots l ON l.id = s.lot_id
+        WHERE s.warehouse_id = ${warehouseId} AND s.product_id = ${productId} AND s.qty > 0 AND b.kind IN ('STORAGE', 'STAGING', 'UNASSIGNED')
+        ORDER BY (s.lot_id IS NULL), l.expiry_date NULLS LAST, l.received_date, l.id, ${BIN_PICK_TIER}, s.qty, b.code`);
+      let left = want;
+      let avail = D(0);
+      for (const r of rows.rows) {
+        avail = avail.plus(r.qty);
+        if (left.lte(0)) continue;
+        const have = D(r.qty);
+        const take = have.lt(left) ? have : left;
+        lines.push({ productId, sku: p.sku, name: p.name, uom: p.base_uom, binId: r.bin_id, binCode: r.code, zone: r.zone, binKind: r.kind, lotId: r.lot_id, lotNo: r.lot_no, expiryDate: r.expiry_date, qty: take.toFixed(4), available: have.toFixed(4) });
+        left = left.minus(take);
+      }
+      if (left.gt(0)) shortages.push({ productId, sku: p.sku, name: p.name, needed: want.toFixed(4), available: avail.toFixed(4) });
+    }
+    // urutan jalan petugas: zona, kode rak (angka dibaca sebagai angka), lalu barang
+    const nat = (a: unknown, b: unknown) => String(a ?? '').localeCompare(String(b ?? ''), 'id', { numeric: true });
+    lines.sort((a, b) => (a.zone ? 0 : 1) - (b.zone ? 0 : 1) || nat(a.zone, b.zone) || (a.binKind === 'UNASSIGNED' ? 1 : 0) - (b.binKind === 'UNASSIGNED' ? 1 : 0) || nat(a.binCode, b.binCode) || nat(a.sku, b.sku));
+    return {
+      warehouse: { id: w.id, code: w.code, name: w.name },
+      order,
+      lines,
+      shortages,
+      unplaced: lines.filter((l) => l.binKind === 'UNASSIGNED').length,
+    };
+  }
+
   /** Pemeriksaan invarian: Σ stok rak = stok gudang per barang, dan per lot */
   async check(u: AuthUser, warehouseId: string) {
     assertWarehouseAccess(u, warehouseId);
@@ -342,6 +413,9 @@ export class BinsController {
 
   @Get('history') @Roles(...READ_ROLES)
   history(@CurrentUser() u: AuthUser, @Query() q: BinStockQuery) { return this.svc.history(u, q); }
+
+  @Get('pick-plan') @Roles(...READ_ROLES)
+  pickPlan(@CurrentUser() u: AuthUser, @Query() q: PickPlanQuery) { return this.svc.pickPlan(u, q); }
 
   @Get('check') @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE')
   check(@CurrentUser() u: AuthUser, @Query('warehouseId', ParseUUIDPipe) warehouseId: string) { return this.svc.check(u, warehouseId); }

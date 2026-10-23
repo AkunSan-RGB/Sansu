@@ -21,8 +21,14 @@ Rencana lengkap ada di `docs/RENCANA-LOKASI-RAK.md`. Dokumen ini menjelaskan yan
 - Riwayat pindah rak tidak dapat diubah atau dihapus (trigger database), dan tercatat di jejak audit.
 - Semua tabel dilindungi RLS per perusahaan; gudang yang dibatasi per pengguna tetap berlaku.
 
+## Tahap 2: alur dan daftar ambil
+- **Pilihan rak** (opsional) pada penerimaan barang dari PO, penyesuaian stok (masuk: rak tujuan; keluar: rak yang diutamakan), dan transfer gudang (rak asal; rak tujuan untuk kirim langsung atau saat diterima). Rak harus milik gudang yang bersangkutan dan aktif; pilihan yang salah menolak seluruh dokumen. Kosong = otomatis seperti tahap 1.
+- **Daftar ambil** (`GET /inventory/bins/pick-plan`): dari sisa pesanan penjualan yang belum dikirim atau daftar ketikan. Urutan: lot paling cepat kedaluwarsa (FEFO), rak yang dikurangi sistem (simpan/penyiapan, lalu BELUM-DITEMPATKAN; rak rusak/karantina dilewati), lalu diurutkan menurut zona dan kode rak agar petugas berjalan searah. Kekurangan stok dilaporkan. Dapat dicetak.
+- Urutan pengambilan di pembukuan (`takeFrom`) dan di daftar ambil memakai ketentuan yang sama (`BIN_PICK_TIER`), sehingga rak yang disarankan = rak yang berkurang.
+- Pembatalan surat jalan mengembalikan barang ke BELUM-DITEMPATKAN (bukan rak asal); tata ulang lewat Pindah rak.
+
 ## Belum ada (tahap berikutnya)
-Pilihan rak saat penerimaan barang, daftar ambil (picking list) berurutan rak, stock opname per rak, persetujuan pindah bernilai besar, laporan kontrol (barang lama belum ditata, dsb.), label rak QR/barcode, pindai lewat HP, dan impor rak dari Excel.
+Stock opname per rak, persetujuan pindah bernilai besar, laporan kontrol (barang lama belum ditata, dsb.), label rak QR/barcode, pindai lewat HP, impor rak dari Excel, dan pilihan rak di jalur terima-dan-faktur sekaligus.
 
 ## Berkas
 Migrasi `0102_lokasi_rak.sql`; `backend/src/modules/inventory/bin-tracker.ts`, `bins.ts`; hook di `stock.service.ts`, `stock-lots.ts` (mengembalikan perubahan lot), `production/qc.ts`; tes `backend/test/lokasi-rak.e2e-spec.ts`; tampilan `frontend/src/features/inventory/BinsPage.tsx`.
