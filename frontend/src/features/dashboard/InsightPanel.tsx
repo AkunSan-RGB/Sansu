@@ -1,5 +1,5 @@
 /**
- * Wawasan & saran untuk pimpinan: ringkasan kondisi, tren 6 bulan, dan kartu saran yang diturunkan dari data.
+ * Wawasan & saran: ringkasan kondisi, tren 6 bulan, dan kartu saran yang diturunkan dari data.
  * Sifatnya masukan untuk dipertimbangkan (bisa disembunyikan), bukan keharusan.
  */
 import {
@@ -270,7 +270,7 @@ export default function InsightPanel() {
       >
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,.14)', borderRadius: 999, padding: '4px 12px', fontSize: 12.5, fontWeight: 600 }}>
-            <ThunderboltFilled style={{ color: '#FDE68A' }} /> Wawasan & saran untuk pimpinan
+            <ThunderboltFilled style={{ color: '#FDE68A' }} /> Wawasan & saran
           </div>
           <h2 style={{ margin: '12px 0 4px', color: '#fff', fontSize: 'clamp(22px, 3.2vw, 30px)', lineHeight: 1.15, fontWeight: 800, letterSpacing: -0.4 }}>
             {s.warnings === 0 && data.insights.length > 0 && <CheckCircleFilled style={{ color: '#7CF2C1', marginRight: 8 }} />}
