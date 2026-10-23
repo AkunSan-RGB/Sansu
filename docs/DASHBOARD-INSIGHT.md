@@ -1,6 +1,6 @@
 # Wawasan & saran di Beranda
 
-Panel "Wawasan & saran untuk pimpinan" di Beranda (Pemilik, Admin, Keuangan, Akuntan; tidak untuk akun yang dibatasi cabang). Isinya ringkasan kondisi, grafik penjualan dan laba kotor 6 bulan, dan kartu saran. **Saran bersifat masukan untuk dipertimbangkan, bukan keharusan**, dan dapat disembunyikan 7 hari per pengguna (disimpan di peramban).
+Panel "Wawasan & saran" di Beranda (Pemilik, Admin, Keuangan, Akuntan; tidak untuk akun yang dibatasi cabang). Isinya ringkasan kondisi, grafik penjualan dan laba kotor 6 bulan, dan kartu saran. **Saran bersifat masukan untuk dipertimbangkan, bukan keharusan**, dan dapat disembunyikan 7 hari per pengguna (disimpan di peramban).
 
 API: `GET /dashboard/insights` (`backend/src/modules/dashboard/dashboard-insights.ts`; aturan murni dan teruji di `insight-rules.ts`).
 

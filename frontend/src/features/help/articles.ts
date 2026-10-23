@@ -325,7 +325,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
   {
     id: 'insight-beranda',
     category: 'Memulai',
-    title: 'Wawasan & saran di Beranda (untuk pimpinan)',
+    title: 'Wawasan & saran di Beranda',
     summary: 'Ringkasan kondisi usaha dan saran yang dihitung dari data pembukuan. Sifatnya masukan, bukan keharusan.',
     paths: ['/dashboard'],
     steps: [
