@@ -68,7 +68,8 @@ export default function ListPage<T extends object>({
       {summary && !loading && all.length > 0 && <SummaryCards items={summary(all)} />}
       <Card>
         {(views || searchText) && (
-          <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
+          // flex biasa (bukan Space): item Space ikut selebar isinya sehingga filter status tidak bisa digulir di layar HP
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
             {views && (
               <div style={{ maxWidth: '100%', overflowX: 'auto' }}>
                 <Segmented
@@ -78,8 +79,8 @@ export default function ListPage<T extends object>({
                 />
               </div>
             )}
-            {searchText && <Input.Search allowClear placeholder={searchPlaceholder} style={{ width: 260 }} onChange={(e) => setQ(e.target.value)} />}
-          </Space>
+            {searchText && <Input.Search allowClear placeholder={searchPlaceholder} style={{ width: 260, maxWidth: '100%' }} onChange={(e) => setQ(e.target.value)} />}
+          </div>
         )}
         {below}
         <ResponsiveTable<T>
