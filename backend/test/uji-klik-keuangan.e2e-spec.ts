@@ -59,6 +59,7 @@ describe('Temuan uji klik keuangan (e2e)', () => {
 
   it('bawaan: pembelian aset dari kas/bank melebihi saldo ditolak; bisa dimatikan', async () => {
     const asset = () => post(acc, '/api/assets', { name: 'Mesin Uji Saldo', categoryId: catId, acquisitionDate: todayJakarta(), cost: '9000000000', funding: 'CASH', cashAccountId: cashId });
+    await http.put('/api/cash/settings').set(as(owner)).send({ blockNegative: true }).expect(200);
     expect((await asset().expect(400)).body.message).toContain('tidak cukup');
     await http.put('/api/cash/settings').set(as(owner)).send({ blockNegative: false }).expect(200);
     await asset().expect(201);
