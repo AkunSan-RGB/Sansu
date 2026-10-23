@@ -18,6 +18,7 @@ import { ArrayMinSize, IsIn, IsInt, IsNumberString, Min, IsOptional, IsString, I
 import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { POS_ORDER_TYPES, POS_PAYMENT_METHODS, type PosOrderType, type PosPaymentMethod } from '@sansu/shared';
 import { RequireApp } from '../../common/apps/app.guard';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
@@ -93,6 +94,7 @@ export class PosService {
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
     private readonly loyalty: LoyaltyService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   /** Produk untuk layar kasir: harga, satuan, barcode, dan stok di gudang sesi */
@@ -141,7 +143,13 @@ export class PosService {
         bankAccount: { columns: { id: true, code: true, name: true } },
       },
     });
-    return s ? { ...s, summary: await this.summary(this.db, s.id, s.openingCash) } : null;
+    if (!s) return null;
+    const summary = await this.summary(this.db, s.id, s.openingCash);
+    // Tutup kasir buta: Kasir tidak melihat uang tunai yang seharusnya ada (modal awal + penjualan tunai − retur tunai) sebelum menghitung laci
+    if (user.role === 'CASHIER' && (await this.approvals.policy(this.db, user.tenantId)).blindCashClose) {
+      return { ...s, summary: { ...summary, blind: true, expectedCash: '0.00', cashRefunds: '0.00', byMethod: { ...summary.byMethod, CASH: '0.00' } } };
+    }
+    return { ...s, summary };
   }
 
   async open(user: AuthUser, dto: OpenSessionDto) {

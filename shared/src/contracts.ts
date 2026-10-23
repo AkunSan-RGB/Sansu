@@ -869,6 +869,8 @@ export interface PosSessionSummary {
   totalSales: string;
   byMethod: Record<PosPaymentMethod, string>;
   expectedCash: string;
+  /** Tutup kasir buta: jumlah tunai yang seharusnya disembunyikan dari Kasir sampai ia menghitung laci */
+  blind?: boolean;
 }
 
 // ---------- Meja, pesanan terbuka, dapur ----------

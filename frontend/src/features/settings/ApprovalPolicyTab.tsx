@@ -12,7 +12,7 @@ type Policy = {
   purchaseOrder: number; manualJournal: number; assetDisposal: number; cashOut: number; stockAdjustment: number; purchaseRequestAuto: number;
   priceControl: boolean; priceTolerancePct: number; priceBenchmarkPct: number; firstSupplierPayment: boolean; blindReceiving: boolean; blindDelivery: boolean;
   salesOrder: number; salesDiscountMaxPct: number; salesReturn: number; salesBelowCost: boolean; salesSeparateDuties: boolean; stockAlertValue: number;
-  stockCountSod: boolean; blindCount: boolean; stockInCostTolerancePct: number; transferSod: boolean; bankChangeHoldDays: number;
+  stockCountSod: boolean; blindCount: boolean; blindCashClose: boolean; stockInCostTolerancePct: number; transferSod: boolean; bankChangeHoldDays: number;
   budgetControl: 'OFF' | 'APPROVAL' | 'BLOCK'; telegramLinkHours: number;
 };
 
@@ -29,6 +29,7 @@ const SAFEGUARDS: { key: keyof Policy; area: string; rec: number | boolean }[] =
   { key: 'stockAdjustment', area: 'Persediaan', rec: 5_000_000 },
   { key: 'stockInCostTolerancePct', area: 'Persediaan', rec: 25 },
   { key: 'blindCount', area: 'Persediaan', rec: true },
+  { key: 'blindCashClose', area: 'Penjualan', rec: true },
   { key: 'cashOut', area: 'Kas, jurnal & aset', rec: 5_000_000 },
   { key: 'manualJournal', area: 'Kas, jurnal & aset', rec: 10_000_000 },
   { key: 'assetDisposal', area: 'Kas, jurnal & aset', rec: 5_000_000 },
@@ -181,6 +182,7 @@ export default function ApprovalPolicyTab() {
             {toggle('salesBelowCost', 'Penjualan di bawah harga pokok butuh persetujuan', 'Harga jual (setelah diskon) di bawah harga pokok rata-rata gudang, saat dikonfirmasi staf, menunggu persetujuan. Menutup celah menembus batas diskon lewat harga yang diketik langsung.')}
             {toggle('salesSeparateDuties', 'Pembuat faktur ≠ pencatat pembayaran/retur', 'Pembayaran atau retur atas faktur oleh orang yang membuat faktur itu sendiri (selain Pemilik/Admin) menunggu persetujuan. Cocok bila ada lebih dari satu Keuangan; bila hanya satu, semua pembayaran akan menunggu persetujuan.', true)}
             {toggle('blindDelivery', 'Pengiriman buta (Gudang mengisi jumlah kemas sendiri)', 'Gudang tidak melihat jumlah pesanan dan wajib mengisi jumlah yang dikemas. Bila tidak sama dengan sisa pesanan, pengiriman ditahan dan Penjualan, Admin, dan Pemilik diberi tahu.', true)}
+            {toggle('blindCashClose', 'Tutup kasir buta (Kasir tidak melihat uang yang seharusnya)', 'Kasir menghitung uang laci dulu tanpa melihat jumlah tunai yang seharusnya; selisih (kurang/lebih) baru terlihat setelah ia menutup kasir, sehingga angka tidak bisa sekadar disalin.')}
           </PolicyCard>
 
           <PolicyCard icon={<InboxOutlined />} title="Persediaan" desc="Penyesuaian stok, stock opname, dan transfer antar gudang.">

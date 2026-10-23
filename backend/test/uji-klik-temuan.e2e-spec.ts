@@ -52,4 +52,19 @@ describe('Temuan uji klik (e2e)', () => {
     await post(cashier, '/api/pos/orders', { sessionId, lines: [{ productId: PAID, qty: '2' }], payments: [{ method: 'CASH', amount: '16000' }] }).expect(201);
     expect(await stockOf(PAID)).toBe(48);
   });
+  it('tutup kasir buta: Kasir tidak melihat tunai seharusnya; selisih tetap dihitung server', async () => {
+    const put = (u: string, b: object) => http.put(u).set(as(owner)).send(b);
+    const cur = async (t: string) => (await http.get('/api/pos/sessions/current').set(as(t)).expect(200)).body.summary as { expectedCash: string; byMethod: Record<string, string>; blind?: boolean };
+    // kebijakan mati: Kasir melihat angka sebenarnya (modal 100.000 + penjualan tunai 16.000)
+    expect((await cur(cashier)).expectedCash).toBe('116000.00');
+    await put('/api/approvals/policy', { blindCashClose: true }).expect(200);
+    const hidden = await cur(cashier);
+    expect(hidden.blind).toBe(true);
+    expect(hidden.expectedCash).toBe('0.00');
+    expect(hidden.byMethod.CASH).toBe('0.00');
+    // hitung 113.000 → kurang 3.000 terhadap yang seharusnya (116.000) walau angka itu tidak pernah ditampilkan
+    const closed = (await post(cashier, `/api/pos/sessions/${sessionId}/close`, { countedCash: '113000' }).expect(201)).body;
+    expect(closed.difference).toBe('-3000.00');
+    expect(closed.journalNumber).toBeTruthy();
+  });
 });

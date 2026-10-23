@@ -145,16 +145,19 @@ function CloseSession({ session, open, onClose }: { session: PosSession; open: b
           <Descriptions column={1} size="small" bordered style={{ marginBottom: 16 }}>
             <Descriptions.Item label="Transaksi">{s.orderCount}</Descriptions.Item>
             <Descriptions.Item label={t('Total penjualan')}>{fmtMoney(s.totalSales)}</Descriptions.Item>
-            {(Object.keys(s.byMethod) as PosPaymentMethod[]).filter((m) => m !== 'PLATFORM' || Number(s.byMethod[m]) > 0).map((m) => (
+            {(Object.keys(s.byMethod) as PosPaymentMethod[]).filter((m) => (m !== 'PLATFORM' || Number(s.byMethod[m]) > 0) && !(s.blind && m === 'CASH')).map((m) => (
               <Descriptions.Item key={m} label={POS_PAYMENT_LABELS[m]}>
                 {fmtMoney(s.byMethod[m])}
               </Descriptions.Item>
             ))}
-            <Descriptions.Item label="Modal awal">{fmtMoney(session.openingCash)}</Descriptions.Item>
-            <Descriptions.Item label={<strong>Tunai seharusnya di laci</strong>}>
-              <strong>{fmtMoney(s.expectedCash)}</strong>
-            </Descriptions.Item>
+            {!s.blind && <Descriptions.Item label="Modal awal">{fmtMoney(session.openingCash)}</Descriptions.Item>}
+            {!s.blind && (
+              <Descriptions.Item label={<strong>Tunai seharusnya di laci</strong>}>
+                <strong>{fmtMoney(s.expectedCash)}</strong>
+              </Descriptions.Item>
+            )}
           </Descriptions>
+          {s.blind && <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Hitung seluruh uang di laci (termasuk modal awal)" description="Jumlah yang seharusnya tidak ditampilkan; selisih terlihat setelah Anda menutup kasir." />}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <Typography.Text strong>Uang tunai yang Anda hitung</Typography.Text>
             <Segmented
@@ -183,7 +186,7 @@ function CloseSession({ session, open, onClose }: { session: PosSession; open: b
             </div>
           )}
           <InputNumber min={0} value={counted} onChange={setCounted} disabled={byDenom} style={{ width: '100%', margin: '6px 0 8px' }} size="large" prefix="Rp" autoFocus />
-          {counted !== null && (
+          {counted !== null && !s.blind && (
             <Alert
               type={diff === 0 ? 'success' : 'warning'}
               showIcon
