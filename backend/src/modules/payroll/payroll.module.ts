@@ -258,6 +258,7 @@ export class PayrollService {
       const run = await this.lockRun(tx, user.tenantId, id, 'POSTED');
       const bank = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'BANK');
       const date = toDocDate(dto.date ?? run.payDate);
+      await this.posting.assertCashCovers(tx, user.tenantId, bank, run.totalNet);
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
         date,

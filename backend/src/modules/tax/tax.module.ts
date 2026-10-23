@@ -354,6 +354,7 @@ export class TaxService {
           notes: dto.notes,
         })
         .returning();
+      if (amount.gt(0)) await this.posting.assertCashCovers(tx, user.tenantId, bank, amount);
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
         date,

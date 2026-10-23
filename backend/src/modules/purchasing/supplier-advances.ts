@@ -145,6 +145,7 @@ export class SupplierAdvancesService {
 
     return this.db.transaction(async (tx) => {
       const cash = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, method === 'CASH' ? 'CASH' : 'BANK');
+      await this.posting.assertCashCovers(tx, user.tenantId, cash, amount);
       const number = await this.seq.next(tx, user.tenantId, 'SUPPLIER_ADVANCE', date);
       const adv = (await tx.execute<{ id: string }>(sql`
         INSERT INTO supplier_advances (tenant_id, number, date, supplier_id, purchase_order_id, method, cash_account_id, amount, description, created_by_id)

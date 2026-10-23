@@ -271,7 +271,7 @@ export class PostingService {
 
   /**
    * Uang keluar dari akun kas/bank tidak boleh membuat saldonya negatif (pengaturan Kontrol kas "Tolak saldo negatif", bawaan aktif).
-   * Kas Keluar punya pemeriksaan sendiri; pembelian aset dari kas/bank memakai yang ini. Alur uang keluar lain (bayar pemasok, setoran pajak, uang muka, gaji) belum.
+   * Kas Keluar punya pemeriksaan sendiri; pembelian aset, bayar pemasok, setoran pajak, uang muka pemasok, dan gaji memakai yang ini.
    */
   async assertCashCovers(tx: Tx, tenantId: string, cash: { id: string; name?: string | null }, amount: DecValue) {
     const [t] = (await tx.execute<{ block: boolean | null }>(sql`SELECT (settings->'cashControl'->>'blockNegative')::boolean AS block FROM tenants WHERE id = ${tenantId}`)).rows;

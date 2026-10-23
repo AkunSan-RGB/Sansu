@@ -836,6 +836,7 @@ export class PurchaseInvoicesService {
       const cashOut = settle ? settle.cash : amount;
       const diff = settle ? settle.diff : D(0);
       const cash = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'BANK');
+      await this.posting.assertCashCovers(tx, user.tenantId, cash, cashOut);
       const number = await this.seq.next(tx, user.tenantId, 'SUPPLIER_PAYMENT', date);
       const [payment] = await tx
         .insert(supplierPayments)
