@@ -44,6 +44,8 @@ export interface MoveInput {
   fromQc?: boolean;
   /** Gudang yang rak-nya aktif: rak tujuan (masuk, bawaan BELUM-DITEMPATKAN) atau rak yang diutamakan (keluar). Diabaikan bila rak tidak aktif. */
   binId?: string;
+  /** Barang keluar bagian yang tidak bernomor lot (mis. koreksi opname per rak): lot tidak dikurangi */
+  noLot?: boolean;
 }
 
 export interface MoveResult {
@@ -226,6 +228,7 @@ export class StockService {
       date: m.date,
       lot: m.lot,
       lotId: m.lotId,
+      noLot: m.noLot,
       excludeLotNos: m.excludeLotNos,
       reverseCost: m.reverseCost !== undefined,
     });

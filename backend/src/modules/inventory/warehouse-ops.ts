@@ -32,7 +32,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { and, asc, desc, eq, inArray, isNotNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { RequireApp } from '../../common/apps/app.guard';
@@ -116,6 +116,7 @@ export class CreateCountDto {
   @IsString()
   @MaxLength(80)
   category?: string;
+  @ApiPropertyOptional({ description: 'Gudang berrak: hitung hanya isi satu rak' }) @IsOptional() @IsUUID() binId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) notes?: string;
 }
 export class CountLineDto {
@@ -606,6 +607,8 @@ export class WarehouseOpsService {
         warehouseId: stockCounts.warehouseId,
         warehouseCode: warehouses.code,
         warehouseName: warehouses.name,
+        binId: stockCounts.binId,
+        binCode: sql<string | null>`(SELECT b.code FROM warehouse_bins b WHERE b.id = ${stockCounts.binId})`,
         lines: sql<number>`(SELECT COUNT(*) FROM stock_count_lines l WHERE l.count_id = ${stockCounts.id})::int`,
         counted: sql<number>`(SELECT COUNT(*) FROM stock_count_lines l WHERE l.count_id = ${stockCounts.id} AND l.counted_qty IS NOT NULL)::int`,
         createdAt: stockCounts.createdAt,
@@ -623,6 +626,12 @@ export class WarehouseOpsService {
     const date = toDocDate(dto.date);
     return this.db.transaction(async (tx) => {
       const wh = await this.warehouse(tx, u.tenantId, dto.warehouseId);
+      if (dto.binId) {
+        if (!wh.binsEnabled) throw new BadRequestException('Opname per rak hanya untuk gudang yang lokasi raknya aktif');
+        const b = await tx.execute<{ id: string }>(sql`SELECT id FROM warehouse_bins WHERE id = ${dto.binId} AND warehouse_id = ${wh.id} AND tenant_id = ${u.tenantId}`);
+        if (!b.rows[0]) throw new BadRequestException('Rak tidak ditemukan di gudang ini');
+      }
+      // satu opname berjalan per cakupan: opname seluruh gudang memblokir semuanya; opname rak memblokir opname rak yang sama dan opname seluruh gudang
       const [open] = await tx
         .select({ number: stockCounts.number })
         .from(stockCounts)
@@ -631,10 +640,18 @@ export class WarehouseOpsService {
             eq(stockCounts.tenantId, u.tenantId),
             eq(stockCounts.warehouseId, wh.id),
             eq(stockCounts.status, 'DRAFT'),
+            dto.binId ? or(isNull(stockCounts.binId), eq(stockCounts.binId, dto.binId)) : undefined,
           ),
         );
-      if (open) throw new BadRequestException(`Masih ada stock opname ${open.number} yang belum selesai di gudang ini`);
-      const rows = await tx
+      if (open) throw new BadRequestException(`Masih ada stock opname ${open.number} yang belum selesai di ${dto.binId ? 'rak/gudang ini' : 'gudang ini'}`);
+      const rows = dto.binId
+        ? (
+            await tx.execute<{ id: string; qty: string }>(sql`
+              SELECT p.id, SUM(s.qty)::text AS qty FROM stock_bin_balances s JOIN products p ON p.id = s.product_id
+              WHERE s.bin_id = ${dto.binId} AND s.qty > 0 AND p.tenant_id = ${u.tenantId} ${dto.category ? sql`AND p.category = ${dto.category}` : sql``}
+              GROUP BY p.id`)
+          ).rows
+        : await tx
         .select({ id: products.id, qty: sql<string>`COALESCE(${stockBalances.qty}, 0)` })
         .from(products)
         .leftJoin(stockBalances, and(eq(stockBalances.productId, products.id), eq(stockBalances.warehouseId, wh.id)))
@@ -645,7 +662,7 @@ export class WarehouseOpsService {
             dto.category ? eq(products.category, dto.category) : undefined,
           ),
         );
-      if (!rows.length) throw new BadRequestException('Tidak ada produk untuk dihitung');
+      if (!rows.length) throw new BadRequestException(dto.binId ? 'Rak ini kosong: tidak ada barang untuk dihitung. Pindahkan dulu barang yang ditemukan ke rak ini.' : 'Tidak ada produk untuk dihitung');
       const id = randomUUID();
       const number = await this.seq.next(tx, u.tenantId, 'STOCK_COUNT', date);
       await tx
@@ -656,6 +673,7 @@ export class WarehouseOpsService {
           number,
           date,
           warehouseId: wh.id,
+          binId: dto.binId ?? null,
           category: dto.category ?? null,
           notes: dto.notes ?? null,
           createdById: u.sub,
@@ -692,7 +710,7 @@ export class WarehouseOpsService {
         category: products.category,
         baseUom: products.baseUom,
         systemQty: stockCountLines.systemQty,
-        currentQty: sql<string>`COALESCE(${stockBalances.qty}, 0)`,
+        currentQty: c.binId ? sql<string>`COALESCE((SELECT SUM(b.qty) FROM stock_bin_balances b WHERE b.bin_id = ${c.binId} AND b.product_id = ${stockCountLines.productId}), 0)` : sql<string>`COALESCE(${stockBalances.qty}, 0)`,
         avgCost: sql<string>`COALESCE(${stockBalances.avgCost}, 0)`,
         countedQty: stockCountLines.countedQty,
         postedSystemQty: stockCountLines.postedSystemQty,
@@ -708,8 +726,10 @@ export class WarehouseOpsService {
       .orderBy(asc(products.category), asc(products.sku));
     // Opname buta: penghitung (Gudang) tidak melihat stok sistem selama opname masih berjalan
     const blind = u.role === 'WAREHOUSE' && c.status === 'DRAFT' && (await this.approvals.policy(this.db, u.tenantId)).blindCount;
+    const binCode = c.binId ? ((await this.db.execute<{ code: string }>(sql`SELECT code FROM warehouse_bins WHERE id = ${c.binId}`)).rows[0]?.code ?? null) : null;
     return {
       ...c,
+      binCode,
       blindCount: blind,
       warehouse: { id: wh.id, code: wh.code, name: wh.name },
       lines: blind ? lines.map((l) => ({ ...l, systemQty: '0', currentQty: '0', avgCost: '0' })) : lines,
@@ -744,7 +764,7 @@ export class WarehouseOpsService {
     }
     // Nilai selisih (|selisih| × HPP rata-rata) untuk persetujuan dan pemberitahuan Pemilik
     const diffs = await this.db
-      .select({ counted: stockCountLines.countedQty, qty: sql<string>`COALESCE(${stockBalances.qty}, 0)`, avg: sql<string>`COALESCE(${stockBalances.avgCost}, 0)` })
+      .select({ counted: stockCountLines.countedQty, qty: cur.binId ? sql<string>`COALESCE((SELECT SUM(b.qty) FROM stock_bin_balances b WHERE b.bin_id = ${cur.binId} AND b.product_id = ${stockCountLines.productId}), 0)` : sql<string>`COALESCE(${stockBalances.qty}, 0)`, avg: sql<string>`COALESCE(${stockBalances.avgCost}, 0)` })
       .from(stockCountLines)
       .leftJoin(stockBalances, and(eq(stockBalances.productId, stockCountLines.productId), eq(stockBalances.warehouseId, cur.warehouseId)))
       .where(and(eq(stockCountLines.countId, id), isNotNull(stockCountLines.countedQty)));
@@ -772,7 +792,7 @@ export class WarehouseOpsService {
         .select({
           productId: stockCountLines.productId,
           countedQty: stockCountLines.countedQty,
-          qty: sql<string>`COALESCE(${stockBalances.qty}, 0)`,
+          qty: c.binId ? sql<string>`COALESCE((SELECT SUM(b.qty) FROM stock_bin_balances b WHERE b.bin_id = ${c.binId} AND b.product_id = ${stockCountLines.productId}), 0)` : sql<string>`COALESCE(${stockBalances.qty}, 0)`,
           avgCost: sql<string>`COALESCE(${stockBalances.avgCost}, 0)`,
         })
         .from(stockCountLines)
@@ -782,19 +802,33 @@ export class WarehouseOpsService {
         )
         .where(and(eq(stockCountLines.countId, id), isNotNull(stockCountLines.countedQty)));
       if (!lines.length) throw new BadRequestException('Belum ada produk yang diisi jumlah fisiknya');
-      const adj: { productId: string; qty: string; unitCost?: string }[] = [];
+      const adj: { productId: string; qty: string; unitCost?: string; lotId?: string; noLot?: boolean; binId?: string }[] = [];
       for (const l of lines) {
         const diff = D(l.countedQty!).minus(l.qty);
         await tx
           .update(stockCountLines)
           .set({ postedSystemQty: q4(l.qty), difference: diff.toFixed(4) })
           .where(and(eq(stockCountLines.countId, id), eq(stockCountLines.productId, l.productId)));
-        if (!diff.isZero())
-          adj.push({
-            productId: l.productId,
-            qty: diff.toFixed(4),
-            unitCost: diff.isPositive() ? D(l.avgCost).toFixed(4) : undefined,
-          });
+        if (diff.isZero()) continue;
+        if (!c.binId) {
+          adj.push({ productId: l.productId, qty: diff.toFixed(4), unitCost: diff.isPositive() ? D(l.avgCost).toFixed(4) : undefined });
+        } else if (diff.isPositive()) {
+          // lebih: barang yang tidak tercatat di rak ini ditambahkan ke rak ini
+          adj.push({ productId: l.productId, qty: diff.toFixed(4), unitCost: D(l.avgCost).toFixed(4), binId: c.binId });
+        } else {
+          // kurang: dikurangi tepat dari isi rak ini (bagian tanpa lot dulu, lalu lot paling cepat kedaluwarsa), agar rak sama dengan hasil hitung
+          let need = diff.abs();
+          const rows = await tx.execute<{ lot_id: string | null; qty: string }>(sql`
+            SELECT s.lot_id, s.qty FROM stock_bin_balances s LEFT JOIN stock_lots l ON l.id = s.lot_id
+            WHERE s.bin_id = ${c.binId} AND s.product_id = ${l.productId} AND s.qty > 0
+            ORDER BY (s.lot_id IS NOT NULL), l.expiry_date NULLS LAST, l.received_date, s.id FOR UPDATE OF s`);
+          for (const r of rows.rows) {
+            if (need.lte(0)) break;
+            const take = D(r.qty).lt(need) ? D(r.qty) : need;
+            adj.push({ productId: l.productId, qty: take.negated().toFixed(4), binId: c.binId, ...(r.lot_id ? { lotId: r.lot_id } : { noLot: true }) });
+            need = need.minus(take);
+          }
+        }
       }
       let adjustmentNumber: string | null = null;
       let valueIn = '0.00';
@@ -820,7 +854,7 @@ export class WarehouseOpsService {
         .update(stockCounts)
         .set({ status: 'POSTED', postedAt: new Date(), adjustmentNumber })
         .where(eq(stockCounts.id, id));
-      return { ok: true, counted: lines.length, adjusted: adj.length, adjustmentNumber, valueIn, valueOut };
+      return { ok: true, counted: lines.length, adjusted: new Set(adj.map((a) => a.productId)).size, adjustmentNumber, valueIn, valueOut };
     });
   }
 

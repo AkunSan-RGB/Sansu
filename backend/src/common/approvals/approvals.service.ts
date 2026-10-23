@@ -18,7 +18,7 @@ import { SettingsService } from '../settings.service';
 import { TelegramService } from '../telegram/telegram.service';
 
 export const APPROVER_ROLES: readonly Role[] = ['OWNER', 'ADMIN'];
-export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'SUPPLIER_ADVANCE' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS' | 'CUSTOMER_PAYMENT' | 'STOCK_COUNT' | 'AR_WRITE_OFF' | 'ASSET_METHOD';
+export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'SUPPLIER_ADVANCE' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS' | 'CUSTOMER_PAYMENT' | 'STOCK_COUNT' | 'AR_WRITE_OFF' | 'ASSET_METHOD' | 'BIN_MOVE';
 
 export interface ApprovalPolicy {
   /** Pesanan pembelian dengan total ≥ nilai ini perlu persetujuan (0 = nonaktif) */
@@ -96,6 +96,7 @@ export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   AR_WRITE_OFF: 'Penghapusan piutang (write-off)',
   ASSET_METHOD: 'Perubahan metode penyusutan aset',
   STOCK_COUNT: 'Selisih stock opname',
+  BIN_MOVE: 'Pindah rak bernilai besar',
 };
 
 @Injectable()

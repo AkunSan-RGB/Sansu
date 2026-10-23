@@ -35,6 +35,8 @@ export interface LotMove {
   lot?: LotInput;
   /** Kurangi hanya lot ini (pembuangan lot tertentu) */
   lotId?: string;
+  /** Barang keluar bagian tanpa nomor lot: lot tidak dikurangi */
+  noLot?: boolean;
   excludeLotNos?: string[];
   reverseCost?: boolean;
 }
@@ -104,7 +106,7 @@ export async function trackLots(tx: Tx, m: LotMove): Promise<LotDelta[]> {
     await deplete(tx, m, out, sql`AND id = ${m.lotId}`, false, deltas);
     return deltas;
   }
-  if (!DEPLETING.includes(m.type)) return deltas;
+  if (!DEPLETING.includes(m.type) || m.noLot) return deltas;
   const exclude = m.excludeLotNos?.length ? sql`AND (lot_no IS NULL OR lot_no NOT IN (${sql.join(m.excludeLotNos.map((n) => sql`${n}`), sql`, `)}))` : sql``;
   await deplete(tx, m, out, exclude, m.type === 'TRANSFER_OUT', deltas);
   return deltas;

@@ -10,6 +10,7 @@ import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { addDays, todayJakarta } from '../../common/utils/dates';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
+import { BinsService } from './bins';
 
 export interface InventoryControlFinding {
   key: string;
@@ -37,6 +38,7 @@ export class InventoryControlsService {
     @InjectDb() private readonly db: Db,
     private readonly settings: SettingsService,
     private readonly approvals: ApprovalsService,
+    private readonly bins: BinsService,
   ) {}
 
   async controls(tenantId: string) {
@@ -161,6 +163,7 @@ export class InventoryControlsService {
       ORDER BY r.v DESC`);
     add('COUNT_CYCLE', 'info', `Barang bernilai tinggi belum dihitung > ${CYCLE_COUNT_DAYS} hari`, abc.rows.map((r) => `${r.sku} ${r.name} ${rp(r.v)} (${r.last ? `terakhir ${r.last}` : 'belum pernah'})`), 'Barang yang membentuk ±80% nilai stok sebaiknya dihitung lebih sering daripada yang murah. Buat opname sebagian untuk barang-barang ini.');
 
+    out.push(...(await this.bins.controls(tenantId)));
     const rank = { error: 0, warning: 1, info: 2 } as const;
     out.sort((a, b) => rank[a.level] - rank[b.level]);
     const setup = {

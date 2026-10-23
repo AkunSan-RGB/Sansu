@@ -125,6 +125,7 @@ export class InventoryService {
           lot: qty.isPositive() ? { lotNo: line.lotNo, expiryDate: line.expiryDate } : undefined,
           lotId: line.lotId,
           binId: line.binId,
+          noLot: line.noLot,
           fromQc: opts.qc,
           refType: 'STOCK_ADJUSTMENT',
           refId: id,

@@ -26,6 +26,7 @@ import { SuppliersService } from '../purchasing/suppliers.service';
 import { SalesOrdersService } from '../sales/orders/sales-orders.service';
 import { PaymentsService } from '../sales/payments/payments.service';
 import { WarehouseOpsService } from '../inventory/warehouse-ops';
+import { BinsService, type MoveBinsDto } from '../inventory/bins';
 import { ReturnsService } from '../returns/returns.service';
 import { CustomersService } from '../master-data/customers/customers.service';
 import { CreatePurchaseInvoiceDto } from '../purchasing/purchasing.dto';
@@ -89,6 +90,7 @@ export class ApprovalRequestsService {
     private readonly orders: PurchaseOrdersService,
     private readonly invoices: PurchaseInvoicesService,
     private readonly advances: SupplierAdvancesService,
+    private readonly bins: BinsService,
     private readonly suppliers: SuppliersService,
     private readonly salesOrders: SalesOrdersService,
     private readonly paymentsSvc: PaymentsService,
@@ -217,6 +219,9 @@ export class ApprovalRequestsService {
       } else if (req.kind === 'SUPPLIER_PAYMENT') {
         const r = await this.invoices.pay({ ...user, sub: req.requestedById }, req.payload as unknown as CreateSupplierPaymentDto, { approved: true });
         resultRef = (r as { number?: string }).number;
+      } else if (req.kind === 'BIN_MOVE') {
+        await this.bins.move({ ...user, sub: req.requestedById }, req.payload as unknown as MoveBinsDto, { approved: true });
+        resultRef = 'Stok dipindah antar rak';
       } else if (req.kind === 'SUPPLIER_ADVANCE') {
         const r = await this.advances.create({ ...user, sub: req.requestedById }, req.payload as unknown as CreateSupplierAdvanceDto, { approved: true });
         resultRef = (r as { number?: string }).number;

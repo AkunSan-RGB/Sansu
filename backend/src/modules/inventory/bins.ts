@@ -8,6 +8,7 @@ import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateNested } from 'class-validator';
 import { sql } from 'drizzle-orm';
 import { RequireApp } from '../../common/apps/app.guard';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
@@ -20,6 +21,12 @@ import { addToBin, BIN_PICK_TIER, logBinMove, UNASSIGNED_CODE } from './bin-trac
 const CODE_RE = /^[A-Z0-9][A-Z0-9._/-]{0,29}$/;
 const CREATABLE_KINDS = ['STORAGE', 'STAGING', 'DAMAGED', 'QUARANTINE'] as const;
 const MAX_BATCH = 200;
+const MAX_IMPORT = 2000;
+const KIND_ALIAS: Record<string, (typeof CREATABLE_KINDS)[number]> = { STORAGE: 'STORAGE', SIMPAN: 'STORAGE', STAGING: 'STAGING', PENYIAPAN: 'STAGING', DAMAGED: 'DAMAGED', RUSAK: 'DAMAGED', QUARANTINE: 'QUARANTINE', KARANTINA: 'QUARANTINE' };
+/** Batas hari untuk kontrol rak */
+export const UNPLACED_DAYS = 7;
+export const DAMAGED_DAYS = 30;
+export const HEAVY_MOVES = 30;
 const MAX_ROWS = 500;
 
 export class BinWarehouseDto {
@@ -32,6 +39,19 @@ export class CreateBinsDto {
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(MAX_BATCH) @IsString({ each: true }) codes: string[];
   @ApiPropertyOptional({ enum: CREATABLE_KINDS }) @IsOptional() @IsIn(CREATABLE_KINDS as unknown as string[]) kind?: (typeof CREATABLE_KINDS)[number];
   @ApiPropertyOptional({ example: 'A' }) @IsOptional() @IsString() @MaxLength(30) zone?: string;
+}
+
+export class ImportBinRowDto {
+  @ApiProperty() @IsString() @MaxLength(60) code: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(60) zone?: string;
+  @ApiPropertyOptional({ description: 'Simpan / Penyiapan / Rusak / Karantina (atau STORAGE / STAGING / DAMAGED / QUARANTINE)' }) @IsOptional() @IsString() @MaxLength(30) kind?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(120) name?: string;
+}
+
+export class ImportBinsDto {
+  @ApiProperty() @IsUUID() warehouseId: string;
+  @ApiProperty({ type: [ImportBinRowDto] }) @IsArray() @ArrayMinSize(1) @ArrayMaxSize(MAX_IMPORT) @ValidateNested({ each: true }) @Type(() => ImportBinRowDto) rows: ImportBinRowDto[];
+  @ApiPropertyOptional({ description: 'true = hanya periksa, tidak menyimpan' }) @IsOptional() @IsBoolean() dryRun?: boolean;
 }
 
 export class UpdateBinDto {
@@ -69,7 +89,7 @@ export class BinStockQuery {
 
 @Injectable()
 export class BinsService {
-  constructor(@InjectDb() private readonly db: Db, private readonly audit: AuditService) {}
+  constructor(@InjectDb() private readonly db: Db, private readonly audit: AuditService, private readonly approvals: ApprovalsService) {}
 
   private async warehouse(db: Db | Tx, tenantId: string, id: string, lock = false) {
     const r = await db.execute<{ id: string; code: string; name: string; kind: string; is_quarantine: boolean; is_active: boolean; bins_enabled: boolean }>(
@@ -191,6 +211,39 @@ export class BinsService {
     return this.list(u, dto.warehouseId);
   }
 
+  /** Impor rak dari berkas (kode, zona, jenis, nama): diperiksa baris demi baris; bila ada yang bermasalah tidak ada yang disimpan */
+  async importBins(u: AuthUser, dto: ImportBinsDto) {
+    assertWarehouseAccess(u, dto.warehouseId);
+    const w = await this.warehouse(this.db, u.tenantId, dto.warehouseId);
+    if (!w.bins_enabled) throw new BadRequestException('Aktifkan lokasi rak gudang ini dulu');
+    const exist = new Set((await this.db.execute<{ code: string }>(sql`SELECT code FROM warehouse_bins WHERE warehouse_id = ${dto.warehouseId}`)).rows.map((r) => r.code));
+    const seen = new Set<string>();
+    const results = dto.rows.map((r, i) => {
+      const errors: string[] = [];
+      const code = r.code.trim().toUpperCase();
+      const kind = r.kind?.trim() ? KIND_ALIAS[r.kind.trim().toUpperCase()] : 'STORAGE';
+      if (!CODE_RE.test(code)) errors.push('Kode tidak valid (huruf besar, angka, titik, garis, garis miring; maks 30 karakter)');
+      else if (code === UNASSIGNED_CODE) errors.push(`Kode ${UNASSIGNED_CODE} dipakai rak sistem`);
+      else if (seen.has(code)) errors.push('Kode muncul dua kali dalam berkas');
+      if (!kind) errors.push('Jenis tidak dikenal (Simpan, Penyiapan, Rusak, Karantina)');
+      seen.add(code);
+      const action = errors.length ? 'ERROR' : exist.has(code) ? 'SKIP' : 'CREATE';
+      return { row: i + 1, code, zone: r.zone?.trim() || null, name: r.name?.trim() || null, kind: kind ?? null, action, errors, warnings: action === 'SKIP' ? ['Rak sudah ada; dilewati'] : [] };
+    });
+    const summary = { total: results.length, create: results.filter((x) => x.action === 'CREATE').length, skip: results.filter((x) => x.action === 'SKIP').length, errors: results.filter((x) => x.action === 'ERROR').length };
+    if (dto.dryRun) return { dryRun: true, summary, results };
+    if (summary.errors) throw new BadRequestException({ statusCode: 400, message: `Ada ${summary.errors} baris bermasalah; tidak ada rak yang disimpan. Perbaiki lalu impor ulang.`, summary, results });
+    await this.db.transaction(async (tx) => {
+      const lock = await this.warehouse(tx, u.tenantId, dto.warehouseId, true);
+      if (!lock.bins_enabled) throw new BadRequestException('Aktifkan lokasi rak gudang ini dulu');
+      for (const r of results.filter((x) => x.action === 'CREATE')) {
+        await tx.execute(sql`INSERT INTO warehouse_bins (tenant_id, warehouse_id, code, zone, name, kind, created_by_id) VALUES (${u.tenantId}, ${dto.warehouseId}, ${r.code}, ${r.zone}, ${r.name}, ${r.kind}, ${u.sub}) ON CONFLICT (tenant_id, warehouse_id, code) DO NOTHING`);
+      }
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'WarehouseBin', entityId: dto.warehouseId, data: { warehouse: w.name, imported: summary.create, skipped: summary.skip } });
+    });
+    return { dryRun: false, summary, results };
+  }
+
   async updateBin(u: AuthUser, id: string, dto: UpdateBinDto) {
     const b = await this.bin(this.db, u.tenantId, id);
     assertWarehouseAccess(u, b.warehouse_id);
@@ -252,9 +305,23 @@ export class BinsService {
   }
 
   /** Pindah stok antar rak dalam satu gudang. Kuantitas gudang, HPP, dan jurnal tidak berubah. */
-  async move(u: AuthUser, dto: MoveBinsDto) {
+  async move(u: AuthUser, dto: MoveBinsDto, opts: { approved?: boolean } = {}) {
     assertWarehouseAccess(u, dto.warehouseId);
     const lines = [...dto.lines].sort((a, b) => a.productId.localeCompare(b.productId));
+    // Pindah rak bernilai besar oleh peran selain Pemilik/Admin menunggu persetujuan (batas yang sama dengan penyesuaian stok)
+    if (!opts.approved && !this.approvals.isApprover(u.role)) {
+      let value = D(0);
+      for (const ln of lines) {
+        const avg = (await this.db.execute<{ avg_cost: string }>(sql`SELECT avg_cost FROM stock_balances WHERE product_id = ${ln.productId} AND warehouse_id = ${dto.warehouseId}`)).rows[0]?.avg_cost ?? '0';
+        value = value.plus(qty4(ln.qty).times(avg));
+      }
+      const limit = await this.approvals.needs(this.db, u, 'STOCK_ADJUSTMENT', value.toNumber());
+      if (limit !== null) {
+        const w = await this.warehouse(this.db, u.tenantId, dto.warehouseId);
+        const req = await this.approvals.create(this.db, u, { kind: 'BIN_MOVE', refId: null, title: `Pindah rak ${lines.length} barang di ${w.name} (≈ Rp${Math.round(value.toNumber()).toLocaleString('id-ID')})`, amount: value.toNumber(), payload: JSON.parse(JSON.stringify(dto)) });
+        throw this.approvals.required(req.id, 'Nilai barang yang dipindah mencapai batas persetujuan; permintaan dikirim ke pemilik atau admin dan stok dipindah setelah disetujui.');
+      }
+    }
     await this.db.transaction(async (tx) => {
       const w = await this.warehouse(tx, u.tenantId, dto.warehouseId);
       if (!w.bins_enabled) throw new BadRequestException('Lokasi rak gudang ini belum aktif');
@@ -367,6 +434,58 @@ export class BinsService {
     };
   }
 
+  /**
+   * Temuan kontrol rak (anti-kecurangan): barang lama belum ditata, rak dengan selisih opname berulang, pindah rak berlebihan oleh satu orang,
+   * rak rusak/karantina menumpuk, dan selisih stok rak vs stok gudang. Bentuk sama dengan Kontrol persediaan.
+   */
+  async controls(tenantId: string, warehouseId?: string) {
+    const out: { key: string; level: 'error' | 'warning' | 'info'; title: string; detail: string; refs: string[] }[] = [];
+    const add = (key: string, level: 'error' | 'warning' | 'info', title: string, refs: string[], detail: string) => {
+      if (refs.length) out.push({ key, level, title: `${title} (${refs.length})`, detail, refs });
+    };
+    const wf = warehouseId ? sql`AND w.id = ${warehouseId}` : sql``;
+    const enabled = await this.db.execute<{ id: string; code: string }>(sql`SELECT id, code FROM warehouses w WHERE tenant_id = ${tenantId} AND bins_enabled ${wf}`);
+    if (!enabled.rows.length) return out;
+    const age = (kinds: string[], days: number) => this.db.execute<{ wh: string; code: string; sku: string; qty: string; d: number }>(sql`
+      SELECT w.code AS wh, b.code, p.sku, SUM(s.qty)::text AS qty, EXTRACT(DAY FROM now() - MIN(m.created_at))::int AS d
+      FROM stock_bin_balances s
+      JOIN warehouse_bins b ON b.id = s.bin_id AND b.kind IN (${sql.join(kinds.map((k) => sql`${k}`), sql`, `)})
+      JOIN warehouses w ON w.id = s.warehouse_id
+      JOIN products p ON p.id = s.product_id
+      LEFT JOIN LATERAL (SELECT MIN(x.created_at) AS created_at FROM bin_moves x WHERE x.to_bin_id = s.bin_id AND x.product_id = s.product_id) m ON true
+      WHERE s.tenant_id = ${tenantId} AND s.qty > 0 ${wf}
+      GROUP BY w.code, b.code, p.sku
+      HAVING MIN(m.created_at) < now() - (${days} || ' days')::interval
+      ORDER BY MIN(m.created_at) LIMIT 50`);
+    const un = await age(['UNASSIGNED'], UNPLACED_DAYS);
+    add('BIN_UNPLACED_OLD', 'warning', `Barang belum ditata di rak > ${UNPLACED_DAYS} hari`, un.rows.map((r) => `${r.wh} · ${r.sku}: ${Number(r.qty)} (${r.d} hari)`), `Barang yang lama berada di ${UNASSIGNED_CODE} sulit dicari dan mudah hilang tanpa terasa. Tata ke rak atau pastikan barangnya ada.`);
+    const dm = await age(['DAMAGED', 'QUARANTINE'], DAMAGED_DAYS);
+    add('BIN_DAMAGED_OLD', 'warning', `Barang di rak rusak/karantina > ${DAMAGED_DAYS} hari`, dm.rows.map((r) => `${r.wh} · rak ${r.code} · ${r.sku}: ${Number(r.qty)} (${r.d} hari)`), 'Barang rusak yang menumpuk perlu diputuskan: retur ke pemasok, dibuang dengan penyesuaian stok, atau dikembalikan bila ternyata baik. Rak ini rawan dipakai menyembunyikan pencurian.');
+    const rep = await this.db.execute<{ wh: string; code: string; n: number }>(sql`
+      SELECT w.code AS wh, b.code, COUNT(DISTINCT c.id)::int AS n
+      FROM stock_counts c JOIN warehouse_bins b ON b.id = c.bin_id JOIN warehouses w ON w.id = c.warehouse_id
+      JOIN stock_count_lines l ON l.count_id = c.id AND l.difference IS NOT NULL AND l.difference <> 0
+      WHERE c.tenant_id = ${tenantId} AND c.status = 'POSTED' AND c.posted_at > now() - interval '90 days' ${wf}
+      GROUP BY w.code, b.code HAVING COUNT(DISTINCT c.id) >= 2 ORDER BY n DESC LIMIT 50`);
+    add('BIN_COUNT_REPEAT', 'warning', 'Rak dengan selisih opname berulang (90 hari)', rep.rows.map((r) => `${r.wh} · rak ${r.code}: ${r.n} kali selisih`), 'Selisih berulang di rak yang sama menandakan kebocoran, salah taruh, atau salah catat yang belum diatasi. Selidiki rak ini.');
+    const heavy = await this.db.execute<{ name: string; n: number }>(sql`
+      SELECT COALESCE(u.name, 'Tidak diketahui') AS name, COUNT(*)::int AS n FROM bin_moves m LEFT JOIN users u ON u.id = m.created_by_id
+      JOIN warehouses w ON w.id = m.warehouse_id
+      WHERE m.tenant_id = ${tenantId} AND m.kind = 'MOVE' AND m.created_at > now() - interval '7 days' ${wf}
+      GROUP BY u.name HAVING COUNT(*) >= ${HEAVY_MOVES} ORDER BY n DESC LIMIT 20`);
+    add('BIN_MOVE_HEAVY', 'info', `Pindah rak sangat sering oleh satu orang (≥ ${HEAVY_MOVES} dalam 7 hari)`, heavy.rows.map((r) => `${r.name}: ${r.n} kali`), 'Pindah rak yang berlebihan bisa wajar saat penataan awal, tetapi juga cara menutupi barang yang hilang. Cocokkan dengan hasil opname rak.');
+    const bad: string[] = [];
+    for (const w of enabled.rows) {
+      const m = await this.db.execute<{ n: number }>(sql`
+        SELECT COUNT(*)::int AS n FROM stock_balances sb
+        FULL JOIN (SELECT product_id, SUM(qty) AS s FROM stock_bin_balances WHERE warehouse_id = ${w.id} GROUP BY product_id) x ON x.product_id = sb.product_id AND sb.warehouse_id = ${w.id}
+        WHERE (sb.warehouse_id = ${w.id} OR sb.warehouse_id IS NULL) AND COALESCE(sb.qty, 0) <> COALESCE(x.s, 0)`);
+      if (m.rows[0]?.n) bad.push(`${w.code}: ${m.rows[0].n} barang`);
+    }
+    add('BIN_MISMATCH', 'error', 'Stok rak tidak sama dengan stok gudang', bad, 'Stok gudang tetap benar; selisih hanya pada pencatatan letak. Buka Rak gudang › Pemeriksaan untuk rinciannya.');
+    return out;
+  }
+
   /** Pemeriksaan invarian: Σ stok rak = stok gudang per barang, dan per lot */
   async check(u: AuthUser, warehouseId: string) {
     assertWarehouseAccess(u, warehouseId);
@@ -417,6 +536,9 @@ export class BinsController {
   @Get('pick-plan') @Roles(...READ_ROLES)
   pickPlan(@CurrentUser() u: AuthUser, @Query() q: PickPlanQuery) { return this.svc.pickPlan(u, q); }
 
+  @Get('controls') @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
+  controls(@CurrentUser() u: AuthUser, @Query('warehouseId') warehouseId?: string) { return this.svc.controls(u.tenantId, warehouseId || undefined); }
+
   @Get('check') @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE')
   check(@CurrentUser() u: AuthUser, @Query('warehouseId', ParseUUIDPipe) warehouseId: string) { return this.svc.check(u, warehouseId); }
 
@@ -431,6 +553,9 @@ export class BinsController {
 
   @Patch(':id') @Roles('ADMIN', 'FINANCE')
   update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateBinDto) { return this.svc.updateBin(u, id, dto); }
+
+  @Post('import') @Roles('ADMIN', 'FINANCE')
+  import(@CurrentUser() u: AuthUser, @Body() dto: ImportBinsDto) { return this.svc.importBins(u, dto); }
 
   @Post('move') @Roles('ADMIN', 'WAREHOUSE')
   move(@CurrentUser() u: AuthUser, @Body() dto: MoveBinsDto) { return this.svc.move(u, dto); }

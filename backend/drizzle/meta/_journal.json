@@ -722,6 +722,13 @@
       "when": 1797187086484,
       "tag": "0102_lokasi_rak",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1797273486484,
+      "tag": "0103_opname_per_rak",
+      "breakpoints": true
     }
   ]
 }
