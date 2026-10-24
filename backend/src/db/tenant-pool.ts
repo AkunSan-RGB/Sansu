@@ -1,5 +1,6 @@
 import { Pool, PoolClient, PoolConfig } from 'pg';
-import { dbScope } from './db-scope';
+import { Logger } from '@nestjs/common';
+import { dbScope, txScope } from './db-scope';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -20,6 +21,21 @@ export function scopeSql(scope = dbScope.getStore()): string {
  * `tenant_id` tetap tidak bisa membaca atau mengubah baris perusahaan lain.
  * (Turunan `Pool` agar pemeriksaan `instanceof Pool` milik drizzle tetap berlaku untuk transaksi.)
  */
+const poolLog = new Logger('Kolam');
+let lastNestedWarn = 0;
+
+/** Koneksi kedua di dalam transaksi: galat di mode tes (agar ketahuan oleh rangkaian tes), peringatan berlimit di produksi */
+function nestedConnectionGuard() {
+  if (!txScope.getStore()?.inTx) return;
+  const where = (new Error().stack ?? '').split('\n').filter((l) => l.includes('/src/') && !l.includes('/db/')).slice(0, 3).join(' | ');
+  const msg = `Koneksi kedua dibuka di dalam transaksi (risiko kebuntuan kolam): gunakan tx, bukan this.db. ${where}`;
+  if (process.env.NODE_ENV === 'test' && process.env.ALLOW_NESTED_CONNECT !== 'true') throw new Error(msg);
+  if (Date.now() - lastNestedWarn > 60_000) {
+    lastNestedWarn = Date.now();
+    poolLog.error(msg);
+  }
+}
+
 export class TenantPool extends Pool {
   constructor(config: PoolConfig) {
     super(config);
@@ -31,6 +47,7 @@ export class TenantPool extends Pool {
     // di konteks async pihak lain — membaca lingkup saat itu akan memakai perusahaan yang salah.
     let sql: string;
     try {
+      nestedConnectionGuard();
       sql = scopeSql();
     } catch (e) {
       if (typeof cb === 'function') {

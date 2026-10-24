@@ -2,6 +2,7 @@ import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { Pool, types } from 'pg';
 import * as schema from './schema';
 import { cleanDbUrl } from './db-error';
+import { txScope } from './db-scope';
 import { TenantPool } from './tenant-pool';
 
 // Kembalikan kolom DATE sebagai string 'YYYY-MM-DD' apa adanya (tanpa konversi zona waktu)
@@ -16,9 +17,14 @@ export type DbOrTx = Db | Tx;
 export const DB = Symbol('DB');
 export const POOL = Symbol('POOL');
 
+/** Isi kolam dan batas tunggu: permintaan yang tidak kebagian koneksi gagal dengan galat jelas, tidak menggantung selamanya */
+const POOL_MAX = Number(process.env.DB_POOL_MAX ?? 10);
+const POOL_WAIT_MS = Number(process.env.DB_POOL_WAIT_MS ?? 20_000);
+const poolOptions = { max: POOL_MAX, connectionTimeoutMillis: POOL_WAIT_MS };
+
 export function createPool(url = process.env.DATABASE_URL) {
   if (!url) throw new Error('DATABASE_URL belum diatur');
-  return new Pool({ connectionString: cleanDbUrl(url), max: 10 });
+  return new Pool({ connectionString: cleanDbUrl(url), ...poolOptions });
 }
 
 /**
@@ -28,12 +34,17 @@ export function createPool(url = process.env.DATABASE_URL) {
 export function createAppPool(url = process.env.DATABASE_URL) {
   if (!url) throw new Error('DATABASE_URL belum diatur');
   const connectionString = cleanDbUrl(url);
-  if (process.env.RLS_DISABLED === 'true') return new Pool({ connectionString, max: 10 });
-  return new TenantPool({ connectionString, max: 10 });
+  if (process.env.RLS_DISABLED === 'true') return new Pool({ connectionString, ...poolOptions });
+  return new TenantPool({ connectionString, ...poolOptions });
 }
 
 export function createDb(pool: Pool): Db {
-  return drizzle(pool, { schema });
+  const db = drizzle(pool, { schema });
+  // Tandai alur async di dalam transaksi agar koneksi kedua (penyebab kebuntuan kolam) terdeteksi oleh TenantPool
+  const transaction = db.transaction.bind(db);
+  db.transaction = ((cb: Parameters<Db['transaction']>[0], config?: Parameters<Db['transaction']>[1]) =>
+    transaction((tx) => txScope.run({ inTx: true }, () => cb(tx)), config)) as Db['transaction'];
+  return db;
 }
 
 export { schema };
