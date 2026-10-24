@@ -237,8 +237,8 @@ export class AssetsService {
    * Pembelian aset yang sudah ada di buku besar tetapi belum menjadi kartu aset (mis. kas keluar sebelum fitur otomatisasi):
    * debit ke akun aset tetap pada jurnal yang bukan saldo awal, belum dibalik, dikurangi nilai kartu aset yang sudah terhubung.
    */
-  async unregistered(tenantId: string) {
-    const res = await this.db.execute<{
+  async unregistered(tenantId: string, db: DbOrTx = this.db) {
+    const res = await db.execute<{
       journal_id: string; number: string; date: string; description: string; source_type: string; account_id: string; code: string; name: string; amount: string; registered: string;
     }>(sql`
       SELECT j.id AS journal_id, j.number, j.date::text AS date, j.description, j.source_type, a.id AS account_id, a.code, a.name,
@@ -282,7 +282,7 @@ export class AssetsService {
 
   private async registerFromJournalTx(user: AuthUser, dto: RegisterFromJournalDto) {
     return this.db.transaction(async (tx) => {
-      const rows = (await this.unregistered(user.tenantId)).filter((r) => r.journalId === dto.journalId && r.accountId === dto.accountId);
+      const rows = (await this.unregistered(user.tenantId, tx)).filter((r) => r.journalId === dto.journalId && r.accountId === dto.accountId);
       const row = rows[0];
       if (!row) throw new BadRequestException('Pembelian ini tidak ditemukan atau sudah seluruhnya menjadi kartu aset');
       const cats = await tx.select().from(assetCategories).where(and(eq(assetCategories.tenantId, user.tenantId), eq(assetCategories.assetAccountId, dto.accountId)));
@@ -637,12 +637,14 @@ export class AssetsService {
     return new Set(rows.map((r) => r.code.toUpperCase()));
   }
 
-  async category(tenantId: string, id: string) {
-    const [cat] = await this.db.select().from(assetCategories).where(and(eq(assetCategories.id, id), eq(assetCategories.tenantId, tenantId)));
+  async category(tenantId: string, id: string, db: DbOrTx = this.db) {
+    const [cat] = await db.select().from(assetCategories).where(and(eq(assetCategories.id, id), eq(assetCategories.tenantId, tenantId)));
     return cat;
   }
 
   private async nextCode(tx: Tx, tenantId: string) {
+    // Nomor berurutan dari hitungan baris: serialkan per perusahaan agar dua pendaftaran serentak tidak mendapat kode yang sama
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`asset-code:${tenantId}`}))`);
     const [r] = (await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM fixed_assets WHERE tenant_id = ${tenantId}`)).rows;
     return `AT-${String(r.n + 1).padStart(4, '0')}`;
   }
@@ -833,10 +835,10 @@ export class AssetsService {
   }
 
   /** Catatan pemakaian bulanan (metode unit produksi) */
-  async usageList(tenantId: string, id: string) {
-    const [a] = await this.db.select().from(fixedAssets).where(and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, tenantId)));
+  async usageList(tenantId: string, id: string, db: DbOrTx = this.db) {
+    const [a] = await db.select().from(fixedAssets).where(and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, tenantId)));
     if (!a) throw new NotFoundException('Aset tidak ditemukan');
-    const rows = await this.db.select().from(assetUsage).where(and(eq(assetUsage.tenantId, tenantId), eq(assetUsage.assetId, id))).orderBy(asc(assetUsage.period));
+    const rows = await db.select().from(assetUsage).where(and(eq(assetUsage.tenantId, tenantId), eq(assetUsage.assetId, id))).orderBy(asc(assetUsage.period));
     const total = rows.reduce((t, r) => t.plus(r.units), ZERO);
     return { method: a.method, totalUnits: a.totalUnits, unitLabel: a.unitLabel, usedUnits: total.toFixed(4), remainingUnits: D(a.totalUnits ?? 0).minus(total).toFixed(4), rows };
   }
@@ -863,7 +865,7 @@ export class AssetsService {
       if (existing) await tx.update(assetUsage).set({ units: units.toFixed(4), note: dto.note ?? null, createdById: user.sub }).where(eq(assetUsage.id, existing.id));
       else await tx.insert(assetUsage).values({ tenantId: user.tenantId, assetId: id, period: dto.period, units: units.toFixed(4), note: dto.note ?? null, createdById: user.sub });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: existing ? 'UPDATE' : 'CREATE', entity: 'AssetUsage', entityId: id, data: { period: dto.period, units: units.toFixed(4), previous: existing?.units ?? null } });
-      return this.usageList(user.tenantId, id);
+      return this.usageList(user.tenantId, id, tx);
     });
   }
 

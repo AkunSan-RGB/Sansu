@@ -13,10 +13,10 @@ export class AppsService {
 
   constructor(@InjectDb() private readonly db: Db) {}
 
-  async enabled(tenantId: string): Promise<Set<AppKey>> {
+  async enabled(tenantId: string, db: DbOrTx = this.db): Promise<Set<AppKey>> {
     const hit = this.cache.get(tenantId);
     if (hit && Date.now() - hit.at < AppsService.TTL) return hit.apps;
-    const rows = await this.db.select({ k: tenantApps.appKey }).from(tenantApps).where(eq(tenantApps.tenantId, tenantId));
+    const rows = await db.select({ k: tenantApps.appKey }).from(tenantApps).where(eq(tenantApps.tenantId, tenantId));
     const apps = new Set(rows.map((r) => r.k as AppKey).filter((k) => APP_KEYS.includes(k)));
     apps.add('accounting'); // inti, selalu aktif
     this.cache.set(tenantId, { apps, at: Date.now() });

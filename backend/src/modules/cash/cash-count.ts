@@ -112,8 +112,8 @@ export class CashCountService {
     private readonly approvals: ApprovalsService,
   ) {}
 
-  getSettings(tenantId: string) {
-    return this.settings.section(this.db, tenantId, 'cashCount', DEFAULTS);
+  getSettings(tenantId: string, db: DbOrTx = this.db) {
+    return this.settings.section(db, tenantId, 'cashCount', DEFAULTS);
   }
   saveSettings(tenantId: string, dto: CashCountSettingsDto) {
     return this.settings.saveSection(this.db, tenantId, 'cashCount', DEFAULTS, {
@@ -365,7 +365,7 @@ export class CashCountService {
           difference: t.difference.toFixed(2),
         })
         .where(eq(cashCounts.id, id));
-      const { approvalThreshold } = await this.getSettings(u.tenantId);
+      const { approvalThreshold } = await this.getSettings(u.tenantId, tx);
       const needsApproval = t.difference.abs().gt(approvalThreshold) && u.role !== 'OWNER';
       if (needsApproval) {
         await tx

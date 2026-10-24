@@ -276,6 +276,7 @@ export class CrmService {
       let customerId = lead.customerId;
       if (dto.status === 'WON' && !customerId && dto.createCustomer) {
         const name = lead.companyName || lead.contactName || lead.title;
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`customer-code:${user.tenantId}`}))`); // kode dari hitungan baris: serialkan agar tidak ganda
         const [{ n }] = (await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM customers WHERE tenant_id = ${user.tenantId}`)).rows;
         const [c] = await tx
           .insert(customers)

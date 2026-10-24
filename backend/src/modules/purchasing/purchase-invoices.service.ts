@@ -624,7 +624,7 @@ export class PurchaseInvoicesService {
         let exempt = false;
         if (l.type === 'ASSET') {
           if (!l.assetCategoryId) throw new BadRequestException(`Pilih kategori aset untuk "${l.description}"`);
-          const cat = await this.assets.category(user.tenantId, l.assetCategoryId);
+          const cat = await this.assets.category(user.tenantId, l.assetCategoryId, tx);
           if (!cat) throw new BadRequestException('Kategori aset tidak ditemukan');
           debitAccountId = cat.assetAccountId;
           exempt = this.assets.isThresholdExempt(cat);

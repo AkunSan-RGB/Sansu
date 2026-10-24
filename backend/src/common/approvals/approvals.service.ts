@@ -8,6 +8,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { and, eq, inArray, ne } from 'drizzle-orm';
 import { Db, DbOrTx } from '../../db/db';
+import { txScope } from '../../db/db-scope';
 import { InjectDb } from '../../db/db.module';
 import { approvalRequests, auditLogs, users, type Role } from '../../db/schema';
 import { appUrl, MailService } from '../mail/mail.service';
@@ -147,7 +148,15 @@ export class ApprovalsService {
    * Beri tahu pengguna berperan tertentu bahwa ada proses yang menunggu tindakan mereka (Telegram bila terhubung, email bila dikonfigurasi).
    * Pelaku proses (`excludeUserId`) tidak diberi tahu: dia bukan yang memutuskan (pemisahan fungsi). Gagal kirim tidak menggagalkan proses.
    */
-  async notifyRoles(tenantId: string, p: { roles: readonly Role[]; excludeUserId?: string; title: string; lines?: string[]; path: string; info?: boolean }) {
+  /**
+   * Pemberitahuan latar belakang dipanggil tanpa menunggu (`void`), kadang dari dalam transaksi. Dijalankan di luar lingkup transaksi
+   * agar koneksinya sendiri tidak dianggap koneksi kedua milik transaksi pemanggil.
+   */
+  notifyRoles(tenantId: string, p: { roles: readonly Role[]; excludeUserId?: string; title: string; lines?: string[]; path: string; info?: boolean }) {
+    return txScope.exit(() => this.deliverRoles(tenantId, p));
+  }
+
+  private async deliverRoles(tenantId: string, p: { roles: readonly Role[]; excludeUserId?: string; title: string; lines?: string[]; path: string; info?: boolean }) {
     try {
       const to = await this.db
         .select({ id: users.id, email: users.email })
@@ -165,7 +174,11 @@ export class ApprovalsService {
   }
 
   /** Beri tahu satu pengguna (Telegram bila terhubung); gagal kirim tidak menggagalkan proses */
-  async notifyUser(userId: string, text: string) {
+  notifyUser(userId: string, text: string) {
+    return txScope.exit(() => this.deliverUser(userId, text));
+  }
+
+  private async deliverUser(userId: string, text: string) {
     try {
       await this.telegram.notifyUsers([userId], text);
     } catch (e) {

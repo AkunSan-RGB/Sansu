@@ -22,7 +22,7 @@ import { AuthUser } from '../../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../../common/auth/decorators';
 import { SequenceService } from '../../../common/sequence/sequence.service';
 import { toDocDate, todayJakarta } from '../../../common/utils/dates';
-import { Db } from '../../../db/db';
+import { Db, DbOrTx } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
 import { customers, deliveryOrders, deliveryTrips, deliveryTripStops, deliveryVehicles } from '../../../db/schema';
 import { haversineM } from '../canvass/canvass';
@@ -146,8 +146,8 @@ export class DeliveryTripsService {
     private readonly storage: StorageService,
   ) {}
 
-  private async trip(tenantId: string, id: string) {
-    const [t] = await this.db.select().from(deliveryTrips).where(and(eq(deliveryTrips.id, id), eq(deliveryTrips.tenantId, tenantId)));
+  private async trip(tenantId: string, id: string, db: DbOrTx = this.db) {
+    const [t] = await db.select().from(deliveryTrips).where(and(eq(deliveryTrips.id, id), eq(deliveryTrips.tenantId, tenantId)));
     if (!t) throw new NotFoundException('Rute pengiriman tidak ditemukan');
     return t;
   }
@@ -167,8 +167,8 @@ export class DeliveryTripsService {
   }
 
   /** Muatan rute (kg) dari berat barang pada surat jalannya; stop gagal tidak dihitung */
-  private async load(tripId: string) {
-    const r = await this.db.execute<{ kg: string; unweighted: number }>(sql`
+  private async load(tripId: string, db: DbOrTx = this.db) {
+    const r = await db.execute<{ kg: string; unweighted: number }>(sql`
       SELECT COALESCE(SUM(dol.qty * dol.uom_factor * COALESCE(p.weight_kg, 0)), 0)::text AS kg,
              COUNT(DISTINCT dol.product_id) FILTER (WHERE p.weight_kg IS NULL)::int AS unweighted
       FROM delivery_trip_stops s
@@ -178,9 +178,9 @@ export class DeliveryTripsService {
     return { loadKg: Number(r.rows[0].kg), unweightedProducts: r.rows[0].unweighted };
   }
 
-  async get(tenantId: string, id: string) {
-    const t = await this.trip(tenantId, id);
-    const stops = await this.db
+  async get(tenantId: string, id: string, db: DbOrTx = this.db) {
+    const t = await this.trip(tenantId, id, db);
+    const stops = await db
       .select({
         id: deliveryTripStops.id,
         sequence: deliveryTripStops.sequence,
@@ -208,10 +208,10 @@ export class DeliveryTripsService {
       .orderBy(asc(deliveryTripStops.sequence));
     let capacityKg: number | null = null;
     if (t.vehicleId) {
-      const [v] = await this.db.select({ c: deliveryVehicles.capacityKg }).from(deliveryVehicles).where(eq(deliveryVehicles.id, t.vehicleId));
+      const [v] = await db.select({ c: deliveryVehicles.capacityKg }).from(deliveryVehicles).where(eq(deliveryVehicles.id, t.vehicleId));
       capacityKg = v?.c != null ? Number(v.c) : null;
     }
-    const { loadKg, unweightedProducts } = await this.load(id);
+    const { loadKg, unweightedProducts } = await this.load(id, db);
     return {
       ...t,
       stops: stops.map((s) => ({ ...s, farFromCustomer: s.resultDistanceM !== null && s.resultDistanceM > FAR_DELIVERY_M })),
@@ -363,7 +363,7 @@ export class DeliveryTripsService {
       this.assertPlanned(t);
       const [{ n }] = await tx.select({ n: sql<number>`COUNT(*)::int` }).from(deliveryTripStops).where(eq(deliveryTripStops.tripId, id));
       if (!n) throw new BadRequestException('Rute belum punya stop; tambahkan surat jalan dulu');
-      const cur = await this.get(u.tenantId, id);
+      const cur = await this.get(u.tenantId, id, tx);
       let overReason: string | null = null;
       if (cur.overCapacity) {
         const may = u.role === 'OWNER' || u.role === 'ADMIN';

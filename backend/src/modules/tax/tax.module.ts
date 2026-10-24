@@ -166,8 +166,7 @@ export class TaxService {
   }
 
   /** Daftar kewajiban setor untuk satu masa */
-  async obligations(tenantId: string, period: string): Promise<TaxObligation[]> {
-    const db = this.db;
+  async obligations(tenantId: string, period: string, db: DbOrTx = this.db): Promise<TaxObligation[]> {
     const keys = await this.keyAccounts(db, tenantId);
     const reporting = await this.settings.reporting(db, tenantId);
     const holidays = (await this.settings.taxProfile(db, tenantId)).holidays ?? [];
@@ -321,7 +320,7 @@ export class TaxService {
           { accountId: bank.id, credit: amount },
         ];
       } else {
-        const ob = (await this.obligations(user.tenantId, dto.period)).find((o) => o.type === dto.type);
+        const ob = (await this.obligations(user.tenantId, dto.period, tx)).find((o) => o.type === dto.type);
         amount = dto.amount ? money(dto.amount) : D(ob?.outstanding ?? 0);
         if (amount.lte(0)) throw new BadRequestException(`Tidak ada ${label} terutang untuk masa ${dto.period}. Isi jumlah bila ingin menyetor manual.`);
         if (LIABILITY_KEY[dto.type] && ob && amount.gt(D(ob.outstanding)) && !D(ob.outstanding).isZero()) {

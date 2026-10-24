@@ -102,7 +102,7 @@ export class OnboardingService {
       }
     }
     // Akun khusus jenis usaha ditambahkan, nama bawaan disesuaikan, dan akun yang tidak relevan dinonaktifkan; akun model sebelumnya tidak dihapus
-    await this.db.transaction(async (tx) => syncChartOfAccounts(tx, u.tenantId, { apps: await this.apps.enabled(u.tenantId) }));
+    await this.db.transaction(async (tx) => syncChartOfAccounts(tx, u.tenantId, { apps: await this.apps.enabled(u.tenantId, tx) }));
     await this.audit.log(this.db, {
       tenantId: u.tenantId,
       userId: u.sub,

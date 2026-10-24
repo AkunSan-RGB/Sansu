@@ -30,7 +30,7 @@ import { taxFindings } from './tax-controls';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { addDays, assertNotFarFuture, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
-import { Db, Tx } from '../../db/db';
+import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { accounts, branches, cashTransactionLines, cashTransactions, fixedAssets, journalEntries, projects } from '../../db/schema';
 import { AccountingModule } from '../accounting/accounting.module';
@@ -315,7 +315,7 @@ export class CashService {
         if (!eff || !user.branchIds.includes(eff) || (cash.branchId && !user.branchIds.includes(cash.branchId))) throw new ForbiddenException('Anda hanya boleh mencatat kas untuk cabang Anda');
       }
       if (!opts.petty) await this.assertNotPettyCash(tx, user.tenantId, dto, cash.id, to?.id, amount);
-      if (dto.type !== 'IN' && (await this.cashSettings(user.tenantId)).blockNegative) {
+      if (dto.type !== 'IN' && (await this.cashSettings(user.tenantId, tx)).blockNegative) {
         const [b] = (await tx.execute<{ bal: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0) AS bal FROM journal_lines l WHERE l.account_id = ${cash.id}`)).rows;
         if (D(b.bal).minus(amount).lt(0)) {
           throw new BadRequestException(`Saldo ${cash.name ?? 'akun kas'} tidak cukup (Rp${D(b.bal).toNumber().toLocaleString('id-ID')}); kas keluar akan membuat saldo negatif`);
@@ -442,8 +442,8 @@ export class CashService {
   }
 
   // ---------------------------------------------------------------- SOP & kontrol kas
-  cashSettings(tenantId: string) {
-    return this.settings.section(this.db, tenantId, 'cashControl', DEFAULT_CASH_SETTINGS);
+  cashSettings(tenantId: string, db: DbOrTx = this.db) {
+    return this.settings.section(db, tenantId, 'cashControl', DEFAULT_CASH_SETTINGS);
   }
   saveCashSettings(tenantId: string, patch: Partial<typeof DEFAULT_CASH_SETTINGS>) {
     return this.settings.saveSection(this.db, tenantId, 'cashControl', DEFAULT_CASH_SETTINGS, patch);

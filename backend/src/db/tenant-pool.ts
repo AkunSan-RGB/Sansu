@@ -27,7 +27,7 @@ let lastNestedWarn = 0;
 /** Koneksi kedua di dalam transaksi: galat di mode tes (agar ketahuan oleh rangkaian tes), peringatan berlimit di produksi */
 function nestedConnectionGuard() {
   if (!txScope.getStore()?.inTx) return;
-  const where = (new Error().stack ?? '').split('\n').filter((l) => l.includes('/src/') && !l.includes('/db/')).slice(0, 3).join(' | ');
+  const where = (new Error().stack ?? '').split('\n').filter((l) => l.includes('/backend/src/') && !l.includes('/src/db/')).slice(0, 6).map((l) => l.trim().replace(/^at /, '').replace(/\(?\/.*\/backend\//, '(')).join(' < ');
   const msg = `Koneksi kedua dibuka di dalam transaksi (risiko kebuntuan kolam): gunakan tx, bukan this.db. ${where}`;
   if (process.env.NODE_ENV === 'test' && process.env.ALLOW_NESTED_CONNECT !== 'true') throw new Error(msg);
   if (Date.now() - lastNestedWarn > 60_000) {

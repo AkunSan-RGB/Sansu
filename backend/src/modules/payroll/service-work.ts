@@ -25,7 +25,7 @@ import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { SettingsService } from '../../common/settings.service';
 import { addDays, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money } from '../../common/utils/money';
-import { Db, Tx } from '../../db/db';
+import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { attendances, employees, invoices, productionOrders, projects, serviceRates, serviceWorkEntries } from '../../db/schema';
 import { monthRange } from '../hr/hr.module';
@@ -138,8 +138,8 @@ export class ServiceWorkService {
   }
 
   /** Satuan upah yang berlaku untuk jenis usaha perusahaan ini */
-  private async unitsOf(tenantId: string): Promise<WorkUnit[]> {
-    return WORK_UNITS_BY_MODEL[await this.settings.businessModel(this.db, tenantId)];
+  private async unitsOf(tenantId: string, db: DbOrTx = this.db): Promise<WorkUnit[]> {
+    return WORK_UNITS_BY_MODEL[await this.settings.businessModel(db, tenantId)];
   }
 
   /** Satuan upah dan batas wajar untuk layar (judul, pilihan satuan tarif) */
@@ -250,7 +250,7 @@ export class ServiceWorkService {
       const [rate] = await tx.select().from(serviceRates).where(and(eq(serviceRates.id, dto.rateId), eq(serviceRates.tenantId, u.tenantId)));
       if (!rate) throw new NotFoundException('Tarif tidak ditemukan');
       if (!rate.isActive) throw new BadRequestException('Tarif ini sudah tidak aktif');
-      if (!(await this.unitsOf(u.tenantId)).includes(rate.unit)) throw new BadRequestException('Satuan tarif ini tidak dipakai di jenis usaha Anda');
+      if (!(await this.unitsOf(u.tenantId, tx)).includes(rate.unit)) throw new BadRequestException('Satuan tarif ini tidak dipakai di jenis usaha Anda');
 
       let projectId = dto.projectId ?? null;
       if (projectId) {
