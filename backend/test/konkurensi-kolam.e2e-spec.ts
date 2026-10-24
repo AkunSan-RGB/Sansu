@@ -87,4 +87,17 @@ describe('Konkurensi kolam koneksi (e2e)', () => {
     await http.get('/api/health').expect(200);
     await http.get('/api/dashboard').set(as(owner)).expect(200);
   });
+
+  it('larangan saldo negatif tetap berlaku saat pengeluaran serentak (tanpa kunci, 24 dari 100 lolos pada saldo yang hanya cukup untuk 15)', async () => {
+    const t = (await http.post('/api/auth/register').send({ companyName: 'PT Saldo Serentak', name: 'Pemilik', email: `ks-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'DAGANG' }).expect(201)).body.accessToken as string;
+    const cash = (await http.get('/api/cash/accounts').set(as(t)).expect(200)).body[0].id as string;
+    const coa = (await http.get('/api/accounting/accounts').set(as(t)).expect(200)).body as { id: string; type: string; parentId: string | null }[];
+    const e = coa.filter((x) => x.type === 'EXPENSE' && !coa.some((y) => y.parentId === x.id))[0].id;
+    await post(t, '/api/cash/transactions', { type: 'IN', cashAccountId: cash, date: todayJakarta(), description: 'modal', reference: 'MD-1', lines: [{ source: 'OWNER_CAPITAL', amount: '5000000' }] }).expect(201);
+    const rs = await Promise.all(Array.from({ length: 30 }, (_, i) => post(t, '/api/cash/transactions', { type: 'OUT', cashAccountId: cash, date: todayJakarta(), description: `serentak ${i}`, lines: [{ accountId: e, amount: '1000000' }] })));
+    expect(rs.filter((r) => r.status >= 500)).toEqual([]);
+    expect(rs.filter((r) => r.status === 201)).toHaveLength(5);
+    const bal = (await http.get('/api/cash/accounts').set(as(t)).expect(200)).body.find((a: { id: string }) => a.id === cash).balance;
+    expect(Number(bal)).toBe(0);
+  });
 });

@@ -316,6 +316,8 @@ export class CashService {
       }
       if (!opts.petty) await this.assertNotPettyCash(tx, user.tenantId, dto, cash.id, to?.id, amount);
       if (dto.type !== 'IN' && (await this.cashSettings(user.tenantId, tx)).blockNegative) {
+        // serialkan per akun kas: tanpa kunci, dua pengeluaran serentak sama-sama melihat saldo cukup lalu keduanya lolos
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`cash-balance:${cash.id}`}))`);
         const [b] = (await tx.execute<{ bal: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0) AS bal FROM journal_lines l WHERE l.account_id = ${cash.id}`)).rows;
         if (D(b.bal).minus(amount).lt(0)) {
           throw new BadRequestException(`Saldo ${cash.name ?? 'akun kas'} tidak cukup (Rp${D(b.bal).toNumber().toLocaleString('id-ID')}); kas keluar akan membuat saldo negatif`);
