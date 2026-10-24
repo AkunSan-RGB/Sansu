@@ -206,6 +206,7 @@ export class TradeService {
         journalNumber = journal.number;
       } else {
         const cash = await this.posting.resolveCashAccount(tx, u.tenantId, dto.cashAccountId, 'BANK');
+        await this.posting.assertCashCovers(tx, u.tenantId, cash, amount);
         const journal = await this.posting.post(tx, {
           tenantId: u.tenantId,
           date,

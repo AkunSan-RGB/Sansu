@@ -110,6 +110,7 @@ export class SalesCommissionsService {
       const pph = D(dto.pph21 ?? 0);
       if (pph.lt(0) || pph.gt(c.amount)) throw new BadRequestException('PPh 21 tidak valid');
       const cash = await this.posting.resolveCashAccount(tx, u.tenantId, dto.cashAccountId, 'BANK');
+      await this.posting.assertCashCovers(tx, u.tenantId, cash, D(c.amount).minus(pph));
       const journal = await this.posting.post(tx, {
         tenantId: u.tenantId,
         date,

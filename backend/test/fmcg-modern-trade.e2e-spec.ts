@@ -48,6 +48,7 @@ describe('FMCG: modern trade (e2e)', () => {
     db = app.get<Db>(DB);
     const reg = (await http.post('/api/auth/register').send({ companyName: 'PT Modern Trade', name: 'Pemilik', email: `mt-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'FMCG' }).expect(201)).body;
     owner = reg.accessToken;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${owner}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     tenantId = reg.user.tenantId;
     for (const [role, n] of [['ADMIN', 'adm'], ['ACCOUNTANT', 'akn'], ['FINANCE', 'fin'], ['SALES', 'sls']] as const) await mk(role, n);
     wh = (await get('/api/warehouses').expect(200)).body[0].id;
