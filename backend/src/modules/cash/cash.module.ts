@@ -219,12 +219,12 @@ export class CashService {
     if (dto.type !== 'IN') {
       const gross = dto.type === 'TRANSFER' ? Number(dto.amount ?? 0) : (dto.lines ?? []).reduce((a, l) => a + Number(l.amount ?? 0), 0);
       if (Number.isFinite(gross) && gross > 0) {
-        const cfg = await this.cashSettings(user.tenantId);
+        const cfg = await this.cashSettings(user.tenantId, opts.tx ?? this.db);
         if (cfg.evidenceFrom > 0 && gross >= cfg.evidenceFrom && !dto.reference?.trim()) {
           throw new BadRequestException(`Isi nomor bukti/referensi (kuitansi, nota, atau bukti transfer): wajib untuk uang keluar mulai Rp${cfg.evidenceFrom.toLocaleString('id-ID')}`);
         }
         if (!opts.approved) {
-          const limit = await this.approvals.needs(this.db, user, 'CASH_TX', gross);
+          const limit = await this.approvals.needs(opts.tx ?? this.db, user, 'CASH_TX', gross);
           if (limit !== null) {
             const req = await this.approvals.create(this.db, user, {
               kind: 'CASH_TX',

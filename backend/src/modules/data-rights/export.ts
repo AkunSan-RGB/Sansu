@@ -27,7 +27,7 @@ const BATCH = 2000;
 /** Kolom yang tidak pernah diekspor: rahasia dan token */
 export const SENSITIVE_COLUMN = /(password|secret|token|credential|key_hash|api_key|backup_codes|link_code)/i;
 /** Tabel yang tidak diekspor: rahasia murni, catatan teknis, atau data pemilik layanan */
-export const EXCLUDED_TABLES = new Set(['auth_tokens', 'error_logs', 'data_export_tokens', 'data_erasure_log']);
+export const EXCLUDED_TABLES = new Set(['auth_tokens', 'error_logs', 'data_export_tokens', 'data_erasure_log', 'idempotency_keys']);
 
 const quote = (id: string) => `"${id.replace(/"/g, '""')}"`;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

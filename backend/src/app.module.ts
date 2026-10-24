@@ -11,6 +11,7 @@ import { JwtAuthGuard } from './common/auth/jwt-auth.guard';
 import { SubscriptionGuard } from './common/billing/subscription.guard';
 import { RolesGuard } from './common/auth/roles.guard';
 import { CommonModule } from './common/common.module';
+import { IdempotencyInterceptor } from './common/idempotency/idempotency.interceptor';
 import { DbExceptionFilter } from './common/filters/db-exception.filter';
 import { DbModule } from './db/db.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
@@ -131,6 +132,8 @@ import { DataRightsModule } from './modules/data-rights/data-rights.module';
     { provide: APP_FILTER, useClass: DbExceptionFilter },
     // seluruh query permintaan terautentikasi dibatasi ke perusahaan pengguna (row-level security) — harus paling luar
     { provide: APP_INTERCEPTOR, useClass: TenantScopeInterceptor },
+    // kirim ulang dengan Idempotency-Key yang sama tidak menjalankan transaksi dua kali (jawaban pertama diputar ulang)
+    { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
     // jejak audit otomatis untuk setiap perubahan data
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
     // laporan: penjumlahan buku besar yang sama dihitung sekali per permintaan

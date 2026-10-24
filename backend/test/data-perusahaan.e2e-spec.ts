@@ -142,7 +142,7 @@ describe('Data perusahaan: ekspor, penghapusan, postur (e2e)', () => {
       expect(z.files['data/users.csv']).not.toMatch(/\$2[aby]\$/); // pola hash bcrypt
       const usersMeta = z.manifest.tables.find((t) => t.name === 'users')!;
       expect(usersMeta.excludedColumns).toEqual(expect.arrayContaining(['password_hash', 'totp_secret']));
-      expect(z.manifest.tables.some((t) => ['auth_tokens', 'error_logs', 'data_export_tokens', 'data_erasure_log'].includes(t.name))).toBe(false);
+      expect(z.manifest.tables.some((t) => ['auth_tokens', 'error_logs', 'data_export_tokens', 'data_erasure_log', 'idempotency_keys'].includes(t.name))).toBe(false);
       // keutuhan: sha256 dan jumlah baris sesuai manifest dan database
       for (const t of z.manifest.tables) {
         const text = z.files[`data/${t.name}.csv`];
