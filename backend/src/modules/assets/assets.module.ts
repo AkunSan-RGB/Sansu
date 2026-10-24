@@ -162,8 +162,8 @@ export class AssetsService {
     return cat.method === 'NONE' || cat.fiscalGroup === 'LAND';
   }
 
-  listCategories(tenantId: string) {
-    return this.db.query.assetCategories.findMany({
+  listCategories(tenantId: string, db: DbOrTx = this.db) {
+    return db.query.assetCategories.findMany({
       where: eq(assetCategories.tenantId, tenantId),
       with: {
         assetAccount: { columns: { id: true, code: true, name: true } },
@@ -254,7 +254,7 @@ export class AssetsService {
         AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = j.id)
       GROUP BY j.id, j.number, j.date, j.description, j.source_type, a.id, a.code, a.name
       ORDER BY j.date, j.number`);
-    const cats = await this.listCategories(tenantId);
+    const cats = await this.listCategories(tenantId, db);
     return res.rows
       .map((r) => ({ ...r, remaining: D(r.amount).minus(r.registered) }))
       .filter((r) => r.remaining.gte(1))

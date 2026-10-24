@@ -131,20 +131,20 @@ export class WorkflowService {
   ) {}
 
   // ---------- pengaturan & definisi ----------
-  async cfg(tenantId: string): Promise<WorkflowSettings> {
-    const s = await this.settings.section(this.db, tenantId, 'workflow', DEFAULT_SETTINGS);
+  async cfg(tenantId: string, db: DbOrTx = this.db): Promise<WorkflowSettings> {
+    const s = await this.settings.section(db, tenantId, 'workflow', DEFAULT_SETTINGS);
     if (s.since) return s;
     // pertama kali: kasus otomatis hanya untuk dokumen yang dibuat sejak hari ini (riwayat lama tidak dibanjiri)
-    return this.settings.saveSection(this.db, tenantId, 'workflow', DEFAULT_SETTINGS, { since: todayJakarta() });
+    return this.settings.saveSection(db, tenantId, 'workflow', DEFAULT_SETTINGS, { since: todayJakarta() });
   }
 
-  private async defs(tenantId: string): Promise<WorkflowPipeline[]> {
-    const model = await this.settings.businessModel(this.db, tenantId);
-    return effectivePipelines(model, (await this.cfg(tenantId)).overrides);
+  private async defs(tenantId: string, db: DbOrTx = this.db): Promise<WorkflowPipeline[]> {
+    const model = await this.settings.businessModel(db, tenantId);
+    return effectivePipelines(model, (await this.cfg(tenantId, db)).overrides);
   }
 
-  private async pipelineOf(tenantId: string, key: string): Promise<WorkflowPipeline> {
-    const p = (await this.defs(tenantId)).find((x) => x.key === key);
+  private async pipelineOf(tenantId: string, key: string, db: DbOrTx = this.db): Promise<WorkflowPipeline> {
+    const p = (await this.defs(tenantId, db)).find((x) => x.key === key);
     // jenis usaha dikunci per perusahaan, jadi alur jenis usaha lain tidak pernah bisa dipakai
     if (!p) throw new BadRequestException('Alur kerja ini bukan untuk jenis usaha perusahaan Anda');
     return p;
@@ -407,7 +407,7 @@ export class WorkflowService {
   async addLink(u: AuthUser, id: string, dto: AddLinkDto) {
     await this.db.transaction(async (tx) => {
       const c = await this.lock(tx, u.tenantId, id);
-      const p = await this.pipelineOf(u.tenantId, c.pipeline);
+      const p = await this.pipelineOf(u.tenantId, c.pipeline, tx);
       if (!allows(u, [...new Set(p.stages.flatMap((s) => s.roles))])) throw new ForbiddenException('Peran Anda tidak terlibat di alur ini');
       if (!p.links.includes(dto.type)) throw new BadRequestException(`${WORKFLOW_LINK_LABELS[dto.type]} tidak dipakai di alur ini`);
       const s = SOURCES[dto.type];
@@ -427,7 +427,7 @@ export class WorkflowService {
   async advance(u: AuthUser, id: string, dto: AdvanceDto) {
     await this.db.transaction(async (tx) => {
       const c = await this.lock(tx, u.tenantId, id);
-      const p = await this.pipelineOf(u.tenantId, c.pipeline);
+      const p = await this.pipelineOf(u.tenantId, c.pipeline, tx);
       const cur = stageOf(p, c.stage)!;
       if (dto.to === 'BATAL') throw new BadRequestException('Untuk membatalkan kasus pakai tombol Batalkan');
       if (!cur.next.includes(dto.to)) throw new BadRequestException(`Dari tahap "${cur.label}" kasus tidak bisa langsung ke "${dto.to}"`);
@@ -452,7 +452,7 @@ export class WorkflowService {
     if (u.role !== 'OWNER' && u.role !== 'ADMIN') throw new ForbiddenException('Hanya Admin / Pemilik yang dapat mengembalikan kasus ke tahap sebelumnya');
     await this.db.transaction(async (tx) => {
       const c = await this.lock(tx, u.tenantId, id);
-      const p = await this.pipelineOf(u.tenantId, c.pipeline);
+      const p = await this.pipelineOf(u.tenantId, c.pipeline, tx);
       const [prev] = await tx.select().from(workflowEvents).where(and(eq(workflowEvents.caseId, id), eq(workflowEvents.toStage, c.stage))).orderBy(desc(workflowEvents.id)).limit(1);
       if (!prev?.fromStage) throw new BadRequestException('Kasus ini belum punya tahap sebelumnya');
       const to = stageOf(p, prev.fromStage)!;
@@ -465,7 +465,7 @@ export class WorkflowService {
   async cancel(u: AuthUser, id: string, dto: NoteDto) {
     await this.db.transaction(async (tx) => {
       const c = await this.lock(tx, u.tenantId, id);
-      const p = await this.pipelineOf(u.tenantId, c.pipeline);
+      const p = await this.pipelineOf(u.tenantId, c.pipeline, tx);
       const to = stageOf(p, 'BATAL');
       if (!to) throw new BadRequestException('Alur ini tidak bisa dibatalkan');
       if (!allows(u, to.roles)) throw new ForbiddenException(`Hanya peran ${to.roles.join('/')} yang dapat membatalkan kasus`);
