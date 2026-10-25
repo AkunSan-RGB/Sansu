@@ -50,7 +50,7 @@ Kolom identitas dan rekening disimpan **terenkripsi** (AES-256-GCM, kunci `DATA_
 Salinan nilai yang sama di `employee_change_requests.changes` dan payload persetujuan ubah rekening pemasok juga dienkripsi. Jejak audit hanya menyimpan 4 karakter terakhir (••••1234).
 
 Cara kerja dan akibatnya:
-- **Transparan untuk aplikasi:** tipe kolom `encryptedText` (di `db/schema.ts`) mengenkripsi saat menulis dan membuka saat membaca; layar, laporan pajak, e-Faktur/rekap, dan ekspor klien tetap menampilkan nilai asli. Kueri SQL mentah yang membaca kolom ini harus memakai `decryptField` (sudah dipasang di laporan PPN, PPh 23, PPh 21, BPJS).
+- **Transparan untuk aplikasi:** tipe kolom `encryptedText` (di `db/schema/columns.ts`) mengenkripsi saat menulis dan membuka saat membaca; layar, laporan pajak, e-Faktur/rekap, dan ekspor klien tetap menampilkan nilai asli. Kueri SQL mentah yang membaca kolom ini harus memakai `decryptField` (sudah dipasang di laporan PPN, PPh 23, PPh 21, BPJS).
 - **Tidak bisa dicari/diurutkan di SQL:** enkripsinya acak. Pencocokan ganda (NIK/NPWP/rekening) dilakukan di aplikasi.
 - **Data lama:** diisi ulang otomatis saat aplikasi start (di latar belakang, aman diulang). Pemeriksaan "NIK, NPWP, dan nomor rekening tersimpan terenkripsi" di Panel SANSU › Keamanan data menampilkan peringatan selama masih ada yang berteks biasa. Matikan pengisian ulang dengan `FIELD_ENCRYPTION_BACKFILL=off`.
 - **Kunci adalah satu-satunya jalan membuka data:** kunci `DATA_ENCRYPTION_KEY` hilang atau berganti = kolom ini tidak terbaca lagi (satu-satunya kunci cadangan adalah turunan `JWT_SECRET` lama). Simpan salinan kunci di tempat aman yang terpisah dari server. Rotasi kunci (enkripsi ulang) belum tersedia.

@@ -47,7 +47,7 @@ SANSU adalah platform modular seperti Odoo: perusahaan mengaktifkan aplikasi yan
 sansu/
 ├─ backend/                   @sansu/api — NestJS + PostgreSQL (Drizzle)
 │  ├─ drizzle/                migrasi SQL (ikut di-commit)
-│  ├─ src/db/                 schema.ts, koneksi, migrate, seed
+│  ├─ src/db/                 schema/ (per domain), koneksi, migrate, seed
 │  ├─ src/common/             auth & peran, penomoran dokumen, audit log, util uang/tanggal, filter error
 │  ├─ src/modules/            auth · master-data · inventory · sales · accounting · dashboard · health
 │  ├─ test/                   test e2e
@@ -111,7 +111,7 @@ Pilihan lain (Vercel/Netlify untuk web + Render/Railway untuk API): **[docs/DEPL
 | `npm run typecheck` | Cek tipe seluruh monorepo |
 | `npm test` | Unit test (jurnal, HPP, harga & PPN) |
 | `npm run test:e2e` | Alur lengkap terhadap `akurata_test` (salin `.env.test.example` → `.env.test`) |
-| `npm run db:generate` | Buat migrasi SQL setelah mengubah `schema.ts` |
+| `npm run db:generate` | Buat migrasi SQL setelah mengubah berkas di `schema/` |
 
 ## Prinsip inti
 

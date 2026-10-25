@@ -79,7 +79,7 @@ Akun sistem dicari lewat `system_key` (`AR`, `SALES`, `VAT_OUT`, ...), sehingga 
 
 ## Menambah modul (contoh: Pembelian)
 
-1. Tabel baru di `backend/src/db/schema.ts` → `npm run db:generate` → `npm run db:migrate`.
+1. Tabel baru di berkas domainnya pada `backend/src/db/schema/` (mis. `inventory.ts`; ekspor lewat `schema/index.ts`) → `npm run db:generate` → `npm run db:migrate`.
 2. Enum/status baru di `shared/src/domain.ts` (dengan label Indonesia), tipe respons di `contracts.ts`.
 3. `backend/src/modules/purchasing/` — DTO, service, controller, module. Penerimaan barang:
    `StockService.move(tx, { type: 'PURCHASE', qty: +n, unitCost })` dan
