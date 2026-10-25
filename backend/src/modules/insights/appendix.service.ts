@@ -6,13 +6,11 @@
  * Semua angka bersumber dari pembukuan per tanggal laporan (31 Desember atau hari ini bila tahun berjalan).
  */
 import { Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
 import { SettingsService } from '../../common/settings.service';
 import { todayJakarta } from '../../common/utils/dates';
 import { D } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { tenants } from '../../db/schema';
 import { AccountingService } from '../accounting/accounting.service';
 import { AssetsService } from '../assets/assets.service';
 import { AGING_BUCKETS, AgingRow, openBalanceAging } from './aging';
@@ -66,7 +64,7 @@ export class AppendixService {
     const today = todayJakarta();
     const to = `${year}-12-31` < today ? `${year}-12-31` : today;
     const [[tenant], reporting] = await Promise.all([
-      this.db.select().from(tenants).where(eq(tenants.id, tenantId)),
+      this.repo.listTenantsById(this.db, tenantId),
       this.settings.reporting(this.db, tenantId),
     ]);
     const sections: AppendixSection[] = [];

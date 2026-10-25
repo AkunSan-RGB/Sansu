@@ -1,6 +1,6 @@
 import { findReceivableLookalike } from './receivable-guard';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import { CASH_IN_SOURCES_TO_VERIFY, cashInSource, cashOutSource, type CashInSourceKey } from '@sansu/shared';
 import { AuthUser } from '../../common/auth/auth-user';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
@@ -12,7 +12,7 @@ import { addDays, assertNotFarFuture, toDocDate, todayJakarta } from '../../comm
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, branches, cashTransactions, fixedAssets, journalEntries } from '../../db/schema';
+import { accounts, cashTransactions } from '../../db/schema';
 import { BudgetService } from '../accounting/budget.service';
 import { PostingService } from '../accounting/posting.service';
 import { AssetsService } from '../assets/assets.service';
@@ -71,9 +71,9 @@ export class CashService {
     // pelengkap: nomor jurnal, cabang, dan kartu aset tetap yang lahir dari transaksi ini (satu query per jenis, bukan per baris)
     const jids = rows.map((r) => r.journalId).filter((x): x is string => !!x);
     const [journals, assets, brs] = await Promise.all([
-      jids.length ? this.db.select({ id: journalEntries.id, number: journalEntries.number }).from(journalEntries).where(inArray(journalEntries.id, jids)) : [],
-      jids.length ? this.db.select({ journalId: fixedAssets.acquisitionJournalId, id: fixedAssets.id, code: fixedAssets.code, name: fixedAssets.name }).from(fixedAssets).where(and(eq(fixedAssets.tenantId, tenantId), inArray(fixedAssets.acquisitionJournalId, jids))) : [],
-      this.db.select({ id: branches.id, code: branches.code, name: branches.name }).from(branches).where(eq(branches.tenantId, tenantId)),
+      jids.length ? this.repo.listJournalEntriesById(this.db, jids) : [],
+      jids.length ? this.repo.listFixedAssetsByAcquisitionJournalId(this.db, tenantId, jids) : [],
+      this.repo.listBranches(this.db, tenantId),
     ]);
     const jn = new Map(journals.map((j) => [j.id, j.number]));
     const bn = new Map(brs.map((b) => [b.id, `${b.code} · ${b.name}`]));
@@ -559,17 +559,6 @@ export class CashService {
 
   /** Akun yang boleh dipakai sebagai lawan kas (bukan kas, bukan piutang/hutang/persediaan) */
   counterAccounts(tenantId: string) {
-    return this.db
-      .select({ id: accounts.id, code: accounts.code, name: accounts.name, type: accounts.type })
-      .from(accounts)
-      .where(
-        and(
-          eq(accounts.tenantId, tenantId),
-          eq(accounts.isPostable, true),
-          eq(accounts.isCashAccount, false),
-          sql`COALESCE(${accounts.systemKey}, '') NOT IN ('AR', 'AP', 'INVENTORY', 'INVENTORY_SEMI')`,
-        ),
-      )
-      .orderBy(asc(accounts.code));
+    return this.repo.listAccountsByIsPostableAndIsCashAccountAndSystemKey(this.db, tenantId);
   }
 }

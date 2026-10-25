@@ -364,4 +364,52 @@ export class BankRepository {
         AND NOT EXISTS (SELECT 1 FROM bank_line_extra_matches x WHERE x.journal_line_id = l.id)
       ORDER BY j.date, j.number`);
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh BankService.list */
+  queryBankStatementForList(db: DbOrTx, tenantId: string, cashAccountId: string | undefined) {
+    return db
+      .execute<{
+        id: string;
+        cash_account_id: string;
+        account_code: string;
+        account_name: string;
+        file_name: string | null;
+        period_from: string;
+        period_to: string;
+        closing_balance: string | null;
+        lines: number;
+        matched: number;
+        created_at: string;
+      }>(
+        sql`
+      SELECT s.id, s.cash_account_id, a.code AS account_code, a.name AS account_name, s.file_name, s.period_from, s.period_to,
+             s.closing_balance, s.created_at,
+             COUNT(l.id)::int AS lines, COUNT(l.id) FILTER (WHERE l.status <> 'UNMATCHED')::int AS matched
+      FROM bank_statements s JOIN accounts a ON a.id = s.cash_account_id
+      LEFT JOIN bank_statement_lines l ON l.statement_id = s.id
+      WHERE s.tenant_id = ${tenantId} ${cashAccountId ? sql`AND s.cash_account_id = ${cashAccountId}` : sql``}
+      GROUP BY s.id, a.code, a.name ORDER BY s.period_to DESC, s.created_at DESC`,
+      )
+      .then((r) => r.rows);
+  }
+
+  /** Dipakai oleh BankService.listSignoffs */
+  listBankReconciliationsByCashAccountIdAndPeriod(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof bankReconciliations.$inferSelect)['tenantId']>,
+    cashAccountId: string | undefined,
+  ) {
+    return db
+      .select()
+      .from(bankReconciliations)
+      .where(
+        and(
+          eq(bankReconciliations.tenantId, tenantId),
+          cashAccountId ? eq(bankReconciliations.cashAccountId, cashAccountId) : undefined,
+        ),
+      )
+      .orderBy(desc(bankReconciliations.period))
+      .limit(60);
+  }
 }

@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { REPORT_GROUPS } from '@sansu/shared';
-import { and, asc, desc, eq, gte, ilike, inArray, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, lte, or, sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -71,7 +71,7 @@ export class AccountingService {
   // ---------- Bagan akun ----------
 
   listAccounts(tenantId: string) {
-    return this.db.select().from(accounts).where(eq(accounts.tenantId, tenantId)).orderBy(asc(accounts.code));
+    return this.repo.listAccountsByCode(this.db, tenantId);
   }
 
   async createAccount(tenantId: string, dto: CreateAccountDto) {

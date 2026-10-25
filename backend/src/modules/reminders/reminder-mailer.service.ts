@@ -5,7 +5,6 @@
  * Setiap pengiriman dicatat di `reminder_log` sehingga tidak terkirim dua kali meski penjadwal berjalan berulang.
  */
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { appUrl, MailService } from '../../common/mail/mail.service';
@@ -46,7 +45,7 @@ export class ReminderMailer {
   }
 
   private release(tenantId: string, kind: string, ref: string, stage: string) {
-    return this.db.execute(sql`DELETE FROM reminder_log WHERE tenant_id = ${tenantId} AND kind = ${kind} AND ref = ${ref} AND stage = ${stage}`);
+    return this.repo.queryReminderLogForRelease(this.db, tenantId, kind, ref, stage);
   }
 
   // ---------- ringkasan harian ----------

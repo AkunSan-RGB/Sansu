@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { sql, and, eq, ne } from 'drizzle-orm';
+import { sql, and, eq, ne, or, ilike, asc } from 'drizzle-orm';
 import { purchaseInvoices, suppliers } from '../../db/schema';
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 
@@ -52,5 +52,25 @@ export class SuppliersRepository {
     id: NonNullable<(typeof suppliers.$inferSelect)['id']>,
   ) {
     return db.update(suppliers).set(patch).where(eq(suppliers.id, id)).returning();
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh SuppliersService.list */
+  listSuppliersByCodeAndName(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof suppliers.$inferSelect)['tenantId']>,
+    q: string | undefined,
+  ) {
+    return db
+      .select()
+      .from(suppliers)
+      .where(
+        and(
+          eq(suppliers.tenantId, tenantId),
+          q ? or(ilike(suppliers.code, `%${q}%`), ilike(suppliers.name, `%${q}%`)) : undefined,
+        ),
+      )
+      .orderBy(asc(suppliers.code))
+      .limit(500);
   }
 }

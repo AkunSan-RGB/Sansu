@@ -1,12 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, eq, ilike, ne, or, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { ApprovalsService } from '../../../common/approvals/approvals.service';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { D } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, invoices, priceLists } from '../../../db/schema';
+import { customers } from '../../../db/schema';
 import { partyNameKey } from '../../../common/utils/party-name';
 import { CreateCustomerDto, UpdateCustomerDto } from './customers.dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
@@ -24,17 +24,7 @@ export class CustomersService {
   ) {}
 
   list(tenantId: string, q?: string) {
-    return this.db
-      .select()
-      .from(customers)
-      .where(
-        and(
-          eq(customers.tenantId, tenantId),
-          q ? or(ilike(customers.code, `%${q}%`), ilike(customers.name, `%${q}%`)) : undefined,
-        ),
-      )
-      .orderBy(asc(customers.code))
-      .limit(500);
+    return this.repo.listCustomersByCodeAndName(this.db, tenantId, q);
   }
 
   async get(tenantId: string, id: string) {

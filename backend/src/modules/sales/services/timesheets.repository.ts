@@ -284,4 +284,31 @@ export class TimesheetsRepository {
   queryControls(db: DbOrTx, text: SQL<unknown>) {
     return db.execute(text);
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh TimesheetService.rates */
+  queryBillingRateForRates(db: DbOrTx, tenantId: string) {
+    return db
+      .execute(
+        sql`SELECT r.id, r.employee_id AS "employeeId", e.name AS "employeeName", r.project_id AS "projectId", p.name AS "projectName", r.rate, r.valid_from AS "validFrom", r.note FROM billing_rates r LEFT JOIN employees e ON e.id = r.employee_id LEFT JOIN projects p ON p.id = r.project_id WHERE r.tenant_id = ${tenantId} ORDER BY r.valid_from DESC, r.created_at DESC LIMIT 300`,
+      )
+      .then((r) => r.rows);
+  }
+
+  /** Dipakai oleh TimesheetService.stopTimer */
+  queryTimeTimerForStopTimer2(
+    db: DbOrTx,
+    tenantId: string,
+    emp: string,
+    project_id: string | null,
+    customer_id: string,
+    description: string,
+    billable: boolean,
+    started_at: Date,
+    created_by_id: string,
+  ) {
+    return db.execute(
+      sql`INSERT INTO time_timers (tenant_id, employee_id, project_id, customer_id, description, billable, started_at, created_by_id) VALUES (${tenantId}, ${emp}, ${project_id}, ${customer_id}, ${description}, ${billable}, ${new Date(started_at).toISOString()}, ${created_by_id}) ON CONFLICT DO NOTHING`,
+    );
+  }
 }

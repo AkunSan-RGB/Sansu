@@ -1,6 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { WORK_LIMITS, WORK_UNIT_LABELS, WORK_UNITS_BY_MODEL, type WorkUnit } from '@sansu/shared';
-import { eq } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -53,7 +52,7 @@ export class ServiceWorkService {
   }
 
   async listRates(u: AuthUser) {
-    return this.db.select().from(serviceRates).where(eq(serviceRates.tenantId, u.tenantId)).orderBy(serviceRates.unit, serviceRates.name);
+    return this.repo.listServiceRatesByUnitAndName(this.db, u.tenantId);
   }
 
   async createRate(u: AuthUser, dto: CreateRateDto) {

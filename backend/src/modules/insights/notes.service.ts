@@ -5,13 +5,11 @@
  */
 import { Injectable } from '@nestjs/common';
 import { INVENTORY_METHOD_INFO, isInventoryMethod, activityFor, DEPRECIATION_METHOD_LABELS, FISCAL_ASSET_GROUP_INFO, type FiscalAssetGroup, LEGAL_FORM_LABELS, type LegalForm, type ReportGroup, REPORT_TERMS, FRAMEWORK_REFS, isFullFramework, REPORTING_FRAMEWORK_SHORT } from '@sansu/shared';
-import { and, eq, sql } from 'drizzle-orm';
 import { SettingsService } from '../../common/settings.service';
 import { todayJakarta } from '../../common/utils/dates';
 import { D } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { reportNotes, tenants } from '../../db/schema';
 import { StatementLine, StatementsService } from '../accounting/statements.service';
 import { AssetsService } from '../assets/assets.service';
 import { AGING_BUCKETS, openBalanceAging } from './aging';
@@ -64,12 +62,12 @@ export class NotesService {
     ).rows;
     const hasProduction = (prod?.n ?? 0) > 0;
     const [[tenant], reporting, pkg, roll, categories, overrides, fiscal] = await Promise.all([
-      this.db.select().from(tenants).where(eq(tenants.id, tenantId)),
+      this.repo.listTenantsById(this.db, tenantId),
       this.settings.reporting(this.db, tenantId),
       this.statements.annualPackage(tenantId, year),
       this.assetReports.rollForward(tenantId, year),
       this.assets.listCategories(tenantId),
-      this.db.select().from(reportNotes).where(and(eq(reportNotes.tenantId, tenantId), eq(reportNotes.year, year))),
+      this.repo.listReportNotesByYear(this.db, tenantId, year),
       this.fiscal.reconcile(tenantId, year).catch(() => null),
     ]);
     // Mata uang asing: ada tidaknya transaksi valas, posisi terbuka per tanggal laporan, dan selisih kurs tahun berjalan

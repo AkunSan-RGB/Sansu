@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { sql, count, and, eq, ne, lte } from 'drizzle-orm';
-import { purchaseInvoices } from '../../db/schema';
+import { sql, count, and, eq, ne, lte, gte, lt, inArray } from 'drizzle-orm';
+import { purchaseInvoices, invoices, stockBalances, salesOrders, journalLines, accounts } from '../../db/schema';
 import { addDays, monthStart } from '../../common/utils/dates';
 import type { SQL } from 'drizzle-orm';
 
@@ -57,5 +57,107 @@ export class DashboardRepository {
     return db.execute<{ n: number }>(
       sql`SELECT COUNT(*)::int AS n FROM pos_orders po WHERE po.tenant_id = ${tenantId} AND po.date >= ${monthStart(today)} AND po.date <= ${today} ${posBr}`,
     );
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh DashboardService.summary */
+  countInvoicesByIsOpeningAndDate(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof invoices.$inferSelect)['tenantId']>,
+    today: string,
+    invBr: SQL<unknown> | undefined,
+  ) {
+    return db
+      .select({ n: count() })
+      .from(invoices)
+      .where(
+        and(
+          eq(invoices.tenantId, tenantId),
+          eq(invoices.isOpening, false),
+          gte(invoices.date, monthStart(today)),
+          lte(invoices.date, today),
+          invBr,
+        ),
+      );
+  }
+
+  /** Dipakai oleh DashboardService.summary */
+  listInvoicesByStatus(
+    db: DbOrTx,
+    outstanding: SQL<string>,
+    tenantId: NonNullable<(typeof invoices.$inferSelect)['tenantId']>,
+    invBr: SQL<unknown> | undefined,
+  ) {
+    return db
+      .select({ v: outstanding })
+      .from(invoices)
+      .where(and(eq(invoices.tenantId, tenantId), ne(invoices.status, 'PAID'), invBr));
+  }
+
+  /** Dipakai oleh DashboardService.summary */
+  countInvoicesByStatusAndDueDate(
+    db: DbOrTx,
+    outstanding: SQL<string>,
+    tenantId: NonNullable<(typeof invoices.$inferSelect)['tenantId']>,
+    today: NonNullable<(typeof invoices.$inferSelect)['dueDate']>,
+    invBr: SQL<unknown> | undefined,
+  ) {
+    return db
+      .select({ v: outstanding, n: count() })
+      .from(invoices)
+      .where(and(eq(invoices.tenantId, tenantId), ne(invoices.status, 'PAID'), lt(invoices.dueDate, today), invBr));
+  }
+
+  /** Dipakai oleh DashboardService.summary */
+  sumStockBalances(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof stockBalances.$inferSelect)['tenantId']>,
+    stBr: SQL<unknown> | undefined,
+  ) {
+    return db
+      .select({ v: sql<string>`COALESCE(SUM(${stockBalances.qty} * ${stockBalances.avgCost}), 0)` })
+      .from(stockBalances)
+      .where(and(eq(stockBalances.tenantId, tenantId), stBr));
+  }
+
+  /** Dipakai oleh DashboardService.summary */
+  countSalesOrdersByStatus(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof salesOrders.$inferSelect)['tenantId']>,
+    soBr: SQL<unknown> | undefined,
+  ) {
+    return db
+      .select({ n: count() })
+      .from(salesOrders)
+      .where(
+        and(eq(salesOrders.tenantId, tenantId), inArray(salesOrders.status, ['DRAFT', 'CONFIRMED', 'DELIVERED']), soBr),
+      );
+  }
+
+  /** Dipakai oleh DashboardService.summary */
+  sumPurchaseInvoicesByStatus(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof purchaseInvoices.$inferSelect)['tenantId']>,
+    piBr: SQL<unknown> | undefined,
+  ) {
+    return db
+      .select({
+        v: sql<string>`COALESCE(SUM(${purchaseInvoices.total} - ${purchaseInvoices.paidAmount} - ${purchaseInvoices.returnedAmount}), 0)`,
+      })
+      .from(purchaseInvoices)
+      .where(and(eq(purchaseInvoices.tenantId, tenantId), ne(purchaseInvoices.status, 'PAID'), piBr));
+  }
+
+  /** Dipakai oleh DashboardService.summary */
+  sumJournalLinesWithAccounts(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof accounts.$inferSelect)['tenantId']>,
+    cashBr: SQL<unknown> | undefined,
+  ) {
+    return db
+      .select({ v: sql<string>`COALESCE(SUM(${journalLines.debit} - ${journalLines.credit}), 0)` })
+      .from(journalLines)
+      .innerJoin(accounts, eq(accounts.id, journalLines.accountId))
+      .where(and(eq(accounts.tenantId, tenantId), eq(accounts.isCashAccount, true), cashBr));
   }
 }

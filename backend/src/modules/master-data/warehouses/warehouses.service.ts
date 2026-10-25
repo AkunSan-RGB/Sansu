@@ -1,10 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { allowedWarehouses } from '../../../common/auth/warehouse-access';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { stockBalances, warehouses } from '../../../db/schema';
+import { warehouses } from '../../../db/schema';
 import { SubscriptionService } from '../../../common/billing/subscription.service';
 import { CreateWarehouseDto, UpdateWarehouseDto } from './warehouses.dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
@@ -22,11 +21,7 @@ export class WarehousesService {
 
   list(tenantId: string, u?: AuthUser) {
     const allowed = allowedWarehouses(u);
-    return this.db
-      .select()
-      .from(warehouses)
-      .where(and(eq(warehouses.tenantId, tenantId), allowed ? inArray(warehouses.id, allowed) : undefined))
-      .orderBy(asc(warehouses.code));
+    return this.repo.listWarehousesByIdAndCode(this.db, tenantId, allowed);
   }
 
   async create(tenantId: string, dto: CreateWarehouseDto) {

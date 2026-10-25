@@ -10,7 +10,7 @@ import {
   invoices,
   payments,
 } from '../../db/schema';
-import { inArray, eq, sql, and, ne, asc } from 'drizzle-orm';
+import { inArray, eq, sql, and, ne, asc, desc } from 'drizzle-orm';
 import { MarketplaceSettleDto } from './integrations.dto';
 import { Dec } from '../../common/utils/money';
 import type { SQL } from 'drizzle-orm';
@@ -174,5 +174,33 @@ export class IntegrationsRepository {
             FROM deposit_applications a JOIN customer_deposits d ON d.id = a.deposit_id
             WHERE a.tenant_id = ${tenantId} AND d.tax_amount > 0 AND a.invoice_id IN (${sql.join(rowsValues, sql`, `)})
             GROUP BY a.invoice_id`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh IntegrationsService.marketplaceOrders */
+  listMarketplaceOrdersWithInvoicesByChannelAndDateAndOrderNo(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof marketplaceOrders.$inferSelect)['tenantId']>,
+    channel: string | undefined,
+  ) {
+    return db
+      .select({
+        id: marketplaceOrders.id,
+        channel: marketplaceOrders.channel,
+        orderNo: marketplaceOrders.orderNo,
+        date: marketplaceOrders.date,
+        total: marketplaceOrders.total,
+        invoiceId: invoices.id,
+        invoiceNumber: invoices.number,
+        status: invoices.status,
+        paidAmount: invoices.paidAmount,
+      })
+      .from(marketplaceOrders)
+      .leftJoin(invoices, eq(invoices.id, marketplaceOrders.invoiceId))
+      .where(
+        and(eq(marketplaceOrders.tenantId, tenantId), channel ? eq(marketplaceOrders.channel, channel) : undefined),
+      )
+      .orderBy(desc(marketplaceOrders.date), desc(marketplaceOrders.orderNo))
+      .limit(1000);
   }
 }

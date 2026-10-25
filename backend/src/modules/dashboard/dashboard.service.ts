@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { and, count, desc, eq, gte, inArray, lt, lte, ne, sql } from 'drizzle-orm';
-import { monthStart, todayJakarta } from '../../common/utils/dates';
+import { and, desc, eq, sql } from 'drizzle-orm';
+import { todayJakarta } from '../../common/utils/dates';
 import { D } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, invoices, journalLines, purchaseInvoices, salesOrders, stockBalances } from '../../db/schema';
+import { invoices, journalLines, purchaseInvoices, salesOrders, stockBalances } from '../../db/schema';
 import { HealthService } from '../insights/health.service';
 import { TaxService, TAX_LABEL } from '../tax/tax.service';
 import { addDays } from '../../common/utils/dates';
@@ -98,43 +98,19 @@ export class DashboardService {
     const ledBr = branchId ? sql`AND COALESCE(jl.branch_id::text, 'NONE') = ${branchId}` : sql``;
     const posBr = branchId ? sql`AND COALESCE((SELECT w.branch_id::text FROM pos_sessions s JOIN warehouses w ON w.id = s.warehouse_id WHERE s.id = po.session_id), 'NONE') = ${branchId}` : sql``;
     const [[sales], [ar], [overdue], [stock], [pending], recent, [ap], [cash]] = await Promise.all([
-      this.db
-        .select({ n: count() })
-        .from(invoices)
-        .where(and(eq(invoices.tenantId, tenantId), eq(invoices.isOpening, false), gte(invoices.date, monthStart(today)), lte(invoices.date, today), invBr)),
-      this.db
-        .select({ v: outstanding })
-        .from(invoices)
-        .where(and(eq(invoices.tenantId, tenantId), ne(invoices.status, 'PAID'), invBr)),
-      this.db
-        .select({ v: outstanding, n: count() })
-        .from(invoices)
-        .where(and(eq(invoices.tenantId, tenantId), ne(invoices.status, 'PAID'), lt(invoices.dueDate, today), invBr)),
-      this.db
-        .select({ v: sql<string>`COALESCE(SUM(${stockBalances.qty} * ${stockBalances.avgCost}), 0)` })
-        .from(stockBalances)
-        .where(and(eq(stockBalances.tenantId, tenantId), stBr)),
-      this.db
-        .select({ n: count() })
-        .from(salesOrders)
-        .where(and(eq(salesOrders.tenantId, tenantId), inArray(salesOrders.status, ['DRAFT', 'CONFIRMED', 'DELIVERED']), soBr)),
+      this.repo.countInvoicesByIsOpeningAndDate(this.db, tenantId, today, invBr),
+      this.repo.listInvoicesByStatus(this.db, outstanding, tenantId, invBr),
+      this.repo.countInvoicesByStatusAndDueDate(this.db, outstanding, tenantId, today, invBr),
+      this.repo.sumStockBalances(this.db, tenantId, stBr),
+      this.repo.countSalesOrdersByStatus(this.db, tenantId, soBr),
       this.db.query.invoices.findMany({
         where: and(eq(invoices.tenantId, tenantId), invBr),
         with: { customer: { columns: { name: true } } },
         orderBy: [desc(invoices.createdAt)],
         limit: 5,
       }),
-      this.db
-        .select({
-          v: sql<string>`COALESCE(SUM(${purchaseInvoices.total} - ${purchaseInvoices.paidAmount} - ${purchaseInvoices.returnedAmount}), 0)`,
-        })
-        .from(purchaseInvoices)
-        .where(and(eq(purchaseInvoices.tenantId, tenantId), ne(purchaseInvoices.status, 'PAID'), piBr)),
-      this.db
-        .select({ v: sql<string>`COALESCE(SUM(${journalLines.debit} - ${journalLines.credit}), 0)` })
-        .from(journalLines)
-        .innerJoin(accounts, eq(accounts.id, journalLines.accountId))
-        .where(and(eq(accounts.tenantId, tenantId), eq(accounts.isCashAccount, true), cashBr)),
+      this.repo.sumPurchaseInvoicesByStatus(this.db, tenantId, piBr),
+      this.repo.sumJournalLinesWithAccounts(this.db, tenantId, cashBr),
     ]);
 
     const led = await this.repo.queryJournalLine(this.db, tenantId, today, ledBr);

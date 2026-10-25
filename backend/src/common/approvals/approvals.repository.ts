@@ -100,4 +100,24 @@ export class ApprovalsRepository {
       )
       .limit(1);
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh ApprovalsService.eligibleApprovers */
+  listUsersByIsActiveAndRoleAndIdForEligibleApprovers(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof users.$inferSelect)['tenantId']>,
+    excludeUserId: string | undefined,
+  ) {
+    return db
+      .select({ id: users.id, name: users.name, role: users.role })
+      .from(users)
+      .where(
+        and(
+          eq(users.tenantId, tenantId),
+          eq(users.isActive, true),
+          inArray(users.role, [...APPROVER_ROLES]),
+          excludeUserId ? ne(users.id, excludeUserId) : undefined,
+        ),
+      );
+  }
 }

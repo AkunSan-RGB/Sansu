@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { and, asc, eq, lte } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { AuditService } from '../../common/audit/audit.service';
 import { PeriodService } from '../../common/period/period.service';
@@ -44,11 +44,7 @@ export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
   // ---------- Jurnal berulang ----------
 
   listRecurring(tenantId: string) {
-    return this.db
-      .select()
-      .from(recurringJournals)
-      .where(eq(recurringJournals.tenantId, tenantId))
-      .orderBy(asc(recurringJournals.nextDate));
+    return this.queries.listRecurringJournalsByNextDate(this.db, tenantId);
   }
 
   async createRecurring(user: AuthUser, dto: CreateRecurringDto) {

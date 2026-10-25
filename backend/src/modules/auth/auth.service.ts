@@ -11,13 +11,13 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { type BusinessModel, taxFeatures } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { authTokens, branches, budgets, customRoles, tenants, users } from '../../db/schema';
+import { tenants, users } from '../../db/schema';
 import { SubscriptionService } from '../../common/billing/subscription.service';
 import { verificationRequired } from '../../common/billing/subscription.guard';
 import { LEGAL_VERSION } from '@sansu/shared';
@@ -399,24 +399,7 @@ export class AuthService {
   }
 
   listUsers(tenantId: string) {
-    return this.db
-      .select({
-        id: users.id,
-        name: users.name,
-        email: users.email,
-        role: users.role,
-        isActive: users.isActive,
-        warehouseIds: users.warehouseIds,
-        branchIds: users.branchIds,
-        twoFactor: sql<boolean>`${users.totpEnabledAt} IS NOT NULL`,
-        createdAt: users.createdAt,
-        customRoleId: users.customRoleId,
-        customRoleName: customRoles.name,
-      })
-      .from(users)
-      .leftJoin(customRoles, eq(customRoles.id, users.customRoleId))
-      .where(eq(users.tenantId, tenantId))
-      .orderBy(asc(users.name));
+    return this.repo.listUsersWithCustomRolesByName(this.db, tenantId);
   }
 
   async createUser(actor: AuthUser, dto: CreateUserDto) {

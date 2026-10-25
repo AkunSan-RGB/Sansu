@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { sql, and, eq, inArray, lte, gte } from 'drizzle-orm';
+import { sql, and, eq, inArray, lte, gte, asc } from 'drizzle-orm';
 import { projects, employees, attendances, leaveRequests } from '../../db/schema';
 import { type AttendanceStatus } from '@sansu/shared';
 
@@ -138,5 +138,19 @@ export class HrRepository {
       .insert(attendances)
       .values(values)
       .onConflictDoUpdate({ target: [attendances.employeeId, attendances.date], set: values });
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh HrService.listEmployees */
+  listEmployeesByIsActiveAndCode(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof employees.$inferSelect)['tenantId']>,
+    activeOnly: boolean,
+  ) {
+    return db
+      .select()
+      .from(employees)
+      .where(and(eq(employees.tenantId, tenantId), activeOnly ? eq(employees.isActive, true) : undefined))
+      .orderBy(asc(employees.code));
   }
 }

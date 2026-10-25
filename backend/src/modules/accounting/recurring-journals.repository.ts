@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { recurringJournals, scheduledReversals } from '../../db/schema';
 import { toDocDate } from '../../common/utils/dates';
-import { and, eq, lte } from 'drizzle-orm';
+import { and, eq, lte, asc } from 'drizzle-orm';
 import { UpdateRecurringDto } from './dto/accounting.dto';
 
 /** Akses data untuk RecurringJournals: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
@@ -82,5 +82,18 @@ export class RecurringJournalsRepository {
       .selectDistinct({ id: scheduledReversals.tenantId })
       .from(scheduledReversals)
       .where(eq(scheduledReversals.status, 'PENDING'));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh RecurringJournalsService.listRecurring */
+  listRecurringJournalsByNextDate(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof recurringJournals.$inferSelect)['tenantId']>,
+  ) {
+    return db
+      .select()
+      .from(recurringJournals)
+      .where(eq(recurringJournals.tenantId, tenantId))
+      .orderBy(asc(recurringJournals.nextDate));
   }
 }

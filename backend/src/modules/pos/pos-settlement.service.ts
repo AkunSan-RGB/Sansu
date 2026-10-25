@@ -1,6 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { sql } from 'drizzle-orm';
 import { type CardSettlementSettings, DEFAULT_CARD_SETTLEMENT, mdrAmount, validateCardSettlement } from '@sansu/shared';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -59,7 +58,7 @@ export class CardSettlementService {
   }
 
   list(tenantId: string) {
-    return this.db.execute(sql`SELECT id, number, date, method, gross, returns_total AS "returnsTotal", mdr_pct AS "mdrPct", mdr_expected AS "mdrExpected", received, difference, item_count AS "itemCount", status, note, cancel_reason AS "cancelReason", created_at AS "createdAt" FROM pos_card_settlements WHERE tenant_id = ${tenantId} ORDER BY created_at DESC LIMIT 200`).then((r) => r.rows);
+    return this.repo.queryPosCardSettlementForList(this.db, tenantId);
   }
 
   async create(u: AuthUser, dto: SettleDto) {

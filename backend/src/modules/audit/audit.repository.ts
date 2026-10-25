@@ -52,4 +52,13 @@ export class AuditRepository {
       sql`SELECT id::text AS id FROM ${sql.identifier(table)} WHERE tenant_id = ${tenantId} AND (${sql.raw(expr)}) ILIKE ${like} LIMIT 200`,
     );
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh AuditLogService.users */
+  listUsers(db: DbOrTx, tenantId: NonNullable<(typeof users.$inferSelect)['tenantId']>) {
+    return db
+      .select({ id: users.id, name: users.name, email: users.email })
+      .from(users)
+      .where(eq(users.tenantId, tenantId));
+  }
 }

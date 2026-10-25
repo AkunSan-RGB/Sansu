@@ -2,7 +2,6 @@ import { partyNameKey } from '../../common/utils/party-name';
 import { encryptField, maskField } from '../../common/utils/secret';
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuthUser } from '../../common/auth/auth-user';
-import { and, asc, eq, ilike, or } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { D } from '../../common/utils/money';
@@ -30,17 +29,7 @@ export class SuppliersService {
   }
 
   list(tenantId: string, q?: string) {
-    return this.db
-      .select()
-      .from(suppliers)
-      .where(
-        and(
-          eq(suppliers.tenantId, tenantId),
-          q ? or(ilike(suppliers.code, `%${q}%`), ilike(suppliers.name, `%${q}%`)) : undefined,
-        ),
-      )
-      .orderBy(asc(suppliers.code))
-      .limit(500);
+    return this.repo.listSuppliersByCodeAndName(this.db, tenantId, q);
   }
 
   async get(tenantId: string, id: string) {

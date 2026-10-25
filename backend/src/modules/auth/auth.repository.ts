@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { users, authTokens, tenants, customRoles, budgets, branches } from '../../db/schema';
-import { eq, and, isNull, gt, sql, inArray } from 'drizzle-orm';
+import { eq, and, isNull, gt, sql, inArray, asc } from 'drizzle-orm';
 import { sha256 } from '../../common/utils/secret';
 
 /** Akses data untuk Auth: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
@@ -126,5 +126,28 @@ export class AuthRepository {
   /** Dipakai oleh AuthService.assertEmailFree */
   findUsersByEmailForAssertEmailFree(db: DbOrTx, email: string) {
     return db.select({ id: users.id }).from(users).where(eq(users.email, email));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh AuthService.listUsers */
+  listUsersWithCustomRolesByName(db: DbOrTx, tenantId: NonNullable<(typeof users.$inferSelect)['tenantId']>) {
+    return db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        role: users.role,
+        isActive: users.isActive,
+        warehouseIds: users.warehouseIds,
+        branchIds: users.branchIds,
+        twoFactor: sql<boolean>`${users.totpEnabledAt} IS NOT NULL`,
+        createdAt: users.createdAt,
+        customRoleId: users.customRoleId,
+        customRoleName: customRoles.name,
+      })
+      .from(users)
+      .leftJoin(customRoles, eq(customRoles.id, users.customRoleId))
+      .where(eq(users.tenantId, tenantId))
+      .orderBy(asc(users.name));
   }
 }

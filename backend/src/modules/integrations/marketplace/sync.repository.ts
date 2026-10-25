@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../../db/db';
 import { warehouses, marketplaceConnections, products, users, marketplaceOrders } from '../../../db/schema';
-import { and, eq, inArray, desc } from 'drizzle-orm';
+import { and, eq, inArray, desc, asc } from 'drizzle-orm';
 import { type ProviderKey, type Tokens, type NormalizedOrder } from './providers';
 import { UpdateConnectionDto } from './sync.dto';
 
@@ -132,5 +132,35 @@ export class SyncRepository {
       .from(marketplaceConnections)
       .where(eq(marketplaceConnections.isActive, true))
       .orderBy(desc(marketplaceConnections.lastSyncAt));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh MarketplaceSyncService.list */
+  listMarketplaceConnectionsWithWarehousesByCreatedAt(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof marketplaceConnections.$inferSelect)['tenantId']>,
+  ) {
+    return db
+      .select({
+        id: marketplaceConnections.id,
+        provider: marketplaceConnections.provider,
+        channel: marketplaceConnections.channel,
+        shopId: marketplaceConnections.shopId,
+        shopName: marketplaceConnections.shopName,
+        warehouseId: marketplaceConnections.warehouseId,
+        warehouseName: warehouses.name,
+        pricesIncludeVat: marketplaceConnections.pricesIncludeVat,
+        isActive: marketplaceConnections.isActive,
+        tokenExpiresAt: marketplaceConnections.tokenExpiresAt,
+        syncedUntil: marketplaceConnections.syncedUntil,
+        lastSyncAt: marketplaceConnections.lastSyncAt,
+        lastResult: marketplaceConnections.lastResult,
+        lastError: marketplaceConnections.lastError,
+        createdAt: marketplaceConnections.createdAt,
+      })
+      .from(marketplaceConnections)
+      .innerJoin(warehouses, eq(warehouses.id, marketplaceConnections.warehouseId))
+      .where(eq(marketplaceConnections.tenantId, tenantId))
+      .orderBy(asc(marketplaceConnections.createdAt));
   }
 }

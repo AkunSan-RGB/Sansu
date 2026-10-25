@@ -1,7 +1,7 @@
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { inventoryLines, semiSet } from './inventory-accounts';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { AuditService } from '../../common/audit/audit.service';
@@ -389,10 +389,7 @@ export class WarehouseOpsService {
 
   /** `lock`: kunci baris opname (di dalam transaksi) supaya dua permintaan serentak tidak membukukan selisih dua kali */
   async ownCount(u: AuthUser, id: string, db: Db | Tx = this.db, lock = false) {
-    const q = db
-      .select()
-      .from(stockCounts)
-      .where(and(eq(stockCounts.id, id), eq(stockCounts.tenantId, u.tenantId)));
+    const q = this.repo.listStockCountsById(db, id, u.tenantId);
     const [c] = lock ? await q.for('update') : await q;
     if (!c) throw new NotFoundException('Stock opname tidak ditemukan');
     assertWarehouseAccess(u, c.warehouseId);

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { sql } from 'drizzle-orm';
+import { sql, eq } from 'drizzle-orm';
+import { tenants } from '../../db/schema';
 
 /** Akses data untuk Appendix: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -14,5 +15,11 @@ export class AppendixRepository {
         GROUP BY p.sku, p.name, p.category
         HAVING SUM(b.qty) <> 0 OR SUM(b.qty * b.avg_cost) <> 0
         ORDER BY p.name`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh AppendixService.build */
+  listTenantsById(db: DbOrTx, tenantId: NonNullable<(typeof tenants.$inferSelect)['id']>) {
+    return db.select().from(tenants).where(eq(tenants.id, tenantId));
   }
 }

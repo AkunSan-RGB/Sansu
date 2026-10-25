@@ -146,4 +146,34 @@ export class WarehouseQueryRepository {
       .where(and(eq(products.tenantId, tenantId), opts.category ? eq(products.category, opts.category) : undefined))
       .orderBy(asc(products.sku));
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh WarehouseQueryService.minimums */
+  listProductsByIsActiveAndSku(
+    db: DbOrTx,
+    warehouseId: NonNullable<(typeof stockBalances.$inferSelect)['warehouseId']>,
+    tenantId: NonNullable<(typeof products.$inferSelect)['tenantId']>,
+  ) {
+    return db
+      .select({
+        productId: products.id,
+        sku: products.sku,
+        name: products.name,
+        category: products.category,
+        baseUom: products.baseUom,
+        qty: sql<string>`COALESCE(${stockBalances.qty}, 0)`,
+        minQty: stockMinimums.minQty,
+      })
+      .from(products)
+      .leftJoin(
+        stockBalances,
+        and(eq(stockBalances.productId, products.id), eq(stockBalances.warehouseId, warehouseId)),
+      )
+      .leftJoin(
+        stockMinimums,
+        and(eq(stockMinimums.productId, products.id), eq(stockMinimums.warehouseId, warehouseId)),
+      )
+      .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)))
+      .orderBy(asc(products.sku));
+  }
 }

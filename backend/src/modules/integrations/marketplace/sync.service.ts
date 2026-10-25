@@ -1,13 +1,12 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { SubscriptionService } from '../../../common/billing/subscription.service';
 import { appUrl } from '../../../common/mail/mail.service';
 import { decrypt, encrypt } from '../../../common/utils/secret';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { marketplaceConnections, marketplaceOrders, products, users, warehouses } from '../../../db/schema';
+import { marketplaceConnections, products } from '../../../db/schema';
 import { IntegrationsService } from '../integrations.service';
 import { PROVIDERS, type NormalizedOrder, type ProviderContext, type ProviderKey, type Tokens } from './providers';
 import { KEYS } from './sync.shared';
@@ -51,28 +50,7 @@ export class MarketplaceSyncService {
   }
 
   list(tenantId: string) {
-    return this.db
-      .select({
-        id: marketplaceConnections.id,
-        provider: marketplaceConnections.provider,
-        channel: marketplaceConnections.channel,
-        shopId: marketplaceConnections.shopId,
-        shopName: marketplaceConnections.shopName,
-        warehouseId: marketplaceConnections.warehouseId,
-        warehouseName: warehouses.name,
-        pricesIncludeVat: marketplaceConnections.pricesIncludeVat,
-        isActive: marketplaceConnections.isActive,
-        tokenExpiresAt: marketplaceConnections.tokenExpiresAt,
-        syncedUntil: marketplaceConnections.syncedUntil,
-        lastSyncAt: marketplaceConnections.lastSyncAt,
-        lastResult: marketplaceConnections.lastResult,
-        lastError: marketplaceConnections.lastError,
-        createdAt: marketplaceConnections.createdAt,
-      })
-      .from(marketplaceConnections)
-      .innerJoin(warehouses, eq(warehouses.id, marketplaceConnections.warehouseId))
-      .where(eq(marketplaceConnections.tenantId, tenantId))
-      .orderBy(asc(marketplaceConnections.createdAt));
+    return this.repo.listMarketplaceConnectionsWithWarehousesByCreatedAt(this.db, tenantId);
   }
 
   private async assertWarehouse(tenantId: string, id: string) {

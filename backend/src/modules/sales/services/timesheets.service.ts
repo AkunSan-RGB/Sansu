@@ -204,7 +204,7 @@ export class TimesheetService {
   }
 
   rates(tenantId: string) {
-    return this.db.execute(sql`SELECT r.id, r.employee_id AS "employeeId", e.name AS "employeeName", r.project_id AS "projectId", p.name AS "projectName", r.rate, r.valid_from AS "validFrom", r.note FROM billing_rates r LEFT JOIN employees e ON e.id = r.employee_id LEFT JOIN projects p ON p.id = r.project_id WHERE r.tenant_id = ${tenantId} ORDER BY r.valid_from DESC, r.created_at DESC LIMIT 300`).then((r) => r.rows);
+    return this.repo.queryBillingRateForRates(this.db, tenantId);
   }
 
   async createRate(u: AuthUser, dto: RateDto) {
@@ -319,7 +319,7 @@ export class TimesheetService {
     // DELETE ... RETURNING atomik: dua permintaan henti bersamaan hanya satu yang mendapat baris
     const t = (await this.repo.queryTimeTimerForStopTimer(this.db, u.tenantId, emp)).rows[0];
     if (!t) throw new BadRequestException('Tidak ada timer yang berjalan');
-    const restore = () => this.db.execute(sql`INSERT INTO time_timers (tenant_id, employee_id, project_id, customer_id, description, billable, started_at, created_by_id) VALUES (${u.tenantId}, ${emp}, ${t.project_id}, ${t.customer_id}, ${t.description}, ${t.billable}, ${new Date(t.started_at).toISOString()}, ${t.created_by_id}) ON CONFLICT DO NOTHING`);
+    const restore = () => this.repo.queryTimeTimerForStopTimer2(this.db, u.tenantId, emp, t.project_id, t.customer_id, t.description, t.billable, t.started_at, t.created_by_id);
     const hoursRaw = (Date.now() - new Date(t.started_at).getTime()) / 3_600_000;
     if (hoursRaw > MAX_HOURS_PER_DAY) {
       await restore();

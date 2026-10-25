@@ -1,13 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { allowedWarehouses, assertWarehouseAccess } from '../../common/auth/warehouse-access';
 import { D, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { products, stockBalances, stockCountLines, stockCounts, stockMinimums, stockTransferLines, stockTransfers, users, warehouses } from '../../db/schema';
+import { products, stockBalances, stockCounts, stockMinimums, stockTransfers, warehouses } from '../../db/schema';
 import { WarehouseOpsService, UUID } from './warehouse-ops.service';
 import { findOwned } from '../../db/owned';
 import { WarehouseQueryRepository } from './warehouse-query.repository';
@@ -109,27 +109,7 @@ export class WarehouseQueryService {
   async minimums(u: AuthUser, warehouseId: string) {
     assertWarehouseAccess(u, warehouseId);
     await this.ops.warehouse(this.db, u.tenantId, warehouseId);
-    return this.db
-      .select({
-        productId: products.id,
-        sku: products.sku,
-        name: products.name,
-        category: products.category,
-        baseUom: products.baseUom,
-        qty: sql<string>`COALESCE(${stockBalances.qty}, 0)`,
-        minQty: stockMinimums.minQty,
-      })
-      .from(products)
-      .leftJoin(
-        stockBalances,
-        and(eq(stockBalances.productId, products.id), eq(stockBalances.warehouseId, warehouseId)),
-      )
-      .leftJoin(
-        stockMinimums,
-        and(eq(stockMinimums.productId, products.id), eq(stockMinimums.warehouseId, warehouseId)),
-      )
-      .where(and(eq(products.tenantId, u.tenantId), eq(products.isActive, true)))
-      .orderBy(asc(products.sku));
+    return this.repo.listProductsByIsActiveAndSku(this.db, warehouseId, u.tenantId);
   }
 
 

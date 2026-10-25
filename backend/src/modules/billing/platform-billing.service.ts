@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { asc, desc, eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { platformAdminEmails } from '../../common/auth/platform-admin';
 import { AuditService } from '../../common/audit/audit.service';
@@ -190,31 +190,7 @@ export class PlatformBillingService {
   }
 
   platformInvoices(status?: string) {
-    return this.db
-      .select({
-        id: billingInvoices.id,
-        number: billingInvoices.number,
-        tenantId: billingInvoices.tenantId,
-        tenantName: tenants.name,
-        planName: plans.name,
-        cycle: billingInvoices.cycle,
-        amount: billingInvoices.amount,
-        status: billingInvoices.status,
-        method: billingInvoices.method,
-        dueDate: billingInvoices.dueDate,
-        hasProof: sql<boolean>`${billingInvoices.proof} IS NOT NULL`,
-        proofNote: billingInvoices.proofNote,
-        rejectReason: billingInvoices.rejectReason,
-        paidAt: billingInvoices.paidAt,
-        confirmedBy: billingInvoices.confirmedBy,
-        createdAt: billingInvoices.createdAt,
-      })
-      .from(billingInvoices)
-      .innerJoin(tenants, eq(tenants.id, billingInvoices.tenantId))
-      .innerJoin(plans, eq(plans.id, billingInvoices.planId))
-      .where(status && status !== 'ALL' ? eq(billingInvoices.status, status as 'UNPAID') : undefined)
-      .orderBy(desc(billingInvoices.createdAt))
-      .limit(500);
+    return this.repo.listBillingInvoicesWithTenantsAndPlansByStatusAndCreatedAt(this.db, status);
   }
 
   async proof(id: string) {
@@ -240,7 +216,7 @@ export class PlatformBillingService {
   }
 
   plansAll() {
-    return this.db.select().from(plans).orderBy(asc(plans.sortOrder), asc(plans.priceMonthly));
+    return this.repo.listPlans(this.db);
   }
 
   async createPlan(dto: PlanDto) {

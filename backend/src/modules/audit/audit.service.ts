@@ -137,6 +137,6 @@ export class AuditLogService {
   }
 
   users(tenantId: string) {
-    return this.db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.tenantId, tenantId));
+    return this.repo.listUsers(this.db, tenantId);
   }
 }

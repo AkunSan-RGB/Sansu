@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { sql, and, eq } from 'drizzle-orm';
-import { reportNotes } from '../../db/schema';
+import { reportNotes, tenants } from '../../db/schema';
 
 /** Akses data untuk Notes: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -98,5 +98,23 @@ export class NotesRepository {
     return db
       .delete(reportNotes)
       .where(and(eq(reportNotes.tenantId, tenantId), eq(reportNotes.year, year), eq(reportNotes.key, key)));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh NotesService.build */
+  listTenantsById(db: DbOrTx, tenantId: NonNullable<(typeof tenants.$inferSelect)['id']>) {
+    return db.select().from(tenants).where(eq(tenants.id, tenantId));
+  }
+
+  /** Dipakai oleh NotesService.build */
+  listReportNotesByYear(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof reportNotes.$inferSelect)['tenantId']>,
+    year: NonNullable<(typeof reportNotes.$inferSelect)['year']>,
+  ) {
+    return db
+      .select()
+      .from(reportNotes)
+      .where(and(eq(reportNotes.tenantId, tenantId), eq(reportNotes.year, year)));
   }
 }

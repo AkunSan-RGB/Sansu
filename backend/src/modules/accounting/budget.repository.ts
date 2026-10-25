@@ -111,4 +111,23 @@ export class BudgetRepository {
       .from(users)
       .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, ['OWNER', 'ADMIN'])));
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh BudgetService.plAccounts */
+  listAccountsByIsPostableAndTypeAndCode(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof accounts.$inferSelect)['tenantId']>,
+  ) {
+    return db
+      .select({ id: accounts.id, code: accounts.code, name: accounts.name, type: accounts.type })
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.tenantId, tenantId),
+          eq(accounts.isPostable, true),
+          inArray(accounts.type, ['REVENUE', 'EXPENSE']),
+        ),
+      )
+      .orderBy(accounts.code);
+  }
 }

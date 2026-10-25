@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { type Project } from '@sansu/shared';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
@@ -9,11 +9,10 @@ import { toDocDate } from '../../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, invoices, projectProgress, projects } from '../../../db/schema';
+import { invoices, projectProgress, projects } from '../../../db/schema';
 import { frameworkOf } from '../../accounting/coa-sync';
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
-import { projectCostsSql } from './project-costs';
 import { ProjectProgressDto, CreateProjectDto, UpdateProjectDto } from './service-billing.dto';
 import { ServiceBillingService } from './service-billing.service';
 import { CustomerDepositsService } from './customer-deposits.service';
@@ -66,11 +65,7 @@ export class ServiceProjectsService {
   // ================= Kemajuan pekerjaan (SAK EP Bab 23) =================
 
   listProgress(tenantId: string, projectId: string) {
-    return this.db
-      .select()
-      .from(projectProgress)
-      .where(and(eq(projectProgress.tenantId, tenantId), eq(projectProgress.projectId, projectId)))
-      .orderBy(asc(projectProgress.date), asc(projectProgress.createdAt));
+    return this.repo.listProjectProgressByProjectIdAndDateAndCreatedAtForListProgress(this.db, tenantId, projectId);
   }
 
   /**

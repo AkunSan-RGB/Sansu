@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { ATTENDANCE_STATUSES, type AttendanceStatus } from '@sansu/shared';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -43,11 +43,7 @@ export class HrService {
   ) {}
 
   listEmployees(tenantId: string, activeOnly = false) {
-    return this.db
-      .select()
-      .from(employees)
-      .where(and(eq(employees.tenantId, tenantId), activeOnly ? eq(employees.isActive, true) : undefined))
-      .orderBy(asc(employees.code));
+    return this.repo.listEmployeesByIsActiveAndCode(this.db, tenantId, activeOnly);
   }
 
   async getEmployee(tenantId: string, id: string, db: DbOrTx = this.db) {

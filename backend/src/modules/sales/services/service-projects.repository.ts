@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../../db/db';
 import { type Project } from '@sansu/shared';
-import { sql, eq, desc, and } from 'drizzle-orm';
+import { sql, eq, desc, and, asc } from 'drizzle-orm';
 import { projectCostsSql } from './project-costs';
 import { projects, projectProgress, customers } from '../../../db/schema';
 import { money } from '../../../common/utils/money';
@@ -131,5 +131,19 @@ export class ServiceProjectsRepository {
         notes: dto.notes,
       })
       .returning({ id: projects.id });
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh ServiceProjectsService.listProgress */
+  listProjectProgressByProjectIdAndDateAndCreatedAtForListProgress(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof projectProgress.$inferSelect)['tenantId']>,
+    projectId: NonNullable<(typeof projectProgress.$inferSelect)['projectId']>,
+  ) {
+    return db
+      .select()
+      .from(projectProgress)
+      .where(and(eq(projectProgress.tenantId, tenantId), eq(projectProgress.projectId, projectId)))
+      .orderBy(asc(projectProgress.date), asc(projectProgress.createdAt));
   }
 }

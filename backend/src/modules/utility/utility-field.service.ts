@@ -1,6 +1,5 @@
 import { BadRequestException, CanActivate, ExecutionContext, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { desc, eq } from 'drizzle-orm';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -77,11 +76,7 @@ export class UtilityFieldService {
   }
 
   keys(tenantId: string) {
-    return this.db
-      .select({ id: utilityIngestKeys.id, name: utilityIngestKeys.name, keyPrefix: utilityIngestKeys.keyPrefix, createdAt: utilityIngestKeys.createdAt, lastUsedAt: utilityIngestKeys.lastUsedAt, revokedAt: utilityIngestKeys.revokedAt })
-      .from(utilityIngestKeys)
-      .where(eq(utilityIngestKeys.tenantId, tenantId))
-      .orderBy(desc(utilityIngestKeys.createdAt));
+    return this.repo.listUtilityIngestKeysByCreatedAt(this.db, tenantId);
   }
   async createKey(u: AuthUser, dto: IngestKeyDto) {
     const key = `sum_${randomBytes(24).toString('base64url')}`;
@@ -150,7 +145,7 @@ export class UtilityFieldService {
   }
 
   remittances(tenantId: string) {
-    return this.db.select().from(utilityRemittances).where(eq(utilityRemittances.tenantId, tenantId)).orderBy(desc(utilityRemittances.createdAt)).limit(200);
+    return this.repo.listUtilityRemittancesByCreatedAt(this.db, tenantId);
   }
 
   /** Konfirmasi (atau sengketakan) setoran oleh orang lain dari penyetor */

@@ -167,4 +167,39 @@ export class PlatformBillingRepository {
   ) {
     return db.update(subscriptions).set(patch).where(eq(subscriptions.tenantId, tenantId));
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh PlatformBillingService.platformInvoices */
+  listBillingInvoicesWithTenantsAndPlansByStatusAndCreatedAt(db: DbOrTx, status: string | undefined) {
+    return db
+      .select({
+        id: billingInvoices.id,
+        number: billingInvoices.number,
+        tenantId: billingInvoices.tenantId,
+        tenantName: tenants.name,
+        planName: plans.name,
+        cycle: billingInvoices.cycle,
+        amount: billingInvoices.amount,
+        status: billingInvoices.status,
+        method: billingInvoices.method,
+        dueDate: billingInvoices.dueDate,
+        hasProof: sql<boolean>`${billingInvoices.proof} IS NOT NULL`,
+        proofNote: billingInvoices.proofNote,
+        rejectReason: billingInvoices.rejectReason,
+        paidAt: billingInvoices.paidAt,
+        confirmedBy: billingInvoices.confirmedBy,
+        createdAt: billingInvoices.createdAt,
+      })
+      .from(billingInvoices)
+      .innerJoin(tenants, eq(tenants.id, billingInvoices.tenantId))
+      .innerJoin(plans, eq(plans.id, billingInvoices.planId))
+      .where(status && status !== 'ALL' ? eq(billingInvoices.status, status as 'UNPAID') : undefined)
+      .orderBy(desc(billingInvoices.createdAt))
+      .limit(500);
+  }
+
+  /** Dipakai oleh PlatformBillingService.plansAll */
+  listPlans(db: DbOrTx) {
+    return db.select().from(plans).orderBy(asc(plans.sortOrder), asc(plans.priceMonthly));
+  }
 }

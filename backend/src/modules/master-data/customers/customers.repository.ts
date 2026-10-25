@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../../db/db';
-import { sql, and, eq, ne } from 'drizzle-orm';
+import { sql, and, eq, ne, or, ilike, asc } from 'drizzle-orm';
 import { invoices, priceLists, customers } from '../../../db/schema';
 
 /** Akses data untuk Customers: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
@@ -30,5 +30,25 @@ export class CustomersRepository {
       .select({ id: customers.id, code: customers.code, name: customers.name, npwp: customers.npwp })
       .from(customers)
       .where(eq(customers.tenantId, tenantId));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh CustomersService.list */
+  listCustomersByCodeAndName(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof customers.$inferSelect)['tenantId']>,
+    q: string | undefined,
+  ) {
+    return db
+      .select()
+      .from(customers)
+      .where(
+        and(
+          eq(customers.tenantId, tenantId),
+          q ? or(ilike(customers.code, `%${q}%`), ilike(customers.name, `%${q}%`)) : undefined,
+        ),
+      )
+      .orderBy(asc(customers.code))
+      .limit(500);
   }
 }

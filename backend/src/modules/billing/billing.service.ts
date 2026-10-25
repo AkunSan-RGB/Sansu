@@ -1,5 +1,4 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { withRlsBypass } from '../../db/db-scope';
 import { AuthUser } from '../../common/auth/auth-user';
 import { platformAdminEmails } from '../../common/auth/platform-admin';
@@ -8,9 +7,9 @@ import { SubscriptionService } from '../../common/billing/subscription.service';
 import { appUrl, MailService } from '../../common/mail/mail.service';
 import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { billingInvoices, plans, subscriptions, tenants, users } from '../../db/schema';
+import { billingInvoices, plans, users } from '../../db/schema';
 import { activeGateway, midtrans, xendit, type PaymentNotice } from './gateways';
-import { CreateBillingInvoiceDto, ProofDto, UpdateSubscriptionDto, RejectDto, PlanDto } from './billing.dto';
+import { CreateBillingInvoiceDto, ProofDto } from './billing.dto';
 import { findOwned, insertOne, patchById } from '../../db/owned';
 import { BillingRepository } from './billing.repository';
 
@@ -84,10 +83,7 @@ export class BillingService {
     const prefix = `SNS/${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/`;
     // nomor tagihan berurut GLOBAL lintas perusahaan: hitung tanpa penyaringan perusahaan (pengecualian RLS yang disengaja)
     const [r] = await withRlsBypass(tx, () =>
-      tx
-        .select({ n: sql<number>`count(*)::int` })
-        .from(billingInvoices)
-        .where(sql`${billingInvoices.number} LIKE ${`${prefix}%`}`),
+      this.repo.countBillingInvoicesByNumber(tx, prefix),
     );
     return `${prefix}${String(r.n + 1).padStart(4, '0')}`;
   }
@@ -98,39 +94,8 @@ export class BillingService {
       this.subs.state(u.tenantId, true),
       this.subs.usage(u.tenantId),
       this.subs.settings(),
-      this.db
-        .select()
-        .from(plans)
-        .where(eq(plans.isActive, true))
-        .orderBy(asc(plans.sortOrder), asc(plans.priceMonthly)),
-      this.db
-        .select({
-          id: billingInvoices.id,
-          number: billingInvoices.number,
-          planId: billingInvoices.planId,
-          planName: plans.name,
-          cycle: billingInvoices.cycle,
-          subtotal: billingInvoices.subtotal,
-          vatRate: billingInvoices.vatRate,
-          vatAmount: billingInvoices.vatAmount,
-          amount: billingInvoices.amount,
-          status: billingInvoices.status,
-          method: billingInvoices.method,
-          dueDate: billingInvoices.dueDate,
-          hasProof: sql<boolean>`${billingInvoices.proof} IS NOT NULL`,
-          proofNote: billingInvoices.proofNote,
-          rejectReason: billingInvoices.rejectReason,
-          gatewayUrl: billingInvoices.gatewayUrl,
-          paidAt: billingInvoices.paidAt,
-          periodStart: billingInvoices.periodStart,
-          periodEnd: billingInvoices.periodEnd,
-          createdAt: billingInvoices.createdAt,
-        })
-        .from(billingInvoices)
-        .innerJoin(plans, eq(plans.id, billingInvoices.planId))
-        .where(eq(billingInvoices.tenantId, u.tenantId))
-        .orderBy(desc(billingInvoices.createdAt))
-        .limit(50),
+      this.repo.listPlansByIsActiveAndSortOrderAndPriceMonthly(this.db),
+      this.repo.listBillingInvoicesWithPlansByCreatedAt(this.db, u.tenantId),
     ]);
     return {
       subscription: state,

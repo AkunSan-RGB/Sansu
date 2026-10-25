@@ -10,17 +10,14 @@
  */
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { FACILITY_31E_REVENUE_LIMIT, FINAL_TAX_EXCLUDED_FORMS, type LegalForm, TAX_REVENUE_LIMIT } from '@sansu/shared';
-import { and, eq, sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SettingsService } from '../../common/settings.service';
 import { D, Dec, Decimal, money, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { fiscalAdjustments, fiscalYears } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { get, loadAccounts, natural, sumByAccount } from '../accounting/ledger-data';
 import { PostingService } from '../accounting/posting.service';
-import { projectCostsSql } from '../sales/services/project-costs';
 import { StatementsService } from '../accounting/statements.service';
 import { AssetsService } from '../assets/assets.service';
 import { AssetReportsService } from '../assets/asset-reports.service';
@@ -66,8 +63,8 @@ export class FiscalService {
       sumByAccount(this.db, tenantId, { to }),
       this.statements.income(tenantId, { from, to }, 'SAK_EP'),
       this.assetReports.fiscalComparison(tenantId, year),
-      this.db.select().from(fiscalAdjustments).where(and(eq(fiscalAdjustments.tenantId, tenantId), eq(fiscalAdjustments.year, year))),
-      this.db.select().from(fiscalYears).where(and(eq(fiscalYears.tenantId, tenantId), eq(fiscalYears.year, year))),
+      this.repo.listFiscalAdjustmentsByYear(this.db, tenantId, year),
+      this.repo.listFiscalYearsByYear(this.db, tenantId, year),
     ]);
     const pbt = D(income.lines.find((l) => l.key === 'PROFIT_BEFORE_TAX')!.amount);
 

@@ -297,4 +297,17 @@ export class WarehouseRepository {
         set: { minQty: q4(minQty) },
       });
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh WarehouseOpsService.ownCount */
+  listStockCountsById(
+    db: DbOrTx,
+    id: NonNullable<(typeof stockCounts.$inferSelect)['id']>,
+    tenantId: NonNullable<(typeof stockCounts.$inferSelect)['tenantId']>,
+  ) {
+    return db
+      .select()
+      .from(stockCounts)
+      .where(and(eq(stockCounts.id, id), eq(stockCounts.tenantId, tenantId)));
+  }
 }

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { and, asc, between, desc, eq, gt, inArray, sql } from 'drizzle-orm';
+import { and, asc, between, eq, gt, inArray, sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SequenceService } from '../../common/sequence/sequence.service';
@@ -396,23 +396,7 @@ export class IntegrationsService {
   }
 
   async marketplaceOrders(tenantId: string, channel?: string) {
-    return this.db
-      .select({
-        id: marketplaceOrders.id,
-        channel: marketplaceOrders.channel,
-        orderNo: marketplaceOrders.orderNo,
-        date: marketplaceOrders.date,
-        total: marketplaceOrders.total,
-        invoiceId: invoices.id,
-        invoiceNumber: invoices.number,
-        status: invoices.status,
-        paidAmount: invoices.paidAmount,
-      })
-      .from(marketplaceOrders)
-      .leftJoin(invoices, eq(invoices.id, marketplaceOrders.invoiceId))
-      .where(and(eq(marketplaceOrders.tenantId, tenantId), channel ? eq(marketplaceOrders.channel, channel) : undefined))
-      .orderBy(desc(marketplaceOrders.date), desc(marketplaceOrders.orderNo))
-      .limit(1000);
+    return this.repo.listMarketplaceOrdersWithInvoicesByChannelAndDateAndOrderNo(this.db, tenantId, channel);
   }
 
   async channels(tenantId: string) {

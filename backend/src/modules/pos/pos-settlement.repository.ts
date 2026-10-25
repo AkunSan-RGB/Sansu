@@ -183,4 +183,14 @@ export class PosSettlementRepository {
       sql`INSERT INTO pos_card_settlement_banks (tenant_id, settlement_id, bank_account_id, gross, returns_total, received) VALUES (${tenantId}, ${id}, ${bank}, ${gross.toFixed(2)}, ${ret.toFixed(2)}, ${received.toFixed(2)})`,
     );
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh CardSettlementService.list */
+  queryPosCardSettlementForList(db: DbOrTx, tenantId: string) {
+    return db
+      .execute(
+        sql`SELECT id, number, date, method, gross, returns_total AS "returnsTotal", mdr_pct AS "mdrPct", mdr_expected AS "mdrExpected", received, difference, item_count AS "itemCount", status, note, cancel_reason AS "cancelReason", created_at AS "createdAt" FROM pos_card_settlements WHERE tenant_id = ${tenantId} ORDER BY created_at DESC LIMIT 200`,
+      )
+      .then((r) => r.rows);
+  }
 }

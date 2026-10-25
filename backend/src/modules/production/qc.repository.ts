@@ -8,6 +8,7 @@ import type { QcParamDto } from './qc.dto';
 import type { ResultDto } from './qc.dto';
 import type { Decimal } from 'decimal.js';
 import type { SQL } from 'drizzle-orm';
+import { InspectionsQuery } from './qc.shared';
 
 export type Insp = {
   source_type: string;
@@ -274,5 +275,32 @@ export class QcRepository {
   /** Dipakai oleh QcService.controls */
   queryControls(db: DbOrTx, t: SQL<unknown>) {
     return db.execute(t);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh QcService.plans */
+  queryQcPlanForPlans(db: DbOrTx, tenantId: string) {
+    return db
+      .execute(
+        sql`
+      SELECT p.id, p.product_id AS "productId", pr.sku, pr.name AS "productName", p.name, p.is_active AS "isActive", pr.qc_required AS "qcRequired",
+             p.sample_pct AS "samplePct", p.sample_min AS "sampleMin", p.sample_max AS "sampleMax", p.accept_defects AS "acceptDefects",
+             COALESCE((SELECT json_agg(json_build_object('id', q.id, 'name', q.name, 'kind', q.kind, 'minValue', q.min_value, 'maxValue', q.max_value, 'unit', q.unit, 'critical', q.critical) ORDER BY q.sequence) FROM qc_plan_params q WHERE q.plan_id = p.id), '[]'::json) AS params
+      FROM qc_plans p JOIN products pr ON pr.id = p.product_id WHERE p.tenant_id = ${tenantId} ORDER BY pr.name`,
+      )
+      .then((r) => r.rows);
+  }
+
+  /** Dipakai oleh QcService.list */
+  queryQcInspectionForList(db: DbOrTx, tenantId: string, q: InspectionsQuery) {
+    return db
+      .execute(
+        sql`
+      SELECT i.id, i.number, i.status, i.qty, i.source_type AS "sourceType", i.attempt, i.qty_reworked AS "qtyReworked", i.sample_size AS "sampleSize", i.accept_defects AS "acceptDefects", i.sample_defects AS "sampleDefects", i.lot_no AS "lotNo", i.expiry_date AS "expiryDate", gr.number AS "receiptNumber", par.number AS "parentNumber", i.qty_pass AS "qtyPass", i.qty_fail AS "qtyFail", i.qty_scrapped AS "qtyScrapped", i.unit_cost AS "unitCost", i.created_at AS "createdAt", i.decided_at AS "decidedAt", i.note,
+             pr.sku, pr.name AS "productName", o.number AS "orderNumber", w.name AS "warehouseName", rw.name AS "releaseWarehouseName"
+      FROM qc_inspections i JOIN products pr ON pr.id = i.product_id LEFT JOIN production_orders o ON o.id = i.order_id LEFT JOIN goods_receipts gr ON gr.id = i.receipt_id LEFT JOIN qc_inspections par ON par.id = i.parent_id JOIN warehouses w ON w.id = i.warehouse_id JOIN warehouses rw ON rw.id = i.release_warehouse_id
+      WHERE i.tenant_id = ${tenantId} ${q.status ? sql`AND i.status = ${q.status}` : sql``} ORDER BY (i.status = 'PENDING') DESC, i.created_at DESC LIMIT 300`,
+      )
+      .then((r) => r.rows);
   }
 }

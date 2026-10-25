@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { and, eq, sql, inArray, desc } from 'drizzle-orm';
+import { and, eq, sql, inArray, desc, asc } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
 import {
   accounts,
@@ -247,5 +247,11 @@ export class AccountingRepository {
       ) t ON t.account_id = a.id
       WHERE a.tenant_id = ${tenantId} AND a.is_postable = true
       ORDER BY a.code`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh AccountingService.listAccounts */
+  listAccountsByCode(db: DbOrTx, tenantId: NonNullable<(typeof accounts.$inferSelect)['tenantId']>) {
+    return db.select().from(accounts).where(eq(accounts.tenantId, tenantId)).orderBy(asc(accounts.code));
   }
 }

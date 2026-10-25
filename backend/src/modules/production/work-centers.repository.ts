@@ -23,6 +23,8 @@ export type Op = {
   overhead_cost: string;
 };
 
+export const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
 /** Akses data untuk WorkCenters: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
 export class WorkCentersRepository {
@@ -314,5 +316,60 @@ export class WorkCentersRepository {
   /** Dipakai oleh WorkCenterService.controls */
   queryControls(db: DbOrTx, t: SQL<unknown>) {
     return db.execute(t);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh WorkCenterService.list */
+  queryWorkCenterForList(db: DbOrTx, tenantId: string) {
+    return db
+      .execute(
+        sql`SELECT id, code, name, kind, labor_rate AS "laborRate", overhead_rate AS "overheadRate", capacity_hours AS "capacityHours", is_active AS "isActive" FROM work_centers WHERE tenant_id = ${tenantId} ORDER BY code`,
+      )
+      .then((r) => r.rows);
+  }
+
+  /** Dipakai oleh WorkCenterService.downtimes */
+  queryWorkCenterDowntimeForDowntimes(db: DbOrTx, tenantId: string, workCenterId: string) {
+    return db
+      .execute(
+        sql`SELECT id, starts_at AS "startsAt", ends_at AS "endsAt", reason FROM work_center_downtime WHERE tenant_id = ${tenantId} AND work_center_id = ${workCenterId} AND ends_at > now() - interval '30 days' ORDER BY starts_at`,
+      )
+      .then((r) => r.rows);
+  }
+
+  /** Dipakai oleh WorkCenterService.shifts */
+  queryWorkCenterShiftForShifts(db: DbOrTx, tenantId: string, workCenterId: string) {
+    return db
+      .execute(
+        sql`SELECT weekday, start_minute AS "startMinute", end_minute AS "endMinute" FROM work_center_shifts WHERE tenant_id = ${tenantId} AND work_center_id = ${workCenterId} ORDER BY weekday, start_minute`,
+      )
+      .then((r) =>
+        r.rows.map((x) => ({
+          weekday: Number(x.weekday),
+          start: hhmm(Number(x.startMinute)),
+          end: hhmm(Number(x.endMinute)),
+        })),
+      );
+  }
+
+  /** Dipakai oleh WorkCenterService.bomOperations */
+  queryBomOperationForBomOperations(db: DbOrTx, tenantId: string, bomId: string) {
+    return db
+      .execute(
+        sql`SELECT o.id, o.sequence, o.name, o.work_center_id AS "workCenterId", w.code AS "workCenterCode", w.name AS "workCenterName", o.minutes_per_batch AS "minutesPerBatch" FROM bom_operations o JOIN work_centers w ON w.id = o.work_center_id WHERE o.tenant_id = ${tenantId} AND o.bom_id = ${bomId} ORDER BY o.sequence`,
+      )
+      .then((r) => r.rows);
+  }
+
+  /** Dipakai oleh WorkCenterService.orderOperations */
+  queryProductionOrderOperationForOrderOperations(db: DbOrTx, tenantId: string, orderId: string) {
+    return db
+      .execute(
+        sql`
+      SELECT o.id, o.sequence, o.name, o.work_center_id AS "workCenterId", w.code AS "workCenterCode", w.name AS "workCenterName", o.planned_minutes AS "plannedMinutes", o.actual_minutes AS "actualMinutes",
+             o.status, o.started_at AS "startedAt", o.finished_at AS "finishedAt", o.scheduled_start AS "scheduledStart", o.scheduled_end AS "scheduledEnd", o.labor_cost AS "laborCost", o.overhead_cost AS "overheadCost", o.note
+      FROM production_order_operations o JOIN work_centers w ON w.id = o.work_center_id WHERE o.tenant_id = ${tenantId} AND o.order_id = ${orderId} ORDER BY o.sequence`,
+      )
+      .then((r) => r.rows);
   }
 }

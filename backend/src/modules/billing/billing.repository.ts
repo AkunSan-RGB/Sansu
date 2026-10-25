@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { users, plans, billingInvoices, tenants, subscriptions } from '../../db/schema';
-import { and, eq, inArray, asc, sql, ne } from 'drizzle-orm';
+import { and, eq, inArray, asc, sql, ne, desc } from 'drizzle-orm';
 
 /** Akses data untuk Billing: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -161,5 +161,58 @@ export class BillingRepository {
       .from(users)
       .where(and(eq(users.tenantId, tenantId), eq(users.role, 'OWNER'), eq(users.isActive, true)))
       .limit(1);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh BillingService.nextNumber */
+  countBillingInvoicesByNumber(db: DbOrTx, prefix: string) {
+    return db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(billingInvoices)
+      .where(sql`${billingInvoices.number} LIKE ${`${prefix}%`}`);
+  }
+
+  /** Dipakai oleh BillingService.overview */
+  listPlansByIsActiveAndSortOrderAndPriceMonthly(db: DbOrTx) {
+    return db
+      .select()
+      .from(plans)
+      .where(eq(plans.isActive, true))
+      .orderBy(asc(plans.sortOrder), asc(plans.priceMonthly));
+  }
+
+  /** Dipakai oleh BillingService.overview */
+  listBillingInvoicesWithPlansByCreatedAt(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof billingInvoices.$inferSelect)['tenantId']>,
+  ) {
+    return db
+      .select({
+        id: billingInvoices.id,
+        number: billingInvoices.number,
+        planId: billingInvoices.planId,
+        planName: plans.name,
+        cycle: billingInvoices.cycle,
+        subtotal: billingInvoices.subtotal,
+        vatRate: billingInvoices.vatRate,
+        vatAmount: billingInvoices.vatAmount,
+        amount: billingInvoices.amount,
+        status: billingInvoices.status,
+        method: billingInvoices.method,
+        dueDate: billingInvoices.dueDate,
+        hasProof: sql<boolean>`${billingInvoices.proof} IS NOT NULL`,
+        proofNote: billingInvoices.proofNote,
+        rejectReason: billingInvoices.rejectReason,
+        gatewayUrl: billingInvoices.gatewayUrl,
+        paidAt: billingInvoices.paidAt,
+        periodStart: billingInvoices.periodStart,
+        periodEnd: billingInvoices.periodEnd,
+        createdAt: billingInvoices.createdAt,
+      })
+      .from(billingInvoices)
+      .innerJoin(plans, eq(plans.id, billingInvoices.planId))
+      .where(eq(billingInvoices.tenantId, tenantId))
+      .orderBy(desc(billingInvoices.createdAt))
+      .limit(50);
   }
 }

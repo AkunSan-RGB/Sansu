@@ -208,4 +208,37 @@ export class UtilityFieldRepository {
       .from(utilityIngestKeys)
       .where(eq(utilityIngestKeys.keyHash, hash(raw)));
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh UtilityFieldService.keys */
+  listUtilityIngestKeysByCreatedAt(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof utilityIngestKeys.$inferSelect)['tenantId']>,
+  ) {
+    return db
+      .select({
+        id: utilityIngestKeys.id,
+        name: utilityIngestKeys.name,
+        keyPrefix: utilityIngestKeys.keyPrefix,
+        createdAt: utilityIngestKeys.createdAt,
+        lastUsedAt: utilityIngestKeys.lastUsedAt,
+        revokedAt: utilityIngestKeys.revokedAt,
+      })
+      .from(utilityIngestKeys)
+      .where(eq(utilityIngestKeys.tenantId, tenantId))
+      .orderBy(desc(utilityIngestKeys.createdAt));
+  }
+
+  /** Dipakai oleh UtilityFieldService.remittances */
+  listUtilityRemittancesByCreatedAt(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof utilityRemittances.$inferSelect)['tenantId']>,
+  ) {
+    return db
+      .select()
+      .from(utilityRemittances)
+      .where(eq(utilityRemittances.tenantId, tenantId))
+      .orderBy(desc(utilityRemittances.createdAt))
+      .limit(200);
+  }
 }

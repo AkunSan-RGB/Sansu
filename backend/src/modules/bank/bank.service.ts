@@ -1,6 +1,6 @@
 import { findReceivableLookalike } from '../cash/receivable-guard';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { CASH_IN_SOURCES_TO_VERIFY, CONTROL_PROFILES, DEFAULT_BANK_RULES, cashInSource } from '@sansu/shared';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { SettingsService } from '../../common/settings.service';
@@ -10,7 +10,7 @@ import { addDays, diffDays, DocDate, toDocDate, todayJakarta } from '../../commo
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { bankReconciliations, bankStatementLines, bankStatements } from '../../db/schema';
+import { bankStatementLines, bankStatements } from '../../db/schema';
 import { PostingService } from '../accounting/posting.service';
 import { ImportStatementDto, MatchDto, MatchManyDto, CreateFromLineDto, BankRuleDto, SignReconciliationDto } from './bank.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
@@ -49,26 +49,7 @@ export class BankService {
   }
 
   list(tenantId: string, cashAccountId?: string) {
-    return this.db.execute<{
-      id: string;
-      cash_account_id: string;
-      account_code: string;
-      account_name: string;
-      file_name: string | null;
-      period_from: string;
-      period_to: string;
-      closing_balance: string | null;
-      lines: number;
-      matched: number;
-      created_at: string;
-    }>(sql`
-      SELECT s.id, s.cash_account_id, a.code AS account_code, a.name AS account_name, s.file_name, s.period_from, s.period_to,
-             s.closing_balance, s.created_at,
-             COUNT(l.id)::int AS lines, COUNT(l.id) FILTER (WHERE l.status <> 'UNMATCHED')::int AS matched
-      FROM bank_statements s JOIN accounts a ON a.id = s.cash_account_id
-      LEFT JOIN bank_statement_lines l ON l.statement_id = s.id
-      WHERE s.tenant_id = ${tenantId} ${cashAccountId ? sql`AND s.cash_account_id = ${cashAccountId}` : sql``}
-      GROUP BY s.id, a.code, a.name ORDER BY s.period_to DESC, s.created_at DESC`).then((r) => r.rows);
+    return this.repo.queryBankStatementForList(this.db, tenantId, cashAccountId);
   }
 
   async get(tenantId: string, id: string) {
@@ -423,7 +404,7 @@ export class BankService {
   }
 
   listSignoffs(tenantId: string, cashAccountId?: string) {
-    return this.db.select().from(bankReconciliations).where(and(eq(bankReconciliations.tenantId, tenantId), cashAccountId ? eq(bankReconciliations.cashAccountId, cashAccountId) : undefined)).orderBy(desc(bankReconciliations.period)).limit(60);
+    return this.repo.listBankReconciliationsByCashAccountIdAndPeriod(this.db, tenantId, cashAccountId);
   }
 
   /** Sahkan rekonsiliasi akhir bulan: selisih harus nol dan pengesah bukan orang yang mengimpor rekening koran bulan itu */

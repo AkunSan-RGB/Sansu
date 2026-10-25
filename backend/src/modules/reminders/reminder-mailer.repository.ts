@@ -90,4 +90,12 @@ export class ReminderMailerRepository {
         sql`, `,
       )})`);
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh ReminderMailer.release */
+  queryReminderLogForRelease(db: DbOrTx, tenantId: string, kind: string, ref: string, stage: string) {
+    return db.execute(
+      sql`DELETE FROM reminder_log WHERE tenant_id = ${tenantId} AND kind = ${kind} AND ref = ${ref} AND stage = ${stage}`,
+    );
+  }
 }

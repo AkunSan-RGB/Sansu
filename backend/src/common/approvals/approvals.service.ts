@@ -6,11 +6,10 @@
  * permintaan yang menunggu keputusan; setelah disetujui, tindakannya dijalankan atas nama pemberi persetujuan.
  */
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
-import { and, eq, inArray, ne } from 'drizzle-orm';
 import { Db, DbOrTx } from '../../db/db';
 import { txScope } from '../../db/db-scope';
 import { InjectDb } from '../../db/db.module';
-import { approvalRequests, users, type Role } from '../../db/schema';
+import { approvalRequests, type Role } from '../../db/schema';
 import { appUrl, MailService } from '../mail/mail.service';
 import { signApprovalLink } from './approval-link';
 import { AuditService } from '../audit/audit.service';
@@ -197,10 +196,7 @@ export class ApprovalsService {
 
   /** Pengguna yang berwenang memutuskan (peran penyetuju, aktif), selain pemohon sendiri */
   async eligibleApprovers(db: DbOrTx, tenantId: string, excludeUserId?: string) {
-    return db
-      .select({ id: users.id, name: users.name, role: users.role })
-      .from(users)
-      .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, [...APPROVER_ROLES]), excludeUserId ? ne(users.id, excludeUserId) : undefined));
+    return this.repo.listUsersByIsActiveAndRoleAndIdForEligibleApprovers(db, tenantId, excludeUserId);
   }
 
   /** Apakah transaksi bernilai `amount` ini perlu persetujuan dari pengguna ini? */

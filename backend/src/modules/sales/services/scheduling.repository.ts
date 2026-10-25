@@ -201,4 +201,14 @@ export class SchedulingRepository {
       WHERE b.tenant_id = ${tenantId} AND b.status = 'BOOKED' AND r.kind = 'PERSON' AND b.starts_at > now() - interval '7 days'
       GROUP BY r.name, (b.starts_at AT TIME ZONE 'Asia/Jakarta')::date HAVING SUM(EXTRACT(EPOCH FROM (b.ends_at - b.starts_at)) / 3600) > ${OVERLOAD_HOURS} ORDER BY 2 LIMIT 50`);
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh SchedulingService.resources */
+  querySchedulingResourceForResources(db: DbOrTx, tenantId: string) {
+    return db
+      .execute(
+        sql`SELECT r.id, r.name, r.kind, r.employee_id AS "employeeId", e.name AS "employeeName", r.note, r.is_active AS "isActive", r.work_start AS "workStart", r.work_end AS "workEnd", r.work_days AS "workDays" FROM scheduling_resources r LEFT JOIN employees e ON e.id = r.employee_id WHERE r.tenant_id = ${tenantId} ORDER BY r.kind, r.name`,
+      )
+      .then((x) => x.rows);
+  }
 }

@@ -1,7 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { sql, and, eq, inArray } from 'drizzle-orm';
-import { accounts, projects, cashTransactions, cashTransactionLines } from '../../db/schema';
+import { sql, and, eq, inArray, asc } from 'drizzle-orm';
+import {
+  accounts,
+  projects,
+  cashTransactions,
+  cashTransactionLines,
+  journalEntries,
+  fixedAssets,
+  branches,
+} from '../../db/schema';
 import { addDays } from '../../common/utils/dates';
 import { money } from '../../common/utils/money';
 import { CashLineDto, CreateCashTxDto } from './cash.dto';
@@ -237,5 +245,58 @@ export class CashRepository {
   /** Dipakai oleh CashService.controls */
   queryControls(db: DbOrTx, q: SQL<unknown>) {
     return db.execute<{ number: string; d: string; v: string }>(q);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh CashService.list */
+  listJournalEntriesById(db: DbOrTx, jids: NonNullable<(typeof journalEntries.$inferSelect)['id']>[]) {
+    return db
+      .select({ id: journalEntries.id, number: journalEntries.number })
+      .from(journalEntries)
+      .where(inArray(journalEntries.id, jids));
+  }
+
+  /** Dipakai oleh CashService.list */
+  listFixedAssetsByAcquisitionJournalId(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof fixedAssets.$inferSelect)['tenantId']>,
+    jids: NonNullable<(typeof fixedAssets.$inferSelect)['acquisitionJournalId']>[],
+  ) {
+    return db
+      .select({
+        journalId: fixedAssets.acquisitionJournalId,
+        id: fixedAssets.id,
+        code: fixedAssets.code,
+        name: fixedAssets.name,
+      })
+      .from(fixedAssets)
+      .where(and(eq(fixedAssets.tenantId, tenantId), inArray(fixedAssets.acquisitionJournalId, jids)));
+  }
+
+  /** Dipakai oleh CashService.list */
+  listBranches(db: DbOrTx, tenantId: NonNullable<(typeof branches.$inferSelect)['tenantId']>) {
+    return db
+      .select({ id: branches.id, code: branches.code, name: branches.name })
+      .from(branches)
+      .where(eq(branches.tenantId, tenantId));
+  }
+
+  /** Dipakai oleh CashService.counterAccounts */
+  listAccountsByIsPostableAndIsCashAccountAndSystemKey(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof accounts.$inferSelect)['tenantId']>,
+  ) {
+    return db
+      .select({ id: accounts.id, code: accounts.code, name: accounts.name, type: accounts.type })
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.tenantId, tenantId),
+          eq(accounts.isPostable, true),
+          eq(accounts.isCashAccount, false),
+          sql`COALESCE(${accounts.systemKey}, '') NOT IN ('AR', 'AP', 'INVENTORY', 'INVENTORY_SEMI')`,
+        ),
+      )
+      .orderBy(asc(accounts.code));
   }
 }

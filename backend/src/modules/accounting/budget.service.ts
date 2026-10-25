@@ -2,7 +2,6 @@ import { BUDGET_SUGGESTED_CODES } from '@sansu/shared';
 import { SettingsService } from '../../common/settings.service';
 import { ApprovalsService, type ApprovalKind } from '../../common/approvals/approvals.service';
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { and, eq, inArray, sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { MailService } from '../../common/mail/mail.service';
@@ -11,7 +10,7 @@ import { todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, budgetAlerts, budgetLines, budgets, users } from '../../db/schema';
+import { accounts, budgets } from '../../db/schema';
 import { SaveBudgetDto, SeedBudgetDto, BudgetRowDto } from './budget.dto';
 import { patchById } from '../../db/owned';
 import { BudgetRepository } from './budget.repository';
@@ -35,11 +34,7 @@ export class BudgetService {
 
   /** Akun pendapatan & beban yang boleh dianggarkan */
   private plAccounts(tenantId: string) {
-    return this.db
-      .select({ id: accounts.id, code: accounts.code, name: accounts.name, type: accounts.type })
-      .from(accounts)
-      .where(and(eq(accounts.tenantId, tenantId), eq(accounts.isPostable, true), inArray(accounts.type, ['REVENUE', 'EXPENSE'])))
-      .orderBy(accounts.code);
+    return this.repo.listAccountsByIsPostableAndTypeAndCode(this.db, tenantId);
   }
 
   private async find(tenantId: string, year: number) {

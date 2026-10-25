@@ -250,4 +250,14 @@ export class ServiceWorkRepository {
       WHERE w.tenant_id = ${tenantId} AND w.unit = 'HOUR' AND w.status IN ('PENDING','APPROVED') AND w.work_date BETWEEN ${from} AND ${to}
       GROUP BY w.employee_id, e.name HAVING SUM(w.quantity) > ${MAX_HOURS_PER_MONTH}`);
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh ServiceWorkService.listRates */
+  listServiceRatesByUnitAndName(db: DbOrTx, tenantId: NonNullable<(typeof serviceRates.$inferSelect)['tenantId']>) {
+    return db
+      .select()
+      .from(serviceRates)
+      .where(eq(serviceRates.tenantId, tenantId))
+      .orderBy(serviceRates.unit, serviceRates.name);
+  }
 }

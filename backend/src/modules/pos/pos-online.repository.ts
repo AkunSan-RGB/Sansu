@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { onlineApiKeys, posOrders, posPlatformSettlements } from '../../db/schema';
-import { and, eq, isNull, sql, inArray } from 'drizzle-orm';
+import { and, eq, isNull, sql, inArray, desc } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 
 export const hash = (k: string) => createHash('sha256').update(k).digest('hex');
@@ -100,5 +100,36 @@ export class PosOnlineRepository {
       .select()
       .from(onlineApiKeys)
       .where(eq(onlineApiKeys.keyHash, hash(raw)));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh OnlineKeysService.list */
+  listOnlineApiKeysByCreatedAt(db: DbOrTx, tenantId: NonNullable<(typeof onlineApiKeys.$inferSelect)['tenantId']>) {
+    return db
+      .select({
+        id: onlineApiKeys.id,
+        name: onlineApiKeys.name,
+        keyPrefix: onlineApiKeys.keyPrefix,
+        warehouseId: onlineApiKeys.warehouseId,
+        createdAt: onlineApiKeys.createdAt,
+        lastUsedAt: onlineApiKeys.lastUsedAt,
+        revokedAt: onlineApiKeys.revokedAt,
+      })
+      .from(onlineApiKeys)
+      .where(eq(onlineApiKeys.tenantId, tenantId))
+      .orderBy(desc(onlineApiKeys.createdAt));
+  }
+
+  /** Dipakai oleh PlatformSettlementsService.list */
+  listPosPlatformSettlementsByDateAndNumber(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof posPlatformSettlements.$inferSelect)['tenantId']>,
+  ) {
+    return db
+      .select()
+      .from(posPlatformSettlements)
+      .where(eq(posPlatformSettlements.tenantId, tenantId))
+      .orderBy(desc(posPlatformSettlements.date), desc(posPlatformSettlements.number))
+      .limit(200);
   }
 }

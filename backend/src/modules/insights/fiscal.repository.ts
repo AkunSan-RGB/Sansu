@@ -107,4 +107,29 @@ export class FiscalRepository {
       .values({ tenantId: tenantId, year: year, taxJournalId: id })
       .onConflictDoUpdate({ target: [fiscalYears.tenantId, fiscalYears.year], set: { taxJournalId: id } });
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh FiscalService.reconcile */
+  listFiscalAdjustmentsByYear(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof fiscalAdjustments.$inferSelect)['tenantId']>,
+    year: NonNullable<(typeof fiscalAdjustments.$inferSelect)['year']>,
+  ) {
+    return db
+      .select()
+      .from(fiscalAdjustments)
+      .where(and(eq(fiscalAdjustments.tenantId, tenantId), eq(fiscalAdjustments.year, year)));
+  }
+
+  /** Dipakai oleh FiscalService.reconcile */
+  listFiscalYearsByYear(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof fiscalYears.$inferSelect)['tenantId']>,
+    year: NonNullable<(typeof fiscalYears.$inferSelect)['year']>,
+  ) {
+    return db
+      .select()
+      .from(fiscalYears)
+      .where(and(eq(fiscalYears.tenantId, tenantId), eq(fiscalYears.year, year)));
+  }
 }

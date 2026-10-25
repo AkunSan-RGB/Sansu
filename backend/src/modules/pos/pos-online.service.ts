@@ -1,7 +1,6 @@
 import { BadRequestException, CanActivate, ExecutionContext, HttpException, HttpStatus, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { DEFAULT_PLATFORM_COMMISSIONS, ONLINE_CHANNEL_LABELS, ONLINE_CHANNELS, type OnlineChannel } from '@sansu/shared';
-import { desc, eq } from 'drizzle-orm';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -60,11 +59,7 @@ export class OnlineKeysService {
   ) {}
 
   list(tenantId: string) {
-    return this.db
-      .select({ id: onlineApiKeys.id, name: onlineApiKeys.name, keyPrefix: onlineApiKeys.keyPrefix, warehouseId: onlineApiKeys.warehouseId, createdAt: onlineApiKeys.createdAt, lastUsedAt: onlineApiKeys.lastUsedAt, revokedAt: onlineApiKeys.revokedAt })
-      .from(onlineApiKeys)
-      .where(eq(onlineApiKeys.tenantId, tenantId))
-      .orderBy(desc(onlineApiKeys.createdAt));
+    return this.repo.listOnlineApiKeysByCreatedAt(this.db, tenantId);
   }
 
   /** Kunci hanya ditampilkan sekali saat dibuat; yang tersimpan hanya hash-nya */
@@ -128,7 +123,7 @@ export class PlatformSettlementsService {
   }
 
   list(tenantId: string) {
-    return this.db.select().from(posPlatformSettlements).where(eq(posPlatformSettlements.tenantId, tenantId)).orderBy(desc(posPlatformSettlements.date), desc(posPlatformSettlements.number)).limit(200);
+    return this.repo.listPosPlatformSettlementsByDateAndNumber(this.db, tenantId);
   }
 
   async create(user: AuthUser, dto: CreateSettlementDto) {
