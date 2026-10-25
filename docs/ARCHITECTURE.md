@@ -133,7 +133,7 @@ Halaman React besar dipecah per komponen ke folder sebelah halamannya (mis. `fea
 2. controller tidak mengimpor ORM, skema, atau koneksi database;
 3. service tidak mengimpor controller; DTO tidak mengimpor service/controller modul;
 4. tidak ada siklus antar-modul (`src/modules/*`);
-5. tidak ada berkas sumber di atas 1.300 baris (kecuali pembuat data demo).
+5. tidak ada berkas sumber di atas 1.100 baris (kecuali pembuat data demo). Service besar dipisah menurut tanggung jawab: bagian baca/laporan ke service tersendiri (`AssetReportsService`, `PurchaseReportsService`, `WarehouseQueryService`).
 
 **Aturan ketahanan:**
 - Di dalam `db.transaction(async (tx) => ...)` jangan memakai `this.db` atau service yang memakai koneksinya sendiri: itu meminta koneksi kedua dari kolam dan bisa membuat server macet saat beban serentak. Teruskan `tx` (pembantu menerima `db: DbOrTx = this.db`). `TenantPool` menggagalkan tes bila ini terjadi; di produksi dicatat sebagai peringatan.
