@@ -1,5 +1,4 @@
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Card, Col, Descriptions, Form, Input, InputNumber, Row, Select, Space, Table } from 'antd';
+import { Button, Card, Col, Descriptions, Form, Input, Row, Select, Space } from 'antd';
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { post } from '@/api/client';
@@ -9,16 +8,12 @@ import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
 import { isForeignCurrency } from '@sansu/shared';
 import CurrencyFields from '@/components/CurrencyFields';
+import DocLineItems from '@/components/DocLineItems';
+import { type DocLine, previewLine } from '@/lib/docLines';
 import { fmtCurrency, fmtMoney, fmtRate, today } from '@/lib/format';
 import { t } from '@/lib/terms';
 
-interface Line {
-  productId?: string;
-  uom?: string;
-  qty?: number;
-  price?: number;
-  discountPct?: number;
-}
+type Line = DocLine;
 interface FormValues {
   supplierId: string;
   warehouseId: string;
@@ -28,8 +23,6 @@ interface FormValues {
   fxRate?: number;
   lines: Line[];
 }
-
-const previewLine = (l: Line) => Math.round((l.qty ?? 0) * (l.price ?? 0) * (100 - (l.discountPct ?? 0))) / 100;
 
 export default function PurchaseOrderFormPage() {
   const navigate = useNavigate();
@@ -109,85 +102,18 @@ export default function PurchaseOrderFormPage() {
 
           <CurrencyFields form={form} />
 
-          <Form.List name="lines">
-            {(fields, { add, remove }) => (
-              <>
-                <Table
-                  rowKey="key"
-                  dataSource={fields}
-                  pagination={false}
-                  size="small"
-                  scroll={{ x: 900 }}
-                  columns={[
-                    {
-                      title: t('Produk'),
-                      width: 320,
-                      render: (_, f) => (
-                        <Form.Item name={[f.name, 'productId']} rules={[{ required: true, message: t('Pilih produk') }]} noStyle>
-                          <Select
-                            showSearch
-                            optionFilterProp="label"
-                            style={{ width: '100%' }}
-                            placeholder={t('Pilih produk')}
-                            onChange={(id: string) => setLine(f.name, { productId: id, uom: productById.get(id)?.baseUom })}
-                            options={products?.filter((p) => p.isActive).map((p) => ({ value: p.id, label: `${p.sku} · ${p.name}` }))}
-                          />
-                        </Form.Item>
-                      ),
-                    },
-                    {
-                      title: 'Satuan',
-                      width: 110,
-                      render: (_, f) => {
-                        const p = productById.get(lines[f.name]?.productId ?? '');
-                        const opts = p ? [p.baseUom, ...p.uoms.map((u) => u.uom)].map((u) => ({ value: u, label: u })) : [];
-                        return (
-                          <Form.Item name={[f.name, 'uom']} noStyle>
-                            <Select style={{ width: '100%' }} options={opts} />
-                          </Form.Item>
-                        );
-                      },
-                    },
-                    {
-                      title: 'Qty',
-                      width: 100,
-                      render: (_, f) => (
-                        <Form.Item name={[f.name, 'qty']} rules={[{ required: true }]} noStyle>
-                          <InputNumber min={0.0001} style={{ width: '100%' }} />
-                        </Form.Item>
-                      ),
-                    },
-                    {
-                      title: foreign ? `Harga beli / satuan (${currency})` : 'Harga beli / satuan',
-                      width: 170,
-                      render: (_, f) => (
-                        <Form.Item name={[f.name, 'price']} rules={[{ required: true, message: 'Isi harga' }]} noStyle>
-                          <InputNumber min={0} precision={foreign ? 4 : undefined} style={{ width: '100%' }} placeholder="belum PPN" />
-                        </Form.Item>
-                      ),
-                    },
-                    {
-                      title: 'Diskon %',
-                      width: 90,
-                      render: (_, f) => (
-                        <Form.Item name={[f.name, 'discountPct']} noStyle>
-                          <InputNumber min={0} max={100} style={{ width: '100%' }} />
-                        </Form.Item>
-                      ),
-                    },
-                    { title: 'Jumlah', align: 'right', render: (_, f) => money(previewLine(lines[f.name] ?? {})) },
-                    {
-                      width: 40,
-                      render: (_, f) => fields.length > 1 && <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(f.name)} />,
-                    },
-                  ]}
-                />
-                <Button type="dashed" block icon={<PlusOutlined />} style={{ marginTop: 8 }} onClick={() => add({ qty: 1, discountPct: 0 })}>
-                  Tambah baris
-                </Button>
-              </>
-            )}
-          </Form.List>
+          <DocLineItems
+            products={products}
+            productById={productById}
+            lines={lines}
+            onProduct={(i, id) => setLine(i, { productId: id, uom: productById.get(id)?.baseUom })}
+            priceTitle={foreign ? `Harga beli / satuan (${currency})` : 'Harga beli / satuan'}
+            priceWidth={170}
+            priceRules={[{ required: true, message: 'Isi harga' }]}
+            pricePlaceholder="belum PPN"
+            pricePrecision={foreign ? 4 : undefined}
+            money={money}
+          />
 
           <Row gutter={16} style={{ marginTop: 16 }}>
             <Col xs={24} md={14}>
