@@ -15,6 +15,7 @@ import { SalesOrdersService } from '../orders/sales-orders.service';
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { VanDto, VanMoveDto, CanvassSaleDto, CollectionDto, VerifyDto, RouteDto, VisitDto } from './canvass.dto';
+import { asDto } from '../../../common/utils/dto';
 
 /** Jarak maksimum kunjungan dari titik outlet sebelum ditandai mencurigakan */
 const FAR_METERS = 300;
@@ -79,14 +80,14 @@ export class CanvassService {
     const main = await this.mainWh(u.tenantId, dto.warehouseId);
     const merged = new Map<string, ReturnType<typeof D>>();
     for (const l of dto.lines) merged.set(l.productId, (merged.get(l.productId) ?? D(0)).plus(l.qty));
-    const t = await this.ops.createTransfer(u, {
+    const t = await this.ops.createTransfer(u, asDto({
       fromWarehouseId: dir === 'LOAD' ? main.id : van.id,
       toWarehouseId: dir === 'LOAD' ? van.id : main.id,
       date: toDocDate(dto.date),
       mode: 'DIRECT',
       notes: `${dir === 'LOAD' ? 'Muat' : 'Bongkar'} ${van.name}${dto.notes ? ` — ${dto.notes}` : ''}`.slice(0, 255),
       lines: [...merged].map(([productId, q]) => ({ productId, qty: q.toFixed(4) })),
-    } as never, { special: true });
+    }), { special: true });
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: dir, entity: 'Van', entityId: van.id, data: { lines: merged.size, transfer: (t as { number?: string }).number } });
     return t;
   }
@@ -105,11 +106,11 @@ export class CanvassService {
     if (!cust || !cust.isActive) throw new BadRequestException('Pelanggan tidak ditemukan / nonaktif');
     const date = toDocDate(undefined);
     // harga & potongan tidak bisa diisi sales: server memakai daftar harga outlet dan promo yang berlaku
-    const so = await this.orders.create(u, { customerId: cust.id, warehouseId: van.id, date, notes: `Penjualan kanvas ${van.name}`, customerPoNo: dto.customerPoNo, salespersonId: van.vanUserId ?? undefined, lines: dto.lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: l.qty })) } as never);
+    const so = await this.orders.create(u, asDto({ customerId: cust.id, warehouseId: van.id, date, notes: `Penjualan kanvas ${van.name}`, customerPoNo: dto.customerPoNo, salespersonId: van.vanUserId ?? undefined, lines: dto.lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: l.qty })) }));
     let inv: Awaited<ReturnType<InvoicesService['createFromOrder']>>;
     try {
       await this.orders.confirm(u, so.id, { internal: true });
-      inv = await this.invoicesSvc.createFromOrder(u, { salesOrderId: so.id, date } as never);
+      inv = await this.invoicesSvc.createFromOrder(u, asDto({ salesOrderId: so.id, date }));
     } catch (e) {
       // gagal sebelum faktur terbit: batalkan pesanan agar tidak menggantung
       await this.orders.cancel(u, so.id, 'Pembatalan otomatis: proses kanvas gagal').catch(() => undefined);
