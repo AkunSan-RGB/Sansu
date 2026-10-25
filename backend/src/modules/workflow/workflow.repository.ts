@@ -300,4 +300,20 @@ export class WorkflowRepository {
   insertWorkflowLinks(db: DbOrTx, values: typeof workflowLinks.$inferInsert) {
     return db.insert(workflowLinks).values(values);
   }
+
+  /**
+   * Dokumen yang bisa ditautkan ke kasus: milik perusahaan ini dan belum ditautkan ke kasus mana pun.
+   * Nama tabel/kolom berasal dari daftar sumber tetap di kode (bukan masukan pengguna), nilai lainnya berparameter.
+   */
+  listLinkCandidates(
+    db: DbOrTx,
+    tenantId: string,
+    linkType: string,
+    src: { table: string; numberSql: string; statusSql: string; createdColumn: string },
+  ) {
+    return db.execute<{ id: string; number: string; status: string }>(sql`
+      SELECT d.id, ${sql.raw(src.numberSql)} AS number, ${sql.raw(src.statusSql)} AS status FROM ${sql.raw(`"${src.table}"`)} d
+      WHERE d.tenant_id = ${tenantId} AND NOT EXISTS (SELECT 1 FROM workflow_links l WHERE l.tenant_id = d.tenant_id AND l.link_type = ${linkType} AND l.doc_id = d.id)
+      ORDER BY d.${sql.raw(`"${src.createdColumn}"`)} DESC LIMIT 50`);
+  }
 }

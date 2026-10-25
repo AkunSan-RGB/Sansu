@@ -105,3 +105,20 @@ export class ShiftsRepository {
       WHERE a.tenant_id = ${tenantId} AND a.work_date BETWEEN ${from} AND ${to} ORDER BY a.work_date, t.start_time, e.name`);
   }
 }
+
+/** Buat premi shift (menunggu persetujuan) bagi penugasan yang sudah lewat dan pegawainya tercatat HADIR; idempoten per penugasan. Fungsi biasa karena dipanggil juga dari penggajian tanpa DI. */
+export function insertShiftPremiums(db: DbOrTx, tenantId: string, upTo: string) {
+  return db.execute<{ id: string }>(sql`
+    INSERT INTO service_work_entries (tenant_id, employee_id, rate_id, unit, work_date, quantity, rate, amount, description, status, created_by_id, shift_assignment_id)
+    SELECT a.tenant_id, a.employee_id, sr.id, 'SHIFT', a.work_date, 1, sr.rate, sr.rate, 'Premi shift ' || t.name || ' (jadwal)', 'PENDING', a.created_by_id, a.id
+    FROM shift_assignments a
+    JOIN shift_templates t ON t.id = a.template_id
+    JOIN service_rates sr ON sr.id = t.premium_rate_id AND sr.is_active AND sr.unit = 'SHIFT'
+    JOIN employees e ON e.id = a.employee_id AND e.verified AND (e.contract_end IS NULL OR e.contract_end >= a.work_date) AND (e.resign_date IS NULL OR e.resign_date >= a.work_date)
+    JOIN attendances at ON at.employee_id = a.employee_id AND at.date = a.work_date AND at.status = 'HADIR'
+    WHERE a.tenant_id = ${tenantId} AND a.work_date <= ${upTo} AND a.work_date >= ${addDays(upTo, -62)}
+      AND NOT EXISTS (SELECT 1 FROM service_work_entries w WHERE w.shift_assignment_id = a.id AND w.status IN ('PENDING','APPROVED'))
+      AND NOT EXISTS (SELECT 1 FROM service_work_entries w2 WHERE w2.employee_id = a.employee_id AND w2.work_date = a.work_date AND w2.rate_id = sr.id AND w2.status IN ('PENDING','APPROVED') AND w2.shift_assignment_id IS NULL)
+    ON CONFLICT DO NOTHING
+    RETURNING id`);
+}

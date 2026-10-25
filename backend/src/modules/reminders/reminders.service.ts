@@ -3,7 +3,6 @@
  * disaring menurut peran pengguna. Pengguna bisa menunda satu pengingat beberapa hari. Ambang waktu diatur per perusahaan.
  */
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { and, eq, gt, sql } from 'drizzle-orm';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SubscriptionService } from '../../common/billing/subscription.service';
@@ -11,7 +10,6 @@ import { SettingsService } from '../../common/settings.service';
 import { addDays, todayJakarta } from '../../common/utils/dates';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { reminderSnoozes } from '../../db/schema';
 import { TAX_LABEL, TaxService } from '../tax/tax.service';
 import { RemindersRepository } from './reminders.repository';
 
@@ -119,10 +117,6 @@ export class RemindersService {
     return this.settings.saveSection(this.db, tenantId, 'reminders', DEFAULT_REMINDERS, patch);
   }
 
-  private async rows<T extends Record<string, unknown>>(q: ReturnType<typeof sql>) {
-    return (await this.db.execute<T>(q)).rows;
-  }
-
   /** Semua pengingat perusahaan (belum disaring peran/tunda) */
   async compute(tenantId: string, cfg?: ReminderSettings): Promise<ReminderItem[]> {
     const c = cfg ?? (await this.config(tenantId));
@@ -133,11 +127,7 @@ export class RemindersService {
 
     // ---- piutang pelanggan ----
     if (on.has('sales') || on.has('pos') || on.has('crm')) {
-      const ar = await this.rows<{ name: string; out: string; due: string }>(sql`
-        SELECT cu.name, (i.total - i.paid_amount - i.returned_amount)::numeric AS out, i.due_date::text AS due
-        FROM invoices i JOIN customers cu ON cu.id = i.customer_id
-        WHERE i.tenant_id = ${tenantId} AND i.status <> 'PAID' AND (i.total - i.paid_amount - i.returned_amount) > 0.005
-        ORDER BY i.due_date`);
+      const ar = (await this.repo.queryInvoice(this.db, tenantId)).rows;
       const days = (d: string) => Math.round((Date.parse(today) - Date.parse(d)) / 86400000);
       const overdue = ar.filter((r) => r.due < today);
       if (overdue.length) {
@@ -170,11 +160,7 @@ export class RemindersService {
 
     // ---- utang supplier ----
     if (on.has('purchase')) {
-      const ap = await this.rows<{ name: string; out: string; due: string }>(sql`
-        SELECT s.name, (i.total - i.paid_amount - i.returned_amount)::numeric AS out, i.due_date::text AS due
-        FROM purchase_invoices i JOIN suppliers s ON s.id = i.supplier_id
-        WHERE i.tenant_id = ${tenantId} AND i.status <> 'PAID' AND (i.total - i.paid_amount - i.returned_amount) > 0.005
-        ORDER BY i.due_date`);
+      const ap = (await this.repo.queryPurchaseInvoice(this.db, tenantId)).rows;
       const overdue = ap.filter((r) => r.due < today);
       if (overdue.length) {
         items.push({
@@ -201,11 +187,7 @@ export class RemindersService {
       }
 
       // ---- barang diterima belum ditagih ----
-      const grni = (await this.rows<{ n: number; v: string; oldest: string | null }>(sql`
-        SELECT COUNT(DISTINCT g.id)::int AS n, COALESCE(SUM(l.value - l.billed_value), 0)::text AS v, MIN(g.date)::text AS oldest
-        FROM goods_receipts g JOIN goods_receipt_lines l ON l.receipt_id = g.id
-        WHERE g.tenant_id = ${tenantId} AND g.status = 'RECEIVED' AND g.auto_invoice_id IS NULL
-          AND (l.qty - l.billed_qty) > 0.00005 AND g.date <= ${addDays(today, -c.grniDays)}`))[0];
+      const grni = ((await this.repo.queryGoodsReceipt(this.db, tenantId, today, c.grniDays)).rows)[0];
       if (grni?.n) {
         items.push({
           key: 'grni-old',
@@ -217,10 +199,7 @@ export class RemindersService {
           count: grni.n,
         });
       }
-      const po = (await this.rows<{ n: number }>(sql`
-        SELECT COUNT(*)::int AS n FROM purchase_orders o
-        WHERE o.tenant_id = ${tenantId} AND o.status = 'CONFIRMED' AND o.date <= ${addDays(today, -c.poDays)}
-          AND NOT EXISTS (SELECT 1 FROM purchase_order_lines l WHERE l.order_id = o.id AND l.received_qty > 0)`))[0];
+      const po = ((await this.repo.queryPurchaseOrder(this.db, tenantId, today, c.poDays)).rows)[0];
       if (po?.n) {
         items.push({
           key: 'po-not-received',
@@ -236,13 +215,7 @@ export class RemindersService {
 
     // ---- stok di bawah minimum ----
     if (on.has('inventory') || on.has('purchase') || on.has('sales')) {
-      const low = (await this.rows<{ n: number; wh: number }>(sql`
-        SELECT COUNT(*)::int AS n, COUNT(DISTINCT m.warehouse_id)::int AS wh
-        FROM stock_minimums m
-        JOIN products p ON p.id = m.product_id AND p.is_active
-        JOIN warehouses w ON w.id = m.warehouse_id AND w.is_active
-        LEFT JOIN stock_balances b ON b.product_id = m.product_id AND b.warehouse_id = m.warehouse_id
-        WHERE m.tenant_id = ${tenantId} AND COALESCE(b.qty, 0) < m.min_qty`))[0];
+      const low = ((await this.repo.queryStockMinimum(this.db, tenantId)).rows)[0];
       if (low?.n) {
         items.push({
           key: 'low-stock',
@@ -258,9 +231,7 @@ export class RemindersService {
 
     // ---- surat jalan belum difakturkan ----
     if (on.has('sales')) {
-      const dn = (await this.rows<{ n: number }>(sql`
-        SELECT COUNT(*)::int AS n FROM delivery_orders
-        WHERE tenant_id = ${tenantId} AND status = 'DELIVERED' AND invoice_id IS NULL AND date <= ${addDays(today, -c.deliveryDays)}`))[0];
+      const dn = ((await this.repo.queryDeliveryOrder(this.db, tenantId, today, c.deliveryDays)).rows)[0];
       if (dn?.n) {
         items.push({
           key: 'delivery-not-invoiced',
@@ -295,18 +266,14 @@ export class RemindersService {
     }
 
     // ---- persetujuan menunggu ----
-    const ap = (await this.rows<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM approval_requests WHERE tenant_id = ${tenantId} AND status = 'PENDING'`))[0];
+    const ap = ((await this.repo.queryApprovalRequest(this.db, tenantId)).rows)[0];
     if (ap?.n) {
       items.push({ key: 'approvals', category: 'PERSETUJUAN', level: 'warning', title: `${ap.n} permintaan persetujuan menunggu keputusan`, detail: 'Pesanan pembelian atau jurnal manual bernilai besar', link: '/approvals', count: ap.n });
     }
 
     // ---- permintaan pembelian: menunggu keputusan & sudah disetujui tapi belum dipesan ----
     if (on.has('purchase')) {
-      const pr = (await this.rows<{ pending: number; oldest: number; approved: number }>(sql`
-        SELECT COUNT(*) FILTER (WHERE status = 'SUBMITTED')::int AS pending,
-               COALESCE(MAX(CURRENT_DATE - COALESCE(submitted_at, created_at)::date) FILTER (WHERE status = 'SUBMITTED'), 0)::int AS oldest,
-               COUNT(*) FILTER (WHERE status = 'APPROVED')::int AS approved
-        FROM purchase_requests WHERE tenant_id = ${tenantId}`))[0];
+      const pr = ((await this.repo.queryPurchaseRequest(this.db, tenantId)).rows)[0];
       if (pr?.pending) {
         items.push({ key: 'pr-pending', category: 'PERSETUJUAN', level: pr.oldest >= 2 ? 'error' : 'warning', title: `${pr.pending} permintaan pembelian menunggu persetujuan`, detail: pr.oldest >= 1 ? `Yang terlama menunggu ${pr.oldest} hari` : 'Segera putuskan agar pembelian tidak tertunda', link: '/purchase-requests?status=SUBMITTED', count: pr.pending });
       }
@@ -317,8 +284,7 @@ export class RemindersService {
 
     // ---- gaji bulan berjalan ----
     if (on.has('payroll') && Number(today.slice(8, 10)) >= c.payrollDay) {
-      const run = (await this.rows<{ n: number }>(sql`
-        SELECT COUNT(*)::int AS n FROM payroll_runs WHERE tenant_id = ${tenantId} AND period = ${today.slice(0, 7)} AND status <> 'DRAFT'`))[0];
+      const run = ((await this.repo.queryPayrollRun(this.db, tenantId, today)).rows)[0];
       if (!run?.n) {
         items.push({ key: 'payroll', category: 'SDM', level: 'warning', title: `Gaji ${today.slice(0, 7)} belum diproses`, detail: 'Proses dan posting penggajian bulan ini sebelum tanggal pembayaran', link: '/payroll', });
       }

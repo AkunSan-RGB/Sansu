@@ -4,8 +4,7 @@
  * penggajian → akrual gaji, persediaan → stock opname, rekonsiliasi fiskal → pajak penghasilan).
  */
 import { Injectable } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
-import { addDays, DocDate } from '../../common/utils/dates';
+import { DocDate } from '../../common/utils/dates';
 import { D, Dec } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
@@ -37,10 +36,6 @@ export class AdjustmentsService {
   constructor(@InjectDb() private readonly db: Db,
     private readonly repo: AdjustmentsRepository) {}
 
-  private async one<T extends Record<string, unknown>>(q: ReturnType<typeof sql>) {
-    return (await this.db.execute<T>(q)).rows[0];
-  }
-
   /** Ringkasan jurnal penyesuaian per sumber dalam rentang tanggal */
   async summary(tenantId: string, from: DocDate, to: DocDate) {
     const rows = await this.repo.queryJournalEntry(this.db, tenantId, from, to);
@@ -54,12 +49,7 @@ export class AdjustmentsService {
     const items: ChecklistItem[] = [];
 
     // 1. Penyusutan aset tetap
-    const assets = await this.one<{ active: number; posted: number; amount: string }>(sql`
-      SELECT
-        (SELECT COUNT(*)::int FROM fixed_assets WHERE tenant_id = ${tenantId} AND status = 'ACTIVE' AND method <> 'NONE'
-           AND depreciation_start <= ${to}) AS active,
-        (SELECT COUNT(*)::int FROM asset_depreciations WHERE tenant_id = ${tenantId} AND period = ${period}) AS posted,
-        (SELECT COALESCE(SUM(amount), 0) FROM asset_depreciations WHERE tenant_id = ${tenantId} AND period = ${period}) AS amount`);
+    const assets = (await this.repo.queryChecklist(this.db, tenantId, to, period)).rows[0];
     items.push(
       !assets.active
         ? { key: 'depreciation', title: 'Penyusutan aset tetap', status: 'NA', message: 'Tidak ada aset yang disusutkan pada bulan ini.', link: '/fixed-assets' }
@@ -82,9 +72,7 @@ export class AdjustmentsService {
     );
 
     // 2. Jurnal berulang (amortisasi dibayar dimuka, akrual rutin)
-    const rec = await this.one<{ due: number; active: number }>(sql`
-      SELECT COUNT(*) FILTER (WHERE next_date <= ${to})::int AS due, COUNT(*)::int AS active
-      FROM recurring_journals WHERE tenant_id = ${tenantId} AND is_active = true AND is_adjustment = true`);
+    const rec = (await this.repo.queryRecurringJournal(this.db, to, tenantId)).rows[0];
     items.push({
       key: 'recurring',
       title: 'Amortisasi & akrual berulang',
@@ -99,10 +87,7 @@ export class AdjustmentsService {
     });
 
     // 3. Biaya dibayar dimuka yang belum diamortisasi
-    const prepaid = await this.one<{ v: string }>(sql`
-      SELECT COALESCE(SUM(l.debit - l.credit), 0) AS v FROM journal_lines l
-      JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
-      WHERE j.tenant_id = ${tenantId} AND j.date <= ${to} AND a.report_group = 'PREPAID'`);
+    const prepaid = (await this.repo.queryJournalLine(this.db, tenantId, to)).rows[0];
     const prepaidBal = D(prepaid.v);
     items.push({
       key: 'prepaid',
@@ -126,13 +111,8 @@ export class AdjustmentsService {
         link: '/invoices',
       });
     } else {
-    const ar = await this.one<{ v: string }>(sql`
-      SELECT COALESCE(SUM(total - paid_amount - returned_amount), 0) AS v FROM invoices
-      WHERE tenant_id = ${tenantId} AND status <> 'PAID' AND date <= ${to} AND due_date < ${addDays(to, -90)}`);
-    const allowance = await this.one<{ v: string }>(sql`
-      SELECT COALESCE(SUM(l.credit - l.debit), 0) AS v FROM journal_lines l
-      JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
-      WHERE j.tenant_id = ${tenantId} AND j.date <= ${to} AND a.report_group = 'ALLOWANCE_RECEIVABLE'`);
+    const ar = (await this.repo.queryInvoice(this.db, tenantId, to)).rows[0];
+    const allowance = (await this.repo.queryJournalLineForChecklist(this.db, tenantId, to)).rows[0];
     const gap: Dec = D(ar.v).minus(allowance.v);
     items.push({
       key: 'bad-debt',
@@ -150,10 +130,8 @@ export class AdjustmentsService {
     }
 
     // 5. Gaji bulan ini sudah diakui (akrual)
-    const payroll = await this.one<{ n: number; posted: number }>(sql`
-      SELECT COUNT(*)::int AS n, COUNT(*) FILTER (WHERE status <> 'DRAFT')::int AS posted
-      FROM payroll_runs WHERE tenant_id = ${tenantId} AND period = ${period}`);
-    const hasEmployees = await this.one<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM employees WHERE tenant_id = ${tenantId} AND is_active = true`);
+    const payroll = (await this.repo.queryPayrollRun(this.db, tenantId, period)).rows[0];
+    const hasEmployees = (await this.repo.queryEmployee(this.db, tenantId)).rows[0];
     items.push({
       key: 'payroll',
       title: 'Beban gaji bulan ini',
@@ -168,9 +146,7 @@ export class AdjustmentsService {
     });
 
     // 6. Stock opname
-    const opname = await this.one<{ n: number }>(sql`
-      SELECT COUNT(*)::int AS n FROM journal_entries WHERE tenant_id = ${tenantId} AND source_type = 'STOCK_ADJUSTMENT'
-        AND date BETWEEN ${from} AND ${to} AND description ILIKE '%STOCK_OPNAME%'`);
+    const opname = (await this.repo.queryJournalEntryForChecklist(this.db, tenantId, from, to)).rows[0];
     items.push({
       key: 'stock-opname',
       title: 'Stock opname persediaan',
@@ -184,9 +160,7 @@ export class AdjustmentsService {
     // 7. Pajak penghasilan (hanya Desember)
     if (period.endsWith('-12')) {
       const year = period.slice(0, 4);
-      const tax = await this.one<{ n: number }>(sql`
-        SELECT COUNT(*)::int AS n FROM journal_entries WHERE tenant_id = ${tenantId} AND source_type = 'INCOME_TAX' AND source_id = ${year}
-          AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = journal_entries.id)`);
+      const tax = (await this.repo.queryJournalEntryForChecklist2(this.db, tenantId, year)).rows[0];
       items.push({
         key: 'income-tax',
         title: 'Beban pajak penghasilan tahunan',
@@ -197,9 +171,7 @@ export class AdjustmentsService {
     }
 
     // 8. Penyesuaian manual yang sudah dibuat
-    const manual = await this.one<{ n: number; total: string }>(sql`
-      SELECT COUNT(DISTINCT j.id)::int AS n, COALESCE(SUM(l.debit), 0) AS total FROM journal_entries j JOIN journal_lines l ON l.journal_id = j.id
-      WHERE j.tenant_id = ${tenantId} AND j.source_type = 'ADJUSTMENT' AND j.date BETWEEN ${from} AND ${to}`);
+    const manual = (await this.repo.queryJournalEntryForChecklist3(this.db, tenantId, from, to)).rows[0];
     items.push({
       key: 'manual',
       title: 'Akrual & penyesuaian lainnya',

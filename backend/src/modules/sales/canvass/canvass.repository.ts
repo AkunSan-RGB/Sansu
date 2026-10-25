@@ -13,6 +13,11 @@ import {
 } from '../../../db/schema';
 import { AuthUser } from '../../../common/auth/auth-user';
 
+/** Jarak maksimum kunjungan dari titik outlet sebelum ditandai mencurigakan */
+export const FAR_METERS = 300;
+
+export const STALE_DAYS = 2;
+
 /** Akses data untuk Canvass: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
 export class CanvassRepository {
@@ -220,5 +225,49 @@ export class CanvassRepository {
       .innerJoin(customers, eq(customers.id, salesRouteStops.customerId))
       .where(inArray(salesRouteStops.routeId, rowsValues))
       .orderBy(salesRouteStops.seq);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh CanvassService.summary */
+  querySalesRoute(db: DbOrTx, tenantId: string, weekday: number) {
+    return db.execute<{ uid: string; n: string }>(
+      sql`SELECT r.salesperson_id AS uid, COUNT(s.id)::text AS n FROM sales_routes r JOIN sales_route_stops s ON s.route_id = r.id WHERE r.tenant_id = ${tenantId} AND r.is_active AND r.weekday = ${weekday} GROUP BY r.salesperson_id`,
+    );
+  }
+
+  /** Dipakai oleh CanvassService.summary */
+  querySalesVisit(db: DbOrTx, tenantId: string, date: string) {
+    return db.execute<{ uid: string; n: string; eff: string; far: string }>(
+      sql`SELECT user_id AS uid, COUNT(*)::text AS n, COUNT(*) FILTER (WHERE result = 'ORDER')::text AS eff, COUNT(*) FILTER (WHERE distance_m > ${FAR_METERS})::text AS far FROM sales_visits WHERE tenant_id = ${tenantId} AND date = ${date} GROUP BY user_id`,
+    );
+  }
+
+  /** Dipakai oleh CanvassService.summary */
+  queryInvoiceForSummary(db: DbOrTx, tenantId: string, date: string) {
+    return db.execute<{ uid: string; n: string; v: string }>(
+      sql`SELECT o.salesperson_id AS uid, COUNT(*)::text AS n, COALESCE(SUM(i.total), 0)::text AS v FROM invoices i JOIN sales_orders o ON o.id = i.sales_order_id JOIN warehouses w ON w.id = o.warehouse_id WHERE i.tenant_id = ${tenantId} AND i.date = ${date} AND w.kind = 'VAN' GROUP BY o.salesperson_id`,
+    );
+  }
+
+  /** Dipakai oleh CanvassService.summary */
+  queryCanvassCollectionForSummary(db: DbOrTx, date: string, tenantId: string) {
+    return db.execute<{
+      uid: string;
+      pending: string;
+      verified: string;
+      shortage: string;
+      stale: string;
+    }>(sql`SELECT user_id AS uid,
+        COALESCE(SUM(amount) FILTER (WHERE status = 'PENDING'), 0)::text AS pending, COALESCE(SUM(received_amount) FILTER (WHERE status = 'VERIFIED'), 0)::text AS verified,
+        COALESCE(SUM(shortage) FILTER (WHERE status IN ('VERIFIED', 'REJECTED')), 0)::text AS shortage,
+        COUNT(*) FILTER (WHERE status = 'PENDING' AND date < (${date}::date - ${STALE_DAYS}::int))::text AS stale
+      FROM canvass_collections WHERE tenant_id = ${tenantId} GROUP BY user_id`);
+  }
+
+  /** Dipakai oleh CanvassService.summary */
+  queryWarehouseForSummary(db: DbOrTx, tenantId: string) {
+    return db.execute<{ uid: string; qty: string; value: string }>(
+      sql`SELECT w.van_user_id AS uid, COALESCE(SUM(b.qty), 0)::text AS qty, COALESCE(SUM(b.qty * b.avg_cost), 0)::text AS value FROM warehouses w LEFT JOIN stock_balances b ON b.warehouse_id = w.id WHERE w.tenant_id = ${tenantId} AND w.kind = 'VAN' GROUP BY w.van_user_id`,
+    );
   }
 }

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, lte } from 'drizzle-orm';
 import { BASE_CURRENCY, isForeignCurrency, isKnownForeignCurrency } from '@sansu/shared';
 import { AuthUser } from '../../common/auth/auth-user';
 import { AuditService } from '../../common/audit/audit.service';
@@ -12,6 +12,7 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { RevaluationDto, UpsertRateDto } from './fx.dto';
 import { FxRepository } from './fx.repository';
+import type { OpenItemRow } from './fx.repository';
 
 interface OpenItem {
   kind: 'AR' | 'AP';
@@ -90,20 +91,9 @@ export class FxService {
 
   /** Piutang dan utang valas yang masih terbuka per tanggal (pelunasan sesudahnya tidak dihitung) */
   private async openItems(tenantId: string, asOf: string): Promise<OpenItem[]> {
-    type R = { id: string; number: string; party: string; currency: string; date: string; out_f: string; carrying: string };
-    const ar = await this.db.execute<R>(sql`
-      SELECT i.id, i.number, c.name AS party, i.currency, i.date::text AS date,
-             i.total_foreign - i.returned_foreign - COALESCE(p.f, 0) AS out_f, i.total - i.returned_amount - COALESCE(p.idr, 0) AS carrying
-      FROM invoices i JOIN customers c ON c.id = i.customer_id
-      LEFT JOIN LATERAL (SELECT SUM(amount_foreign) AS f, SUM(amount) AS idr FROM payments y WHERE y.invoice_id = i.id AND y.date <= ${asOf}) p ON true
-      WHERE i.tenant_id = ${tenantId} AND i.currency <> 'IDR' AND i.date <= ${asOf}`);
-    const ap = await this.db.execute<R>(sql`
-      SELECT i.id, i.number, s.name AS party, i.currency, i.date::text AS date,
-             i.total_foreign - i.returned_foreign - COALESCE(p.f, 0) AS out_f, i.total - i.returned_amount - COALESCE(p.idr, 0) AS carrying
-      FROM purchase_invoices i JOIN suppliers s ON s.id = i.supplier_id
-      LEFT JOIN LATERAL (SELECT SUM(amount_foreign) AS f, SUM(amount) AS idr FROM supplier_payments y WHERE y.purchase_invoice_id = i.id AND y.status = 'POSTED' AND y.date <= ${asOf}) p ON true
-      WHERE i.tenant_id = ${tenantId} AND i.currency <> 'IDR' AND i.date <= ${asOf}`);
-    const map = (kind: 'AR' | 'AP') => (r: R): OpenItem => ({ kind, id: r.id, number: r.number, party: r.party, currency: r.currency, date: r.date, outstandingForeign: D(r.out_f), carrying: D(r.carrying) });
+    const ar = await this.repo.queryInvoice(this.db, asOf, tenantId);
+    const ap = await this.repo.queryPurchaseInvoice(this.db, asOf, tenantId);
+    const map = (kind: 'AR' | 'AP') => (r: OpenItemRow): OpenItem => ({ kind, id: r.id, number: r.number, party: r.party, currency: r.currency, date: r.date, outstandingForeign: D(r.out_f), carrying: D(r.carrying) });
     return [...ar.rows.map(map('AR')), ...ap.rows.map(map('AP'))].filter((x) => x.outstandingForeign.gt(0.004));
   }
 

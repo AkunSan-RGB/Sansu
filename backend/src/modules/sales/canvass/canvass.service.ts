@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { SequenceService } from '../../../common/sequence/sequence.service';
@@ -18,11 +18,7 @@ import { VanDto, VanMoveDto, CanvassSaleDto, CollectionDto, VerifyDto, RouteDto,
 import { ReferenceRepository } from '../../../db/reference.repository';
 import { findOwned, insertOne, lockOwned, patchById } from '../../../db/owned';
 import { CanvassRepository } from './canvass.repository';
-
-/** Jarak maksimum kunjungan dari titik outlet sebelum ditandai mencurigakan */
-const FAR_METERS = 300;
-
-const STALE_DAYS = 2;
+import { FAR_METERS, STALE_DAYS } from './canvass.repository';
 
 export const haversineM = (lat1: number, lng1: number, lat2: number, lng2: number) => {
   const R = 6_371_000;
@@ -277,16 +273,11 @@ export class CanvassService {
     const weekday = ((new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7) + 1;
     const only = u.role === 'SALES' ? u.sub : null;
     const sales = await this.repo.listUsersByRoleAndIsActiveAndId(this.db, u.tenantId, only);
-    const q = async <T extends Record<string, unknown>>(query: ReturnType<typeof sql>) => (await this.db.execute<T>(query)).rows;
-    const planned = await q<{ uid: string; n: string }>(sql`SELECT r.salesperson_id AS uid, COUNT(s.id)::text AS n FROM sales_routes r JOIN sales_route_stops s ON s.route_id = r.id WHERE r.tenant_id = ${u.tenantId} AND r.is_active AND r.weekday = ${weekday} GROUP BY r.salesperson_id`);
-    const visits = await q<{ uid: string; n: string; eff: string; far: string }>(sql`SELECT user_id AS uid, COUNT(*)::text AS n, COUNT(*) FILTER (WHERE result = 'ORDER')::text AS eff, COUNT(*) FILTER (WHERE distance_m > ${FAR_METERS})::text AS far FROM sales_visits WHERE tenant_id = ${u.tenantId} AND date = ${date} GROUP BY user_id`);
-    const sold = await q<{ uid: string; n: string; v: string }>(sql`SELECT o.salesperson_id AS uid, COUNT(*)::text AS n, COALESCE(SUM(i.total), 0)::text AS v FROM invoices i JOIN sales_orders o ON o.id = i.sales_order_id JOIN warehouses w ON w.id = o.warehouse_id WHERE i.tenant_id = ${u.tenantId} AND i.date = ${date} AND w.kind = 'VAN' GROUP BY o.salesperson_id`);
-    const col = await q<{ uid: string; pending: string; verified: string; shortage: string; stale: string }>(sql`SELECT user_id AS uid,
-        COALESCE(SUM(amount) FILTER (WHERE status = 'PENDING'), 0)::text AS pending, COALESCE(SUM(received_amount) FILTER (WHERE status = 'VERIFIED'), 0)::text AS verified,
-        COALESCE(SUM(shortage) FILTER (WHERE status IN ('VERIFIED', 'REJECTED')), 0)::text AS shortage,
-        COUNT(*) FILTER (WHERE status = 'PENDING' AND date < (${date}::date - ${STALE_DAYS}::int))::text AS stale
-      FROM canvass_collections WHERE tenant_id = ${u.tenantId} GROUP BY user_id`);
-    const van = await q<{ uid: string; qty: string; value: string }>(sql`SELECT w.van_user_id AS uid, COALESCE(SUM(b.qty), 0)::text AS qty, COALESCE(SUM(b.qty * b.avg_cost), 0)::text AS value FROM warehouses w LEFT JOIN stock_balances b ON b.warehouse_id = w.id WHERE w.tenant_id = ${u.tenantId} AND w.kind = 'VAN' GROUP BY w.van_user_id`);
+    const planned = (await this.repo.querySalesRoute(this.db, u.tenantId, weekday)).rows;
+    const visits = (await this.repo.querySalesVisit(this.db, u.tenantId, date)).rows;
+    const sold = (await this.repo.queryInvoiceForSummary(this.db, u.tenantId, date)).rows;
+    const col = (await this.repo.queryCanvassCollectionForSummary(this.db, date, u.tenantId)).rows;
+    const van = (await this.repo.queryWarehouseForSummary(this.db, u.tenantId)).rows;
     const pick = <T extends { uid: string }>(rows: T[], id: string) => rows.find((r) => r.uid === id);
     return {
       date,

@@ -1,20 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
 import { MOVEMENT_PROFILES } from '@sansu/shared';
 import { SettingsService } from '../../common/settings.service';
 import { addDays, monthStart, todayJakarta } from '../../common/utils/dates';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { concentrationInsight, costRiseInsight, deadStockInsight, type DashboardInsight, expiryInsight, lapsedCustomersInsight, lowMarginProductsInsight, lowStockInsight, marginInsight, overdueReceivableInsight, payableInsight, rankInsights, runwayInsight, salesTrendInsight, summarize, topProductsInsight } from './insight-rules';
+import { DashboardInsightsRepository, addMonths } from './dashboard-insights.repository';
+export { addMonths } from './dashboard-insights.repository';
 
 const num = (v: unknown) => Number(v ?? 0) || 0;
-
-/** Awal bulan (YYYY-MM-01) n bulan dari bulan `ymd` (n boleh negatif) */
-export function addMonths(ymd: string, n: number): string {
-  const [y, m] = ymd.split('-').map(Number);
-  const t = y * 12 + (m - 1) + n;
-  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}-01`;
-}
 
 const daysInMonth = (ymd: string) => new Date(Number(ymd.slice(0, 4)), Number(ymd.slice(5, 7)), 0).getDate();
 
@@ -28,7 +22,8 @@ export interface TrendPoint {
 @Injectable()
 export class DashboardInsightsService {
   private readonly log = new Logger('DashboardInsights');
-  constructor(@InjectDb() private readonly db: Db, private readonly settings: SettingsService) {}
+  constructor(@InjectDb() private readonly db: Db, private readonly settings: SettingsService,
+    private readonly repo: DashboardInsightsRepository) {}
 
   /** Jalankan satu pengumpul data; kegagalan satu aturan tidak boleh menggagalkan seluruh beranda */
   private async safe<T>(name: string, fn: () => Promise<T>, fallback: T): Promise<T> {
@@ -47,15 +42,9 @@ export class DashboardInsightsService {
     const d90 = addDays(today, -90);
     const d60 = addDays(today, -60);
     const d180 = addDays(today, -180);
-    const rows = async <T extends Record<string, unknown>>(q: ReturnType<typeof sql>) => (await this.db.execute<T>(q)).rows;
 
     const series = await this.safe('tren', async () => {
-      const r = await rows<{ m: string; grp: string; v: string }>(sql`
-        SELECT to_char(je.date, 'YYYY-MM') AS m, a.report_group AS grp, COALESCE(SUM(jl.credit - jl.debit), 0)::text AS v
-        FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_id JOIN accounts a ON a.id = jl.account_id
-        WHERE a.tenant_id = ${tenantId} AND je.date >= ${start6} AND je.date <= ${today}
-          AND a.report_group IN ('SALES_REVENUE', 'SALES_DEDUCTION', 'COST_OF_SALES', 'SELLING_EXPENSE', 'ADMIN_EXPENSE')
-        GROUP BY 1, 2`);
+      const r = (await this.repo.queryJournalLine(this.db, tenantId, start6, today)).rows;
       const pts: TrendPoint[] = [];
       for (let i = 0; i < 6; i++) {
         const mo = addMonths(start6, i).slice(0, 7);
@@ -68,16 +57,12 @@ export class DashboardInsightsService {
     }, [] as TrendPoint[]);
 
     const opexOf = async (from: string, to: string) =>
-      num((await rows<{ v: string }>(sql`
-        SELECT COALESCE(SUM(jl.debit - jl.credit), 0)::text AS v FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_id JOIN accounts a ON a.id = jl.account_id
-        WHERE a.tenant_id = ${tenantId} AND je.date >= ${from} AND je.date < ${to} AND a.report_group IN ('SELLING_EXPENSE', 'ADMIN_EXPENSE')`))[0]?.v);
+      num(((await this.repo.queryJournalLineForBuild(this.db, tenantId, from, to)).rows)[0]?.v);
 
     const items: DashboardInsight[] = [];
     const push = (i: DashboardInsight | null) => { if (i) items.push(i); };
 
-    const cash = await this.safe('kas', async () => num((await rows<{ v: string }>(sql`
-      SELECT COALESCE(SUM(jl.debit - jl.credit), 0)::text AS v FROM journal_lines jl JOIN accounts a ON a.id = jl.account_id
-      WHERE a.tenant_id = ${tenantId} AND a.is_cash_account`))[0]?.v), 0);
+    const cash = await this.safe('kas', async () => num(((await this.repo.queryJournalLineForBuild2(this.db, tenantId)).rows)[0]?.v), 0);
     const full = series.slice(2, 5); // 3 bulan penuh terakhir (bulan berjalan belum utuh)
     const withCost = full.filter((p) => p.expense > 0);
     const monthlyCost = withCost.length ? withCost.reduce((a, p) => a + p.expense, 0) / withCost.length : 0;
@@ -87,9 +72,7 @@ export class DashboardInsightsService {
     const day = Number(today.slice(8, 10));
     const prevStart = addMonths(curMonth, -1);
     const prevEnd = addDays(prevStart, Math.min(day, daysInMonth(prevStart)) - 1);
-    const prevSame = await this.safe('tren-jual', async () => num((await rows<{ v: string }>(sql`
-      SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::text AS v FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_id JOIN accounts a ON a.id = jl.account_id
-      WHERE a.tenant_id = ${tenantId} AND je.date >= ${prevStart} AND je.date <= ${prevEnd} AND a.report_group IN ('SALES_REVENUE', 'SALES_DEDUCTION')`))[0]?.v), 0);
+    const prevSame = await this.safe('tren-jual', async () => num(((await this.repo.queryJournalLineForBuild3(this.db, tenantId, prevStart, prevEnd)).rows)[0]?.v), 0);
     if (cur) {
       push(salesTrendInsight({ mtd: cur.sales, prevSame, daysElapsed: day, daysInMonth: daysInMonth(curMonth), monthsWithSales: series.slice(0, 5).filter((p) => p.sales > 0).length }));
       const prev3 = series.slice(2, 5).filter((p) => p.sales > 0);
@@ -103,10 +86,7 @@ export class DashboardInsightsService {
       const lastOpex = await this.safe('biaya', () => opexOf(addMonths(curMonth, -1), curMonth), 0);
       const priorOpex = await this.safe('biaya-3', () => opexOf(addMonths(curMonth, -4), addMonths(curMonth, -1)), 0);
       const top = await this.safe('biaya-top', async () => {
-        const r = await rows<{ name: string; m: string; v: string }>(sql`
-          SELECT a.name, to_char(je.date, 'YYYY-MM') AS m, SUM(jl.debit - jl.credit)::text AS v FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_id JOIN accounts a ON a.id = jl.account_id
-          WHERE a.tenant_id = ${tenantId} AND je.date >= ${addMonths(curMonth, -4)} AND je.date < ${curMonth} AND a.report_group IN ('SELLING_EXPENSE', 'ADMIN_EXPENSE')
-          GROUP BY a.name, 2`);
+        const r = (await this.repo.queryJournalLineForBuild4(this.db, tenantId, curMonth)).rows;
         const lastKey = addMonths(curMonth, -1).slice(0, 7);
         const byName = new Map<string, { last: number; sum: number }>();
         for (const x of r) { const e = byName.get(x.name) ?? { last: 0, sum: 0 }; if (x.m === lastKey) e.last += num(x.v); else e.sum += num(x.v); byName.set(x.name, e); }
@@ -118,50 +98,27 @@ export class DashboardInsightsService {
     }
 
     await this.safe('piutang', async () => {
-      const tot = (await rows<{ ar: string; overdue: string; n: string }>(sql`
-        SELECT COALESCE(SUM(total - paid_amount - returned_amount), 0)::text AS ar,
-               COALESCE(SUM(total - paid_amount - returned_amount) FILTER (WHERE due_date < ${today}), 0)::text AS overdue,
-               COUNT(*) FILTER (WHERE due_date < ${today})::text AS n
-        FROM invoices WHERE tenant_id = ${tenantId} AND status <> 'PAID'`))[0];
-      const top = await rows<{ name: string; amt: string }>(sql`
-        SELECT c.name, SUM(i.total - i.paid_amount - i.returned_amount)::text AS amt FROM invoices i JOIN customers c ON c.id = i.customer_id
-        WHERE i.tenant_id = ${tenantId} AND i.status <> 'PAID' AND i.due_date < ${today} GROUP BY c.id, c.name ORDER BY SUM(i.total - i.paid_amount - i.returned_amount) DESC LIMIT 3`);
-      const sales90 = num((await rows<{ v: string }>(sql`SELECT COALESCE(SUM(subtotal), 0)::text AS v FROM invoices WHERE tenant_id = ${tenantId} AND NOT is_opening AND date >= ${d90} AND date <= ${today}`))[0]?.v);
+      const tot = ((await this.repo.queryInvoice(this.db, today, tenantId)).rows)[0];
+      const top = (await this.repo.queryInvoiceForBuild(this.db, tenantId, today)).rows;
+      const sales90 = num(((await this.repo.queryInvoiceForBuild2(this.db, tenantId, d90, today)).rows)[0]?.v);
       push(overdueReceivableInsight({ ar: num(tot?.ar), overdue: num(tot?.overdue), overdueCount: num(tot?.n), top: top.map((t) => ({ name: t.name, amount: num(t.amt) })), dso: sales90 > 0 ? num(tot?.ar) / (sales90 / 90) : null }));
     }, undefined);
 
     await this.safe('hutang', async () => {
-      const r = (await rows<{ overdue: string; due14: string }>(sql`
-        SELECT COALESCE(SUM(total - paid_amount - returned_amount) FILTER (WHERE due_date < ${today}), 0)::text AS overdue,
-               COALESCE(SUM(total - paid_amount - returned_amount) FILTER (WHERE due_date <= ${addDays(today, 14)}), 0)::text AS due14
-        FROM purchase_invoices WHERE tenant_id = ${tenantId} AND status <> 'PAID'`))[0];
+      const r = ((await this.repo.queryPurchaseInvoice(this.db, today, tenantId)).rows)[0];
       push(payableInsight({ overdue: num(r?.overdue), due14: num(r?.due14), cash }));
     }, undefined);
 
     await this.safe('pelanggan', async () => {
-      const r = await rows<{ name: string; amt: string }>(sql`
-        SELECT c.name, SUM(i.subtotal)::text AS amt FROM invoices i JOIN customers c ON c.id = i.customer_id
-        WHERE i.tenant_id = ${tenantId} AND NOT i.is_opening AND i.date >= ${d90} AND i.date <= ${today} GROUP BY c.id, c.name ORDER BY SUM(i.subtotal) DESC`);
+      const r = (await this.repo.queryInvoiceForBuild3(this.db, tenantId, d90, today)).rows;
       const total = r.reduce((a, x) => a + num(x.amt), 0);
       if (r.length >= 3 && total > 0) push(concentrationInsight({ name: r[0].name, share: num(r[0].amt) / total, amount: num(r[0].amt), total }));
-      const lapsed = await rows<{ name: string; past: string }>(sql`
-        SELECT c.name, SUM(i.subtotal)::text AS past FROM invoices i JOIN customers c ON c.id = i.customer_id
-        WHERE i.tenant_id = ${tenantId} AND NOT i.is_opening AND i.date >= ${d180} AND i.date <= ${today}
-        GROUP BY c.id, c.name
-        HAVING COALESCE(SUM(i.subtotal) FILTER (WHERE i.date >= ${d60}), 0) = 0 AND COALESCE(SUM(i.subtotal) FILTER (WHERE i.date < ${d60}), 0) > 0
-        ORDER BY SUM(i.subtotal) DESC LIMIT 5`);
+      const lapsed = (await this.repo.queryInvoiceForBuild4(this.db, tenantId, d180, today, d60)).rows;
       push(lapsedCustomersInsight({ customers: lapsed.map((x) => ({ name: x.name, past: num(x.past) })) }));
     }, undefined);
 
     await this.safe('produk', async () => {
-      const r = await rows<{ name: string; src: string; rev: string; gp: string }>(sql`
-        WITH l AS (
-          SELECT il.product_id, 'INV' AS src, il.line_total AS rev, il.line_total - il.qty * il.uom_factor * il.unit_cost AS gp
-          FROM invoice_lines il JOIN invoices i ON i.id = il.invoice_id WHERE i.tenant_id = ${tenantId} AND NOT i.is_opening AND i.date >= ${d90} AND i.date <= ${today}
-          UNION ALL
-          SELECT pl.product_id, 'POS', pl.line_total, pl.line_total - pl.qty * pl.uom_factor * pl.unit_cost
-          FROM pos_order_lines pl JOIN pos_orders po ON po.id = pl.order_id WHERE po.tenant_id = ${tenantId} AND po.date >= ${d90} AND po.date <= ${today})
-        SELECT p.name, l.src, SUM(l.rev)::text AS rev, SUM(l.gp)::text AS gp FROM l JOIN products p ON p.id = l.product_id GROUP BY p.id, p.name, l.src`);
+      const r = (await this.repo.queryL(this.db, tenantId, d90, today)).rows;
       const byName = new Map<string, { rev: number; gp: number; inv: { rev: number; gp: number } }>();
       for (const x of r) {
         const e = byName.get(x.name) ?? { rev: 0, gp: 0, inv: { rev: 0, gp: 0 } };
@@ -180,31 +137,19 @@ export class DashboardInsightsService {
     }, undefined);
 
     await this.safe('stok', async () => {
-      const total = num((await rows<{ v: string }>(sql`SELECT COALESCE(SUM(qty * avg_cost), 0)::text AS v FROM stock_balances WHERE tenant_id = ${tenantId} AND qty > 0`))[0]?.v);
+      const total = num(((await this.repo.queryStockBalance(this.db, tenantId)).rows)[0]?.v);
       if (total > 0) {
         const model = await this.settings.businessModel(this.db, tenantId);
         const deadDays = Math.max(60, MOVEMENT_PROFILES[model]?.deadDays ?? 90);
         const dStart = addDays(today, -deadDays);
-        const dead = await rows<{ name: string; v: string }>(sql`
-          SELECT p.name, SUM(b.qty * b.avg_cost)::text AS v FROM stock_balances b JOIN products p ON p.id = b.product_id
-          WHERE b.tenant_id = ${tenantId} AND b.qty > 0 AND p.is_active
-            AND NOT EXISTS (SELECT 1 FROM stock_moves m WHERE m.tenant_id = ${tenantId} AND m.product_id = b.product_id AND m.type IN ('SALE', 'PRODUCTION_ISSUE') AND m.date >= ${dStart})
-            AND EXISTS (SELECT 1 FROM stock_moves m2 WHERE m2.tenant_id = ${tenantId} AND m2.product_id = b.product_id AND m2.date < ${dStart})
-          GROUP BY p.id, p.name ORDER BY SUM(b.qty * b.avg_cost) DESC`);
+        const dead = (await this.repo.queryStockBalanceForBuild(this.db, tenantId, dStart)).rows;
         push(deadStockInsight({ dead: dead.reduce((a, x) => a + num(x.v), 0), total, n: dead.length, top: dead.slice(0, 3).map((x) => ({ name: x.name, value: num(x.v) })), days: deadDays }));
       }
-      const exp = await rows<{ name: string; expired: boolean; v: string }>(sql`
-        SELECT p.name, (l.expiry_date < ${today}) AS expired, SUM(l.qty_remaining * COALESCE(b.avg_cost, 0))::text AS v
-        FROM stock_lots l JOIN products p ON p.id = l.product_id LEFT JOIN stock_balances b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
-        WHERE l.tenant_id = ${tenantId} AND l.qty_remaining > 0 AND l.expiry_date IS NOT NULL AND l.expiry_date <= ${addDays(today, 30)}
-        GROUP BY p.id, p.name, (l.expiry_date < ${today}) ORDER BY SUM(l.qty_remaining * COALESCE(b.avg_cost, 0)) DESC`);
+      const exp = (await this.repo.queryStockLot(this.db, today, tenantId)).rows;
       const ex = exp.filter((x) => x.expired);
       const so = exp.filter((x) => !x.expired);
       push(expiryInsight({ expiredValue: ex.reduce((a, x) => a + num(x.v), 0), expiredN: ex.length, soonValue: so.reduce((a, x) => a + num(x.v), 0), soonN: so.length, top: [...ex, ...so].slice(0, 3).map((x) => x.name) }));
-      const low = await rows<{ name: string }>(sql`
-        SELECT p.name FROM stock_minimums m JOIN products p ON p.id = m.product_id AND p.is_active JOIN warehouses w ON w.id = m.warehouse_id AND w.is_active
-        LEFT JOIN stock_balances b ON b.product_id = m.product_id AND b.warehouse_id = m.warehouse_id
-        WHERE m.tenant_id = ${tenantId} AND COALESCE(b.qty, 0) < m.min_qty ORDER BY (m.min_qty - COALESCE(b.qty, 0)) DESC`);
+      const low = (await this.repo.queryStockMinimum(this.db, tenantId)).rows;
       push(lowStockInsight({ n: low.length, top: low.slice(0, 3).map((x) => x.name) }));
     }, undefined);
 

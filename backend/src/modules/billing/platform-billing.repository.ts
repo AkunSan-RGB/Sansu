@@ -208,4 +208,75 @@ export class PlatformBillingRepository {
   insertSubscriptions(db: DbOrTx, values: typeof subscriptions.$inferInsert) {
     return db.insert(subscriptions).values(values);
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh PlatformBillingService.platformPulse */
+  queryPlatformPulse(db: DbOrTx) {
+    return db.execute<{
+      users: number;
+      d1: number;
+      d7: number;
+      d30: number;
+      tenants: number;
+      tenants7: number;
+      selling: number;
+      events24: number;
+      events7: number;
+    }>(sql`
+      SELECT
+        (SELECT COUNT(*) FROM users WHERE is_active)::int AS users,
+        (SELECT COUNT(*) FROM users u WHERE u.last_login_at > now() - interval '1 day' OR EXISTS (SELECT 1 FROM audit_logs a WHERE a.user_id = u.id AND a.created_at > now() - interval '1 day'))::int AS d1,
+        (SELECT COUNT(*) FROM users u WHERE u.last_login_at > now() - interval '7 days' OR EXISTS (SELECT 1 FROM audit_logs a WHERE a.user_id = u.id AND a.created_at > now() - interval '7 days'))::int AS d7,
+        (SELECT COUNT(*) FROM users u WHERE u.last_login_at > now() - interval '30 days' OR EXISTS (SELECT 1 FROM audit_logs a WHERE a.user_id = u.id AND a.created_at > now() - interval '30 days'))::int AS d30,
+        (SELECT COUNT(*) FROM tenants)::int AS tenants,
+        (SELECT COUNT(DISTINCT x.tenant_id) FROM (SELECT tenant_id FROM users WHERE last_login_at > now() - interval '7 days' UNION SELECT tenant_id FROM audit_logs WHERE created_at > now() - interval '7 days') x)::int AS tenants7,
+        (SELECT COUNT(*) FROM tenants t WHERE EXISTS (SELECT 1 FROM invoices i WHERE i.tenant_id = t.id)
+            OR EXISTS (SELECT 1 FROM purchase_invoices p WHERE p.tenant_id = t.id) OR EXISTS (SELECT 1 FROM pos_orders o WHERE o.tenant_id = t.id))::int AS selling,
+        (SELECT COUNT(*) FROM audit_logs WHERE created_at > now() - interval '1 day')::int AS events24,
+        (SELECT COUNT(*) FROM audit_logs WHERE created_at > now() - interval '7 days')::int AS events7`);
+  }
+
+  /** Dipakai oleh PlatformBillingService.platformPulse */
+  queryPlatformPulseForPlatformPulse(db: DbOrTx) {
+    return db.execute<{ label: string; n7: number; total: number }>(sql`
+      SELECT label, n7::int, total::int FROM (
+        SELECT 'Sales order' AS label, COUNT(*) FILTER (WHERE created_at > now() - interval '7 days') AS n7, COUNT(*) AS total FROM sales_orders
+        UNION ALL SELECT 'Faktur penjualan', COUNT(*) FILTER (WHERE created_at > now() - interval '7 days'), COUNT(*) FROM invoices
+        UNION ALL SELECT 'Purchase order', COUNT(*) FILTER (WHERE created_at > now() - interval '7 days'), COUNT(*) FROM purchase_orders
+        UNION ALL SELECT 'Faktur pembelian', COUNT(*) FILTER (WHERE created_at > now() - interval '7 days'), COUNT(*) FROM purchase_invoices
+        UNION ALL SELECT 'Pembayaran diterima', COUNT(*) FILTER (WHERE created_at > now() - interval '7 days'), COUNT(*) FROM payments
+        UNION ALL SELECT 'Jurnal', COUNT(*) FILTER (WHERE created_at > now() - interval '7 days'), COUNT(*) FROM journal_entries
+        UNION ALL SELECT 'Perintah produksi', COUNT(*) FILTER (WHERE created_at > now() - interval '7 days'), COUNT(*) FROM production_orders
+      ) x`);
+  }
+
+  /** Dipakai oleh PlatformBillingService.platformPulse */
+  queryAuditLog(db: DbOrTx) {
+    return db.execute<{ day: string; n: number; users: number }>(sql`
+      SELECT to_char(date_trunc('day', created_at AT TIME ZONE 'Asia/Jakarta'), 'YYYY-MM-DD') AS day, COUNT(*)::int AS n, COUNT(DISTINCT user_id)::int AS users
+      FROM audit_logs WHERE created_at > now() - interval '14 days' GROUP BY 1 ORDER BY 1`);
+  }
+
+  /** Dipakai oleh PlatformBillingService.platformPulse */
+  queryAuditLogForPlatformPulse(db: DbOrTx) {
+    return db.execute<{ id: string; name: string; events: number; users: number; last: string | null }>(sql`
+      SELECT t.id, t.name, COUNT(a.id)::int AS events, COUNT(DISTINCT a.user_id)::int AS users, MAX(a.created_at)::text AS last
+      FROM audit_logs a JOIN tenants t ON t.id = a.tenant_id WHERE a.created_at > now() - interval '7 days'
+      GROUP BY t.id, t.name ORDER BY events DESC LIMIT 10`);
+  }
+
+  /** Dipakai oleh PlatformBillingService.platformPulse */
+  queryAuditLogForPlatformPulse2(db: DbOrTx) {
+    return db.execute<{
+      id: number;
+      at: string;
+      tenant: string;
+      user: string | null;
+      action: string;
+      entity: string;
+    }>(sql`
+      SELECT a.id, a.created_at::text AS at, t.name AS tenant, u.name AS user, a.action, a.entity
+      FROM audit_logs a JOIN tenants t ON t.id = a.tenant_id LEFT JOIN users u ON u.id = a.user_id
+      ORDER BY a.id DESC LIMIT 60`);
+  }
 }

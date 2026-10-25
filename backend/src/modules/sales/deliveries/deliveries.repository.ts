@@ -86,4 +86,81 @@ export class DeliveriesRepository {
       unitCost: (p.costs.get(lineValues)?.unitCost ?? ZERO).toFixed(4),
     });
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh DeliveriesService.chain */
+  queryQuotation(db: DbOrTx, tenantId: string, orderId: string) {
+    return db.execute<{ id: string; number: string; status: string }>(
+      sql`SELECT id, number, status FROM quotations WHERE tenant_id = ${tenantId} AND sales_order_id = ${orderId} LIMIT 1`,
+    );
+  }
+
+  /** Dipakai oleh DeliveriesService.chain */
+  querySalesOrder(db: DbOrTx, tenantId: string, orderId: string) {
+    return db.execute<{ id: string; number: string; status: string; total: string; date: string }>(
+      sql`SELECT id, number, status, total, date::text FROM sales_orders WHERE tenant_id = ${tenantId} AND id = ${orderId}`,
+    );
+  }
+
+  /** Dipakai oleh DeliveriesService.chain */
+  queryDeliveryOrderForChain(db: DbOrTx, tenantId: string, orderId: string) {
+    return db.execute<{
+      id: string;
+      number: string;
+      status: string;
+      date: string;
+      journal_id: string | null;
+      cogs_amount: string;
+    }>(
+      sql`SELECT id, number, status, date::text, journal_id, cogs_amount FROM delivery_orders WHERE tenant_id = ${tenantId} AND sales_order_id = ${orderId} ORDER BY created_at`,
+    );
+  }
+
+  /** Dipakai oleh DeliveriesService.chain */
+  queryInvoiceForChain(db: DbOrTx, invoiceId: string | undefined, tenantId: string, orderId: string | undefined) {
+    return db.execute<{
+      id: string;
+      number: string;
+      status: string;
+      total: string;
+      paid_amount: string;
+      date: string;
+      journal_id: string | null;
+    }>(
+      invoiceId
+        ? sql`SELECT id, number, status, total, paid_amount, date::text, journal_id FROM invoices WHERE tenant_id = ${tenantId} AND id = ${invoiceId}`
+        : sql`SELECT id, number, status, total, paid_amount, date::text, journal_id FROM invoices WHERE tenant_id = ${tenantId} AND sales_order_id = ${orderId} ORDER BY created_at LIMIT 1`,
+    );
+  }
+
+  /** Dipakai oleh DeliveriesService.chain */
+  queryPayment(db: DbOrTx, tenantId: string, id: string) {
+    return db.execute<{
+      id: string;
+      number: string;
+      date: string;
+      amount: string;
+      method: string;
+      journal_id: string | null;
+    }>(
+      sql`SELECT id, number, date::text, amount, method, journal_id FROM payments WHERE tenant_id = ${tenantId} AND invoice_id = ${id} ORDER BY date, number`,
+    );
+  }
+
+  /** Dipakai oleh DeliveriesService.chain */
+  querySalesReturn(db: DbOrTx, tenantId: string, id: string) {
+    return db.execute<{ id: string; number: string; date: string; total: string; journal_id: string | null }>(
+      sql`SELECT id, number, date::text, total, journal_id FROM sales_returns WHERE tenant_id = ${tenantId} AND invoice_id = ${id} ORDER BY date, number`,
+    );
+  }
+
+  /** Dipakai oleh DeliveriesService.chain */
+  queryJournalEntry(db: DbOrTx, tenantId: string, journalIds: string[]) {
+    return db.execute<{ id: string; number: string; date: string; description: string; source_type: string }>(
+      sql`SELECT id, number, date::text, description, source_type FROM journal_entries WHERE tenant_id = ${tenantId} AND id IN (${sql.join(
+        journalIds.map((j) => sql`${j}`),
+        sql`, `,
+      )}) ORDER BY date, number`,
+    );
+  }
 }

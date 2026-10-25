@@ -1,5 +1,4 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
 import { effectivePipelines, pipelinesFor, stageOf, validateWorkflowOverrides, WORKFLOW_LINK_LABELS, type WorkflowLinkType, type WorkflowOverrides, type WorkflowPipeline, type WorkflowStage } from '@sansu/shared';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -245,10 +244,7 @@ export class WorkflowService {
   async candidates(u: AuthUser, type: WorkflowLinkType) {
     const s = SOURCES[type];
     if (!s) throw new BadRequestException('Jenis dokumen tidak dikenal');
-    const r = await this.db.execute<{ id: string; number: string; status: string }>(sql.raw(`
-      SELECT d.id, ${s.number('d')} AS number, ${s.status('d')} AS status FROM "${s.table}" d
-      WHERE d.tenant_id = '${u.tenantId}' AND NOT EXISTS (SELECT 1 FROM workflow_links l WHERE l.tenant_id = d.tenant_id AND l.link_type = '${type}' AND l.doc_id = d.id)
-      ORDER BY d."${s.created}" DESC LIMIT 50`));
+    const r = await this.repo.listLinkCandidates(this.db, u.tenantId, type, { table: s.table, numberSql: s.number('d'), statusSql: s.status('d'), createdColumn: s.created });
     return r.rows.filter((x) => !DEAD.has(x.status));
   }
 

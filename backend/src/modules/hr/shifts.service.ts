@@ -1,16 +1,15 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { WORK_UNITS_BY_MODEL } from '@sansu/shared';
-import { and, eq, sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SettingsService } from '../../common/settings.service';
 import { addDays, todayJakarta } from '../../common/utils/dates';
 import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { employees, serviceRates, shiftAssignments, shiftTemplates } from '../../db/schema';
+import { serviceRates, shiftAssignments, shiftTemplates } from '../../db/schema';
 import { CreateTemplateDto, UpdateTemplateDto, AssignDto, RosterQueryDto } from './shifts.dto';
 import { findOwned, insertOne } from '../../db/owned';
-import { ShiftsRepository } from './shifts.repository';
+import { insertShiftPremiums, ShiftsRepository } from './shifts.repository';
 
 export const SHIFT_RULES = { maxPerDay: 2, minRestHours: 8, maxConsecutiveDays: 6, normalWeekHours: 40, maxWeekHours: 58, maxAheadDays: 90 } as const;
 
@@ -35,19 +34,7 @@ type Tpl = typeof shiftTemplates.$inferSelect;
  * Dibuat atas nama pembuat jadwal (menunggu keputusan orang lain), idempoten per penugasan.
  */
 export async function generateShiftPremiums(db: DbOrTx, tenantId: string, upTo: string): Promise<number> {
-  const r = await db.execute<{ id: string }>(sql`
-    INSERT INTO service_work_entries (tenant_id, employee_id, rate_id, unit, work_date, quantity, rate, amount, description, status, created_by_id, shift_assignment_id)
-    SELECT a.tenant_id, a.employee_id, sr.id, 'SHIFT', a.work_date, 1, sr.rate, sr.rate, 'Premi shift ' || t.name || ' (jadwal)', 'PENDING', a.created_by_id, a.id
-    FROM shift_assignments a
-    JOIN shift_templates t ON t.id = a.template_id
-    JOIN service_rates sr ON sr.id = t.premium_rate_id AND sr.is_active AND sr.unit = 'SHIFT'
-    JOIN employees e ON e.id = a.employee_id AND e.verified AND (e.contract_end IS NULL OR e.contract_end >= a.work_date) AND (e.resign_date IS NULL OR e.resign_date >= a.work_date)
-    JOIN attendances at ON at.employee_id = a.employee_id AND at.date = a.work_date AND at.status = 'HADIR'
-    WHERE a.tenant_id = ${tenantId} AND a.work_date <= ${upTo} AND a.work_date >= ${addDays(upTo, -62)}
-      AND NOT EXISTS (SELECT 1 FROM service_work_entries w WHERE w.shift_assignment_id = a.id AND w.status IN ('PENDING','APPROVED'))
-      AND NOT EXISTS (SELECT 1 FROM service_work_entries w2 WHERE w2.employee_id = a.employee_id AND w2.work_date = a.work_date AND w2.rate_id = sr.id AND w2.status IN ('PENDING','APPROVED') AND w2.shift_assignment_id IS NULL)
-    ON CONFLICT DO NOTHING
-    RETURNING id`);
+  const r = await insertShiftPremiums(db, tenantId, upTo);
   return r.rows.length;
 }
 
