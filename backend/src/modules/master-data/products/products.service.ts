@@ -8,6 +8,7 @@ import { InjectDb } from '../../../db/db.module';
 import { products, productUoms } from '../../../db/schema';
 import { canonicalCategory, categorySpellings, cleanCategory, isPlain } from './category';
 import { AddCategoryDto, CreateProductDto, MergeCategoriesDto, ProductUomDto, UpdateProductDto } from './products.dto';
+import { patchById } from '../../../db/owned';
 
 @Injectable()
 export class ProductsService {
@@ -277,9 +278,7 @@ export class ProductsService {
           await tx.insert(productUoms).values(dto.uoms.map((u) => ({ productId: id, uom: u.uom, factor: u.factor })));
         }
       }
-      await tx
-        .update(products)
-        .set({
+      await patchById(tx, products, id, {
           sku: dto.sku?.trim().toUpperCase(),
           name: dto.name?.trim(),
           category: dto.category === undefined ? undefined : await canonicalCategory(tx, tenantId, dto.category),
@@ -291,8 +290,7 @@ export class ProductsService {
           shelfLifeDays: dto.shelfLifeDays,
           weightKg: dto.weightKg,
           isActive: dto.isActive,
-        })
-        .where(eq(products.id, id));
+        });
     });
     return this.get(tenantId, id);
   }

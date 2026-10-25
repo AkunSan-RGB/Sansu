@@ -9,6 +9,7 @@ import { accounts, journalEntries, journalLines } from '../../db/schema';
 import { DEFAULT_COA, SystemKey } from './default-coa';
 import { JournalValidationError, normalizeJournalLines } from './journal-rules';
 import { ReferenceRepository } from '../../db/reference.repository';
+import { patchById } from '../../db/owned';
 
 export interface PostLine {
   /** Salah satu: id akun, atau kunci akun sistem (AR, SALES, ...) */
@@ -332,7 +333,7 @@ export class PostingService {
         .where(and(eq(accounts.tenantId, tenantId), eq(accounts.code, row.code)));
       // Akun dengan kode sama yang belum bertanda sistem (mis. 6-1000 Beban Gaji lama) dipakai langsung
       if (sameCode && !sameCode.systemKey && sameCode.type === row.type && sameCode.isPostable) {
-        await tx.update(accounts).set({ systemKey: key }).where(eq(accounts.id, sameCode.id));
+        await patchById(tx, accounts, sameCode.id, { systemKey: key });
         continue;
       }
       await tx.insert(accounts).values({

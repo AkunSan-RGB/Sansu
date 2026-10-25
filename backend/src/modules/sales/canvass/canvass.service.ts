@@ -17,7 +17,7 @@ import { PostingService } from '../../accounting/posting.service';
 import { VanDto, VanMoveDto, CanvassSaleDto, CollectionDto, VerifyDto, RouteDto, VisitDto } from './canvass.dto';
 import { asDto } from '../../../common/utils/dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
-import { findOwned, lockOwned } from '../../../db/owned';
+import { findOwned, lockOwned, patchById } from '../../../db/owned';
 
 /** Jarak maksimum kunjungan dari titik outlet sebelum ditandai mencurigakan */
 const FAR_METERS = 300;
@@ -209,10 +209,10 @@ export class CanvassService {
           { key: SYS.AR, credit: c.amount },
         ],
       });
-      await tx.update(payments).set({ journalId: journal.id }).where(eq(payments.id, pay.id));
+      await patchById(tx, payments, pay.id, { journalId: journal.id });
       const paid = D(inv.paidAmount).plus(c.amount);
-      await tx.update(invoices).set({ paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' }).where(eq(invoices.id, inv.id));
-      await tx.update(canvassCollections).set({ status: 'VERIFIED', verifiedById: u.sub, verifiedAt: new Date(), receivedAmount: received.toFixed(2), shortage: shortage.toFixed(2), paymentId: pay.id }).where(eq(canvassCollections.id, id));
+      await patchById(tx, invoices, inv.id, { paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' });
+      await patchById(tx, canvassCollections, id, { status: 'VERIFIED', verifiedById: u.sub, verifiedAt: new Date(), receivedAmount: received.toFixed(2), shortage: shortage.toFixed(2), paymentId: pay.id });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'VERIFY', entity: 'CanvassCollection', entityId: id, data: { number: c.number, claimed: c.amount, received: received.toFixed(2), shortage: shortage.toFixed(2), journal: journal.number } });
       return { id, status: 'VERIFIED', received: received.toFixed(2), shortage: shortage.toFixed(2) };
     });
@@ -222,7 +222,7 @@ export class CanvassService {
     const c = await findOwned(this.db, canvassCollections, u.tenantId, id);
     if (!c) throw new NotFoundException('Setoran tidak ditemukan');
     if (c.status !== 'PENDING') throw new BadRequestException('Setoran ini sudah diputuskan');
-    await this.db.update(canvassCollections).set({ status: 'REJECTED', verifiedById: u.sub, verifiedAt: new Date(), rejectReason: reason, receivedAmount: '0', shortage: c.amount }).where(eq(canvassCollections.id, id));
+    await patchById(this.db, canvassCollections, id, { status: 'REJECTED', verifiedById: u.sub, verifiedAt: new Date(), rejectReason: reason, receivedAmount: '0', shortage: c.amount });
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'REJECT', entity: 'CanvassCollection', entityId: id, data: { number: c.number, reason, amount: c.amount } });
     return { id, status: 'REJECTED' };
   }
@@ -251,7 +251,7 @@ export class CanvassService {
       if (id) {
         const cur = await findOwned(tx, salesRoutes, u.tenantId, id);
         if (!cur) throw new NotFoundException('Rute tidak ditemukan');
-        await tx.update(salesRoutes).set({ name: dto.name.trim(), salespersonId: dto.salespersonId, weekday: dto.weekday ?? null, isActive: dto.isActive ?? true }).where(eq(salesRoutes.id, id));
+        await patchById(tx, salesRoutes, id, { name: dto.name.trim(), salespersonId: dto.salespersonId, weekday: dto.weekday ?? null, isActive: dto.isActive ?? true });
         await tx.delete(salesRouteStops).where(eq(salesRouteStops.routeId, id));
       } else {
         try {

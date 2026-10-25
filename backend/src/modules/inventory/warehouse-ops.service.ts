@@ -20,6 +20,7 @@ import { StockService } from './stock.service';
 import { CreateTransferDto, ReceiveTransferDto, CancelTransferDto, CreateCountDto, UpdateCountDto, SaveMinimumsDto } from './warehouse-ops.dto';
 import { WarehouseRepository } from './warehouse.repository';
 import { ReferenceRepository } from '../../db/reference.repository';
+import { patchById } from '../../db/owned';
 
 const q4 = (v: string | number) => D(v).toFixed(4);
 
@@ -152,10 +153,7 @@ export class WarehouseOpsService {
             receivedQty: qty.toFixed(4),
           });
       }
-      await tx
-        .update(stockTransfers)
-        .set({ totalValue: total.toFixed(2) })
-        .where(eq(stockTransfers.id, id));
+      await patchById(tx, stockTransfers, id, { totalValue: total.toFixed(2) });
       // Kirim langsung antar-cabang: persediaan pindah cabang lewat Rekening Antar Cabang (nol saat digabung), agar neraca tiap cabang tetap seimbang
       if (!transit && total.gt(0) && (from.branchId ?? null) !== (to.branchId ?? null)) {
         const semi = await semiSet(tx, u.tenantId, sentItems.map((x) => x.productId));
@@ -269,10 +267,7 @@ export class WarehouseOpsService {
         received = received.plus(recValue);
         recItems.push({ productId: l.productId, value: recValue });
         shortage = shortage.plus(lineValue.minus(recValue));
-        await tx
-          .update(stockTransferLines)
-          .set({ receivedQty: rq.toFixed(4) })
-          .where(eq(stockTransferLines.id, l.id));
+        await patchById(tx, stockTransferLines, l.id, { receivedQty: rq.toFixed(4) });
       }
       // selisih pembulatan antar baris → ikut ke kekurangan agar akun transit kembali nol
       const total = D(t.totalValue);
@@ -309,16 +304,13 @@ export class WarehouseOpsService {
           ],
         });
       }
-      await tx
-        .update(stockTransfers)
-        .set({
+      await patchById(tx, stockTransfers, id, {
           status: 'RECEIVED',
           receivedDate: date,
           receivedAt: new Date(),
           receivedById: u.sub,
           receiveNotes: dto.notes ?? null,
-        })
-        .where(eq(stockTransfers.id, id));
+        });
       await this.audit.log(tx, {
         tenantId: u.tenantId,
         userId: u.sub,
@@ -357,7 +349,7 @@ export class WarehouseOpsService {
           refNumber: t.number,
           date,
         });
-        await tx.update(stockTransferLines).set({ receivedQty: '0' }).where(eq(stockTransferLines.id, l.id));
+        await patchById(tx, stockTransferLines, l.id, { receivedQty: '0' });
       }
       const total = D(t.totalValue);
       // nilai per barang dari biaya kirim; selisih pembulatan terhadap total ditambahkan ke barang pertama
@@ -375,16 +367,13 @@ export class WarehouseOpsService {
           lines: [...inventoryLines(backItems, await semiSet(tx, u.tenantId, backItems.map((x) => x.productId)), 'debit'), { key: SYS.INVENTORY_TRANSIT, credit: total }],
         });
       }
-      await tx
-        .update(stockTransfers)
-        .set({
+      await patchById(tx, stockTransfers, id, {
           status: 'CANCELLED',
           receivedDate: date,
           receivedAt: new Date(),
           receivedById: u.sub,
           receiveNotes: dto.notes ?? 'Dibatalkan',
-        })
-        .where(eq(stockTransfers.id, id));
+        });
       await this.audit.log(tx, {
         tenantId: u.tenantId,
         userId: u.sub,
@@ -488,8 +477,8 @@ export class WarehouseOpsService {
           .set({ countedQty: l.countedQty === null ? null : q4(l.countedQty) })
           .where(and(eq(stockCountLines.countId, id), eq(stockCountLines.productId, l.productId)));
       }
-      await tx.update(stockCounts).set({ countedById: u.sub }).where(eq(stockCounts.id, id));
-      if (dto.notes !== undefined) await tx.update(stockCounts).set({ notes: dto.notes }).where(eq(stockCounts.id, id));
+      await patchById(tx, stockCounts, id, { countedById: u.sub });
+      if (dto.notes !== undefined) await patchById(tx, stockCounts, id, { notes: dto.notes });
       return { ok: true };
     });
   }
@@ -590,10 +579,7 @@ export class WarehouseOpsService {
         valueIn = r.valueIn;
         valueOut = r.valueOut;
       }
-      await tx
-        .update(stockCounts)
-        .set({ status: 'POSTED', postedAt: new Date(), adjustmentNumber })
-        .where(eq(stockCounts.id, id));
+      await patchById(tx, stockCounts, id, { status: 'POSTED', postedAt: new Date(), adjustmentNumber });
       return { ok: true, counted: lines.length, adjusted: new Set(adj.map((a) => a.productId)).size, adjustmentNumber, valueIn, valueOut };
     });
   }
@@ -603,7 +589,7 @@ export class WarehouseOpsService {
       const c = await this.ownCount(u, id, tx, true);
       if (c.status !== 'DRAFT')
         throw new BadRequestException('Hanya stock opname yang belum selesai yang bisa dibatalkan');
-      await tx.update(stockCounts).set({ status: 'CANCELLED' }).where(eq(stockCounts.id, id));
+      await patchById(tx, stockCounts, id, { status: 'CANCELLED' });
       return { ok: true };
     });
   }

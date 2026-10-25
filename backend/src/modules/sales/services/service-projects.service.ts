@@ -17,6 +17,7 @@ import { projectCostsSql } from './project-costs';
 import { ProjectProgressDto, CreateProjectDto, UpdateProjectDto } from './service-billing.dto';
 import { ServiceBillingService } from './service-billing.service';
 import { CustomerDepositsService } from './customer-deposits.service';
+import { patchById } from '../../../db/owned';
 
 @Injectable()
 export class ServiceProjectsService {
@@ -195,7 +196,7 @@ export class ServiceProjectsService {
             { accountId: revenueAccountId, credit: pos(adjustment), debit: pos(adjustment.negated()) },
           ],
         });
-        await tx.update(projectProgress).set({ journalId: journal.id }).where(eq(projectProgress.id, row.id));
+        await patchById(tx, projectProgress, row.id, { journalId: journal.id });
         journalNumber = journal.number;
       }
       await this.audit.log(tx, {
@@ -297,7 +298,7 @@ export class ServiceProjectsService {
     if (dto.endDate !== undefined) patch.endDate = toDocDate(dto.endDate);
     if (dto.status !== undefined) patch.status = dto.status;
     if (dto.notes !== undefined) patch.notes = dto.notes;
-    if (Object.keys(patch).length) await this.db.update(projects).set(patch).where(eq(projects.id, id));
+    if (Object.keys(patch).length) await patchById(this.db, projects, id, patch);
     await this.audit.log(this.db, {
       tenantId: user.tenantId,
       userId: user.sub,

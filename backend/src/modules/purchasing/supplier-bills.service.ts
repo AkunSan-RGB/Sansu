@@ -18,6 +18,7 @@ import { PostingService } from '../accounting/posting.service';
 import { CreateBillDto } from './purchasing.dto';
 import { PurchaseInvoiceRepository } from './purchase-invoice.repository';
 import { PurchaseInvoicesService, assetUnitCount } from './purchase-invoices.service';
+import { patchById } from '../../db/owned';
 
 @Injectable()
 export class SupplierBillsService {
@@ -223,7 +224,7 @@ export class SupplierBillsService {
           unitCost: '0',
         });
       }
-      await tx.update(purchaseInvoices).set({ journalId: journal.id }).where(eq(purchaseInvoices.id, invoice.id));
+      await patchById(tx, purchaseInvoices, invoice.id, { journalId: journal.id });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,

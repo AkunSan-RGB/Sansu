@@ -12,6 +12,7 @@ import { buildLines } from '../master-data/products/line-builder';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { ConvertPurchaseRequestDto, CreatePurchaseRequestDto } from './purchase-requests.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
+import { patchById } from '../../db/owned';
 
 const rp = (v: number) => `Rp${Math.round(v).toLocaleString('id-ID')}`;
 
@@ -166,14 +167,11 @@ export class PurchaseRequestsService {
     }
     const auto = !isApprover && est.complete && ((policy.purchaseRequestAuto > 0 && est.total <= policy.purchaseRequestAuto) || (preferredLimit > 0 && est.total <= preferredLimit));
     const approved = isApprover || auto;
-    await tx
-      .update(purchaseRequests)
-      .set({
+    await patchById(tx, purchaseRequests, id, {
         status: approved ? 'APPROVED' : 'SUBMITTED',
         submittedAt: sql`now()`,
         ...(approved ? { decidedById: isApprover ? user.sub : null, decidedAt: sql`now()`, autoApproved: auto, decisionNote: auto ? 'Disetujui otomatis (di bawah batas persetujuan otomatis)' : null } : {}),
-      })
-      .where(eq(purchaseRequests.id, id));
+      });
     await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: approved ? 'SUBMIT_APPROVED' : 'SUBMIT', entity: 'PurchaseRequest', entityId: id });
   }
 
@@ -182,10 +180,7 @@ export class PurchaseRequestsService {
     await this.db.transaction(async (tx) => {
       const r = await this.lock(tx, user.tenantId, id);
       if (r.status !== 'SUBMITTED') throw new BadRequestException(`Permintaan berstatus ${r.status}; hanya yang menunggu persetujuan bisa diputuskan`);
-      await tx
-        .update(purchaseRequests)
-        .set({ status: approve ? 'APPROVED' : 'REJECTED', decidedById: user.sub, decidedAt: sql`now()`, decisionNote: note?.trim() || null })
-        .where(eq(purchaseRequests.id, id));
+      await patchById(tx, purchaseRequests, id, { status: approve ? 'APPROVED' : 'REJECTED', decidedById: user.sub, decidedAt: sql`now()`, decisionNote: note?.trim() || null });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: approve ? 'APPROVE' : 'REJECT', entity: 'PurchaseRequest', entityId: id });
     });
     return this.get(user.tenantId, id);
@@ -197,7 +192,7 @@ export class PurchaseRequestsService {
       if (!['DRAFT', 'SUBMITTED', 'APPROVED'].includes(r.status)) throw new BadRequestException(`Permintaan berstatus ${r.status}, tidak bisa dibatalkan`);
       if (r.lines.some((l) => l.purchaseOrderId)) throw new BadRequestException('Sebagian barang sudah dipesan; batalkan PO-nya dulu');
       if (r.requestedById !== user.sub && !this.approvals.isApprover(user.role)) throw new BadRequestException('Hanya peminta atau pemberi persetujuan yang bisa membatalkan');
-      await tx.update(purchaseRequests).set({ status: 'CANCELLED' }).where(eq(purchaseRequests.id, id));
+      await patchById(tx, purchaseRequests, id, { status: 'CANCELLED' });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'PurchaseRequest', entityId: id });
     });
     return this.get(user.tenantId, id);
@@ -238,7 +233,7 @@ export class PurchaseRequestsService {
         });
         await tx.update(purchaseRequestLines).set({ purchaseOrderId: poId, supplierId }).where(inArray(purchaseRequestLines.id, lines.map((x) => x.lineId)));
       }
-      await tx.update(purchaseRequests).set({ status: 'CONVERTED' }).where(eq(purchaseRequests.id, id));
+      await patchById(tx, purchaseRequests, id, { status: 'CONVERTED' });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CONVERT', entity: 'PurchaseRequest', entityId: id });
     });
     return this.get(user.tenantId, id);

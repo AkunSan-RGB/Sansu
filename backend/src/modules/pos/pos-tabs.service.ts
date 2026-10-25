@@ -16,7 +16,8 @@ import { PosService } from './pos.service';
 import { componentNeeds, recipesFor } from './recipe-issue';
 import { WarehouseQueryDto, CreateTableDto, UpdateTableDto, TabQueryDto, TabLineInputDto, CreateTabDto, AddTabLinesDto, VoidTabLineDto, CancelTabDto, MoveTabDto, PayTabDto } from './pos-tabs.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
-import { findOwned } from '../../db/owned';
+import { findOwned, patchById } from '../../db/owned';
+import { PosTabRepository } from './pos-tab.repository';
 
 const SUPERVISORS = ['OWNER', 'ADMIN', 'FINANCE'];
 
@@ -35,6 +36,7 @@ export class PosTabsService {
     private readonly audit: AuditService,
     private readonly settings: SettingsService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: PosTabRepository,
   ) {}
 
   // ================= Meja =================
@@ -73,7 +75,7 @@ export class PosTabsService {
     const wh = await this.refs.warehouse(this.db, user.tenantId, dto.warehouseId);
     if (!wh) throw new BadRequestException('Outlet tidak ditemukan');
     const code = dto.code.trim().toUpperCase();
-    const [dup] = await this.db.select({ id: posTables.id }).from(posTables).where(and(eq(posTables.warehouseId, wh.id), eq(posTables.code, code)));
+    const dup = await this.repo.tableCodeExists(this.db, wh.id, code);
     if (dup) throw new BadRequestException(`Kode meja ${code} sudah dipakai di outlet ini`);
     const [row] = await this.db.insert(posTables).values({ tenantId: user.tenantId, warehouseId: wh.id, code, name: dto.name.trim(), seats: dto.seats ?? null }).returning();
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PosTable', entityId: row.id, data: { code, name: row.name } });
@@ -85,8 +87,8 @@ export class PosTabsService {
     if (!t) throw new NotFoundException('Meja tidak ditemukan');
     assertWarehouseAccess(user, t.warehouseId);
     if (dto.isActive === false) {
-      const [open] = await this.db.select({ n: posTabs.number }).from(posTabs).where(and(eq(posTabs.tableId, id), eq(posTabs.status, 'OPEN')));
-      if (open) throw new BadRequestException(`Meja masih punya pesanan terbuka (${open.n}); selesaikan dulu`);
+      const open = await this.repo.openTabNumberAtTable(this.db, id);
+      if (open) throw new BadRequestException(`Meja masih punya pesanan terbuka (${open}); selesaikan dulu`);
     }
     const [row] = await this.db
       .update(posTables)
@@ -101,7 +103,7 @@ export class PosTabsService {
   private async lockTab(tx: Tx, user: AuthUser, id: string, opts: { allowClosed?: boolean } = {}) {
     const lock = await tx.execute<{ id: string }>(sql`SELECT id FROM pos_tabs WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
     if (!lock.rows.length) throw new NotFoundException('Pesanan tidak ditemukan');
-    const [tab] = await tx.select().from(posTabs).where(eq(posTabs.id, id));
+    const tab = await this.repo.tabById(tx, id);
     assertWarehouseAccess(user, tab.warehouseId);
     if (!opts.allowClosed && tab.status !== 'OPEN') throw new BadRequestException(`Pesanan ${tab.number} sudah ${tab.status === 'PAID' ? 'dibayar' : 'dibatalkan'}`);
     return tab;
@@ -273,7 +275,7 @@ export class PosTabsService {
         notes: dto.notes,
         lines: dto.items.map((i) => ({ productId: bySku.get(i.sku.trim().toUpperCase())!, qty: i.qty, notes: i.notes })),
       });
-      const tab = (await tx.select().from(posTabs).where(eq(posTabs.id, tabId)))[0];
+      const tab = await this.repo.tabById(tx, tabId);
       await this.sendTx(tx, user, tab);
       return tabId;
     });
@@ -334,10 +336,7 @@ export class PosTabsService {
     const now = new Date();
     for (const d of drafts) {
       const kitchen = menuIds.has(d.productId);
-      await tx
-        .update(posTabLines)
-        .set(kitchen ? { status: 'NEW', sentAt: now } : { status: 'SERVED', sentAt: now, servedAt: now })
-        .where(eq(posTabLines.id, d.id));
+      await patchById(tx, posTabLines, d.id, kitchen ? { status: 'NEW', sentAt: now } : { status: 'SERVED', sentAt: now, servedAt: now });
     }
     await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'SEND', entity: 'PosTab', entityId: tab.id, data: { number: tab.number, lines: drafts.length } });
   }
@@ -353,23 +352,20 @@ export class PosTabsService {
   async voidLine(user: AuthUser, id: string, lineId: string, dto: VoidTabLineDto) {
     await this.db.transaction(async (tx) => {
       const tab = await this.lockTab(tx, user, id);
-      const [line] = await tx.select().from(posTabLines).where(and(eq(posTabLines.id, lineId), eq(posTabLines.tabId, id)));
+      const line = await this.repo.lineOfTab(tx, id, lineId);
       if (!line) throw new NotFoundException('Baris pesanan tidak ditemukan');
       if (line.status === 'VOID') throw new BadRequestException('Baris ini sudah dibatalkan');
       if (line.paidOrderId) throw new BadRequestException('Baris ini sudah dibayar. Koreksi lewat retur kasir pada transaksinya.');
       const reason = dto.reason?.trim() ?? '';
       if (line.status === 'DRAFT') {
-        await tx.delete(posTabLines).where(eq(posTabLines.id, lineId)); // belum dikirim: dihapus begitu saja
+        await this.repo.deleteLine(tx, lineId); // belum dikirim: dihapus begitu saja
         return;
       }
       if (reason.length < 5) throw new BadRequestException('Alasan pembatalan wajib diisi (minimal 5 karakter)');
       if (line.status !== 'NEW' && !isSupervisor(user)) {
         throw new ForbiddenException('Menu yang sudah dimasak atau disajikan hanya bisa dibatalkan oleh supervisor (Pemilik, Admin, atau Keuangan)');
       }
-      await tx
-        .update(posTabLines)
-        .set({ status: 'VOID', voidReason: reason, voidedById: user.sub, voidedAt: new Date(), voidFromStatus: line.status })
-        .where(eq(posTabLines.id, lineId));
+      await patchById(tx, posTabLines, lineId, { status: 'VOID', voidReason: reason, voidedById: user.sub, voidedAt: new Date(), voidFromStatus: line.status });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'VOID', entity: 'PosTabLine', entityId: lineId, data: { tab: tab.number, from: line.status, reason } });
       await this.closeIfDone(tx, tab.id);
     });
@@ -378,14 +374,11 @@ export class PosTabsService {
 
   /** Tutup pesanan bila tidak ada lagi baris aktif yang belum dibayar: PAID bila ada yang dibayar, selain itu CANCELLED */
   private async closeIfDone(tx: Tx, tabId: string) {
-    const lines = await tx.select().from(posTabLines).where(eq(posTabLines.tabId, tabId));
+    const lines = await this.repo.linesOfTab(tx, tabId);
     const pending = lines.filter((l) => l.status !== 'VOID' && !l.paidOrderId);
     if (pending.length) return;
     const paid = lines.some((l) => !!l.paidOrderId);
-    await tx
-      .update(posTabs)
-      .set({ status: paid ? 'PAID' : 'CANCELLED', closedAt: new Date(), ...(paid ? {} : { cancelReason: 'Semua menu dibatalkan' }) })
-      .where(eq(posTabs.id, tabId));
+    await this.repo.patchTab(tx, tabId, { status: paid ? 'PAID' : 'CANCELLED', closedAt: new Date(), ...(paid ? {} : { cancelReason: 'Semua menu dibatalkan' }) });
   }
 
   async cancel(user: AuthUser, id: string, dto: CancelTabDto) {
@@ -393,7 +386,7 @@ export class PosTabsService {
       const tab = await this.lockTab(tx, user, id);
       const reason = dto.reason.trim();
       if (reason.length < 5) throw new BadRequestException('Alasan pembatalan wajib diisi (minimal 5 karakter)');
-      const lines = await tx.select().from(posTabLines).where(eq(posTabLines.tabId, id));
+      const lines = await this.repo.linesOfTab(tx, id);
       if (lines.some((l) => !!l.paidOrderId)) throw new BadRequestException('Sebagian pesanan sudah dibayar; tidak bisa dibatalkan seluruhnya. Batalkan barisnya satu per satu atau retur transaksinya.');
       const live = lines.filter((l) => l.status !== 'VOID');
       if (live.some((l) => ['PREPARING', 'READY', 'SERVED'].includes(l.status)) && !isSupervisor(user)) {
@@ -401,10 +394,10 @@ export class PosTabsService {
       }
       const now = new Date();
       for (const l of live) {
-        if (l.status === 'DRAFT') await tx.delete(posTabLines).where(eq(posTabLines.id, l.id));
-        else await tx.update(posTabLines).set({ status: 'VOID', voidReason: reason, voidedById: user.sub, voidedAt: now, voidFromStatus: l.status }).where(eq(posTabLines.id, l.id));
+        if (l.status === 'DRAFT') await this.repo.deleteLine(tx, l.id);
+        else await this.repo.patchLine(tx, l.id, { status: 'VOID', voidReason: reason, voidedById: user.sub, voidedAt: now, voidFromStatus: l.status });
       }
-      await tx.update(posTabs).set({ status: 'CANCELLED', closedAt: now, cancelReason: reason, cancelledById: user.sub }).where(eq(posTabs.id, id));
+      await this.repo.patchTab(tx, id, { status: 'CANCELLED', closedAt: now, cancelReason: reason, cancelledById: user.sub });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'PosTab', entityId: id, data: { number: tab.number, reason, lines: live.length } });
     });
     return this.get(user, id);
@@ -418,14 +411,14 @@ export class PosTabsService {
       if (dto.tableId) {
         const t = await findOwned(tx, posTables, user.tenantId, dto.tableId);
         if (!t || !t.isActive || t.warehouseId !== tab.warehouseId) throw new BadRequestException('Meja tidak ditemukan di outlet ini');
-        const [busy] = await tx.select({ n: posTabs.number }).from(posTabs).where(and(eq(posTabs.tableId, t.id), eq(posTabs.status, 'OPEN')));
-        if (busy && busy.n !== tab.number) throw new BadRequestException(`Meja ${t.name} sedang dipakai pesanan ${busy.n}`);
+        const busy = await this.repo.openTabNumberAtTable(tx, t.id);
+        if (busy && busy !== tab.number) throw new BadRequestException(`Meja ${t.name} sedang dipakai pesanan ${busy}`);
         tableId = t.id;
         label = t.name;
       } else if (!label) {
         throw new BadRequestException('Pilih meja tujuan atau isi labelnya');
       }
-      await tx.update(posTabs).set({ tableId, tableLabel: label }).where(eq(posTabs.id, id));
+      await this.repo.patchTab(tx, id, { tableId, tableLabel: label });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'MOVE', entity: 'PosTab', entityId: id, data: { number: tab.number, to: label } });
     });
     return this.get(user, id);
@@ -438,7 +431,7 @@ export class PosTabsService {
       const session = await findOwned(tx, posSessions, user.tenantId, dto.sessionId);
       if (!session) throw new NotFoundException('Sesi kasir tidak ditemukan');
       if (session.warehouseId !== tab.warehouseId) throw new BadRequestException('Sesi kasir ini berada di outlet lain dari pesanan');
-      const lines = await tx.select().from(posTabLines).where(eq(posTabLines.tabId, id));
+      const lines = await this.repo.linesOfTab(tx, id);
       const payable = lines.filter((l) => l.status !== 'VOID' && !l.paidOrderId);
       let picks = payable;
       if (dto.lineIds?.length) {
@@ -465,7 +458,7 @@ export class PosTabsService {
         } as CreatePosOrderDto,
         { tabId: id, online: tab.channel ? { channel: tab.channel, externalRef: tab.externalRef, feePct: await this.commissionPct(tx, user.tenantId, tab.channel as OnlineChannel) } : undefined },
       );
-      await tx.update(posTabLines).set({ paidOrderId: order }).where(inArray(posTabLines.id, picks.map((l) => l.id)));
+      await this.repo.markLinesPaid(tx, picks.map((l) => l.id), order);
       await this.closeIfDone(tx, id);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'PAY', entity: 'PosTab', entityId: id, data: { number: tab.number, order, lines: picks.length } });
       return order;
@@ -495,19 +488,16 @@ export class PosTabsService {
         SELECT l.tab_id FROM pos_tab_lines l JOIN pos_tabs t ON t.id = l.tab_id WHERE l.id = ${lineId} AND t.tenant_id = ${user.tenantId}`);
       if (!found.rows.length) throw new NotFoundException('Baris pesanan tidak ditemukan');
       await this.lockTab(tx, user, found.rows[0].tab_id, { allowClosed: true });
-      const [line] = await tx.select().from(posTabLines).where(eq(posTabLines.id, lineId));
+      const line = await this.repo.lineById(tx, lineId);
       if (!KITCHEN_FLOW[line.status]) throw new BadRequestException(line.status === 'VOID' ? 'Menu ini sudah dibatalkan' : 'Menu ini belum dikirim ke dapur');
       if (KITCHEN_FLOW[status] <= KITCHEN_FLOW[line.status]) throw new BadRequestException('Status hanya bisa maju: baru → dimasak → siap → disajikan');
       const now = new Date();
-      await tx
-        .update(posTabLines)
-        .set({
+      await patchById(tx, posTabLines, lineId, {
           status,
           preparedAt: line.preparedAt ?? now,
           ...(status === 'READY' || status === 'SERVED' ? { readyAt: line.readyAt ?? now } : {}),
           ...(status === 'SERVED' ? { servedAt: now } : {}),
-        })
-        .where(eq(posTabLines.id, lineId));
+        });
     });
     return { ok: true, status };
   }

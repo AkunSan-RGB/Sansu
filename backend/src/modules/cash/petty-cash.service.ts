@@ -12,7 +12,7 @@ import { accounts, pettyCashFunds, pettyCashReplenishments, pettyCashVouchers } 
 import { CashService } from './cash.service';
 import { PettyFundDto, PettyFundTopUpDto, PettyVoucherDto, PettyVoidDto, PettyReplenishDto } from './petty-cash.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
-import { findOwned } from '../../db/owned';
+import { findOwned, patchById } from '../../db/owned';
 
 type Fund = typeof pettyCashFunds.$inferSelect;
 
@@ -163,7 +163,7 @@ export class PettyCashService {
       if (!v) throw new NotFoundException('Bukti tidak ditemukan');
       if (v.status !== 'OPEN') throw new BadRequestException(v.status === 'VOID' ? 'Bukti sudah dibatalkan' : 'Bukti sudah diganti lewat pengisian kembali dan tidak bisa dibatalkan');
       await this.cash.void(user, v.cashTransactionId!, { reason: dto.reason }, tx);
-      await tx.update(pettyCashVouchers).set({ status: 'VOID' }).where(eq(pettyCashVouchers.id, id));
+      await patchById(tx, pettyCashVouchers, id, { status: 'VOID' });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'VOID', entity: 'PettyCashVoucher', entityId: id, data: { number: v.number, reason: dto.reason } });
       return { id, status: 'VOID' };
     });

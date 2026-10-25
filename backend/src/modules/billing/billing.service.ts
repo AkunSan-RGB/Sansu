@@ -11,7 +11,7 @@ import { InjectDb } from '../../db/db.module';
 import { billingInvoices, plans, subscriptions, tenants, users } from '../../db/schema';
 import { activeGateway, midtrans, xendit, type PaymentNotice } from './gateways';
 import { CreateBillingInvoiceDto, ProofDto, UpdateSubscriptionDto, RejectDto, PlanDto } from './billing.dto';
-import { findOwned } from '../../db/owned';
+import { findOwned, patchById } from '../../db/owned';
 
 export const DAY = 86_400_000;
 
@@ -237,10 +237,7 @@ export class BillingService {
       finishUrl: `${appUrl()}/billing?paid=${encodeURIComponent(inv.number)}`,
     };
     const r = gw === 'MIDTRANS' ? await midtrans.checkout(input) : await xendit.checkout(input);
-    await this.db
-      .update(billingInvoices)
-      .set({ method: gw, gatewayRef: r.ref, gatewayUrl: r.url })
-      .where(eq(billingInvoices.id, inv.id));
+    await patchById(this.db, billingInvoices, inv.id, { method: gw, gatewayRef: r.ref, gatewayUrl: r.url });
     return { url: r.url };
   }
 
@@ -249,10 +246,7 @@ export class BillingService {
     const inv = await this.ownInvoice(u.tenantId, id);
     if (inv.status !== 'UNPAID' && inv.status !== 'WAITING')
       throw new BadRequestException('Tagihan ini sudah tidak menunggu pembayaran');
-    await this.db
-      .update(billingInvoices)
-      .set({ status: 'WAITING', method: 'MANUAL', proof: dto.proof, proofNote: dto.note ?? null, rejectReason: null })
-      .where(eq(billingInvoices.id, inv.id));
+    await patchById(this.db, billingInvoices, inv.id, { status: 'WAITING', method: 'MANUAL', proof: dto.proof, proofNote: dto.note ?? null, rejectReason: null });
     const [t] = await this.db.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, u.tenantId));
     for (const to of platformAdminEmails()) {
       await this.mail.send({
@@ -272,7 +266,7 @@ export class BillingService {
   async cancelInvoice(u: AuthUser, id: string) {
     const inv = await this.ownInvoice(u.tenantId, id);
     if (inv.status !== 'UNPAID') throw new BadRequestException('Hanya tagihan yang belum dibayar yang bisa dibatalkan');
-    await this.db.update(billingInvoices).set({ status: 'CANCELLED' }).where(eq(billingInvoices.id, inv.id));
+    await patchById(this.db, billingInvoices, inv.id, { status: 'CANCELLED' });
     return { ok: true };
   }
 
@@ -292,17 +286,14 @@ export class BillingService {
       if (sub?.status === 'ACTIVE' && sub.currentPeriodEnd && sub.currentPeriodEnd > now) start = sub.currentPeriodEnd;
       if (sub?.status === 'TRIAL' && sub.trialEndsAt && sub.trialEndsAt > now) start = sub.trialEndsAt;
       const end = addMonths(start, inv.cycle === 'YEARLY' ? 12 : 1);
-      await tx
-        .update(billingInvoices)
-        .set({
+      await patchById(tx, billingInvoices, inv.id, {
           status: 'PAID',
           paidAt: now,
           confirmedBy: by,
           gatewayRef: ref ?? inv.gatewayRef,
           periodStart: start,
           periodEnd: end,
-        })
-        .where(eq(billingInvoices.id, inv.id));
+        });
       const values = {
         planId: inv.planId,
         status: 'ACTIVE' as const,
@@ -353,7 +344,7 @@ export class BillingService {
       return this.markPaid(inv.id, 'gateway', n.ref);
     }
     if (n.failed && inv.status === 'UNPAID')
-      await this.db.update(billingInvoices).set({ gatewayUrl: null }).where(eq(billingInvoices.id, inv.id));
+      await patchById(this.db, billingInvoices, inv.id, { gatewayUrl: null });
     return { ok: true };
   }
 

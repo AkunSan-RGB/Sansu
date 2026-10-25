@@ -17,7 +17,7 @@ import { accounts, customers, utilityBills, utilityConnections, utilityLateFees,
 import { SYS } from '../accounting/default-coa';
 import { ServiceBillingService } from '../sales/services/service-billing.service';
 import { RulesDto, TariffDto, ConnectionDto, SuspendDto, ReasonDto, ZoneDto, ZoneSupplyDto, ReadingDto, VerifyDto, BillRunDto } from './utility.dto';
-import { findOwned } from '../../db/owned';
+import { findOwned, patchById } from '../../db/owned';
 
 const SECTION = 'utility';
 
@@ -206,7 +206,7 @@ export class UtilityService {
         const od = await this.overdueOf(tx, u.tenantId, id);
         if (od.daysLate <= rules.suspendAfterDays) throw new BadRequestException(`Pemutusan hanya untuk tunggakan lebih dari ${rules.suspendAfterDays} hari setelah jatuh tempo (saat ini ${od.daysLate} hari). Pilih "atas permintaan pelanggan" bila pelanggan yang meminta.`);
       }
-      await tx.update(utilityConnections).set({ status: 'SUSPENDED', statusChangedById: u.sub, statusChangedAt: new Date(), statusNote: dto.reason }).where(eq(utilityConnections.id, id));
+      await patchById(tx, utilityConnections, id, { status: 'SUSPENDED', statusChangedById: u.sub, statusChangedAt: new Date(), statusNote: dto.reason });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'SUSPEND', entity: 'UtilityConnection', entityId: id, data: { number: c.number, reason: dto.reason, onRequest: !!dto.onRequest } });
       void this.approvals.notifyRoles(u.tenantId, { roles: ['ADMIN', 'OWNER', 'FINANCE'], excludeUserId: u.sub, title: `Sambungan ${c.number} (${c.customer_name}) diputus sementara`, lines: [dto.reason, 'Penyambungan kembali harus dilakukan orang lain setelah tagihan lunas.'], path: '/utility' });
       return { ok: true };
@@ -220,7 +220,7 @@ export class UtilityService {
       if (c.status_changed_by_id === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Penyambungan kembali harus dilakukan orang lain dari yang memutus (pemisahan fungsi)');
       const od = await this.overdueOf(tx, u.tenantId, id);
       if (od.outstanding > 0) throw new BadRequestException(`Masih ada tunggakan jatuh tempo ${rp(od.outstanding)}. Lunasi dulu sebelum disambung kembali.`);
-      await tx.update(utilityConnections).set({ status: 'ACTIVE', statusChangedById: u.sub, statusChangedAt: new Date(), statusNote: dto.reason }).where(eq(utilityConnections.id, id));
+      await patchById(tx, utilityConnections, id, { status: 'ACTIVE', statusChangedById: u.sub, statusChangedAt: new Date(), statusNote: dto.reason });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'RECONNECT', entity: 'UtilityConnection', entityId: id, data: { number: c.number, reason: dto.reason } });
       return { ok: true };
     });
@@ -231,7 +231,7 @@ export class UtilityService {
       const c = await this.lockConnection(tx, u.tenantId, id);
       if (c.status === 'DISCONNECTED') throw new BadRequestException('Sambungan sudah dibongkar');
       if (await this.unpaidOf(tx, u.tenantId, id)) throw new BadRequestException('Masih ada tagihan yang belum lunas. Lunasi atau selesaikan dulu sebelum sambungan dibongkar.');
-      await tx.update(utilityConnections).set({ status: 'DISCONNECTED', statusChangedById: u.sub, statusChangedAt: new Date(), statusNote: dto.reason }).where(eq(utilityConnections.id, id));
+      await patchById(tx, utilityConnections, id, { status: 'DISCONNECTED', statusChangedById: u.sub, statusChangedAt: new Date(), statusNote: dto.reason });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'DISCONNECT', entity: 'UtilityConnection', entityId: id, data: { number: c.number, reason: dto.reason } });
       return { ok: true };
     });
@@ -241,7 +241,7 @@ export class UtilityService {
     return this.db.transaction(async (tx) => {
       const c = await this.lockConnection(tx, u.tenantId, id);
       const zone = normZone(dto.zone);
-      await tx.update(utilityConnections).set({ zone }).where(eq(utilityConnections.id, id));
+      await patchById(tx, utilityConnections, id, { zone });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'UtilityConnection', entityId: id, data: { number: c.number, zone } });
       return { ok: true, zone };
     });
@@ -357,7 +357,7 @@ export class UtilityService {
       if (r.status !== 'ENTERED') throw new BadRequestException('Pencatatan ini sudah diputuskan');
       if (r.entered_by_id === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Pencatatan harus diverifikasi orang lain dari petugas yang mencatat (pemisahan fungsi)');
       if (r.flags.length && (dto.note ?? '').trim().length < 5) throw new BadRequestException(`Angka ini ditandai janggal (${r.flags.join(', ')}). Tulis catatan pemeriksaan (mis. hasil cek ulang lapangan).`);
-      await tx.update(utilityReadings).set({ status: 'VERIFIED', verifiedById: u.sub, verifiedAt: new Date(), verifyNote: dto.note?.trim() || null }).where(eq(utilityReadings.id, id));
+      await patchById(tx, utilityReadings, id, { status: 'VERIFIED', verifiedById: u.sub, verifiedAt: new Date(), verifyNote: dto.note?.trim() || null });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'APPROVE', entity: 'UtilityReading', entityId: id, data: { flags: r.flags, note: dto.note } });
       return { ok: true };
     });
@@ -368,7 +368,7 @@ export class UtilityService {
       const r = await this.lockReading(tx, u.tenantId, id);
       if (r.status !== 'ENTERED') throw new BadRequestException('Hanya pencatatan yang menunggu verifikasi yang bisa ditolak');
       if (r.entered_by_id === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Pencatatan hanya bisa ditolak orang lain dari petugas yang mencatat');
-      await tx.update(utilityReadings).set({ status: 'REJECTED', verifiedById: u.sub, verifiedAt: new Date(), verifyNote: dto.reason }).where(eq(utilityReadings.id, id));
+      await patchById(tx, utilityReadings, id, { status: 'REJECTED', verifiedById: u.sub, verifiedAt: new Date(), verifyNote: dto.reason });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'REJECT', entity: 'UtilityReading', entityId: id, data: { reason: dto.reason } });
       return { ok: true };
     });
@@ -490,8 +490,8 @@ export class UtilityService {
           lateInvoice = li.number;
         }
         await this.db.transaction(async (tx) => {
-          await tx.update(utilityBills).set({ invoiceId: invoice.id }).where(eq(utilityBills.id, claimId));
-          if (item.readingId) await tx.update(utilityReadings).set({ status: 'BILLED', billId: claimId }).where(eq(utilityReadings.id, item.readingId));
+          await patchById(tx, utilityBills, claimId, { invoiceId: invoice.id });
+          if (item.readingId) await patchById(tx, utilityReadings, item.readingId, { status: 'BILLED', billId: claimId });
           for (const l of item.lateFees) await tx.insert(utilityLateFees).values({ tenantId: u.tenantId, invoiceId: l.invoiceId, billId: claimId, amount: l.amount.toFixed(2) }).onConflictDoNothing();
           await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityBill', entityId: claimId, data: { connection: item.number, period: dto.period, invoice: invoice.number, subtotal: item.subtotal, lateFee: item.lateFeeTotal, lateInvoice } });
         });

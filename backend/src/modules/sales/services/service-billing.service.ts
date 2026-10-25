@@ -18,7 +18,7 @@ import { projectCostsSql } from './project-costs';
 import { decryptField } from '../../../common/utils/secret';
 import { CreateServiceInvoiceDto, WithholdingSlipDto, ProjectProgressDto, CreateProjectDto, UpdateProjectDto, CreateDepositDto, ApplyDepositDto } from './service-billing.dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
-import { findOwned } from '../../../db/owned';
+import { findOwned, patchById } from '../../../db/owned';
 
 export const outstandingOf = (i: { total: string; paidAmount: string; returnedAmount: string }) =>
   D(i.total).minus(i.paidAmount).minus(i.returnedAmount);
@@ -175,7 +175,7 @@ export class ServiceBillingService {
           { key: SYS.VAT_OUT, credit: doc.taxAmount },
         ],
       });
-      await tx.update(invoices).set({ journalId: journal.id }).where(eq(invoices.id, invoice.id));
+      await patchById(tx, invoices, invoice.id, { journalId: journal.id });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,
@@ -197,10 +197,7 @@ export class ServiceBillingService {
     if (!inv.withholdingType) throw new BadRequestException('Faktur ini tidak dipotong PPh oleh pelanggan');
     const slipDate = toDocDate(dto.slipDate);
     if (slipDate < inv.date) throw new BadRequestException('Tanggal bukti potong tidak boleh sebelum tanggal faktur');
-    await this.db
-      .update(invoices)
-      .set({ withholdingSlipNo: dto.slipNo.trim(), withholdingSlipDate: slipDate })
-      .where(eq(invoices.id, id));
+    await patchById(this.db, invoices, id, { withholdingSlipNo: dto.slipNo.trim(), withholdingSlipDate: slipDate });
     await this.audit.log(this.db, {
       tenantId: user.tenantId,
       userId: user.sub,

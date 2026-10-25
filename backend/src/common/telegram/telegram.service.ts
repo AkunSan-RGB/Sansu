@@ -11,6 +11,7 @@ import { MailService } from '../mail/mail.service';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { users } from '../../db/schema';
+import { patchById } from '../../db/owned';
 
 export interface TelegramUpdate {
   update_id: number;
@@ -89,15 +90,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   /** Buat kode tautan sekali pakai (berlaku 15 menit) dan tautan pembuka bot */
   async createLink(userId: string) {
     const code = randomBytes(18).toString('base64url');
-    await this.db
-      .update(users)
-      .set({ telegramLinkCode: hashCode(code), telegramLinkExpires: new Date(Date.now() + LINK_TTL_MS) })
-      .where(eq(users.id, userId));
+    await patchById(this.db, users, userId, { telegramLinkCode: hashCode(code), telegramLinkExpires: new Date(Date.now() + LINK_TTL_MS) });
     return { code, url: this.botUsername ? `https://t.me/${this.botUsername}?start=${code}` : null, expiresInMinutes: LINK_TTL_MS / 60_000 };
   }
 
   async unlink(userId: string, tenantId?: string) {
-    await this.db.update(users).set({ telegramChatId: null, telegramLinkCode: null, telegramLinkExpires: null }).where(eq(users.id, userId));
+    await patchById(this.db, users, userId, { telegramChatId: null, telegramLinkCode: null, telegramLinkExpires: null });
     if (tenantId) await this.audit.log(this.db, { tenantId, userId, action: 'TELEGRAM_UNLINK', entity: 'User', entityId: userId });
     return { ok: true };
   }
@@ -134,7 +132,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     this.badTries.delete(chatId);
     // satu chat hanya untuk satu pengguna
     await this.db.update(users).set({ telegramChatId: null }).where(eq(users.telegramChatId, chatId));
-    await this.db.update(users).set({ telegramChatId: chatId, telegramLinkCode: null, telegramLinkExpires: null }).where(eq(users.id, user.id));
+    await patchById(this.db, users, user.id, { telegramChatId: chatId, telegramLinkCode: null, telegramLinkExpires: null });
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.id, action: 'TELEGRAM_LINK', entity: 'User', entityId: user.id });
     await this.send(chatId, `Terhubung ✅ Halo ${user.name}, notifikasi persetujuan SANSU akan dikirim ke sini. Kirim /stop untuk berhenti.`);
     // pemberitahuan ke email: bila bukan Anda yang menghubungkan, putuskan segera di Keamanan akun

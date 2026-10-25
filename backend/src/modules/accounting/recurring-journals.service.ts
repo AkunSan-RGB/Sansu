@@ -11,6 +11,7 @@ import { CreateRecurringDto, UpdateRecurringDto } from './dto/accounting.dto';
 import { PostingService } from './posting.service';
 import { AccountingRepository } from './accounting.repository';
 import { AccountingService, nextOccurrence } from './accounting.service';
+import { patchById } from '../../db/owned';
 
 @Injectable()
 export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
@@ -141,10 +142,7 @@ export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
             const next = nextOccurrence(date, r.frequency);
             const remaining = r.remaining != null ? r.remaining - 1 : null;
             const active = !((remaining != null && remaining <= 0) || (r.endDate && next > r.endDate));
-            await tx
-              .update(recurringJournals)
-              .set({ nextDate: next, remaining, isActive: active, lastRunAt: new Date() })
-              .where(eq(recurringJournals.id, r.id));
+            await patchById(tx, recurringJournals, r.id, { nextDate: next, remaining, isActive: active, lastRunAt: new Date() });
             posted.push({ name: r.name, number: j.number, date });
             return active && next <= today;
           });
@@ -184,10 +182,7 @@ export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
             where: eq(journalEntries.reversalOfId, row.journalId),
           });
           if (!orig || already) {
-            await tx
-              .update(scheduledReversals)
-              .set({ status: 'SKIPPED', processedAt: new Date(), reversalJournalId: already?.id ?? null })
-              .where(eq(scheduledReversals.id, id));
+            await patchById(tx, scheduledReversals, id, { status: 'SKIPPED', processedAt: new Date(), reversalJournalId: already?.id ?? null });
             done.push({
               journalNumber: orig?.number ?? '-',
               reversalNumber: already?.number ?? null,
@@ -199,17 +194,11 @@ export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
           const locked = await this.period.lockedUntil(tx, tenantId);
           const date = locked && row.reverseOn <= locked ? today : row.reverseOn;
           const rev = await this.posting.reverse(tx, tenantId, row.journalId, date, row.createdById ?? undefined, true);
-          await tx
-            .update(scheduledReversals)
-            .set({ status: 'DONE', processedAt: new Date(), reversalJournalId: rev.id, lastError: null })
-            .where(eq(scheduledReversals.id, id));
+          await patchById(tx, scheduledReversals, id, { status: 'DONE', processedAt: new Date(), reversalJournalId: rev.id, lastError: null });
           done.push({ journalNumber: orig.number, reversalNumber: rev.number, date });
         });
       } catch (e) {
-        await this.db
-          .update(scheduledReversals)
-          .set({ lastError: (e as Error).message })
-          .where(eq(scheduledReversals.id, id));
+        await patchById(this.db, scheduledReversals, id, { lastError: (e as Error).message });
       }
     }
     return done;

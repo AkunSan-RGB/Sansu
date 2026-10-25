@@ -13,7 +13,7 @@ import { get as gets, loadAccounts, natural, unclosedEarnings, type Sum } from '
 import { SYS } from '../accounting/default-coa';
 import { CreateBranchDto, UpdateBranchDto } from './branches.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
-import { findOwned } from '../../db/owned';
+import { findOwned, patchById } from '../../db/owned';
 
 const NONE = 'NONE';
 
@@ -77,7 +77,7 @@ export class BranchesService {
       const b = await findOwned(this.db, branches, user.tenantId, branchId);
       if (!b || !b.isActive) throw new BadRequestException('Cabang tidak ditemukan atau nonaktif');
     }
-    await this.db.update(warehouses).set({ branchId }).where(eq(warehouses.id, warehouseId));
+    await patchById(this.db, warehouses, warehouseId, { branchId });
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'ASSIGN_BRANCH', entity: 'Warehouse', entityId: warehouseId, data: { from: w.branchId, to: branchId } });
     return { ok: true };
   }
@@ -101,7 +101,7 @@ export class BranchesService {
       const b = await findOwned(this.db, branches, user.tenantId, branchId);
       if (!b || !b.isActive) throw new BadRequestException('Cabang tidak ditemukan atau nonaktif');
     }
-    await this.db.update(accounts).set({ branchId }).where(eq(accounts.id, accountId));
+    await patchById(this.db, accounts, accountId, { branchId });
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'ASSIGN_BRANCH', entity: 'Account', entityId: accountId, data: { code: a.code, from: a.branchId, to: branchId } });
     return { ok: true };
   }

@@ -29,6 +29,7 @@ import { resolveSourceRoutes } from './source-route';
 import { decryptField } from '../../common/utils/secret';
 import { AccountingRepository } from './accounting.repository';
 import { ReferenceRepository } from '../../db/reference.repository';
+import { patchById } from '../../db/owned';
 
 interface BalanceRow {
   id: string;
@@ -478,7 +479,7 @@ export class AccountingService {
       throw new ForbiddenException('Membuka kembali periode yang sudah ditutup hanya boleh dilakukan Pemilik');
     }
     await this.db.transaction(async (tx) => {
-      await tx.update(tenants).set({ lockedUntil: date }).where(eq(tenants.id, user.tenantId));
+      await patchById(tx, tenants, user.tenantId, { lockedUntil: date });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,
@@ -550,7 +551,7 @@ export class AccountingService {
       });
       if (dto.lock !== false) {
         const current = await this.period.lockedUntil(tx, user.tenantId);
-        if (!current || current < to) await tx.update(tenants).set({ lockedUntil: to }).where(eq(tenants.id, user.tenantId));
+        if (!current || current < to) await patchById(tx, tenants, user.tenantId, { lockedUntil: to });
       }
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CLOSE_YEAR', entity: 'Tenant', entityId: user.tenantId, data: { year: dto.year, journal: journal.number } });
       return { journalNumber: journal.number, netIncome: net.toFixed(2) };

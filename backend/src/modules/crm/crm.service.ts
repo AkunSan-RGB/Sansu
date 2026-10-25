@@ -14,6 +14,7 @@ import { buildLines } from '../master-data/products/line-builder';
 import { SalesOrdersService } from '../sales/orders/sales-orders.service';
 import { documentTotals, inclusiveDocument } from '../sales/pricing';
 import { StageDto, CreateLeadDto, UpdateLeadDto, MarkLeadDto, CreateActivityDto, DoneActivityDto, QuotationQueryDto, CreateQuotationDto } from './crm.dto';
+import { patchById } from '../../db/owned';
 
 @Injectable()
 export class CrmService {
@@ -152,10 +153,7 @@ export class CrmService {
       if (!stage) throw new BadRequestException('Tahap tidak ditemukan');
       probability ??= stage.probability;
     }
-    await this.db
-      .update(leads)
-      .set({ ...dto, probability })
-      .where(eq(leads.id, id));
+    await patchById(this.db, leads, id, { ...dto, probability });
     return this.getLead(user.tenantId, id);
   }
 
@@ -181,16 +179,13 @@ export class CrmService {
           .returning();
         customerId = c.id;
       }
-      await tx
-        .update(leads)
-        .set({
+      await patchById(tx, leads, id, {
           status: dto.status,
           lostReason: dto.status === 'LOST' ? dto.lostReason : null,
           probability: dto.status === 'WON' ? 100 : dto.status === 'LOST' ? 0 : undefined,
           closedAt: dto.status === 'OPEN' ? null : new Date(),
           customerId,
-        })
-        .where(eq(leads.id, id));
+        });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: dto.status, entity: 'Lead', entityId: id });
       return { id, status: dto.status, customerId };
     });
@@ -348,7 +343,7 @@ export class CrmService {
     const q = await this.getQuotation(user.tenantId, id);
     const allowed: Record<string, QuotationStatus[]> = { SENT: ['DRAFT'], REJECTED: ['DRAFT', 'SENT'], CANCELLED: ['DRAFT', 'SENT'] };
     if (!allowed[status].includes(q.status)) throw new BadRequestException(`Penawaran berstatus ${q.status}`);
-    await this.db.update(quotations).set({ status }).where(eq(quotations.id, id));
+    await patchById(this.db, quotations, id, { status });
     return this.getQuotation(user.tenantId, id);
   }
 

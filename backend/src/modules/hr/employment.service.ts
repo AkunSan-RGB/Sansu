@@ -12,7 +12,7 @@ import { decryptField, encryptField } from '../../common/utils/secret';
 import { employeeChangeRequests, employees } from '../../db/schema';
 import { EmploymentType } from './employment.shared';
 import { ChangeQueryDto, DecideChangeDto, RejectChangeDto } from './employment.dto';
-import { findOwned, lockOwned } from '../../db/owned';
+import { findOwned, lockOwned, patchById } from '../../db/owned';
 
 /** Kolom yang perubahannya oleh HR harus disetujui orang lain (usaha jasa) */
 export const SENSITIVE_FIELDS = [
@@ -198,8 +198,8 @@ export class EmploymentService {
       // aturan status dapat menormalkan nilai (mis. BPJS mati untuk tenaga lepas)
       const norm = applyEmploymentRules('JASA', merged as unknown as EmpShape) as unknown as Record<string, unknown>;
       for (const k of ['bpjsKes', 'bpjsTk', 'bpjsJp'] as const) if (norm[k] !== merged[k]) patch[k] = norm[k];
-      await tx.update(employees).set(patch).where(eq(employees.id, emp.id));
-      await tx.update(employeeChangeRequests).set({ status: 'APPROVED', decidedById: u.sub, decidedAt: new Date(), decisionNote: dto.note ?? null }).where(eq(employeeChangeRequests.id, id));
+      await patchById(tx, employees, emp.id, patch);
+      await patchById(tx, employeeChangeRequests, id, { status: 'APPROVED', decidedById: u.sub, decidedAt: new Date(), decisionNote: dto.note ?? null });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'APPROVE', entity: 'EmployeeChange', entityId: id, data: { employee: emp.code, changes, requestedBy: c.requestedById } });
       return { id, status: 'APPROVED' };
     });
@@ -211,7 +211,7 @@ export class EmploymentService {
       if (!c) throw new NotFoundException('Permintaan tidak ditemukan');
       if (c.status !== 'PENDING') throw new BadRequestException('Permintaan ini sudah diputuskan');
       await this.assertCanDecide(tx, u, c.requestedById, c.employeeId);
-      await tx.update(employeeChangeRequests).set({ status: 'REJECTED', decidedById: u.sub, decidedAt: new Date(), decisionNote: dto.reason }).where(eq(employeeChangeRequests.id, id));
+      await patchById(tx, employeeChangeRequests, id, { status: 'REJECTED', decidedById: u.sub, decidedAt: new Date(), decisionNote: dto.reason });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'REJECT', entity: 'EmployeeChange', entityId: id, data: { reason: dto.reason } });
       return { id, status: 'REJECTED' };
     });
@@ -222,7 +222,7 @@ export class EmploymentService {
     if (!c) throw new NotFoundException('Permintaan tidak ditemukan');
     if (c.status !== 'PENDING') throw new BadRequestException('Permintaan ini sudah diputuskan');
     if (c.requestedById !== u.sub && u.role !== 'OWNER') throw new ForbiddenException('Hanya pengusul yang dapat menarik permintaan');
-    await this.db.update(employeeChangeRequests).set({ status: 'CANCELLED', decidedById: u.sub, decidedAt: new Date() }).where(eq(employeeChangeRequests.id, id));
+    await patchById(this.db, employeeChangeRequests, id, { status: 'CANCELLED', decidedById: u.sub, decidedAt: new Date() });
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CANCEL', entity: 'EmployeeChange', entityId: id });
     return { id, status: 'CANCELLED' };
   }
@@ -237,7 +237,7 @@ export class EmploymentService {
       if (emp.createdById === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Karyawan harus diverifikasi oleh orang lain dari pembuatnya (pemisahan fungsi)');
       applyEmploymentRules('JASA', emp as unknown as EmpShape);
       await this.assertNoDuplicates(tx, u.tenantId, emp.id, emp);
-      await tx.update(employees).set({ verified: true, verifiedById: u.sub, verifiedAt: new Date() }).where(eq(employees.id, employeeId));
+      await patchById(tx, employees, employeeId, { verified: true, verifiedById: u.sub, verifiedAt: new Date() });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'VERIFY', entity: 'Employee', entityId: employeeId, data: { code: emp.code, createdBy: emp.createdById, type: emp.employmentType, baseSalary: emp.baseSalary } });
       return { id: employeeId, verified: true };
     });

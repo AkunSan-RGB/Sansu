@@ -11,7 +11,7 @@ import { customers, invoices, payments, principalClaimLines, principalClaims, su
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { TermDto, PeriodQueryDto, SettleDto, GenerateClaimDto, DecideClaimDto, ReceiveClaimDto } from './trade.dto';
-import { findOwned, lockOwned } from '../../../db/owned';
+import { findOwned, lockOwned, patchById } from '../../../db/owned';
 
 const lastDay = (p: string) => {
   const [y, m] = p.split('-').map(Number);
@@ -54,7 +54,7 @@ export class TradeService {
     if (id) {
       const cur = await findOwned(this.db, tradeTerms, u.tenantId, id);
       if (!cur) throw new NotFoundException('Syarat dagang tidak ditemukan');
-      await this.db.update(tradeTerms).set(values).where(eq(tradeTerms.id, id));
+      await patchById(this.db, tradeTerms, id, values);
       await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'TradeTerm', entityId: id, data: { before: { value: cur.value, isActive: cur.isActive }, after: values } });
       return { id, ...values };
     }
@@ -104,7 +104,7 @@ export class TradeService {
           createdById: u.sub,
           lines: [{ key: SYS.TRADE_PROMO, debit: amount }, { key: SYS.TRADE_ACCRUAL_PAYABLE, credit: amount }],
         });
-        await tx.update(tradeAccruals).set({ accrualJournalId: journal.id }).where(eq(tradeAccruals.id, row.id));
+        await patchById(tx, tradeAccruals, row.id, { accrualJournalId: journal.id });
         await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'POST', entity: 'TradeAccrual', entityId: row.id, data: { number, term: t.name, base: base.toFixed(2), amount: amount.toFixed(2), journal: journal.number } });
         out.push({ id: row.id, number, amount: amount.toFixed(2), customerId: t.customerId });
       }
@@ -146,10 +146,10 @@ export class TradeService {
           createdById: u.sub,
           lines: [{ key: SYS.TRADE_ACCRUAL_PAYABLE, debit: amount }, { key: SYS.AR, credit: amount }],
         });
-        await tx.update(payments).set({ journalId: journal.id }).where(eq(payments.id, pay.id));
+        await patchById(tx, payments, pay.id, { journalId: journal.id });
         settleJournalId = journal.id;
         const paid = D(inv.paidAmount).plus(amount);
-        await tx.update(invoices).set({ paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' }).where(eq(invoices.id, inv.id));
+        await patchById(tx, invoices, inv.id, { paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' });
         journalNumber = journal.number;
       } else {
         const cash = await this.posting.resolveCashAccount(tx, u.tenantId, dto.cashAccountId, 'BANK');
@@ -168,7 +168,7 @@ export class TradeService {
       }
       await tx.insert(tradeAccrualSettlements).values({ tenantId: u.tenantId, accrualId: a.id, date, amount: amount.toFixed(2), mode: dto.mode, journalId: settleJournalId });
       const settled = D(a.settledAmount).plus(amount);
-      await tx.update(tradeAccruals).set({ settledAmount: settled.toFixed(2), status: settled.gte(a.amount) ? 'SETTLED' : 'ACCRUED' }).where(eq(tradeAccruals.id, id));
+      await patchById(tx, tradeAccruals, id, { settledAmount: settled.toFixed(2), status: settled.gte(a.amount) ? 'SETTLED' : 'ACCRUED' });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'SETTLE', entity: 'TradeAccrual', entityId: id, data: { number: a.number, mode: dto.mode, amount: amount.toFixed(2), journal: journalNumber } });
       return { id, status: settled.gte(a.amount) ? 'SETTLED' : 'ACCRUED', settled: settled.toFixed(2), journalNumber };
     });
@@ -180,7 +180,7 @@ export class TradeService {
       if (!a) throw new NotFoundException('Utang rebate tidak ditemukan');
       if (a.status !== 'ACCRUED' || D(a.settledAmount).gt(0)) throw new BadRequestException('Hanya utang rebate yang belum dilunasi sama sekali yang dapat dibatalkan');
       await this.posting.reverse(tx, u.tenantId, a.accrualJournalId!, toDocDate(undefined), u.sub, true);
-      await tx.update(tradeAccruals).set({ status: 'VOID' }).where(eq(tradeAccruals.id, id));
+      await patchById(tx, tradeAccruals, id, { status: 'VOID' });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'VOID', entity: 'TradeAccrual', entityId: id, data: { number: a.number, reason } });
       return { id, status: 'VOID' };
     });
@@ -259,7 +259,7 @@ export class TradeService {
     return this.db.transaction(async (tx) => {
       const c = await this.lockClaim(tx, u.tenantId, id);
       if (c.status !== 'DRAFT') throw new BadRequestException('Klaim ini sudah diajukan');
-      await tx.update(principalClaims).set({ status: 'SUBMITTED' }).where(eq(principalClaims.id, id));
+      await patchById(tx, principalClaims, id, { status: 'SUBMITTED' });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'SUBMIT', entity: 'PrincipalClaim', entityId: id, data: { number: c.number } });
       return { id, status: 'SUBMITTED' };
     });
@@ -275,7 +275,7 @@ export class TradeService {
       if (approved.isZero()) {
         // ditolak seluruhnya: lepaskan baris agar bisa diklaim ulang dengan dokumen yang benar
         await tx.delete(principalClaimLines).where(eq(principalClaimLines.claimId, id));
-        await tx.update(principalClaims).set({ status: 'REJECTED', principalRef: dto.principalRef, decidedById: u.sub }).where(eq(principalClaims.id, id));
+        await patchById(tx, principalClaims, id, { status: 'REJECTED', principalRef: dto.principalRef, decidedById: u.sub });
         await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'REJECT', entity: 'PrincipalClaim', entityId: id, data: { number: c.number, ref: dto.principalRef } });
         return { id, status: 'REJECTED' };
       }
@@ -288,7 +288,7 @@ export class TradeService {
         createdById: u.sub,
         lines: [{ key: SYS.PRINCIPAL_CLAIM, debit: approved }, { key: SYS.TRADE_PROMO, credit: approved }],
       });
-      await tx.update(principalClaims).set({ status: 'APPROVED', approvedAmount: approved.toFixed(2), principalRef: dto.principalRef, approvalJournalId: journal.id, decidedById: u.sub }).where(eq(principalClaims.id, id));
+      await patchById(tx, principalClaims, id, { status: 'APPROVED', approvedAmount: approved.toFixed(2), principalRef: dto.principalRef, approvalJournalId: journal.id, decidedById: u.sub });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'APPROVE', entity: 'PrincipalClaim', entityId: id, data: { number: c.number, claimed: c.claimedAmount, approved: approved.toFixed(2), journal: journal.number } });
       return { id, status: 'APPROVED', approved: approved.toFixed(2), journalNumber: journal.number };
     });
@@ -308,7 +308,7 @@ export class TradeService {
         createdById: u.sub,
         lines: [{ accountId: cash.id, debit: c.approvedAmount, ...(cash.branchId ? { branchId: cash.branchId } : {}) }, { key: SYS.PRINCIPAL_CLAIM, credit: c.approvedAmount }],
       });
-      await tx.update(principalClaims).set({ status: 'PAID', paymentJournalId: journal.id, cashAccountId: cash.id }).where(eq(principalClaims.id, id));
+      await patchById(tx, principalClaims, id, { status: 'PAID', paymentJournalId: journal.id, cashAccountId: cash.id });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'RECEIVE', entity: 'PrincipalClaim', entityId: id, data: { number: c.number, amount: c.approvedAmount, journal: journal.number } });
       return { id, status: 'PAID', journalNumber: journal.number };
     });

@@ -18,6 +18,7 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { CommissionsDto, CreateApiKeyDto, CreateSettlementDto } from './pos-online.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
+import { patchById } from '../../db/owned';
 
 const hash = (k: string) => createHash('sha256').update(k).digest('hex');
 
@@ -109,7 +110,7 @@ export class OnlineKeyGuard implements CanActivate {
     if (!k || k.revokedAt) throw new UnauthorizedException('Kunci API tidak ada atau tidak valid');
     if (!(await this.apps.isEnabled(k.tenantId, ['pos']))) throw new HttpException('Aplikasi Kasir belum diaktifkan di perusahaan ini', HttpStatus.FORBIDDEN);
     if ((await this.subs.state(k.tenantId)).readOnly) throw new HttpException('Langganan perusahaan tidak aktif', HttpStatus.PAYMENT_REQUIRED);
-    if (!k.lastUsedAt || Date.now() - k.lastUsedAt.getTime() > 5 * 60_000) await this.db.update(onlineApiKeys).set({ lastUsedAt: new Date() }).where(eq(onlineApiKeys.id, k.id));
+    if (!k.lastUsedAt || Date.now() - k.lastUsedAt.getTime() > 5 * 60_000) await patchById(this.db, onlineApiKeys, k.id, { lastUsedAt: new Date() });
     req.user = { sub: k.createdById, tenantId: k.tenantId, role: 'CASHIER', email: `kunci-api:${k.keyPrefix}`, emailVerified: true, warehouseIds: [k.warehouseId], onlineWarehouseId: k.warehouseId };
     return true;
   }
@@ -178,7 +179,7 @@ export class PlatformSettlementsService {
           { key: SYS.PLATFORM_FEE, debit: diff.isNegative() ? diff.abs() : 0, credit: diff.isPositive() ? diff : 0 },
         ],
       });
-      await tx.update(posPlatformSettlements).set({ journalId: journal.id }).where(eq(posPlatformSettlements.id, row.id));
+      await patchById(tx, posPlatformSettlements, row.id, { journalId: journal.id });
       await tx.update(posOrders).set({ settlementId: row.id }).where(inArray(posOrders.id, ids));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PlatformSettlement', entityId: row.id, data: { number, channel: dto.channel, orders: orders.length, expected: expected.toFixed(2), received: received.toFixed(2) } });
       return { ...row, journalId: journal.id, journalNumber: journal.number };
@@ -194,7 +195,7 @@ export class PlatformSettlementsService {
       if (row.status === 'CANCELLED') throw new BadRequestException('Pencairan sudah dibatalkan');
       if (row.journalId) await this.posting.reverse(tx, user.tenantId, row.journalId, toDocDate(undefined) < row.date ? row.date : toDocDate(undefined), user.sub, true);
       await tx.update(posOrders).set({ settlementId: null }).where(eq(posOrders.settlementId, id));
-      await tx.update(posPlatformSettlements).set({ status: 'CANCELLED' }).where(eq(posPlatformSettlements.id, id));
+      await patchById(tx, posPlatformSettlements, id, { status: 'CANCELLED' });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'PlatformSettlement', entityId: id, data: { number: row.number } });
       return { ok: true };
     });

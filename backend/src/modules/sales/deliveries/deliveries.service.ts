@@ -25,6 +25,7 @@ import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { StockService } from '../../inventory/stock.service';
 import { SalesOrdersService } from '../orders/sales-orders.service';
+import { patchById } from '../../../db/owned';
 
 type OrderWithLines = Awaited<ReturnType<SalesOrdersService['lockOrder']>>;
 
@@ -115,8 +116,8 @@ export class DeliveriesService {
         });
         journalId = journal.id;
       }
-      await tx.update(deliveryOrders).set({ cogsAmount: cogs.toFixed(2), journalId }).where(eq(deliveryOrders.id, delivery.id));
-      if (complete) await tx.update(salesOrders).set({ status: 'DELIVERED' }).where(eq(salesOrders.id, order.id));
+      await patchById(tx, deliveryOrders, delivery.id, { cogsAmount: cogs.toFixed(2), journalId });
+      if (complete) await patchById(tx, salesOrders, order.id, { status: 'DELIVERED' });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'DeliveryOrder', entityId: delivery.id, data: { number, partial: !complete } });
       return delivery.id;
     });
@@ -201,8 +202,8 @@ export class DeliveriesService {
       }
       if (delivery.journalId) await this.posting.reverse(tx, user.tenantId, delivery.journalId, date, user.sub, true);
       dnNumber = delivery.number;
-      await tx.update(deliveryOrders).set({ status: 'CANCELLED', cancelReason: dto.reason?.trim() || null, cancelledById: user.sub }).where(eq(deliveryOrders.id, id));
-      await tx.update(salesOrders).set({ status: 'CONFIRMED' }).where(eq(salesOrders.id, delivery.salesOrderId));
+      await patchById(tx, deliveryOrders, id, { status: 'CANCELLED', cancelReason: dto.reason?.trim() || null, cancelledById: user.sub });
+      await patchById(tx, salesOrders, delivery.salesOrderId, { status: 'CONFIRMED' });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'DeliveryOrder', entityId: id, data: { reason: dto.reason?.trim() || null } });
     });
     void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER', 'ADMIN', 'WAREHOUSE'], excludeUserId: user.sub, info: true, title: `Surat jalan ${dnNumber} dibatalkan`, lines: [dto.reason?.trim() ? `Alasan: ${dto.reason.trim()}` : 'Tanpa alasan tertulis'], path: '/deliveries' });

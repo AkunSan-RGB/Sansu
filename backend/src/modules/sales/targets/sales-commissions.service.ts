@@ -12,7 +12,7 @@ import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { SalesTargetsService } from './sales-targets.service';
 import { PayCommissionDto, VoidCommissionDto } from './sales-commissions.dto';
-import { lockOwned } from '../../../db/owned';
+import { lockOwned, patchById } from '../../../db/owned';
 
 const lastDay = (period: string) => {
   const [y, m] = period.split('-').map(Number);
@@ -65,7 +65,7 @@ export class SalesCommissionsService {
           createdById: u.sub,
           lines: [{ key: SYS.SALES_COMMISSION, debit: r.commission }, { key: SYS.COMMISSION_PAYABLE, credit: r.commission }],
         });
-        await tx.update(salesCommissions).set({ accrualJournalId: journal.id }).where(eq(salesCommissions.id, row.id));
+        await patchById(tx, salesCommissions, row.id, { accrualJournalId: journal.id });
         await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'POST', entity: 'SalesCommission', entityId: row.id, data: { number, period, sales: r.name, net: r.net, amount: r.commission, journal: journal.number } });
         out.push({ id: row.id, number, userId: r.userId, amount: r.commission });
       }
@@ -100,7 +100,7 @@ export class SalesCommissionsService {
           { key: SYS.PPH21_PAYABLE, credit: pph },
         ],
       });
-      await tx.update(salesCommissions).set({ status: 'PAID', paymentJournalId: journal.id, cashAccountId: cash.id, paidById: u.sub, paidAt: date, pph21Withheld: pph.toFixed(2) }).where(eq(salesCommissions.id, id));
+      await patchById(tx, salesCommissions, id, { status: 'PAID', paymentJournalId: journal.id, cashAccountId: cash.id, paidById: u.sub, paidAt: date, pph21Withheld: pph.toFixed(2) });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'PAY', entity: 'SalesCommission', entityId: id, data: { number: c.number, amount: c.amount, pph21: pph.toFixed(2), journal: journal.number } });
       return { id, status: 'PAID', journalNumber: journal.number };
     });
@@ -112,7 +112,7 @@ export class SalesCommissionsService {
       if (!c) throw new NotFoundException('Komisi tidak ditemukan');
       if (c.status !== 'ACCRUED') throw new BadRequestException('Hanya komisi yang belum dibayar yang dapat dibatalkan');
       const rev = await this.posting.reverse(tx, u.tenantId, c.accrualJournalId!, toDocDate(addDays(todayJakarta(), 0)), u.sub, true);
-      await tx.update(salesCommissions).set({ status: 'VOID', voidReason: dto.reason }).where(eq(salesCommissions.id, id));
+      await patchById(tx, salesCommissions, id, { status: 'VOID', voidReason: dto.reason });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'VOID', entity: 'SalesCommission', entityId: id, data: { number: c.number, reason: dto.reason, reversal: (rev as { number?: string })?.number } });
       return { id, status: 'VOID' };
     });

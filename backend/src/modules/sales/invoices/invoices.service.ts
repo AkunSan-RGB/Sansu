@@ -14,6 +14,7 @@ import { StockService } from '../../inventory/stock.service';
 import { DeliveriesService } from '../deliveries/deliveries.service';
 import { SalesOrdersService } from '../orders/sales-orders.service';
 import { CreateInvoiceDto, InvoiceQueryDto } from '../sales.dto';
+import { patchById } from '../../../db/owned';
 
 @Injectable()
 export class InvoicesService {
@@ -171,13 +172,10 @@ export class InvoicesService {
         await tx.update(deliveryOrders).set({ invoiceId: invoice.id }).where(inArray(deliveryOrders.id, sent.map((d) => d.id)));
       } else {
         const sj = await this.deliveries.recordWithInvoice(tx, user, { order, date, invoiceId: invoice.id, cogs, costs });
-        await tx.update(invoices).set({ deliveryOrderId: sj.id }).where(eq(invoices.id, invoice.id));
+        await patchById(tx, invoices, invoice.id, { deliveryOrderId: sj.id });
       }
-      await tx.update(salesOrders).set({ status: 'INVOICED' }).where(eq(salesOrders.id, order.id));
-      await tx
-        .update(invoices)
-        .set({ cogsAmount: cogs.toFixed(2), journalId: journal.id })
-        .where(eq(invoices.id, invoice.id));
+      await patchById(tx, salesOrders, order.id, { status: 'INVOICED' });
+      await patchById(tx, invoices, invoice.id, { cogsAmount: cogs.toFixed(2), journalId: journal.id });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,

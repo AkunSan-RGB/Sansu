@@ -23,6 +23,7 @@ import { buildLines } from '../master-data/products/line-builder';
 import { documentTotals, inclusiveTotals } from '../sales/pricing';
 import { PosProductQueryDto, OpenSessionDto, CreatePosOrderDto, CloseSessionDto } from './pos.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
+import { patchById } from '../../db/owned';
 
 @Injectable()
 export class PosService {
@@ -313,7 +314,7 @@ export class PosService {
         const v = await this.loyalty.earnTx(tx, { tenantId: user.tenantId, customerId: dto.customerId, orderId: order.id, points: pts, settings: loyalty, userId: user.sub });
         loyaltyLines.push({ key: SYS.LOYALTY_EXPENSE, debit: v }, { key: SYS.LOYALTY_LIABILITY, credit: v });
       }
-      await tx.update(posOrders).set({ loyaltyEarnedPoints: pts, loyaltyRedeemedPoints: dto.redeemPoints ?? 0, loyaltyRedeemedValue: redeemValue.toFixed(2) }).where(eq(posOrders.id, order.id));
+      await patchById(tx, posOrders, order.id, { loyaltyEarnedPoints: pts, loyaltyRedeemedPoints: dto.redeemPoints ?? 0, loyaltyRedeemedValue: redeemValue.toFixed(2) });
     }
 
     // Gabungkan pembayaran per metode (tunai bersih setelah kembalian)
@@ -347,7 +348,7 @@ export class PosService {
         ...inventoryLines(issued, await semiSet(tx, user.tenantId, issued.map((i) => i.productId)), 'credit'),
       ],
     });
-    await tx.update(posOrders).set({ cogsAmount: cogs.toFixed(2), journalId: journal.id }).where(eq(posOrders.id, order.id));
+    await patchById(tx, posOrders, order.id, { cogsAmount: cogs.toFixed(2), journalId: journal.id });
     return order.id;
   }
 

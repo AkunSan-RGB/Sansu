@@ -37,6 +37,7 @@ import { GoodsReceiptsService, QTY_EPS } from './goods-receipts.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { CreateBillDto, CreatePurchaseInvoiceDto, CreateSupplierPaymentDto, PurchaseInvoiceQueryDto } from './purchasing.dto';
 import { PurchaseInvoiceRepository } from './purchase-invoice.repository';
+import { patchById } from '../../db/owned';
 
 /** Satu aset per unit (maks. 50 unit per baris) agar penyusutan & pelepasannya bisa per barang */
 export const assetUnitCount = (qty: Dec) => (qty.isInteger() && qty.lte(50) ? qty.toNumber() : 1);
@@ -116,16 +117,13 @@ export class PurchaseInvoicesService {
       }
       const r = active.length || dto.lines ? await this.billReceived(tx, user, order, dto, date) : await this.receiveAndBill(tx, user, order, dto, date);
       // jejak pengendalian harga: pembuat, alasan, penanda, dan persetujuan
-      await tx
-        .update(purchaseInvoices)
-        .set({
+      await patchById(tx, purchaseInvoices, r.id, {
           createdById: user.sub,
           approvalId: opts.approvalId ?? null,
           varianceReason: control.hasVariance ? dto.varianceReason : null,
           varianceNote: control.hasVariance ? (dto.varianceNote?.trim() || null) : null,
           priceFlags: control.flags.length ? control.flags.join(',') : null,
-        })
-        .where(eq(purchaseInvoices.id, r.id));
+        });
       return r;
     });
     return { ...(await this.get(user.tenantId, result.id)), journalNumber: result.journalNumber };
@@ -346,8 +344,8 @@ export class PurchaseInvoicesService {
 
     const autoReceipt = await this.receipts.recordWithInvoice(tx, user, { order, date, invoiceId: invoice.id, capitalize, values });
     for (const it of qcItems) await this.qc.createForReceiptTx(tx, user, { receiptId: autoReceipt.id, productId: it.productId, warehouseId: quarantine.warehouseId!, releaseWarehouseId: order.warehouseId, qty: it.qty, unitCost: it.unitCost, lot: it.lot });
-    await tx.update(purchaseOrders).set({ status: 'BILLED' }).where(eq(purchaseOrders.id, order.id));
-    await tx.update(purchaseInvoices).set({ journalId: journal.id }).where(eq(purchaseInvoices.id, invoice.id));
+    await patchById(tx, purchaseOrders, order.id, { status: 'BILLED' });
+    await patchById(tx, purchaseInvoices, invoice.id, { journalId: journal.id });
     await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PurchaseInvoice', entityId: invoice.id, data: { number, journal: journal.number } });
     return { id: invoice.id, journalNumber: journal.number };
   }
@@ -411,10 +409,7 @@ export class PurchaseInvoicesService {
         value = value.plus(chunk);
         need = need.minus(take);
         if (r.capitalized) capitalized = true;
-        await tx
-          .update(goodsReceiptLines)
-          .set({ billedQty: sql`${goodsReceiptLines.billedQty} + ${take.toFixed(4)}`, billedValue: sql`${goodsReceiptLines.billedValue} + ${chunk.toFixed(2)}` })
-          .where(eq(goodsReceiptLines.id, r.rl.id));
+        await patchById(tx, goodsReceiptLines, r.rl.id, { billedQty: sql`${goodsReceiptLines.billedQty} + ${take.toFixed(4)}`, billedValue: sql`${goodsReceiptLines.billedValue} + ${chunk.toFixed(2)}` });
         billings.push({ receiptId: r.rl.receiptId, receiptLineId: r.rl.id, qty: take, value: chunk });
         r.rl.billedQty = D(r.rl.billedQty).plus(take).toFixed(4);
         r.rl.billedValue = D(r.rl.billedValue).plus(chunk).toFixed(2);
@@ -499,10 +494,7 @@ export class PurchaseInvoicesService {
         priceVariance: variances[i].toFixed(2),
         orderLineId: x.line.id,
       });
-      await tx
-        .update(purchaseOrderLines)
-        .set({ billedQty: sql`${purchaseOrderLines.billedQty} + ${x.q.toFixed(4)}`, billedAmount: sql`${purchaseOrderLines.billedAmount} + ${x.poDpp.toFixed(2)}` })
-        .where(eq(purchaseOrderLines.id, x.line.id));
+      await patchById(tx, purchaseOrderLines, x.line.id, { billedQty: sql`${purchaseOrderLines.billedQty} + ${x.q.toFixed(4)}`, billedAmount: sql`${purchaseOrderLines.billedAmount} + ${x.poDpp.toFixed(2)}` });
     }
     const journal = await this.posting.post(tx, {
       tenantId: user.tenantId,
@@ -520,11 +512,11 @@ export class PurchaseInvoicesService {
         { key: SYS.AP, credit: total },
       ],
     });
-    await tx.update(purchaseInvoices).set({ journalId: journal.id }).where(eq(purchaseInvoices.id, invoice.id));
+    await patchById(tx, purchaseInvoices, invoice.id, { journalId: journal.id });
     // pesanan tuntas bila seluruh barang sudah ditagih
     const after = await tx.select({ qty: purchaseOrderLines.qty, billedQty: purchaseOrderLines.billedQty }).from(purchaseOrderLines).where(eq(purchaseOrderLines.orderId, order.id));
     if (after.every((l) => D(l.billedQty).plus(QTY_EPS).gte(l.qty))) {
-      await tx.update(purchaseOrders).set({ status: 'BILLED' }).where(eq(purchaseOrders.id, order.id));
+      await patchById(tx, purchaseOrders, order.id, { status: 'BILLED' });
     }
     await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PurchaseInvoice', entityId: invoice.id, data: { number, journal: journal.number } });
     return { id: invoice.id, journalNumber: journal.number };

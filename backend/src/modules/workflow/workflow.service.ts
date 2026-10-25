@@ -11,7 +11,7 @@ import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { customers, suppliers, workflowCases, workflowEvents, workflowLinks } from '../../db/schema';
 import { WorkflowSettingsDto, CaseQueryDto, CreateCaseDto, AddLinkDto, AdvanceDto, NoteDto } from './workflow.dto';
-import { findOwned, lockOwned } from '../../db/owned';
+import { findOwned, lockOwned, patchById } from '../../db/owned';
 
 /** Tabel dokumen sumber tiap jenis tautan (semua ber-tenant_id) */
 const col = (c: string) => (a: string) => `${a}.${c}::text`;
@@ -358,7 +358,7 @@ export class WorkflowService {
   private async setStage(tx: Tx, c: CaseRow, to: WorkflowStage, by: string | null, e: { kind: string; note?: string; auto?: boolean }) {
     const done = to.terminal === 'DONE';
     const status: CaseRow['status'] = to.key === 'BATAL' ? 'CANCELLED' : done ? 'DONE' : 'ACTIVE';
-    await tx.update(workflowCases).set({ stage: to.key, status, stageEnteredAt: new Date(), stageEnteredById: by, closedAt: status === 'ACTIVE' ? null : new Date() }).where(eq(workflowCases.id, c.id));
+    await patchById(tx, workflowCases, c.id, { stage: to.key, status, stageEnteredAt: new Date(), stageEnteredById: by, closedAt: status === 'ACTIVE' ? null : new Date() });
     await this.event(tx, c.tenantId, c.id, { kind: e.kind, from: c.stage, to: to.key, note: e.note, by: by ?? undefined, auto: e.auto });
     c.stage = to.key;
     c.status = status;

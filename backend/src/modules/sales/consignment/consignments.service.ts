@@ -15,7 +15,7 @@ import { SalesOrdersService } from '../orders/sales-orders.service';
 import { ShipDto, ReportSoldDto, ReturnConsignDto } from './consignments.dto';
 import { asDto } from '../../../common/utils/dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
-import { findOwned } from '../../../db/owned';
+import { findOwned, patchById } from '../../../db/owned';
 
 const STALE_DAYS = 45;
 
@@ -203,13 +203,13 @@ export class ConsignmentsService {
       inv = await this.invoices.createFromOrder(u, asDto({ salesOrderId: so.id, date: doc.date }));
     } catch (e) {
       // gagal SEBELUM faktur terbit: kembalikan laporan agar bisa diproses ulang dan batalkan pesanan yang terlanjur dibuat
-      await this.db.update(consignmentDocs).set({ status: 'REPORTED', decidedById: null }).where(eq(consignmentDocs.id, id));
+      await patchById(this.db, consignmentDocs, id, { status: 'REPORTED', decidedById: null });
       if (soId) await this.orders.cancel(u, soId, 'Pembatalan otomatis: proses konsinyasi gagal').catch(() => undefined);
       throw e;
     }
     // faktur sudah terbit: laporan tetap INVOICED walau pencatatan tautan/audit di bawah gagal (mencegah penagihan ganda)
     try {
-      await this.db.update(consignmentDocs).set({ salesOrderId: soId, invoiceId: inv.id }).where(eq(consignmentDocs.id, id));
+      await patchById(this.db, consignmentDocs, id, { salesOrderId: soId, invoiceId: inv.id });
       await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'INVOICE', entity: 'ConsignmentDoc', entityId: id, data: { number: doc.number, reference: doc.reference, invoice: inv.number } });
     } catch {
       /* tidak dibatalkan: status INVOICED sudah benar */
@@ -221,7 +221,7 @@ export class ConsignmentsService {
     const doc = await findOwned(this.db, consignmentDocs, u.tenantId, id);
     if (!doc || doc.kind !== 'REPORT') throw new NotFoundException('Laporan konsinyasi tidak ditemukan');
     if (doc.status !== 'REPORTED') throw new BadRequestException('Laporan ini sudah diputuskan');
-    await this.db.update(consignmentDocs).set({ status: 'REJECTED', decidedById: u.sub, rejectReason: reason }).where(eq(consignmentDocs.id, id));
+    await patchById(this.db, consignmentDocs, id, { status: 'REJECTED', decidedById: u.sub, rejectReason: reason });
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'REJECT', entity: 'ConsignmentDoc', entityId: id, data: { number: doc.number, reason } });
     return { id, status: 'REJECTED' };
   }

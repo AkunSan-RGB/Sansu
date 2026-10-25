@@ -12,7 +12,7 @@ import { IntegrationsService } from '../integrations.service';
 import { PROVIDERS, type NormalizedOrder, type ProviderContext, type ProviderKey, type Tokens } from './providers';
 import { KEYS } from './sync.shared';
 import { StartConnectionDto, UpdateConnectionDto } from './sync.dto';
-import { findOwned } from '../../../db/owned';
+import { findOwned, patchById } from '../../../db/owned';
 
 const DAY = 86_400_000;
 
@@ -183,24 +183,18 @@ export class MarketplaceSyncService {
       let tokens: Tokens = c.credentials ? { ...JSON.parse(decrypt(c.credentials)), expiresAt: c.tokenExpiresAt ?? undefined } : { accessToken: '' };
       if (tokens.refreshToken && c.tokenExpiresAt && c.tokenExpiresAt.getTime() < now.getTime() + 10 * 60_000) {
         tokens = await p.refresh(tokens, c.shopId, ctx);
-        await this.db
-          .update(marketplaceConnections)
-          .set({ credentials: encrypt(JSON.stringify({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, extra: tokens.extra })), tokenExpiresAt: tokens.expiresAt ?? null })
-          .where(eq(marketplaceConnections.id, c.id));
+        await patchById(this.db, marketplaceConnections, c.id, { credentials: encrypt(JSON.stringify({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, extra: tokens.extra })), tokenExpiresAt: tokens.expiresAt ?? null });
       }
       // ambil ulang 1 jam terakhir agar perubahan status yang terlambat tidak terlewat (duplikat otomatis dilewati)
       const from = new Date(Math.max((c.syncedUntil?.getTime() ?? now.getTime() - 7 * DAY) - 3600_000, now.getTime() - 30 * DAY));
       const orders = await p.orders(tokens, c.shopId, from, now, ctx);
       const res = await this.process(c, orders);
       const result: SyncResult = { ...res, fetched: orders.length, from: from.toISOString(), to: now.toISOString() };
-      await this.db
-        .update(marketplaceConnections)
-        .set({ syncedUntil: now, lastSyncAt: now, lastError: null, lastResult: { ...result, imported: result.imported.slice(0, 50), skipped: result.skipped.slice(0, 50), importedCount: result.imported.length, skippedCount: result.skipped.length } })
-        .where(eq(marketplaceConnections.id, c.id));
+      await patchById(this.db, marketplaceConnections, c.id, { syncedUntil: now, lastSyncAt: now, lastError: null, lastResult: { ...result, imported: result.imported.slice(0, 50), skipped: result.skipped.slice(0, 50), importedCount: result.imported.length, skippedCount: result.skipped.length } });
       return result;
     } catch (e) {
       const msg = (e as Error).message;
-      await this.db.update(marketplaceConnections).set({ lastSyncAt: now, lastError: msg.slice(0, 500) }).where(eq(marketplaceConnections.id, c.id));
+      await patchById(this.db, marketplaceConnections, c.id, { lastSyncAt: now, lastError: msg.slice(0, 500) });
       if (manual) throw new BadRequestException(msg);
       this.logger.warn(`Sinkron ${c.provider}/${c.shopName} gagal: ${msg}`);
       return { fetched: 0, imported: [], skipped: [], waiting: 0, cancelledAfterImport: [], from: '', to: '' };

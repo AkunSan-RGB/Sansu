@@ -12,6 +12,7 @@ import { billingInvoices, plans, subscriptions, tenants, users } from '../../db/
 import { activeGateway } from './gateways';
 import { UpdateSubscriptionDto, RejectDto, PlanDto } from './billing.dto';
 import { BillingService, DAY } from './billing.service';
+import { patchById } from '../../db/owned';
 
 @Injectable()
 export class PlatformBillingService {
@@ -302,10 +303,7 @@ export class PlatformBillingService {
     if (!inv) throw new NotFoundException('Tagihan tidak ditemukan');
     if (inv.status !== 'WAITING')
       throw new BadRequestException('Hanya bukti yang menunggu konfirmasi yang bisa ditolak');
-    await this.db
-      .update(billingInvoices)
-      .set({ status: 'UNPAID', rejectReason: dto.reason, confirmedBy: actor.email })
-      .where(eq(billingInvoices.id, id));
+    await patchById(this.db, billingInvoices, id, { status: 'UNPAID', rejectReason: dto.reason, confirmedBy: actor.email });
     await this.billing.notifyOwners(
       inv.tenantId,
       `Bukti transfer ${inv.number} perlu diperbaiki`,

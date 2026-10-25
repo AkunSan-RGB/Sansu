@@ -17,7 +17,7 @@ import { FxService } from '../fx/fx.service';
 import { PriceAgreementsService } from './price-agreements.service';
 import { CreatePurchaseOrderDto, PurchaseOrderQueryDto } from './purchasing.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
-import { findOwned } from '../../db/owned';
+import { findOwned, patchById } from '../../db/owned';
 
 /** Purchase order: DRAFT → CONFIRMED (dikirim ke supplier) → BILLED (barang & faktur diterima) */
 @Injectable()
@@ -216,7 +216,7 @@ export class PurchaseOrdersService {
     await this.db.transaction(async (tx) => {
       const order = await this.lock(tx, user.tenantId, id);
       if (order.status !== 'DRAFT') throw new BadRequestException(`PO berstatus ${order.status}, tidak bisa dikonfirmasi`);
-      await tx.update(purchaseOrders).set({ status: 'CONFIRMED' }).where(eq(purchaseOrders.id, id));
+      await patchById(tx, purchaseOrders, id, { status: 'CONFIRMED' });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CONFIRM', entity: 'PurchaseOrder', entityId: id });
     });
     // Gudang tahu barang apa yang akan datang (dasar penerimaan buta dan pembanding saat barang tiba)
@@ -240,7 +240,7 @@ export class PurchaseOrdersService {
       if (receipts > 0) throw new BadRequestException('PO sudah ada penerimaan barang; batalkan penerimaannya dulu atau buat retur pembelian');
       was = order.status;
       number = order.number;
-      await tx.update(purchaseOrders).set({ status: 'CANCELLED', cancelReason: reason?.trim() || null, cancelledById: user.sub }).where(eq(purchaseOrders.id, id));
+      await patchById(tx, purchaseOrders, id, { status: 'CANCELLED', cancelReason: reason?.trim() || null, cancelledById: user.sub });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'PurchaseOrder', entityId: id, data: { reason: reason?.trim() || null, wasStatus: order.status } });
     });
     if (was === 'CONFIRMED') {

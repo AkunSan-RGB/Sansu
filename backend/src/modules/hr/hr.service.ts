@@ -12,7 +12,7 @@ import { applyEmploymentRules, EmploymentService, type EmpShape } from './employ
 import { type EmploymentType, isPerJob } from './employment.shared';
 import { LinkAccountDto, CreateEmployeeDto, UpdateEmployeeDto, SaveAttendanceDto, CreateLeaveDto, DecideLeaveDto } from './hr.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
-import { findOwned, lockOwned } from '../../db/owned';
+import { findOwned, lockOwned, patchById } from '../../db/owned';
 
 const dow = (d: DocDate) => new Date(`${d}T00:00:00Z`).getUTCDay();
  // 0 = Minggu
@@ -79,7 +79,7 @@ export class HrService {
         const taken = (await tx.execute<{ name: string }>(sql`SELECT name FROM employees WHERE tenant_id = ${u.tenantId} AND user_id = ${userId} AND id <> ${id}`)).rows[0];
         if (taken) throw new ConflictException(`Akun ini sudah terhubung dengan karyawan ${taken.name}`);
       }
-      await tx.update(employees).set({ userId }).where(eq(employees.id, id));
+      await patchById(tx, employees, id, { userId });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'EmployeeAccountLink', entityId: id, data: { before: e.userId, after: userId, reason: dto.reason?.trim() } });
       return { ok: true, userId };
     });

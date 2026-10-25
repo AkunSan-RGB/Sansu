@@ -18,6 +18,7 @@ import { PostingService } from '../accounting/posting.service';
 import { CreateSupplierPaymentDto } from './purchasing.dto';
 import { PurchaseInvoiceRepository } from './purchase-invoice.repository';
 import { PurchaseInvoicesService } from './purchase-invoices.service';
+import { patchById } from '../../db/owned';
 
 @Injectable()
 export class SupplierPaymentsService {
@@ -193,15 +194,12 @@ export class SupplierPaymentsService {
       });
 
       const paid = D(inv.paidAmount).plus(carrying);
-      await tx
-        .update(purchaseInvoices)
-        .set({
+      await patchById(tx, purchaseInvoices, inv.id, {
           paidForeign: foreign ? D(inv.paidForeign).plus(amount).toFixed(2) : inv.paidForeign,
           paidAmount: paid.toFixed(2),
           status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL',
-        })
-        .where(eq(purchaseInvoices.id, inv.id));
-      await tx.update(supplierPayments).set({ journalId: journal.id }).where(eq(supplierPayments.id, payment.id));
+        });
+      await patchById(tx, supplierPayments, payment.id, { journalId: journal.id });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,
@@ -246,9 +244,7 @@ export class SupplierPaymentsService {
       const inv = await this.repo.invoiceById(tx, p.purchaseInvoiceId);
       const paid = D(inv.paidAmount).minus(p.amount);
       const foreign = inv.currency !== 'IDR';
-      await tx
-        .update(purchaseInvoices)
-        .set({
+      await patchById(tx, purchaseInvoices, inv.id, {
           paidAmount: paid.toFixed(2),
           paidForeign: foreign
             ? D(inv.paidForeign)
@@ -256,12 +252,8 @@ export class SupplierPaymentsService {
                 .toFixed(2)
             : inv.paidForeign,
           status: paid.lte(0) ? 'UNPAID' : paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL',
-        })
-        .where(eq(purchaseInvoices.id, inv.id));
-      await tx
-        .update(supplierPayments)
-        .set({ status: 'VOID', voidedAt: new Date(), voidedById: user.sub, voidReason: reason, voidJournalId: rev.id })
-        .where(eq(supplierPayments.id, id));
+        });
+      await patchById(tx, supplierPayments, id, { status: 'VOID', voidedAt: new Date(), voidedById: user.sub, voidReason: reason, voidJournalId: rev.id });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,

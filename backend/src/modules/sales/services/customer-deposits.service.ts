@@ -16,7 +16,7 @@ import { PostingService } from '../../accounting/posting.service';
 import { CreateDepositDto, ApplyDepositDto } from './service-billing.dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
 import { ServiceBillingService, outstandingOf } from './service-billing.service';
-import { findOwned } from '../../../db/owned';
+import { findOwned, patchById } from '../../../db/owned';
 
 @Injectable()
 export class CustomerDepositsService {
@@ -162,7 +162,7 @@ export class CustomerDepositsService {
           { key: SYS.VAT_OUT, credit: tax, memo: tax.gt(0) ? 'PPN atas uang muka' : undefined },
         ],
       });
-      await tx.update(customerDeposits).set({ journalId: journal.id }).where(eq(customerDeposits.id, d.id));
+      await patchById(tx, customerDeposits, d.id, { journalId: journal.id });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,
@@ -250,20 +250,14 @@ export class CustomerDepositsService {
           { key: SYS.AR, credit: amount },
         ],
       });
-      await tx.update(depositApplications).set({ journalId: journal.id }).where(eq(depositApplications.id, app.id));
-      await tx
-        .update(customerDeposits)
-        .set({ appliedAmount: D(d.appliedAmount).plus(amount).toFixed(2) })
-        .where(eq(customerDeposits.id, d.id));
+      await patchById(tx, depositApplications, app.id, { journalId: journal.id });
+      await patchById(tx, customerDeposits, d.id, { appliedAmount: D(d.appliedAmount).plus(amount).toFixed(2) });
       const paid = D(inv.paidAmount).plus(amount);
-      await tx
-        .update(invoices)
-        .set({
+      await patchById(tx, invoices, inv.id, {
           paidAmount: paid.toFixed(2),
           depositApplied: D(inv.depositApplied).plus(amount).toFixed(2),
           status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL',
-        })
-        .where(eq(invoices.id, inv.id));
+        });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,

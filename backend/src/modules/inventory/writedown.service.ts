@@ -16,6 +16,7 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from './stock.service';
 import { CreateWritedownDto } from './writedown.dto';
+import { patchById } from '../../db/owned';
 
 @Injectable()
 export class WritedownService {
@@ -257,10 +258,7 @@ export class WritedownService {
           ...inventoryLines(moved, await semiSet(tx, user.tenantId, moved.map((x) => x.productId)), reversal ? 'debit' : 'credit'),
         ],
       });
-      await tx
-        .update(inventoryWritedowns)
-        .set({ lines, total: total.toFixed(2), journalId: journal.id })
-        .where(eq(inventoryWritedowns.id, doc.id));
+      await patchById(tx, inventoryWritedowns, doc.id, { lines, total: total.toFixed(2), journalId: journal.id });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,

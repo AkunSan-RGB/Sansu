@@ -18,6 +18,7 @@ import { ReadingDto } from './utility.dto';
 import { UtilityService } from './utility.service';
 import { MeterRowDto, IngestKeyDto, CounterPayDto, RemitDto, DecideDto } from './utility-field.dto';
 import { PERIOD } from './utility-field.shared';
+import { patchById } from '../../db/owned';
 
 const hash = (k: string) => createHash('sha256').update(k).digest('hex');
 
@@ -209,7 +210,7 @@ export class UtilityFieldService {
         });
         journalId = j.id;
       }
-      await tx.update(utilityRemittances).set({ status, decidedById: u.sub, decidedAt: new Date(), decisionNote: dto.note?.trim() || null, depositAccountId: dto.depositAccountId ?? null, journalId }).where(eq(utilityRemittances.id, id));
+      await patchById(tx, utilityRemittances, id, { status, decidedById: u.sub, decidedAt: new Date(), decisionNote: dto.note?.trim() || null, depositAccountId: dto.depositAccountId ?? null, journalId });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: dto.dispute ? 'REJECT' : 'APPROVE', entity: 'UtilityRemittance', entityId: id, data: { number: rem.number, difference: rem.difference, note: dto.note, journalId } });
     });
     return { ok: true };
@@ -275,7 +276,7 @@ export class UtilityIngestGuard implements CanActivate {
     if (!k || k.revokedAt) throw new UnauthorizedException('Kunci API tidak ada atau tidak valid');
     if (!(await this.apps.isEnabled(k.tenantId, ['utility']))) throw new HttpException('Aplikasi Layanan Utilitas belum diaktifkan di perusahaan ini', HttpStatus.FORBIDDEN);
     if ((await this.subs.state(k.tenantId)).readOnly) throw new HttpException('Langganan perusahaan tidak aktif', HttpStatus.PAYMENT_REQUIRED);
-    if (!k.lastUsedAt || Date.now() - k.lastUsedAt.getTime() > 5 * 60_000) await this.db.update(utilityIngestKeys).set({ lastUsedAt: new Date() }).where(eq(utilityIngestKeys.id, k.id));
+    if (!k.lastUsedAt || Date.now() - k.lastUsedAt.getTime() > 5 * 60_000) await patchById(this.db, utilityIngestKeys, k.id, { lastUsedAt: new Date() });
     // pencatat = pembuat kunci, jadi verifikasi tetap harus dilakukan orang lain
     req.user = { sub: k.createdById, tenantId: k.tenantId, role: 'WAREHOUSE', email: `kunci-api:${k.keyPrefix}`, emailVerified: true, warehouseIds: [] };
     return true;

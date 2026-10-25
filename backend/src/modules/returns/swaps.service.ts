@@ -13,7 +13,7 @@ import { PostingService } from '../accounting/posting.service';
 import { inventoryLines, semiSet } from '../inventory/inventory-accounts';
 import { StockService } from '../inventory/stock.service';
 import { CreateSwapDto } from './swaps.dto';
-import { findOwned, lockOwned } from '../../db/owned';
+import { findOwned, lockOwned, patchById } from '../../db/owned';
 
 const MAX_AGE_DAYS = 180;
 
@@ -124,7 +124,7 @@ export class SwapsService {
         createdById: u.sub,
         lines: [{ key: swap.reason === 'DAMAGED' ? SYS.DAMAGE_LOSS : swap.reason === 'EXPIRED' ? SYS.EXPIRED_LOSS : SYS.RECALL_LOSS, debit: cost }, ...inventoryLines(items, semi, 'credit')],
       });
-      await tx.update(goodsSwaps).set({ status: 'APPROVED', decidedById: u.sub, decidedAt: new Date(), journalId: journal.id, costAmount: cost.toFixed(2) }).where(eq(goodsSwaps.id, id));
+      await patchById(tx, goodsSwaps, id, { status: 'APPROVED', decidedById: u.sub, decidedAt: new Date(), journalId: journal.id, costAmount: cost.toFixed(2) });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'APPROVE', entity: 'GoodsSwap', entityId: id, data: { number: swap.number, cost: cost.toFixed(2), journal: journal.number } });
       return { id, status: 'APPROVED', cost: cost.toFixed(2), journalNumber: journal.number };
     });
@@ -134,7 +134,7 @@ export class SwapsService {
     const swap = await findOwned(this.db, goodsSwaps, u.tenantId, id);
     if (!swap) throw new NotFoundException('Dokumen tukar-guling tidak ditemukan');
     if (swap.status !== 'PENDING') throw new BadRequestException('Dokumen ini sudah diputuskan');
-    await this.db.update(goodsSwaps).set({ status: 'REJECTED', decidedById: u.sub, decidedAt: new Date(), rejectReason: reason }).where(eq(goodsSwaps.id, id));
+    await patchById(this.db, goodsSwaps, id, { status: 'REJECTED', decidedById: u.sub, decidedAt: new Date(), rejectReason: reason });
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'REJECT', entity: 'GoodsSwap', entityId: id, data: { number: swap.number, reason } });
     return { id, status: 'REJECTED' };
   }

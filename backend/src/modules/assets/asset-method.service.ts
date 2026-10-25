@@ -14,6 +14,7 @@ import { AssetRepository } from './asset.repository';
 import { monthIndex, periodOf, type MethodChange } from './depreciation';
 import { UsageDto, ChangeMethodDto } from './assets.dto';
 import { AssetsService } from './assets.service';
+import { patchById } from '../../db/owned';
 
 @Injectable()
 export class AssetMethodService {
@@ -79,10 +80,7 @@ export class AssetMethodService {
           `Total pemakaian melebihi kapasitas ${D(a.totalUnits ?? 0).toFixed(0)} ${a.unitLabel ?? 'unit'}`,
         );
       if (existing)
-        await tx
-          .update(assetUsage)
-          .set({ units: units.toFixed(4), note: dto.note ?? null, createdById: user.sub })
-          .where(eq(assetUsage.id, existing.id));
+        await patchById(tx, assetUsage, existing.id, { units: units.toFixed(4), note: dto.note ?? null, createdById: user.sub });
       else
         await tx
           .insert(assetUsage)
@@ -189,10 +187,7 @@ export class AssetMethodService {
         prevMethod: a.method,
         accumulatedAt: acc.toFixed(2),
       };
-      await tx
-        .update(fixedAssets)
-        .set({ method: dto.method, methodChanges: [...(a.methodChanges ?? []), change] })
-        .where(eq(fixedAssets.id, a.id));
+      await patchById(tx, fixedAssets, a.id, { method: dto.method, methodChanges: [...(a.methodChanges ?? []), change] });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,
@@ -273,7 +268,7 @@ export class AssetMethodService {
         skipped.push({ asset: `${a.code} ${a.name}`, why: (e as Error).message });
       }
     }
-    await this.db.update(assetCategories).set({ method: dto.method }).where(eq(assetCategories.id, categoryId));
+    await patchById(this.db, assetCategories, categoryId, { method: dto.method });
     await this.audit.log(this.db, {
       tenantId: user.tenantId,
       userId: user.sub,

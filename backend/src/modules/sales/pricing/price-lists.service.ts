@@ -9,7 +9,7 @@ import { InjectDb } from '../../../db/db.module';
 import { customers, priceListItems, priceLists, products, promos, suppliers } from '../../../db/schema';
 import { BonusLine, PriceTier, PromoRule, quote } from './pricing-engine';
 import { PriceListDto, UpdatePriceListDto, PriceItemDto, PromoDto, QuoteDto } from './price-lists.dto';
-import { findOwned } from '../../../db/owned';
+import { findOwned, patchById } from '../../../db/owned';
 
 type ProductWithUoms = { id: string; sku: string; name: string; baseUom: string; sellPrice: string; uoms: { uom: string; factor: string }[] };
 
@@ -210,7 +210,7 @@ export class PricingService {
     if (!cur) throw new NotFoundException('Promo tidak ditemukan');
     await this.validatePromo(user.tenantId, dto);
     const values = this.promoValues(dto);
-    await this.db.update(promos).set(values).where(eq(promos.id, id));
+    await patchById(this.db, promos, id, values);
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'Promo', entityId: id, data: { before: { name: cur.name, discountPct: cur.discountPct, isActive: cur.isActive }, after: values } });
     return { id, ...values };
   }

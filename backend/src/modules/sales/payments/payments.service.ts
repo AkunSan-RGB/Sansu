@@ -14,7 +14,7 @@ import { customers, invoices, payments } from '../../../db/schema';
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { CreatePaymentDto } from '../sales.dto';
-import { findOwned } from '../../../db/owned';
+import { findOwned, patchById } from '../../../db/owned';
 
 @Injectable()
 export class PaymentsService {
@@ -112,11 +112,8 @@ export class PaymentsService {
       });
 
       const paid = D(inv.paidAmount).plus(carrying);
-      await tx
-        .update(invoices)
-        .set({ paidForeign: foreign ? D(inv.paidForeign).plus(amount).toFixed(2) : inv.paidForeign, paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' })
-        .where(eq(invoices.id, inv.id));
-      await tx.update(payments).set({ journalId: journal.id }).where(eq(payments.id, payment.id));
+      await patchById(tx, invoices, inv.id, { paidForeign: foreign ? D(inv.paidForeign).plus(amount).toFixed(2) : inv.paidForeign, paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' });
+      await patchById(tx, payments, payment.id, { journalId: journal.id });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'Payment', entityId: payment.id });
       // pekerjaan tambahan milik pemanggil (mis. catatan penerimaan loket) ikut transaksi: sama-sama tersimpan atau sama-sama batal
       await opts.inTx?.(tx, { id: payment.id, number: payment.number, amount: payment.amount });
@@ -179,8 +176,8 @@ export class PaymentsService {
         ],
       });
       const paid = D(inv.paidAmount).plus(amount);
-      await tx.update(invoices).set({ paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' }).where(eq(invoices.id, inv.id));
-      await tx.update(payments).set({ journalId: journal.id }).where(eq(payments.id, payment.id));
+      await patchById(tx, invoices, inv.id, { paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' });
+      await patchById(tx, payments, payment.id, { journalId: journal.id });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'ReceivableWriteOff', entityId: payment.id, data: { invoice: inv.number, amount: amount.toFixed(2), reason } });
       return { ...payment, journalId: journal.id, journalNumber: journal.number, invoiceNumber: inv.number, customerName: customer.name, amount: amount.toFixed(2) };
     });

@@ -15,6 +15,7 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
 import { CreatePosReturnDto } from './pos-returns.dto';
+import { patchById } from '../../db/owned';
 
 const QTY_EPS = D('0.00005');
 
@@ -111,7 +112,7 @@ export class PosReturnsService {
         if (p.line.fromRecipe) {
           // menu yang sudah dibuat: bahan sudah diolah dan tidak kembali ke stok; pendapatan dibalik, biaya bahan tetap tercatat sebagai beban
           await tx.insert(posReturnLines).values({ returnId: ret.id, orderLineId: p.line.id, productId: p.line.productId, qty: p.qty.toFixed(4), unitCost: '0' });
-          await tx.update(posOrderLines).set({ returnedQty: D(p.line.returnedQty).plus(p.qty).toFixed(4) }).where(eq(posOrderLines.id, p.line.id));
+          await patchById(tx, posOrderLines, p.line.id, { returnedQty: D(p.line.returnedQty).plus(p.qty).toFixed(4) });
           continue;
         }
         const moved = await this.stock.move(tx, {
@@ -128,7 +129,7 @@ export class PosReturnsService {
         });
         cogs = cogs.plus(moved.value);
         await tx.insert(posReturnLines).values({ returnId: ret.id, orderLineId: p.line.id, productId: p.line.productId, qty: p.qty.toFixed(4), unitCost: D(p.line.unitCost).toFixed(4) });
-        await tx.update(posOrderLines).set({ returnedQty: D(p.line.returnedQty).plus(p.qty).toFixed(4) }).where(eq(posOrderLines.id, p.line.id));
+        await patchById(tx, posOrderLines, p.line.id, { returnedQty: D(p.line.returnedQty).plus(p.qty).toFixed(4) });
       }
       cogs = money(cogs);
 
@@ -172,7 +173,7 @@ export class PosReturnsService {
           { key: SYS.COGS, credit: cogs },
         ],
       });
-      await tx.update(posReturns).set({ cogsAmount: cogs.toFixed(2), pointsRefund: refundShare.toFixed(2), journalId: journal.id }).where(eq(posReturns.id, ret.id));
+      await patchById(tx, posReturns, ret.id, { cogsAmount: cogs.toFixed(2), pointsRefund: refundShare.toFixed(2), journalId: journal.id });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PosReturn', entityId: ret.id, data: { order: order.number, total: total.toFixed(2), reason } });
       return ret.id;
     });

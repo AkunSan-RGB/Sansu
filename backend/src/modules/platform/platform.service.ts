@@ -12,7 +12,7 @@ import { branches, customRoles, tenants, users } from '../../db/schema';
 import { isDocDate } from '../../common/utils/dates';
 import { refreshChartRelevance } from '../accounting/coa-sync';
 import { UpdateUserDto, UpdateCompanyDto, BrandingDto, TermsSettingsDto, ReportingSettingsDto, PayrollSettingsDto } from './platform.dto';
-import { findOwned } from '../../db/owned';
+import { findOwned, patchById } from '../../db/owned';
 
 /** Kop surat & dokumen: logo, kontak, rekening pembayaran, catatan di faktur */
 export interface Branding {
@@ -144,7 +144,7 @@ export class PlatformService {
   async updateCompany(actor: AuthUser, dto: UpdateCompanyDto) {
     const { pkp, posPricesIncludeVat, salesPricesIncludeVat, holidays, vatRounding, localTaxEnabled, localTaxRate, ...rest } = dto;
     const company = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
-    if (Object.keys(company).length) await this.db.update(tenants).set(company).where(eq(tenants.id, actor.tenantId));
+    if (Object.keys(company).length) await patchById(this.db, tenants, actor.tenantId, company);
     if (pkp !== undefined || posPricesIncludeVat !== undefined || salesPricesIncludeVat !== undefined || holidays !== undefined || vatRounding !== undefined || localTaxEnabled !== undefined || localTaxRate !== undefined) {
       const patch = {
         pkp,

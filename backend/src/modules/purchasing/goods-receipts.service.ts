@@ -25,6 +25,7 @@ import { QcService } from '../production/qc.service';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
+import { patchById } from '../../db/owned';
 
 export type LockedOrder = Awaited<ReturnType<PurchaseOrdersService['lock']>>;
 export interface ReceiveItem {
@@ -184,7 +185,7 @@ export class GoodsReceiptsService {
         unitCost: unitCost.toFixed(4),
         value: moved.value.toFixed(2),
       });
-      await tx.update(purchaseOrderLines).set({ receivedQty: sql`${purchaseOrderLines.receivedQty} + ${qty.toFixed(4)}` }).where(eq(purchaseOrderLines.id, line.id));
+      await patchById(tx, purchaseOrderLines, line.id, { receivedQty: sql`${purchaseOrderLines.receivedQty} + ${qty.toFixed(4)}` });
       if (toQc) await this.qc.createForReceiptTx(tx, user, { receiptId: receipt.id, productId: line.productId, warehouseId: quarantine.warehouseId!, releaseWarehouseId: order.warehouseId, qty: baseQty.toFixed(4), unitCost: unitCost.toFixed(4), lot: { lotNo: lot?.lotNo, expiryDate: lot?.expiryDate } });
     }
     total = money(total);
@@ -200,7 +201,7 @@ export class GoodsReceiptsService {
         { key: SYS.GRNI, credit: total },
       ],
     });
-    await tx.update(goodsReceipts).set({ value: total.toFixed(2), journalId: journal.id }).where(eq(goodsReceipts.id, receipt.id));
+    await patchById(tx, goodsReceipts, receipt.id, { value: total.toFixed(2), journalId: journal.id });
     return { id: receipt.id, number };
   }
 
@@ -283,7 +284,7 @@ export class GoodsReceiptsService {
           date,
         });
         out = out.plus(moved.value);
-        await tx.update(purchaseOrderLines).set({ receivedQty: sql`${purchaseOrderLines.receivedQty} - ${D(l.qty).toFixed(4)}` }).where(eq(purchaseOrderLines.id, l.orderLineId));
+        await patchById(tx, purchaseOrderLines, l.orderLineId, { receivedQty: sql`${purchaseOrderLines.receivedQty} - ${D(l.qty).toFixed(4)}` });
       }
       out = money(out);
       const diff = money(D(receipt.value).minus(out)); // biaya keluar memakai biaya stok saat ini; selisih ke Selisih Persediaan
@@ -300,7 +301,7 @@ export class GoodsReceiptsService {
           { key: SYS.INVENTORY_ADJ, debit: diff.lt(0) ? diff.abs() : 0, credit: diff.gt(0) ? diff : 0 },
         ],
       });
-      await tx.update(goodsReceipts).set({ status: 'CANCELLED' }).where(eq(goodsReceipts.id, id));
+      await patchById(tx, goodsReceipts, id, { status: 'CANCELLED' });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'GoodsReceipt', entityId: id });
     });
     return this.get(user.tenantId, id);

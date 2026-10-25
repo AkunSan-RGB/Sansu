@@ -34,7 +34,7 @@ import { SupplierPaymentsService } from '../purchasing/supplier-payments.service
 import { AssetDisposalService } from '../assets/asset-disposal.service';
 import { AssetMethodService } from '../assets/asset-method.service';
 import { SupplierBillsService } from '../purchasing/supplier-bills.service';
-import { findOwned } from '../../db/owned';
+import { findOwned, patchById } from '../../db/owned';
 
 @Injectable()
 export class ApprovalRequestsService {
@@ -217,10 +217,10 @@ export class ApprovalRequestsService {
         const j = await this.accounting.createManualJournal({ ...user, sub: req.requestedById }, req.payload as unknown as CreateJournalDto, { approved: true });
         resultRef = j.number;
       }
-      await this.db.update(approvalRequests).set({ resultRef }).where(eq(approvalRequests.id, id));
+      await patchById(this.db, approvalRequests, id, { resultRef });
     } catch (e) {
       // gagal dijalankan (mis. PO sudah dibatalkan): kembalikan ke menunggu agar bisa ditolak atau dicoba lagi
-      await this.db.update(approvalRequests).set({ status: 'PENDING', decidedById: null, decidedAt: null, decisionNote: null }).where(eq(approvalRequests.id, id));
+      await patchById(this.db, approvalRequests, id, { status: 'PENDING', decidedById: null, decidedAt: null, decisionNote: null });
       throw new BadRequestException(`Persetujuan gagal dijalankan: ${(e as Error).message}`);
     }
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'APPROVE', entity: 'ApprovalRequest', entityId: id, data: { kind: req.kind, title: req.title } });

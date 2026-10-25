@@ -40,6 +40,7 @@ import {
 } from './dto/auth.dto';
 import { LoginLimiter } from './login-limiter';
 import { TenantSetupService } from './tenant-setup.service';
+import { patchById } from '../../db/owned';
 
 type UserRow = typeof users.$inferSelect;
 // hash bcrypt dari string acak — dipakai saat email tidak ditemukan
@@ -157,7 +158,7 @@ export class AuthService {
       return { twoFactorRequired: true as const, challenge };
     }
     this.limiter.success(email);
-    await this.db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
+    await patchById(this.db, users, user.id, { lastLoginAt: new Date() });
     return this.issue(user);
   }
 
@@ -185,7 +186,7 @@ export class AuthService {
       throw new UnauthorizedException('Kode verifikasi salah');
     }
     this.limiter.success(user.email);
-    await this.db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
+    await patchById(this.db, users, user.id, { lastLoginAt: new Date() });
     return this.issue(user);
   }
 
@@ -196,10 +197,7 @@ export class AuthService {
     const h = sha256(normalizeBackupCode(code));
     const codes = user.totpBackupCodes ?? [];
     if (normalizeBackupCode(code).length === 8 && codes.includes(h)) {
-      await this.db
-        .update(users)
-        .set({ totpBackupCodes: codes.filter((x) => x !== h) })
-        .where(eq(users.id, user.id));
+      await patchById(this.db, users, user.id, { totpBackupCodes: codes.filter((x) => x !== h) });
       return true;
     }
     return false;
@@ -222,10 +220,7 @@ export class AuthService {
 
   /** Keluar dari semua perangkat (token lama tidak berlaku lagi) */
   async logoutAll(u: AuthUser) {
-    await this.db
-      .update(users)
-      .set({ tokenVersion: sql`${users.tokenVersion} + 1` })
-      .where(eq(users.id, u.sub));
+    await patchById(this.db, users, u.sub, { tokenVersion: sql`${users.tokenVersion} + 1` });
     return { ok: true };
   }
 
@@ -376,10 +371,7 @@ export class AuthService {
 
   async verifyEmail(dto: VerifyEmailDto) {
     const t = await this.consumeToken(dto.token, 'VERIFY');
-    await this.db
-      .update(users)
-      .set({ emailVerifiedAt: sql`COALESCE(${users.emailVerifiedAt}, now())` })
-      .where(eq(users.id, t.userId));
+    await patchById(this.db, users, t.userId, { emailVerifiedAt: sql`COALESCE(${users.emailVerifiedAt}, now())` });
     return { ok: true };
   }
 

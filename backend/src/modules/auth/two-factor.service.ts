@@ -11,6 +11,7 @@ import { InjectDb } from '../../db/db.module';
 import { users } from '../../db/schema';
 import { AuthService } from './auth.service';
 import { TwoFactorDisableDto } from './two-factor.dto';
+import { patchById } from '../../db/owned';
 
 @Injectable()
 export class TwoFactorService {
@@ -42,10 +43,7 @@ export class TwoFactorService {
     const u = await this.user(a.sub);
     if (u.totpEnabledAt) throw new BadRequestException('Verifikasi 2 langkah sudah aktif');
     const secret = newTotpSecret();
-    await this.db
-      .update(users)
-      .set({ totpSecret: encrypt(secret) })
-      .where(eq(users.id, u.id));
+    await patchById(this.db, users, u.id, { totpSecret: encrypt(secret) });
     return { secret, otpauthUrl: otpauthUrl(secret, u.email) };
   }
 
@@ -57,10 +55,7 @@ export class TwoFactorService {
     if (!verifyTotp(decrypt(u.totpSecret), code))
       throw new BadRequestException('Kode salah. Pastikan jam di HP Anda tepat lalu coba kode terbaru.');
     const codes = newBackupCodes();
-    await this.db
-      .update(users)
-      .set({ totpEnabledAt: new Date(), totpBackupCodes: codes.map((c) => sha256(normalizeBackupCode(c))) })
-      .where(eq(users.id, u.id));
+    await patchById(this.db, users, u.id, { totpEnabledAt: new Date(), totpBackupCodes: codes.map((c) => sha256(normalizeBackupCode(c))) });
     await this.mail.send({
       to: u.email,
       subject: 'Verifikasi 2 langkah SANSU aktif',
@@ -81,10 +76,7 @@ export class TwoFactorService {
       throw new ForbiddenException('Perusahaan Anda mewajibkan verifikasi 2 langkah, jadi tidak bisa dimatikan.');
     if (!(await bcrypt.compare(dto.password, u.passwordHash))) throw new BadRequestException('Kata sandi salah');
     if (!(await this.auth.checkSecondFactor(u, dto.code))) throw new BadRequestException('Kode verifikasi salah');
-    await this.db
-      .update(users)
-      .set({ totpEnabledAt: null, totpSecret: null, totpBackupCodes: null })
-      .where(eq(users.id, u.id));
+    await patchById(this.db, users, u.id, { totpEnabledAt: null, totpSecret: null, totpBackupCodes: null });
     await this.mail.send({
       to: u.email,
       subject: 'Verifikasi 2 langkah SANSU dimatikan',
@@ -103,10 +95,7 @@ export class TwoFactorService {
     if (!u.totpEnabledAt || !u.totpSecret) throw new BadRequestException('Verifikasi 2 langkah belum aktif');
     if (!verifyTotp(decrypt(u.totpSecret), code)) throw new BadRequestException('Kode verifikasi salah');
     const codes = newBackupCodes();
-    await this.db
-      .update(users)
-      .set({ totpBackupCodes: codes.map((c) => sha256(normalizeBackupCode(c))) })
-      .where(eq(users.id, u.id));
+    await patchById(this.db, users, u.id, { totpBackupCodes: codes.map((c) => sha256(normalizeBackupCode(c))) });
     return { backupCodes: codes };
   }
 }

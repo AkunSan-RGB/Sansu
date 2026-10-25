@@ -27,6 +27,7 @@ import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
 import { lineTotal } from '../sales/pricing';
 import { CreateReturnDto } from './returns.dto';
+import { patchById } from '../../db/owned';
 
 interface SourceLine {
   id: string;
@@ -221,10 +222,7 @@ export class ReturnsService {
           qty: l.qty.toFixed(4),
           lineTotal: l.total.toFixed(2),
         });
-        await tx
-          .update(invoiceLines)
-          .set({ returnedQty: D(l.src.returnedQty).plus(l.qty).toFixed(4) })
-          .where(eq(invoiceLines.id, l.src.id));
+        await patchById(tx, invoiceLines, l.src.id, { returnedQty: D(l.src.returnedQty).plus(l.qty).toFixed(4) });
       }
 
       const journal = await this.posting.post(tx, {
@@ -245,18 +243,12 @@ export class ReturnsService {
 
       const returned = D(inv.returnedAmount).plus(total);
       const retForeign = inv.currency === 'IDR' ? ZERO : returnForeign({ returnIdr: total, totalIdr: inv.total, paidIdr: inv.paidAmount, returnedIdr: inv.returnedAmount, totalForeign: inv.totalForeign ?? 0, paidForeign: inv.paidForeign, returnedForeign: inv.returnedForeign, rate: inv.fxRate });
-      await tx
-        .update(invoices)
-        .set({
+      await patchById(tx, invoices, inv.id, {
           returnedAmount: returned.toFixed(2),
           returnedForeign: D(inv.returnedForeign).plus(retForeign).toFixed(2),
           status: returned.plus(inv.paidAmount).gte(inv.total) ? 'PAID' : 'PARTIAL',
-        })
-        .where(eq(invoices.id, inv.id));
-      await tx
-        .update(salesReturns)
-        .set({ costAmount: money(cost).toFixed(2), journalId: journal.id })
-        .where(eq(salesReturns.id, ret.id));
+        });
+      await patchById(tx, salesReturns, ret.id, { costAmount: money(cost).toFixed(2), journalId: journal.id });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'SalesReturn', entityId: ret.id });
       return { ...ret, total: total.toFixed(2), journalNumber: journal.number };
     });
@@ -353,10 +345,7 @@ export class ReturnsService {
           qty: l.qty.toFixed(4),
           lineTotal: l.total.toFixed(2),
         });
-        await tx
-          .update(purchaseInvoiceLines)
-          .set({ returnedQty: D(l.src.returnedQty).plus(l.qty).toFixed(4) })
-          .where(eq(purchaseInvoiceLines.id, l.src.id));
+        await patchById(tx, purchaseInvoiceLines, l.src.id, { returnedQty: D(l.src.returnedQty).plus(l.qty).toFixed(4) });
       }
       // PPN faktur non-PKP sudah masuk harga perolehan → ikut keluar bersama persediaan, bukan mengurangi PPN Masukan
       const vatBack = inv.vatCapitalized ? ZERO : tax;
@@ -379,15 +368,12 @@ export class ReturnsService {
 
       const returned = D(inv.returnedAmount).plus(total);
       const retForeign = inv.currency === 'IDR' ? ZERO : returnForeign({ returnIdr: total, totalIdr: inv.total, paidIdr: inv.paidAmount, returnedIdr: inv.returnedAmount, totalForeign: inv.totalForeign ?? 0, paidForeign: inv.paidForeign, returnedForeign: inv.returnedForeign, rate: inv.fxRate });
-      await tx
-        .update(purchaseInvoices)
-        .set({
+      await patchById(tx, purchaseInvoices, inv.id, {
           returnedAmount: returned.toFixed(2),
           returnedForeign: D(inv.returnedForeign).plus(retForeign).toFixed(2),
           status: returned.plus(inv.paidAmount).gte(inv.total) ? 'PAID' : 'PARTIAL',
-        })
-        .where(eq(purchaseInvoices.id, inv.id));
-      await tx.update(purchaseReturns).set({ journalId: journal.id }).where(eq(purchaseReturns.id, ret.id));
+        });
+      await patchById(tx, purchaseReturns, ret.id, { journalId: journal.id });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PurchaseReturn', entityId: ret.id });
       return { ...ret, total: total.toFixed(2), journalNumber: journal.number };
     });

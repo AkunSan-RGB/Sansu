@@ -19,6 +19,7 @@ import { generateShiftPremiums } from '../hr/shifts.service';
 import { assertServiceEntriesMatch, attachServiceEntries } from './service-work.shared';
 import { decryptField } from '../../common/utils/secret';
 import { CreateRunDto, UpdatePayslipDto, PayRunDto } from './payroll.dto';
+import { patchById } from '../../db/owned';
 
 const MONEY_FIELDS = [
   'baseSalary',
@@ -127,10 +128,7 @@ export class PayrollService {
     if (!slip) throw new NotFoundException('Slip tidak ditemukan');
     await this.db.transaction(async (tx) => {
       const run = await this.lockRun(tx, user.tenantId, slip.runId, 'DRAFT');
-      await tx
-        .update(payslips)
-        .set({ otherIncome: dto.otherIncome ?? slip.otherIncome, otherDeduction: dto.otherDeduction ?? slip.otherDeduction, notes: dto.notes ?? slip.notes })
-        .where(eq(payslips.id, id));
+      await patchById(tx, payslips, id, { otherIncome: dto.otherIncome ?? slip.otherIncome, otherDeduction: dto.otherDeduction ?? slip.otherDeduction, notes: dto.notes ?? slip.notes });
       await this.generate(tx, user.tenantId, run.id, run.period, slip.employeeId);
     });
     return this.getRun(user.tenantId, slip.runId);
@@ -196,17 +194,14 @@ export class PayrollService {
         createdById: user.sub,
         lines,
       });
-      await tx
-        .update(payrollRuns)
-        .set({
+      await patchById(tx, payrollRuns, id, {
           status: 'POSTED',
           journalId: journal.id,
           totalGross: gross.toFixed(2),
           totalEmployerCost: gross.plus(employer).toFixed(2),
           totalPph21: pph.toFixed(2),
           totalNet: net.toFixed(2),
-        })
-        .where(eq(payrollRuns.id, id));
+        });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'POST', entity: 'PayrollRun', entityId: id, data: { journal: journal.number } });
     });
     return this.getRun(user.tenantId, id);
@@ -239,7 +234,7 @@ export class PayrollService {
           { accountId: bank.id, credit: run.totalNet, ...(bank.branchId ? { branchId: bank.branchId } : {}) },
         ],
       });
-      await tx.update(payrollRuns).set({ status: 'PAID', paymentJournalId: journal.id, cashAccountId: bank.id }).where(eq(payrollRuns.id, id));
+      await patchById(tx, payrollRuns, id, { status: 'PAID', paymentJournalId: journal.id, cashAccountId: bank.id });
       return journal.number;
     });
     return { ...(await this.getRun(user.tenantId, id)), paymentJournalNumber: result };
@@ -432,7 +427,7 @@ export class PayrollService {
         { otherIncome: prev?.otherIncome, otherDeduction: prev?.otherDeduction, serviceIncome: serviceBy.get(e.id)?.toFixed(2) },
       );
       const row = { ...toRow(calc), projectId: e.projectId ?? null };
-      if (prev) await tx.update(payslips).set(row).where(eq(payslips.id, prev.id));
+      if (prev) await patchById(tx, payslips, prev.id, row);
       else await tx.insert(payslips).values({ ...row, runId, employeeId: e.id });
     }
   }

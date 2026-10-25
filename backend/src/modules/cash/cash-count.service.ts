@@ -14,6 +14,7 @@ import { accounts, cashCounts, journalEntries, users } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { CashCountSettingsDto, CreateCashCountDto, UpdateCashCountDto } from './cash-count.dto';
+import { patchById } from '../../db/owned';
 
 const DEFAULTS: CashCountSettings = { approvalThreshold: 50_000 };
 
@@ -217,9 +218,7 @@ export class CashCountService {
         throw new BadRequestException('Nilai pos rekonsiliasi harus lebih dari nol');
       const book = await this.bookBalance(tx, u.tenantId, c.accountId, c.date);
       const t = this.totals(denoms, items, book);
-      await tx
-        .update(cashCounts)
-        .set({
+      await patchById(tx, cashCounts, id, {
           denominations: denoms,
           items,
           custodianName: dto.custodianName ?? c.custodianName,
@@ -229,8 +228,7 @@ export class CashCountService {
           countedTotal: t.counted.toFixed(2),
           itemsTotal: t.itemsTotal.toFixed(2),
           difference: t.difference.toFixed(2),
-        })
-        .where(eq(cashCounts.id, id));
+        });
       return this.get(u.tenantId, id, tx);
     });
   }
@@ -264,10 +262,7 @@ export class CashCountService {
       });
       journalId = j.id;
     }
-    await tx
-      .update(cashCounts)
-      .set({ status: 'POSTED', journalId, postedAt: new Date(), approvedById: approver ?? null, rejectReason: null })
-      .where(eq(cashCounts.id, c.id));
+    await patchById(tx, cashCounts, c.id, { status: 'POSTED', journalId, postedAt: new Date(), approvedById: approver ?? null, rejectReason: null });
   }
 
   /** Selesaikan: selisih kecil langsung dibukukan, selisih besar menunggu Pemilik */
@@ -280,22 +275,16 @@ export class CashCountService {
       const t = this.totals(c.denominations, c.items, book);
       if (!t.difference.isZero() && !c.reason?.trim())
         throw new BadRequestException('Ada selisih — isi penjelasan selisih dulu');
-      await tx
-        .update(cashCounts)
-        .set({
+      await patchById(tx, cashCounts, id, {
           bookBalance: book.toFixed(2),
           countedTotal: t.counted.toFixed(2),
           itemsTotal: t.itemsTotal.toFixed(2),
           difference: t.difference.toFixed(2),
-        })
-        .where(eq(cashCounts.id, id));
+        });
       const { approvalThreshold } = await this.getSettings(u.tenantId, tx);
       const needsApproval = t.difference.abs().gt(approvalThreshold) && u.role !== 'OWNER';
       if (needsApproval) {
-        await tx
-          .update(cashCounts)
-          .set({ status: 'WAITING_APPROVAL', rejectReason: null })
-          .where(eq(cashCounts.id, id));
+        await patchById(tx, cashCounts, id, { status: 'WAITING_APPROVAL', rejectReason: null });
         // Hanya Pemilik yang menyetujui selisih besar: beri tahu langsung, jangan menunggu dibuka sendiri
         void this.approvals.notifyRoles(u.tenantId, { roles: ['OWNER'], excludeUserId: u.sub, title: `Opname kas ${c.number} selisih Rp${Math.abs(t.difference.toNumber()).toLocaleString('id-ID')} menunggu persetujuan Anda`, lines: [c.reason ?? ''], path: '/cash/counts' });
       } else {
@@ -342,7 +331,7 @@ export class CashCountService {
       const c = await this.lock(tx, u.tenantId, id);
       if (c.status !== 'WAITING_APPROVAL')
         throw new BadRequestException('Opname ini tidak sedang menunggu persetujuan');
-      await tx.update(cashCounts).set({ status: 'DRAFT', rejectReason: reason }).where(eq(cashCounts.id, id));
+      await patchById(tx, cashCounts, id, { status: 'DRAFT', rejectReason: reason });
       await this.audit.log(tx, {
         tenantId: u.tenantId,
         userId: u.sub,
@@ -377,7 +366,7 @@ export class CashCountService {
         if (later) throw new BadRequestException(`Batalkan dulu opname yang lebih baru (${later.number})`);
         if (c.journalId) await this.posting.reverse(tx, u.tenantId, c.journalId, c.date, u.sub, true);
       }
-      await tx.update(cashCounts).set({ status: 'CANCELLED' }).where(eq(cashCounts.id, id));
+      await patchById(tx, cashCounts, id, { status: 'CANCELLED' });
       await this.audit.log(tx, {
         tenantId: u.tenantId,
         userId: u.sub,

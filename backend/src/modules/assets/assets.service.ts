@@ -17,6 +17,7 @@ import { PostingService } from '../accounting/posting.service';
 import { AssetRepository } from './asset.repository';
 import { accumulatedThrough, depreciationFor, fiscalDepreciation, lastDay, monthIndex, periodOf, type MethodChange } from './depreciation';
 import { CategoryDto, UpdateCategoryDto, RegisterFromJournalDto, CreateAssetDto, UpdateAssetDto, VerifyDto, UsageDto, ChangeMethodDto, TransferAssetBranchDto, DisposeDto } from './assets.dto';
+import { patchById } from '../../db/owned';
 
 /** Pengaturan aset tetap per perusahaan (disimpan di settings.assets) */
 export const DEFAULT_ASSET_SETTINGS = { autoDepreciation: true };
@@ -304,7 +305,7 @@ export class AssetsService {
           createdById: user.sub,
           lines: [{ accountId: cat.assetAccountId, debit: cost, branchId: dto.branchId ?? null }, credit],
         });
-        await tx.update(fixedAssets).set({ acquisitionJournalId: j.id }).where(eq(fixedAssets.id, asset.id));
+        await patchById(tx, fixedAssets, asset.id, { acquisitionJournalId: j.id });
       }
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'FixedAsset', entityId: asset.id });
       return asset.id;

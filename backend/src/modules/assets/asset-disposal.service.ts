@@ -14,6 +14,7 @@ import { PostingService } from '../accounting/posting.service';
 import { monthIndex, periodOf } from './depreciation';
 import { TransferAssetBranchDto, DisposeDto } from './assets.dto';
 import { AssetsService, ASSET_ALERT_VALUE } from './assets.service';
+import { patchById } from '../../db/owned';
 
 @Injectable()
 export class AssetDisposalService {
@@ -80,7 +81,7 @@ export class AssetDisposalService {
         createdById: user.sub,
         lines,
       });
-      await tx.update(fixedAssets).set({ branchId: target }).where(eq(fixedAssets.id, a.id));
+      await patchById(tx, fixedAssets, a.id, { branchId: target });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,
@@ -162,10 +163,7 @@ export class AssetDisposalService {
         createdById: user.sub,
         lines,
       });
-      await tx
-        .update(fixedAssets)
-        .set({ status: 'DISPOSED', disposalDate: date, disposalPrice: price.toFixed(2), disposalJournalId: j.id })
-        .where(eq(fixedAssets.id, a.id));
+      await patchById(tx, fixedAssets, a.id, { status: 'DISPOSED', disposalDate: date, disposalPrice: price.toFixed(2), disposalJournalId: j.id });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,

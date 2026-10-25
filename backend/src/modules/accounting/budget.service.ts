@@ -13,6 +13,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { accounts, budgetAlerts, budgetLines, budgets, users } from '../../db/schema';
 import { SaveBudgetDto, SeedBudgetDto, BudgetRowDto } from './budget.dto';
+import { patchById } from '../../db/owned';
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
 
@@ -81,7 +82,7 @@ export class BudgetService {
       if (!b) {
         [b] = await tx.insert(budgets).values({ tenantId: user.tenantId, year, name: dto.name?.trim() || `Anggaran ${year}`, createdById: user.sub, tolerancePct: dto.tolerancePct ?? 10 }).returning();
       } else {
-        await tx.update(budgets).set({ name: dto.name?.trim() || b.name, tolerancePct: dto.tolerancePct ?? b.tolerancePct }).where(eq(budgets.id, b.id));
+        await patchById(tx, budgets, b.id, { name: dto.name?.trim() || b.name, tolerancePct: dto.tolerancePct ?? b.tolerancePct });
       }
       await tx.delete(budgetLines).where(eq(budgetLines.budgetId, b.id));
       const values = dto.rows.flatMap((r) => r.months.map((m, i) => ({ tenantId: user.tenantId, budgetId: b.id, accountId: r.accountId, month: i + 1, amount: money(m).toFixed(2) }))).filter((v) => D(v.amount).gt(0));
@@ -118,7 +119,7 @@ export class BudgetService {
       if (b.createdById === user.sub && user.role !== 'OWNER') throw new ForbiddenException('Anggaran harus disetujui orang lain (Pemilik atau Admin lain)');
       const [n] = (await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM budget_lines WHERE budget_id = ${b.id}`)).rows;
       if (!n.n) throw new BadRequestException('Anggaran masih kosong');
-      await tx.update(budgets).set({ status: 'APPROVED', approvedById: user.sub, approvedAt: new Date() }).where(eq(budgets.id, b.id));
+      await patchById(tx, budgets, b.id, { status: 'APPROVED', approvedById: user.sub, approvedAt: new Date() });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'APPROVE', entity: 'Budget', entityId: b.id, data: { year } });
     });
     return this.get(user.tenantId, year);
@@ -129,7 +130,7 @@ export class BudgetService {
       const [b] = await tx.select().from(budgets).where(and(eq(budgets.tenantId, user.tenantId), eq(budgets.year, year))).for('update');
       if (!b) throw new NotFoundException('Anggaran belum dibuat');
       if (b.status !== 'APPROVED') throw new BadRequestException('Anggaran belum disetujui');
-      await tx.update(budgets).set({ status: 'DRAFT', approvedById: null, approvedAt: null }).where(eq(budgets.id, b.id));
+      await patchById(tx, budgets, b.id, { status: 'DRAFT', approvedById: null, approvedAt: null });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'REOPEN', entity: 'Budget', entityId: b.id, data: { year, reason: reason.trim() } });
     });
     return this.get(user.tenantId, year);

@@ -19,7 +19,7 @@ import { WorkCenterService } from './work-centers.service';
 import { QcService } from './qc.service';
 import { SaveBomDto, CreateProductionDto, StartProductionDto, CompleteProductionDto, CancelProductionDto } from './production.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
-import { findOwned } from '../../db/owned';
+import { findOwned, patchById } from '../../db/owned';
 
 @Injectable()
 export class ProductionService {
@@ -177,9 +177,7 @@ export class ProductionService {
     if (!b) throw new NotFoundException('Resep tidak ditemukan');
     await this.db.transaction(async (tx) => {
       await this.validateBom(tx, user.tenantId, dto);
-      await tx
-        .update(boms)
-        .set({
+      await patchById(tx, boms, id, {
           name: dto.name.trim(),
           productId: dto.productId,
           outputQty: qty4(dto.outputQty).toFixed(4),
@@ -187,8 +185,7 @@ export class ProductionService {
           overheadCost: money(dto.overheadCost ?? 0).toFixed(2),
           notes: dto.notes,
           isActive: dto.isActive ?? b.isActive,
-        })
-        .where(eq(boms.id, id));
+        });
       // Perintah produksi menyimpan salinan bahan sendiri, jadi resep aman diubah
       await tx.delete(bomLines).where(eq(bomLines.bomId, id));
       await tx
@@ -385,10 +382,7 @@ export class ProductionService {
         });
         material = material.plus(moved.value);
         issued.push({ productId: l.productId, value: moved.value });
-        await tx
-          .update(productionOrderLines)
-          .set({ issuedQty: q.toFixed(4), unitCost: moved.unitCost.toFixed(4), value: moved.value.toFixed(2) })
-          .where(eq(productionOrderLines.id, l.id));
+        await patchById(tx, productionOrderLines, l.id, { issuedQty: q.toFixed(4), unitCost: moved.unitCost.toFixed(4), value: moved.value.toFixed(2) });
       }
       let journalId: string | null = null;
       if (material.gt(0)) {
@@ -403,10 +397,7 @@ export class ProductionService {
         });
         journalId = j.id;
       }
-      await tx
-        .update(productionOrders)
-        .set({ status: 'IN_PROGRESS', startedDate: date, materialCost: material.toFixed(2), startJournalId: journalId })
-        .where(eq(productionOrders.id, id));
+      await patchById(tx, productionOrders, id, { status: 'IN_PROGRESS', startedDate: date, materialCost: material.toFixed(2), startJournalId: journalId });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,
@@ -481,9 +472,7 @@ export class ProductionService {
           },
         ],
       });
-      await tx
-        .update(productionOrders)
-        .set({
+      await patchById(tx, productionOrders, id, {
           status: 'COMPLETED',
           completedDate: date,
           outputQty: out.toFixed(4),
@@ -492,8 +481,7 @@ export class ProductionService {
           totalCost: total.toFixed(2),
           unitCost: unitCost.toFixed(4),
           completeJournalId: j.id,
-        })
-        .where(eq(productionOrders.id, id));
+        });
       if (quarantineId) await this.qc.createForOrderTx(tx, user, { orderId: o.id, productId: o.productId, warehouseId: quarantineId, releaseWarehouseId: o.warehouseId, qty: out.toFixed(4), unitCost: unitCost.toFixed(4), lot: prod?.shelf ? { lotNo: o.number, expiryDate: addDays(date, prod.shelf) } : undefined });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
@@ -555,10 +543,7 @@ export class ProductionService {
           });
         }
       }
-      await tx
-        .update(productionOrders)
-        .set({ status: 'CANCELLED', cancelledDate: date })
-        .where(eq(productionOrders.id, id));
+      await patchById(tx, productionOrders, id, { status: 'CANCELLED', cancelledDate: date });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,

@@ -15,6 +15,7 @@ import { InvoicesService } from '../sales/invoices/invoices.service';
 import { SalesOrdersService } from '../sales/orders/sales-orders.service';
 import { IntegrationSettingsDto, MarketplaceImportDto, MarketplaceSettleDto } from './integrations.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
+import { patchById } from '../../db/owned';
 
 export interface IntegrationSettings {
   /** Kode satuan Coretax per satuan barang, mis. { PCS: 'UM.00xx' } */
@@ -507,10 +508,7 @@ export class IntegrationsService {
           notes: `Pencairan ${channel} #${r.orderNo}`,
           journalId: journal.id,
         });
-        await tx
-          .update(invoices)
-          .set({ paidAmount: D(r.inv.paidAmount).plus(out).toFixed(2), status: 'PAID' })
-          .where(eq(invoices.id, r.inv.id));
+        await patchById(tx, invoices, r.inv.id, { paidAmount: D(r.inv.paidAmount).plus(out).toFixed(2), status: 'PAID' });
       }
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'SETTLE', entity: 'Marketplace', entityId: journal.id, data: { channel, orders: picked.length, journal: journal.number } });
       return { journalNumber: journal.number, orders: picked.length, gross: gross.toFixed(2), fee: fee.toFixed(2), received: received.toFixed(2) };

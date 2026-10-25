@@ -16,7 +16,7 @@ import { PostingService } from '../accounting/posting.service';
 import { FiscalService } from '../insights/fiscal.service';
 import { decryptField } from '../../common/utils/secret';
 import { CreateTaxPaymentDto } from './tax.dto';
-import { findOwned } from '../../db/owned';
+import { findOwned, patchById } from '../../db/owned';
 
 const LIABILITY_KEY: Partial<Record<TaxPaymentType, SystemKey>> = {
   PPH21: SYS.PPH21_PAYABLE,
@@ -340,7 +340,7 @@ export class TaxService {
         createdById: user.sub,
         lines,
       });
-      await tx.update(taxPayments).set({ journalId: journal.id }).where(eq(taxPayments.id, row.id));
+      await patchById(tx, taxPayments, row.id, { journalId: journal.id });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'TaxPayment', entityId: row.id, data: { number } });
       return { ...row, journalId: journal.id, journalNumber: journal.number };
     });

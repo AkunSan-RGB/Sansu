@@ -17,6 +17,7 @@ import { PricingService } from '../pricing/price-lists.service';
 import { CreateSalesOrderDto, SalesOrderLineDto, SalesOrderQueryDto } from '../sales.dto';
 import { CreditService } from './credit.service';
 import { ReferenceRepository } from '../../../db/reference.repository';
+import { patchById } from '../../../db/owned';
 
 @Injectable()
 export class SalesOrdersService {
@@ -262,7 +263,7 @@ export class SalesOrdersService {
       const order = await this.lockOrder(tx, user.tenantId, id);
       if (order.status !== 'DRAFT') throw new BadRequestException(`Order berstatus ${order.status}, tidak bisa dikonfirmasi`);
       await this.credit.assertCanOrder(tx, user.tenantId, order.customerId, D(order.total), order.id);
-      await tx.update(salesOrders).set({ status: 'CONFIRMED' }).where(eq(salesOrders.id, id));
+      await patchById(tx, salesOrders, id, { status: 'CONFIRMED' });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CONFIRM', entity: 'SalesOrder', entityId: id });
       number = order.number;
       customerId = order.customerId;
@@ -288,7 +289,7 @@ export class SalesOrdersService {
       }
       was = order.status;
       number = order.number;
-      await tx.update(salesOrders).set({ status: 'CANCELLED', cancelReason: reason?.trim() || null, cancelledById: user.sub }).where(eq(salesOrders.id, id));
+      await patchById(tx, salesOrders, id, { status: 'CANCELLED', cancelReason: reason?.trim() || null, cancelledById: user.sub });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'SalesOrder', entityId: id, data: { reason: reason?.trim() || null, wasStatus: order.status } });
     });
     if (was === 'CONFIRMED') {

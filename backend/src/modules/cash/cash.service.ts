@@ -17,6 +17,7 @@ import { BudgetService } from '../accounting/budget.service';
 import { PostingService } from '../accounting/posting.service';
 import { AssetsService } from '../assets/assets.service';
 import { CreateCashTxDto, CashLineDto, CashQueryDto, VoidCashDto, CashEvidenceDto } from './cash.dto';
+import { patchById } from '../../db/owned';
 
 /** Kas yang sudah melewati penentuan sumber: setiap baris punya akun */
 export type ResolvedCashTx = Omit<CreateCashTxDto, 'lines'> & { lines?: (Omit<CashLineDto, 'accountId'> & { accountId: string; sourceKey?: string })[] };
@@ -299,7 +300,7 @@ export class CashService {
         createdById: user.sub,
         lines: journalLines,
       });
-      await tx.update(cashTransactions).set({ journalId: journal.id }).where(eq(cashTransactions.id, trx.id));
+      await patchById(tx, cashTransactions, trx.id, { journalId: journal.id });
       if (dto.type === 'OUT') {
         for (const l of lines) {
           const cats = assetCats.get(l.accountId);
@@ -396,7 +397,7 @@ export class CashService {
       const assetRows = await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM fixed_assets WHERE tenant_id = ${user.tenantId} AND acquisition_journal_id = ${t.journalId}`);
       if (assetRows.rows[0].n > 0) throw new BadRequestException('Transaksi ini sudah menjadi kartu Aset Tetap. Lepaskan atau hapus asetnya dulu di Aset Tetap');
       const rev = await this.posting.reverse(tx, user.tenantId, t.journalId, todayJakarta(), user.sub, true);
-      await tx.update(cashTransactions).set({ status: 'VOID', voidedAt: new Date(), voidedById: user.sub, voidReason: reason, voidJournalId: rev.id }).where(eq(cashTransactions.id, id));
+      await patchById(tx, cashTransactions, id, { status: 'VOID', voidedAt: new Date(), voidedById: user.sub, voidReason: reason, voidJournalId: rev.id });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'VOID', entity: 'CashTransaction', entityId: id, data: { number: t.number, amount: t.amount, reason } });
       return { id, number: t.number, status: 'VOID', reversalJournal: rev.number };
     };
@@ -413,7 +414,7 @@ export class CashService {
       const [t] = await tx.select().from(cashTransactions).where(eq(cashTransactions.id, id));
       if (t.status === 'VOID') throw new BadRequestException('Transaksi ini sudah dibatalkan');
       if (t.reference?.trim()) throw new BadRequestException('Transaksi ini sudah punya nomor bukti dan tidak bisa diubah');
-      await tx.update(cashTransactions).set({ reference }).where(eq(cashTransactions.id, id));
+      await patchById(tx, cashTransactions, id, { reference });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'CashTransaction', entityId: id, data: { number: t.number, reference } });
       return { id, number: t.number, reference };
     });
