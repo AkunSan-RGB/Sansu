@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, OnModuleDestroy, OnModuleInit, NotFoundException } from '@nestjs/common';
 import { DEPRECIATION_METHOD_LABELS, type FiscalAssetGroup } from '@sansu/shared';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { TelegramService } from '../../common/telegram/telegram.service';
@@ -14,6 +14,7 @@ import { accounts, assetCategories, assetDepreciations, assetUsage, fixedAssets,
 import { frameworkOf } from '../accounting/coa-sync';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
+import { AssetRepository } from './asset.repository';
 import { accumulatedThrough, depreciationFor, fiscalDepreciation, lastDay, monthIndex, periodOf, type MethodChange } from './depreciation';
 import { CategoryDto, UpdateCategoryDto, RegisterFromJournalDto, CreateAssetDto, UpdateAssetDto, VerifyDto, UsageDto, ChangeMethodDto, TransferAssetBranchDto, DisposeDto } from './assets.dto';
 
@@ -36,6 +37,7 @@ export class AssetsService {
     private readonly settings: SettingsService,
     private readonly approvals: ApprovalsService,
     private readonly telegram: TelegramService,
+    private readonly repo: AssetRepository,
   ) {}
 
   /** Tanah & kategori tak disusutkan selalu dikapitalisasi, berapa pun nilainya */
@@ -58,7 +60,7 @@ export class AssetsService {
   private async assertAccounts(tenantId: string, dto: Partial<CategoryDto>) {
     const ids = [dto.assetAccountId, dto.accumulatedAccountId, dto.expenseAccountId].filter(Boolean) as string[];
     for (const id of ids) {
-      const [a] = await this.db.select().from(accounts).where(and(eq(accounts.id, id), eq(accounts.tenantId, tenantId)));
+      const a = await this.repo.accountById(this.db, tenantId, id);
       if (!a || !a.isPostable) throw new BadRequestException('Akun kategori tidak valid');
     }
     if (dto.method && dto.method !== 'NONE' && (!dto.accumulatedAccountId || !dto.expenseAccountId)) {
@@ -68,16 +70,16 @@ export class AssetsService {
 
   async createCategory(tenantId: string, dto: CategoryDto) {
     await this.assertAccounts(tenantId, dto);
-    const [c] = await this.db.insert(assetCategories).values({ ...dto, tenantId }).returning();
+    const c = await this.repo.insertCategory(this.db, { ...dto, tenantId });
     return c;
   }
 
   async updateCategory(user: AuthUser, id: string, dto: UpdateCategoryDto) {
     const tenantId = user.tenantId;
-    const [cur] = await this.db.select().from(assetCategories).where(and(eq(assetCategories.id, id), eq(assetCategories.tenantId, tenantId)));
+    const cur = await this.repo.categoryById(this.db, tenantId, id);
     if (!cur) throw new NotFoundException('Kategori tidak ditemukan');
     await this.assertAccounts(tenantId, { ...cur, ...dto } as CategoryDto);
-    const [c] = await this.db.update(assetCategories).set(dto).where(eq(assetCategories.id, id)).returning();
+    const c = await this.repo.updateCategory(this.db, id, dto);
     const diff = Object.entries(dto).filter(([k, v]) => v !== undefined && (cur as Record<string, unknown>)[k] !== v);
     if (diff.length) await this.audit.log(this.db, { tenantId, userId: user.sub, action: 'UPDATE', entity: 'AssetCategory', entityId: id, data: Object.fromEntries(diff.map(([k, v]) => [k, { from: (cur as Record<string, unknown>)[k], to: v }])) });
     return c;
@@ -85,7 +87,7 @@ export class AssetsService {
 
   /** Pemakaian per bulan semua aset (metode unit produksi): assetId → { 'YYYY-MM': unit } */
   private async loadUsage(db: Db | Tx, tenantId: string, assetId?: string) {
-    const rows = await db.select().from(assetUsage).where(and(eq(assetUsage.tenantId, tenantId), assetId ? eq(assetUsage.assetId, assetId) : undefined));
+    const rows = await this.repo.usageRows(db, tenantId, assetId);
     const map = new Map<string, Record<string, number>>();
     for (const r of rows) map.set(r.assetId, { ...(map.get(r.assetId) ?? {}), [r.period]: Number(r.units) });
     return map;
@@ -166,7 +168,7 @@ export class AssetsService {
       const rows = (await this.unregistered(user.tenantId, tx)).filter((r) => r.journalId === dto.journalId && r.accountId === dto.accountId);
       const row = rows[0];
       if (!row) throw new BadRequestException('Pembelian ini tidak ditemukan atau sudah seluruhnya menjadi kartu aset');
-      const cats = await tx.select().from(assetCategories).where(and(eq(assetCategories.tenantId, user.tenantId), eq(assetCategories.assetAccountId, dto.accountId)));
+      const cats = await this.repo.categoriesByAssetAccount(tx, user.tenantId, dto.accountId);
       const cat = dto.categoryId ? cats.find((c) => c.id === dto.categoryId) : cats.length === 1 ? cats[0] : undefined;
       if (!cat) throw new BadRequestException(dto.categoryId ? 'Kategori tidak sesuai dengan akun aset jurnal ini' : 'Akun ini dipakai beberapa kategori; pilih kategori asetnya');
       const amount = money(dto.amount ?? row.remaining);
@@ -244,7 +246,7 @@ export class AssetsService {
 
   async create(user: AuthUser, dto: CreateAssetDto) {
     const id = await this.db.transaction(async (tx) => {
-      const [cat] = await tx.select().from(assetCategories).where(and(eq(assetCategories.id, dto.categoryId), eq(assetCategories.tenantId, user.tenantId)));
+      const cat = await this.repo.categoryById(tx, user.tenantId, dto.categoryId);
       if (!cat) throw new BadRequestException('Kategori tidak ditemukan');
       if (dto.branchId) {
         const [b] = (await tx.execute<{ id: string }>(sql`SELECT id FROM branches WHERE id = ${dto.branchId} AND tenant_id = ${user.tenantId} AND is_active`)).rows;
@@ -320,7 +322,7 @@ export class AssetsService {
   }
 
   async update(user: AuthUser, id: string, dto: UpdateAssetDto) {
-    const [before] = await this.db.select().from(fixedAssets).where(and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId)));
+    const before = await this.repo.assetById(this.db, user.tenantId, id);
     if (!before) throw new NotFoundException('Aset tidak ditemukan');
     const [a] = await this.db.update(fixedAssets).set(dto).where(and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId))).returning();
     // Penanggung jawab/lokasi yang berubah sering dipakai menutupi aset yang hilang: tercatat siapa, dari apa ke apa
@@ -394,7 +396,7 @@ export class AssetsService {
     tenantId: string,
     a: { categoryId: string; name: string; date: string; cost: Dec; usefulLifeMonths?: number; location?: string; journalId: string; purchaseInvoiceId: string; notes?: string; branchId?: string | null; totalUnits?: string; unitLabel?: string },
   ) {
-    const [cat] = await tx.select().from(assetCategories).where(and(eq(assetCategories.id, a.categoryId), eq(assetCategories.tenantId, tenantId)));
+    const cat = await this.repo.categoryById(tx, tenantId, a.categoryId);
     if (!cat) throw new BadRequestException('Kategori aset tidak ditemukan');
     return this.insertAsset(tx, tenantId, cat, {
       name: a.name,
@@ -432,7 +434,7 @@ export class AssetsService {
     user: AuthUser,
     a: { categoryId: string; name: string; date: string; cost: Dec; usefulLifeMonths?: number; location?: string; journalId: string; notes?: string; branchId?: string | null; totalUnits?: string; unitLabel?: string },
   ) {
-    const [cat] = await tx.select().from(assetCategories).where(and(eq(assetCategories.id, a.categoryId), eq(assetCategories.tenantId, user.tenantId)));
+    const cat = await this.repo.categoryById(tx, user.tenantId, a.categoryId);
     if (!cat) throw new BadRequestException('Kategori aset tidak ditemukan');
     if (!this.isThresholdExempt(cat)) {
       const { capitalizationThreshold: threshold } = await this.settings.reporting(tx, user.tenantId);
@@ -463,7 +465,7 @@ export class AssetsService {
   /** Kategori aset per akun aset (untuk mendeteksi baris kas yang membeli aset tetap) */
   async categoriesByAssetAccount(tx: Tx | Db, tenantId: string, accountIds: string[]) {
     if (!accountIds.length) return new Map<string, Category[]>();
-    const cats = await tx.select().from(assetCategories).where(and(eq(assetCategories.tenantId, tenantId), inArray(assetCategories.assetAccountId, accountIds)));
+    const cats = await this.repo.categoriesByAssetAccounts(tx, tenantId, accountIds);
     const m = new Map<string, Category[]>();
     for (const c of cats) m.set(c.assetAccountId, [...(m.get(c.assetAccountId) ?? []), c]);
     return m;
@@ -471,13 +473,12 @@ export class AssetsService {
 
   /** Kode aset otomatis berikutnya yang belum terpakai, mulai dari urutan `from` */
   async existingCodes(tenantId: string) {
-    const rows = await this.db.select({ code: fixedAssets.code }).from(fixedAssets).where(eq(fixedAssets.tenantId, tenantId));
-    return new Set(rows.map((r) => r.code.toUpperCase()));
+    const codes = await this.repo.codes(this.db, tenantId);
+    return new Set(codes.map((c) => c.toUpperCase()));
   }
 
   async category(tenantId: string, id: string, db: DbOrTx = this.db) {
-    const [cat] = await db.select().from(assetCategories).where(and(eq(assetCategories.id, id), eq(assetCategories.tenantId, tenantId)));
-    return cat;
+    return this.repo.categoryById(db, tenantId, id);
   }
 
   private async nextCode(tx: Tx, tenantId: string) {
@@ -587,9 +588,9 @@ export class AssetsService {
 
   /** Catatan pemakaian bulanan (metode unit produksi) */
   async usageList(tenantId: string, id: string, db: DbOrTx = this.db) {
-    const [a] = await db.select().from(fixedAssets).where(and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, tenantId)));
+    const a = await this.repo.assetById(db, tenantId, id);
     if (!a) throw new NotFoundException('Aset tidak ditemukan');
-    const rows = await db.select().from(assetUsage).where(and(eq(assetUsage.tenantId, tenantId), eq(assetUsage.assetId, id))).orderBy(asc(assetUsage.period));
+    const rows = await this.repo.usageRowsOrdered(db, tenantId, id);
     const total = rows.reduce((t, r) => t.plus(r.units), ZERO);
     return { method: a.method, totalUnits: a.totalUnits, unitLabel: a.unitLabel, usedUnits: total.toFixed(4), remainingUnits: D(a.totalUnits ?? 0).minus(total).toFixed(4), rows };
   }
@@ -671,7 +672,7 @@ export class AssetsService {
   async changeCategoryMethod(user: AuthUser, categoryId: string, dto: ChangeMethodDto, opts: { approved?: boolean } = {}) {
     const reason = dto.reason?.trim() ?? '';
     if (reason.length < 5) throw new BadRequestException('Isi alasan perubahan metode (minimal 5 huruf)');
-    const [cat] = await this.db.select().from(assetCategories).where(and(eq(assetCategories.id, categoryId), eq(assetCategories.tenantId, user.tenantId)));
+    const cat = await this.repo.categoryById(this.db, user.tenantId, categoryId);
     if (!cat) throw new NotFoundException('Kategori tidak ditemukan');
     if (cat.method === 'NONE') throw new BadRequestException('Kategori ini tidak disusutkan (mis. tanah)');
     if (dto.method === 'UNITS_OF_PRODUCTION') throw new BadRequestException('Metode unit produksi tidak bisa diterapkan ke aset yang sudah ada (butuh total unit per aset).');
