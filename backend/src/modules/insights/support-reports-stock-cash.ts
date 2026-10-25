@@ -3,14 +3,10 @@ import { sql } from 'drizzle-orm';
 import { todayJakarta } from '../../common/utils/dates';
 import { SupportQueries } from './support-queries';
 import { L, R, num, sum, type Cell, type SupportSection } from './support-shared';
-import { SupportReportsService } from './support-reports';
 
 @Injectable()
 export class StockCashSupportReports {
-  constructor(
-    private readonly queries: SupportQueries,
-    private readonly x: SupportReportsService,
-  ) {}
+  constructor(private readonly queries: SupportQueries) {}
 
 
   // ------------------------------------------------------------------ Persediaan

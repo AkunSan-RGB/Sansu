@@ -2,14 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { SupportQueries } from './support-queries';
 import { CAP, L, R, num, sum, withRest, type Cell } from './support-shared';
-import { SupportReportsService } from './support-reports';
 
 @Injectable()
 export class TradeSupportReports {
-  constructor(
-    private readonly queries: SupportQueries,
-    private readonly x: SupportReportsService,
-  ) {}
+  constructor(private readonly queries: SupportQueries) {}
 
 
   // ------------------------------------------------------------------ Penjualan
