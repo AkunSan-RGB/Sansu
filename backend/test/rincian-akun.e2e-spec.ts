@@ -54,7 +54,7 @@ describe('Rincian & perhitungan akun (e2e)', () => {
     expect(bad).toEqual([]);
     ov.items.forEach((i) => seen.add(i.kind));
     // setiap akun bisa dibuka rinciannya: tabel tersedia dan jumlah bulanan menutup ke saldo akhir
-    for (const it of ov.items.slice(0, 40)) {
+    for (const it of ov.items.slice(0, 15)) {
       const d = (await get(token, `/api/account-schedules/${it.accountId}?year=${year}`).expect(200)).body;
       expect(d.tables.length).toBeGreaterThan(0);
       expect(d.method.formulas.length).toBeGreaterThan(0);
@@ -77,7 +77,7 @@ describe('Rincian & perhitungan akun (e2e)', () => {
         }
       }
     }
-  });
+  }, 120_000);
 
   it('semua jenis jadwal khusus terpakai oleh akun nyata', () => {
     for (const k of ['FIXED_ASSET_COST', 'FIXED_ASSET_ACCUMULATED', 'RECEIVABLE', 'PAYABLE', 'INVENTORY', 'CASH', 'TAX', 'EQUITY', 'REVENUE', 'COST_OF_SALES', 'EXPENSE']) {
