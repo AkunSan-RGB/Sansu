@@ -7,7 +7,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
-import { AssetsService } from '../src/modules/assets/assets.module';
+import { AssetsService } from '../src/modules/assets/assets.service';
 
 describe('Aset tetap — otomatisasi & kontrol (e2e)', () => {
   let app: INestApplication;

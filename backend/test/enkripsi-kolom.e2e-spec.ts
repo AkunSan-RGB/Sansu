@@ -11,7 +11,7 @@ import { configureApp } from '../src/bootstrap';
 import { decryptField, encryptField, maskField } from '../src/common/utils/secret';
 import { maskIdentity } from '../src/common/audit/mask';
 import { createDb, createPool, DB, Db } from '../src/db/db';
-import { EmploymentService } from '../src/modules/hr/employment';
+import { EmploymentService } from '../src/modules/hr/employment.service';
 import { FieldEncryptionService } from '../src/modules/data-rights/field-encryption';
 import { SecurityPostureService } from '../src/modules/data-rights/security-posture';
 

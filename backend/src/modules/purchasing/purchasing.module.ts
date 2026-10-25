@@ -12,7 +12,8 @@ import { PurchaseInvoicesService } from './purchase-invoices.service';
 import { PurchaseRequestsService } from './purchase-requests.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { GoodsReceiptsController, PurchaseInvoicesController, PurchaseOrdersController, PurchaseRequestsController, SuppliersController } from './purchasing.controller';
-import { SupplierAdvancesController, SupplierAdvancesService } from './supplier-advances';
+import { SupplierAdvancesController } from './supplier-advances.controller';
+import { SupplierAdvancesService } from './supplier-advances.service';
 import { SuppliersService } from './suppliers.service';
 
 @Module({

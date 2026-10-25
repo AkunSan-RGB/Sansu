@@ -29,7 +29,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { SYS } from '../accounting/default-coa';
 import { get, loadAccounts, natural, sumByAccount } from '../accounting/ledger-data';
-import { AssetsService } from '../assets/assets.module';
+import { AssetsService } from '../assets/assets.service';
 import { refreshChartRelevance } from '../accounting/coa-sync';
 
 export class EntityAnswersDto {

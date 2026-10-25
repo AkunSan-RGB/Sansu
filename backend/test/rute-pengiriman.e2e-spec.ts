@@ -5,7 +5,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 import { createPool } from '../src/db/db';
-import { nearestOrder } from '../src/modules/sales/deliveries/delivery-trips';
+import { nearestOrder } from '../src/modules/sales/deliveries/delivery-trips.service';
 
 describe('nearestOrder (unit)', () => {
   it('mengurutkan dari titik terdekat; stop tanpa koordinat di belakang dengan urutan semula', () => {

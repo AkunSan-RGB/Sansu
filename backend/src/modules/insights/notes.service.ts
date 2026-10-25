@@ -13,7 +13,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { reportNotes, tenants } from '../../db/schema';
 import { StatementLine, StatementsService } from '../accounting/statements.service';
-import { AssetsService } from '../assets/assets.module';
+import { AssetsService } from '../assets/assets.service';
 import { AGING_BUCKETS, openBalanceAging } from './aging';
 import { FiscalService } from './fiscal.service';
 import { FxService } from '../fx/fx.service';

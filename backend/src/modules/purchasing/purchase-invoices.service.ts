@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuthUser } from '../../common/auth/auth-user';
-import { WorkflowService } from '../workflow/workflow.module';
+import { WorkflowService } from '../workflow/workflow.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { SettingsService, taxProfileOf } from '../../common/settings.service';
@@ -27,12 +27,12 @@ import {
   suppliers,
   tenants,
 } from '../../db/schema';
-import { AssetsService } from '../assets/assets.module';
+import { AssetsService } from '../assets/assets.service';
 import { SYS } from '../accounting/default-coa';
-import { BudgetService } from '../accounting/budget';
+import { BudgetService } from '../accounting/budget.service';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
-import { QcService } from '../production/qc';
+import { QcService } from '../production/qc.service';
 import { GoodsReceiptsService, QTY_EPS } from './goods-receipts.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { CreateBillDto, CreatePurchaseInvoiceDto, CreateSupplierPaymentDto, PurchaseInvoiceQueryDto } from './purchasing.dto';

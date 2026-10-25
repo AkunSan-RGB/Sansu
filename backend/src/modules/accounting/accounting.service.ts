@@ -22,7 +22,7 @@ import {
   UpdateAccountDto,
   UpdateRecurringDto,
 } from './dto/accounting.dto';
-import { BudgetService } from './budget';
+import { BudgetService } from './budget.service';
 import { PostingService } from './posting.service';
 import { loadSourceDocument } from './source-document';
 import { resolveSourceRoutes } from './source-route';

@@ -14,7 +14,7 @@ import { InjectDb } from '../../db/db.module';
 import { frameworkOf } from '../accounting/coa-sync';
 import { get, loadAccounts, natural, sumByAccount } from '../accounting/ledger-data';
 import { StatementsService } from '../accounting/statements.service';
-import { AssetsService } from '../assets/assets.module';
+import { AssetsService } from '../assets/assets.service';
 import { ThresholdsService } from './thresholds.service';
 
 type Status = 'OK' | 'WARN' | 'ERROR' | 'INFO';

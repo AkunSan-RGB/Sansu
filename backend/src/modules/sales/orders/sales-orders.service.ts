@@ -13,7 +13,7 @@ import { customers, products, promos, salesOrderLines, salesOrders, stockBalance
 import { foreignTotals } from '../../../common/utils/fx';
 import { FxService } from '../../fx/fx.service';
 import { documentTotals, inclusiveDocument, lineTotal } from '../pricing';
-import { PricingService } from '../pricing/price-lists';
+import { PricingService } from '../pricing/price-lists.service';
 import { CreateSalesOrderDto, SalesOrderLineDto, SalesOrderQueryDto } from '../sales.dto';
 import { CreditService } from './credit.service';
 

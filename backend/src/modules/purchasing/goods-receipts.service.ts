@@ -21,7 +21,7 @@ import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { goodsReceiptLines, goodsReceipts, purchaseOrderLines, purchaseOrders, suppliers, tenants } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
-import { QcService } from '../production/qc';
+import { QcService } from '../production/qc.service';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
 import { PurchaseOrdersService } from './purchase-orders.service';

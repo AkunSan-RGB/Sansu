@@ -2,7 +2,8 @@ import { Module } from '@nestjs/common';
 import { AccountingController } from './accounting.controller';
 import { AccountingService } from './accounting.service';
 import { AdjustmentsService } from './adjustments.service';
-import { BudgetController, BudgetScheduler, BudgetService } from './budget';
+import { BudgetController } from './budget.controller';
+import { BudgetScheduler, BudgetService } from './budget.service';
 import { PostingService } from './posting.service';
 import { StatementsService } from './statements.service';
 

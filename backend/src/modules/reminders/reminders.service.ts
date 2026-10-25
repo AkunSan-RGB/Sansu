@@ -12,7 +12,7 @@ import { addDays, todayJakarta } from '../../common/utils/dates';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { reminderSnoozes } from '../../db/schema';
-import { TAX_LABEL, TaxService } from '../tax/tax.module';
+import { TAX_LABEL, TaxService } from '../tax/tax.service';
 
 export type ReminderCategory = 'PIUTANG' | 'UTANG' | 'STOK' | 'PEMBELIAN' | 'PENJUALAN' | 'PAJAK' | 'PERSETUJUAN' | 'SDM' | 'LANGGANAN';
 export type ReminderLevel = 'error' | 'warning' | 'info';

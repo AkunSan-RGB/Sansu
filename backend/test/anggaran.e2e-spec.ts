@@ -9,7 +9,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 import { MailService } from '../src/common/mail/mail.service';
 import { todayJakarta } from '../src/common/utils/dates';
-import { BudgetService } from '../src/modules/accounting/budget';
+import { BudgetService } from '../src/modules/accounting/budget.service';
 
 describe('Anggaran vs realisasi (e2e)', () => {
   let app: INestApplication;

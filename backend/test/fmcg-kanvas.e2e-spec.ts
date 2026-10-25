@@ -9,7 +9,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 import { DB, Db } from '../src/db/db';
-import { haversineM } from '../src/modules/sales/canvass/canvass';
+import { haversineM } from '../src/modules/sales/canvass/canvass.service';
 
 describe('FMCG: kanvas (e2e)', () => {
   let app: INestApplication;

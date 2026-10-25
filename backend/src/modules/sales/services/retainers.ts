@@ -17,7 +17,7 @@ import { toDocDate, todayJakarta } from '../../../common/utils/dates';
 import { D } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { ServiceBillingService } from './service-billing';
+import { ServiceBillingService } from './service-billing.service';
 
 const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
 const MAX_PERIODS = 36;

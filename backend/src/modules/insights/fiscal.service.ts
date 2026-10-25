@@ -22,7 +22,7 @@ import { get, loadAccounts, natural, sumByAccount } from '../accounting/ledger-d
 import { PostingService } from '../accounting/posting.service';
 import { projectCostsSql } from '../sales/services/project-costs';
 import { StatementsService } from '../accounting/statements.service';
-import { AssetsService } from '../assets/assets.module';
+import { AssetsService } from '../assets/assets.service';
 
 export const CORPORATE_RATE = 22;
 const THRESHOLD_FULL = D(TAX_REVENUE_LIMIT);

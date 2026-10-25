@@ -11,8 +11,10 @@ import { InjectDb } from '../../db/db.module';
 import { accounts, invoices, journalLines, purchaseInvoices, salesOrders, stockBalances } from '../../db/schema';
 import { HealthService } from '../insights/health.service';
 import { InsightsModule } from '../insights/insights.module';
-import { TaxModule, TaxService, TAX_LABEL } from '../tax/tax.module';
-import { DashboardInsightsController, DashboardInsightsService } from './dashboard-insights';
+import { TaxModule } from '../tax/tax.module';
+import { TaxService, TAX_LABEL } from '../tax/tax.service';
+import { DashboardInsightsController } from './dashboard-insights.controller';
+import { DashboardInsightsService } from './dashboard-insights.service';
 import { addDays } from '../../common/utils/dates';
 
 /** Bidang beranda yang boleh dilihat tiap peran (prinsip "perlu tahu"); selain itu dikirim null */

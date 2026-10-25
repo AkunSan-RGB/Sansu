@@ -14,7 +14,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { tenants } from '../../db/schema';
 import { AccountingService } from '../accounting/accounting.service';
-import { AssetsService } from '../assets/assets.module';
+import { AssetsService } from '../assets/assets.service';
 import { AGING_BUCKETS, AgingRow, openBalanceAging } from './aging';
 
 type Cell = string | number | null;

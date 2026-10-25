@@ -10,7 +10,7 @@ import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser } from '../../common/auth/decorators';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { WorkflowService } from '../workflow/workflow.module';
+import { WorkflowService } from '../workflow/workflow.service';
 
 export interface TaskItem {
   key: string;

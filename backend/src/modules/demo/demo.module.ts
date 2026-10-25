@@ -11,7 +11,7 @@ import { Db, createDb, createPool } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { removeTenant } from '../../db/remove-tenant';
 import { AuthService } from '../auth/auth.service';
-import { CashService } from '../cash/cash.module';
+import { CashService } from '../cash/cash.service';
 import { buildDemo } from './demo.kit';
 import { SEEDS } from './demo.seeds';
 

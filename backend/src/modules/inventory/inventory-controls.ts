@@ -10,7 +10,7 @@ import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { addDays, todayJakarta } from '../../common/utils/dates';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { BinsService } from './bins';
+import { BinsService } from './bins.service';
 
 export interface InventoryControlFinding {
   key: string;
