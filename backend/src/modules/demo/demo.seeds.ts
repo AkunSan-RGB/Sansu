@@ -212,7 +212,7 @@ async function seedJasa(c: Demo) {
     { code: 'CL-EDU', name: 'Yayasan Pendidikan Cerdas', address: 'Depok', term: 30 },
   ]);
   const proj = async (code: string, name: string, cust: string, value: number, start: number) =>
-    c.step(`proyek ${name}`, () => c.svc.billing.createProject(c.admin, asDto({ code, name, customerId: cu.get(cust)!, contractValue: String(value), startDate: c.ago(start), endDate: c.ago(-60) }))) as Promise<{ id: string } | undefined>;
+    c.step(`proyek ${name}`, () => c.svc.projects.createProject(c.admin, asDto({ code, name, customerId: cu.get(cust)!, contractValue: String(value), startDate: c.ago(start), endDate: c.ago(-60) }))) as Promise<{ id: string } | undefined>;
   const p1 = await proj('PRJ-APP', 'Pengembangan Aplikasi Mobile Banking Nasabah', 'CL-BANK', 240_000_000, 58);
   const p2 = await proj('PRJ-ERP', 'Implementasi Sistem Gudang Terpadu', 'CL-RETAIL', 150_000_000, 42);
   const inv = async (cust: string, ago: number, desc: string, label: string, lines: { description: string; qty?: string; unit?: string; price: string }[], projectId?: string) =>
@@ -227,8 +227,8 @@ async function seedJasa(c: Demo) {
   if (i4) await c.step('bayar desain (sebagian)', () => receive(c, i4.id, 9, 'TRANSFER', 0.5));
   void i2;
   void i5;
-  if (p1) await c.step('progres', () => c.svc.billing.recordProgress(c.admin, p1.id, asDto({ date: c.ago(5), percent: '55', notes: 'BA kemajuan 03 — modul transfer & mutasi selesai' })));
-  if (p2) await c.step('progres', () => c.svc.billing.recordProgress(c.admin, p2.id, asDto({ date: c.ago(5), percent: '35', notes: 'BA kemajuan 01 — konfigurasi gudang pusat' })));
+  if (p1) await c.step('progres', () => c.svc.projects.recordProgress(c.admin, p1.id, asDto({ date: c.ago(5), percent: '55', notes: 'BA kemajuan 03 — modul transfer & mutasi selesai' })));
+  if (p2) await c.step('progres', () => c.svc.projects.recordProgress(c.admin, p2.id, asDto({ date: c.ago(5), percent: '35', notes: 'BA kemajuan 01 — konfigurasi gudang pusat' })));
   await expense(c, 56, 'bank', '6-3000', 'Sewa kantor Lt. 5', 21_000_000, 'SEWA-KTR');
   await expense(c, 30, 'bank', '6-4000', 'Internet & listrik kantor', 4_800_000);
   await expense(c, 20, 'bank', '6-6000', 'Langganan perangkat lunak desain & cloud', 5_250_000, 'INV-CLOUD');
@@ -277,7 +277,7 @@ async function seedJasa(c: Demo) {
     { title: 'Portal e-learning sekolah', company: 'Yayasan Pendidikan Cerdas', contact: 'Bu Sari', value: 140_000_000, source: 'Webinar' },
     { title: 'Dashboard analitik penjualan', company: 'PT Ritel Nusantara Prima', contact: 'Pak Rian', value: 85_000_000, source: 'Kunjungan' },
   ]);
-  const dep = await c.step('uang muka pelanggan', () => c.svc.billing.createDeposit(c.admin, asDto({ customerId: cu.get('CL-EDU')!, date: c.ago(15), amount: '27750000', method: 'TRANSFER', cashAccountId: c.bank, notes: 'Uang muka portal e-learning' })));
+  const dep = await c.step('uang muka pelanggan', () => c.svc.deposits.createDeposit(c.admin, asDto({ customerId: cu.get('CL-EDU')!, date: c.ago(15), amount: '27750000', method: 'TRANSFER', cashAccountId: c.bank, notes: 'Uang muka portal e-learning' })));
   void dep;
 }
 

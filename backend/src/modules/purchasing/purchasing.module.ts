@@ -13,6 +13,8 @@ import { ProductionModule } from '../production/production.module';
 import { GoodsReceiptsService } from './goods-receipts.service';
 import { PurchaseInvoiceRepository } from './purchase-invoice.repository';
 import { PurchaseInvoicesService } from './purchase-invoices.service';
+import { SupplierPaymentsService } from './supplier-payments.service';
+import { SupplierBillsService } from './supplier-bills.service';
 import { PurchaseReportsService } from './purchase-reports.service';
 import { PurchaseRequestsService } from './purchase-requests.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
@@ -24,7 +26,7 @@ import { SuppliersService } from './suppliers.service';
 @Module({
   imports: [AccountingModule, InventoryModule, AssetsModule, FxModule, ProductionModule],
   controllers: [SupplierAdvancesController, ShoppingListController, PriceAgreementsController, PurchaseControlsController, SuppliersController, PurchaseOrdersController, GoodsReceiptsController, PurchaseInvoicesController, PurchaseRequestsController],
-  providers: [PurchaseInvoiceRepository, SupplierAdvancesService, ShoppingListService, PriceAgreementsService, PurchaseControlsService, SuppliersService, PurchaseOrdersService, GoodsReceiptsService, PurchaseInvoicesService, PurchaseReportsService, PurchaseRequestsService],
-  exports: [SupplierAdvancesService, PurchaseOrdersService, PurchaseInvoicesService, PurchaseReportsService, PurchaseRequestsService, SuppliersService],
+  providers: [PurchaseInvoiceRepository, SupplierAdvancesService, ShoppingListService, PriceAgreementsService, PurchaseControlsService, SuppliersService, PurchaseOrdersService, GoodsReceiptsService, PurchaseInvoicesService, SupplierPaymentsService, SupplierBillsService, PurchaseReportsService, PurchaseRequestsService],
+  exports: [SupplierAdvancesService, PurchaseOrdersService, PurchaseInvoicesService, SupplierPaymentsService, SupplierBillsService, PurchaseReportsService, PurchaseRequestsService, SuppliersService],
 })
 export class PurchasingModule {}

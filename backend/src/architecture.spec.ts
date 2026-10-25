@@ -4,7 +4,7 @@
  *  2. Pengendali tidak menyentuh database/ORM langsung (lewat service)
  *  3. Arah dependensi: dto -> (tidak ke service/pengendali modul), service -> (tidak ke pengendali)
  *  4. Tidak ada siklus antar-modul (folder src/modules/*)
- *  5. Tidak ada berkas sumber lebih dari 1.100 baris (kecuali pembuat data demo)
+ *  5. Tidak ada berkas sumber lebih dari 700 baris (kecuali pembuat data demo)
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -88,8 +88,8 @@ describe('arsitektur', () => {
     expect(cycles).toEqual([]);
   });
 
-  it('tidak ada berkas sumber lebih dari 1.100 baris (kecuali pembuat data demo)', () => {
-    const big = files.filter((f) => !/\/(demo)\//.test(f) && !/demo\.(seeds|extra|kit)\.ts$/.test(f) && fs.readFileSync(f, 'utf8').split('\n').length > 1100).map(rel);
+  it('tidak ada berkas sumber lebih dari 700 baris (kecuali pembuat data demo)', () => {
+    const big = files.filter((f) => !/\/(demo)\//.test(f) && !/demo\.(seeds|extra|kit)\.ts$/.test(f) && fs.readFileSync(f, 'utf8').split('\n').length > 700).map(rel);
     expect(big).toEqual([]);
   });
 });

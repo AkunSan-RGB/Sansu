@@ -11,6 +11,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SettingsService } from '../../common/settings.service';
 import { addDays, DocDate, withSimulatedDay } from '../../common/utils/dates';
+import { RecurringJournalsService } from '../../modules/accounting/recurring-journals.service';
 import { AccountingService } from '../../modules/accounting/accounting.service';
 import { AssetsService } from '../../modules/assets/assets.service';
 import { BankService } from '../../modules/bank/bank.service';
@@ -24,6 +25,8 @@ import { PayrollService } from '../../modules/payroll/payroll.service';
 import { PosService } from '../../modules/pos/pos.service';
 import { documentTotals } from '../../modules/sales/pricing';
 import { PurchaseInvoicesService } from '../../modules/purchasing/purchase-invoices.service';
+import { SupplierBillsService } from '../../modules/purchasing/supplier-bills.service';
+import { SupplierPaymentsService } from '../../modules/purchasing/supplier-payments.service';
 import { PurchaseOrdersService } from '../../modules/purchasing/purchase-orders.service';
 import { ReturnsService } from '../../modules/returns/returns.service';
 import { InvoicesService } from '../../modules/sales/invoices/invoices.service';
@@ -132,9 +135,12 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
     customers: app.get(CustomersService),
     inventory: app.get(InventoryService),
     accounting: app.get(AccountingService),
+    recurring: app.get(RecurringJournalsService),
     assets: app.get(AssetsService),
     po: app.get(PurchaseOrdersService),
     pi: app.get(PurchaseInvoicesService),
+    spay: app.get(SupplierPaymentsService),
+    bills: app.get(SupplierBillsService),
     so: app.get(SalesOrdersService),
     inv: app.get(InvoicesService),
     pay: app.get(PaymentsService),
@@ -268,7 +274,7 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
   await db.update(fixedAssets).set({ openingFiscalAccumulated: String(pickupAccum) }).where(eq(fixedAssets.id, pickup.id));
 
   // Jurnal berulang: amortisasi sewa gudang dibayar dimuka
-  await svc.accounting.createRecurring(admin, asDto({
+  await svc.recurring.createRecurring(admin, asDto({
     name: 'Amortisasi sewa gudang',
     description: 'Amortisasi sewa gudang dibayar dimuka (1/12)',
     frequency: 'MONTHLY',
@@ -296,12 +302,12 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
       const out = Number(inv.total) - Number(inv.paidAmount) - Number(inv.returnedAmount);
       if (out <= 0) return;
       if ((await bankBalance()) < out + 25_000_000 && attempt < 6) return paySupplier(invId, addDays(due, 4), attempt + 1);
-      await svc.pi.pay(admin, { purchaseInvoiceId: invId, amount: out.toFixed(2), cashAccountId: bank, date: due });
+      await svc.spay.pay(admin, { purchaseInvoiceId: invId, amount: out.toFixed(2), cashAccountId: bank, date: due });
     });
   };
 
   const bill = async (date: DocDate, supplier: string, no: string, dto: object) => {
-    const r = await svc.pi.createBill(admin, asDto({ supplierId: supId.get(supplier)!, supplierInvoiceNo: no, date, ...dto }));
+    const r = await svc.bills.createBill(admin, asDto({ supplierId: supId.get(supplier)!, supplierInvoiceNo: no, date, ...dto }));
     const term = [...GOODS_SUPPLIERS, ...SERVICE_SUPPLIERS].find((s) => s.code === supplier)!.term;
     paySupplier(r.id, addDays(date, term - rint(0, 2)));
     return r;
@@ -712,7 +718,7 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
         await quiet('kunci', () => svc.accounting.lockPeriod(admin, until));
       }
       // akhir bulan: penyusutan, jurnal berulang, gaji
-      await quiet('berulang', () => svc.accounting.runDue(tenantId, admin.sub));
+      await quiet('berulang', () => svc.recurring.runDue(tenantId, admin.sub));
       if (d === lastDay(d) && d < today) {
         await quiet('penyusutan', () => svc.assets.run(admin, d.slice(0, 7)));
         await quiet('gaji', () => payroll(d.slice(0, 7), d));

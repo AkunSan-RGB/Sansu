@@ -173,7 +173,7 @@ export async function fixedAssets(c: Demo, supplierCode: string, list: { cat: st
   for (const [i, a] of list.entries()) {
     const cat = cats.find((x) => x.name.toLowerCase().includes(a.cat.toLowerCase())) ?? cats[0];
     await c.step(`aset ${a.name}`, () =>
-      c.svc.pi.createBill(c.admin, asDto({
+      c.svc.bills.createBill(c.admin, asDto({
         supplierId: sup.id,
         supplierInvoiceNo: `AST-${i + 1}-${c.int(100, 999)}`,
         date: c.ago(a.ago),
@@ -199,7 +199,7 @@ export async function journals(c: Demo) {
     c.svc.accounting.createManualJournal(c.admin, asDto({ date: c.ago(15), description: `Penyesuaian: amortisasi ${pp.label.replace(/ \(.*\)/, '')} bulan ini`, adjustment: true, lines: lines('6-5100', '1-1700', pp.monthly) })),
   );
   await c.step('jurnal berulang', () =>
-    c.svc.accounting.createRecurring(c.admin, asDto({
+    c.svc.recurring.createRecurring(c.admin, asDto({
       name: `Amortisasi ${pp.label.replace(/ \(.*\)/, '')} bulanan`,
       description: `Amortisasi ${pp.label.replace(/ \(.*\)/, '')} dibayar dimuka (1/${pp.months})`,
       frequency: 'MONTHLY',
@@ -404,7 +404,7 @@ export async function stockOps(c: Demo, ids: Map<string, string>, skus: string[]
 /** Uang muka pelanggan (diterima di muka, dipakai pada faktur berikutnya) */
 export async function deposit(c: Demo, customerId: string, amount: number, note: string) {
   await c.step('uang muka pelanggan', () =>
-    c.svc.billing.createDeposit(c.admin, asDto({ customerId, date: c.ago(12), amount: String(amount), method: 'TRANSFER', cashAccountId: c.bank, notes: note })),
+    c.svc.deposits.createDeposit(c.admin, asDto({ customerId, date: c.ago(12), amount: String(amount), method: 'TRANSFER', cashAccountId: c.bank, notes: note })),
   );
 }
 

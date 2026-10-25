@@ -30,6 +30,10 @@ import type { StockAdjustmentDto } from '../inventory/dto/inventory.dto';
 import type { CreateBillDto, CreateSupplierPaymentDto } from '../purchasing/purchasing.dto';
 import type { ChangeMethodDto, DisposeDto } from '../assets/assets.dto';
 import { ListDto, AssignDto, DecisionDto, PolicyDto } from './approvals.dto';
+import { SupplierPaymentsService } from '../purchasing/supplier-payments.service';
+import { AssetDisposalService } from '../assets/asset-disposal.service';
+import { AssetMethodService } from '../assets/asset-method.service';
+import { SupplierBillsService } from '../purchasing/supplier-bills.service';
 
 @Injectable()
 export class ApprovalRequestsService {
@@ -52,6 +56,10 @@ export class ApprovalRequestsService {
     private readonly petty: PettyCashService,
     private readonly inventory: InventoryService,
     private readonly audit: AuditService,
+    private readonly supplierPayments: SupplierPaymentsService,
+    private readonly assetDisposal: AssetDisposalService,
+    private readonly assetMethod: AssetMethodService,
+    private readonly supplierBills: SupplierBillsService,
   ) {}
 
   policy(user: AuthUser) {
@@ -174,10 +182,10 @@ export class ApprovalRequestsService {
         const r = await this.inventory.adjust({ ...user, sub: req.requestedById }, req.payload as unknown as StockAdjustmentDto, undefined, { approved: true });
         resultRef = r.number;
       } else if (req.kind === 'BILL') {
-        const b = await this.invoices.createBill({ ...user, sub: req.requestedById }, req.payload as unknown as CreateBillDto, { approved: true });
+        const b = await this.supplierBills.createBill({ ...user, sub: req.requestedById }, req.payload as unknown as CreateBillDto, { approved: true });
         resultRef = (b as { number?: string }).number;
       } else if (req.kind === 'SUPPLIER_PAYMENT') {
-        const r = await this.invoices.pay({ ...user, sub: req.requestedById }, req.payload as unknown as CreateSupplierPaymentDto, { approved: true });
+        const r = await this.supplierPayments.pay({ ...user, sub: req.requestedById }, req.payload as unknown as CreateSupplierPaymentDto, { approved: true });
         resultRef = (r as { number?: string }).number;
       } else if (req.kind === 'BIN_MOVE') {
         await this.bins.move({ ...user, sub: req.requestedById }, req.payload as unknown as MoveBinsDto, { approved: true });
@@ -193,15 +201,15 @@ export class ApprovalRequestsService {
         // dijalankan atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
         const pl = req.payload as unknown as ChangeMethodDto & { id?: string; categoryId?: string };
         if (pl.categoryId) {
-          const r = await this.assets.changeCategoryMethod({ ...user, sub: req.requestedById }, pl.categoryId, pl, { approved: true });
+          const r = await this.assetMethod.changeCategoryMethod({ ...user, sub: req.requestedById }, pl.categoryId, pl, { approved: true });
           resultRef = `${r.changed.length} aset diubah`;
         } else {
-          const a = await this.assets.changeMethod({ ...user, sub: req.requestedById }, pl.id!, pl, { approved: true });
+          const a = await this.assetMethod.changeMethod({ ...user, sub: req.requestedById }, pl.id!, pl, { approved: true });
           resultRef = a.code;
         }
       } else if (req.kind === 'ASSET_DISPOSAL') {
         const { id: assetId, ...dto } = req.payload as unknown as DisposeDto & { id: string };
-        const a = await this.assets.dispose({ ...user, sub: req.requestedById }, assetId, dto, { approved: true });
+        const a = await this.assetDisposal.dispose({ ...user, sub: req.requestedById }, assetId, dto, { approved: true });
         resultRef = a.code;
       } else {
         // dicatat atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit

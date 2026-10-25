@@ -7,6 +7,8 @@ import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { AssetsService } from './assets.service';
 import { CategoryDto, UpdateCategoryDto, RunDepreciationDto, AssetSettingsDto, RegisterFromJournalDto, CreateAssetDto, UpdateAssetDto, ChangeMethodDto, UsageDto, VerifyDto, TransferAssetBranchDto, DisposeDto } from './assets.dto';
 import { AssetReportsService } from './asset-reports.service';
+import { AssetDisposalService } from './asset-disposal.service';
+import { AssetMethodService } from './asset-method.service';
 
 export class MethodPreviewQuery {
   @ApiProperty() @IsIn(DEPRECIATION_METHODS.filter((m) => m !== 'NONE')) method: string;
@@ -19,7 +21,9 @@ export class MethodPreviewQuery {
 @Controller('assets')
 export class AssetsController {
   constructor(private readonly svc: AssetsService,
-    private readonly assetReports: AssetReportsService) {}
+    private readonly assetReports: AssetReportsService,
+    private readonly assetDisposal: AssetDisposalService,
+    private readonly assetMethod: AssetMethodService) {}
 
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('categories')
@@ -114,7 +118,7 @@ export class AssetsController {
   @Roles('ADMIN', 'ACCOUNTANT')
   @Post('categories/:id/change-method')
   changeCategoryMethod(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ChangeMethodDto) {
-    return this.svc.changeCategoryMethod(u, id, dto);
+    return this.assetMethod.changeCategoryMethod(u, id, dto);
   }
 
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
@@ -126,19 +130,19 @@ export class AssetsController {
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get(':id/usage')
   usage(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.usageList(u.tenantId, id);
+    return this.assetMethod.usageList(u.tenantId, id);
   }
 
   @Roles('ADMIN', 'ACCOUNTANT')
   @Put(':id/usage')
   setUsage(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UsageDto) {
-    return this.svc.setUsage(u, id, dto);
+    return this.assetMethod.setUsage(u, id, dto);
   }
 
   @Roles('ADMIN', 'ACCOUNTANT')
   @Post(':id/change-method')
   changeMethod(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ChangeMethodDto) {
-    return this.svc.changeMethod(u, id, dto);
+    return this.assetMethod.changeMethod(u, id, dto);
   }
 
   @Roles('ADMIN', 'ACCOUNTANT')
@@ -149,11 +153,11 @@ export class AssetsController {
   @Roles('ADMIN')
   @Post(':id/transfer-branch')
   transferBranch(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: TransferAssetBranchDto) {
-    return this.svc.transferBranch(u, id, dto);
+    return this.assetDisposal.transferBranch(u, id, dto);
   }
   @Roles('ADMIN', 'ACCOUNTANT')
   @Post(':id/dispose')
   dispose(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: DisposeDto) {
-    return this.svc.dispose(u, id, dto);
+    return this.assetDisposal.dispose(u, id, dto);
   }
 }

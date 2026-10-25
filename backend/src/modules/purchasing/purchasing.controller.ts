@@ -28,6 +28,8 @@ import { PurchaseRequestsService } from './purchase-requests.service';
 import { ConvertPurchaseRequestDto, CreatePurchaseRequestDto, DecisionNoteDto, PurchaseRequestQueryDto, SuggestionQueryDto } from './purchase-requests.dto';
 import { SuppliersService } from './suppliers.service';
 import { PurchaseReportsService } from './purchase-reports.service';
+import { SupplierPaymentsService } from './supplier-payments.service';
+import { SupplierBillsService } from './supplier-bills.service';
 
 @ApiTags('Pembelian')
 @ApiBearerAuth()
@@ -167,7 +169,9 @@ export class GoodsReceiptsController {
 @Controller('purchase-invoices')
 export class PurchaseInvoicesController {
   constructor(private readonly svc: PurchaseInvoicesService,
-    private readonly purchaseReports: PurchaseReportsService) {}
+    private readonly purchaseReports: PurchaseReportsService,
+    private readonly supplierPayments: SupplierPaymentsService,
+    private readonly supplierBills: SupplierBillsService) {}
 
   @Get()
   @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
@@ -197,20 +201,20 @@ export class PurchaseInvoicesController {
   @Post('payments')
   @Roles('ADMIN', 'FINANCE')
   pay(@CurrentUser() u: AuthUser, @Body() dto: CreateSupplierPaymentDto) {
-    return this.svc.pay(u, dto);
+    return this.supplierPayments.pay(u, dto);
   }
 
   /** Batalkan pembayaran yang salah (jurnal dibalik, hutang terbuka lagi) */
   @Post('payments/:id/void')
   @Roles('ADMIN')
   voidPayment(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VoidSupplierPaymentDto) {
-    return this.svc.voidPayment(u, id, dto.reason);
+    return this.supplierPayments.voidPayment(u, id, dto.reason);
   }
 
   @Post('bills')
   @Roles('ADMIN', 'FINANCE')
   createBill(@CurrentUser() u: AuthUser, @Body() dto: CreateBillDto) {
-    return this.svc.createBill(u, dto);
+    return this.supplierBills.createBill(u, dto);
   }
 
   @Get(':id')

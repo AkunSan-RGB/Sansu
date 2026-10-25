@@ -133,7 +133,7 @@ Halaman React besar dipecah per komponen ke folder sebelah halamannya (mis. `fea
 2. controller tidak mengimpor ORM, skema, atau koneksi database;
 3. service tidak mengimpor controller; DTO tidak mengimpor service/controller modul;
 4. tidak ada siklus antar-modul (`src/modules/*`);
-5. tidak ada berkas sumber di atas 1.100 baris (kecuali pembuat data demo). Service besar dipisah menurut tanggung jawab: bagian baca/laporan ke service tersendiri (`AssetReportsService`, `PurchaseReportsService`, `WarehouseQueryService`, `FinancialReportsService`).
+5. tidak ada berkas sumber di atas 700 baris (kecuali pembuat data demo). Service besar dipisah menurut tanggung jawab: bagian baca/laporan ke service tersendiri (`AssetReportsService`, `PurchaseReportsService`, `WarehouseQueryService`, `FinancialReportsService`).
 
 Akses data: kueri sederhana (cari satu baris per id dan perusahaan) dipusatkan di repositori (`AssetRepository`, `PurchaseInvoiceRepository`, `AccountingRepository`, `WarehouseRepository`, serta `ReferenceRepository` bersama untuk gudang, pelanggan, akun, karyawan). Metodenya selalu menerima `db` (koneksi atau transaksi pemanggil) agar tetap satu transaksi. Kueri laporan dan penulisan jurnal masih di service; pemindahannya dilakukan bertahap per modul. Isian DTO sebagian di kode demo lewat `asDto()` (`common/utils/dto.ts`).
 

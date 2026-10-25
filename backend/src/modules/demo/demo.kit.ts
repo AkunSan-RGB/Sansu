@@ -11,6 +11,7 @@ import { addDays, DocDate, todayJakarta } from '../../common/utils/dates';
 import { Db } from '../../db/db';
 import { accounts, suppliers, tenants, warehouses } from '../../db/schema';
 import { AccountingService } from '../accounting/accounting.service';
+import { RecurringJournalsService } from '../accounting/recurring-journals.service';
 import { CashService } from '../cash/cash.service';
 import { CashCountService } from '../cash/cash-count.service';
 import { PettyCashService } from '../cash/petty-cash.service';
@@ -33,6 +34,8 @@ import { PayrollService } from '../payroll/payroll.service';
 import { PosService } from '../pos/pos.service';
 import { ProductionService } from '../production/production.service';
 import { PurchaseInvoicesService } from '../purchasing/purchase-invoices.service';
+import { SupplierBillsService } from '../purchasing/supplier-bills.service';
+import { SupplierPaymentsService } from '../purchasing/supplier-payments.service';
 import { PurchaseOrdersService } from '../purchasing/purchase-orders.service';
 import { CanvassService } from '../sales/canvass/canvass.service';
 import { InvoicesService } from '../sales/invoices/invoices.service';
@@ -40,6 +43,8 @@ import { SalesOrdersService } from '../sales/orders/sales-orders.service';
 import { PaymentsService } from '../sales/payments/payments.service';
 import { documentTotals } from '../sales/pricing';
 import { ServiceBillingService } from '../sales/services/service-billing.service';
+import { CustomerDepositsService } from '../sales/services/customer-deposits.service';
+import { ServiceProjectsService } from '../sales/services/service-projects.service';
 import { PricingService } from '../sales/pricing/price-lists.service';
 import { UtilityService } from '../utility/utility.service';
 import { asDto } from '../../common/utils/dto';
@@ -61,8 +66,11 @@ export interface Demo {
     customers: CustomersService;
     inventory: InventoryService;
     accounting: AccountingService;
+    recurring: RecurringJournalsService;
     po: PurchaseOrdersService;
     pi: PurchaseInvoicesService;
+    spay: SupplierPaymentsService;
+    bills: SupplierBillsService;
     so: SalesOrdersService;
     inv: InvoicesService;
     pay: PaymentsService;
@@ -74,6 +82,8 @@ export interface Demo {
     payroll: PayrollService;
     production: ProductionService;
     billing: ServiceBillingService;
+    deposits: CustomerDepositsService;
+    projects: ServiceProjectsService;
     pricing: PricingService;
     assets: AssetsService;
     bank: BankService;
@@ -173,8 +183,11 @@ export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: 
       customers: get(CustomersService),
       inventory: get(InventoryService),
       accounting: get(AccountingService),
+      recurring: get(RecurringJournalsService),
       po: get(PurchaseOrdersService),
       pi: get(PurchaseInvoicesService),
+      spay: get(SupplierPaymentsService),
+      bills: get(SupplierBillsService),
       so: get(SalesOrdersService),
       inv: get(InvoicesService),
       pay: get(PaymentsService),
@@ -186,6 +199,8 @@ export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: 
       payroll: get(PayrollService),
       production: get(ProductionService),
       billing: get(ServiceBillingService),
+      deposits: get(CustomerDepositsService),
+      projects: get(ServiceProjectsService),
       pricing: get(PricingService),
       assets: get(AssetsService),
       bank: get(BankService),
@@ -296,7 +311,7 @@ export async function payBill(c: Demo, billId: string, daysAgo: number) {
   const inv = await c.svc.pi.get(c.tenantId, billId);
   const out = Number(inv.total) - Number(inv.paidAmount) - Number(inv.returnedAmount);
   if (out <= 0) return;
-  await c.svc.pi.pay(c.admin, asDto({ purchaseInvoiceId: billId, amount: out.toFixed(2), cashAccountId: c.bank, date: c.ago(daysAgo) }));
+  await c.svc.spay.pay(c.admin, asDto({ purchaseInvoiceId: billId, amount: out.toFixed(2), cashAccountId: c.bank, date: c.ago(daysAgo) }));
 }
 
 /** Gaji bulan lalu: karyawan, proses penggajian, bayar */

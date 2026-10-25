@@ -29,6 +29,8 @@ import { SalesTargetsController } from './targets/sales-targets.controller';
 import { SalesTargetsService } from './targets/sales-targets.service';
 import { ServiceBillingController } from './services/service-billing.controller';
 import { ServiceBillingService } from './services/service-billing.service';
+import { CustomerDepositsService } from './services/customer-deposits.service';
+import { ServiceProjectsService } from './services/service-projects.service';
 import { TimesheetController } from './services/timesheets.controller';
 import { TimesheetService } from './services/timesheets.service';
 import { CalendarFeedController, CalendarPublicController } from './services/calendar-feed.controller';
@@ -41,7 +43,7 @@ import { RetainerService } from './services/retainers.service';
 @Module({
   imports: [AccountingModule, InventoryModule, FxModule],
   controllers: [SalesControlsController, SalesOrdersController, DeliveriesController, InvoicesController, PaymentsController, ServiceBillingController, PricingController, SalesTargetsController, SalesCommissionsController, ConsignmentsController, CanvassController, DeliveryTripsController, DeliveryVehiclesController, TradeController, TimesheetController, SchedulingController, CalendarFeedController, CalendarPublicController, RetainerController],
-  providers: [RoutingService, DeliveryVehiclesService, DeliveryTripsService, SalesControlsService, TradeService, CanvassService, ConsignmentsService, PricingService, SalesTargetsService, SalesCommissionsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService, TimesheetService, SchedulingService, CalendarFeedService, RetainerService],
+  providers: [RoutingService, DeliveryVehiclesService, DeliveryTripsService, SalesControlsService, TradeService, CanvassService, ConsignmentsService, PricingService, SalesTargetsService, SalesCommissionsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService, CustomerDepositsService, ServiceProjectsService, TimesheetService, SchedulingService, CalendarFeedService, RetainerService],
   exports: [SalesOrdersService, InvoicesService, PricingService, ServiceBillingService, PaymentsService],
 })
 export class SalesModule {}

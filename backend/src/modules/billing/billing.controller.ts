@@ -11,6 +11,7 @@ import { systemStatus, telegram } from '../../common/monitor/error-monitor';
 import { activeGateway, midtrans, xendit } from './gateways';
 import { BillingService } from './billing.service';
 import { CreateBillingInvoiceDto, ProofDto, UpdateSubscriptionDto, RejectDto, PlanDto, BillingSettingsDto, TestEmailDto } from './billing.dto';
+import { PlatformBillingService } from './platform-billing.service';
 
 @ApiTags('Langganan')
 @ApiBearerAuth()
@@ -87,31 +88,32 @@ export class PlatformAdminController {
     private readonly svc: BillingService,
     private readonly subs: SubscriptionService,
     private readonly mail: MailService,
+    private readonly platformBilling: PlatformBillingService,
   ) {}
 
   @Get('overview')
   overview() {
-    return this.svc.platformOverview();
+    return this.platformBilling.platformOverview();
   }
   @Get('pulse')
   pulse() {
-    return this.svc.platformPulse();
+    return this.platformBilling.platformPulse();
   }
   @Get('tenants')
   tenants(@Query('q') q?: string) {
-    return this.svc.platformTenants(q);
+    return this.platformBilling.platformTenants(q);
   }
   @Get('tenants/:id')
   tenant(@Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.platformTenant(id);
+    return this.platformBilling.platformTenant(id);
   }
   @Patch('tenants/:id/subscription')
   updateSub(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateSubscriptionDto) {
-    return this.svc.updateSubscription(u, id, dto);
+    return this.platformBilling.updateSubscription(u, id, dto);
   }
   @Get('invoices')
   invoices(@Query('status') status?: string) {
-    return this.svc.platformInvoices(status);
+    return this.platformBilling.platformInvoices(status);
   }
   @Get('invoices/:id')
   invoiceDoc(@Param('id', ParseUUIDPipe) id: string) {
@@ -123,7 +125,7 @@ export class PlatformAdminController {
   }
   @Get('invoices/:id/proof')
   proof(@Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.proof(id);
+    return this.platformBilling.proof(id);
   }
   @HttpCode(200)
   @Post('invoices/:id/confirm')
@@ -133,19 +135,19 @@ export class PlatformAdminController {
   @HttpCode(200)
   @Post('invoices/:id/reject')
   reject(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RejectDto) {
-    return this.svc.reject(u, id, dto);
+    return this.platformBilling.reject(u, id, dto);
   }
   @Get('plans')
   plans() {
-    return this.svc.plansAll();
+    return this.platformBilling.plansAll();
   }
   @Post('plans')
   createPlan(@Body() dto: PlanDto) {
-    return this.svc.createPlan(dto);
+    return this.platformBilling.createPlan(dto);
   }
   @Patch('plans/:id')
   updatePlan(@Param('id', ParseUUIDPipe) id: string, @Body() dto: PlanDto) {
-    return this.svc.updatePlan(id, dto);
+    return this.platformBilling.updatePlan(id, dto);
   }
   @Get('settings')
   async settings() {

@@ -24,6 +24,7 @@ import {
   ReverseJournalDto,
 } from './dto/accounting.dto';
 import { FinancialReportsService } from './financial-reports.service';
+import { RecurringJournalsService } from './recurring-journals.service';
 
 @ApiTags('Akuntansi')
 @ApiBearerAuth()
@@ -35,6 +36,7 @@ export class AccountingController {
     private readonly statements: StatementsService,
     private readonly adjustments: AdjustmentsService,
     private readonly financialReports: FinancialReportsService,
+    private readonly recurringJournals: RecurringJournalsService,
   ) {}
 
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
@@ -85,27 +87,27 @@ export class AccountingController {
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('recurring')
   recurring(@CurrentUser() u: AuthUser) {
-    return this.svc.listRecurring(u.tenantId);
+    return this.recurringJournals.listRecurring(u.tenantId);
   }
   @Roles('ADMIN', 'ACCOUNTANT')
   @Post('recurring')
   createRecurring(@CurrentUser() u: AuthUser, @Body() dto: CreateRecurringDto) {
-    return this.svc.createRecurring(u, dto);
+    return this.recurringJournals.createRecurring(u, dto);
   }
   @Roles('ADMIN', 'ACCOUNTANT')
   @Patch('recurring/:id')
   updateRecurring(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateRecurringDto) {
-    return this.svc.updateRecurring(u, id, dto);
+    return this.recurringJournals.updateRecurring(u, id, dto);
   }
   @Roles('ADMIN', 'ACCOUNTANT')
   @Delete('recurring/:id')
   deleteRecurring(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.deleteRecurring(u, id);
+    return this.recurringJournals.deleteRecurring(u, id);
   }
   @Roles('ADMIN', 'ACCOUNTANT')
   @Post('recurring/run')
   runRecurring(@CurrentUser() u: AuthUser) {
-    return this.svc.runDue(u.tenantId, u.sub);
+    return this.recurringJournals.runDue(u.tenantId, u.sub);
   }
 
   // ---------- Laporan keuangan SAK EP / SAK EMKM ----------
@@ -166,7 +168,7 @@ export class AccountingController {
   @Roles('ADMIN', 'ACCOUNTANT')
   @Delete('journals/:id/scheduled-reversal')
   cancelScheduledReversal(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.cancelScheduledReversal(u, id);
+    return this.recurringJournals.cancelScheduledReversal(u, id);
   }
 
   @Roles('ADMIN', 'ACCOUNTANT')
