@@ -357,6 +357,8 @@ export class AuthService {
 
   async me(u: AuthUser) {
     const [row] = await this.repo.findUsersWithTenantsAndCustomRolesById(this.db, u.sub);
+    // Token masih sah tetapi pengguna/perusahaannya sudah tidak ada (mis. data dihapus): paksa masuk ulang, bukan 500 berulang
+    if (!row) throw new UnauthorizedException('Sesi tidak berlaku lagi. Silakan masuk kembali.');
     const { emailVerifiedAt, totpEnabledAt, customRoleName, ...rest } = row;
     return {
       ...rest,
