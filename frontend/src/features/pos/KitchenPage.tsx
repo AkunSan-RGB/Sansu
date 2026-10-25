@@ -7,7 +7,7 @@ import { useAction, useWarehouses } from '@/api/queries';
 import type { KitchenBoard, KitchenTicket } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
 import { fmtQty } from '@/lib/format';
-import { LINE_STATUS } from './TablesPage';
+import { LINE_STATUS } from './tables/TabDrawer';
 
 const NEXT: Record<string, { to: 'PREPARING' | 'READY' | 'SERVED'; label: string }> = {
   NEW: { to: 'PREPARING', label: 'Mulai masak' },

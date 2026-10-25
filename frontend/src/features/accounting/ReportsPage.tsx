@@ -15,7 +15,8 @@ import type {
 } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useBranches } from '@/api/queries';
-import { BranchBalanceTab, BranchReportTab } from './BranchesPage';
+import { BranchBalanceTab } from './branches/BranchBalanceTab';
+import { BranchReportTab } from './branches/BranchReportTab';
 import ExportButtons from '@/components/ExportButtons';
 import QueryState from '@/components/QueryState';
 import PageHeader from '@/layout/PageHeader';

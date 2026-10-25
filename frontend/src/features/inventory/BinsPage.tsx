@@ -1,38 +1,30 @@
-/** Rak gudang: master rak, isi tiap rak, pindah antar rak, pencarian "barang ini ada di rak mana", riwayat, dan pemeriksaan konsistensi */
-import { PlusOutlined, PrinterOutlined, SearchOutlined, SwapOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, SwapOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Empty, Form, Input, InputNumber, Modal, Popconfirm, Segmented, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
+import { Alert, Button, Empty, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { get, patch, post, qs } from '@/api/client';
-import { useAction, useProducts } from '@/api/queries';
+import { useAction } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import SummaryCards from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtQty } from '@/lib/format';
-import { printDoc } from '@/lib/print';
 import { ControlsTab, ImportBinsModal, LabelsTab, QuickMoveTab } from './BinTools';
 import { useHasRole } from '@/lib/roles';
-import type { SalesOrder } from '@sansu/shared';
-
-const KEY = 'bins';
-const UNASSIGNED_CODE = 'BELUM-DITEMPATKAN';
+import { KEY, KIND, UNASSIGNED_CODE } from './bins/shared';
+import { PickTab } from './bins/PickTab';
+import { AddBinsModal } from './bins/AddBinsModal';
 
 interface Wh { id: string; code: string; name: string; binsEnabled: boolean; binCount: number }
+
 interface Bin { id: string; code: string; zone: string | null; name: string | null; kind: string; isActive: boolean; qty: string; products: number }
+
 interface Row { binId: string; binCode: string; binKind: string; zone: string | null; warehouseId: string; warehouseCode: string; productId: string; sku: string; name: string; uom: string; lotId: string | null; lotNo: string | null; expiryDate: string | null; qty: string }
+
 interface Hist { id: string; createdAt: string; kind: string; qty: string; sku: string; name: string; lotNo: string | null; fromCode: string | null; toCode: string | null; refType: string | null; note: string | null; by: string | null }
-interface PickLine { productId: string; sku: string; name: string; uom: string; binId: string; binCode: string; zone: string | null; binKind: string; lotId: string | null; lotNo: string | null; expiryDate: string | null; qty: string; available: string }
-interface PickPlan { warehouse: { code: string; name: string }; order: { number: string } | null; lines: PickLine[]; shortages: { productId: string; sku: string; name: string; needed: string; available: string }[]; unplaced: number }
+
 interface Check { enabled: boolean; ok: boolean; productMismatches: { sku: string; name: string; balance: string; binned: string }[]; lotMismatches: { sku: string; name: string; lotNo: string | null; balance: string; binned: string }[]; unassigned: { products: number; qty: string } }
 
-const KIND: Record<string, { label: string; color?: string }> = {
-  STORAGE: { label: 'Simpan', color: 'blue' },
-  STAGING: { label: 'Penyiapan', color: 'cyan' },
-  DAMAGED: { label: 'Rusak', color: 'red' },
-  QUARANTINE: { label: 'Karantina', color: 'orange' },
-  UNASSIGNED: { label: 'Belum ditempatkan', color: 'gold' },
-};
 const MOVE_KIND: Record<string, string> = { SEED: 'Stok awal', RECEIVE: 'Masuk', ISSUE: 'Keluar', MOVE: 'Pindah rak' };
 
 export default function BinsPage() {
@@ -161,57 +153,6 @@ function BinsTab({ wid, bins, onOpen }: { wid: string; bins: Bin[]; onOpen: (id:
   );
 }
 
-const pad = (n: number, w: number) => String(n).padStart(w, '0');
-
-function AddBinsModal({ open, wid, onClose }: { open: boolean; wid: string; onClose: () => void }) {
-  const [form] = Form.useForm();
-  const create = useAction((v: { codes: string[]; kind: string; zone?: string }) => post('/inventory/bins', { warehouseId: wid, ...v }), {
-    success: 'Rak ditambahkan',
-    invalidate: [KEY],
-    onSuccess: () => { form.resetFields(); onClose(); },
-  });
-  const generate = () => {
-    const v = form.getFieldsValue();
-    const aisles = String(v.aisles ?? '').split(/[,\s]+/).filter(Boolean);
-    const from = Number(v.from ?? 1);
-    const to = Number(v.to ?? 1);
-    const l1 = Number(v.levelFrom ?? 0);
-    const l2 = Number(v.levelTo ?? 0);
-    if (!aisles.length || to < from || (l2 && l2 < l1)) return;
-    const lines: string[] = [];
-    for (const a of aisles) for (let i = from; i <= to; i++) {
-      if (l2) for (let l = l1 || 1; l <= l2; l++) lines.push(`${a}-${pad(i, 2)}-${pad(l, 2)}`);
-      else lines.push(`${a}-${pad(i, 2)}`);
-    }
-    form.setFieldsValue({ codesText: [...(String(v.codesText ?? '').trim() ? [String(v.codesText).trim()] : []), ...lines].join('\n') });
-  };
-  return (
-    <Modal title="Tambah rak" open={open} onCancel={onClose} okText="Simpan" confirmLoading={create.isPending} width={560}
-      onOk={() => form.validateFields().then((v) => create.mutate({ codes: String(v.codesText).split(/[\n,;]+/).map((c) => c.trim()).filter(Boolean), kind: v.kind, zone: v.zone || undefined }))}>
-      <Form form={form} layout="vertical" initialValues={{ kind: 'STORAGE', from: 1, to: 10, levelFrom: 1, levelTo: 3 }}>
-        <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Isi daftar kode sendiri, atau buat deret otomatis lalu periksa hasilnya." />
-        <Space wrap align="end" style={{ marginBottom: 8 }}>
-          <Form.Item label="Lorong (pisah koma)" name="aisles" style={{ margin: 0 }}><Input placeholder="A, B" style={{ width: 130 }} /></Form.Item>
-          <Form.Item label="Nomor dari" name="from" style={{ margin: 0 }}><InputNumber min={1} style={{ width: 80 }} /></Form.Item>
-          <Form.Item label="sampai" name="to" style={{ margin: 0 }}><InputNumber min={1} style={{ width: 80 }} /></Form.Item>
-          <Form.Item label="Level dari" name="levelFrom" style={{ margin: 0 }}><InputNumber min={0} style={{ width: 80 }} /></Form.Item>
-          <Form.Item label="sampai" name="levelTo" style={{ margin: 0 }}><InputNumber min={0} style={{ width: 80 }} /></Form.Item>
-          <Button onClick={generate}>Buat deret</Button>
-        </Space>
-        <Form.Item label="Kode rak (satu per baris, maks 200)" name="codesText" rules={[{ required: true, message: 'Isi minimal satu kode rak' }]}>
-          <Input.TextArea rows={6} placeholder={'A-01-01\nA-01-02'} />
-        </Form.Item>
-        <Space wrap>
-          <Form.Item label="Jenis" name="kind" style={{ margin: 0 }}>
-            <Select style={{ width: 200 }} options={['STORAGE', 'STAGING', 'DAMAGED', 'QUARANTINE'].map((k) => ({ value: k, label: KIND[k].label }))} />
-          </Form.Item>
-          <Form.Item label="Zona (opsional)" name="zone" style={{ margin: 0 }}><Input style={{ width: 160 }} maxLength={30} /></Form.Item>
-        </Space>
-      </Form>
-    </Modal>
-  );
-}
-
 function StockTab({ wid, bins, binId, setBinId }: { wid: string; bins: Bin[]; binId?: string; setBinId: (v?: string) => void }) {
   const can = useCan();
   const [q, setQ] = useState('');
@@ -289,81 +230,6 @@ function MoveModal({ wid, bins, rows, onClose }: { wid: string; bins: Bin[]; row
         <Typography.Text type="secondary">Memindahkan rak tidak mengubah jumlah stok gudang, HPP, maupun jurnal. Mengeluarkan stok dari rak rusak/karantina hanya boleh oleh Pemilik atau Admin.</Typography.Text>
       </Space>
     </Modal>
-  );
-}
-
-/** Daftar ambil: dari pesanan penjualan yang belum terkirim, atau diketik manual; urut jalan petugas, lot paling cepat kedaluwarsa lebih dulu */
-function PickTab({ wid, warehouseLabel }: { wid: string; warehouseLabel: string }) {
-  const [mode, setMode] = useState<'order' | 'manual'>('order');
-  const [orderId, setOrderId] = useState<string | undefined>();
-  const [items, setItems] = useState<{ productId?: string; qty?: number }[]>([{}]);
-  const [manualKey, setManualKey] = useState('');
-  const orders = useQuery({ queryKey: ['sales-orders', 'all'], queryFn: () => get<SalesOrder[]>('/sales-orders'), enabled: mode === 'order' });
-  const { data: products } = useProducts();
-  const open = (orders.data ?? []).filter((o) => o.status === 'CONFIRMED' && (!o.warehouse?.id || o.warehouse.id === wid));
-  const manual = items.filter((i) => i.productId && i.qty && i.qty > 0).map((i) => `${i.productId}:${i.qty}`).join(',');
-  const key = mode === 'order' ? (orderId ? `salesOrderId=${orderId}` : '') : manualKey;
-  const plan = useQuery({
-    queryKey: [KEY, 'pick', wid, key],
-    queryFn: () => get<PickPlan>(`/inventory/bins/pick-plan?${mode === 'order' ? key : `warehouseId=${wid}&items=${manualKey.replace(/^items=/, '')}`}`),
-    enabled: !!key,
-    retry: false,
-  });
-  const lines = plan.data?.lines ?? [];
-  return (
-    <Space direction="vertical" style={{ width: '100%' }}>
-      <Segmented value={mode} onChange={(v) => setMode(v as 'order' | 'manual')} options={[{ value: 'order', label: 'Dari pesanan penjualan' }, { value: 'manual', label: 'Ketik sendiri' }]} />
-      {mode === 'order' ? (
-        <Select showSearch optionFilterProp="label" allowClear placeholder="Pilih pesanan yang belum dikirim" style={{ width: 420, maxWidth: '100%' }} value={orderId} onChange={setOrderId} loading={orders.isLoading}
-          options={open.map((o) => ({ value: o.id, label: `${o.number} · ${o.customer.name}` }))} />
-      ) : (
-        <>
-          {items.map((it, i) => (
-            <Space key={i} wrap>
-              <Select showSearch optionFilterProp="label" placeholder="Barang" style={{ width: 320, maxWidth: '100%' }} value={it.productId} onChange={(v) => setItems(items.map((x, j) => (j === i ? { ...x, productId: v } : x)))}
-                options={(products ?? []).map((p) => ({ value: p.id, label: `${p.sku} · ${p.name}` }))} />
-              <InputNumber min={0.0001} placeholder="Jumlah" value={it.qty} onChange={(v) => setItems(items.map((x, j) => (j === i ? { ...x, qty: Number(v) } : x)))} />
-              {items.length > 1 && <Button size="small" onClick={() => setItems(items.filter((_, j) => j !== i))}>Hapus</Button>}
-            </Space>
-          ))}
-          <Space>
-            <Button size="small" onClick={() => setItems([...items, {}])}>Tambah barang</Button>
-            <Button type="primary" size="small" disabled={!manual} onClick={() => setManualKey(manual)}>Buat daftar ambil</Button>
-          </Space>
-        </>
-      )}
-      {plan.isError && <Alert type="error" showIcon message={(plan.error as Error).message} />}
-      {plan.data && (
-        <>
-          {plan.data.shortages.length > 0 && (
-            <Alert type="warning" showIcon message="Stok yang bisa diambil tidak cukup" description={plan.data.shortages.map((s) => `${s.sku}: butuh ${fmtQty(s.needed)}, tersedia ${fmtQty(s.available)}`).join(' · ') + '. Stok di rak rusak/karantina tidak dihitung.'} />
-          )}
-          {plan.data.unplaced > 0 && <Alert type="info" showIcon message={`${plan.data.unplaced} baris diambil dari ${UNASSIGNED_CODE}: barangnya belum ditata, cari di area penerimaan.`} />}
-          <Button icon={<PrinterOutlined />} style={{ width: 'fit-content' }} onClick={() => printDoc('Daftar ambil')}>Cetak daftar ambil</Button>
-          <div className="print-doc">
-            <Typography.Title level={4} style={{ margin: '8px 0' }}>Daftar ambil{plan.data.order ? ` · ${plan.data.order.number}` : ''}</Typography.Title>
-            <Typography.Text type="secondary">{warehouseLabel} · urut jalan: zona, rak · lot paling cepat kedaluwarsa lebih dulu</Typography.Text>
-            <ResponsiveTable<PickLine>
-              rowKey={(r) => `${r.binId}|${r.productId}|${r.lotId ?? ''}`}
-              size="small"
-              style={{ marginTop: 8 }}
-              pagination={false}
-              dataSource={lines}
-              mobileTitle={0}
-              columns={[
-                { title: 'Rak', dataIndex: 'binCode', render: (v: string, r) => <Space size={4}><b>{v}</b>{r.zone && <Tag>{r.zone}</Tag>}{r.binKind === 'UNASSIGNED' && <Tag color="gold">belum ditata</Tag>}</Space> },
-                { title: 'Barang', key: 'p', render: (_: unknown, r) => `${r.sku} · ${r.name}` },
-                { title: 'Lot', dataIndex: 'lotNo', render: (v) => v ?? '-' },
-                { title: 'Kedaluwarsa', dataIndex: 'expiryDate', render: (v: string | null) => (v ? fmtDate(v) : '-') },
-                { title: 'Ambil', dataIndex: 'qty', align: 'right', render: (v: string, r) => <b>{fmtQty(v)} {r.uom}</b> },
-                { title: 'Ada di rak', dataIndex: 'available', align: 'right', render: (v: string) => fmtQty(v) },
-                { title: '✓', key: 'chk', width: 40, render: () => '☐' },
-              ]}
-            />
-          </div>
-        </>
-      )}
-    </Space>
   );
 }
 

@@ -13,7 +13,7 @@ import QueryState from '@/components/QueryState';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { usePeriod } from './ledger/usePeriod';
-import { SOURCE_COLOR } from './JournalsPage';
+import { SOURCE_COLOR } from './journals/JournalList';
 
 const ADJ_SOURCES = ['ADJUSTMENT', 'DEPRECIATION', 'INCOME_TAX'] as const;
 
