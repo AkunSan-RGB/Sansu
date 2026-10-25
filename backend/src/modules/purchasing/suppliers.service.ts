@@ -1,3 +1,4 @@
+import { partyNameKey } from '../../common/utils/party-name';
 import { encryptField, maskField } from '../../common/utils/secret';
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -60,10 +61,10 @@ export class SuppliersService {
    */
   private async findLookalikes(tenantId: string, dto: { name?: string; npwp?: string }, exceptId?: string) {
     const npwp = dto.npwp?.replace(/\D/g, '') ?? '';
-    const key = dto.name ? supplierNameKey(dto.name) : '';
+    const key = dto.name ? partyNameKey(dto.name) : '';
     if (npwp.length < 10 && !key) return [];
     const all = await this.db.select({ id: suppliers.id, code: suppliers.code, name: suppliers.name, npwp: suppliers.npwp }).from(suppliers).where(eq(suppliers.tenantId, tenantId));
-    return all.filter((o) => o.id !== exceptId && ((npwp.length >= 10 && (o.npwp ?? '').replace(/\D/g, '') === npwp) || (key && supplierNameKey(o.name) === key)));
+    return all.filter((o) => o.id !== exceptId && ((npwp.length >= 10 && (o.npwp ?? '').replace(/\D/g, '') === npwp) || (key && partyNameKey(o.name) === key)));
   }
 
   private async assertNoLookalike(u: AuthUser, dto: { name?: string; npwp?: string; confirmDuplicate?: boolean }, exceptId?: string) {
@@ -144,12 +145,4 @@ export class SuppliersService {
     await this.bankChanged(u, row, cur, 'UPDATE_BANK');
     return row;
   }
-}
-
-/** Kunci perbandingan nama: huruf kecil, tanpa bentuk badan usaha, tanda baca, dan spasi */
-export function supplierNameKey(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/\b(pt|cv|ud|pd|tbk|toko|firma|koperasi|persero)\b\.?/g, '')
-    .replace(/[^a-z0-9]/g, '');
 }

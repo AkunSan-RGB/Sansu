@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
-import { PriceAgreementsController, PriceAgreementsService } from './price-agreements';
-import { ShoppingListController, ShoppingListService } from './shopping-list';
-import { PurchaseControlsController, PurchaseControlsService } from './purchase-controls';
+import { PriceAgreementsController } from './price-agreements.controller';
+import { PriceAgreementsService } from './price-agreements.service';
+import { ShoppingListController } from './shopping-list.controller';
+import { ShoppingListService } from './shopping-list.service';
+import { PurchaseControlsController } from './purchase-controls.controller';
+import { PurchaseControlsService } from './purchase-controls.service';
 import { AssetsModule } from '../assets/assets.module';
 import { FxModule } from '../fx/fx.module';
 import { AccountingModule } from '../accounting/accounting.module';

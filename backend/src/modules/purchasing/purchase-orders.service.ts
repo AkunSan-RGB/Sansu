@@ -14,7 +14,7 @@ import { documentTotals } from '../sales/pricing';
 import { foreignTotals } from '../../common/utils/fx';
 import { D, money } from '../../common/utils/money';
 import { FxService } from '../fx/fx.service';
-import { PriceAgreementsService } from './price-agreements';
+import { PriceAgreementsService } from './price-agreements.service';
 import { CreatePurchaseOrderDto, PurchaseOrderQueryDto } from './purchasing.dto';
 
 /** Purchase order: DRAFT → CONFIRMED (dikirim ke supplier) → BILLED (barang & faktur diterima) */

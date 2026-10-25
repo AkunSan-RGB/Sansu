@@ -10,7 +10,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 import { DB, Db, createDb, createPool } from '../src/db/db';
 import { removeTenant } from '../src/db/remove-tenant';
-import { DemoService } from '../src/modules/demo/demo.module';
+import { DemoService } from '../src/modules/demo/demo.service';
 
 const MODELS = ['RITEL', 'DAGANG', 'JASA', 'FMCG', 'MANUFAKTUR', 'FNB', 'UTILITAS'] as const;
 

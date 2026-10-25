@@ -6,7 +6,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 import { DB, Db } from '../src/db/db';
-import { BackupStatusService, kindState, type BackupEntry } from '../src/modules/data-rights/backup-status';
+import { BackupStatusService, kindState, type BackupEntry } from '../src/modules/data-rights/backup-status.service';
 import { SecurityPostureService } from '../src/modules/data-rights/security-posture';
 
 const entry = (status: 'OK' | 'FAILED', at: string): BackupEntry => ({ kind: 'DUMP', status, source: 't', at });

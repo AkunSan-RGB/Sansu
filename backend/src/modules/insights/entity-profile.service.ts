@@ -1,25 +1,5 @@
-/**
- * Wizard standar akuntansi & pajak: mengukur ukuran usaha dari pembukuan, merekomendasikan SAK EMKM / SAK EP,
- * skema PPh, dan status PKP, lalu menerapkannya sekaligus. Aturan rekomendasi ada di @sansu/shared
- * (fungsi murni yang sama dipakai tampilan untuk pratinjau).
- */
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, Max, Min } from 'class-validator';
-import {
-  type EntityProfileInput,
-  LEGAL_FORMS,
-  type LegalForm,
-  recommendProfile,
-  REPORTING_FRAMEWORKS,
-  REPORTING_FRAMEWORK_SHORT,
-  type ReportingFramework,
-  simplificationsFor,
-  TAX_SCHEMES,
-  type TaxScheme,
-  TAX_REVENUE_LIMIT,
-  FINAL_TAX_EXCLUDED_FORMS,
-} from '@sansu/shared';
+import { type EntityProfileInput, type LegalForm, recommendProfile, REPORTING_FRAMEWORK_SHORT, type ReportingFramework, simplificationsFor, type TaxScheme, TAX_REVENUE_LIMIT, FINAL_TAX_EXCLUDED_FORMS } from '@sansu/shared';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SettingsService } from '../../common/settings.service';
@@ -31,20 +11,7 @@ import { SYS } from '../accounting/default-coa';
 import { get, loadAccounts, natural, sumByAccount } from '../accounting/ledger-data';
 import { AssetsService } from '../assets/assets.service';
 import { refreshChartRelevance } from '../accounting/coa-sync';
-
-export class EntityAnswersDto {
-  @ApiProperty() @IsBoolean() publicAccountability: boolean;
-  @ApiProperty({ enum: LEGAL_FORMS }) @IsIn(LEGAL_FORMS) legalForm: LegalForm;
-  @ApiProperty({ description: 'Total aset di luar tanah & bangunan (Rp)' }) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(1e15) assets: number;
-  @ApiProperty({ description: 'Peredaran bruto setahun (Rp)' }) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(1e15) revenue: number;
-  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1980) @Max(2100) taxRegisteredYear?: number;
-}
-
-export class ApplyEntityProfileDto extends EntityAnswersDto {
-  @ApiProperty({ enum: REPORTING_FRAMEWORKS }) @IsIn(REPORTING_FRAMEWORKS) framework: ReportingFramework;
-  @ApiProperty({ enum: TAX_SCHEMES }) @IsIn(TAX_SCHEMES) taxScheme: TaxScheme;
-  @ApiPropertyOptional({ description: 'Kosong = status PKP tidak diubah' }) @IsOptional() @IsBoolean() pkp?: boolean;
-}
+import { EntityAnswersDto, ApplyEntityProfileDto } from './entity-profile.dto';
 
 interface SavedProfile extends EntityProfileInput {
   taxRegisteredYear: number | null;

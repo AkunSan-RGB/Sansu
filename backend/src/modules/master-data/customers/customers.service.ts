@@ -7,7 +7,7 @@ import { D } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
 import { customers, invoices, priceLists } from '../../../db/schema';
-import { supplierNameKey } from '../../purchasing/suppliers.service';
+import { partyNameKey } from '../../../common/utils/party-name';
 import { CreateCustomerDto, UpdateCustomerDto } from './customers.dto';
 
 @Injectable()
@@ -77,10 +77,10 @@ export class CustomersService {
   /** Anti pelanggan fiktif / ganda: NPWP sama (angka saja) atau nama sangat mirip → 409 sampai dikonfirmasi; konfirmasi tercatat di jejak audit */
   private async assertNoLookalike(u: AuthUser, dto: { name?: string; npwp?: string; confirmDuplicate?: boolean }, exceptId?: string) {
     const npwp = dto.npwp?.replace(/\D/g, '') ?? '';
-    const key = dto.name ? supplierNameKey(dto.name) : '';
+    const key = dto.name ? partyNameKey(dto.name) : '';
     if (npwp.length < 10 && !key) return null;
     const all = await this.db.select({ id: customers.id, code: customers.code, name: customers.name, npwp: customers.npwp }).from(customers).where(eq(customers.tenantId, u.tenantId));
-    const dup = all.filter((o) => o.id !== exceptId && ((npwp.length >= 10 && (o.npwp ?? '').replace(/\D/g, '') === npwp) || (key && supplierNameKey(o.name) === key)));
+    const dup = all.filter((o) => o.id !== exceptId && ((npwp.length >= 10 && (o.npwp ?? '').replace(/\D/g, '') === npwp) || (key && partyNameKey(o.name) === key)));
     if (!dup.length) return null;
     if (!dto.confirmDuplicate) {
       throw new ConflictException({

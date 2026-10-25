@@ -29,7 +29,7 @@ import { InventoryService } from '../inventory/inventory.service';
 import type { StockAdjustmentDto } from '../inventory/dto/inventory.dto';
 import type { CreateBillDto, CreateSupplierPaymentDto } from '../purchasing/purchasing.dto';
 import type { ChangeMethodDto, DisposeDto } from '../assets/assets.dto';
-import { ListDto, AssignDto, DecisionDto } from './approvals.dto';
+import { ListDto, AssignDto, DecisionDto, PolicyDto } from './approvals.dto';
 
 @Injectable()
 export class ApprovalRequestsService {
@@ -53,6 +53,17 @@ export class ApprovalRequestsService {
     private readonly inventory: InventoryService,
     private readonly audit: AuditService,
   ) {}
+
+  policy(user: AuthUser) {
+    return this.approvals.policy(this.db, user.tenantId);
+  }
+
+  async savePolicy(user: AuthUser, dto: PolicyDto) {
+    const before = await this.approvals.policy(this.db, user.tenantId);
+    const after = await this.approvals.savePolicy(this.db, user.tenantId, dto);
+    await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'ApprovalPolicy', entityId: user.tenantId, data: { before, after } });
+    return after;
+  }
 
   async list(user: AuthUser, q: ListDto) {
     const approver = this.approvals.isApprover(user.role);

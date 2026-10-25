@@ -2,7 +2,8 @@ import { Module } from '@nestjs/common';
 import { AccountingModule } from '../accounting/accounting.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { FxModule } from '../fx/fx.module';
-import { SalesControlsController, SalesControlsService } from './sales-controls';
+import { SalesControlsController } from './sales-controls.controller';
+import { SalesControlsService } from './sales-controls.service';
 import { DeliveriesController } from './deliveries/deliveries.controller';
 import { DeliveriesService } from './deliveries/deliveries.service';
 import { InvoicesController } from './invoices/invoices.controller';
@@ -22,16 +23,20 @@ import { PricingController } from './pricing/price-lists.controller';
 import { PricingService } from './pricing/price-lists.service';
 import { TradeController } from './trade/trade.controller';
 import { TradeService } from './trade/trade.service';
-import { SalesCommissionsController, SalesCommissionsService } from './targets/sales-commissions';
-import { SalesTargetsController, SalesTargetsService } from './targets/sales-targets';
+import { SalesCommissionsController } from './targets/sales-commissions.controller';
+import { SalesCommissionsService } from './targets/sales-commissions.service';
+import { SalesTargetsController } from './targets/sales-targets.controller';
+import { SalesTargetsService } from './targets/sales-targets.service';
 import { ServiceBillingController } from './services/service-billing.controller';
 import { ServiceBillingService } from './services/service-billing.service';
 import { TimesheetController } from './services/timesheets.controller';
 import { TimesheetService } from './services/timesheets.service';
-import { CalendarFeedController, CalendarFeedService, CalendarPublicController } from './services/calendar-feed';
+import { CalendarFeedController, CalendarPublicController } from './services/calendar-feed.controller';
+import { CalendarFeedService } from './services/calendar-feed.service';
 import { SchedulingController } from './services/scheduling.controller';
 import { SchedulingService } from './services/scheduling.service';
-import { RetainerController, RetainerService } from './services/retainers';
+import { RetainerController } from './services/retainers.controller';
+import { RetainerService } from './services/retainers.service';
 
 @Module({
   imports: [AccountingModule, InventoryModule, FxModule],

@@ -3,7 +3,8 @@ import { CustomersController } from './customers/customers.controller';
 import { CustomersService } from './customers/customers.service';
 import { ProductsController } from './products/products.controller';
 import { ProductsService } from './products/products.service';
-import { WarehousesController, WarehousesService } from './warehouses/warehouses';
+import { WarehousesController } from './warehouses/warehouses.controller';
+import { WarehousesService } from './warehouses/warehouses.service';
 
 @Module({
   controllers: [ProductsController, CustomersController, WarehousesController],

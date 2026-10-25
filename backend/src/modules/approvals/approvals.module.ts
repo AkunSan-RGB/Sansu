@@ -8,11 +8,12 @@ import { AssetsModule } from '../assets/assets.module';
 import { CashModule } from '../cash/cash.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { ApprovalsController, PublicApprovalLinksController } from './approvals.controller';
+import { ApprovalLinksService } from './approval-links.service';
 import { ApprovalRequestsService } from './approvals.service';
 
 @Module({
   imports: [AccountingModule, PurchasingModule, AssetsModule, CashModule, InventoryModule, SalesModule, ReturnsModule, MasterDataModule],
   controllers: [ApprovalsController, PublicApprovalLinksController],
-  providers: [ApprovalRequestsService],
+  providers: [ApprovalRequestsService, ApprovalLinksService],
 })
 export class ApprovalsModule {}

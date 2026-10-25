@@ -1,5 +1,6 @@
 import { TaxFocusService } from './tax-focus';
-import { AccountingControlsController, AccountingControlsService } from './accounting-controls';
+import { AccountingControlsController } from './accounting-controls.controller';
+import { AccountingControlsService } from './accounting-controls.service';
 import { Module } from '@nestjs/common';
 import { AccountingModule } from '../accounting/accounting.module';
 import { InsightsModule } from '../insights/insights.module';

@@ -221,7 +221,7 @@ export async function openingBalance(c: Demo, o: { kas: number; bank: number; st
   const date = c.ago(120);
   // persediaan awal sudah menyeimbangkan dirinya ke Ekuitas Saldo Awal lewat penyesuaian stok OPENING
   const modal = o.kas + o.bank;
-  await c.svc.accounting.openingBalance(c.admin as never, {
+  await c.svc.accounting.openingBalance(c.admin, {
     date,
     lines: [
       { accountId: c.kas, debit: String(o.kas), credit: '0' },
@@ -262,7 +262,7 @@ export async function addCustomers(c: Demo, list: { code: string; name: string; 
 /** Biaya operasional rutin lewat kas/bank */
 export async function expense(c: Demo, daysAgo: number, from: 'kas' | 'bank', code: string, desc: string, amount: number, ref?: string) {
   return c.step(`biaya ${desc}`, () =>
-    c.svc.cash.create(c.admin as never, {
+    c.svc.cash.create(c.admin, {
       type: 'OUT',
       cashAccountId: from === 'kas' ? c.kas : c.bank,
       date: c.ago(daysAgo),
@@ -278,7 +278,7 @@ export async function receive(c: Demo, invoiceId: string, daysAgo: number, metho
   const cur = await c.svc.inv.get(c.tenantId, invoiceId);
   const out = (Number(cur.total) - Number(cur.paidAmount) - Number(cur.returnedAmount)) * fraction;
   if (out <= 0) return;
-  await c.svc.pay.create(c.admin as never, {
+  await c.svc.pay.create(c.admin, {
     invoiceId,
     amount: out.toFixed(2),
     date: c.ago(daysAgo),
@@ -292,14 +292,14 @@ export async function payBill(c: Demo, billId: string, daysAgo: number) {
   const inv = await c.svc.pi.get(c.tenantId, billId);
   const out = Number(inv.total) - Number(inv.paidAmount) - Number(inv.returnedAmount);
   if (out <= 0) return;
-  await c.svc.pi.pay(c.admin as never, { purchaseInvoiceId: billId, amount: out.toFixed(2), cashAccountId: c.bank, date: c.ago(daysAgo) } as never);
+  await c.svc.pi.pay(c.admin, { purchaseInvoiceId: billId, amount: out.toFixed(2), cashAccountId: c.bank, date: c.ago(daysAgo) } as never);
 }
 
 /** Gaji bulan lalu: karyawan, proses penggajian, bayar */
 export async function payroll(c: Demo, staff: { code: string; name: string; title: string; dept: string; salary: number; allowance: number; ptkp: string; production?: boolean }[]) {
   for (const e of staff) {
     await c.step(`karyawan ${e.name}`, () =>
-      c.svc.hr.createEmployee(c.admin as never, {
+      c.svc.hr.createEmployee(c.admin, {
         code: e.code,
         name: e.name,
         ptkp: e.ptkp,
@@ -315,22 +315,22 @@ export async function payroll(c: Demo, staff: { code: string; name: string; titl
     );
   }
   const prev = addDays(`${c.today.slice(0, 7)}-01`, -1);
-  const run = (await c.step('proses gaji', () => c.svc.payroll.createRun(c.admin as never, { period: prev.slice(0, 7), payDate: prev } as never))) as { id: string } | undefined;
+  const run = (await c.step('proses gaji', () => c.svc.payroll.createRun(c.admin, { period: prev.slice(0, 7), payDate: prev } as never))) as { id: string } | undefined;
   if (!run) return;
-  await c.step('posting gaji', () => c.svc.payroll.post(c.admin as never, run.id));
-  await c.step('bayar gaji', () => c.svc.payroll.pay(c.admin as never, run.id, { cashAccountId: c.bank, date: prev } as never));
+  await c.step('posting gaji', () => c.svc.payroll.post(c.admin, run.id));
+  await c.step('bayar gaji', () => c.svc.payroll.pay(c.admin, run.id, { cashAccountId: c.bank, date: prev } as never));
 }
 
 /** Pesanan beli → diterima & difakturkan → (opsional) dibayar */
 export async function purchase(c: Demo, supplierId: string, daysAgo: number, lines: { productId: string; uom?: string; qty: number; price: number }[], opts: { pay?: boolean; invoiceNo: string }) {
-  const po = await c.svc.po.create(c.admin as never, {
+  const po = await c.svc.po.create(c.admin, {
     supplierId,
     warehouseId: c.wh,
     date: c.ago(daysAgo),
     lines: lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: String(l.qty), price: String(l.price) })),
   } as never);
-  await c.svc.po.confirm(c.admin as never, po.id);
-  const bill = await c.svc.pi.createFromOrder(c.admin as never, { purchaseOrderId: po.id, supplierInvoiceNo: opts.invoiceNo, date: c.ago(daysAgo - 1) } as never);
+  await c.svc.po.confirm(c.admin, po.id);
+  const bill = await c.svc.pi.createFromOrder(c.admin, { purchaseOrderId: po.id, supplierInvoiceNo: opts.invoiceNo, date: c.ago(daysAgo - 1) } as never);
   if (opts.pay) await payBill(c, bill.id, Math.max(daysAgo - 8, 1));
   c.last.bill = bill.id;
   return bill;
@@ -338,14 +338,14 @@ export async function purchase(c: Demo, supplierId: string, daysAgo: number, lin
 
 /** Pesanan jual → konfirmasi → faktur; mengembalikan id faktur */
 export async function sell(c: Demo, customerId: string, daysAgo: number, lines: { productId: string; uom?: string; qty: number }[]) {
-  const so = await c.svc.so.create(c.admin as never, {
+  const so = await c.svc.so.create(c.admin, {
     customerId,
     warehouseId: c.wh,
     date: c.ago(daysAgo),
     lines: lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: String(l.qty) })),
   } as never);
-  await c.svc.so.confirm(c.admin as never, so.id);
-  const inv = await c.svc.inv.createFromOrder(c.admin as never, { salesOrderId: so.id, date: c.ago(daysAgo) } as never);
+  await c.svc.so.confirm(c.admin, so.id);
+  const inv = await c.svc.inv.createFromOrder(c.admin, { salesOrderId: so.id, date: c.ago(daysAgo) } as never);
   c.last.inv = inv.id;
   return inv.id as string;
 }
@@ -354,13 +354,13 @@ export async function sell(c: Demo, customerId: string, daysAgo: number, lines: 
 export async function posDay(c: Demo, daysAgo: number, items: { id: string; price: number }[], orders: number) {
   const { withSimulatedDay } = await import('../../common/utils/dates');
   await withSimulatedDay(c.ago(daysAgo), async () => {
-    const s = await c.svc.pos.open(c.admin as never, { warehouseId: c.wh, openingCash: '300000' } as never);
+    const s = await c.svc.pos.open(c.admin, { warehouseId: c.wh, openingCash: '300000' } as never);
     for (let i = 0; i < orders; i++) {
       const lines = [...items].sort(() => c.rnd() - 0.5).slice(0, c.int(1, 4)).map((p) => ({ productId: p.id, qty: String(c.int(1, 3)), price: p.price }));
       const total = Number(documentTotals(lines.map((l) => ({ qty: Number(l.qty), price: l.price })), 11).total);
       const qris = c.rnd() < 0.4;
       await c.step('transaksi kasir', () =>
-        c.svc.pos.createOrder(c.admin as never, {
+        c.svc.pos.createOrder(c.admin, {
           sessionId: s.id,
           lines: lines.map((l) => ({ productId: l.productId, qty: l.qty })),
           // QRIS: bayar sebagian lewat QRIS dan sisanya tunai (selalu lolos aturan "non-tunai tidak boleh melebihi total")
@@ -370,8 +370,8 @@ export async function posDay(c: Demo, daysAgo: number, items: { id: string; pric
         } as never),
       );
     }
-    const cur = (await c.svc.pos.current(c.admin as never)) as { summary: { expectedCash: string } } | null;
-    await c.svc.pos.close(c.admin as never, s.id, { countedCash: String(Number(cur?.summary.expectedCash ?? 300000)) } as never);
+    const cur = (await c.svc.pos.current(c.admin)) as { summary: { expectedCash: string } } | null;
+    await c.svc.pos.close(c.admin, s.id, { countedCash: String(Number(cur?.summary.expectedCash ?? 300000)) } as never);
   });
 }
 

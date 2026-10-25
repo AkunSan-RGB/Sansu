@@ -9,7 +9,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 import { addDays, todayJakarta } from '../src/common/utils/dates';
-import { AutoBookkeepingService } from '../src/modules/accounting/auto-bookkeeping.service';
+import { AutoBookkeepingService } from '../src/modules/auto-bookkeeping/auto-bookkeeping.service';
 
 describe('Pembukuan otomatis (e2e)', () => {
   let app: INestApplication;
