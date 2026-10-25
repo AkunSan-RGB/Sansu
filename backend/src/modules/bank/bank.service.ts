@@ -1,6 +1,6 @@
 import { findReceivableLookalike } from '../cash/receivable-guard';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { CASH_IN_SOURCES_TO_VERIFY, CONTROL_PROFILES, DEFAULT_BANK_RULES, cashInSource } from '@sansu/shared';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { SettingsService } from '../../common/settings.service';
@@ -10,11 +10,12 @@ import { addDays, diffDays, DocDate, toDocDate, todayJakarta } from '../../commo
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, bankLineExtraMatches, bankReconciliations, bankRules, bankStatementLines, bankStatements, journalLines } from '../../db/schema';
+import { accounts, bankReconciliations, bankStatementLines, bankStatements } from '../../db/schema';
 import { PostingService } from '../accounting/posting.service';
 import { ImportStatementDto, MatchDto, MatchManyDto, CreateFromLineDto, BankRuleDto, SignReconciliationDto } from './bank.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { findOwned } from '../../db/owned';
+import { BankRepository } from './bank.repository';
 
 const MATCH_BEFORE = 7;
 
@@ -39,6 +40,7 @@ export class BankService {
     private readonly settings: SettingsService,
     private readonly approvals: ApprovalsService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: BankRepository,
   ) {}
 
   private async bankAccount(db: DbOrTx, tenantId: string, id: string) {
@@ -199,11 +201,7 @@ export class BankService {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`bank:${tenantId}`}))`);
     const st = await findOwned(tx, bankStatements, tenantId, statementId);
     if (!st) throw new NotFoundException('Rekening koran tidak ditemukan');
-    const lines = await tx
-      .select()
-      .from(bankStatementLines)
-      .where(and(eq(bankStatementLines.statementId, statementId), eq(bankStatementLines.status, 'UNMATCHED')))
-      .orderBy(asc(bankStatementLines.date), asc(bankStatementLines.seq));
+    const lines = await this.repo.unmatchedLines(tx, statementId);
     if (!lines.length) return 0;
     const pool = await this.openBookLines(tx, tenantId, st.cashAccountId, addDays(st.periodFrom, -MATCH_BEFORE), addDays(st.periodTo, MATCH_AFTER));
     const used = new Set<string>();
@@ -226,7 +224,7 @@ export class BankService {
       }
       if (best) {
         used.add(best.b.id);
-        await tx.update(bankStatementLines).set({ status: 'MATCHED', journalLineId: best.b.id, matchedBy: 'AUTO' }).where(eq(bankStatementLines.id, l.id));
+        await this.repo.patchLine(tx, l.id, { status: 'MATCHED', journalLineId: best.b.id, matchedBy: 'AUTO' });
         matched++;
       }
     }
@@ -237,7 +235,7 @@ export class BankService {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`bank:${tenantId}`}))`);
     const l = await findOwned(tx, bankStatementLines, tenantId, id);
     if (!l) throw new NotFoundException('Mutasi tidak ditemukan');
-    const [st] = await tx.select().from(bankStatements).where(eq(bankStatements.id, l.statementId));
+    const st = await this.repo.statementById(tx, l.statementId);
     return { l, st };
   }
 
@@ -245,7 +243,7 @@ export class BankService {
   async candidates(tenantId: string, lineId: string) {
     const l = await findOwned(this.db, bankStatementLines, tenantId, lineId);
     if (!l) throw new NotFoundException('Mutasi tidak ditemukan');
-    const [st] = await this.db.select().from(bankStatements).where(eq(bankStatements.id, l.statementId));
+    const st = await this.repo.statementById(this.db, l.statementId);
     const rows = await this.openBookLines(this.db, tenantId, st.cashAccountId, addDays(l.date, -45), addDays(l.date, 15));
     const amt = D(l.amount);
     return rows
@@ -259,13 +257,11 @@ export class BankService {
     await this.db.transaction(async (tx) => {
       const { l, st } = await this.lockLine(tx, user.tenantId, lineId);
       if (l.status !== 'UNMATCHED') throw new BadRequestException('Mutasi ini sudah diproses');
-      const [b] = await tx.select().from(journalLines).where(eq(journalLines.id, dto.journalLineId));
+      const b = await this.repo.journalLineById(tx, dto.journalLineId);
       if (!b || b.accountId !== st.cashAccountId) throw new BadRequestException('Transaksi buku harus di rekening yang sama');
       if (!D(b.debit).minus(b.credit).equals(D(l.amount))) throw new BadRequestException('Nilai transaksi buku berbeda dengan mutasi bank');
-      const [taken] = await tx.select({ id: bankStatementLines.id }).from(bankStatementLines).where(eq(bankStatementLines.journalLineId, b.id));
-      const [takenExtra] = await tx.select({ id: bankLineExtraMatches.id }).from(bankLineExtraMatches).where(eq(bankLineExtraMatches.journalLineId, b.id));
-      if (taken || takenExtra) throw new BadRequestException('Transaksi buku itu sudah dicocokkan dengan mutasi lain');
-      await tx.update(bankStatementLines).set({ status: 'MATCHED', journalLineId: b.id, matchedBy: 'MANUAL' }).where(eq(bankStatementLines.id, l.id));
+      if (await this.repo.journalLineTaken(tx, b.id)) throw new BadRequestException('Transaksi buku itu sudah dicocokkan dengan mutasi lain');
+      await this.repo.patchLine(tx, l.id, { status: 'MATCHED', journalLineId: b.id, matchedBy: 'MANUAL' });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'MATCH', entity: 'BankStatementLine', entityId: l.id, data: { amount: l.amount } });
     });
     return { ok: true };
@@ -294,8 +290,8 @@ export class BankService {
       const usedExtra = await tx.execute(sql`SELECT 1 FROM bank_line_extra_matches WHERE journal_line_id IN (${sql.join(ids.map((x) => sql`${x}`), sql`, `)}) LIMIT 1`);
       if (usedMain.rows.length || usedExtra.rows.length) throw new BadRequestException('Ada transaksi buku yang sudah dicocokkan dengan mutasi lain');
       const [first, ...rest] = ids;
-      await tx.update(bankStatementLines).set({ status: 'MATCHED', journalLineId: first, matchedBy: 'MANUAL' }).where(eq(bankStatementLines.id, l.id));
-      await tx.insert(bankLineExtraMatches).values(rest.map((jl) => ({ tenantId: user.tenantId, lineId: l.id, journalLineId: jl })));
+      await this.repo.patchLine(tx, l.id, { status: 'MATCHED', journalLineId: first, matchedBy: 'MANUAL' });
+      await this.repo.insertExtraMatches(tx, user.tenantId, l.id, rest);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'MATCH', entity: 'BankStatementLine', entityId: l.id, data: { amount: l.amount, books: ids.length } });
     });
     return { ok: true };
@@ -305,8 +301,8 @@ export class BankService {
     await this.db.transaction(async (tx) => {
       const { l } = await this.lockLine(tx, user.tenantId, lineId);
       if (l.status === 'CREATED') throw new BadRequestException('Mutasi ini sudah dibuatkan jurnal; balik jurnalnya di Jurnal Umum bila salah');
-      await tx.delete(bankLineExtraMatches).where(eq(bankLineExtraMatches.lineId, l.id));
-      await tx.update(bankStatementLines).set({ status: 'UNMATCHED', journalLineId: null, matchedBy: null }).where(eq(bankStatementLines.id, l.id));
+      await this.repo.clearExtraMatches(tx, l.id);
+      await this.repo.patchLine(tx, l.id, { status: 'UNMATCHED', journalLineId: null, matchedBy: null });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'UNMATCH', entity: 'BankStatementLine', entityId: l.id, data: { amount: l.amount } });
     });
     return { ok: true };
@@ -320,7 +316,7 @@ export class BankService {
       if (l.status !== 'UNMATCHED') throw new BadRequestException('Mutasi ini sudah diproses');
       // pemisahan tugas: uang keluar yang tidak ada di buku hanya boleh diabaikan Pemilik/Admin (bukan staf keuangan)
       if (D(l.amount).isNegative() && !['OWNER', 'ADMIN'].includes(user.role)) throw new ForbiddenException('Uang keluar di bank hanya boleh diabaikan oleh Pemilik atau Admin; catat transaksinya atau minta persetujuan');
-      await tx.update(bankStatementLines).set({ status: 'IGNORED', note }).where(eq(bankStatementLines.id, l.id));
+      await this.repo.patchLine(tx, l.id, { status: 'IGNORED', note });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'IGNORE', entity: 'BankStatementLine', entityId: l.id, data: { amount: l.amount, reason: note } });
     });
     return { ok: true };
@@ -353,7 +349,7 @@ export class BankService {
           ],
     });
     const bankLine = j.lines.find((x) => x.accountId === st.cashAccountId)!;
-    await tx.update(bankStatementLines).set({ status: 'CREATED', journalLineId: bankLine.id, journalId: j.id, matchedBy }).where(eq(bankStatementLines.id, l.id));
+    await this.repo.patchLine(tx, l.id, { status: 'CREATED', journalLineId: bankLine.id, journalId: j.id, matchedBy });
     return j;
   }
 
@@ -366,7 +362,7 @@ export class BankService {
         if (!D(l.amount).gt(0)) throw new BadRequestException('Sumber uang hanya untuk uang masuk');
         if (accountId) throw new BadRequestException('Isi sumber uang ATAU akun, bukan keduanya');
         const k = cashInSource(dto.source)!;
-        const [a] = await tx.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.tenantId, user.tenantId), eq(accounts.code, k.code), eq(accounts.isPostable, true)));
+        const a = await this.repo.postableAccountByCode(tx, user.tenantId, k.code);
         if (!a) throw new BadRequestException(`Akun untuk "${k.label}" (${k.code}) belum tersedia di Bagan Akun. Hubungi Admin/Akuntan.`);
         accountId = a.id;
       } else if (user.role === 'FINANCE' && D(l.amount).gt(0)) {
@@ -395,7 +391,7 @@ export class BankService {
   }
 
   listRules(tenantId: string) {
-    return this.db.select().from(bankRules).where(eq(bankRules.tenantId, tenantId)).orderBy(asc(bankRules.name));
+    return this.repo.listRules(this.db, tenantId);
   }
 
   private async ruleAccount(tenantId: string, accountId: string) {
@@ -408,12 +404,12 @@ export class BankService {
   async installDefaultRules(user: AuthUser) {
     const model = await this.settings.businessModel(this.db, user.tenantId);
     const have = new Set((await this.listRules(user.tenantId)).map((r) => r.keyword.toUpperCase()));
-    const accs = await this.db.select({ id: accounts.id, code: accounts.code, type: accounts.type, isPostable: accounts.isPostable }).from(accounts).where(eq(accounts.tenantId, user.tenantId));
+    const accs = await this.repo.accountsOfTenant(this.db, user.tenantId);
     let added = 0;
     for (const r of DEFAULT_BANK_RULES[model]) {
       const acc = accs.find((a) => a.code === r.accountCode && a.isPostable && ['REVENUE', 'EXPENSE'].includes(a.type));
       if (!acc || have.has(r.keyword.toUpperCase())) continue;
-      await this.db.insert(bankRules).values({ tenantId: user.tenantId, name: r.name, keyword: r.keyword, direction: r.direction, accountId: acc.id, maxAmount: r.maxAmount.toFixed(2), createdById: user.sub });
+      await this.repo.insertRule(this.db, { tenantId: user.tenantId, name: r.name, keyword: r.keyword, direction: r.direction, accountId: acc.id, maxAmount: r.maxAmount.toFixed(2), createdById: user.sub });
       added++;
     }
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'INSTALL_DEFAULT_RULES', entity: 'BankRule', entityId: user.tenantId, data: { model, added } });
@@ -426,29 +422,28 @@ export class BankService {
     if (money(values.maxAmount).lte(0)) throw new BadRequestException('Batas nilai harus lebih dari 0');
     let row;
     if (id) {
-      [row] = await this.db.update(bankRules).set(values).where(and(eq(bankRules.id, id), eq(bankRules.tenantId, user.tenantId))).returning();
+      row = await this.repo.updateRule(this.db, user.tenantId, id, values);
       if (!row) throw new NotFoundException('Aturan tidak ditemukan');
     } else {
-      [row] = await this.db.insert(bankRules).values({ ...values, tenantId: user.tenantId, createdById: user.sub }).returning();
+      row = await this.repo.insertRule(this.db, { ...values, tenantId: user.tenantId, createdById: user.sub });
     }
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: id ? 'UPDATE' : 'CREATE', entity: 'BankRule', entityId: row.id, data: { keyword: values.keyword } });
     return row;
   }
 
   async removeRule(user: AuthUser, id: string) {
-    const r = await this.db.delete(bankRules).where(and(eq(bankRules.id, id), eq(bankRules.tenantId, user.tenantId))).returning({ id: bankRules.id });
-    if (!r.length) throw new NotFoundException('Aturan tidak ditemukan');
+    if (!(await this.repo.deleteRule(this.db, user.tenantId, id))) throw new NotFoundException('Aturan tidak ditemukan');
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'DELETE', entity: 'BankRule', entityId: id });
     return { ok: true };
   }
 
   /** Mutasi yang belum cocok dibuatkan jurnal otomatis bila ada aturan yang cocok dan nilainya di bawah batas aturan */
   private async applyRules(tx: Tx, user: AuthUser, statementId: string) {
-    const rules = await tx.select().from(bankRules).where(and(eq(bankRules.tenantId, user.tenantId), eq(bankRules.isActive, true)));
+    const rules = await this.repo.activeRules(tx, user.tenantId);
     if (!rules.length) return 0;
-    const [st] = await tx.select().from(bankStatements).where(eq(bankStatements.id, statementId));
-    const accs = new Map((await tx.select().from(accounts).where(and(eq(accounts.tenantId, user.tenantId), inArray(accounts.id, rules.map((r) => r.accountId))))).map((a) => [a.id, a]));
-    const lines = await tx.select().from(bankStatementLines).where(and(eq(bankStatementLines.statementId, statementId), eq(bankStatementLines.status, 'UNMATCHED'))).orderBy(asc(bankStatementLines.date), asc(bankStatementLines.seq));
+    const st = await this.repo.statementById(tx, statementId);
+    const accs = new Map((await this.repo.accountsByIds(tx, user.tenantId, rules.map((r) => r.accountId))).map((a) => [a.id, a]));
+    const lines = await this.repo.unmatchedLines(tx, statementId);
     let n = 0;
     for (const l of lines) {
       const amt = D(l.amount);
@@ -535,7 +530,7 @@ export class BankService {
       const st = await findOwned(tx, bankStatements, user.tenantId, id);
       if (!st) throw new NotFoundException('Rekening koran tidak ditemukan');
       // Jurnal yang dibuat dari mutasi tetap ada (transaksinya nyata); hanya pencocokannya yang dilepas
-      await tx.delete(bankStatements).where(eq(bankStatements.id, id));
+      await this.repo.deleteStatement(tx, id);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'DELETE', entity: 'BankStatement', entityId: id, data: { file: st.fileName, from: st.periodFrom, to: st.periodTo, reason: note } });
     });
     return { ok: true };
