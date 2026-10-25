@@ -13,7 +13,6 @@ import { WarehouseOpsService } from '../../inventory/warehouse-ops.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { SalesOrdersService } from '../orders/sales-orders.service';
 import { ShipDto, ReportSoldDto, ReturnConsignDto } from './consignments.dto';
-import { asDto } from '../../../common/utils/dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
 import { findOwned, insertOne, patchById } from '../../../db/owned';
 import { ConsignmentsRepository } from './consignments.repository';
@@ -115,7 +114,7 @@ export class ConsignmentsService {
       if (D(cur.rows[0].v).plus(addValue).gt(cust.creditLimit)) throw new BadRequestException(`Nilai titipan di ${cust.name} akan melebihi limit kredit outlet (${D(cust.creditLimit).toFixed(0)}); naikkan limit atau tarik sebagian titipan dulu`);
     }
     const date = toDocDate(dto.date);
-    const transfer = (await this.ops.createTransfer(u, asDto({ fromWarehouseId: from.id, toWarehouseId: cw.id, date, mode: 'DIRECT', notes: `Titipan konsinyasi ke ${cust.name}${dto.notes ? ` — ${dto.notes}` : ''}`.slice(0, 255), lines: [...merged].map(([productId, q]) => ({ productId, qty: q.toFixed(4) })) }), { special: true })) as { id: string };
+    const transfer = (await this.ops.createTransfer(u, { fromWarehouseId: from.id, toWarehouseId: cw.id, date, mode: 'DIRECT', notes: `Titipan konsinyasi ke ${cust.name}${dto.notes ? ` — ${dto.notes}` : ''}`.slice(0, 255), lines: [...merged].map(([productId, q]) => ({ productId, qty: q.toFixed(4) })) }, { special: true })) as { id: string };
     return this.insertDoc(u, 'SHIP', { customerId: cust.id, warehouseId: cw.id, date, transferId: transfer.id, notes: dto.notes, lines: [...merged].map(([productId, q]) => ({ productId, uom: '', qty: q.toFixed(4) })) });
   }
 
@@ -170,7 +169,7 @@ export class ConsignmentsService {
     let inv: { id: string; number: string };
     try {
       const [reporter] = doc.createdById ? await this.repo.listUsersById(this.db, doc.createdById) : [];
-      const so = await this.orders.create(u, asDto({
+      const so = await this.orders.create(u, {
         customerId: doc.customerId,
         warehouseId: doc.warehouseId,
         date: doc.date,
@@ -181,10 +180,10 @@ export class ConsignmentsService {
         applyPromos: false,
         salespersonId: reporter?.role === 'SALES' ? reporter.id : undefined,
         lines: doc.lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: l.qty })),
-      }), { consignment: true });
+      }, { consignment: true });
       soId = so.id;
       await this.orders.confirm(u, so.id, { internal: true });
-      inv = await this.invoices.createFromOrder(u, asDto({ salesOrderId: so.id, date: doc.date }));
+      inv = await this.invoices.createFromOrder(u, { salesOrderId: so.id, date: doc.date });
     } catch (e) {
       // gagal SEBELUM faktur terbit: kembalikan laporan agar bisa diproses ulang dan batalkan pesanan yang terlanjur dibuat
       await patchById(this.db, consignmentDocs, id, { status: 'REPORTED', decidedById: null });
@@ -222,7 +221,7 @@ export class ConsignmentsService {
       if (q.gt(avail.get(pid) ?? D(0))) throw new BadRequestException('Jumlah tarik melebihi sisa titipan di outlet (sudah dikurangi laporan yang belum ditagih)');
     }
     const date = toDocDate(dto.date);
-    const transfer = (await this.ops.createTransfer(u, asDto({ fromWarehouseId: cw.id, toWarehouseId: to.id, date, mode: 'DIRECT', notes: `Tarik titipan dari ${cust.name}${dto.notes ? ` — ${dto.notes}` : ''}`.slice(0, 255), lines: [...merged].map(([productId, q]) => ({ productId, qty: q.toFixed(4) })) }), { special: true })) as { id: string };
+    const transfer = (await this.ops.createTransfer(u, { fromWarehouseId: cw.id, toWarehouseId: to.id, date, mode: 'DIRECT', notes: `Tarik titipan dari ${cust.name}${dto.notes ? ` — ${dto.notes}` : ''}`.slice(0, 255), lines: [...merged].map(([productId, q]) => ({ productId, qty: q.toFixed(4) })) }, { special: true })) as { id: string };
     return this.insertDoc(u, 'RETURN', { customerId: cust.id, warehouseId: cw.id, date, transferId: transfer.id, notes: dto.notes, lines: [...merged].map(([productId, q]) => ({ productId, uom: '', qty: q.toFixed(4) })) });
   }
 }

@@ -8,6 +8,8 @@
  */
 import { INestApplicationContext } from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
+import { type AttendanceStatus } from '@sansu/shared';
+import { CreateBillDto } from '../../modules/purchasing/purchasing.dto';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SettingsService } from '../../common/settings.service';
 import { addDays, DocDate, withSimulatedDay } from '../../common/utils/dates';
@@ -35,7 +37,6 @@ import { PaymentsService } from '../../modules/sales/payments/payments.service';
 import { TaxService } from '../../modules/tax/tax.service';
 import { Db } from '../db';
 import { accounts, assetCategories, employees, fixedAssets, journalEntries, journalLines, suppliers, tenants, users, warehouses } from '../schema';
-import { asDto } from '../../common/utils/dto';
 
 type User = AuthUser;
 type App = INestApplicationContext;
@@ -193,7 +194,7 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
   // ---------- Master data ----------
   const prodId = new Map<string, string>();
   for (const [i, p] of PRODUCTS.entries()) {
-    const created = await svc.products.create(tenantId, asDto({
+    const created = await svc.products.create(tenantId, {
       sku: p.sku,
       name: p.name,
       category: p.category,
@@ -201,7 +202,7 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
       sellPrice: String(p.price),
       barcode: `899100${String(i + 1).padStart(7, '0')}`,
       uoms: [{ uom: 'DUS', factor: String(p.dus) }],
-    }));
+    });
     prodId.set(p.sku, created.id);
   }
   const supId = new Map<string, string>();
@@ -214,7 +215,7 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
   }
   const custId = new Map<string, string>();
   for (const c of CUSTOMERS) {
-    const created = await svc.customers.create(tenantId, asDto({
+    const created = await svc.customers.create(tenantId, {
       code: c.code,
       name: c.name,
       address: c.address,
@@ -222,7 +223,7 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
       creditLimit: c.limit,
       paymentTermDays: c.term,
       npwp: c.npwp ?? undefined,
-    }));
+    });
     custId.set(c.code, created.id);
   }
   const emp = await db
@@ -248,7 +249,7 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
   const kasOpen = 15_000_000;
   const bankOpen = 780_000_000;
   const retained = kasOpen + bankOpen + pickupCost - pickupAccum + invValue - modal;
-  await svc.accounting.openingBalance(admin, asDto({
+  await svc.accounting.openingBalance(admin, {
     date: '2025-12-31',
     lines: [
       { accountId: kas, debit: String(kasOpen), credit: '0' },
@@ -259,9 +260,9 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
       { accountId: A('3-1000'), debit: '0', credit: String(modal) },
       { accountId: A('3-2000'), debit: '0', credit: String(retained) },
     ],
-  }));
+  });
   const cats = new Map((await db.select().from(assetCategories).where(eq(assetCategories.tenantId, tenantId))).map((c) => [c.name, c.id]));
-  const pickup = await svc.assets.create(admin, asDto({
+  const pickup = await svc.assets.create(admin, {
     name: 'Mobil pickup Grand Max B 9512 KX',
     categoryId: cats.get('Kendaraan')!,
     acquisitionDate: '2024-03-01',
@@ -270,11 +271,11 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
     funding: 'EXISTING',
     openingAccumulated: String(pickupAccum),
     location: 'Gudang utama',
-  }));
+  });
   await db.update(fixedAssets).set({ openingFiscalAccumulated: String(pickupAccum) }).where(eq(fixedAssets.id, pickup.id));
 
   // Jurnal berulang: amortisasi sewa gudang dibayar dimuka
-  await svc.recurring.createRecurring(admin, asDto({
+  await svc.recurring.createRecurring(admin, {
     name: 'Amortisasi sewa gudang',
     description: 'Amortisasi sewa gudang dibayar dimuka (1/12)',
     frequency: 'MONTHLY',
@@ -285,7 +286,7 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
       { accountId: A('6-3000'), debit: '12000000', credit: '0' },
       { accountId: A('1-1700'), debit: '0', credit: '12000000' },
     ],
-  }));
+  });
 
   // ---------- Antrean kejadian ----------
   type Ev = { date: DocDate; run: () => Promise<unknown>; label: string };
@@ -306,8 +307,8 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
     });
   };
 
-  const bill = async (date: DocDate, supplier: string, no: string, dto: object) => {
-    const r = await svc.bills.createBill(admin, asDto({ supplierId: supId.get(supplier)!, supplierInvoiceNo: no, date, ...dto }));
+  const bill = async (date: DocDate, supplier: string, no: string, dto: Omit<CreateBillDto, 'supplierId' | 'supplierInvoiceNo' | 'date'>) => {
+    const r = await svc.bills.createBill(admin, { supplierId: supId.get(supplier)!, supplierInvoiceNo: no, date, ...dto });
     const term = [...GOODS_SUPPLIERS, ...SERVICE_SUPPLIERS].find((s) => s.code === supplier)!.term;
     paySupplier(r.id, addDays(date, term - rint(0, 2)));
     return r;
@@ -327,12 +328,12 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
         })
         .filter(Boolean) as { p: (typeof PRODUCTS)[number]; dus: number }[];
       if (!lines.length) continue;
-      const po = await svc.po.create(admin, asDto({
+      const po = await svc.po.create(admin, {
         supplierId: supId.get(s.code)!,
         warehouseId: wh.id,
         date: d,
         lines: lines.map((l) => ({ productId: prodId.get(l.p.sku)!, uom: 'DUS', qty: String(l.dus), price: String(r100(l.p.cost * l.p.dus * (1 + (R() - 0.5) * 0.03))) })),
-      }));
+      });
       await svc.po.confirm(admin, po.id);
       for (const l of lines) onOrder.set(l.p.sku, (onOrder.get(l.p.sku) ?? 0) + l.dus * l.p.dus);
       const arrive = addDays(d, rint(1, 3));
@@ -362,7 +363,7 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
       .filter((l) => l.dus > 0);
     if (!lines.length) return;
     const so = await quiet('SO', () =>
-      svc.so.create(admin, asDto({ customerId: custId.get(c.code)!, warehouseId: wh.id, date: d, lines: lines.map((l) => ({ productId: prodId.get(l.p.sku)!, uom: 'DUS', qty: String(l.dus) })) })),
+      svc.so.create(admin, { customerId: custId.get(c.code)!, warehouseId: wh.id, date: d, lines: lines.map((l) => ({ productId: prodId.get(l.p.sku)!, uom: 'DUS', qty: String(l.dus) })) }),
     );
     if (!so) return;
     const ok = await quiet(`konfirmasi ${c.name}`, () => svc.so.confirm(admin, so.id));
@@ -405,7 +406,7 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
 
   const posDay = async (d: DocDate) => {
     await withSimulatedDay(d, async () => {
-      const s = await svc.pos.open(cashier as never, { warehouseId: wh.id, openingCash: '500000' });
+      const s = await svc.pos.open(cashier, { warehouseId: wh.id, openingCash: '500000' });
       const n = rint(4, 9);
       for (let i = 0; i < n; i++) {
         const lines = [...PRODUCTS]
@@ -417,17 +418,17 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
         const total = Number(documentTotals(lines.map((l) => ({ qty: l.qty, price: l.p.price })), 11).total);
         const qris = chance(0.4);
         const o = await quiet('POS', () =>
-          svc.pos.createOrder(cashier as never, asDto({
+          svc.pos.createOrder(cashier, {
             sessionId: s.id,
             lines: lines.map((l) => ({ productId: prodId.get(l.p.sku)!, qty: String(l.qty) })),
             payments: [{ method: qris ? 'QRIS' : 'CASH', amount: String(qris ? total.toFixed(2) : Math.ceil(total / 5000) * 5000) }],
-          })),
+          }),
         );
         if (o) for (const l of lines) stock.set(l.p.sku, (stock.get(l.p.sku) ?? 0) - l.qty);
       }
-      const cur = (await svc.pos.current(cashier as never)) as { summary: { expectedCash: string } } | null;
+      const cur = (await svc.pos.current(cashier)) as { summary: { expectedCash: string } } | null;
       const expected = Number(cur?.summary.expectedCash ?? 500000);
-      await svc.pos.close(cashier as never, s.id, { countedCash: String(chance(0.12) ? expected - pick([2000, 5000, 10000]) : expected) });
+      await svc.pos.close(cashier, s.id, { countedCash: String(chance(0.12) ? expected - pick([2000, 5000, 10000]) : expected) });
     });
   };
 
@@ -465,7 +466,7 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
       .filter((e) => !onLeave.get(d)?.has(e.id))
       .map((e) => {
         const x = R();
-        const status = x < 0.015 ? 'SAKIT' : x < 0.025 ? 'IZIN' : 'HADIR';
+        const status: AttendanceStatus = x < 0.015 ? 'SAKIT' : x < 0.025 ? 'IZIN' : 'HADIR';
         return {
           employeeId: e.id,
           status,
@@ -474,7 +475,7 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
           overtimeHours: status === 'HADIR' && (dow(d) === 6 || demandFactor(d) > 1.2) && chance(0.35) ? String(rint(1, 3)) : '0',
         };
       });
-    if (rows.length) await svc.hr.saveAttendance(admin, asDto({ date: d, rows }));
+    if (rows.length) await svc.hr.saveAttendance(admin, { date: d, rows });
   };
 
   const payroll = async (period: string, payDate: DocDate) => {
@@ -500,14 +501,14 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
       if (Number(o.outstanding) <= 0 && !vatComp) continue;
       const billing = `${rint(1, 9)}${String(rint(0, 99999999)).padStart(8, '0')}${String(rint(0, 999999)).padStart(6, '0')}`;
       await quiet(`pajak ${o.type}`, () =>
-        svc.tax.create(admin, asDto({
+        svc.tax.create(admin, {
           type: o.type,
           period: o.period,
           date: d,
           cashAccountId: bank,
           billingCode: billing,
           ntpn: Number(o.outstanding) > 0 ? `${billing.slice(0, 4)}${Math.floor(R() * 1e12).toString(36).toUpperCase()}`.slice(0, 16).padEnd(16, '0') : undefined,
-        })),
+        }),
       );
     }
   };
@@ -582,7 +583,7 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
       onLeave.get(d)!.add(emp[l.e].id);
     }
     later(addDays(l.from, -10), 'cuti', async () => {
-      const lv = (await svc.hr.createLeave(admin, asDto({ employeeId: emp[l.e].id, type: 'ANNUAL', startDate: l.from, endDate: l.to, reason: 'Cuti tahunan' }))) as { id: string };
+      const lv = (await svc.hr.createLeave(admin, { employeeId: emp[l.e].id, type: 'ANNUAL', startDate: l.from, endDate: l.to, reason: 'Cuti tahunan' })) as { id: string };
       await svc.hr.decideLeave(admin, lv.id, { decision: 'APPROVED' });
     });
   }
@@ -677,19 +678,19 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
         if (dow(d) === 1) {
           await quiet('marketplace', () => marketplaceWeek(d));
           await quiet('BBM', () =>
-            svc.cash.create(admin, asDto({ type: 'OUT', cashAccountId: kas, date: d, description: 'BBM kendaraan pengiriman', reference: `SPBU-${rint(1000, 9999)}`, lines: [{ accountId: A('6-2000'), amount: String(r1000(rint(400, 750) * 1000)) }] })),
+            svc.cash.create(admin, { type: 'OUT', cashAccountId: kas, date: d, description: 'BBM kendaraan pengiriman', reference: `SPBU-${rint(1000, 9999)}`, lines: [{ accountId: A('6-2000'), amount: String(r1000(rint(400, 750) * 1000)) }] }),
           );
         }
         if (dow(d) === 6) {
           const k = await kasBalance();
-          if (k > 8_000_000) await quiet('setor tunai', () => svc.cash.create(admin, asDto({ type: 'TRANSFER', cashAccountId: kas, toCashAccountId: bank, amount: String(r100(k - 5_000_000)), date: d, description: 'Setor tunai hasil penjualan ke bank' })));
+          if (k > 8_000_000) await quiet('setor tunai', () => svc.cash.create(admin, { type: 'TRANSFER', cashAccountId: kas, toCashAccountId: bank, amount: String(r100(k - 5_000_000)), date: d, description: 'Setor tunai hasil penjualan ke bank' }));
         }
         await attendance(d, onLeave);
       }
       const day = Number(d.slice(8));
       if (day === 5 || (day === 6 && dow(addDays(d, -1)) === 0)) {
         await quiet('listrik', () =>
-          svc.cash.create(admin, asDto({
+          svc.cash.create(admin, {
             type: 'OUT',
             cashAccountId: bank,
             date: d,
@@ -699,16 +700,16 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
               { accountId: A('6-4000'), amount: String(r1000(rint(3100, 4300) * 1000)), memo: 'PLN & PDAM gudang' },
               { accountId: A('6-4000'), amount: '650000', memo: 'Internet kantor' },
             ],
-          })),
+          }),
         );
       }
       if (day === 12 && workday)
         await quiet('ATK', () =>
-          svc.cash.create(admin, asDto({ type: 'OUT', cashAccountId: kas, date: d, description: 'Perlengkapan kantor & ATK', reference: `NOTA-${rint(100, 999)}`, lines: [{ accountId: A('6-6000'), amount: String(r1000(rint(250, 650) * 1000)) }] })),
+          svc.cash.create(admin, { type: 'OUT', cashAccountId: kas, date: d, description: 'Perlengkapan kantor & ATK', reference: `NOTA-${rint(100, 999)}`, lines: [{ accountId: A('6-6000'), amount: String(r1000(rint(250, 650) * 1000)) }] }),
         );
       if (day === 20 && ['02', '03', '06', '09', '11'].includes(d.slice(5, 7)))
         await quiet('promosi', () =>
-          svc.cash.create(admin, asDto({ type: 'OUT', cashAccountId: bank, date: d, description: 'Materi promosi & spanduk toko', lines: [{ accountId: A('6-2100'), amount: String(r1000(rint(1200, 2800) * 1000)) }] })),
+          svc.cash.create(admin, { type: 'OUT', cashAccountId: bank, date: d, description: 'Materi promosi & spanduk toko', lines: [{ accountId: A('6-2100'), amount: String(r1000(rint(1200, 2800) * 1000)) }] }),
         );
       if (day === 10) await quiet('setoran pajak', () => taxes(d, ['PPH21', 'BPJS', 'PPH23', 'PPH4_2']));
       if (day === 25) await quiet('PPN', () => taxes(d, ['PPN']));
