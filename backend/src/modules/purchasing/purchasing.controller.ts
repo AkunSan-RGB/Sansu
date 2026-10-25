@@ -27,6 +27,9 @@ import {
 import { PurchaseRequestsService } from './purchase-requests.service';
 import { ConvertPurchaseRequestDto, CreatePurchaseRequestDto, DecisionNoteDto, PurchaseRequestQueryDto, SuggestionQueryDto } from './purchase-requests.dto';
 import { SuppliersService } from './suppliers.service';
+import { PurchaseReportsService } from './purchase-reports.service';
+import { SupplierPaymentsService } from './supplier-payments.service';
+import { SupplierBillsService } from './supplier-bills.service';
 
 @ApiTags('Pembelian')
 @ApiBearerAuth()
@@ -88,7 +91,7 @@ export class PurchaseOrdersController {
   @Get(':id')
   @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.get(u.tenantId, id).then((po) => this.svc.forViewer(u, po as never));
+    return this.svc.get(u.tenantId, id).then((po) => this.svc.forViewer(u, po));
   }
 
   /** Pembelian cepat atas penawaran supplier: buat + konfirmasi (+ terima barang bila sudah tiba) dalam satu langkah */
@@ -165,7 +168,10 @@ export class GoodsReceiptsController {
 @RequireApp('purchase')
 @Controller('purchase-invoices')
 export class PurchaseInvoicesController {
-  constructor(private readonly svc: PurchaseInvoicesService) {}
+  constructor(private readonly svc: PurchaseInvoicesService,
+    private readonly purchaseReports: PurchaseReportsService,
+    private readonly supplierPayments: SupplierPaymentsService,
+    private readonly supplierBills: SupplierBillsService) {}
 
   @Get()
   @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
@@ -176,39 +182,39 @@ export class PurchaseInvoicesController {
   @Get('reports/ap-aging')
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   apAging(@CurrentUser() u: AuthUser) {
-    return this.svc.apAging(u.tenantId);
+    return this.purchaseReports.apAging(u.tenantId);
   }
 
   /** Laporan selisih harga faktur vs PO + penanda untuk ditinjau (anti-fraud) */
   @Get('reports/price-variances')
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   priceVariances(@CurrentUser() u: AuthUser, @Query() q: PriceVarianceQueryDto) {
-    return this.svc.priceVarianceReport(u.tenantId, q.from, q.to);
+    return this.purchaseReports.priceVarianceReport(u.tenantId, q.from, q.to);
   }
 
   @Get('payments')
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   payments(@CurrentUser() u: AuthUser) {
-    return this.svc.listPayments(u.tenantId);
+    return this.purchaseReports.listPayments(u.tenantId);
   }
 
   @Post('payments')
   @Roles('ADMIN', 'FINANCE')
   pay(@CurrentUser() u: AuthUser, @Body() dto: CreateSupplierPaymentDto) {
-    return this.svc.pay(u, dto);
+    return this.supplierPayments.pay(u, dto);
   }
 
   /** Batalkan pembayaran yang salah (jurnal dibalik, hutang terbuka lagi) */
   @Post('payments/:id/void')
   @Roles('ADMIN')
   voidPayment(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VoidSupplierPaymentDto) {
-    return this.svc.voidPayment(u, id, dto.reason);
+    return this.supplierPayments.voidPayment(u, id, dto.reason);
   }
 
   @Post('bills')
   @Roles('ADMIN', 'FINANCE')
   createBill(@CurrentUser() u: AuthUser, @Body() dto: CreateBillDto) {
-    return this.svc.createBill(u, dto);
+    return this.supplierBills.createBill(u, dto);
   }
 
   @Get(':id')

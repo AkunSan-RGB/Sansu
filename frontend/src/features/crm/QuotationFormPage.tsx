@@ -1,23 +1,18 @@
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Card, Checkbox, Col, Descriptions, Form, Input, InputNumber, Row, Select, Space, Table } from 'antd';
+import { Button, Card, Checkbox, Col, Descriptions, Form, Input, InputNumber, Row, Select, Space } from 'antd';
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { post } from '@/api/client';
 import { useAction, useCustomers, useProducts, useWarehouses } from '@/api/queries';
-import type { Product, Quotation } from '@/api/types';
+import type { Quotation } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
+import DocLineItems from '@/components/DocLineItems';
+import { type DocLine, previewLine, uomFactor } from '@/lib/docLines';
 import { fmtMoney, today } from '@/lib/format';
 import { outputVatRate, vatTotals } from '@/lib/vat';
 import { t } from '@/lib/terms';
 
-interface Line {
-  productId?: string;
-  uom?: string;
-  qty?: number;
-  price?: number;
-  discountPct?: number;
-}
+type Line = DocLine;
 interface FormValues {
   customerId: string;
   warehouseId: string;
@@ -29,12 +24,6 @@ interface FormValues {
   terms?: string;
   lines: Line[];
 }
-
-const uomFactor = (p: Product | undefined, uom: string | undefined) =>
-  !p || !uom || uom === p.baseUom ? 1 : Number(p.uoms.find((u) => u.uom === uom)?.factor ?? 1);
-
-/** Pratinjau nilai baris di browser; nilai final selalu dihitung ulang oleh server. */
-const previewLine = (l: Line) => Math.round((l.qty ?? 0) * (l.price ?? 0) * (100 - (l.discountPct ?? 0))) / 100;
 
 export default function QuotationFormPage() {
   const navigate = useNavigate();
@@ -125,85 +114,15 @@ export default function QuotationFormPage() {
             </Col>
           </Row>
 
-          <Form.List name="lines">
-            {(fields, { add, remove }) => (
-              <>
-                <Table
-                  rowKey="key"
-                  dataSource={fields}
-                  pagination={false}
-                  size="small"
-                  scroll={{ x: 900 }}
-                  columns={[
-                    {
-                      title: t('Produk'),
-                      width: 320,
-                      render: (_, f) => (
-                        <Form.Item name={[f.name, 'productId']} rules={[{ required: true, message: t('Pilih produk') }]} noStyle>
-                          <Select
-                            showSearch
-                            optionFilterProp="label"
-                            style={{ width: '100%' }}
-                            placeholder={t('Pilih produk')}
-                            onChange={(v) => onProduct(f.name, v)}
-                            options={products?.filter((p) => p.isActive).map((p) => ({ value: p.id, label: `${p.sku} · ${p.name}` }))}
-                          />
-                        </Form.Item>
-                      ),
-                    },
-                    {
-                      title: 'Satuan',
-                      width: 110,
-                      render: (_, f) => {
-                        const p = productById.get(lines[f.name]?.productId ?? '');
-                        const opts = p ? [p.baseUom, ...p.uoms.map((u) => u.uom)].map((u) => ({ value: u, label: u })) : [];
-                        return (
-                          <Form.Item name={[f.name, 'uom']} noStyle>
-                            <Select style={{ width: '100%' }} options={opts} onChange={(v) => onUom(f.name, v)} />
-                          </Form.Item>
-                        );
-                      },
-                    },
-                    {
-                      title: 'Qty',
-                      width: 100,
-                      render: (_, f) => (
-                        <Form.Item name={[f.name, 'qty']} rules={[{ required: true }]} noStyle>
-                          <InputNumber min={0.0001} style={{ width: '100%' }} />
-                        </Form.Item>
-                      ),
-                    },
-                    {
-                      title: 'Harga / satuan',
-                      width: 160,
-                      render: (_, f) => (
-                        <Form.Item name={[f.name, 'price']} noStyle>
-                          <InputNumber min={0} style={{ width: '100%' }} />
-                        </Form.Item>
-                      ),
-                    },
-                    {
-                      title: 'Diskon %',
-                      width: 90,
-                      render: (_, f) => (
-                        <Form.Item name={[f.name, 'discountPct']} noStyle>
-                          <InputNumber min={0} max={100} style={{ width: '100%' }} />
-                        </Form.Item>
-                      ),
-                    },
-                    { title: 'Jumlah', align: 'right', render: (_, f) => fmtMoney(previewLine(lines[f.name] ?? {})) },
-                    {
-                      width: 40,
-                      render: (_, f) => fields.length > 1 && <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(f.name)} />,
-                    },
-                  ]}
-                />
-                <Button type="dashed" block icon={<PlusOutlined />} style={{ marginTop: 8 }} onClick={() => add({ qty: 1, discountPct: 0 })}>
-                  Tambah baris
-                </Button>
-              </>
-            )}
-          </Form.List>
+          <DocLineItems
+            products={products}
+            productById={productById}
+            lines={lines}
+            onProduct={onProduct}
+            onUom={onUom}
+            priceTitle="Harga / satuan"
+            money={fmtMoney}
+          />
 
           <Row gutter={16} style={{ marginTop: 16 }}>
             <Col xs={24} md={14}>

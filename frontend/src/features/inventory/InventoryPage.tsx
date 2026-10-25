@@ -3,6 +3,7 @@ import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Card, Empty, Form, Input, InputNumber, Modal, Segmented, Select, Space, Tabs, Tag, Typography } from 'antd';
 import { useState } from 'react';
+import BinSelect from './BinSelect';
 import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
 import { get, post, qs } from '@/api/client';
@@ -23,7 +24,7 @@ interface AdjustValues {
   reason: string;
   date?: string;
   notes?: string;
-  lines: { productId: string; qty: number; unitCost?: number; lotNo?: string; expiryDate?: string }[];
+  lines: { productId: string; qty: number; unitCost?: number; lotNo?: string; expiryDate?: string; binId?: string }[];
 }
 
 export default function InventoryPage() {
@@ -55,7 +56,7 @@ export default function InventoryPage() {
     (v: AdjustValues) =>
       post<{ number: string; journalNumber: string | null }>('/inventory/adjustments', {
         ...v,
-        lines: v.lines.map((l) => ({ productId: l.productId, qty: String(l.qty), unitCost: l.unitCost != null ? String(l.unitCost) : undefined, ...(l.qty > 0 ? { lotNo: l.lotNo?.trim() || undefined, expiryDate: l.expiryDate || undefined } : {}) })),
+        lines: v.lines.map((l) => ({ productId: l.productId, qty: String(l.qty), unitCost: l.unitCost != null ? String(l.unitCost) : undefined, binId: l.binId || undefined, ...(l.qty > 0 ? { lotNo: l.lotNo?.trim() || undefined, expiryDate: l.expiryDate || undefined } : {}) })),
       }),
     {
       success: (r) => `Penyesuaian ${r.number} disimpan${r.journalNumber ? `, jurnal ${r.journalNumber}` : ''}`,
@@ -268,6 +269,13 @@ export default function InventoryPage() {
                           </>
                         )
                       }
+                    </Form.Item>
+                    <Form.Item noStyle shouldUpdate>
+                      {({ getFieldValue }) => (
+                        <Form.Item name={[f.name, 'binId']}>
+                          <BinSelect warehouseId={getFieldValue('warehouseId')} />
+                        </Form.Item>
+                      )}
                     </Form.Item>
                     {fields.length > 1 && <MinusCircleOutlined onClick={() => remove(f.name)} />}
                   </Space>

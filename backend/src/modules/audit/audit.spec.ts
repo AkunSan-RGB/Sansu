@@ -1,4 +1,4 @@
-import { describeAudit } from './audit.module';
+import { describeAudit } from './audit.shared';
 import { sanitize } from '../../common/audit/audit.interceptor';
 
 describe('jejak audit: label & sanitasi', () => {

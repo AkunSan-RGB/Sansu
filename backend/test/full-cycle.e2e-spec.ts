@@ -10,6 +10,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 import { todayJakarta, addDays } from '../src/common/utils/dates';
+import { closeYearLater } from './close-year-helper';
 
 describe('Siklus akuntansi lengkap (e2e)', () => {
   let app: INestApplication;
@@ -44,6 +45,7 @@ describe('Siklus akuntansi lengkap (e2e)', () => {
       .send({ companyName: 'PT Siklus Lengkap', name: 'Pemilik', email: `siklus-${Date.now()}@uji.id`, password: 'rahasia123' })
       .expect(201);
     token = reg.body.accessToken;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${token}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     warehouseId = (await get('/api/warehouses')).body[0].id;
     accounts = (await get('/api/accounting/accounts')).body;
     productId = (
@@ -242,7 +244,10 @@ describe('Siklus akuntansi lengkap (e2e)', () => {
     const year = Number(today.slice(0, 4));
     const before = await get(`/api/accounting/reports/profit-loss?from=${year}-01-01&to=${year}-12-31`).expect(200);
 
-    const res = await post('/api/accounting/period/close-year', { year }).expect(201);
+    const res = await closeYearLater(app, token, year);
+    expect(res.status).toBe(201);
+    // tahun berjalan belum berakhir: ditolak lewat API
+    expect((await post('/api/accounting/period/close-year', { year }).expect(400)).body.message).toContain('belum berakhir');
     expect(Number(res.body.netIncome)).toBe(Number(before.body.netIncome));
     expect(Number(res.body.netIncome)).toBe(-158000); // 672.000 penjualan bersih - 480.000 HPP - 350.000 listrik
     expect(res.body.lockedUntil).toBe(`${year}-12-31`);
@@ -256,7 +261,7 @@ describe('Siklus akuntansi lengkap (e2e)', () => {
     const retained = bs.body.equity.find((e: any) => e.code === '3-2000');
     expect(Number(retained.balance)).toBe(Number(before.body.netIncome));
 
-    await post('/api/accounting/period/close-year', { year }).expect(400);
+    expect((await closeYearLater(app, token, year)).status).toBe(400);
     await expectBalanced();
   });
 });

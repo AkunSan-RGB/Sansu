@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -9,36 +9,15 @@ import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { returnForeign } from '../../common/utils/fx';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import {
-  customers,
-  invoiceLines,
-  invoices,
-  purchaseInvoiceLines,
-  purchaseInvoices,
-  purchaseReturnLines,
-  purchaseReturns,
-  salesOrders,
-  salesReturnLines,
-  salesReturns,
-  suppliers,
-} from '../../db/schema';
+import { invoiceLines, invoices, purchaseInvoiceLines, purchaseInvoices, purchaseReturns, salesReturns } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
 import { lineTotal } from '../sales/pricing';
 import { CreateReturnDto } from './returns.dto';
-
-interface SourceLine {
-  id: string;
-  productId: string;
-  uom: string;
-  uomFactor: string;
-  qty: string;
-  price: string;
-  discountPct: string;
-  returnedQty: string;
-  unitCost: string;
-}
+import { insertOne, patchById } from '../../db/owned';
+import { ReturnsRepository } from './returns.repository';
+import type { SourceLine } from './returns.repository';
 
 /**
  * PPN retur: proporsional terhadap faktur asal. Jika retur ini menghabiskan seluruh sisa barang,
@@ -85,6 +64,7 @@ export class ReturnsService {
     private readonly posting: PostingService,
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
+    private readonly repo: ReturnsRepository,
   ) {}
 
   // ================= Retur penjualan =================
@@ -115,7 +95,7 @@ export class ReturnsService {
     if (!opts.approved && !this.approvals.isApprover(user.role) && (await this.approvals.policy(this.db, user.tenantId)).salesSeparateDuties) {
       const creator = await this.approvals.invoiceCreator(this.db, user.tenantId, dto.invoiceId);
       if (creator && creator === user.sub) {
-        const [inv] = await this.db.select({ n: invoices.number }).from(invoices).where(and(eq(invoices.id, dto.invoiceId), eq(invoices.tenantId, user.tenantId)));
+        const [inv] = await this.repo.findInvoicesById(this.db, dto.invoiceId, user.tenantId);
         const req = await this.approvals.create(this.db, user, { kind: 'SALES_RETURN', refId: null, title: `Retur penjualan faktur ${inv?.n ?? ''} oleh pembuat fakturnya`, amount: 0, payload: JSON.parse(JSON.stringify(dto)) });
         throw this.approvals.required(req.id, 'Retur atas faktur yang Anda buat sendiri menunggu persetujuan pemilik atau admin (pemisahan fungsi); permintaan dikirim dan retur dicatat setelah disetujui.');
       }
@@ -147,17 +127,15 @@ export class ReturnsService {
         throw new BadRequestException('Faktur jasa tidak bisa diretur. Untuk pengurangan tagihan jasa, catat nota kredit lewat jurnal penyesuaian.');
       }
       const [order] = inv.salesOrderId
-        ? await tx.select({ warehouseId: salesOrders.warehouseId }).from(salesOrders).where(eq(salesOrders.id, inv.salesOrderId))
+        ? await this.repo.listSalesOrdersById(tx, inv.salesOrderId)
         : [];
       if (!order) throw new BadRequestException('Gudang asal faktur tidak diketahui');
-      const [customer] = await tx.select().from(customers).where(eq(customers.id, inv.customerId));
+      const [customer] = await this.repo.findCustomersById(tx, inv.customerId);
 
       // Barang yang sudah/sedang ditukar-guling tidak boleh diretur lagi (outlet tidak boleh dapat pengganti sekaligus nota kredit)
       for (const l of dto.lines) {
         if (D(l.qty).lte(0)) continue;
-        const sw = await tx.execute<{ q: string }>(sql`
-          SELECT COALESCE(SUM(sl.qty), 0)::text AS q FROM goods_swap_lines sl JOIN goods_swaps s ON s.id = sl.swap_id
-          WHERE sl.invoice_line_id = ${l.invoiceLineId} AND s.status IN ('PENDING', 'APPROVED')`);
+        const sw = await this.repo.queryGoodsSwapLine(tx, l.invoiceLineId);
         const src = inv.lines.find((x) => x.id === l.invoiceLineId);
         if (src && D(sw.rows[0].q).gt(0) && D(l.qty).gt(D(src.qty).minus(src.returnedQty).minus(sw.rows[0].q))) {
           throw new BadRequestException(`Sebagian barang pada baris ini sudah/sedang ditukar-guling (${D(sw.rows[0].q).toFixed(0)} ${src.uom}); jumlah retur melebihi sisa yang boleh diretur`);
@@ -176,9 +154,7 @@ export class ReturnsService {
       }
 
       const number = await this.seq.next(tx, user.tenantId, 'SALES_RETURN', date);
-      const [ret] = await tx
-        .insert(salesReturns)
-        .values({
+      const ret = await insertOne(tx, salesReturns, {
           tenantId: user.tenantId,
           number,
           date,
@@ -190,15 +166,12 @@ export class ReturnsService {
           taxAmount: tax.toFixed(2),
           total: total.toFixed(2),
           costAmount: '0',
-        })
-        .returning();
+        });
 
       let cost: Dec = ZERO;
       for (const l of lines) {
         // Barang kembali membawa penurunan nilai yang melekat saat dijual (agar koreksi fiskal ikut terbalik)
-        const wd = await tx.execute<{ wu: string }>(sql`
-          SELECT COALESCE(SUM(-writedown_value) / NULLIF(SUM(-qty), 0), 0) AS wu FROM stock_moves
-          WHERE ((ref_type = 'INVOICE' AND ref_id = ${inv.id}) OR (ref_type = 'DELIVERY' AND ref_id = ${inv.deliveryOrderId ?? inv.id})) AND product_id = ${l.src.productId} AND type = 'SALE'`);
+        const wd = await this.repo.queryStockMove(tx, inv.id, inv.deliveryOrderId, l);
         const moved = await this.stock.move(tx, {
           tenantId: user.tenantId,
           productId: l.src.productId,
@@ -213,18 +186,8 @@ export class ReturnsService {
           date,
         });
         cost = cost.plus(moved.value);
-        await tx.insert(salesReturnLines).values({
-          returnId: ret.id,
-          invoiceLineId: l.src.id,
-          productId: l.src.productId,
-          uom: l.src.uom,
-          qty: l.qty.toFixed(4),
-          lineTotal: l.total.toFixed(2),
-        });
-        await tx
-          .update(invoiceLines)
-          .set({ returnedQty: D(l.src.returnedQty).plus(l.qty).toFixed(4) })
-          .where(eq(invoiceLines.id, l.src.id));
+        await this.repo.insertSalesReturnLines(tx, ret.id, l.src.id, l.src.productId, l.src.uom, l.qty, l.total);
+        await patchById(tx, invoiceLines, l.src.id, { returnedQty: D(l.src.returnedQty).plus(l.qty).toFixed(4) });
       }
 
       const journal = await this.posting.post(tx, {
@@ -245,18 +208,12 @@ export class ReturnsService {
 
       const returned = D(inv.returnedAmount).plus(total);
       const retForeign = inv.currency === 'IDR' ? ZERO : returnForeign({ returnIdr: total, totalIdr: inv.total, paidIdr: inv.paidAmount, returnedIdr: inv.returnedAmount, totalForeign: inv.totalForeign ?? 0, paidForeign: inv.paidForeign, returnedForeign: inv.returnedForeign, rate: inv.fxRate });
-      await tx
-        .update(invoices)
-        .set({
+      await patchById(tx, invoices, inv.id, {
           returnedAmount: returned.toFixed(2),
           returnedForeign: D(inv.returnedForeign).plus(retForeign).toFixed(2),
           status: returned.plus(inv.paidAmount).gte(inv.total) ? 'PAID' : 'PARTIAL',
-        })
-        .where(eq(invoices.id, inv.id));
-      await tx
-        .update(salesReturns)
-        .set({ costAmount: money(cost).toFixed(2), journalId: journal.id })
-        .where(eq(salesReturns.id, ret.id));
+        });
+      await patchById(tx, salesReturns, ret.id, { costAmount: money(cost).toFixed(2), journalId: journal.id });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'SalesReturn', entityId: ret.id });
       return { ...ret, total: total.toFixed(2), journalNumber: journal.number };
     });
@@ -297,7 +254,7 @@ export class ReturnsService {
         throw new BadRequestException('Retur hanya untuk faktur barang dagang. Untuk tagihan biaya/aset, minta nota kredit supplier dan catat lewat jurnal.');
       }
       const warehouseId = inv.warehouseId;
-      const [supplier] = await tx.select().from(suppliers).where(eq(suppliers.id, inv.supplierId));
+      const [supplier] = await this.repo.findSuppliersById(tx, inv.supplierId);
 
       const { lines, subtotal, isFinal } = buildReturnLines(
         inv.lines.map((l) => ({ ...l, productId: l.productId! })),
@@ -315,9 +272,7 @@ export class ReturnsService {
       }
 
       const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_RETURN', date);
-      const [ret] = await tx
-        .insert(purchaseReturns)
-        .values({
+      const ret = await insertOne(tx, purchaseReturns, {
           tenantId: user.tenantId,
           number,
           date,
@@ -328,8 +283,7 @@ export class ReturnsService {
           subtotal: subtotal.toFixed(2),
           taxAmount: tax.toFixed(2),
           total: total.toFixed(2),
-        })
-        .returning();
+        });
 
       let stockValue: Dec = ZERO;
       for (const l of lines) {
@@ -345,18 +299,8 @@ export class ReturnsService {
           date,
         });
         stockValue = stockValue.plus(moved.value);
-        await tx.insert(purchaseReturnLines).values({
-          returnId: ret.id,
-          invoiceLineId: l.src.id,
-          productId: l.src.productId,
-          uom: l.src.uom,
-          qty: l.qty.toFixed(4),
-          lineTotal: l.total.toFixed(2),
-        });
-        await tx
-          .update(purchaseInvoiceLines)
-          .set({ returnedQty: D(l.src.returnedQty).plus(l.qty).toFixed(4) })
-          .where(eq(purchaseInvoiceLines.id, l.src.id));
+        await this.repo.insertPurchaseReturnLines(tx, ret.id, l.src.id, l.src.productId, l.src.uom, l.qty, l.total);
+        await patchById(tx, purchaseInvoiceLines, l.src.id, { returnedQty: D(l.src.returnedQty).plus(l.qty).toFixed(4) });
       }
       // PPN faktur non-PKP sudah masuk harga perolehan → ikut keluar bersama persediaan, bukan mengurangi PPN Masukan
       const vatBack = inv.vatCapitalized ? ZERO : tax;
@@ -379,31 +323,24 @@ export class ReturnsService {
 
       const returned = D(inv.returnedAmount).plus(total);
       const retForeign = inv.currency === 'IDR' ? ZERO : returnForeign({ returnIdr: total, totalIdr: inv.total, paidIdr: inv.paidAmount, returnedIdr: inv.returnedAmount, totalForeign: inv.totalForeign ?? 0, paidForeign: inv.paidForeign, returnedForeign: inv.returnedForeign, rate: inv.fxRate });
-      await tx
-        .update(purchaseInvoices)
-        .set({
+      await patchById(tx, purchaseInvoices, inv.id, {
           returnedAmount: returned.toFixed(2),
           returnedForeign: D(inv.returnedForeign).plus(retForeign).toFixed(2),
           status: returned.plus(inv.paidAmount).gte(inv.total) ? 'PAID' : 'PARTIAL',
-        })
-        .where(eq(purchaseInvoices.id, inv.id));
-      await tx.update(purchaseReturns).set({ journalId: journal.id }).where(eq(purchaseReturns.id, ret.id));
+        });
+      await patchById(tx, purchaseReturns, ret.id, { journalId: journal.id });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PurchaseReturn', entityId: ret.id });
       return { ...ret, total: total.toFixed(2), journalNumber: journal.number };
     });
   }
 
   private async lockRow(tx: Tx, table: 'invoices' | 'purchase_invoices', id: string, tenantId: string) {
-    const res = await tx.execute(
-      sql`SELECT id FROM ${sql.identifier(table)} WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`,
-    );
+    const res = await this.repo.queryLockRow(tx, table, id, tenantId);
     if (!res.rows.length) throw new NotFoundException('Faktur tidak ditemukan');
   }
 
   private async sumTax(tx: Tx, table: 'sales_returns' | 'purchase_returns', fk: string, id: string): Promise<Dec> {
-    const res = await tx.execute<{ v: string }>(
-      sql`SELECT COALESCE(SUM(tax_amount), 0) AS v FROM ${sql.identifier(table)} WHERE ${sql.identifier(fk)} = ${id}`,
-    );
+    const res = await this.repo.querySumTax(tx, table, fk, id);
     return D(res.rows[0].v);
   }
 }

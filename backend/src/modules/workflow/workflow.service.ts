@@ -1,0 +1,608 @@
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { effectivePipelines, pipelinesFor, stageOf, validateWorkflowOverrides, WORKFLOW_LINK_LABELS, type WorkflowLinkType, type WorkflowOverrides, type WorkflowPipeline, type WorkflowStage } from '@sansu/shared';
+import { ApprovalsService } from '../../common/approvals/approvals.service';
+import { AuditService } from '../../common/audit/audit.service';
+import { AuthUser } from '../../common/auth/auth-user';
+import { SequenceService } from '../../common/sequence/sequence.service';
+import { SettingsService } from '../../common/settings.service';
+import { toDocDate, todayJakarta } from '../../common/utils/dates';
+import { Db, DbOrTx, Tx } from '../../db/db';
+import { InjectDb } from '../../db/db.module';
+import { workflowCases } from '../../db/schema';
+import { WorkflowSettingsDto, CaseQueryDto, CreateCaseDto, AddLinkDto, AdvanceDto, NoteDto } from './workflow.dto';
+import { findOwned, insertOne, lockOwned, patchById } from '../../db/owned';
+import { WorkflowRepository } from './workflow.repository';
+import type { Source } from './workflow.repository';
+
+/** Tabel dokumen sumber tiap jenis tautan (semua ber-tenant_id) */
+const col = (c: string) => (a: string) => `${a}.${c}::text`;
+
+const src = (table: string, number = 'number', status: (a: string) => string = col('status'), created = 'created_at'): Source => ({ table, number: col(number), status, created });
+
+const SOURCES: Record<WorkflowLinkType, Source> = {
+  QUOTATION: src('quotations'),
+  SALES_ORDER: src('sales_orders'),
+  DELIVERY_ORDER: src('delivery_orders'),
+  INVOICE: src('invoices'),
+  PURCHASE_ORDER: src('purchase_orders'),
+  GOODS_RECEIPT: src('goods_receipts'),
+  PURCHASE_INVOICE: src('purchase_invoices', 'number', (a) => `(CASE WHEN ${a}.paid_amount >= ${a}.total THEN 'PAID' WHEN ${a}.paid_amount > 0 THEN 'PARTIAL' ELSE 'UNPAID' END)`),
+  PRODUCTION_ORDER: src('production_orders'),
+  PROJECT: src('projects', 'code'),
+  POS_SESSION: src('pos_sessions', 'number', col('status'), 'opened_at'),
+  PRINCIPAL_CLAIM: src('principal_claims'),
+  CANVASS: src('canvass_collections'),
+  STOCK_TRANSFER: src('stock_transfers'),
+  SALES_RETURN: src('sales_returns', 'number', () => `'POSTED'`),
+  PURCHASE_RETURN: src('purchase_returns', 'number', () => `'POSTED'`),
+  POS_TAB: src('pos_tabs'),
+};
+
+const DEAD = new Set(['CANCELLED', 'REJECTED', 'VOID']);
+
+/** Dokumen turunan yang otomatis ditautkan ke kasus bila dokumen induknya sudah tertaut (id dokumen berasal dari DB, bukan input) */
+const FOLLOW: Partial<Record<WorkflowLinkType, { to: WorkflowLinkType; ids: (tenant: string, id: string) => string }[]>> = {
+  QUOTATION: [{ to: 'SALES_ORDER', ids: (t, id) => `SELECT sales_order_id AS id FROM quotations WHERE tenant_id = '${t}' AND id = '${id}' AND sales_order_id IS NOT NULL` }],
+  SALES_ORDER: [
+    { to: 'INVOICE', ids: (t, id) => `SELECT id FROM invoices WHERE tenant_id = '${t}' AND sales_order_id = '${id}'` },
+    { to: 'DELIVERY_ORDER', ids: (t, id) => `SELECT id FROM delivery_orders WHERE tenant_id = '${t}' AND sales_order_id = '${id}'` },
+  ],
+  PURCHASE_ORDER: [
+    { to: 'GOODS_RECEIPT', ids: (t, id) => `SELECT id FROM goods_receipts WHERE tenant_id = '${t}' AND purchase_order_id = '${id}'` },
+    { to: 'PURCHASE_INVOICE', ids: (t, id) => `SELECT id FROM purchase_invoices WHERE tenant_id = '${t}' AND purchase_order_id = '${id}'` },
+  ],
+};
+
+/** Gerbang di dokumen berisiko (bila "Alur wajib" dinyalakan): aksi hanya boleh bila kasus sudah mencapai tahap ini */
+const GATES = {
+  // tagihan bisa belum tertaut sendiri; kasusnya dicari juga lewat pesanan pembelian induknya
+  PAY_SUPPLIER: { link: 'PURCHASE_INVOICE' as WorkflowLinkType, stage: 'DITERIMA', what: 'membayar tagihan pemasok', viaPo: true },
+  START_PRODUCTION: { link: 'PRODUCTION_ORDER' as WorkflowLinkType, stage: 'MATERIAL_SIAP', what: 'memulai produksi', viaPo: false },
+  // hasil produksi tidak boleh dicatat selesai sebelum pemeriksaan mutu (QC) oleh orang lain
+  COMPLETE_PRODUCTION: { link: 'PRODUCTION_ORDER' as WorkflowLinkType, stage: 'QC', what: 'menyelesaikan produksi', viaPo: false },
+  // barang tidak keluar gudang bila pesanan belum disetujui atau piutang pelanggan sudah melebihi batas kredit
+  DELIVER: { link: 'SALES_ORDER' as WorkflowLinkType, stage: 'DISETUJUI', what: 'mengirim barang', viaPo: false },
+};
+
+export type WorkflowGateAction = keyof typeof GATES;
+
+interface WorkflowSettings {
+  autoOpen: boolean;
+  enforce: boolean;
+  since: string | null;
+  overrides: WorkflowOverrides;
+}
+
+const DEFAULT_SETTINGS: WorkflowSettings = { autoOpen: true, enforce: false, since: null, overrides: {} };
+
+type CaseRow = typeof workflowCases.$inferSelect;
+
+const allows = (u: { role: string }, roles: string[]) => u.role === 'OWNER' || roles.includes(u.role);
+
+type LiveLink = { id: string; type: WorkflowLinkType; docId: string; number: string; status: string | null; dead: boolean };
+
+@Injectable()
+export class WorkflowService {
+  private readonly logger = new Logger('AlurKerja');
+
+  constructor(
+    @InjectDb() private readonly db: Db,
+    private readonly settings: SettingsService,
+    private readonly seq: SequenceService,
+    private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
+    private readonly repo: WorkflowRepository,
+  ) {}
+
+  async cfg(tenantId: string, db: DbOrTx = this.db): Promise<WorkflowSettings> {
+    const s = await this.settings.section(db, tenantId, 'workflow', DEFAULT_SETTINGS);
+    if (s.since) return s;
+    // pertama kali: kasus otomatis hanya untuk dokumen yang dibuat sejak hari ini (riwayat lama tidak dibanjiri)
+    return this.settings.saveSection(db, tenantId, 'workflow', DEFAULT_SETTINGS, { since: todayJakarta() });
+  }
+
+  private async defs(tenantId: string, db: DbOrTx = this.db): Promise<WorkflowPipeline[]> {
+    const model = await this.settings.businessModel(db, tenantId);
+    return effectivePipelines(model, (await this.cfg(tenantId, db)).overrides);
+  }
+
+  private async pipelineOf(tenantId: string, key: string, db: DbOrTx = this.db): Promise<WorkflowPipeline> {
+    const p = (await this.defs(tenantId, db)).find((x) => x.key === key);
+    // jenis usaha dikunci per perusahaan, jadi alur jenis usaha lain tidak pernah bisa dipakai
+    if (!p) throw new BadRequestException('Alur kerja ini bukan untuk jenis usaha perusahaan Anda');
+    return p;
+  }
+
+  async getSettings(u: AuthUser) {
+    const model = await this.settings.businessModel(this.db, u.tenantId);
+    return { settings: await this.cfg(u.tenantId), defaults: pipelinesFor(model) };
+  }
+
+  async saveSettings(u: AuthUser, dto: WorkflowSettingsDto) {
+    const model = await this.settings.businessModel(this.db, u.tenantId);
+    const before = await this.cfg(u.tenantId);
+    let overrides = before.overrides;
+    if (dto.overrides !== undefined) {
+      const errs = validateWorkflowOverrides(model, dto.overrides);
+      if (errs.length) throw new BadRequestException(errs.join('; '));
+      overrides = {};
+      for (const [k, stages] of Object.entries(dto.overrides)) {
+        const kept = Object.fromEntries(Object.entries(stages).filter(([, o]) => Object.keys(o).length));
+        if (Object.keys(kept).length) overrides[k] = kept;
+      }
+    }
+    const saved = await this.settings.saveSection(this.db, u.tenantId, 'workflow', DEFAULT_SETTINGS, { autoOpen: dto.autoOpen, enforce: dto.enforce, overrides });
+    await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'WorkflowSettings', entityId: u.tenantId, data: { before: { autoOpen: before.autoOpen, enforce: before.enforce, overrides: before.overrides }, after: { autoOpen: saved.autoOpen, enforce: saved.enforce, overrides: saved.overrides } } });
+    return this.getSettings(u);
+  }
+
+  /** Status terkini semua dokumen yang ditautkan ke kasus (dibaca dari tabel sumber, tidak disalin) */
+  private async liveLinks(db: DbOrTx, tenantId: string, caseId: string): Promise<LiveLink[]> {
+    const links = await this.repo.listWorkflowLinksByCaseIdAndCreatedAt(db, caseId, tenantId);
+    const out: LiveLink[] = [];
+    for (const l of links) {
+      const s = SOURCES[l.linkType as WorkflowLinkType];
+      const r = await this.repo.queryLiveLinks(db, s, s.table, tenantId, l.docId);
+      const row = r.rows[0];
+      out.push({ id: l.id, type: l.linkType as WorkflowLinkType, docId: l.docId, number: row?.number ?? l.docNumber, status: row?.status ?? null, dead: !row || DEAD.has(row.status) });
+    }
+    return out;
+  }
+
+  private reasonsBlocked(u: { role: string; sub: string }, to: WorkflowStage, links: LiveLink[], lastMoverId: string | null, note?: string): string[] {
+    const out: string[] = [];
+    if (!allows(u, to.roles)) out.push(`Hanya peran ${to.roles.join('/')} yang boleh memindahkan ke "${to.label}"`);
+    for (const need of to.requireLink ?? []) {
+      if (!links.some((l) => l.type === need && !l.dead)) out.push(`Tautkan dulu ${WORKFLOW_LINK_LABELS[need]} (yang masih berlaku)`);
+    }
+    // tahap yang bisa dibuktikan dari dokumen tidak bisa diklaim manual tanpa bukti
+    if (to.auto?.length && !to.auto.some((r) => links.some((l) => l.type === r.link && !l.dead && !!l.status && r.status.includes(l.status)))) {
+      out.push(`Belum ada bukti di dokumen terkait: ${to.auto.map((r) => `${WORKFLOW_LINK_LABELS[r.link]} berstatus ${r.status.join('/')}`).join(' atau ')}`);
+    }
+    if (to.requireNote && !(note && note.trim().length >= 5)) out.push('Isi catatan / bukti (minimal 5 huruf)');
+    if (to.sod && lastMoverId && lastMoverId === u.sub && u.role !== 'OWNER') out.push('Harus dilakukan orang lain dari yang memindahkan kasus ke tahap saat ini (pemisahan fungsi)');
+    return out;
+  }
+
+  async pipelines(u: AuthUser) {
+    const counts = await this.repo.queryWorkflowCase(this.db, u.tenantId);
+    return (await this.defs(u.tenantId)).map((p) => ({
+      ...p,
+      stages: p.stages.map((s) => ({ ...s, count: counts.rows.find((c) => c.pipeline === p.key && c.stage === s.key)?.n ?? 0 })),
+    }));
+  }
+
+  async list(u: AuthUser, q: CaseQueryDto) {
+    await this.sweep(u.tenantId, u.sub);
+    const keys = (await this.defs(u.tenantId)).map((p) => p.key);
+    const rows = await this.repo.queryWorkflowCaseForList(this.db, u, keys, q);
+    return rows.rows;
+  }
+
+  async get(u: AuthUser, id: string) {
+    await this.refreshCase(u.tenantId, id);
+    const c = await findOwned(this.db, workflowCases, u.tenantId, id);
+    if (!c) throw new NotFoundException('Kasus tidak ditemukan');
+    const p = await this.pipelineOf(u.tenantId, c.pipeline);
+    const links = await this.liveLinks(this.db, u.tenantId, id);
+    const events = await this.repo.queryWorkflowEvent(this.db, u.tenantId, id);
+    const cur = stageOf(p, c.stage)!;
+    const moves = c.status === 'ACTIVE'
+      ? cur.next.filter((k) => k !== 'BATAL').map((k) => {
+          const to = stageOf(p, k)!;
+          return { to: k, label: to.label, needsNote: !!to.requireNote, blocked: this.reasonsBlocked(u, to, links, c.stageEnteredById, 'x'.repeat(5)).filter((r) => !r.startsWith('Isi catatan')) };
+        })
+      : [];
+    const cancel = stageOf(p, 'BATAL');
+    return {
+      ...c,
+      pipelineLabel: p.label,
+      stageLabel: cur.label,
+      stageHint: cur.hint,
+      stages: p.stages.map((s) => ({ key: s.key, label: s.label, terminal: !!s.terminal })),
+      links,
+      linkTypes: p.links.map((t) => ({ type: t, label: WORKFLOW_LINK_LABELS[t] })),
+      events: events.rows,
+      moves,
+      canCancel: c.status === 'ACTIVE' && !!cancel && allows(u, cancel.roles),
+      canBack: c.status === 'ACTIVE' && (u.role === 'OWNER' || u.role === 'ADMIN'),
+    };
+  }
+
+  /**
+   * Kasus yang menunggu tindakan pengguna ini: ada tahap berikutnya yang boleh dipindahkan perannya, dan (bila tahap itu
+   * mensyaratkan pemeriksa berbeda) bukan dia yang memindahkan kasus ke tahap sekarang. Dipakai kotak tugas.
+   */
+  async tasksFor(u: AuthUser): Promise<{ count: number; oldestDays: number }> {
+    const defs = await this.defs(u.tenantId);
+    const rows = await this.repo.listWorkflowCasesByStatus(this.db, u.tenantId);
+    let count = 0;
+    let oldest = 0;
+    for (const c of rows) {
+      const p = defs.find((x) => x.key === c.pipeline);
+      const cur = p && stageOf(p, c.stage);
+      if (!p || !cur) continue;
+      const mine = cur.next.filter((k) => k !== 'BATAL').map((k) => stageOf(p, k)!).some((to) => allows(u, to.roles) && !(to.sod && c.stageEnteredById === u.sub && u.role !== 'OWNER'));
+      if (!mine) continue;
+      count++;
+      oldest = Math.max(oldest, Math.floor((Date.now() - c.stageEnteredAt.getTime()) / 86400000));
+    }
+    return { count, oldestDays: oldest };
+  }
+
+  /** Tahap alur sebuah dokumen (untuk lencana di halaman dokumen) */
+  async byDoc(u: AuthUser, type: WorkflowLinkType, docId: string) {
+    if (!SOURCES[type]) throw new BadRequestException('Jenis dokumen tidak dikenal');
+    const r = await this.repo.queryWorkflowLink(this.db, u.tenantId, type, docId);
+    const row = r.rows[0];
+    if (!row) return null;
+    const p = (await this.defs(u.tenantId)).find((x) => x.key === row.pipeline);
+    return { caseId: row.id, number: row.number, status: row.status, stage: row.stage, stageLabel: (p && stageOf(p, row.stage)?.label) ?? row.stage, pipelineLabel: p?.label ?? row.pipeline };
+  }
+
+  /** Dokumen yang bisa ditautkan: milik perusahaan ini, belum dipakai kasus lain, belum dibatalkan */
+  async candidates(u: AuthUser, type: WorkflowLinkType) {
+    const s = SOURCES[type];
+    if (!s) throw new BadRequestException('Jenis dokumen tidak dikenal');
+    const r = await this.repo.listLinkCandidates(this.db, u.tenantId, type, { table: s.table, numberSql: s.number('d'), statusSql: s.status('d'), createdColumn: s.created });
+    return r.rows.filter((x) => !DEAD.has(x.status));
+  }
+
+  /** Piutang berjalan pelanggan (setelah retur) dan batas kreditnya */
+  private async creditPosition(tenantId: string, customerId: string) {
+    const r = await this.repo.queryCustomer(this.db, customerId, tenantId);
+    return { limit: Number(r.rows[0]?.lim ?? 0), ar: Number(r.rows[0]?.ar ?? 0) };
+  }
+
+  async alerts(u: AuthUser) {
+    const defs = await this.defs(u.tenantId);
+    const out: { kind: string; severity: 'warn' | 'info'; caseId: string; number: string; message: string }[] = [];
+    const rows = await this.repo.listWorkflowCasesByStatus(this.db, u.tenantId);
+    const today = Date.now();
+    const rp = (v: number) => `Rp${Math.round(v).toLocaleString('id-ID')}`;
+    for (const c of rows) {
+      const p = defs.find((x) => x.key === c.pipeline);
+      if (!p) continue;
+      const s = stageOf(p, c.stage);
+      if (s?.slaDays) {
+        const days = Math.floor((today - c.stageEnteredAt.getTime()) / 86400000);
+        if (days > s.slaDays) out.push({ kind: 'MACET', severity: 'warn', caseId: c.id, number: c.number, message: `${c.number} · ${c.title}: ${days} hari di tahap "${s.label}" (batas ${s.slaDays} hari)` });
+      }
+      if (c.dueDate && c.dueDate < todayJakarta()) out.push({ kind: 'LEWAT_TEMPO', severity: 'warn', caseId: c.id, number: c.number, message: `${c.number} · ${c.title}: tenggat ${c.dueDate} sudah lewat` });
+      const links = await this.liveLinks(this.db, u.tenantId, c.id);
+      for (const l of links) {
+        if (l.dead) out.push({ kind: 'DOKUMEN_BATAL', severity: 'warn', caseId: c.id, number: c.number, message: `${c.number} · ${c.title}: ${WORKFLOW_LINK_LABELS[l.type]} ${l.number} dibatalkan / hilang — periksa kasus ini` });
+      }
+      // Dagang/FMCG: piutang pelanggan melebihi batas kredit saat kasus masih berjalan
+      if (c.customerId) {
+        const { limit: lim, ar } = await this.creditPosition(u.tenantId, c.customerId);
+        if (lim > 0 && ar > lim) out.push({ kind: 'KREDIT', severity: 'warn', caseId: c.id, number: c.number, message: `${c.number} · ${c.title}: piutang pelanggan ${rp(ar)} melebihi batas kredit ${rp(lim)}` });
+      }
+      // Dagang/Ritel/FMCG: faktur terjual di bawah harga pokok (rugi) — perlu dicek harga, diskon, atau salah input
+      for (const l of links.filter((x) => x.type === 'INVOICE' && !x.dead)) {
+        const r = await this.repo.queryInvoiceLine(this.db, l.docId, u.tenantId);
+        if (r.rows[0]?.n) out.push({ kind: 'JUAL_RUGI', severity: 'warn', caseId: c.id, number: c.number, message: `${c.number} · ${c.title}: ${r.rows[0].n} baris di faktur ${l.number} dijual di bawah harga pokok (rugi sekitar ${rp(Number(r.rows[0].loss))})` });
+      }
+      // Ritel/F&B: selisih kas pada sesi kasir
+      const sess = links.find((l) => l.type === 'POS_SESSION' && !l.dead);
+      if (sess) {
+        const r = await this.repo.queryPosSession(this.db, sess.docId, u.tenantId);
+        const diff = Number(r.rows[0]?.difference ?? 0);
+        if (diff !== 0) out.push({ kind: 'SELISIH_KAS', severity: 'warn', caseId: c.id, number: c.number, message: `${c.number} · ${c.title}: selisih kas ${rp(diff)} pada sesi ${sess.number} — periksa saat menghitung ulang uang` });
+      }
+    }
+    return out;
+  }
+
+  private async event(tx: DbOrTx, tenantId: string, caseId: string, e: { kind: string; from?: string; to?: string; note?: string; by?: string; auto?: boolean }) {
+    await this.repo.insertWorkflowEvents(tx, tenantId, caseId, e);
+  }
+
+  async create(u: AuthUser, dto: CreateCaseDto) {
+    const p = await this.pipelineOf(u.tenantId, dto.pipeline);
+    const start = stageOf(p, p.start)!;
+    if (!allows(u, start.roles)) throw new ForbiddenException(`Kasus ${p.label} hanya dibuka oleh peran ${start.roles.join('/')}`);
+    if (dto.customerId && p.subject !== 'CUSTOMER') throw new BadRequestException('Alur ini tidak memakai pelanggan');
+    if (dto.supplierId && p.subject !== 'SUPPLIER') throw new BadRequestException('Alur ini tidak memakai pemasok');
+    if (dto.dueDate && toDocDate(dto.dueDate) < todayJakarta()) throw new BadRequestException('Tenggat tidak boleh di masa lalu');
+    return this.db.transaction(async (tx) => {
+      if (dto.customerId) {
+        const [x] = await this.repo.findCustomersById(tx, dto.customerId, u.tenantId);
+        if (!x) throw new BadRequestException('Pelanggan tidak ditemukan');
+      }
+      if (dto.supplierId) {
+        const [x] = await this.repo.findSuppliersById(tx, dto.supplierId, u.tenantId);
+        if (!x) throw new BadRequestException('Pemasok tidak ditemukan');
+      }
+      return this.insertCase(tx, u.tenantId, u.sub, p, { title: dto.title.trim(), customerId: dto.customerId, supplierId: dto.supplierId, amount: dto.amount, dueDate: dto.dueDate ? toDocDate(dto.dueDate) : undefined });
+    });
+  }
+
+  private async insertCase(tx: Tx, tenantId: string, actor: string, p: WorkflowPipeline, v: { title: string; customerId?: string | null; supplierId?: string | null; amount?: string; dueDate?: string; refKey?: string; auto?: boolean }) {
+    const number = await this.seq.next(tx, tenantId, 'WORKFLOW_CASE', toDocDate(todayJakarta()));
+    const c = await insertOne(tx, workflowCases, { tenantId, pipeline: p.key, number, title: v.title, stage: p.start, customerId: v.customerId ?? null, supplierId: v.supplierId ?? null, amount: v.amount ?? '0', dueDate: v.dueDate ?? null, createdById: actor, stageEnteredById: v.auto ? null : actor, refKey: v.refKey ?? null, autoOpened: !!v.auto });
+    await this.event(tx, tenantId, c.id, { kind: 'CREATE', to: p.start, by: v.auto ? undefined : actor, auto: v.auto, note: v.auto ? 'Dibuka otomatis' : undefined });
+    await this.audit.log(tx, { tenantId, userId: actor, action: 'CREATE', entity: 'WorkflowCase', entityId: c.id, data: { number, pipeline: p.key, auto: !!v.auto } });
+    return c;
+  }
+
+  private async lock(tx: Tx, tenantId: string, id: string) {
+    const c = await lockOwned(tx, workflowCases, tenantId, id);
+    if (!c) throw new NotFoundException('Kasus tidak ditemukan');
+    if (c.status !== 'ACTIVE') throw new BadRequestException(c.status === 'DONE' ? 'Kasus sudah selesai dan tidak bisa diubah' : 'Kasus sudah dibatalkan dan tidak bisa diubah');
+    return c;
+  }
+
+  private async setStage(tx: Tx, c: CaseRow, to: WorkflowStage, by: string | null, e: { kind: string; note?: string; auto?: boolean }) {
+    const done = to.terminal === 'DONE';
+    const status: CaseRow['status'] = to.key === 'BATAL' ? 'CANCELLED' : done ? 'DONE' : 'ACTIVE';
+    await patchById(tx, workflowCases, c.id, { stage: to.key, status, stageEnteredAt: new Date(), stageEnteredById: by, closedAt: status === 'ACTIVE' ? null : new Date() });
+    await this.event(tx, c.tenantId, c.id, { kind: e.kind, from: c.stage, to: to.key, note: e.note, by: by ?? undefined, auto: e.auto });
+    c.stage = to.key;
+    c.status = status;
+    c.stageEnteredById = by;
+  }
+
+  async addLink(u: AuthUser, id: string, dto: AddLinkDto) {
+    await this.db.transaction(async (tx) => {
+      const c = await this.lock(tx, u.tenantId, id);
+      const p = await this.pipelineOf(u.tenantId, c.pipeline, tx);
+      if (!allows(u, [...new Set(p.stages.flatMap((s) => s.roles))])) throw new ForbiddenException('Peran Anda tidak terlibat di alur ini');
+      if (!p.links.includes(dto.type)) throw new BadRequestException(`${WORKFLOW_LINK_LABELS[dto.type]} tidak dipakai di alur ini`);
+      const s = SOURCES[dto.type];
+      const r = await this.repo.queryLiveLinks(tx, s, s.table, u.tenantId, dto.docId);
+      const doc = r.rows[0];
+      if (!doc) throw new BadRequestException('Dokumen tidak ditemukan di perusahaan ini');
+      if (DEAD.has(doc.status)) throw new BadRequestException('Dokumen yang dibatalkan tidak bisa ditautkan');
+      const used = await this.repo.queryWorkflowLinkForAddLink(tx, u.tenantId, dto.type, dto.docId);
+      if (used.rows.length) throw new BadRequestException(`${WORKFLOW_LINK_LABELS[dto.type]} ${doc.number} sudah dipakai kasus lain`);
+      await this.repo.insertWorkflowLinks(tx, { tenantId: u.tenantId, caseId: id, linkType: dto.type, docId: dto.docId, docNumber: doc.number, createdById: u.sub });
+      await this.event(tx, u.tenantId, id, { kind: 'LINK', note: `${WORKFLOW_LINK_LABELS[dto.type]} ${doc.number}`, by: u.sub });
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'LINK', entity: 'WorkflowCase', entityId: id, data: { type: dto.type, doc: doc.number } });
+      await this.autoAdvance(tx, c, p);
+    });
+  }
+
+  async advance(u: AuthUser, id: string, dto: AdvanceDto) {
+    await this.db.transaction(async (tx) => {
+      const c = await this.lock(tx, u.tenantId, id);
+      const p = await this.pipelineOf(u.tenantId, c.pipeline, tx);
+      const cur = stageOf(p, c.stage)!;
+      if (dto.to === 'BATAL') throw new BadRequestException('Untuk membatalkan kasus pakai tombol Batalkan');
+      if (!cur.next.includes(dto.to)) throw new BadRequestException(`Dari tahap "${cur.label}" kasus tidak bisa langsung ke "${dto.to}"`);
+      const to = stageOf(p, dto.to)!;
+      await this.followLinks(tx, c, p);
+      const links = await this.liveLinks(tx, u.tenantId, id);
+      const blocked = this.reasonsBlocked(u, to, links, c.stageEnteredById, dto.note);
+      if (blocked.length) throw new BadRequestException(blocked.join('; '));
+      await this.setStage(tx, c, to, u.sub, { kind: 'ADVANCE', note: dto.note?.trim() });
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'ADVANCE', entity: 'WorkflowCase', entityId: id, data: { from: cur.key, to: to.key, note: dto.note } });
+      await this.autoAdvance(tx, c, p);
+      // beri tahu peran yang kini harus bertindak (bukan pelaku yang baru memindahkan)
+      const after = stageOf(p, c.stage);
+      const next = (after?.next ?? []).filter((k) => k !== 'BATAL').map((k) => stageOf(p, k)!).flatMap((s) => s.roles);
+      if (c.status === 'ACTIVE' && next.length) void this.approvals.notifyRoles(u.tenantId, { roles: [...new Set(next)], excludeUserId: u.sub, title: `${c.number} · ${c.title}: kini di tahap "${after!.label}"`, lines: ['Menunggu tindakan sesuai peran Anda'], path: '/workflow' });
+    });
+    return this.get(u, id);
+  }
+
+  /** Kembali ke tahap sebelumnya untuk dikerjakan ulang: hanya Admin/Pemilik, wajib alasan */
+  async back(u: AuthUser, id: string, dto: NoteDto) {
+    if (u.role !== 'OWNER' && u.role !== 'ADMIN') throw new ForbiddenException('Hanya Admin / Pemilik yang dapat mengembalikan kasus ke tahap sebelumnya');
+    await this.db.transaction(async (tx) => {
+      const c = await this.lock(tx, u.tenantId, id);
+      const p = await this.pipelineOf(u.tenantId, c.pipeline, tx);
+      const [prev] = await this.repo.findWorkflowEventsByCaseIdAndToStageAndId(tx, id, c.stage);
+      if (!prev?.fromStage) throw new BadRequestException('Kasus ini belum punya tahap sebelumnya');
+      const to = stageOf(p, prev.fromStage)!;
+      await this.setStage(tx, c, to, u.sub, { kind: 'BACK', note: dto.note.trim() });
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'BACK', entity: 'WorkflowCase', entityId: id, data: { to: to.key, note: dto.note } });
+    });
+    return this.get(u, id);
+  }
+
+  async cancel(u: AuthUser, id: string, dto: NoteDto) {
+    await this.db.transaction(async (tx) => {
+      const c = await this.lock(tx, u.tenantId, id);
+      const p = await this.pipelineOf(u.tenantId, c.pipeline, tx);
+      const to = stageOf(p, 'BATAL');
+      if (!to) throw new BadRequestException('Alur ini tidak bisa dibatalkan');
+      if (!allows(u, to.roles)) throw new ForbiddenException(`Hanya peran ${to.roles.join('/')} yang dapat membatalkan kasus`);
+      await this.setStage(tx, c, to, u.sub, { kind: 'CANCEL', note: dto.note.trim() });
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CANCEL', entity: 'WorkflowCase', entityId: id, data: { note: dto.note } });
+    });
+    return this.get(u, id);
+  }
+
+  /** Tautkan dokumen turunan (faktur, surat jalan, penerimaan, tagihan, ...) dari dokumen yang sudah tertaut */
+  private async followLinks(tx: Tx, c: CaseRow, p: WorkflowPipeline) {
+    for (const l of await this.repo.listWorkflowLinksByCaseId(tx, c.id, c.tenantId)) {
+      for (const f of FOLLOW[l.linkType as WorkflowLinkType] ?? []) {
+        if (!p.links.includes(f.to)) continue;
+        const found = await this.repo.queryFollowLinks(tx, f, c.tenantId, l.docId);
+        for (const d of found.rows) {
+          if (!d.id) continue;
+          const s = SOURCES[f.to];
+          const r = await this.repo.queryFollowLinksForFollowLinks(tx, s, s.table, c.tenantId, d.id);
+          const doc = r.rows[0];
+          if (!doc || DEAD.has(doc.status)) continue;
+          const ins = await this.repo.queryWorkflowLinkForFollowLinks(tx, c.tenantId, c.id, f.to, d.id, doc.number, c.createdById);
+          if (ins.rows.length) await this.event(tx, c.tenantId, c.id, { kind: 'LINK', note: `${WORKFLOW_LINK_LABELS[f.to]} ${doc.number} (otomatis)`, auto: true });
+        }
+      }
+    }
+  }
+
+  /**
+   * Maju otomatis selama ada tahap berikutnya yang BUKTINYA sudah ada di dokumen terkait (mis. faktur lunas).
+   * Tahap yang butuh catatan/keputusan manusia tidak pernah dilompati.
+   */
+  private async autoAdvance(tx: Tx, c: CaseRow, p: WorkflowPipeline) {
+    for (let guard = 0; guard < 12 && c.status === 'ACTIVE'; guard++) {
+      await this.followLinks(tx, c, p);
+      const cur = stageOf(p, c.stage)!;
+      const links = await this.liveLinks(tx, c.tenantId, c.id);
+      const next = cur.next
+        .filter((k) => k !== 'BATAL' && p.stages.findIndex((x) => x.key === k) > p.stages.findIndex((x) => x.key === cur.key)) // otomatis hanya maju, tidak pernah mundur (mis. QC → Produksi)
+        .map((k) => stageOf(p, k)!)
+        .find((s) => !s.requireNote && !!s.auto?.length && (s.requireLink ?? []).every((t) => links.some((l) => l.type === t && !l.dead)) && s.auto.some((r) => links.some((l) => l.type === r.link && !l.dead && l.status && r.status.includes(l.status))));
+      if (!next) return;
+      await this.setStage(tx, c, next, null, { kind: 'AUTO', note: 'Maju otomatis dari status dokumen terkait', auto: true });
+    }
+  }
+
+  /** Kasus dibuka otomatis dari dokumen baru yang belum punya kasus (hanya dokumen sejak "since") */
+  private async discoverDocs(tenantId: string, actor: string, defs: WorkflowPipeline[], since: string) {
+    let opened = 0;
+    for (const p of defs.filter((x) => x.open)) {
+      const o = p.open!;
+      const s = SOURCES[o.link];
+      const subjectCol = o.subject === 'customer' ? 'd.customer_id' : o.subject === 'supplier' ? 'd.supplier_id' : 'NULL::uuid';
+      const docs = await this.repo.queryDiscoverDocs(this.db, s, subjectCol, s.table, tenantId, s.created, since, o);
+      for (const d of docs.rows.filter((x) => !DEAD.has(x.status))) {
+        try {
+          await this.db.transaction(async (tx) => {
+            const c = await this.insertCase(tx, tenantId, actor, p, { title: `${o.label} ${d.number}`, customerId: o.subject === 'customer' ? d.subject_id : null, supplierId: o.subject === 'supplier' ? d.subject_id : null, auto: true });
+            await this.repo.insertWorkflowLinks(tx, { tenantId, caseId: c.id, linkType: o.link, docId: d.id, docNumber: d.number, createdById: actor });
+            await this.event(tx, tenantId, c.id, { kind: 'LINK', note: `${WORKFLOW_LINK_LABELS[o.link]} ${d.number} (otomatis)`, auto: true });
+            await this.autoAdvance(tx, c, p);
+          });
+          opened++;
+        } catch (e) {
+          // dokumen yang sama diambil sweep lain bersamaan: abaikan (tautan dokumen unik)
+          this.logger.debug(`Lewati ${o.link} ${d.number}: ${(e as Error).message}`);
+        }
+      }
+    }
+    return opened;
+  }
+
+  /** Restok otomatis: stok di bawah minimum membuka kasus; kasus yang belum dikerjakan ditutup bila stok sudah pulih */
+  private async discoverRestock(tenantId: string, actor: string, defs: WorkflowPipeline[]) {
+    const p = defs.find((x) => x.restock);
+    if (!p) return 0;
+    let opened = 0;
+    // posisi stok = ada di gudang + sedang dipesan + sedang diminta; kasus hanya dibuka bila posisi ini masih di bawah minimum
+    const low = await this.repo.queryStockMinimum(this.db, tenantId);
+    for (const r of low.rows) {
+      try {
+        await this.db.transaction(async (tx) => {
+          await this.insertCase(tx, tenantId, actor, p, { title: `Stok menipis: ${r.sku} ${r.name} (ada ${Number(r.qty)}, minimum ${Number(r.min_qty)}; disarankan pesan ${Math.max(1, Math.ceil(Number(r.min_qty) * 2 - Number(r.qty) - Number(r.incoming)))}${r.supplier_name ? `, pemasok terakhir ${r.supplier_name}` : ''})`, supplierId: p.subject === 'SUPPLIER' ? r.supplier_id : null, refKey: `RESTOCK:${r.product_id}:${r.warehouse_id}`, auto: true });
+        });
+        opened++;
+      } catch {
+        /* kunci kasus unik: sudah dibuka sweep lain */
+      }
+    }
+    // stok sudah pulih dan belum ada dokumen: kasus ditutup
+    const open = await this.repo.listWorkflowCasesByStatusAndPipelineAndRefKey(this.db, tenantId, p.key);
+    for (const c of open) {
+      if (c.stage !== p.start) continue;
+      const [, pid, wid] = (c.refKey ?? '').split(':');
+      const r = await this.repo.queryDiscoverRestock(this.db, tenantId, pid, wid, c.id);
+      if (!r.rows[0]?.ok || r.rows[0].links > 0) continue;
+      await this.db.transaction(async (tx) => {
+        const [locked] = await this.repo.findWorkflowCasesById(tx, c.id);
+        if (locked?.status !== 'ACTIVE' || locked.stage !== p.start) return;
+        await this.setStage(tx, locked, stageOf(p, 'BATAL')!, null, { kind: 'CANCEL', note: 'Stok sudah di atas minimum; kasus ditutup otomatis', auto: true });
+      });
+    }
+    return opened;
+  }
+
+  /** Satu putaran otomatisasi untuk satu perusahaan: buka kasus baru, tautkan dokumen turunan, majukan yang buktinya sudah ada */
+  async sweep(tenantId: string, actor: string): Promise<{ opened: number; moved: number }> {
+    const cfg = await this.cfg(tenantId);
+    const defs = await this.defs(tenantId);
+    let opened = 0;
+    if (cfg.autoOpen && cfg.since) {
+      opened += await this.discoverDocs(tenantId, actor, defs, cfg.since);
+      opened += await this.discoverRestock(tenantId, actor, defs);
+    }
+    let moved = 0;
+    const rows = await this.repo.listWorkflowCasesByStatusForSweep(this.db, tenantId);
+    for (const r of rows) moved += await this.refreshCase(tenantId, r.id, defs);
+    return { opened, moved };
+  }
+
+  /** Cek satu kasus: tautkan dokumen turunan dan majukan bila bukti ada. Mengembalikan 1 bila tahap berubah. */
+  async refreshCase(tenantId: string, id: string, defs?: WorkflowPipeline[]): Promise<number> {
+    const all = defs ?? (await this.defs(tenantId));
+    let moved = 0;
+    await this.db.transaction(async (tx) => {
+      const c = await lockOwned(tx, workflowCases, tenantId, id);
+      if (!c || c.status !== 'ACTIVE') return;
+      const p = all.find((x) => x.key === c.pipeline);
+      if (!p) return;
+      const before = c.stage;
+      await this.autoAdvance(tx, c, p);
+      if (c.stage !== before) {
+        moved = 1;
+        await this.audit.log(tx, { tenantId, userId: c.createdById, action: 'AUTO', entity: 'WorkflowCase', entityId: c.id, data: { from: before, to: c.stage } });
+      }
+    });
+    return moved;
+  }
+
+  /**
+   * Bila "Alur wajib" menyala dan dokumen itu tertaut ke kasus, aksi berisiko hanya boleh setelah kasus mencapai tahap yang disyaratkan
+   * (mis. tagihan pemasok baru boleh dibayar setelah barang DITERIMA). Dokumen tanpa kasus tidak dihalangi.
+   */
+  async gate(tenantId: string, action: WorkflowGateAction, docId: string): Promise<void> {
+    const cfg = await this.settings.section(this.db, tenantId, 'workflow', DEFAULT_SETTINGS);
+    if (!cfg.enforce) return;
+    const g = GATES[action];
+    let row = (await this.repo.queryWorkflowLinkForGate(this.db, tenantId, g.link, docId)).rows[0];
+    if (!row && g.viaPo) {
+      row = (await this.repo.queryPurchaseInvoice(this.db, tenantId, docId)).rows[0];
+    }
+    if (!row) return;
+    await this.refreshCase(tenantId, row.case_id);
+    const c = await findOwned(this.db, workflowCases, tenantId, row.case_id);
+    const p = c && (await this.defs(tenantId)).find((x) => x.key === c.pipeline);
+    if (!c || !p) return;
+    if (c.status === 'CANCELLED') throw new BadRequestException(`Alur kerja ${c.number} dibatalkan; ${g.what} ditolak. Periksa kasus di menu Alur kerja.`);
+    if (c.status === 'DONE') return;
+    const need = p.stages.findIndex((s) => s.key === g.stage);
+    const have = p.stages.findIndex((s) => s.key === c.stage);
+    if (action === 'DELIVER' && c.customerId) {
+      const { limit, ar } = await this.creditPosition(tenantId, c.customerId);
+      if (limit > 0 && ar > limit) throw new BadRequestException(`Menurut alur kerja ${c.number}, ${g.what} ditahan: piutang pelanggan Rp${Math.round(ar).toLocaleString('id-ID')} melebihi batas kredit Rp${Math.round(limit).toLocaleString('id-ID')}. Minta pelunasan dulu atau naikkan batas kredit pelanggan di data pelanggan.`);
+    }
+    if (need >= 0 && have < need) {
+      throw new BadRequestException(`Menurut alur kerja ${c.number}, ${g.what} belum boleh: kasus masih di tahap "${stageOf(p, c.stage)?.label}", harus sudah mencapai "${stageOf(p, g.stage)?.label}".`);
+    }
+  }
+}
+
+/** Putaran otomatisasi berkala untuk semua perusahaan (tanpa perlu ada yang membuka halaman Alur kerja) */
+@Injectable()
+export class WorkflowScheduler implements OnModuleInit, OnModuleDestroy {
+  private timer?: NodeJS.Timeout;
+  private readonly logger = new Logger('AlurKerja');
+  constructor(@InjectDb() private readonly db: Db, private readonly svc: WorkflowService,
+    private readonly repo: WorkflowRepository) {}
+
+  async sweepAll() {
+    const t = await this.repo.queryTenant(this.db);
+    for (const r of t.rows) {
+      if (!r.owner) continue;
+      try {
+        await this.svc.sweep(r.id, r.owner);
+      } catch (e) {
+        this.logger.warn(`Otomatisasi alur kerja gagal untuk ${r.id}: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  onModuleInit() {
+    if (process.env.NODE_ENV === 'test') return;
+    const run = () => void this.sweepAll().catch((e) => this.logger.error(e));
+    setTimeout(run, 150_000).unref();
+    this.timer = setInterval(run, 10 * 60_000);
+    this.timer.unref();
+  }
+  onModuleDestroy() {
+    if (this.timer) clearInterval(this.timer);
+  }
+}

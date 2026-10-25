@@ -33,6 +33,7 @@ describe('Kontrol pembelian (e2e)', () => {
     await app.init();
     http = request(app.getHttpServer());
     owner = (await http.post('/api/auth/register').send({ companyName: 'PT Kontrol Beli', name: 'Pemilik', email: `kb-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${owner}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     await post(owner, '/api/users', { name: 'Keuangan', email: `kb-fin-${stamp}@uji.id`, password: 'keuangan123', role: 'FINANCE' }).expect(201);
     finance = (await http.post('/api/auth/login').send({ email: `kb-fin-${stamp}@uji.id`, password: 'keuangan123' }).expect(200)).body.accessToken;
     expenseId = ((await get(owner, '/api/cash/counter-accounts').expect(200)).body as { id: string; type: string }[]).find((a) => a.type === 'EXPENSE')!.id;

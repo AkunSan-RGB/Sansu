@@ -10,19 +10,18 @@
  */
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { FACILITY_31E_REVENUE_LIMIT, FINAL_TAX_EXCLUDED_FORMS, type LegalForm, TAX_REVENUE_LIMIT } from '@sansu/shared';
-import { and, eq, sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SettingsService } from '../../common/settings.service';
 import { D, Dec, Decimal, money, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { fiscalAdjustments, fiscalYears } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { get, loadAccounts, natural, sumByAccount } from '../accounting/ledger-data';
 import { PostingService } from '../accounting/posting.service';
-import { projectCostsSql } from '../sales/services/project-costs';
 import { StatementsService } from '../accounting/statements.service';
-import { AssetsService } from '../assets/assets.module';
+import { AssetsService } from '../assets/assets.service';
+import { AssetReportsService } from '../assets/asset-reports.service';
+import { FiscalRepository } from './fiscal.repository';
 
 export const CORPORATE_RATE = 22;
 const THRESHOLD_FULL = D(TAX_REVENUE_LIMIT);
@@ -50,6 +49,8 @@ export class FiscalService {
     private readonly assets: AssetsService,
     private readonly settings: SettingsService,
     private readonly posting: PostingService,
+    private readonly assetReports: AssetReportsService,
+    private readonly repo: FiscalRepository,
   ) {}
 
   async reconcile(tenantId: string, year: number) {
@@ -61,9 +62,9 @@ export class FiscalService {
       sumByAccount(this.db, tenantId, { from, to, excludeSources: ['CLOSING'] }),
       sumByAccount(this.db, tenantId, { to }),
       this.statements.income(tenantId, { from, to }, 'SAK_EP'),
-      this.assets.fiscalComparison(tenantId, year),
-      this.db.select().from(fiscalAdjustments).where(and(eq(fiscalAdjustments.tenantId, tenantId), eq(fiscalAdjustments.year, year))),
-      this.db.select().from(fiscalYears).where(and(eq(fiscalYears.tenantId, tenantId), eq(fiscalYears.year, year))),
+      this.assetReports.fiscalComparison(tenantId, year),
+      this.repo.listFiscalAdjustmentsByYear(this.db, tenantId, year),
+      this.repo.listFiscalYearsByYear(this.db, tenantId, year),
     ]);
     const pbt = D(income.lines.find((l) => l.key === 'PROFIT_BEFORE_TAX')!.amount);
 
@@ -98,21 +99,7 @@ export class FiscalService {
         (a) => a.type === 'EXPENSE' && a.fiscalTreatment === 'NORMAL' && costGroups.includes(a.reportGroup ?? '') && !goodsCost.has(a.systemKey ?? ''),
       );
       const [dc] = (
-        await this.db.execute<{ final: string; other: string }>(sql`
-          WITH proj AS (
-            SELECT p.id, EXISTS (
-              SELECT 1 FROM invoices i JOIN service_invoice_lines sl ON sl.invoice_id = i.id JOIN accounts ra ON ra.id = sl.account_id
-              WHERE i.project_id = p.id AND ra.fiscal_treatment = 'FINAL_INCOME') AS is_final
-            FROM projects p WHERE p.tenant_id = ${tenantId}
-          )
-          SELECT COALESCE(SUM(x.amount) FILTER (WHERE proj.is_final), 0) AS final,
-                 COALESCE(SUM(x.amount) FILTER (WHERE NOT proj.is_final), 0) AS other
-          FROM ${projectCostsSql(tenantId, from, to)} x
-          JOIN proj ON proj.id = x.project_id
-          JOIN accounts a ON a.id = x.account_id
-          WHERE a.type = 'EXPENSE' AND a.fiscal_treatment = 'NORMAL'
-            AND a.report_group IN ('COST_OF_SALES', 'SELLING_EXPENSE', 'ADMIN_EXPENSE', 'OTHER_EXPENSE', 'FINANCE_COST')
-            AND COALESCE(a.system_key, '') NOT IN ('COGS', 'INVENTORY_ADJ', 'INVENTORY_WRITEDOWN')`)
+        await this.repo.queryProj(this.db, tenantId, from, to)
       ).rows;
       const direct = D(dc.final);
       const common = Decimal.max(pool.minus(direct).minus(dc.other), ZERO);
@@ -143,10 +130,7 @@ export class FiscalService {
 
     // Penurunan nilai persediaan yang terealisasi (barang dijual/keluar): HPP fiskal memakai biaya sebelum diturunkan
     const [wd] = (
-      await this.db.execute<{ realized: string; reserve: string }>(sql`
-        SELECT COALESCE(-SUM(writedown_value) FILTER (WHERE type <> 'REVALUATION' AND date >= ${from}), 0) AS realized,
-               COALESCE(SUM(writedown_value), 0) AS reserve
-        FROM stock_moves WHERE tenant_id = ${tenantId} AND date <= ${to}`)
+      await this.repo.queryStockMove(this.db, from, tenantId, to)
     ).rows;
     const realized = D(wd.realized);
     if (realized.gt(0)) negative.push({ source: 'INVENTORY', label: 'Penurunan nilai persediaan yang terealisasi (barang sudah terjual/keluar)', amount: realized.toFixed(2) });
@@ -203,11 +187,7 @@ export class FiscalService {
     // (ia hanya mengurangi PPh 29). Kredit pihak lain = debit akun Pajak Dibayar Dimuka tahun itu di luar
     // setoran pajak sendiri dan jurnal pajak akhir tahun.
     const [wc] = (
-      await this.db.execute<{ v: string }>(sql`
-        SELECT COALESCE(SUM(l.debit - l.credit), 0) AS v
-        FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
-        WHERE j.tenant_id = ${tenantId} AND a.system_key = ${SYS.PREPAID_TAX} AND j.date BETWEEN ${from} AND ${to}
-          AND j.source_type NOT IN ('TAX_PAYMENT', 'INCOME_TAX', 'CLOSING')`)
+      await this.repo.queryJournalLine(this.db, tenantId, from, to)
     ).rows;
     const withheldCredits = Decimal.max(D(wc?.v), ZERO);
     const installmentBase = taxDue.minus(withheldCredits);
@@ -258,42 +238,22 @@ export class FiscalService {
   }
 
   private async postedJournal(tenantId: string, year: number) {
-    const res = await this.db.execute<{ id: string; number: string; date: string }>(sql`
-      SELECT j.id, j.number, j.date FROM journal_entries j
-      WHERE j.tenant_id = ${tenantId} AND j.source_type = 'INCOME_TAX' AND j.source_id = ${String(year)}
-        AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = j.id)
-      ORDER BY j.created_at DESC LIMIT 1`);
+    const res = await this.repo.queryJournalEntry(this.db, tenantId, year);
     return res.rows[0] ?? null;
   }
 
   async saveYear(tenantId: string, year: number, dto: { lossCarryforward?: string; grossRevenueOverride?: string | null; finalCostOverride?: string | null }) {
-    await this.db
-      .insert(fiscalYears)
-      .values({
-        tenantId,
-        year,
-        lossCarryforward: dto.lossCarryforward ?? '0',
-        grossRevenueOverride: dto.grossRevenueOverride ?? null,
-        finalCostOverride: dto.finalCostOverride ?? null,
-      })
-      .onConflictDoUpdate({
-        target: [fiscalYears.tenantId, fiscalYears.year],
-        set: {
-          ...(dto.lossCarryforward !== undefined ? { lossCarryforward: dto.lossCarryforward } : {}),
-          ...(dto.grossRevenueOverride !== undefined ? { grossRevenueOverride: dto.grossRevenueOverride } : {}),
-          ...(dto.finalCostOverride !== undefined ? { finalCostOverride: dto.finalCostOverride } : {}),
-        },
-      });
+    await this.repo.insertFiscalYears(this.db, tenantId, year, dto);
     return this.reconcile(tenantId, year);
   }
 
   async addAdjustment(tenantId: string, year: number, dto: { description: string; kind: 'POSITIVE' | 'NEGATIVE'; amount: string }) {
-    await this.db.insert(fiscalAdjustments).values({ tenantId, year, ...dto, amount: money(dto.amount).toFixed(2) });
+    await this.repo.insertFiscalAdjustments(this.db, tenantId, year, dto, dto.amount);
     return this.reconcile(tenantId, year);
   }
 
   async removeAdjustment(tenantId: string, year: number, id: string) {
-    await this.db.delete(fiscalAdjustments).where(and(eq(fiscalAdjustments.id, id), eq(fiscalAdjustments.tenantId, tenantId)));
+    await this.repo.deleteFiscalAdjustmentsById(this.db, id, tenantId);
     return this.reconcile(tenantId, year);
   }
 
@@ -340,10 +300,7 @@ export class FiscalService {
         createdById: user.sub,
         lines,
       });
-      await tx
-        .insert(fiscalYears)
-        .values({ tenantId: user.tenantId, year, taxJournalId: j.id })
-        .onConflictDoUpdate({ target: [fiscalYears.tenantId, fiscalYears.year], set: { taxJournalId: j.id } });
+      await this.repo.insertFiscalYearsForPostTax(tx, user.tenantId, year, j.id);
       return { number: j.number, id: j.id };
     });
   }

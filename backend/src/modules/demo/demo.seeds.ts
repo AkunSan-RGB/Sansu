@@ -17,11 +17,11 @@ async function stockItems(c: Demo, list: Prod[], extra: { uoms?: boolean } = {})
       sellPrice: String(p.price),
       barcode: `8991${String(i + 1).padStart(9, '0')}`,
       ...(extra.uoms && p.per ? { uoms: [{ uom: 'DUS', factor: String(p.per) }] } : {}),
-    } as never);
+    });
     ids.set(p.sku, r.id);
   }
   const lines = list.map((p) => ({ productId: ids.get(p.sku)!, qty: String(p.qty), unitCost: String(p.cost) }));
-  await c.svc.inventory.adjust(c.admin as never, { warehouseId: c.wh, reason: 'OPENING', date: c.ago(120), notes: 'Saldo awal stok', lines } as never);
+  await c.svc.inventory.adjust(c.admin, { warehouseId: c.wh, reason: 'OPENING', date: c.ago(120), notes: 'Saldo awal stok', lines });
   const value = list.reduce((a, p) => a + p.qty * p.cost, 0);
   return { ids, value };
 }
@@ -211,11 +211,11 @@ async function seedJasa(c: Demo) {
     { code: 'CL-EDU', name: 'Yayasan Pendidikan Cerdas', address: 'Depok', term: 30 },
   ]);
   const proj = async (code: string, name: string, cust: string, value: number, start: number) =>
-    c.step(`proyek ${name}`, () => c.svc.billing.createProject(c.admin as never, { code, name, customerId: cu.get(cust)!, contractValue: String(value), startDate: c.ago(start), endDate: c.ago(-60) } as never)) as Promise<{ id: string } | undefined>;
+    c.step(`proyek ${name}`, () => c.svc.projects.createProject(c.admin, { code, name, customerId: cu.get(cust)!, contractValue: String(value), startDate: c.ago(start), endDate: c.ago(-60) })) as Promise<{ id: string } | undefined>;
   const p1 = await proj('PRJ-APP', 'Pengembangan Aplikasi Mobile Banking Nasabah', 'CL-BANK', 240_000_000, 58);
   const p2 = await proj('PRJ-ERP', 'Implementasi Sistem Gudang Terpadu', 'CL-RETAIL', 150_000_000, 42);
   const inv = async (cust: string, ago: number, desc: string, label: string, lines: { description: string; qty?: string; unit?: string; price: string }[], projectId?: string) =>
-    c.step(`faktur ${desc}`, () => c.svc.billing.createInvoice(c.admin as never, { customerId: cu.get(cust)!, date: c.ago(ago), description: desc, termLabel: label, projectId, lines } as never)) as Promise<{ id: string } | undefined>;
+    c.step(`faktur ${desc}`, () => c.svc.billing.createInvoice(c.admin, { customerId: cu.get(cust)!, date: c.ago(ago), description: desc, termLabel: label, projectId, lines })) as Promise<{ id: string } | undefined>;
   const i1 = await inv('CL-BANK', 50, 'Termin 1 — desain & prototipe', 'Termin 1 (30%)', [{ description: 'Desain UX & prototipe aplikasi', price: '72000000' }], p1?.id);
   const i2 = await inv('CL-RETAIL', 34, 'Termin 1 — analisis kebutuhan', 'Termin 1 (30%)', [{ description: 'Analisis proses gudang & konfigurasi awal', price: '45000000' }], p2?.id);
   const i3 = await inv('CL-RS', 40, 'Konsultasi keamanan informasi (audit ISO 27001)', 'Paket', [{ description: 'Audit kesiapan ISO 27001', qty: '1', unit: 'Paket', price: '38000000' }, { description: 'Pelatihan staf (2 hari)', qty: '2', unit: 'Hari', price: '6500000' }]);
@@ -226,8 +226,8 @@ async function seedJasa(c: Demo) {
   if (i4) await c.step('bayar desain (sebagian)', () => receive(c, i4.id, 9, 'TRANSFER', 0.5));
   void i2;
   void i5;
-  if (p1) await c.step('progres', () => c.svc.billing.recordProgress(c.admin as never, p1.id, { date: c.ago(5), percent: '55', notes: 'BA kemajuan 03 — modul transfer & mutasi selesai' } as never));
-  if (p2) await c.step('progres', () => c.svc.billing.recordProgress(c.admin as never, p2.id, { date: c.ago(5), percent: '35', notes: 'BA kemajuan 01 — konfigurasi gudang pusat' } as never));
+  if (p1) await c.step('progres', () => c.svc.projects.recordProgress(c.admin, p1.id, { date: c.ago(5), percent: '55', notes: 'BA kemajuan 03 — modul transfer & mutasi selesai' }));
+  if (p2) await c.step('progres', () => c.svc.projects.recordProgress(c.admin, p2.id, { date: c.ago(5), percent: '35', notes: 'BA kemajuan 01 — konfigurasi gudang pusat' }));
   await expense(c, 56, 'bank', '6-3000', 'Sewa kantor Lt. 5', 21_000_000, 'SEWA-KTR');
   await expense(c, 30, 'bank', '6-4000', 'Internet & listrik kantor', 4_800_000);
   await expense(c, 20, 'bank', '6-6000', 'Langganan perangkat lunak desain & cloud', 5_250_000, 'INV-CLOUD');
@@ -276,7 +276,7 @@ async function seedJasa(c: Demo) {
     { title: 'Portal e-learning sekolah', company: 'Yayasan Pendidikan Cerdas', contact: 'Bu Sari', value: 140_000_000, source: 'Webinar' },
     { title: 'Dashboard analitik penjualan', company: 'PT Ritel Nusantara Prima', contact: 'Pak Rian', value: 85_000_000, source: 'Kunjungan' },
   ]);
-  const dep = await c.step('uang muka pelanggan', () => c.svc.billing.createDeposit(c.admin as never, { customerId: cu.get('CL-EDU')!, date: c.ago(15), amount: '27750000', method: 'TRANSFER', cashAccountId: c.bank, notes: 'Uang muka portal e-learning' } as never));
+  const dep = await c.step('uang muka pelanggan', () => c.svc.deposits.createDeposit(c.admin, { customerId: cu.get('CL-EDU')!, date: c.ago(15), amount: '27750000', method: 'TRANSFER', cashAccountId: c.bank, description: 'Uang muka portal e-learning' }));
   void dep;
 }
 
@@ -293,20 +293,20 @@ async function manufacture(
   const { ids, value } = await stockItems(c, raw);
   await openingBalance(c, { kas: 10_000_000, bank: 300_000_000, stockValue: value });
   for (const f of finished) {
-    const r = await c.svc.products.create(c.tenantId, { sku: f.sku, name: f.name, baseUom: 'PCS', sellPrice: String(f.price), category: 'Barang jadi' } as never);
+    const r = await c.svc.products.create(c.tenantId, { sku: f.sku, name: f.name, baseUom: 'PCS', sellPrice: String(f.price), category: 'Barang jadi' });
     ids.set(f.sku, r.id);
   }
   const bomIds: string[] = [];
   for (const b of boms) {
     const r = (await c.step(`resep ${b.name}`, () =>
-      c.svc.production.createBom(c.admin as never, {
+      c.svc.production.createBom(c.admin, {
         name: b.bomName,
         productId: ids.get(b.sku)!,
         outputQty: String(b.out),
         laborCost: String(b.labor),
         overheadCost: String(b.overhead),
         lines: b.use.map(([sku, qty]) => ({ productId: ids.get(sku)!, qty: String(qty) })),
-      } as never),
+      }),
     )) as { id: string } | undefined;
     bomIds.push(r?.id ?? '');
   }
@@ -314,11 +314,11 @@ async function manufacture(
     const bomId = bomIds[run.bom];
     if (!bomId) continue;
     const bom = boms[run.bom];
-    const o = (await c.step('perintah produksi', () => c.svc.production.createOrder(c.admin as never, { bomId, warehouseId: c.wh, batches: String(run.batches), date: c.ago(run.ago) } as never))) as { id: string } | undefined;
+    const o = (await c.step('perintah produksi', () => c.svc.production.createOrder(c.admin, { bomId, warehouseId: c.wh, batches: String(run.batches), date: c.ago(run.ago) }))) as { id: string } | undefined;
     if (!o) continue;
-    await c.step('mulai produksi', () => c.svc.production.start(c.admin as never, o.id, { date: c.ago(run.ago) } as never));
+    await c.step('mulai produksi', () => c.svc.production.start(c.admin, o.id, { date: c.ago(run.ago) }));
     const good = Math.floor(bom.out * run.batches * run.yieldPct);
-    await c.step('selesai produksi', () => c.svc.production.complete(c.admin as never, o.id, { date: c.ago(run.ago - 2), outputQty: String(good) } as never));
+    await c.step('selesai produksi', () => c.svc.production.complete(c.admin, o.id, { date: c.ago(run.ago - 2), outputQty: String(good) }));
   }
   return { ids };
 }
@@ -354,9 +354,9 @@ async function seedFmcg(c: Demo) {
   // daftar harga per segmen + promo (potongan bertingkat, bonus barang); penjualan di bawah otomatis memakainya
   const mk = (name: string, description: string, pct: number, bulkPct: number, bulkQty: number) =>
     c.step(`daftar harga ${name}`, async () => {
-      const list = await c.svc.pricing.createPriceList(c.admin as never, { name, description });
+      const list = await c.svc.pricing.createPriceList(c.admin, { name, description });
       await c.svc.pricing.replaceItems(
-        c.admin as never,
+        c.admin,
         list.id,
         FMCG.flatMap((p) => [
           { productId: ids.get(p.sku)!, minQty: '1', price: String(Math.round(p.price * pct)) },
@@ -369,7 +369,7 @@ async function seedFmcg(c: Demo) {
   const minimarket = await mk('Minimarket', 'Minimarket & supermarket jaringan', 0.98, 0.96, 100);
   await c.step('pasang daftar harga', async () => {
     for (const [code, list] of [['OTL-GROSIR', grosir], ['OTL-ALFA', minimarket], ['OTL-SUPER', minimarket]] as const)
-      if (list) await c.svc.customers.update(c.tenantId, cu.get(code)!, { priceListId: list } as never);
+      if (list) await c.svc.customers.update(c.tenantId, cu.get(code)!, { priceListId: list });
   });
   // syarat dagang peritel modern (diakru tiap akhir bulan lewat Modern trade)
   await c.step('syarat dagang', async () => {
@@ -380,8 +380,8 @@ async function seedFmcg(c: Demo) {
     ];
     for (const r of rows) await c.db.insert(tradeTerms).values({ tenantId: c.tenantId, ...r });
   });
-  await c.step('promo potongan', () => c.svc.pricing.createPromo(c.admin as never, { name: 'Diskon 3% mi instan min 60 dus', kind: 'DISCOUNT', productId: id('FM-MIE'), minQty: '60', discountPct: '3' }));
-  await c.step('promo bonus', () => c.svc.pricing.createPromo(c.admin as never, { name: 'Beli 20 dus air mineral gratis 2 renceng kopi', kind: 'BONUS', productId: id('FM-AIR'), minQty: '20', bonusProductId: id('FM-KOPI'), bonusQty: '2' }));
+  await c.step('promo potongan', () => c.svc.pricing.createPromo(c.admin, { name: 'Diskon 3% mi instan min 60 dus', kind: 'DISCOUNT', productId: id('FM-MIE'), minQty: '60', discountPct: '3' }));
+  await c.step('promo bonus', () => c.svc.pricing.createPromo(c.admin, { name: 'Beli 20 dus air mineral gratis 2 renceng kopi', kind: 'BONUS', productId: id('FM-AIR'), minQty: '20', bonusProductId: id('FM-KOPI'), bonusQty: '2' }));
   // pembelian ke prinsipal dengan nomor lot & tanggal kedaluwarsa (dasar penelusuran bila ada penarikan produk)
   await c.step('beli makanan', () =>
     purchaseWithLots(c, sup.get('PRI-PANGAN')!, 45, [
@@ -563,19 +563,19 @@ async function purchaseWithLots(
   lines: { productId: string; qty: number; price: number; lotNo: string; expiresInDays: number }[],
   opts: { pay?: boolean; invoiceNo: string },
 ) {
-  const po = await c.svc.po.create(c.admin as never, {
+  const po = await c.svc.po.create(c.admin, {
     supplierId,
     warehouseId: c.wh,
     date: c.ago(daysAgo),
     lines: lines.map((l) => ({ productId: l.productId, qty: String(l.qty), price: String(l.price) })),
-  } as never);
-  await c.svc.po.confirm(c.admin as never, po.id);
+  });
+  await c.svc.po.confirm(c.admin, po.id);
   // tanggal kedaluwarsa dihitung dari hari ini (bukan dari tanggal terima), supaya contoh "akan kedaluwarsa" selalu relevan
-  await c.svc.grn.receive(c.admin as never, po.id, {
+  await c.svc.grn.receive(c.admin, po.id, {
     date: c.ago(daysAgo),
     lines: po.lines.map((pl: { id: string }, i: number) => ({ orderLineId: pl.id, qty: String(lines[i].qty), lotNo: lines[i].lotNo, expiryDate: c.ago(-lines[i].expiresInDays) })),
   });
-  const bill = await c.svc.pi.createFromOrder(c.admin as never, { purchaseOrderId: po.id, supplierInvoiceNo: opts.invoiceNo, date: c.ago(daysAgo - 1) } as never);
+  const bill = await c.svc.pi.createFromOrder(c.admin, { purchaseOrderId: po.id, supplierInvoiceNo: opts.invoiceNo, date: c.ago(daysAgo - 1) });
   if (opts.pay) await payBill(c, bill.id, Math.max(daysAgo - 8, 1));
   c.last.bill = bill.id;
   return bill;
@@ -615,13 +615,13 @@ const FNB_MENU: { sku: string; name: string; price: number; bom: string; use: [s
 /** Meja + pesanan terbuka (sebagian sudah dibayar), pesanan online GoFood/GrabFood dan pencairannya */
 async function fnbTablesAndOnline(c: Demo, ids: Map<string, string>) {
   const { withSimulatedDay } = await import('../../common/utils/dates');
-  const u = c.admin as never;
+  const u = c.admin;
   const tables: { id: string }[] = [];
   for (const [code, seats] of [['M01', 2], ['M02', 4], ['M03', 4], ['M04', 6]] as const) {
-    tables.push((await c.svc.tabs.createTable(u, { warehouseId: c.wh, code, name: `Meja ${Number(code.slice(1))}`, seats } as never)) as { id: string });
+    tables.push((await c.svc.tabs.createTable(u, { warehouseId: c.wh, code, name: `Meja ${Number(code.slice(1))}`, seats })) as { id: string });
   }
   const line = (sku: string, qty: number, notes?: string) => ({ productId: ids.get(sku)!, qty: String(qty), notes });
-  const online: { ago: number; channel: string; ref: string; name: string; items: [string, number][] }[] = [
+  const online: { ago: number; channel: 'GOFOOD' | 'GRABFOOD' | 'SHOPEEFOOD'; ref: string; name: string; items: [string, number][] }[] = [
     { ago: 6, channel: 'GOFOOD', ref: 'GF-240101', name: 'Budi', items: [['MN-KOPSU', 2], ['MN-DONAT', 3]] },
     { ago: 6, channel: 'GRABFOOD', ref: 'GR-77120', name: 'Ayu', items: [['MN-NASAY', 1], ['MN-ESTEH', 1]] },
     { ago: 5, channel: 'GOFOOD', ref: 'GF-240188', name: 'Rina', items: [['MN-LATTE', 2]] },
@@ -630,79 +630,79 @@ async function fnbTablesAndOnline(c: Demo, ids: Map<string, string>) {
   ];
   // H-8: pelanggan makan di tempat, tagihan dipisah dua
   await withSimulatedDay(c.ago(8), async () => {
-    const s = await c.svc.pos.open(u, { warehouseId: c.wh, openingCash: '300000' } as never);
-    const tab = (await c.svc.tabs.create(u, { warehouseId: c.wh, tableId: tables[1].id, orderType: 'DINE_IN', lines: [line('MN-NASAY', 2), line('MN-ESTEH', 2, 'es sedikit'), line('MN-DONAT', 2)] } as never)) as { id: string };
+    const s = await c.svc.pos.open(u, { warehouseId: c.wh, openingCash: '300000' });
+    const tab = (await c.svc.tabs.create(u, { warehouseId: c.wh, tableId: tables[1].id, orderType: 'DINE_IN', lines: [line('MN-NASAY', 2), line('MN-ESTEH', 2, 'es sedikit'), line('MN-DONAT', 2)] })) as { id: string };
     await c.svc.tabs.send(u, tab.id);
     const d = (await c.svc.tabs.get(u, tab.id)) as unknown as { lines: { id: string; product: { name: string } }[] };
     for (const l of d.lines) for (const st of ['PREPARING', 'READY', 'SERVED'] as const) await c.svc.tabs.setLineStatus(u, l.id, st);
     const first = d.lines.filter((l) => /Nasi|Es Teh/.test(l.product.name)).map((l) => l.id);
-    await c.svc.tabs.pay(u, tab.id, { sessionId: s.id, lineIds: first, payments: [{ method: 'CASH', amount: '200000' }] } as never);
-    await c.svc.tabs.pay(u, tab.id, { sessionId: s.id, payments: [{ method: 'CASH', amount: '20000' }] } as never);
+    await c.svc.tabs.pay(u, tab.id, { sessionId: s.id, lineIds: first, payments: [{ method: 'CASH', amount: '200000' }] });
+    await c.svc.tabs.pay(u, tab.id, { sessionId: s.id, payments: [{ method: 'CASH', amount: '20000' }] });
     const cur = (await c.svc.pos.current(u)) as { summary: { expectedCash: string } } | null;
-    await c.svc.pos.close(u, s.id, { countedCash: String(Number(cur?.summary.expectedCash ?? 300000)) } as never);
+    await c.svc.pos.close(u, s.id, { countedCash: String(Number(cur?.summary.expectedCash ?? 300000)) });
   });
   const ordered: Record<number, string> = {};
   for (const o of online) {
     await withSimulatedDay(c.ago(o.ago), async () => {
-      const s = await c.svc.pos.open(u, { warehouseId: c.wh, openingCash: '300000' } as never);
-      const r = (await c.svc.tabs.receiveOnline(u, c.wh, { channel: o.channel as never, externalRef: o.ref, customerName: o.name, items: o.items.map(([sku, q]) => ({ sku, qty: String(q) })) })) as unknown as { tab: { id: string } };
+      const s = await c.svc.pos.open(u, { warehouseId: c.wh, openingCash: '300000' });
+      const r = (await c.svc.tabs.receiveOnline(u, c.wh, { channel: o.channel, externalRef: o.ref, customerName: o.name, items: o.items.map(([sku, q]) => ({ sku, qty: String(q) })) })) as unknown as { tab: { id: string } };
       const id = r.tab.id;
       const d = (await c.svc.tabs.get(u, id)) as unknown as { lines: { id: string }[] };
       for (const l of d.lines) for (const st of ['PREPARING', 'READY', 'SERVED'] as const) await c.svc.tabs.setLineStatus(u, l.id, st);
-      await c.svc.tabs.pay(u, id, { sessionId: s.id } as never);
+      await c.svc.tabs.pay(u, id, { sessionId: s.id });
       const cur = (await c.svc.pos.current(u)) as { summary: { expectedCash: string } } | null;
-      await c.svc.pos.close(u, s.id, { countedCash: String(Number(cur?.summary.expectedCash ?? 300000)) } as never);
+      await c.svc.pos.close(u, s.id, { countedCash: String(Number(cur?.summary.expectedCash ?? 300000)) });
       ordered[o.ago] = id;
     });
   }
   // pencairan GoFood untuk pesanan H-6 dan H-5 (dana masuk pas dengan seharusnya); sisanya belum cair
-  const un = (await c.svc.settle.unsettled(c.tenantId, 'GOFOOD' as never)) as { items: { id: string; externalRef: string | null; net: string }[] };
+  const un = (await c.svc.settle.unsettled(c.tenantId, 'GOFOOD')) as { items: { id: string; externalRef: string | null; net: string }[] };
   const mine = un.items.filter((i) => ['GF-240101', 'GF-240188'].includes(i.externalRef ?? ''));
   if (mine.length) {
-    await c.svc.settle.create(u, { channel: 'GOFOOD', date: c.ago(2), orderIds: mine.map((i) => i.id), received: mine.reduce((a, i) => a + Number(i.net), 0).toFixed(2) } as never);
+    await c.svc.settle.create(u, { channel: 'GOFOOD', date: c.ago(2), orderIds: mine.map((i) => i.id), received: mine.reduce((a, i) => a + Number(i.net), 0).toFixed(2) });
   }
   // satu pesanan makan di tempat masih terbuka & sudah dikirim ke dapur (tampil di layar dapur)
-  const open = (await c.svc.tabs.create(u, { warehouseId: c.wh, tableId: tables[0].id, orderType: 'DINE_IN', lines: [line('MN-LATTE', 1), line('MN-MIGOR', 1, 'pedas')] } as never)) as { id: string };
+  const open = (await c.svc.tabs.create(u, { warehouseId: c.wh, tableId: tables[0].id, orderType: 'DINE_IN', lines: [line('MN-LATTE', 1), line('MN-MIGOR', 1, 'pedas')] })) as { id: string };
   await c.svc.tabs.send(u, open.id);
 }
 async function seedFnb(c: Demo) {
   const { ids, value } = await stockItems(c, FNB_BAHAN);
   await openingBalance(c, { kas: 6_000_000, bank: 140_000_000, stockValue: value });
   // adonan donat = barang setengah jadi, dibuat lewat perintah produksi lalu dipakai resep donat
-  const semi = await c.svc.products.create(c.tenantId, { sku: 'SF-ADONAN', name: 'Adonan Donat', baseUom: 'PCS', sellPrice: '0', category: 'Setengah jadi', inventoryKind: 'SEMI' } as never);
+  const semi = await c.svc.products.create(c.tenantId, { sku: 'SF-ADONAN', name: 'Adonan Donat', baseUom: 'PCS', sellPrice: '0', category: 'Setengah jadi', inventoryKind: 'SEMI' });
   ids.set('SF-ADONAN', semi.id);
   for (const m of FNB_MENU) {
-    const r = await c.svc.products.create(c.tenantId, { sku: m.sku, name: m.name, baseUom: 'PCS', sellPrice: String(m.price), category: m.sku.startsWith('MN-NAS') || m.sku === 'MN-MIGOR' ? 'Makanan' : m.sku === 'MN-DONAT' ? 'Roti & kue' : 'Minuman', madeToOrder: true } as never);
+    const r = await c.svc.products.create(c.tenantId, { sku: m.sku, name: m.name, baseUom: 'PCS', sellPrice: String(m.price), category: m.sku.startsWith('MN-NAS') || m.sku === 'MN-MIGOR' ? 'Makanan' : m.sku === 'MN-DONAT' ? 'Roti & kue' : 'Minuman', madeToOrder: true });
     ids.set(m.sku, r.id);
   }
   const adonanBom = (await c.step('resep adonan', () =>
-    c.svc.production.createBom(c.admin as never, {
+    c.svc.production.createBom(c.admin, {
       name: 'Adonan donat (batch 50)',
       productId: semi.id,
       outputQty: '50',
       laborCost: '150000',
       overheadCost: '50000',
       lines: [['BB-TEPUNG', 4000], ['BB-TELUR', 8], ['BB-MENTEGA', 400], ['BB-GULA', 500]].map(([k, q]) => ({ productId: ids.get(k as string)!, qty: String(q) })),
-    } as never),
+    }),
   )) as { id: string } | undefined;
   for (const m of FNB_MENU) {
     await c.step(`resep ${m.name}`, () =>
-      c.svc.production.createBom(c.admin as never, {
+      c.svc.production.createBom(c.admin, {
         name: m.bom,
         productId: ids.get(m.sku)!,
         outputQty: '1',
         laborCost: '0',
         overheadCost: '0',
         lines: m.use.map(([k, q]) => ({ productId: ids.get(k)!, qty: String(q) })),
-      } as never),
+      }),
     );
   }
   if (adonanBom) {
     for (const run of [{ ago: 40, batches: 4 }, { ago: 20, batches: 4 }, { ago: 7, batches: 3 }]) {
-      const o = (await c.step('perintah produksi adonan', () => c.svc.production.createOrder(c.admin as never, { bomId: adonanBom.id, warehouseId: c.wh, batches: String(run.batches), date: c.ago(run.ago) } as never))) as { id: string } | undefined;
+      const o = (await c.step('perintah produksi adonan', () => c.svc.production.createOrder(c.admin, { bomId: adonanBom.id, warehouseId: c.wh, batches: String(run.batches), date: c.ago(run.ago) }))) as { id: string } | undefined;
       if (!o) continue;
-      await c.step('mulai adonan', () => c.svc.production.start(c.admin as never, o.id, { date: c.ago(run.ago) } as never));
-      await c.step('selesai adonan', () => c.svc.production.complete(c.admin as never, o.id, { date: c.ago(run.ago - 1), outputQty: String(Math.floor(50 * run.batches * 0.98)) } as never));
+      await c.step('mulai adonan', () => c.svc.production.start(c.admin, o.id, { date: c.ago(run.ago) }));
+      await c.step('selesai adonan', () => c.svc.production.complete(c.admin, o.id, { date: c.ago(run.ago - 1), outputQty: String(Math.floor(50 * run.batches * 0.98)) }));
     }
   }
   const sup = await addSuppliers(c, [
@@ -800,7 +800,7 @@ const UTILITAS: Prod[] = [
 async function seedUtilitas(c: Demo) {
   const stock = UTILITAS.filter((p) => p.qty > 0);
   const { ids, value } = await stockItems(c, stock);
-  await c.svc.products.create(c.tenantId, { sku: UTILITAS[0].sku, name: UTILITAS[0].name, category: UTILITAS[0].cat, baseUom: 'PAKET', sellPrice: String(UTILITAS[0].price) } as never).then((r) => ids.set(UTILITAS[0].sku, r.id)).catch(() => undefined);
+  await c.svc.products.create(c.tenantId, { sku: UTILITAS[0].sku, name: UTILITAS[0].name, category: UTILITAS[0].cat, baseUom: 'PAKET', sellPrice: String(UTILITAS[0].price) }).then((r) => ids.set(UTILITAS[0].sku, r.id)).catch(() => undefined);
   await openingBalance(c, { kas: 9_000_000, bank: 240_000_000, stockValue: value });
   const sup = await addSuppliers(c, [
     { code: 'SUP-PIPA', name: 'PT Pipa Nusantara Abadi', term: 30 },
@@ -812,16 +812,16 @@ async function seedUtilitas(c: Demo) {
     ['PLG-007', 'Hendra Gunawan', 'Griya Asri Blok C-01'], ['PLG-008', 'Maya Sari', 'Griya Asri Blok C-02'],
   ];
   const cu = await addCustomers(c, homes.map(([code, name, address]) => ({ code, name, address: `${address}, Sleman`, term: 20 })));
-  const T = c.admin as never;
-  const air = (await c.step('tarif air', () => c.svc.utility.createTariff(T, { name: 'Air rumah tangga', serviceType: 'AIR', fixedFee: 12000, adminFee: 2500, minUsage: 5, blocks: [{ upTo: 10, price: 3000 }, { upTo: 20, price: 4500 }, { upTo: null, price: 7000 }] } as never))) as { id: string } | undefined;
-  const bisnis = (await c.step('tarif air usaha', () => c.svc.utility.createTariff(T, { name: 'Air usaha kecil', serviceType: 'AIR', fixedFee: 35000, adminFee: 2500, minUsage: 10, blocks: [{ upTo: 30, price: 6500 }, { upTo: null, price: 9500 }] } as never))) as { id: string } | undefined;
-  const net = (await c.step('tarif internet', () => c.svc.utility.createTariff(T, { name: 'Internet 20 Mbps', serviceType: 'INTERNET', fixedFee: 185000, adminFee: 0, blocks: [] } as never))) as { id: string } | undefined;
+  const T = c.admin;
+  const air = (await c.step('tarif air', () => c.svc.utility.createTariff(T, { name: 'Air rumah tangga', serviceType: 'AIR', fixedFee: 12000, adminFee: 2500, minUsage: 5, blocks: [{ upTo: 10, price: 3000 }, { upTo: 20, price: 4500 }, { upTo: null, price: 7000 }] }))) as { id: string } | undefined;
+  const bisnis = (await c.step('tarif air usaha', () => c.svc.utility.createTariff(T, { name: 'Air usaha kecil', serviceType: 'AIR', fixedFee: 35000, adminFee: 2500, minUsage: 10, blocks: [{ upTo: 30, price: 6500 }, { upTo: null, price: 9500 }] }))) as { id: string } | undefined;
+  const net = (await c.step('tarif internet', () => c.svc.utility.createTariff(T, { name: 'Internet 20 Mbps', serviceType: 'INTERNET', fixedFee: 185000, adminFee: 0, blocks: [] }))) as { id: string } | undefined;
   if (!air || !bisnis || !net) return;
   const conns = new Map<string, { id: string }>();
   for (const [i, [code, , address]] of homes.entries()) {
     const tariff = code === 'PLG-006' ? bisnis.id : i % 4 === 3 ? net.id : air.id;
     const metered = tariff !== net.id;
-    const r = (await c.step(`sambungan ${code}`, () => c.svc.utility.createConnection(T, { customerId: cu.get(code)!, tariffId: tariff, meterNo: metered ? `MA-2024-${String(i + 1).padStart(4, '0')}` : undefined, address: `${address}, Sleman`, installedAt: c.ago(100), initialReading: '0' } as never))) as { id: string } | undefined;
+    const r = (await c.step(`sambungan ${code}`, () => c.svc.utility.createConnection(T, { customerId: cu.get(code)!, tariffId: tariff, meterNo: metered ? `MA-2024-${String(i + 1).padStart(4, '0')}` : undefined, address: `${address}, Sleman`, installedAt: c.ago(100), initialReading: '0' }))) as { id: string } | undefined;
     if (r) conns.set(code, r);
   }
   const month = (back: number) => {
@@ -838,13 +838,13 @@ async function seedUtilitas(c: Demo) {
       const base = meter.get(code) ?? 0;
       const usage = code === 'PLG-006' ? c.int(28, 40) : c.int(7, 24);
       const cur = base + usage;
-      const r = (await c.step(`catat meter ${code}`, () => c.svc.utility.enterReading(T, { connectionId: conn.id, period, current: String(cur) } as never))) as { id: string } | undefined;
+      const r = (await c.step(`catat meter ${code}`, () => c.svc.utility.enterReading(T, { connectionId: conn.id, period, current: String(cur) }))) as { id: string } | undefined;
       meter.set(code, cur);
-      if (r && (billIt || code !== 'PLG-003')) await c.step(`verifikasi ${code}`, () => c.svc.utility.verify(T, r.id, { note: 'Cocok dengan foto meter' } as never));
+      if (r && (billIt || code !== 'PLG-003')) await c.step(`verifikasi ${code}`, () => c.svc.utility.verify(T, r.id, { note: 'Cocok dengan foto meter' }));
     }
-    if (billIt) await c.step(`tagih ${period}`, () => c.svc.utility.run(T, { period } as never));
+    if (billIt) await c.step(`tagih ${period}`, () => c.svc.utility.run(T, { period }));
   }
-  await c.step('tagih bulan ini (yang sudah terverifikasi)', () => c.svc.utility.run(T, { period: month(0) } as never));
+  await c.step('tagih bulan ini (yang sudah terverifikasi)', () => c.svc.utility.run(T, { period: month(0) }));
   await c.step('beli pipa dan meter', () => purchase(c, sup.get('SUP-PIPA')!, 20, [{ productId: ids.get('UT-PIPA-PVC')!, qty: 200, price: 29000 }, { productId: ids.get('UT-METER-AIR')!, qty: 40, price: 215000 }], { pay: true, invoiceNo: 'PNA/1025/044' }));
   await c.step('beli kabel fiber', () => purchase(c, sup.get('SUP-FO')!, 9, [{ productId: ids.get('UT-KABEL-FO')!, qty: 4, price: 880000 }], { invoiceNo: 'FTM-1190' }));
   await expense(c, 54, 'bank', '6-3000', 'Sewa kantor dan gudang bahan', 3_500_000, 'SEWA-UTL');

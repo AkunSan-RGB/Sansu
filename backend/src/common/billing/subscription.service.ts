@@ -1,8 +1,10 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { and, asc, eq, sql } from 'drizzle-orm';
 import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { plans, platformSettings, subscriptions, users, warehouses } from '../../db/schema';
+import { platformSettings, users, warehouses } from '../../db/schema';
+import { SubscriptionRepository } from './subscription.repository';
+import { PlatformSettingsRepository } from '../platform-settings.repository';
+import { DAY } from './subscription.repository';
 
 export type SubStatus = 'TRIAL' | 'ACTIVE' | 'OVERDUE' | 'EXPIRED' | 'SUSPENDED' | 'CANCELLED';
 export interface SubState {
@@ -58,27 +60,24 @@ export const DEFAULT_BILLING_SETTINGS: BillingSettings = {
   vatRate: 11,
 };
 
-const DAY = 86_400_000;
-
 /** Status langganan & batas paket per perusahaan */
 @Injectable()
 export class SubscriptionService {
   /** Cache singkat status per tenant (dicek di setiap permintaan tulis) */
   private cache = new Map<string, { at: number; state: SubState }>();
 
-  constructor(@InjectDb() private readonly db: Db) {}
+  constructor(@InjectDb() private readonly db: Db,
+    private readonly repo: SubscriptionRepository,
+    private readonly platformSettings: PlatformSettingsRepository) {}
 
   async settings(db: DbOrTx = this.db): Promise<BillingSettings> {
-    const [r] = await db.select().from(platformSettings).where(eq(platformSettings.key, 'billing'));
+    const r = await this.platformSettings.find(db, 'billing');
     return { ...DEFAULT_BILLING_SETTINGS, ...((r?.value as Partial<BillingSettings>) ?? {}) };
   }
 
   async saveSettings(patch: Partial<BillingSettings>) {
     const value = { ...(await this.settings()), ...patch };
-    await this.db
-      .insert(platformSettings)
-      .values({ key: 'billing', value })
-      .onConflictDoUpdate({ target: platformSettings.key, set: { value, updatedAt: new Date() } });
+    await this.platformSettings.upsert(this.db, 'billing', value);
     this.cache.clear();
     return value;
   }
@@ -92,14 +91,11 @@ export class SubscriptionService {
   async startTrial(tx: DbOrTx, tenantId: string) {
     const s = await this.settings(tx);
     if (!s.enabled) return; // tahap uji: perusahaan baru tanpa batas, tanpa trial
-    const [plan] = (await tx.select().from(plans).where(eq(plans.code, s.trialPlanCode))).concat(
-      await tx.select().from(plans).where(eq(plans.isActive, true)).orderBy(asc(plans.sortOrder)),
+    const [plan] = (await this.repo.listPlansByCode(tx, s.trialPlanCode)).concat(
+      await this.repo.listPlansByIsActiveAndSortOrder(tx),
     );
     if (!plan) return; // belum ada paket (mis. basis data lama) → tanpa batas
-    await tx
-      .insert(subscriptions)
-      .values({ tenantId, planId: plan.id, status: 'TRIAL', trialEndsAt: new Date(Date.now() + s.trialDays * DAY) })
-      .onConflictDoNothing();
+    await this.repo.insertSubscriptions(tx, tenantId, plan.id, s.trialDays);
   }
 
   /** Hitung status dari baris langganan */
@@ -138,11 +134,7 @@ export class SubscriptionService {
       this.cache.set(tenantId, { at: Date.now(), state: off });
       return off;
     }
-    const [row] = await this.db
-      .select({ sub: subscriptions, plan: plans })
-      .from(subscriptions)
-      .innerJoin(plans, eq(plans.id, subscriptions.planId))
-      .where(eq(subscriptions.tenantId, tenantId));
+    const [row] = await this.repo.findSubscriptionsWithPlans(this.db, tenantId);
     const plan = row
       ? { id: row.plan.id, code: row.plan.code, name: row.plan.name, maxUsers: row.plan.maxUsers, maxWarehouses: row.plan.maxWarehouses, priceMonthly: row.plan.priceMonthly, priceYearly: row.plan.priceYearly }
       : null;
@@ -152,8 +144,8 @@ export class SubscriptionService {
   }
 
   async usage(tenantId: string, db: DbOrTx = this.db) {
-    const [u] = await db.select({ n: sql<number>`count(*)::int` }).from(users).where(and(eq(users.tenantId, tenantId), eq(users.isActive, true)));
-    const [w] = await db.select({ n: sql<number>`count(*)::int` }).from(warehouses).where(and(eq(warehouses.tenantId, tenantId), eq(warehouses.isActive, true)));
+    const [u] = await this.repo.countUsersByIsActive(db, tenantId);
+    const [w] = await this.repo.countWarehousesByIsActive(db, tenantId);
     return { users: u.n, warehouses: w.n };
   }
 

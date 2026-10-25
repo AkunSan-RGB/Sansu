@@ -133,7 +133,7 @@ export default function PettyCashPage() {
               <Descriptions.Item label="Juru kas">{fund.custodianName}</Descriptions.Item>
               <Descriptions.Item label="Batas per bukti">{fmtMoney(fund.maxVoucher)}</Descriptions.Item>
               <Descriptions.Item label="Hitung kas terakhir">{fund.lastCount ? fmtDate(fund.lastCount) : <Tag color="orange">Belum pernah</Tag>}</Descriptions.Item>
-              <Descriptions.Item label="Kecocokan dana tetap" span={3}>
+              <Descriptions.Item label="Kecocokan dana tetap" span={{ xs: 1, md: 3 }}>
                 {Math.abs(variance) < 1 ? (
                   <Tag color="green">Sesuai: saldo kas kecil + bukti belum diganti = plafon</Tag>
                 ) : (

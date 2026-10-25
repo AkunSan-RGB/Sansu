@@ -47,6 +47,7 @@ describe('FMCG: jurnal komisi & rekonstruksi lot (e2e)', () => {
     db = app.get<Db>(DB);
     const reg = (await http.post('/api/auth/register').send({ companyName: 'PT Komisi Uji', name: 'Pemilik', email: `km-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'FMCG' }).expect(201)).body;
     owner = reg.accessToken;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${owner}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     tenantId = reg.user.tenantId;
     admin = (await mkUser('ADMIN', 'admin')).token;
     acct = (await mkUser('ACCOUNTANT', 'akuntan')).token;

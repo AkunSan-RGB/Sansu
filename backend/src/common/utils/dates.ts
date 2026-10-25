@@ -66,3 +66,11 @@ export function monthStart(date: DocDate): DocDate {
 export function assertNotFuture(date: string, label = 'Tanggal transaksi'): void {
   if (date > todayJakarta()) throw new BadRequestException(`${label} tidak boleh di masa depan`);
 }
+
+/** Batas wajar tanggal pembukuan ke depan: salah ketik tahun/bulan (mis. 2027 padahal 2026) ditolak sebelum menggeser nomor dan laporan */
+export const MAX_FUTURE_DAYS = 31;
+export function assertNotFarFuture(date: DocDate, what: string): void {
+  if (date > addDays(todayJakarta(), MAX_FUTURE_DAYS)) {
+    throw new BadRequestException(`Tanggal ${what} tidak boleh lebih dari ${MAX_FUTURE_DAYS} hari ke depan (periksa tahun dan bulannya)`);
+  }
+}

@@ -1,0 +1,241 @@
+import { Injectable } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { type CustomerDeposit } from '@sansu/shared';
+import { AuditService } from '../../../common/audit/audit.service';
+import { AuthUser } from '../../../common/auth/auth-user';
+import { SequenceService } from '../../../common/sequence/sequence.service';
+import { outputVatRate } from '../../../common/settings.service';
+import { toDocDate } from '../../../common/utils/dates';
+import { D, money } from '../../../common/utils/money';
+import { Db } from '../../../db/db';
+import { InjectDb } from '../../../db/db.module';
+import { customerDeposits, customers, depositApplications, invoices, projects, tenants } from '../../../db/schema';
+import { SYS } from '../../accounting/default-coa';
+import { PostingService } from '../../accounting/posting.service';
+import { CreateDepositDto, ApplyDepositDto } from './service-billing.dto';
+import { ReferenceRepository } from '../../../db/reference.repository';
+import { ServiceBillingService, outstandingOf } from './service-billing.service';
+import { findOwned, insertOne, patchById } from '../../../db/owned';
+import { CustomerDepositsRepository } from './customer-deposits.repository';
+
+@Injectable()
+export class CustomerDepositsService {
+  constructor(
+    @InjectDb() private readonly db: Db,
+    private readonly seq: SequenceService,
+    private readonly posting: PostingService,
+    private readonly audit: AuditService,
+    private readonly refs: ReferenceRepository,
+    private readonly billing: ServiceBillingService,
+    private readonly repo: CustomerDepositsRepository,
+  ) {}
+
+  // ================= Uang muka pelanggan =================
+
+  async listDeposits(
+    tenantId: string,
+    q: { customerId?: string; projectId?: string; open?: boolean } = {},
+  ): Promise<CustomerDeposit[]> {
+    const rows = await this.db.query.customerDeposits.findMany({
+      where: and(
+        eq(customerDeposits.tenantId, tenantId),
+        q.customerId ? eq(customerDeposits.customerId, q.customerId) : undefined,
+        q.projectId ? eq(customerDeposits.projectId, q.projectId) : undefined,
+        q.open ? sql`${customerDeposits.amount} > ${customerDeposits.appliedAmount}` : undefined,
+      ),
+      orderBy: [desc(customerDeposits.date), desc(customerDeposits.number)],
+      limit: 500,
+    });
+    if (!rows.length) return [];
+    const custs = await this.repo.listCustomersById(this.db, rows);
+    const projIds = [...new Set(rows.map((r) => r.projectId).filter((x): x is string => !!x))];
+    const projs = projIds.length
+      ? await this.repo.listProjectsById(this.db, projIds)
+      : [];
+    const apps = await this.repo.listDepositApplicationsWithInvoicesByDepositId(this.db, rows);
+    return rows.map((r) => {
+      const c = custs.find((x) => x.id === r.customerId)!;
+      const p = projs.find((x) => x.id === r.projectId);
+      return {
+        id: r.id,
+        number: r.number,
+        date: r.date,
+        customerId: r.customerId,
+        customer: { code: c.code, name: c.name },
+        projectId: r.projectId,
+        project: p ? { code: p.code, name: p.name } : null,
+        method: r.method,
+        amount: r.amount,
+        dpp: r.dpp,
+        taxAmount: r.taxAmount,
+        appliedAmount: r.appliedAmount,
+        remaining: D(r.amount).minus(r.appliedAmount).toFixed(2),
+        description: r.description,
+        applications: apps
+          .filter((a) => a.depositId === r.id)
+          .map((a) => ({
+            id: a.id,
+            date: a.date,
+            amount: a.amount,
+            invoice: { id: a.invoiceId, number: a.invoiceNumber },
+          })),
+      };
+    });
+  }
+
+  /** Terima uang muka: Dr Kas/Bank | Cr Uang Muka Pelanggan (DPP), Cr PPN Keluaran (PPN uang muka) */
+  async createDeposit(user: AuthUser, dto: CreateDepositDto) {
+    const date = toDocDate(dto.date);
+    const amount = money(dto.amount);
+    if (amount.lte(0)) throw new BadRequestException('Jumlah uang muka harus > 0');
+    return this.db.transaction(async (tx) => {
+      const [tenant] = await this.repo.findTenantsById(tx, user.tenantId);
+      const customer = await this.refs.customer(tx, user.tenantId, dto.customerId);
+      if (!customer) throw new BadRequestException('Pelanggan tidak ditemukan');
+      if (dto.projectId) {
+        const p = await findOwned(tx, projects, user.tenantId, dto.projectId);
+        if (!p || p.customerId !== customer.id)
+          throw new BadRequestException('Proyek tidak ditemukan untuk pelanggan ini');
+      }
+      const rate = D(dto.withVat === false ? '0' : outputVatRate(tenant));
+      const dpp = rate.gt(0) ? money(amount.times(100).div(D(100).plus(rate))) : amount;
+      const tax = amount.minus(dpp);
+      const method = dto.method ?? 'TRANSFER';
+      const cash = await this.posting.resolveCashAccount(
+        tx,
+        user.tenantId,
+        dto.cashAccountId,
+        method === 'CASH' ? 'CASH' : 'BANK',
+      );
+      const number = await this.seq.next(tx, user.tenantId, 'CUSTOMER_DEPOSIT', date);
+      const d = await insertOne(tx, customerDeposits, {
+          tenantId: user.tenantId,
+          number,
+          date,
+          customerId: customer.id,
+          projectId: dto.projectId,
+          method,
+          cashAccountId: cash.id,
+          amount: amount.toFixed(2),
+          dpp: dpp.toFixed(2),
+          taxAmount: tax.toFixed(2),
+          description: dto.description,
+          createdById: user.sub,
+        });
+      const journal = await this.posting.post(tx, {
+        tenantId: user.tenantId,
+        date,
+        description: `Uang muka ${number} - ${customer.name}${dto.description ? ` · ${dto.description}` : ''}`.slice(
+          0,
+          500,
+        ),
+        sourceType: 'CUSTOMER_DEPOSIT',
+        sourceId: d.id,
+        createdById: user.sub,
+        lines: [
+          { accountId: cash.id, debit: amount },
+          { key: SYS.CUSTOMER_DEPOSIT, credit: dpp },
+          { key: SYS.VAT_OUT, credit: tax, memo: tax.gt(0) ? 'PPN atas uang muka' : undefined },
+        ],
+      });
+      await patchById(tx, customerDeposits, d.id, { journalId: journal.id });
+      await this.audit.log(tx, {
+        tenantId: user.tenantId,
+        userId: user.sub,
+        action: 'CREATE',
+        entity: 'CustomerDeposit',
+        entityId: d.id,
+        data: { number, amount: amount.toFixed(2) },
+      });
+      return { ...d, journalNumber: journal.number };
+    });
+  }
+
+  /** Pakai uang muka untuk melunasi faktur: Dr Uang Muka Pelanggan (DPP), Dr PPN Keluaran (PPN uang muka) | Cr Piutang */
+  async applyDeposit(user: AuthUser, id: string, dto: ApplyDepositDto) {
+    const date = toDocDate(dto.date);
+    return this.db.transaction(async (tx) => {
+      const lockD = await this.repo.queryCustomerDeposit(tx, id, user.tenantId);
+      if (!lockD.rows.length) throw new NotFoundException('Uang muka tidak ditemukan');
+      const lockI = await this.repo.queryInvoice(tx, dto.invoiceId, user.tenantId);
+      if (!lockI.rows.length) throw new NotFoundException('Faktur tidak ditemukan');
+      const [d] = await this.repo.findCustomerDepositsById(tx, id);
+      const [inv] = await this.repo.findInvoicesById(tx, dto.invoiceId);
+      if (inv.customerId !== d.customerId)
+        throw new BadRequestException('Uang muka dan faktur harus dari pelanggan yang sama');
+      if (inv.isOpening) throw new BadRequestException('Uang muka tidak bisa dipakai untuk faktur saldo awal');
+      if (inv.currency !== 'IDR')
+        throw new BadRequestException(`Faktur dalam ${inv.currency}: uang muka rupiah belum bisa dipakai melunasinya`);
+      if (D(d.taxAmount).gt(0) && D(inv.taxAmount).lte(0))
+        throw new BadRequestException('Uang muka ber-PPN hanya bisa dipakai untuk faktur ber-PPN');
+      if (date < d.date || date < inv.date)
+        throw new BadRequestException('Tanggal pemakaian tidak boleh sebelum tanggal uang muka / faktur');
+
+      const remaining = D(d.amount).minus(d.appliedAmount);
+      const outstanding = outstandingOf(inv);
+      const max = remaining.lt(outstanding) ? remaining : outstanding;
+      if (max.lte(0))
+        throw new BadRequestException(remaining.lte(0) ? 'Uang muka sudah habis dipakai' : 'Faktur sudah lunas');
+      const amount = dto.amount ? money(dto.amount) : max;
+      if (amount.lte(0)) throw new BadRequestException('Jumlah harus > 0');
+      if (amount.gt(max))
+        throw new BadRequestException(
+          `Paling banyak ${max.toFixed(2)} (sisa uang muka ${remaining.toFixed(2)}, sisa tagihan ${outstanding.toFixed(2)})`,
+        );
+
+      // Bagian DPP & PPN dari uang muka; pemakaian terakhir mengambil sisanya agar tidak ada sisa pembulatan
+      const [used] = (
+        await this.repo.queryDepositApplication(tx, id)
+      ).rows;
+      const dppShare = amount.eq(remaining) ? D(d.dpp).minus(used.dpp) : money(amount.times(d.dpp).div(d.amount));
+      const taxShare = amount.minus(dppShare);
+
+      const number = await this.seq.next(tx, user.tenantId, 'DEPOSIT_APPLICATION', date);
+      const app = await insertOne(tx, depositApplications, {
+          tenantId: user.tenantId,
+          number,
+          depositId: d.id,
+          invoiceId: inv.id,
+          date,
+          amount: amount.toFixed(2),
+          dpp: dppShare.toFixed(2),
+          taxAmount: taxShare.toFixed(2),
+        });
+      const journal = await this.posting.post(tx, {
+        tenantId: user.tenantId,
+        date,
+        description: `Pemakaian uang muka ${d.number} untuk ${inv.number}`,
+        sourceType: 'DEPOSIT_APPLICATION',
+        sourceId: app.id,
+        createdById: user.sub,
+        lines: [
+          { key: SYS.CUSTOMER_DEPOSIT, debit: dppShare },
+          {
+            key: SYS.VAT_OUT,
+            debit: taxShare,
+            memo: taxShare.gt(0) ? 'PPN uang muka sudah dipungut saat DP diterima' : undefined,
+          },
+          { key: SYS.AR, credit: amount },
+        ],
+      });
+      await patchById(tx, depositApplications, app.id, { journalId: journal.id });
+      await patchById(tx, customerDeposits, d.id, { appliedAmount: D(d.appliedAmount).plus(amount).toFixed(2) });
+      const paid = D(inv.paidAmount).plus(amount);
+      await patchById(tx, invoices, inv.id, {
+          paidAmount: paid.toFixed(2),
+          depositApplied: D(inv.depositApplied).plus(amount).toFixed(2),
+          status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL',
+        });
+      await this.audit.log(tx, {
+        tenantId: user.tenantId,
+        userId: user.sub,
+        action: 'APPLY',
+        entity: 'CustomerDeposit',
+        entityId: d.id,
+        data: { invoice: inv.number, amount: amount.toFixed(2) },
+      });
+      return { id: app.id, number, amount: amount.toFixed(2), journalNumber: journal.number };
+    });
+  }
+}

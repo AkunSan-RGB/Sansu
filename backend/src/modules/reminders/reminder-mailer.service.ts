@@ -5,7 +5,6 @@
  * Setiap pengiriman dicatat di `reminder_log` sehingga tidak terkirim dua kali meski penjadwal berjalan berulang.
  */
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { appUrl, MailService } from '../../common/mail/mail.service';
@@ -13,10 +12,8 @@ import { SettingsService } from '../../common/settings.service';
 import { todayJakarta } from '../../common/utils/dates';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { Role } from '../../db/schema';
 import { RemindersService, type ReminderItem, type ReminderSettings } from './reminders.service';
-
-const DIGEST_ROLES: Role[] = ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'];
+import { ReminderMailerRepository } from './reminder-mailer.repository';
 const DIGEST_HOUR_WIB = 7;
 const rp = (v: number | string) => `Rp${Math.round(Number(v)).toLocaleString('id-ID')}`;
 const LEVEL_MARK = { error: '‼', warning: '•', info: '·' } as const;
@@ -38,22 +35,17 @@ export class ReminderMailer {
     private readonly mail: MailService,
     private readonly settings: SettingsService,
     private readonly approvals: ApprovalsService,
+    private readonly repo: ReminderMailerRepository,
   ) {}
 
   /** Catat pengiriman; false bila sudah pernah dicatat (tidak boleh dikirim lagi) */
   private async claim(tenantId: string, kind: 'DIGEST' | 'CUSTOMER' | 'BANK_ESC', ref: string, stage: string, sentTo: string, force = false) {
-    const r = await this.db.execute<{ id: string }>(
-      force
-        ? sql`INSERT INTO reminder_log (tenant_id, kind, ref, stage, sent_to) VALUES (${tenantId}, ${kind}, ${ref}, ${stage}, ${sentTo})
-              ON CONFLICT (tenant_id, kind, ref, stage) DO UPDATE SET sent_at = now(), sent_to = EXCLUDED.sent_to RETURNING id`
-        : sql`INSERT INTO reminder_log (tenant_id, kind, ref, stage, sent_to) VALUES (${tenantId}, ${kind}, ${ref}, ${stage}, ${sentTo})
-              ON CONFLICT (tenant_id, kind, ref, stage) DO NOTHING RETURNING id`,
-    );
+    const r = await this.repo.queryReminderLog(this.db, force, tenantId, kind, ref, stage, sentTo);
     return r.rows.length > 0;
   }
 
   private release(tenantId: string, kind: string, ref: string, stage: string) {
-    return this.db.execute(sql`DELETE FROM reminder_log WHERE tenant_id = ${tenantId} AND kind = ${kind} AND ref = ${ref} AND stage = ${stage}`);
+    return this.repo.queryReminderLogForRelease(this.db, tenantId, kind, ref, stage);
   }
 
   // ---------- ringkasan harian ----------
@@ -81,9 +73,8 @@ export class ReminderMailer {
     if (!cfg.enabled || !cfg.emailDigest) return { sent: 0, skipped: 'nonaktif' };
     if (!this.mail.configured && process.env.NODE_ENV !== 'test') return { sent: 0, skipped: 'smtp' };
     const today = todayJakarta();
-    const [t] = (await this.db.execute<{ name: string }>(sql`SELECT name FROM tenants WHERE id = ${tenantId}`)).rows;
-    const users = (await this.db.execute<{ id: string; email: string; name: string; role: Role }>(sql`
-      SELECT id, email, name, role FROM users WHERE tenant_id = ${tenantId} AND is_active AND role IN (${sql.join(DIGEST_ROLES.map((r) => sql`${r}::role`), sql`, `)})`)).rows;
+    const [t] = (await this.repo.queryTenant(this.db, tenantId)).rows;
+    const users = (await this.repo.queryUserForSendDigest(this.db, tenantId)).rows;
     let sent = 0;
     for (const u of users) {
       const view = await this.reminders.forUser({ tenantId, sub: u.id, role: u.role } as AuthUser);
@@ -100,8 +91,8 @@ export class ReminderMailer {
   /** Kirim ringkasan ke pengguna yang meminta (uji / lihat contoh); tidak dicatat sebagai ringkasan harian */
   async sendDigestTo(user: AuthUser) {
     const view = await this.reminders.forUser(user, false);
-    const [me] = (await this.db.execute<{ email: string; name: string }>(sql`SELECT email, name FROM users WHERE id = ${user.sub}`)).rows;
-    const [t] = (await this.db.execute<{ name: string }>(sql`SELECT name FROM tenants WHERE id = ${user.tenantId}`)).rows;
+    const [me] = (await this.repo.queryUser(this.db, user.sub)).rows;
+    const [t] = (await this.repo.queryTenant(this.db, user.tenantId)).rows;
     if (!view.items.length) throw new BadRequestException('Tidak ada pengingat saat ini, jadi tidak ada ringkasan yang dikirim');
     const ok = await this.mail.send(this.digestMail(me.email, me.name, t.name, view.items), true).catch((e: Error) => {
       throw new BadRequestException(`Email gagal dikirim: ${e.message}`);
@@ -133,10 +124,7 @@ export class ReminderMailer {
   }
 
   private async invoiceInfo(tenantId: string, invoiceId: string) {
-    const rows = (await this.db.execute<{ number: string; due: string; outstanding: string; name: string; email: string | null; company: string }>(sql`
-      SELECT i.number, i.due_date::text AS due, (i.total - i.paid_amount - i.returned_amount)::text AS outstanding, c.name, c.email, t.name AS company
-      FROM invoices i JOIN customers c ON c.id = i.customer_id JOIN tenants t ON t.id = i.tenant_id
-      WHERE i.tenant_id = ${tenantId} AND i.id = ${invoiceId} AND i.status <> 'PAID'`)).rows;
+    const rows = (await this.repo.queryInvoice(this.db, tenantId, invoiceId)).rows;
     return rows[0];
   }
 
@@ -169,11 +157,7 @@ export class ReminderMailer {
     if (!cfg.enabled || !cfg.customerReminders) return { sent: 0, skipped: 'nonaktif' };
     if (!this.mail.configured && process.env.NODE_ENV !== 'test') return { sent: 0, skipped: 'smtp' };
     const today = todayJakarta();
-    const rows = (await this.db.execute<{ id: string; number: string; due: string; outstanding: string; name: string; email: string; company: string }>(sql`
-      SELECT i.id, i.number, i.due_date::text AS due, (i.total - i.paid_amount - i.returned_amount)::text AS outstanding, c.name, c.email, t.name AS company
-      FROM invoices i JOIN customers c ON c.id = i.customer_id JOIN tenants t ON t.id = i.tenant_id
-      WHERE i.tenant_id = ${tenantId} AND i.status <> 'PAID' AND c.email IS NOT NULL AND c.email <> ''
-        AND (i.total - i.paid_amount - i.returned_amount) > 0.005 AND i.is_opening = false`)).rows;
+    const rows = (await this.repo.queryInvoiceForRunCustomerReminders(this.db, tenantId)).rows;
     const b = await this.branding(tenantId);
     let sent = 0;
     for (const r of rows) {
@@ -193,9 +177,7 @@ export class ReminderMailer {
    * (sekali per hari), supaya tidak bergantung pada satu orang. Dijaga catatan harian agar tidak ganda.
    */
   async runBankEscalation(tenantId: string) {
-    const r = (await this.db.execute<{ n: number; total: string; oldest: number }>(sql`
-      SELECT COUNT(*)::int AS n, COALESCE(SUM(amount), 0)::text AS total, COALESCE(MAX(CURRENT_DATE - date), 0)::int AS oldest
-      FROM bank_statement_lines WHERE tenant_id = ${tenantId} AND status = 'UNMATCHED' AND amount > 0 AND date < CURRENT_DATE`)).rows[0];
+    const r = (await this.repo.queryBankStatementLine(this.db, tenantId)).rows[0];
     if (!r || r.n === 0) return { notified: false };
     if (!(await this.claim(tenantId, 'BANK_ESC', tenantId, todayJakarta(), 'OWNER,ACCOUNTANT'))) return { notified: false };
     await this.approvals.notifyRoles(tenantId, { roles: ['OWNER', 'ACCOUNTANT'], info: true, title: `⚠ ${r.n} uang masuk di rekening belum dijelaskan sumbernya: ${rp(r.total)}`, lines: [`Yang terlama ${r.oldest} hari. Keuangan belum mencocokkan atau memilih sumbernya.`], path: '/bank' });
@@ -204,7 +186,7 @@ export class ReminderMailer {
 
   /** Perusahaan yang diberi pengingat otomatis: perusahaan demo dilewati (alamat emailnya fiktif dan datanya sementara) */
   async schedulableTenants() {
-    return (await this.db.execute<{ id: string }>(sql`SELECT id FROM tenants WHERE NOT (settings ? 'demo')`)).rows;
+    return (await this.repo.queryTenantForSchedulableTenants(this.db)).rows;
   }
 
   /** Satu putaran penjadwal untuk semua perusahaan: ringkasan harian (setelah pukul 07.00 WIB) dan pengingat pelanggan */

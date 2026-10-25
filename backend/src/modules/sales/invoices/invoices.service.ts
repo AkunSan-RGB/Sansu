@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, desc, eq, ne } from 'drizzle-orm';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { AuditService } from '../../../common/audit/audit.service';
 import { SequenceService } from '../../../common/sequence/sequence.service';
@@ -7,13 +7,15 @@ import { addDays, diffDays, toDocDate, todayJakarta } from '../../../common/util
 import { D, Dec, money, ZERO } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, deliveryOrders, invoiceLines, invoices, payments, salesOrders } from '../../../db/schema';
+import { invoices, payments, salesOrders } from '../../../db/schema';
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { StockService } from '../../inventory/stock.service';
 import { DeliveriesService } from '../deliveries/deliveries.service';
 import { SalesOrdersService } from '../orders/sales-orders.service';
 import { CreateInvoiceDto, InvoiceQueryDto } from '../sales.dto';
+import { insertOne, patchById } from '../../../db/owned';
+import { InvoicesRepository } from './invoices.repository';
 
 @Injectable()
 export class InvoicesService {
@@ -25,6 +27,7 @@ export class InvoicesService {
     private readonly posting: PostingService,
     private readonly orders: SalesOrdersService,
     private readonly audit: AuditService,
+    private readonly repo: InvoicesRepository,
   ) {}
 
   list(tenantId: string, q: InvoiceQueryDto) {
@@ -67,7 +70,7 @@ export class InvoicesService {
   /** Staf (selain Pemilik/Admin) hanya boleh menagih pesanan yang sudah dikirim Gudang (ada surat jalan) */
   async assertDeliveredBeforeInvoice(user: AuthUser, orderId: string) {
     if (['OWNER', 'ADMIN'].includes(user.role)) return;
-    const [o] = await this.db.select({ status: salesOrders.status }).from(salesOrders).where(and(eq(salesOrders.id, orderId), eq(salesOrders.tenantId, user.tenantId)));
+    const [o] = await this.repo.findSalesOrdersById(this.db, orderId, user.tenantId);
     if (o?.status === 'CONFIRMED') {
       throw new BadRequestException('Barang pada pesanan ini belum dikirim Gudang. Minta Gudang mencatat pengiriman (surat jalan) dulu, baru faktur dicatat.');
     }
@@ -88,13 +91,11 @@ export class InvoicesService {
       const delivery = sent.length
         ? { id: sent[0].id, cogsAmount: sent.reduce((a, d) => a.plus(d.cogsAmount), ZERO).toFixed(2), lines: sent.flatMap((d) => d.lines) }
         : undefined;
-      const [customer] = await tx.select().from(customers).where(eq(customers.id, order.customerId));
+      const [customer] = await this.repo.findCustomersById(tx, order.customerId);
       const number = await this.seq.next(tx, user.tenantId, 'INVOICE', date);
 
       // Header dulu untuk mendapatkan id (referensi kartu stok)
-      const [invoice] = await tx
-        .insert(invoices)
-        .values({
+      const invoice = await insertOne(tx, invoices, {
           tenantId: user.tenantId,
           number,
           date,
@@ -108,8 +109,7 @@ export class InvoicesService {
           currency: order.currency,
           fxRate: order.fxRate,
           totalForeign: order.totalForeign,
-        })
-        .returning();
+        });
 
       let cogs: Dec = ZERO;
       const costs = new Map<string, { unitCost: Dec }>();
@@ -137,18 +137,7 @@ export class InvoicesService {
           unitCost = moved.unitCost;
         }
         costs.set(line.id, { unitCost });
-        await tx.insert(invoiceLines).values({
-          invoiceId: invoice.id,
-          productId: line.productId,
-          uom: line.uom,
-          uomFactor: line.uomFactor,
-          qty: line.qty,
-          price: line.price,
-          priceForeign: line.priceForeign,
-          discountPct: line.discountPct,
-          lineTotal: line.lineTotal,
-          unitCost: unitCost.toFixed(4),
-        });
+        await this.repo.insertInvoiceLines(tx, invoice.id, line.productId, line.uom, line.uomFactor, line.qty, line.price, line.priceForeign, line.discountPct, line.lineTotal, unitCost);
       }
       cogs = delivery ? D(delivery.cogsAmount) : money(cogs);
 
@@ -168,16 +157,13 @@ export class InvoicesService {
       });
 
       if (delivery) {
-        await tx.update(deliveryOrders).set({ invoiceId: invoice.id }).where(inArray(deliveryOrders.id, sent.map((d) => d.id)));
+        await this.repo.updateDeliveryOrdersById(tx, invoice.id, sent.map((d) => d.id));
       } else {
         const sj = await this.deliveries.recordWithInvoice(tx, user, { order, date, invoiceId: invoice.id, cogs, costs });
-        await tx.update(invoices).set({ deliveryOrderId: sj.id }).where(eq(invoices.id, invoice.id));
+        await patchById(tx, invoices, invoice.id, { deliveryOrderId: sj.id });
       }
-      await tx.update(salesOrders).set({ status: 'INVOICED' }).where(eq(salesOrders.id, order.id));
-      await tx
-        .update(invoices)
-        .set({ cogsAmount: cogs.toFixed(2), journalId: journal.id })
-        .where(eq(invoices.id, invoice.id));
+      await patchById(tx, salesOrders, order.id, { status: 'INVOICED' });
+      await patchById(tx, invoices, invoice.id, { cogsAmount: cogs.toFixed(2), journalId: journal.id });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,

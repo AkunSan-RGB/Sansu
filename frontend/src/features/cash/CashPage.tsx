@@ -188,7 +188,7 @@ export default function CashPage() {
     }
   });
   const applyControls = useAction(() => put('/cash/settings', { evidenceFrom: 1_000_000, blockNegative: true }), { success: 'Kontrol kas diaktifkan', invalidate: ['cash'] });
-  const controlsOff = !!cfg.data && cfg.data.evidenceFrom === 0 && !cfg.data.blockNegative;
+  const controlsOff = !!cfg.data && cfg.data.evidenceFrom === 0;
   return (
     <>
       {controlsOff && !hideTip && (
@@ -208,7 +208,7 @@ export default function CashPage() {
           message="Kontrol uang keluar belum aktif"
           description={
             <span>
-              Saat ini uang keluar berapa pun tanpa nomor bukti dan saldo kas boleh minus. Rekomendasi: wajib nomor bukti mulai Rp1.000.000 dan blokir saldo negatif.{' '}
+              Saat ini uang keluar berapa pun boleh tanpa nomor bukti. Rekomendasi: wajib nomor bukti mulai Rp1.000.000 (saldo kas tidak boleh minus sudah aktif).{' '}
               {me && ['OWNER', 'ADMIN'].includes(me.role) ? (
                 <Button size="small" type="primary" loading={applyControls.isPending} onClick={() => applyControls.mutate(undefined)}>
                   Terapkan rekomendasi

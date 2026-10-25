@@ -41,6 +41,7 @@ describe('Pemisahan fungsi (e2e)', () => {
     http = request(app.getHttpServer());
     matrix = routeMatrix(app);
     tok.OWNER = (await http.post('/api/auth/register').send({ companyName: 'PT Pemisahan', name: 'Pemilik', email: `sod-${stamp}@uji.id`, password: 'rahasia123' }).expect(201)).body.accessToken;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${tok.OWNER}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     for (const r of ROLES.filter((x) => x !== 'OWNER')) {
       const email = `sod-${r.toLowerCase()}-${stamp}@uji.id`;
       await call('OWNER', 'post', '/api/users', { name: r, email, password: 'rahasia123', role: r }).expect(201);

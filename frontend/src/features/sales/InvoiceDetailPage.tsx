@@ -17,7 +17,7 @@ import { terbilang } from '@/lib/terbilang';
 import { hasPhone, invoiceMessage, waLink } from '@/lib/wa';
 import { useAuth } from '@/auth/AuthContext';
 import PaymentModal, { outstanding } from './PaymentModal';
-import { ApplyDepositModal } from '../services/DepositsPage';
+import { ApplyDepositModal } from '../services/deposits/ApplyDepositModal';
 import { InvoiceStatusTag } from './status';
 import { t } from '@/lib/terms';
 import WorkflowBadge from '@/features/workflow/WorkflowBadge';

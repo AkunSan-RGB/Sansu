@@ -4,24 +4,25 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { TenantScopeInterceptor } from './common/db/tenant-scope.interceptor';
 import { AuditInterceptor } from './common/audit/audit.interceptor';
 import { ReadCacheInterceptor } from './common/read-cache.interceptor';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, type JwtSignOptions } from '@nestjs/jwt';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppGuard } from './common/apps/app.guard';
 import { JwtAuthGuard } from './common/auth/jwt-auth.guard';
 import { SubscriptionGuard } from './common/billing/subscription.guard';
 import { RolesGuard } from './common/auth/roles.guard';
 import { CommonModule } from './common/common.module';
+import { IdempotencyInterceptor } from './common/idempotency/idempotency.interceptor';
 import { DbExceptionFilter } from './common/filters/db-exception.filter';
 import { DbModule } from './db/db.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { PermissionsModule } from './common/auth/permissions';
-import { CustomRolesModule } from './modules/platform/custom-roles';
-import { AutoBookkeepingModule } from './modules/accounting/auto-bookkeeping';
+import { CustomRolesModule } from './modules/platform/custom-roles.module';
+import { AutoBookkeepingModule } from './modules/auto-bookkeeping/auto-bookkeeping.module';
 import { AuthModule } from './modules/auth/auth.module';
-import { DashboardModule } from './modules/dashboard/dashboard';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { RemindersModule } from './modules/reminders/reminders.module';
-import { HealthModule } from './modules/health/health';
+import { HealthModule } from './modules/health/health.module';
 import { CashModule } from './modules/cash/cash.module';
 import { PurchasingModule } from './modules/purchasing/purchasing.module';
 import { FxModule } from './modules/fx/fx.module';
@@ -53,7 +54,7 @@ import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { ImportsModule } from './modules/imports/imports.module';
 import { AuditLogModule } from './modules/audit/audit.module';
 import { BillingModule } from './modules/billing/billing.module';
-import { MarketplaceSyncModule } from './modules/integrations/marketplace/sync';
+import { MarketplaceSyncModule } from './modules/integrations/marketplace/sync.module';
 import { ProductionModule } from './modules/production/production.module';
 import { MailModule } from './mail/mail.module';
 import { DataRightsModule } from './modules/data-rights/data-rights.module';
@@ -66,7 +67,7 @@ import { DataRightsModule } from './modules/data-rights/data-rights.module';
       inject: [ConfigService],
       useFactory: (cfg: ConfigService) => ({
         secret: cfg.getOrThrow<string>('JWT_SECRET'),
-        signOptions: { expiresIn: (cfg.get<string>('JWT_EXPIRES_IN') ?? '12h') as never },
+        signOptions: { expiresIn: (cfg.get<string>('JWT_EXPIRES_IN') ?? '12h') as JwtSignOptions['expiresIn'] },
       }),
     }),
     // Pembatas laju per alamat IP (anti-spam & tebak sandi). Default longgar; endpoint sensitif lebih ketat.
@@ -131,6 +132,8 @@ import { DataRightsModule } from './modules/data-rights/data-rights.module';
     { provide: APP_FILTER, useClass: DbExceptionFilter },
     // seluruh query permintaan terautentikasi dibatasi ke perusahaan pengguna (row-level security) — harus paling luar
     { provide: APP_INTERCEPTOR, useClass: TenantScopeInterceptor },
+    // kirim ulang dengan Idempotency-Key yang sama tidak menjalankan transaksi dua kali (jawaban pertama diputar ulang)
+    { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
     // jejak audit otomatis untuk setiap perubahan data
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
     // laporan: penjumlahan buku besar yang sama dihitung sekali per permintaan

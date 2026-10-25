@@ -15,6 +15,7 @@ import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
 import { printDoc } from '@/lib/print';
 import { t } from '@/lib/terms';
+import { BinFormItem } from './BinSelect';
 
 type Status = 'DRAFT' | 'POSTED' | 'CANCELLED';
 const STATUS: Record<Status, [string, string]> = { DRAFT: ['Sedang dihitung', 'blue'], POSTED: ['Selesai', 'green'], CANCELLED: ['Dibatalkan', 'default'] };
@@ -24,6 +25,7 @@ interface CountRow {
   date: string;
   status: Status;
   category: string | null;
+  binCode?: string | null;
   warehouseCode: string;
   warehouseName: string;
   lines: number;
@@ -49,6 +51,7 @@ interface CountDetail {
   date: string;
   status: Status;
   category: string | null;
+  binCode?: string | null;
   notes: string | null;
   adjustmentNumber: string | null;
   warehouse: { code: string; name: string };
@@ -66,7 +69,7 @@ export default function CountsPage() {
   const { data: products } = useProducts();
   const [open, setOpen] = useState(false);
   const list = useQuery({ queryKey: ['counts'], queryFn: () => get<CountRow[]>('/inventory/counts') });
-  const create = useAction((v: { warehouseId: string; date: string; category?: string }) => post<{ id: string; number: string; lines: number }>('/inventory/counts', v), {
+  const create = useAction((v: { warehouseId: string; date: string; category?: string; binId?: string }) => post<{ id: string; number: string; lines: number }>('/inventory/counts', v), {
     success: (r) => `Lembar hitung ${r.number} dibuat (${r.lines} produk)`,
     invalidate: ['counts'],
     onSuccess: (r) => navigate(`/inventory/counts/${r.id}`),
@@ -100,7 +103,7 @@ export default function CountsPage() {
           { value: 'POSTED', label: 'Selesai', test: (r) => r.status === 'POSTED' },
           { value: 'CANCELLED', label: 'Dibatalkan', test: (r) => r.status === 'CANCELLED' },
         ]}
-        searchText={(r) => `${r.number} ${r.warehouseCode} ${r.warehouseName} ${r.category ?? ''}`}
+        searchText={(r) => `${r.number} ${r.warehouseCode} ${r.warehouseName} ${r.category ?? ''} ${r.binCode ?? ''}`}
         searchPlaceholder="Cari nomor atau gudang"
         emptyText="Belum ada stock opname"
         onRowClick={(r) => navigate(`/inventory/counts/${r.id}`)}
@@ -118,7 +121,7 @@ export default function CountsPage() {
           { title: 'Nomor', dataIndex: 'number' },
           { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
           { title: t('Gudang'), render: (_, r) => `${r.warehouseCode} · ${r.warehouseName}` },
-          { title: 'Kategori', dataIndex: 'category', render: (v) => v ?? 'Semua' },
+          { title: 'Cakupan', render: (_, r) => (r.binCode ? `Rak ${r.binCode}` : r.category ?? 'Semua') },
           { title: 'Progres', render: (_, r) => <Progress percent={r.lines ? Math.round((r.counted / r.lines) * 100) : 0} size="small" format={() => `${r.counted}/${r.lines}`} style={{ width: 160 }} /> },
           { title: 'Status', dataIndex: 'status', render: (s: Status) => <Tag color={STATUS[s][1]}>{STATUS[s][0]}</Tag> },
           { title: 'Penyesuaian', dataIndex: 'adjustmentNumber', render: (v) => v ?? '-' },
@@ -131,6 +134,11 @@ export default function CountsPage() {
           </Form.Item>
           <Form.Item name="date" label="Tanggal opname" rules={[{ required: true }]}>
             <Input type="date" />
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(a, b) => a.warehouseId !== b.warehouseId}>
+            {({ getFieldValue }) => (
+              <BinFormItem warehouseId={getFieldValue('warehouseId')} name="binId" extra="Gudang yang memakai rak bisa dihitung per rak: lembar hanya berisi isi rak itu, dan selisih mengoreksi tepat rak itu." placeholder="Seluruh gudang" />
+            )}
           </Form.Item>
           <Form.Item name="category" label={t('Kategori produk (opsional)')} extra={t('Kosongkan untuk menghitung semua produk. Untuk gudang besar, opname bisa dibagi per kategori.')}>
             <Select allowClear options={categories.map((c) => ({ value: c, label: c }))} />
@@ -364,6 +372,7 @@ function CountSheet({ c }: { c: CountDetail }) {
               ['Nomor', c.number],
               ['Tanggal', fmtDate(c.date)],
               ['Gudang', `${c.warehouse.code} · ${c.warehouse.name}`],
+              ...(c.binCode ? ([['Rak', c.binCode]] as [string, string][]) : []),
               ...(c.category ? ([['Kategori', c.category]] as [string, string][]) : []),
             ]}
           />

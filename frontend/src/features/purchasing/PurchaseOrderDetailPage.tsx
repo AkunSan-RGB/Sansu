@@ -18,6 +18,7 @@ import { ReceiptStatusTag } from './GoodsReceiptsPage';
 import { PurchaseOrderStatusTag } from '../sales/status';
 import { t } from '@/lib/terms';
 import WorkflowBadge from '@/features/workflow/WorkflowBadge';
+import BinSelect, { useWarehouseBins } from '@/features/inventory/BinSelect';
 
 /** Lot dan tanggal kedaluwarsa per baris (opsional; dipantau di Persediaan › Kedaluwarsa bahan) */
 interface LotPayload {
@@ -51,7 +52,7 @@ export default function PurchaseOrderDetailPage() {
     { success: (r) => `Barang diterima · faktur ${r.number} · jurnal ${r.journalNumber}`, invalidate: refreshAll, onSuccess: () => setMode(null) },
   );
   const receive = useAction(
-    (v: { date: string; supplierDeliveryNo?: string; lines: ({ orderLineId: string; qty: string } & Partial<LotPayload>)[] }) => post<{ number: string }>(`/purchase-orders/${id}/receipts`, v),
+    (v: { date: string; supplierDeliveryNo?: string; lines: ({ orderLineId: string; qty: string; binId?: string } & Partial<LotPayload>)[] }) => post<{ number: string }>(`/purchase-orders/${id}/receipts`, v),
     { success: (r) => `Barang diterima · penerimaan ${r.number}`, invalidate: refreshAll, onSuccess: () => setMode(null) },
   );
   const bill = useAction(
@@ -67,6 +68,7 @@ export default function PurchaseOrderDetailPage() {
   const lotOf = (v: Record<string, string | number>, id: string): Partial<LotPayload> => ({ lotNo: v[`lot_${id}`] ? String(v[`lot_${id}`]).trim() : undefined, expiryDate: v[`exp_${id}`] ? String(v[`exp_${id}`]) : undefined });
   const lotsPayload = (v: Record<string, string | number>, only?: { orderLineId: string }[]): LotPayload[] =>
     (o?.lines ?? []).filter((l) => !only || only.some((x) => x.orderLineId === l.id)).map((l) => ({ orderLineId: l.id, ...lotOf(v, l.id) })).filter((l) => l.lotNo || l.expiryDate);
+  const binsOn = useWarehouseBins(o?.warehouse?.id).enabled;
   const foreign = isForeignCurrency(o?.currency);
   const cur = o?.currency ?? 'IDR';
   /** Harga PO per baris dalam mata uang PO (valas) atau Rupiah */
@@ -356,7 +358,7 @@ export default function PurchaseOrderDetailPage() {
           onFinish={(v) => {
             const fxRate = foreign && v.fxRate ? String(v.fxRate) : undefined;
             if (mode === 'both') both.mutate({ supplierInvoiceNo: String(v.supplierInvoiceNo), date: String(v.date), fxRate, prices: pricesPayload(v), lots: lotsPayload(v), varianceReason: v.varianceReason ? String(v.varianceReason) : undefined, varianceNote: v.varianceNote ? String(v.varianceNote) : undefined });
-            else if (mode === 'receive') receive.mutate({ date: String(v.date), supplierDeliveryNo: v.supplierDeliveryNo ? String(v.supplierDeliveryNo) : undefined, lines: linesPayload(v).map((l) => ({ ...l, ...lotOf(v, l.orderLineId) })) });
+            else if (mode === 'receive') receive.mutate({ date: String(v.date), supplierDeliveryNo: v.supplierDeliveryNo ? String(v.supplierDeliveryNo) : undefined, lines: linesPayload(v).map((l) => ({ ...l, ...lotOf(v, l.orderLineId), binId: v[`bin_${l.orderLineId}`] ? String(v[`bin_${l.orderLineId}`]) : undefined })) });
             else if (mode === 'bill') bill.mutate({ supplierInvoiceNo: String(v.supplierInvoiceNo), date: String(v.date), fxRate, lines: linesPayload(v), prices: pricesPayload(v, linesPayload(v)), varianceReason: v.varianceReason ? String(v.varianceReason) : undefined, varianceNote: v.varianceNote ? String(v.varianceNote) : undefined });
           }}
         >
@@ -424,6 +426,19 @@ export default function PurchaseOrderDetailPage() {
                         render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => (
                           <Form.Item name={`exp_${l.id}`} noStyle>
                             <Input type="date" min={today()} style={{ width: 140 }} />
+                          </Form.Item>
+                        ),
+                      },
+                    ]
+                  : []),
+                ...(mode === 'receive' && binsOn
+                  ? [
+                      {
+                        title: 'Rak (opsional)',
+                        width: 160,
+                        render: (_: unknown, l: NonNullable<PurchaseOrder['lines']>[number]) => (
+                          <Form.Item name={`bin_${l.id}`} noStyle>
+                            <BinSelect warehouseId={o?.warehouse?.id} />
                           </Form.Item>
                         ),
                       },

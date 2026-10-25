@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { AuditService } from '../../common/audit/audit.service';
@@ -7,15 +7,18 @@ import { SequenceService } from '../../common/sequence/sequence.service';
 import { toDocDate } from '../../common/utils/dates';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { purchaseOrderLines, purchaseOrders, suppliers, tenants, warehouses } from '../../db/schema';
+import { purchaseOrders, suppliers } from '../../db/schema';
 import { buildLines } from '../master-data/products/line-builder';
 import { taxProfileOf } from '../../common/settings.service';
 import { documentTotals } from '../sales/pricing';
 import { foreignTotals } from '../../common/utils/fx';
-import { D, money } from '../../common/utils/money';
+import { money } from '../../common/utils/money';
 import { FxService } from '../fx/fx.service';
-import { PriceAgreementsService } from './price-agreements';
+import { PriceAgreementsService } from './price-agreements.service';
 import { CreatePurchaseOrderDto, PurchaseOrderQueryDto } from './purchasing.dto';
+import { ReferenceRepository } from '../../db/reference.repository';
+import { findOwned, patchById } from '../../db/owned';
+import { PurchaseOrdersRepository } from './purchase-orders.repository';
 
 /** Purchase order: DRAFT → CONFIRMED (dikirim ke supplier) → BILLED (barang & faktur diterima) */
 @Injectable()
@@ -27,6 +30,8 @@ export class PurchaseOrdersService {
     private readonly approvals: ApprovalsService,
     private readonly fx: FxService,
     private readonly agreements: PriceAgreementsService,
+    private readonly refs: ReferenceRepository,
+    private readonly repo: PurchaseOrdersRepository,
   ) {}
 
   /** Status penerimaan dan penagihan turunan dari baris pesanan: NONE / PARTIAL / FULL */
@@ -82,16 +87,10 @@ export class PurchaseOrdersService {
   async createIn(tx: Tx, user: AuthUser, dto: CreatePurchaseOrderDto): Promise<string> {
     const date = toDocDate(dto.date);
     {
-      const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
-      const [supplier] = await tx
-        .select()
-        .from(suppliers)
-        .where(and(eq(suppliers.id, dto.supplierId), eq(suppliers.tenantId, user.tenantId)));
+      const [tenant] = await this.repo.findTenantsById(tx, user.tenantId);
+      const supplier = await findOwned(tx, suppliers, user.tenantId, dto.supplierId);
       if (!supplier || !supplier.isActive) throw new BadRequestException('Supplier tidak ditemukan / nonaktif');
-      const [wh] = await tx
-        .select()
-        .from(warehouses)
-        .where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
+      const wh = await this.refs.warehouse(tx, user.tenantId, dto.warehouseId);
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
       if (wh.kind !== 'MAIN') throw new BadRequestException('Gudang konsinyasi/mobil hanya dipakai lewat menu Konsinyasi / Kanvas');
 
@@ -105,38 +104,8 @@ export class PurchaseOrdersService {
       if (fxDoc) lines.forEach((l, i) => ((l.price = money(l.price.times(rate))), (l.lineTotal = fxDoc.lineIdr[i])));
       const totals = fxDoc ? { subtotal: fxDoc.subtotalIdr, taxAmount: fxDoc.taxIdr, total: fxDoc.totalIdr } : documentTotals(lines, tenant.ppnRate, taxProfileOf(tenant.settings).vatRounding);
       const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_ORDER', date);
-      const [order] = await tx
-        .insert(purchaseOrders)
-        .values({
-          tenantId: user.tenantId,
-          number,
-          date,
-          supplierId: supplier.id,
-          warehouseId: wh.id,
-          notes: dto.notes,
-          priceEstimate: dto.priceEstimate ?? false,
-          currency,
-          fxRate: rate.toFixed(6),
-          totalForeign: fxDoc ? fxDoc.totalForeign.toFixed(2) : null,
-          createdById: user.sub,
-          subtotal: totals.subtotal.toFixed(2),
-          taxAmount: totals.taxAmount.toFixed(2),
-          total: totals.total.toFixed(2),
-        })
-        .returning({ id: purchaseOrders.id });
-      await tx.insert(purchaseOrderLines).values(
-        lines.map((l, i) => ({
-          orderId: order.id,
-          priceForeign: priceForeign[i]?.toFixed(4) ?? null,
-          productId: l.productId,
-          uom: l.uom,
-          uomFactor: l.uomFactor,
-          qty: l.qty,
-          price: l.price.toFixed(2),
-          discountPct: l.discountPct.toFixed(2),
-          lineTotal: l.lineTotal.toFixed(2),
-        })),
-      );
+      const [order] = await this.repo.insertPurchaseOrders(tx, { tenantId: user.tenantId, number, date, supplierId: supplier.id, warehouseId: wh.id, notes: dto.notes, priceEstimate: dto.priceEstimate ?? false, currency, fxRate: rate.toFixed(6), totalForeign: fxDoc ? fxDoc.totalForeign.toFixed(2) : null, createdById: user.sub, subtotal: totals.subtotal.toFixed(2), taxAmount: totals.taxAmount.toFixed(2), total: totals.total.toFixed(2), });
+      await this.repo.insertPurchaseOrderLines(tx, lines, order.id, priceForeign);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PurchaseOrder', entityId: order.id });
       return order.id;
     }
@@ -161,15 +130,7 @@ export class PurchaseOrdersService {
   async priceHistory(tenantId: string, productIds: string[]) {
     const ids = [...new Set(productIds)];
     const rows = (
-      await this.db.execute<{ product_id: string; supplier_id: string; supplier_name: string; date: string; unit: string }>(sql`
-        SELECT l.product_id, i.supplier_id, s.name AS supplier_name, i.date::text AS date,
-               l.line_total / NULLIF(l.qty * l.uom_factor, 0) AS unit
-        FROM purchase_invoice_lines l
-        JOIN purchase_invoices i ON i.id = l.invoice_id
-        JOIN suppliers s ON s.id = i.supplier_id
-        WHERE i.tenant_id = ${tenantId} AND i.kind = 'GOODS' AND l.product_id IN (${sql.join(ids.map((x) => sql`${x}`), sql`, `)})
-          AND i.date >= CURRENT_DATE - 365 AND l.qty * l.uom_factor > 0
-        ORDER BY i.date DESC, i.created_at DESC`)
+      await this.repo.queryPurchaseInvoiceLine(this.db, tenantId, ids)
     ).rows;
     const today = Date.now();
     const out: Record<string, { last: number; lastDate: string; lastSupplier: string; avg90: number | null; min: number; max: number; count: number; suppliers: { supplierId: string; name: string; last: number; lastDate: string; avg: number; count: number }[] }> = {};
@@ -211,19 +172,19 @@ export class PurchaseOrdersService {
 
   async confirm(user: AuthUser, id: string) {
     // Pesanan bernilai besar dari peran yang tidak berwenang: butuh persetujuan (permintaan dibuat di luar transaksi)
-    const [po] = await this.db.select({ number: purchaseOrders.number, total: purchaseOrders.total, status: purchaseOrders.status, supplierId: purchaseOrders.supplierId }).from(purchaseOrders).where(and(eq(purchaseOrders.id, id), eq(purchaseOrders.tenantId, user.tenantId)));
+    const [po] = await this.repo.findPurchaseOrdersById(this.db, id, user.tenantId);
     // Supplier favorit: pesanan sampai batas yang ditetapkan untuknya disetujui otomatis
-    const [sup] = po ? await this.db.select({ preferred: suppliers.isPreferred, limit: suppliers.autoApproveLimit }).from(suppliers).where(eq(suppliers.id, po.supplierId)) : [];
+    const [sup] = po ? await this.repo.listSuppliersById(this.db, po.supplierId) : [];
     const autoApproved = !!sup?.preferred && Number(sup.limit) > 0 && Number(po!.total) <= Number(sup.limit);
     if (po?.status === 'DRAFT' && !autoApproved) await this.approvals.gateDocument(this.db, user, { kind: 'PURCHASE_ORDER', refId: id, title: `Pesanan ${po.number}`, amount: Number(po.total) });
     await this.db.transaction(async (tx) => {
       const order = await this.lock(tx, user.tenantId, id);
       if (order.status !== 'DRAFT') throw new BadRequestException(`PO berstatus ${order.status}, tidak bisa dikonfirmasi`);
-      await tx.update(purchaseOrders).set({ status: 'CONFIRMED' }).where(eq(purchaseOrders.id, id));
+      await patchById(tx, purchaseOrders, id, { status: 'CONFIRMED' });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CONFIRM', entity: 'PurchaseOrder', entityId: id });
     });
     // Gudang tahu barang apa yang akan datang (dasar penerimaan buta dan pembanding saat barang tiba)
-    const [sp] = po ? await this.db.select({ name: suppliers.name }).from(suppliers).where(eq(suppliers.id, po.supplierId)) : [];
+    const [sp] = po ? await this.repo.listSuppliersByIdForConfirm(this.db, po.supplierId) : [];
     void this.approvals.notifyRoles(user.tenantId, { roles: ['WAREHOUSE'], excludeUserId: user.sub, info: true, title: `PO ${po?.number ?? ''} dari ${sp?.name ?? 'supplier'} akan datang`, lines: ['Siapkan penerimaan. Hitung barang yang tiba lalu catat di Penerimaan Barang.'], path: '/purchase-orders' });
     return this.get(user.tenantId, id);
   }
@@ -239,11 +200,11 @@ export class PurchaseOrdersService {
       if (order.status === 'CONFIRMED' && !this.approvals.isApprover(user.role) && (reason?.trim().length ?? 0) < 5) {
         throw new BadRequestException('Isi alasan pembatalan PO yang sudah dikonfirmasi (minimal 5 huruf)');
       }
-      const [{ receipts }] = (await tx.execute<{ receipts: number }>(sql`SELECT COUNT(*)::int AS receipts FROM goods_receipts WHERE purchase_order_id = ${id} AND status = 'RECEIVED'`)).rows;
+      const [{ receipts }] = (await this.repo.queryGoodsReceipt(tx, id)).rows;
       if (receipts > 0) throw new BadRequestException('PO sudah ada penerimaan barang; batalkan penerimaannya dulu atau buat retur pembelian');
       was = order.status;
       number = order.number;
-      await tx.update(purchaseOrders).set({ status: 'CANCELLED', cancelReason: reason?.trim() || null, cancelledById: user.sub }).where(eq(purchaseOrders.id, id));
+      await patchById(tx, purchaseOrders, id, { status: 'CANCELLED', cancelReason: reason?.trim() || null, cancelledById: user.sub });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'PurchaseOrder', entityId: id, data: { reason: reason?.trim() || null, wasStatus: order.status } });
     });
     if (was === 'CONFIRMED') {
@@ -253,8 +214,7 @@ export class PurchaseOrdersService {
   }
 
   async lock(tx: Tx, tenantId: string, id: string) {
-    const locked = await tx.execute(sql`
-      SELECT id FROM purchase_orders WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
+    const locked = await this.repo.queryPurchaseOrder(tx, id, tenantId);
     if (!locked.rows.length) throw new NotFoundException('Purchase order tidak ditemukan');
     const order = await tx.query.purchaseOrders.findFirst({ where: eq(purchaseOrders.id, id), with: { lines: true } });
     return order!;

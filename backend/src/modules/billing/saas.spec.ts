@@ -3,7 +3,7 @@ import { SubscriptionService } from '../../common/billing/subscription.service';
 import { decrypt, encrypt, sha256 } from '../../common/utils/secret';
 import { renderMail } from '../../common/mail/mail.service';
 import { LazadaProvider, mergeLines, ShopeeProvider, SimulationProvider, TiktokProvider, wibDate } from '../integrations/marketplace/providers';
-import { addMonths } from './billing.module';
+import { addMonths } from './billing.service';
 import { midtrans, xendit } from './gateways';
 
 const DAY = 86_400_000;

@@ -708,6 +708,34 @@
       "when": 1797014286484,
       "tag": "0100_akun_karyawan_unik",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1797100686484,
+      "tag": "0101_uang_muka_pemasok",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1797187086484,
+      "tag": "0102_lokasi_rak",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1797273486484,
+      "tag": "0103_opname_per_rak",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1797359886484,
+      "tag": "0104_kunci_idempotensi",
+      "breakpoints": true
     }
   ]
 }

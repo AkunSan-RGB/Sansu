@@ -34,3 +34,10 @@ export async function withRlsBypass<T>(tx: Runner, fn: () => Promise<T>): Promis
     await tx.execute(sql`SELECT set_config('app.bypass_rls', ${prev}, true)`);
   }
 }
+
+/**
+ * Penanda "sedang di dalam transaksi" pada alur async saat ini. Dipakai untuk mendeteksi kode yang meminta koneksi KEDUA
+ * dari kolam sementara sudah memegang satu untuk transaksinya: bila beberapa transaksi seperti itu berjalan bersamaan sebanyak
+ * isi kolam, semuanya saling menunggu koneksi dan server macet (kebuntuan kolam). Gunakan `tx` (bukan `this.db`) di dalam transaksi.
+ */
+export const txScope = new AsyncLocalStorage<{ inTx: true }>();

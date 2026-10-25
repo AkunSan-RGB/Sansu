@@ -1,19 +1,38 @@
-import { InventoryControlsController, InventoryControlsService } from './inventory-controls';
+import { InventoryControlsController } from './inventory-controls.controller';
+import { InventoryControlsService } from './inventory-controls.service';
 import { Module } from '@nestjs/common';
 import { AccountingModule } from '../accounting/accounting.module';
+import { BinsController } from './bins.controller';
+import { BinsService } from './bins.service';
 import { InventoryController } from './inventory.controller';
-import { InventoryMethodController, InventoryMethodService } from './inventory-method';
+import { InventoryMethodController } from './inventory-method.controller';
+import { InventoryMethodService } from './inventory-method.service';
 import { InventoryService } from './inventory.service';
-import { LotsController, LotsService } from './lots';
-import { MovementAnalysisController, MovementAnalysisService } from './movement-analysis';
+import { LotsController } from './lots.controller';
+import { LotsService } from './lots.service';
+import { MovementAnalysisController } from './movement-analysis.controller';
+import { MovementAnalysisService } from './movement-analysis.service';
 import { StockService } from './stock.service';
-import { WarehouseOpsController, WarehouseOpsService } from './warehouse-ops';
-import { WritedownController, WritedownService } from './writedown';
+import { WarehouseOpsController } from './warehouse-ops.controller';
+import { WarehouseRepository } from './warehouse.repository';
+import { WarehouseOpsService } from './warehouse-ops.service';
+import { WarehouseQueryService } from './warehouse-query.service';
+import { WritedownController } from './writedown.controller';
+import { WritedownService } from './writedown.service';
+import { WarehouseQueryRepository } from './warehouse-query.repository';
+import { WritedownRepository } from './writedown.repository';
+import { LotsRepository } from './lots.repository';
+import { InventoryRepository } from './inventory.repository';
+import { BinsRepository } from './bins.repository';
+import { StockRepository } from './stock.repository';
+import { InventoryMethodRepository } from './inventory-method.repository';
+import { InventoryControlsRepository } from './inventory-controls.repository';
+import { MovementAnalysisRepository } from './movement-analysis.repository';
 
 @Module({
   imports: [AccountingModule],
-  controllers: [InventoryControlsController, InventoryController, InventoryMethodController, WarehouseOpsController, WritedownController, MovementAnalysisController, LotsController],
-  providers: [InventoryControlsService, InventoryService, InventoryMethodService, StockService, WarehouseOpsService, WritedownService, MovementAnalysisService, LotsService],
-  exports: [StockService, InventoryService, WarehouseOpsService],
+  controllers: [BinsController, InventoryControlsController, InventoryController, InventoryMethodController, WarehouseOpsController, WritedownController, MovementAnalysisController, LotsController],
+  providers: [MovementAnalysisRepository, InventoryControlsRepository, InventoryMethodRepository, StockRepository, BinsRepository, InventoryRepository, LotsRepository, WritedownRepository, WarehouseQueryRepository, WarehouseRepository, BinsService, InventoryControlsService, InventoryService, InventoryMethodService, StockService, WarehouseOpsService, WarehouseQueryService, WritedownService, MovementAnalysisService, LotsService],
+  exports: [StockService, InventoryService, WarehouseOpsService, BinsService],
 })
 export class InventoryModule {}

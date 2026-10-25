@@ -10,7 +10,7 @@
     "db:seed": "ts-node src/db/seed.ts",
     "db:studio": "drizzle-kit studio",
     "test": "jest",
-    "test:e2e": "dotenv -e .env.test -- ts-node src/db/migrate.ts --reset && dotenv -e .env.test -- jest --config test/jest-e2e.json --runInBand",
+    "test:e2e": "dotenv -e .env.test -- ts-node src/db/migrate.ts --reset && dotenv -e .env.test -- node --max-old-space-size=8192 ../node_modules/jest/bin/jest.js --config test/jest-e2e.json --runInBand",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dev": "nest start --watch",
     "db:migrate:prod": "node dist/db/migrate.js",

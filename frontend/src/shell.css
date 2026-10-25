@@ -64,6 +64,9 @@
 @media (max-width: 768px) {
   .ant-btn:not(.ant-btn-icon-only) { white-space: normal; height: auto; min-height: 32px; line-height: 1.35; padding-top: 4px; padding-bottom: 4px; }
   .ant-card-head-title { white-space: normal; }
+  .ant-card-head-wrapper { flex-wrap: wrap; row-gap: 8px; }
+  .ant-card-extra { margin-inline-start: 0; max-width: 100%; }
+  .ant-card-extra .ant-space { flex-wrap: wrap; }
   .ant-form-item-label > label { height: auto; white-space: normal; }
 }
 

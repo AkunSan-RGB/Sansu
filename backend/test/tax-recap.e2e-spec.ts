@@ -39,6 +39,7 @@ describe('Rekap pajak & BPJS (e2e)', () => {
         })
         .expect(201)
     ).body.accessToken;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${token}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     accounts = (await get('/api/accounting/accounts')).body;
   });
   afterAll(() => app.close());

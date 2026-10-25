@@ -1,0 +1,107 @@
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { AuditService } from '../../../common/audit/audit.service';
+import { AuthUser } from '../../../common/auth/auth-user';
+import { todayJakarta } from '../../../common/utils/dates';
+import { D } from '../../../common/utils/money';
+import { Db } from '../../../db/db';
+import { InjectDb } from '../../../db/db.module';
+import { SaveTargetsDto } from './sales-targets.dto';
+import { SalesTargetsRepository } from './sales-targets.repository';
+
+const nextMonth = (m: string) => {
+  const [y, mo] = m.split('-').map(Number);
+  return mo === 12 ? `${y + 1}-01-01` : `${y}-${String(mo + 1).padStart(2, '0')}-01`;
+};
+
+@Injectable()
+export class SalesTargetsService {
+  constructor(
+    @InjectDb() private readonly db: Db,
+    private readonly audit: AuditService,
+    private readonly repo: SalesTargetsRepository,
+  ) {}
+
+  async performance(u: AuthUser, month?: string) {
+    const period = month ?? todayJakarta().slice(0, 7);
+    const from = `${period}-01`;
+    const to = nextMonth(period);
+    const people = await this.repo.listUsersByRoleAndIsActive(this.db, u.tenantId);
+    const targets = await this.repo.listSalesTargetsByPeriod(this.db, u.tenantId, period);
+    const sold = await this.repo.queryInvoice(this.db, u.tenantId, from, to);
+    const returned = await this.repo.querySalesReturn(this.db, u.tenantId, from, to);
+    const soldBy = new Map(sold.rows.map((r) => [r.sp, r]));
+    const retBy = new Map(returned.rows.map((r) => [r.sp, r.v]));
+    const tBy = new Map(targets.map((t) => [t.userId, t]));
+    // orang yang pernah punya target atau penjualan bulan itu tetap tampil walau perannya sudah berubah
+    const extraIds = [...new Set([...tBy.keys(), ...soldBy.keys()])].filter((id) => !people.some((p) => p.id === id));
+    const extra = extraIds.length ? await this.repo.listUsersById(this.db, u.tenantId, extraIds) : [];
+    let rows = [...people, ...extra].map((p) => {
+      const t = tBy.get(p.id);
+      const gross = D(soldBy.get(p.id)?.v);
+      const ret = D(retBy.get(p.id));
+      const net = gross.minus(ret);
+      const target = D(t?.targetAmount);
+      const pct = target.gt(0) ? net.div(target).times(100) : null;
+      const eligible = !!t && D(t.commissionPct).gt(0) && (pct === null ? false : pct.gte(t.minAchievementPct));
+      const commission = eligible ? net.times(t!.commissionPct).div(100) : D(0);
+      return {
+        userId: p.id,
+        name: p.name,
+        invoices: Number(soldBy.get(p.id)?.n ?? 0),
+        /** faktur dari pesanan yang diinput orang lain atas nama sales ini (perlu diperhatikan sebelum komisi dibayar) */
+        enteredByOthers: Number(soldBy.get(p.id)?.proxy ?? 0),
+        gross: gross.toFixed(2),
+        returns: ret.toFixed(2),
+        net: net.toFixed(2),
+        target: target.toFixed(2),
+        hasTarget: !!t,
+        achievementPct: pct ? pct.toFixed(1) : null,
+        commissionPct: D(t?.commissionPct).toFixed(2),
+        minAchievementPct: D(t?.minAchievementPct).toFixed(2),
+        commission: commission.round().toFixed(2),
+        commissionNote: !t ? 'Belum ada target' : eligible ? null : D(t.commissionPct).isZero() ? 'Tanpa komisi' : 'Pencapaian di bawah ambang komisi',
+      };
+    });
+    // Sales hanya melihat angkanya sendiri
+    if (u.role === 'SALES') rows = rows.filter((r) => r.userId === u.sub);
+    rows.sort((a, b) => Number(b.net) - Number(a.net));
+    const sum = (k: 'net' | 'target' | 'commission') => rows.reduce((a, r) => a.plus(r[k]), D(0)).toFixed(2);
+    return { period, rows, totals: { net: sum('net'), target: sum('target'), commission: sum('commission') } };
+  }
+
+  async save(u: AuthUser, dto: SaveTargetsDto) {
+    // Target bulan yang sudah lewat atau sudah dikomisikan tidak boleh diubah (mencegah target/komisi diubah setelah hasil diketahui)
+    if (dto.period < todayJakarta().slice(0, 7)) throw new BadRequestException('Target bulan yang sudah lewat tidak dapat diubah');
+    const closed = await this.repo.querySalesCommission(this.db, u.tenantId, dto.period);
+    if (closed.rows.length) throw new BadRequestException('Komisi bulan ini sudah ditutup; target tidak dapat diubah');
+    const ids = [...new Set(dto.items.map((i) => i.userId))];
+    if (ids.length !== dto.items.length) throw new BadRequestException('Satu sales tidak boleh muncul dua kali');
+    if (ids.length) {
+      const found = await this.repo.listUsersByRoleAndId(this.db, u.tenantId, ids);
+      if (found.length !== ids.length) throw new BadRequestException('Target hanya untuk pengguna berperan Sales di perusahaan ini');
+    }
+    for (const i of dto.items) {
+      if (D(i.targetAmount).lt(0)) throw new BadRequestException('Target tidak boleh negatif');
+      const c = D(i.commissionPct);
+      const m = D(i.minAchievementPct);
+      if (c.lt(0) || c.gt(100)) throw new BadRequestException('Komisi harus 0–100%');
+      if (m.lt(0) || m.gt(100)) throw new BadRequestException('Ambang pencapaian harus 0–100%');
+    }
+    const before = await this.repo.listSalesTargetsByPeriod(this.db, u.tenantId, dto.period);
+    await this.db.transaction(async (tx) => {
+      await this.repo.deleteSalesTargetsByPeriod(tx, u.tenantId, dto.period);
+      if (dto.items.length) {
+        await this.repo.insertSalesTargets(tx, dto.items, u.tenantId, dto.period);
+      }
+      await this.audit.log(tx, {
+        tenantId: u.tenantId,
+        userId: u.sub,
+        action: 'UPDATE',
+        entity: 'SalesTargets',
+        entityId: dto.period,
+        data: { period: dto.period, before: before.map((b) => ({ userId: b.userId, target: b.targetAmount, commissionPct: b.commissionPct })), after: dto.items },
+      });
+    });
+    return this.performance(u, dto.period);
+  }
+}

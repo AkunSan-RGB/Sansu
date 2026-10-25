@@ -39,6 +39,7 @@ import CashCountsPage from './features/cash/CashCountsPage';
 import PurchaseInvoicesPage from './features/purchasing/PurchaseInvoicesPage';
 import PurchaseOrderDetailPage from './features/purchasing/PurchaseOrderDetailPage';
 import PurchaseOrderFormPage from './features/purchasing/PurchaseOrderFormPage';
+import SupplierAdvancesPage from './features/purchasing/SupplierAdvancesPage';
 import PurchaseOrdersPage from './features/purchasing/PurchaseOrdersPage';
 import PurchaseRequestDetailPage from './features/purchasing/PurchaseRequestDetailPage';
 import PurchaseRequestFormPage from './features/purchasing/PurchaseRequestFormPage';
@@ -55,7 +56,8 @@ import WorksheetPage from './features/accounting/WorksheetPage';
 import FiscalPage from './features/accounting/FiscalPage';
 import BankPage from './features/accounting/BankPage';
 import TaxPage from './features/accounting/TaxPage';
-import TaxRecapPage, { BpjsReport } from './features/accounting/TaxRecapPage';
+import TaxRecapPage from './features/accounting/TaxRecapPage';
+import { BpjsReport } from './features/accounting/tax-recap/BpjsReport';
 import PageHeader from './layout/PageHeader';
 import IntegrationsPage from './features/accounting/IntegrationsPage';
 import FixedAssetsPage from './features/accounting/FixedAssetsPage';
@@ -67,6 +69,7 @@ import InventoryPage from './features/inventory/InventoryPage';
 import TransfersPage from './features/inventory/TransfersPage';
 import CountsPage, { CountDetailPage } from './features/inventory/CountsPage';
 import WarehouseStockPage from './features/inventory/WarehouseStockPage';
+import BinsPage from './features/inventory/BinsPage';
 import WritedownsPage from './features/inventory/WritedownsPage';
 import SalesControlsPage from './features/sales/SalesControlsPage';
 import InventoryControlsPage from './features/inventory/InventoryControlsPage';
@@ -103,7 +106,8 @@ import ProductionVariancePage from './features/production/ProductionVariancePage
 import ProductionOrdersPage from './features/production/ProductionOrdersPage';
 import ProductionReportPage from './features/production/ProductionReportPage';
 import ServiceInvoiceFormPage from './features/services/ServiceInvoiceFormPage';
-import ProjectsPage, { ProjectDetailPage } from './features/services/ProjectsPage';
+import ProjectsPage from './features/services/ProjectsPage';
+import { ProjectDetailPage } from './features/services/projects/ProjectDetailPage';
 import DepositsPage from './features/services/DepositsPage';
 import TimesheetPage from './features/services/TimesheetPage';
 import SchedulePage from './features/services/SchedulePage';
@@ -202,6 +206,7 @@ export default function App() {
           <Route path="purchase-requests/new" element={<PurchaseRequestFormPage />} />
           <Route path="purchase-requests/:id" element={<PurchaseRequestDetailPage />} />
           <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
+          <Route path="supplier-advances" element={<SupplierAdvancesPage />} />
           <Route path="purchase-orders/new" element={<PurchaseOrderFormPage />} />
           <Route path="purchase-orders/quick" element={<QuickPurchasePage />} />
           <Route path="purchase-orders/:id" element={<PurchaseOrderDetailPage />} />
@@ -214,6 +219,7 @@ export default function App() {
           <Route path="inventory/counts" element={<CountsPage />} />
           <Route path="inventory/counts/:id" element={<CountDetailPage />} />
           <Route path="inventory/warehouses" element={<WarehouseStockPage />} />
+          <Route path="inventory/bins" element={<BinsPage />} />
           <Route path="inventory/writedowns" element={<WritedownsPage />} />
           <Route path="purchase-controls" element={<PurchaseControlsPage />} />
           <Route path="sales-controls" element={<SalesControlsPage />} />

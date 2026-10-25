@@ -6,16 +6,16 @@
  * Semua angka bersumber dari pembukuan per tanggal laporan (31 Desember atau hari ini bila tahun berjalan).
  */
 import { Injectable } from '@nestjs/common';
-import { eq, sql } from 'drizzle-orm';
 import { SettingsService } from '../../common/settings.service';
 import { todayJakarta } from '../../common/utils/dates';
 import { D } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { tenants } from '../../db/schema';
 import { AccountingService } from '../accounting/accounting.service';
-import { AssetsService } from '../assets/assets.module';
+import { AssetsService } from '../assets/assets.service';
 import { AGING_BUCKETS, AgingRow, openBalanceAging } from './aging';
+import { FinancialReportsService } from '../accounting/financial-reports.service';
+import { AppendixRepository } from './appendix.repository';
 
 type Cell = string | number | null;
 interface Table {
@@ -44,6 +44,8 @@ export class AppendixService {
     private readonly accounting: AccountingService,
     private readonly assets: AssetsService,
     private readonly settings: SettingsService,
+    private readonly financialReports: FinancialReportsService,
+    private readonly repo: AppendixRepository,
   ) {}
 
   private agingTable(title: string, partyLabel: string, rows: AgingRow[]): Table {
@@ -62,7 +64,7 @@ export class AppendixService {
     const today = todayJakarta();
     const to = `${year}-12-31` < today ? `${year}-12-31` : today;
     const [[tenant], reporting] = await Promise.all([
-      this.db.select().from(tenants).where(eq(tenants.id, tenantId)),
+      this.repo.listTenantsById(this.db, tenantId),
       this.settings.reporting(this.db, tenantId),
     ]);
     const sections: AppendixSection[] = [];
@@ -115,13 +117,7 @@ export class AppendixService {
 
     // L4 persediaan per produk
     const stock = (
-      await this.db.execute<{ sku: string; name: string; category: string | null; qty: string; value: string }>(sql`
-        SELECT p.sku, p.name, p.category, SUM(b.qty) AS qty, SUM(b.qty * b.avg_cost) AS value
-        FROM stock_balances b JOIN products p ON p.id = b.product_id
-        WHERE b.tenant_id = ${tenantId}
-        GROUP BY p.sku, p.name, p.category
-        HAVING SUM(b.qty) <> 0 OR SUM(b.qty * b.avg_cost) <> 0
-        ORDER BY p.name`)
+      await this.repo.queryStockBalance(this.db, tenantId)
     ).rows;
     push({
       key: 'inventory-list',
@@ -141,7 +137,7 @@ export class AppendixService {
     if (!stock.length) sections[sections.length - 1].paragraphs.push(empty('persediaan'));
 
     // L5 neraca saldo
-    const tb = await this.accounting.trialBalance(tenantId, undefined, to);
+    const tb = await this.financialReports.trialBalance(tenantId, undefined, to);
     const tbRows = tb.rows.filter((r) => !r.debit.isZero() || !r.credit.isZero());
     push({
       key: 'trial-balance',

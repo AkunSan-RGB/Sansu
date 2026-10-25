@@ -1,8 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { eq, sql } from 'drizzle-orm';
-import { BUSINESS_MODEL_KEYS, type BusinessModel, type PayrollSettings, type ReportingSettings, type TaxProfile } from '@sansu/shared';
+import {
+  BUSINESS_MODEL_KEYS,
+  type BusinessModel,
+  type PayrollSettings,
+  type ReportingSettings,
+  type TaxProfile,
+} from '@sansu/shared';
 import { DbOrTx } from '../db/db';
-import { tenants } from '../db/schema';
+import { SettingsRepository } from './settings.repository';
 
 /**
  * Nilai bawaan penggajian (dapat diubah per perusahaan di Pengaturan).
@@ -31,7 +36,14 @@ export const DEFAULT_REPORTING: ReportingSettings = {
 };
 
 /** Bawaan: PKP, harga kasir belum termasuk PPN (perusahaan lama tetap seperti sebelumnya) */
-export const DEFAULT_TAX_PROFILE: TaxProfile = { pkp: true, posPricesIncludeVat: false, salesPricesIncludeVat: false, vatRounding: 'NONE', localTaxEnabled: false, localTaxRate: '10' };
+export const DEFAULT_TAX_PROFILE: TaxProfile = {
+  pkp: true,
+  posPricesIncludeVat: false,
+  salesPricesIncludeVat: false,
+  vatRounding: 'NONE',
+  localTaxEnabled: false,
+  localTaxRate: '10',
+};
 
 /** Profil PPN dari kolom tenants.settings (tanpa query tambahan) */
 export function taxProfileOf(settings: Record<string, unknown> | null | undefined): TaxProfile {
@@ -57,16 +69,10 @@ export function definedOnly<T extends object>(patch: T): Partial<T> {
   return Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
 
-/**
- * Tulis satu kunci pengaturan secara atomik di database (jsonb_set), bukan menimpa seluruh dokumen hasil baca lama:
- * dua penyimpanan pengaturan yang berdekatan tidak lagi saling menghapus (mis. jenis usaha kembali ke nilai lama).
- */
-async function writeKey(db: DbOrTx, tenantId: string, key: string, value: object) {
-  await db.execute(sql`UPDATE tenants SET settings = jsonb_set(coalesce(settings, '{}'::jsonb), ARRAY[${key}]::text[], ${JSON.stringify(value)}::jsonb, true) WHERE id = ${tenantId}`);
-}
-
 @Injectable()
 export class SettingsService {
+  constructor(private readonly repo: SettingsRepository) {}
+
   async taxProfile(db: DbOrTx, tenantId: string): Promise<TaxProfile> {
     return this.section(db, tenantId, 'tax', DEFAULT_TAX_PROFILE);
   }
@@ -76,28 +82,28 @@ export class SettingsService {
   }
 
   async reporting(db: DbOrTx, tenantId: string): Promise<ReportingSettings> {
-    const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+    const [t] = await this.repo.findTenantsById(db, tenantId);
     return { ...DEFAULT_REPORTING, ...((t?.settings?.reporting as Partial<ReportingSettings>) ?? {}) };
   }
 
   async saveReporting(db: DbOrTx, tenantId: string, patch: Partial<ReportingSettings>) {
-    const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+    const [t] = await this.repo.findTenantsById(db, tenantId);
     const current = (t?.settings ?? {}) as Record<string, unknown>;
     const reporting = { ...DEFAULT_REPORTING, ...((current.reporting as object) ?? {}), ...definedOnly(patch) };
-    await writeKey(db, tenantId, 'reporting', reporting);
+    await this.repo.writeKey(db, tenantId, 'reporting', reporting);
     return reporting;
   }
 
   async payroll(db: DbOrTx, tenantId: string): Promise<PayrollSettings> {
-    const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+    const [t] = await this.repo.findTenantsById(db, tenantId);
     return { ...DEFAULT_PAYROLL, ...((t?.settings?.payroll as Partial<PayrollSettings>) ?? {}) };
   }
 
   async savePayroll(db: DbOrTx, tenantId: string, patch: Partial<PayrollSettings>) {
-    const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+    const [t] = await this.repo.findTenantsById(db, tenantId);
     const current = (t?.settings ?? {}) as Record<string, unknown>;
     const payroll = { ...DEFAULT_PAYROLL, ...((current.payroll as object) ?? {}), ...definedOnly(patch) };
-    await writeKey(db, tenantId, 'payroll', payroll);
+    await this.repo.writeKey(db, tenantId, 'payroll', payroll);
     return payroll;
   }
 
@@ -109,15 +115,21 @@ export class SettingsService {
 
   /** Bagian pengaturan bebas (mis. 'integrations') */
   async section<T extends object>(db: DbOrTx, tenantId: string, key: string, defaults: T): Promise<T> {
-    const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+    const [t] = await this.repo.findTenantsById(db, tenantId);
     return { ...defaults, ...((t?.settings?.[key] as Partial<T>) ?? {}) };
   }
 
-  async saveSection<T extends object>(db: DbOrTx, tenantId: string, key: string, defaults: T, patch: Partial<T>): Promise<T> {
-    const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+  async saveSection<T extends object>(
+    db: DbOrTx,
+    tenantId: string,
+    key: string,
+    defaults: T,
+    patch: Partial<T>,
+  ): Promise<T> {
+    const [t] = await this.repo.findTenantsById(db, tenantId);
     const current = (t?.settings ?? {}) as Record<string, unknown>;
     const merged = { ...defaults, ...((current[key] as object) ?? {}), ...definedOnly(patch) } as T;
-    await writeKey(db, tenantId, key, merged);
+    await this.repo.writeKey(db, tenantId, key, merged);
     return merged;
   }
 }

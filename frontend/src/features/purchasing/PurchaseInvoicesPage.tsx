@@ -46,6 +46,12 @@ export default function PurchaseInvoicesPage() {
   const [view, setView] = useState<'OPEN' | 'OVERDUE' | 'PAID' | 'ALL'>('OPEN');
   const [search, setSearch] = useState('');
   const [paying, setPaying] = useState<PurchaseInvoice | null>(null);
+  const advSummary = useQuery({
+    queryKey: ['supplier-advances', 'summary'],
+    queryFn: () => get<{ suppliers: { supplierCode: string; open: string }[] }>('/supplier-advances/summary'),
+    enabled: useHasRole(['ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING']),
+  });
+  const advanceOf = (supplierCode: string) => Number(advSummary.data?.suppliers.find((x) => x.supplierCode === supplierCode)?.open ?? 0);
   const [billOpen, setBillOpen] = useState(false);
   const [form] = Form.useForm();
   const { me } = useAuth();
@@ -302,6 +308,16 @@ export default function PurchaseInvoicesPage() {
             {paying.supplier.name} · faktur {paying.supplierInvoiceNo} · sisa hutang{' '}
             <strong>{isForeignCurrency(paying.currency) ? `${fmtCurrency(apOutstandingForeign(paying), paying.currency)} (nilai tercatat ${fmtMoney(apOutstanding(paying))})` : fmtMoney(apOutstanding(paying))}</strong>
           </Typography.Paragraph>
+        )}
+        {paying && advanceOf(paying.supplier.code) > 0 && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={`Pemasok ini punya uang muka terbuka ${fmtMoney(advanceOf(paying.supplier.code))}`}
+            description="Perhitungkan uang muka ke faktur ini lebih dulu agar kas tidak keluar dua kali."
+            action={<Button size="small" onClick={() => navigate('/supplier-advances')}>Buka uang muka</Button>}
+          />
         )}
         <Form form={form} layout="vertical" onFinish={(v) => pay.mutate(v)}>
           <Form.Item name="amount" label="Jumlah" rules={[{ required: true }]}>

@@ -476,6 +476,8 @@ export interface Dashboard {
   grossProfitMonth: string | null;
   grossMarginPct: string | null;
   invoicesMonth: number | null;
+  /** Transaksi kasir (POS) bulan ini; penjualannya sudah ikut di salesMonth */
+  posOrdersMonth?: number | null;
   arOutstanding: string | null;
   arOverdue: string | null;
   overdueCount: number | null;
@@ -869,6 +871,8 @@ export interface PosSessionSummary {
   totalSales: string;
   byMethod: Record<PosPaymentMethod, string>;
   expectedCash: string;
+  /** Tutup kasir buta: jumlah tunai yang seharusnya disembunyikan dari Kasir sampai ia menghitung laci */
+  blind?: boolean;
 }
 
 // ---------- Meja, pesanan terbuka, dapur ----------

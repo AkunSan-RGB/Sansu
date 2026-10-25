@@ -158,6 +158,7 @@ export class OrderLineQtyDto {
 export class ReceiveLineDto extends OrderLineQtyDto {
   @ApiPropertyOptional({ example: 'LOT-2310A', description: 'Nomor lot dari supplier' }) @IsOptional() @IsString() @MaxLength(40) lotNo?: string;
   @ApiPropertyOptional({ example: '2026-11-30', description: 'Tanggal kedaluwarsa (bahan makanan/minuman); dipantau di Persediaan › Kedaluwarsa' }) @IsOptional() @IsDateString() expiryDate?: string;
+  @ApiPropertyOptional({ description: 'Gudang yang memakai rak: rak tujuan barang; kosong = BELUM-DITEMPATKAN' }) @IsOptional() @IsUUID() binId?: string;
 }
 
 export class CreateGoodsReceiptDto {

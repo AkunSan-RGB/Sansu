@@ -6,7 +6,7 @@ import { AddressInfo } from 'node:net';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
-import { haversineM } from '../src/modules/sales/canvass/canvass';
+import { haversineM } from '../src/modules/sales/canvass/canvass.service';
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 

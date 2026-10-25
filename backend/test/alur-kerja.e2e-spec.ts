@@ -64,6 +64,7 @@ describe('Alur kerja operasional (e2e)', () => {
 
   const reg = async (model: string, tag: string) => {
     const r = (await http.post('/api/auth/register').send({ companyName: `PT ${tag}`, name: 'Pemilik', email: `wf-${tag}-${stamp}@uji.id`, password: 'rahasia123', businessModel: model }).expect(201)).body;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${r.accessToken}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     return { owner: r.accessToken as string, tenantId: r.user.tenantId as string };
   };
   let seq = 0;
@@ -253,6 +254,7 @@ describe('Alur kerja Jasa: proyek dari survei sampai selesai (e2e)', () => {
 
   it('urutan, catatan wajib, pemisahan fungsi (dua Admin), dan otomatisasi dari penawaran/faktur', async () => {
     const owner = (await http.post('/api/auth/register').send({ companyName: 'PT Jasa Alur', name: 'Pemilik', email: `wfj-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'JASA' }).expect(201)).body.accessToken as string;
+    await http.put('/api/cash/settings').set({ Authorization: `Bearer ${owner}` }).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     const mk = async (role: string, n: string) => {
       await http.post('/api/users').set(as(owner)).send({ name: n, email: `wfj-${n}-${stamp}@uji.id`, password: 'rahasia12345', role }).expect(201);
       return (await http.post('/api/auth/login').send({ email: `wfj-${n}-${stamp}@uji.id`, password: 'rahasia12345' }).expect(200)).body.accessToken as string;

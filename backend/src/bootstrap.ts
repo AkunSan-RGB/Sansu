@@ -33,6 +33,7 @@ export function configureApp(app: INestApplication) {
     frameguard: { action: 'deny' },
   });
   const withoutCsp = helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: 'same-site' } });
+  // helmet bertipe Express sedangkan app.use menerima tipe Nest generik; tipenya sama saat jalan
   app.use((req: { path: string }, res: unknown, next: () => void) => (req.path.startsWith('/api/docs') ? withoutCsp : withCsp)(req as never, res as never, next));
   app.setGlobalPrefix('api');
   app.useGlobalPipes(

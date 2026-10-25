@@ -45,6 +45,7 @@ describe('Usaha jasa: termin, uang muka, PPh dipotong pelanggan (e2e)', () => {
         .expect(201)
     ).body.accessToken;
     await http.patch('/api/settings/company').set(as()).send({ npwp: '0123456789012345' }).expect(200);
+    await http.put('/api/cash/settings').set(as()).send({ blockNegative: false }).expect(200); // perusahaan uji belum punya saldo kas
     customerId = (
       await post('/api/customers', {
         code: 'PT-MAJU',

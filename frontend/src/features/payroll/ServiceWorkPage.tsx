@@ -12,6 +12,7 @@ import { fmtDate, fmtMoney } from '@/lib/format';
 
 import { WORK_LIMITS, WORK_PAGE_TITLE, WORK_UNIT_LABELS, WORK_UNITS_BY_MODEL, type WorkUnit } from '@sansu/shared';
 import { useAuth } from '@/auth/AuthContext';
+import { useHasRole } from '@/lib/roles';
 
 type Unit = WorkUnit;
 const UNIT = WORK_UNIT_LABELS;
@@ -55,7 +56,9 @@ function EntriesTab() {
   const { me } = useAuth();
   const isJasa = me?.businessModel === 'JASA';
   const isMfg = me?.businessModel === 'MANUFAKTUR';
-  const { data: projects } = useQuery({ queryKey: ['projects'], queryFn: () => get<Project[]>('/services/projects'), enabled: isJasa });
+  // daftar proyek hanya boleh dibaca Admin/Keuangan/Sales/Akuntan (sama dengan server); peran lain (mis. SDM) tidak memanggilnya
+  const canProjects = useHasRole(['ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT']);
+  const { data: projects } = useQuery({ queryKey: ['projects'], queryFn: () => get<Project[]>('/services/projects'), enabled: isJasa && canProjects });
   const { data: invoices } = useQuery({ queryKey: ['svc-comm-invoices'], queryFn: () => get<CommInvoice[]>('/payroll/service/commissionable-invoices'), enabled: isJasa });
   const { data: prodOrders } = useQuery({ queryKey: ['svc-prod-orders'], queryFn: () => get<ProdOrder[]>('/payroll/service/production-orders'), enabled: isMfg });
   const [creating, setCreating] = useState(false);
@@ -108,7 +111,7 @@ function EntriesTab() {
           {rate && rate.unit !== 'PERCENT' && <Form.Item name="quantity" label={rate.unit === 'HOUR' ? 'Jumlah jam (maks. 16 per hari)' : rate.unit === 'SESSION' ? 'Jumlah sesi' : rate.unit === 'SHIFT' ? `Jumlah shift (maks. ${WORK_LIMITS.shiftPerDay} per hari)` : rate.unit === 'PIECE' ? 'Jumlah hasil (unit / koli)' : 'Jumlah pekerjaan'} rules={[{ required: true }]}><InputNumber min={rate.unit === 'SHIFT' ? 1 : 0.01} step={rate.unit === 'HOUR' ? 0.5 : 1} precision={rate.unit === 'SHIFT' ? 0 : undefined} style={{ width: 200 }} /></Form.Item>}
           {rate?.unit === 'PIECE' && isMfg && <Form.Item name="productionOrderId" label="Perintah produksi (opsional)" extra="Bila diisi, jumlah hasil yang dibayar dibatasi keluaran perintah itu."><Select allowClear showSearch optionFilterProp="label" options={(prodOrders ?? []).filter((o) => o.status === 'IN_PROGRESS' || o.status === 'COMPLETED').map((o) => ({ value: o.id, label: `${o.number} · ${o.status === 'COMPLETED' ? 'selesai' : 'berjalan'} · hasil dibayar ${Number(o.paidQty ?? 0)} dari ${Number(o.status === 'COMPLETED' ? o.outputQty : o.plannedQty)}` }))} /></Form.Item>}
           {rate?.unit === 'PERCENT' && <Form.Item name="invoiceId" label="Faktur jasa (sudah lunas)" rules={[{ required: true }]} extra="Komisi dihitung dari nilai faktur sebelum PPN. Satu pegawai hanya sekali per faktur."><Select showSearch optionFilterProp="label" options={(invoices ?? []).map((i) => ({ value: i.id, label: `${i.number} · ${i.customerName} · ${fmtMoney(i.subtotal)} (sisa ${100 - Number(i.allocatedPct)}%)` }))} /></Form.Item>}
-          {isJasa && <Form.Item name="projectId" label="Proyek (opsional)"><Select allowClear showSearch optionFilterProp="label" options={(projects ?? []).map((p) => ({ value: p.id, label: `${p.code} · ${p.name}` }))} /></Form.Item>}
+          {isJasa && canProjects && <Form.Item name="projectId" label="Proyek (opsional)"><Select allowClear showSearch optionFilterProp="label" options={(projects ?? []).map((p) => ({ value: p.id, label: `${p.code} · ${p.name}` }))} /></Form.Item>}
           <Form.Item name="description" label="Keterangan"><Input maxLength={255} /></Form.Item>
         </Form>
       </Modal>

@@ -1,15 +1,5 @@
-/**
- * Fitur khusus jenis usaha Manufaktur:
- *  - Perencanaan kebutuhan bahan (MRP ringan): meledakkan resep bertingkat (bahan → barang setengah jadi → barang jadi) untuk rencana
- *    produksi, membandingkannya dengan stok, pesanan pembelian berjalan, dan permintaan pembelian, lalu menyebut kekurangan per bahan.
- *  - Analisis selisih produksi: pemakaian bahan, hasil produksi, dan biaya konversi sesungguhnya terhadap standar resep, dengan penanda
- *    untuk pemakaian berlebih / hasil rendah (indikasi pemborosan atau kebocoran bahan).
- */
 import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable } from '@nestjs/common';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsDateString, IsNumberString, IsOptional, IsUUID, Matches, ValidateNested } from 'class-validator';
-import { and, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { lte } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { SettingsService } from '../../common/settings.service';
@@ -17,30 +7,9 @@ import { toDocDate } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { ProductionService } from './production.module';
-import { bomLines, boms, productionOrderLines, productionOrders, products, users, warehouses } from '../../db/schema';
-
-export class RequirementItemDto {
-  @ApiProperty() @IsUUID() bomId: string;
-  @ApiProperty({ example: '5', description: 'Jumlah batch yang direncanakan' }) @IsNumberString() batches: string;
-}
-export class RequirementsDto {
-  @ApiProperty() @IsUUID() warehouseId: string;
-  @ApiProperty({ type: [RequirementItemDto] })
-  @ValidateNested({ each: true })
-  @Type(() => RequirementItemDto)
-  @ArrayMinSize(1)
-  @ArrayMaxSize(50)
-  items: RequirementItemDto[];
-}
-export class PlanDto extends RequirementsDto {
-  @ApiPropertyOptional({ example: '2026-10-05', description: 'Tanggal perintah; default hari ini' }) @IsOptional() @IsDateString() date?: string;
-}
-export class VarianceQueryDto {
-  @ApiPropertyOptional({ example: '2026-10-01' }) @IsOptional() @IsDateString() from?: string;
-  @ApiPropertyOptional({ example: '2026-10-31' }) @IsOptional() @IsDateString() to?: string;
-  @ApiPropertyOptional({ example: '3', description: 'Toleransi pemakaian bahan di atas standar (%) sebelum ditandai' }) @IsOptional() @Matches(/^\d{1,3}(\.\d)?$/) tolerancePct?: string;
-}
+import { ProductionService } from './production.service';
+import { RequirementsDto, PlanDto, VarianceQueryDto } from './manufacturing.dto';
+import { ManufacturingRepository } from './manufacturing.repository';
 
 const MAX_DEPTH = 8;
 
@@ -51,6 +20,7 @@ export class ManufacturingService {
     private readonly settings: SettingsService,
     private readonly seq: SequenceService,
     @Inject(forwardRef(() => ProductionService)) private readonly production: ProductionService,
+    private readonly repo: ManufacturingRepository,
   ) {}
 
   private async assertManufacturing(tenantId: string) {
@@ -61,17 +31,17 @@ export class ManufacturingService {
 
   /** Ledakkan rencana produksi melalui resep bertingkat: pohon perintah, bahan baku, dan barang setengah jadi yang perlu diproduksi */
   private async analyze(tenantId: string, dto: RequirementsDto) {
-    const [wh] = await this.db.select({ id: warehouses.id, name: warehouses.name }).from(warehouses).where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, tenantId)));
+    const [wh] = await this.repo.findWarehousesById(this.db, dto.warehouseId, tenantId);
     if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
 
-    const allBoms = await this.db.select().from(boms).where(and(eq(boms.tenantId, tenantId), eq(boms.isActive, true)));
-    const lineRows = allBoms.length ? await this.db.select().from(bomLines).where(inArray(bomLines.bomId, allBoms.map((b) => b.id))) : [];
+    const allBoms = await this.repo.listBomsByIsActive(this.db, tenantId);
+    const lineRows = allBoms.length ? await this.repo.listBomLinesByBomId(this.db, allBoms) : [];
     const linesOf = (bomId: string) => lineRows.filter((l) => l.bomId === bomId);
     const byOutput = new Map<string, (typeof allBoms)[number]>();
     for (const b of [...allBoms].sort((a, c) => a.code.localeCompare(c.code))) if (!byOutput.has(b.productId)) byOutput.set(b.productId, b);
 
     const stockRows = (
-      await this.db.execute<{ product_id: string; qty: string }>(sql`SELECT product_id, qty FROM stock_balances WHERE tenant_id = ${tenantId} AND warehouse_id = ${dto.warehouseId}`)
+      await this.repo.queryStockBalance(this.db, tenantId, dto.warehouseId)
     ).rows;
     const avail = new Map(stockRows.map((r) => [r.product_id, D(r.qty)]));
 
@@ -132,31 +102,11 @@ export class ManufacturingService {
     const { wh, leaves, semis, labor, overhead, planned } = await this.analyze(tenantId, dto);
 
     const ids = [...new Set([...leaves.keys(), ...semis.keys()])];
-    const info = ids.length ? await this.db.select({ id: products.id, sku: products.sku, name: products.name, unit: products.baseUom }).from(products).where(inArray(products.id, ids)) : [];
+    const info = ids.length ? await this.repo.listProductsById(this.db, ids) : [];
     const meta = new Map(info.map((p) => [p.id, p]));
     const flow = ids.length
       ? (
-          await this.db.execute<{ product_id: string; on_order: string; requested: string; on_hand: string; supplier_id: string | null; supplier_name: string | null; last_price: string | null }>(sql`
-            SELECT p.id AS product_id, COALESCE(b.qty, 0) AS on_hand, COALESCE(po.qty, 0) AS on_order, COALESCE(pr.qty, 0) AS requested,
-                   ls.supplier_id, ls.supplier_name, ls.base_price AS last_price
-            FROM products p
-            LEFT JOIN stock_balances b ON b.product_id = p.id AND b.warehouse_id = ${dto.warehouseId}
-            LEFT JOIN (
-              SELECT l.product_id, SUM((l.qty - l.received_qty) * l.uom_factor) AS qty
-              FROM purchase_order_lines l JOIN purchase_orders o ON o.id = l.order_id
-              WHERE o.tenant_id = ${tenantId} AND o.warehouse_id = ${dto.warehouseId} AND o.status IN ('DRAFT', 'CONFIRMED') AND l.qty > l.received_qty
-              GROUP BY 1) po ON po.product_id = p.id
-            LEFT JOIN (
-              SELECT l.product_id, SUM(l.qty * l.uom_factor) AS qty
-              FROM purchase_request_lines l JOIN purchase_requests r ON r.id = l.request_id
-              WHERE r.tenant_id = ${tenantId} AND r.warehouse_id = ${dto.warehouseId} AND r.status IN ('SUBMITTED', 'APPROVED') AND l.purchase_order_id IS NULL
-              GROUP BY 1) pr ON pr.product_id = p.id
-            LEFT JOIN LATERAL (
-              SELECT o.supplier_id, s.name AS supplier_name, l.price / NULLIF(l.uom_factor, 0) AS base_price
-              FROM purchase_order_lines l JOIN purchase_orders o ON o.id = l.order_id JOIN suppliers s ON s.id = o.supplier_id
-              WHERE o.tenant_id = ${tenantId} AND l.product_id = p.id AND o.status <> 'CANCELLED'
-              ORDER BY o.date DESC, o.created_at DESC LIMIT 1) ls ON true
-            WHERE p.tenant_id = ${tenantId} AND p.id IN (${sql.join(ids.map((x) => sql`${x}`), sql`, `)})`)
+          await this.repo.queryProduct(this.db, dto.warehouseId, tenantId, ids)
         ).rows
       : [];
     const f = new Map(flow.map((r) => [r.product_id, r]));
@@ -217,7 +167,7 @@ export class ManufacturingService {
       const made: { id: string; number: string; bom: string; product: string; batches: string; level: number; parent: string | null }[] = [];
       const create = async (node: (typeof trees)[number], parentId: string | null, parentNumber: string | null, level: number): Promise<void> => {
         const id = await this.production.createOrderIn(tx, user, { bomId: node.bom.id, warehouseId: dto.warehouseId, date: dto.date, batches: node.batches.toString(), notes: `Rencana ${planNo}` }, { parentOrderId: parentId ?? undefined, planNo });
-        const [o] = await tx.select({ number: productionOrders.number }).from(productionOrders).where(eq(productionOrders.id, id));
+        const [o] = await this.repo.findProductionOrdersById(tx, id);
         made.push({ id, number: o.number, bom: node.bom.code, product: node.bom.name, batches: node.batches.toString(), level, parent: parentNumber });
         for (const c of node.children) await create(c, id, o.number, level + 1);
       };
@@ -230,21 +180,9 @@ export class ManufacturingService {
   async variance(tenantId: string, q: VarianceQueryDto) {
     await this.assertManufacturing(tenantId);
     const tol = q.tolerancePct ? Number(q.tolerancePct) : 3;
-    const orders = await this.db
-      .select({ o: productionOrders, bom: boms, sku: products.sku, name: products.name, by: users.name })
-      .from(productionOrders)
-      .innerJoin(boms, eq(boms.id, productionOrders.bomId))
-      .innerJoin(products, eq(products.id, productionOrders.productId))
-      .leftJoin(users, eq(users.id, productionOrders.createdById))
-      .where(and(eq(productionOrders.tenantId, tenantId), eq(productionOrders.status, 'COMPLETED'), q.from ? gte(productionOrders.completedDate, q.from) : undefined, q.to ? lte(productionOrders.completedDate, q.to) : undefined))
-      .orderBy(sql`${productionOrders.completedDate} DESC, ${productionOrders.number} DESC`)
-      .limit(300);
+    const orders = await this.repo.listProductionOrdersWithBomsAndProductsByStatusAndCompletedDateAndNumber(this.db, tenantId, q);
     const lines = orders.length
-      ? await this.db
-          .select({ l: productionOrderLines, sku: products.sku, name: products.name })
-          .from(productionOrderLines)
-          .innerJoin(products, eq(products.id, productionOrderLines.productId))
-          .where(inArray(productionOrderLines.orderId, orders.map((x) => x.o.id)))
+      ? await this.repo.listProductionOrderLinesWithProductsByOrderId(this.db, orders.map((x) => x.o.id))
       : [];
     const byMaterial = new Map<string, { sku: string; name: string; planned: number; issued: number; value: number }>();
     const rows = orders.map(({ o, bom, sku, name, by }) => {

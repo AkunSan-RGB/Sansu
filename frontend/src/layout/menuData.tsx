@@ -188,6 +188,7 @@ export const MENU: Group[] = [
           { key: '/shopping-list', label: 'Daftar belanja harian', hideFor: ['JASA', 'UTILITAS'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING', 'WAREHOUSE'] },
           { key: '/purchase-requests', label: 'Permintaan beli' },
           { key: '/purchase-orders', label: t('Purchase Order') },
+          { key: '/supplier-advances', label: 'Uang muka pemasok', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING'] },
           { key: '/goods-receipts', label: 'Penerimaan barang', hideFor: ['JASA'] },
           { key: '/purchase-invoices', label: t('Faktur & hutang') },
           { key: '/returns?tab=purchase', label: t('Retur pembelian'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
@@ -221,6 +222,7 @@ export const MENU: Group[] = [
         items: [
           { key: '/inventory', label: t('Persediaan & mutasi') },
           { key: '/inventory/warehouses', label: t('Persediaan per gudang') },
+          { key: '/inventory/bins', label: 'Rak gudang', hideFor: ['JASA', 'UTILITAS'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING', 'SALES'] },
           { key: '/inventory/transfers', label: t('Transfer gudang') },
           { key: '/inventory/counts', label: 'Stock opname' },
           { key: '/inventory/expiry', label: 'Kedaluwarsa bahan', hideFor: ['JASA', 'UTILITAS'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT'] },

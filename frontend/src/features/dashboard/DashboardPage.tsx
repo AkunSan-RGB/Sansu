@@ -24,6 +24,7 @@ import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { InvoiceStatusTag } from '../sales/status';
 import { t } from '@/lib/terms';
+import InsightPanel from './InsightPanel';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -61,9 +62,9 @@ export default function DashboardPage() {
   const go = (to: string) => () => navigate(to);
   const main: (SummaryItem & { hidden?: boolean })[] = [
     {
-      label: t('Penjualan bulan ini (DPP)'),
+      label: t('Penjualan bulan ini'),
       value: val(fmtMoney(data?.salesMonth)),
-      hint: `${data?.invoicesMonth ?? 0} faktur`,
+      hint: `${data?.invoicesMonth ?? 0} faktur${data?.posOrdersMonth ? ` · ${data.posOrdersMonth} transaksi kasir` : ''} · neto setelah retur`,
       hidden: data?.salesMonth === null,
     },
     {
@@ -175,6 +176,7 @@ export default function DashboardPage() {
       </div>
       {mainShown.length > 0 && <SummaryCards items={mainShown} />}
       {secondShown.length > 0 && <SummaryCards items={secondShown} />}
+      {finance && !myBranches && <InsightPanel />}
       {finance && (
         <Card
           title="Perlu perhatian"

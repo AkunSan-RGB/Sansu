@@ -6,19 +6,20 @@
  * permintaan yang menunggu keputusan; setelah disetujui, tindakannya dijalankan atas nama pemberi persetujuan.
  */
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
-import { and, eq, inArray, ne } from 'drizzle-orm';
 import { Db, DbOrTx } from '../../db/db';
+import { txScope } from '../../db/db-scope';
 import { InjectDb } from '../../db/db.module';
-import { approvalRequests, auditLogs, users, type Role } from '../../db/schema';
+import { approvalRequests, type Role } from '../../db/schema';
 import { appUrl, MailService } from '../mail/mail.service';
 import { signApprovalLink } from './approval-link';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../auth/auth-user';
 import { SettingsService } from '../settings.service';
 import { TelegramService } from '../telegram/telegram.service';
-
-export const APPROVER_ROLES: readonly Role[] = ['OWNER', 'ADMIN'];
-export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS' | 'CUSTOMER_PAYMENT' | 'STOCK_COUNT' | 'AR_WRITE_OFF' | 'ASSET_METHOD';
+import { insertOne } from '../../db/owned';
+import { ApprovalsRepository, APPROVER_ROLES } from './approvals.repository';
+export { APPROVER_ROLES } from './approvals.repository';
+export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'SUPPLIER_ADVANCE' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS' | 'CUSTOMER_PAYMENT' | 'STOCK_COUNT' | 'AR_WRITE_OFF' | 'ASSET_METHOD' | 'BIN_MOVE';
 
 export interface ApprovalPolicy {
   /** Pesanan pembelian dengan total ≥ nilai ini perlu persetujuan (0 = nonaktif) */
@@ -66,6 +67,8 @@ export interface ApprovalPolicy {
   stockCountSod: boolean;
   /** Opname buta: penghitung (Gudang) tidak melihat stok sistem selama opname berjalan */
   blindCount: boolean;
+  /** Tutup kasir buta: Kasir menghitung uang laci tanpa melihat jumlah tunai yang seharusnya; selisih baru terlihat setelah dihitung */
+  blindCashClose: boolean;
   /** Penyesuaian stok MASUK dengan harga pokok di atas rata-rata stok lebih dari persen ini oleh staf perlu persetujuan (0 = nonaktif; saldo awal dikecualikan) */
   stockInCostTolerancePct: number;
   /** Pemisahan fungsi transfer gudang: pembuat transfer tidak boleh menerimanya sendiri (selain Pemilik) */
@@ -75,7 +78,7 @@ export interface ApprovalPolicy {
   /** Masa berlaku tautan persetujuan yang dikirim lewat Telegram (jam, 1–72); email tetap 72 jam */
   telegramLinkHours: number;
 }
-export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, blindReceiving: false, blindDelivery: false, salesOrder: 0, salesDiscountMaxPct: 0, salesReturn: 0, salesBelowCost: false, salesSeparateDuties: false, stockAlertValue: 5000000, stockCountSod: false, blindCount: false, stockInCostTolerancePct: 0, transferSod: false, bankChangeHoldDays: 7, budgetControl: 'OFF', telegramLinkHours: 72 };
+export const DEFAULT_APPROVALS: ApprovalPolicy = { purchaseOrder: 0, manualJournal: 0, assetDisposal: 0, cashOut: 0, stockAdjustment: 0, purchaseRequestAuto: 0, priceControl: true, priceTolerancePct: 5, priceBenchmarkPct: 10, firstSupplierPayment: false, blindReceiving: false, blindDelivery: false, salesOrder: 0, salesDiscountMaxPct: 0, salesReturn: 0, salesBelowCost: false, salesSeparateDuties: false, stockAlertValue: 5000000, stockCountSod: false, blindCount: false, blindCashClose: false, stockInCostTolerancePct: 0, transferSod: false, bankChangeHoldDays: 7, budgetControl: 'OFF', telegramLinkHours: 72 };
 
 export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PURCHASE_ORDER: 'Pesanan pembelian',
@@ -86,6 +89,7 @@ export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PETTY_REPLENISH: 'Pengisian kembali kas kecil',
   STOCK_ADJUSTMENT: 'Penyesuaian stok',
   SUPPLIER_PAYMENT: 'Pembayaran ke supplier',
+  SUPPLIER_ADVANCE: 'Uang muka ke supplier',
   BILL: 'Tagihan biaya / aset',
   SUPPLIER_BANK: 'Perubahan rekening supplier',
   SALES_ORDER: 'Pesanan penjualan',
@@ -95,6 +99,7 @@ export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   AR_WRITE_OFF: 'Penghapusan piutang (write-off)',
   ASSET_METHOD: 'Perubahan metode penyusutan aset',
   STOCK_COUNT: 'Selisih stock opname',
+  BIN_MOVE: 'Pindah rak bernilai besar',
 };
 
 @Injectable()
@@ -106,6 +111,7 @@ export class ApprovalsService {
     private readonly mail: MailService,
     private readonly telegram: TelegramService,
     @InjectDb() private readonly db: Db,
+    private readonly repo: ApprovalsRepository,
   ) {}
 
   /**
@@ -114,10 +120,7 @@ export class ApprovalsService {
    */
   async notifyApprovers(tenantId: string, p: { kind: 'AR' | 'PR'; id: string; requesterId?: string | null; title: string; lines: string[]; onlyIds?: string[] }) {
     try {
-      const to = await this.db
-        .select({ id: users.id, email: users.email })
-        .from(users)
-        .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, [...APPROVER_ROLES]), p.requesterId ? ne(users.id, p.requesterId) : undefined, p.onlyIds?.length ? inArray(users.id, p.onlyIds) : undefined));
+      const to = await this.repo.listUsersByIsActiveAndRoleAndId(this.db, tenantId, p);
       const hours = Math.min(72, Math.max(1, (await this.policy(this.db, tenantId)).telegramLinkHours || 72));
       for (const t of to) {
         const token = signApprovalLink({ k: p.kind, r: p.id, u: t.id });
@@ -143,12 +146,17 @@ export class ApprovalsService {
    * Beri tahu pengguna berperan tertentu bahwa ada proses yang menunggu tindakan mereka (Telegram bila terhubung, email bila dikonfigurasi).
    * Pelaku proses (`excludeUserId`) tidak diberi tahu: dia bukan yang memutuskan (pemisahan fungsi). Gagal kirim tidak menggagalkan proses.
    */
-  async notifyRoles(tenantId: string, p: { roles: readonly Role[]; excludeUserId?: string; title: string; lines?: string[]; path: string; info?: boolean }) {
+  /**
+   * Pemberitahuan latar belakang dipanggil tanpa menunggu (`void`), kadang dari dalam transaksi. Dijalankan di luar lingkup transaksi
+   * agar koneksinya sendiri tidak dianggap koneksi kedua milik transaksi pemanggil.
+   */
+  notifyRoles(tenantId: string, p: { roles: readonly Role[]; excludeUserId?: string; title: string; lines?: string[]; path: string; info?: boolean }) {
+    return txScope.exit(() => this.deliverRoles(tenantId, p));
+  }
+
+  private async deliverRoles(tenantId: string, p: { roles: readonly Role[]; excludeUserId?: string; title: string; lines?: string[]; path: string; info?: boolean }) {
     try {
-      const to = await this.db
-        .select({ id: users.id, email: users.email })
-        .from(users)
-        .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, [...p.roles]), p.excludeUserId ? ne(users.id, p.excludeUserId) : undefined));
+      const to = await this.repo.listUsersByIsActiveAndRoleAndIdForDeliverRoles(this.db, tenantId, p);
       const url = `${appUrl()}${p.path}`;
       await this.telegram.notifyUsers(to.map((t) => t.id), `${p.info ? 'ℹ️ Pemberitahuan' : '🔔 Menunggu tindakan Anda'}\n${p.title}\n${(p.lines ?? []).join('\n')}\n${url}`);
       if (!this.mail.configured) return;
@@ -161,7 +169,11 @@ export class ApprovalsService {
   }
 
   /** Beri tahu satu pengguna (Telegram bila terhubung); gagal kirim tidak menggagalkan proses */
-  async notifyUser(userId: string, text: string) {
+  notifyUser(userId: string, text: string) {
+    return txScope.exit(() => this.deliverUser(userId, text));
+  }
+
+  private async deliverUser(userId: string, text: string) {
     try {
       await this.telegram.notifyUsers([userId], text);
     } catch (e) {
@@ -184,10 +196,7 @@ export class ApprovalsService {
 
   /** Pengguna yang berwenang memutuskan (peran penyetuju, aktif), selain pemohon sendiri */
   async eligibleApprovers(db: DbOrTx, tenantId: string, excludeUserId?: string) {
-    return db
-      .select({ id: users.id, name: users.name, role: users.role })
-      .from(users)
-      .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, [...APPROVER_ROLES]), excludeUserId ? ne(users.id, excludeUserId) : undefined));
+    return this.repo.listUsersByIsActiveAndRoleAndIdForEligibleApprovers(db, tenantId, excludeUserId);
   }
 
   /** Apakah transaksi bernilai `amount` ini perlu persetujuan dari pengguna ini? */
@@ -205,10 +214,7 @@ export class ApprovalsService {
   async gateDocument(db: DbOrTx, user: AuthUser, p: { kind: ApprovalKind; refId: string; title: string; amount: number }) {
     const limit = await this.needs(db, user, p.kind, p.amount);
     if (limit === null) return;
-    const [existing] = await db
-      .select()
-      .from(approvalRequests)
-      .where(and(eq(approvalRequests.tenantId, user.tenantId), eq(approvalRequests.kind, p.kind), eq(approvalRequests.refId, p.refId), inArray(approvalRequests.status, ['PENDING', 'APPROVED'])));
+    const [existing] = await this.repo.findApprovalRequestsByKindAndRefIdAndStatus(db, user.tenantId, p.kind, p.refId);
     if (existing?.status === 'APPROVED') return;
     if (existing) throw this.required(existing.id, 'Permintaan persetujuan sudah dikirim dan masih menunggu keputusan pemilik atau admin.');
     const request = await this.create(db, user, { ...p, payload: null });
@@ -221,10 +227,7 @@ export class ApprovalsService {
    */
   async gateIf(db: DbOrTx, user: AuthUser, p: { kind: ApprovalKind; refId: string; title: string; amount: number }, triggered: boolean, why: string) {
     if (!triggered || this.isApprover(user.role)) return;
-    const [existing] = await db
-      .select()
-      .from(approvalRequests)
-      .where(and(eq(approvalRequests.tenantId, user.tenantId), eq(approvalRequests.kind, p.kind), eq(approvalRequests.refId, p.refId), inArray(approvalRequests.status, ['PENDING', 'APPROVED'])));
+    const [existing] = await this.repo.findApprovalRequestsByKindAndRefIdAndStatus(db, user.tenantId, p.kind, p.refId);
     if (existing?.status === 'APPROVED') return;
     if (existing) throw this.required(existing.id, 'Permintaan persetujuan sudah dikirim dan masih menunggu keputusan pemilik atau admin.');
     const request = await this.create(db, user, { ...p, payload: null });
@@ -234,20 +237,13 @@ export class ApprovalsService {
   /** Buat permintaan baru dan catat di jejak audit */
   /** Pembuat faktur penjualan (dari jejak audit); null bila tidak tercatat */
   async invoiceCreator(db: DbOrTx, tenantId: string, invoiceId: string): Promise<string | null> {
-    const [r] = await db
-      .select({ u: auditLogs.userId })
-      .from(auditLogs)
-      .where(and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.entity, 'Invoice'), eq(auditLogs.entityId, invoiceId), eq(auditLogs.action, 'CREATE')))
-      .limit(1);
+    const [r] = await this.repo.findAuditLogsByEntityAndEntityIdAndAction(db, tenantId, invoiceId);
     return r?.u ?? null;
   }
 
   async create(db: DbOrTx, user: AuthUser, p: { kind: ApprovalKind; refId: string | null; title: string; amount: number; payload: Record<string, unknown> | null; approverId?: string }) {
     if (p.approverId && !(await this.eligibleApprovers(db, user.tenantId, user.sub)).some((a) => a.id === p.approverId)) throw new BadRequestException('Penyetuju yang dipilih tidak berwenang');
-    const [row] = await db
-      .insert(approvalRequests)
-      .values({ tenantId: user.tenantId, kind: p.kind, refId: p.refId, title: p.title, amount: p.amount.toFixed(2), payload: p.payload, requestedById: user.sub, assignedToId: p.approverId ?? null })
-      .returning();
+    const row = await insertOne(db, approvalRequests, { tenantId: user.tenantId, kind: p.kind, refId: p.refId, title: p.title, amount: p.amount.toFixed(2), payload: p.payload, requestedById: user.sub, assignedToId: p.approverId ?? null });
     await this.audit.log(db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'ApprovalRequest', entityId: row.id, data: { kind: p.kind, title: p.title, amount: p.amount } });
     void this.notifyApprovers(user.tenantId, { kind: 'AR', id: row.id, requesterId: user.sub, title: `${APPROVAL_KIND_LABELS[p.kind]}: ${p.title}`, lines: [`Nilai: Rp${Math.round(p.amount).toLocaleString('id-ID')}`], onlyIds: p.approverId ? [p.approverId] : undefined });
     return row;

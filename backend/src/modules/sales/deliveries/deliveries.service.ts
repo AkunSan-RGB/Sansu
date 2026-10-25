@@ -10,8 +10,8 @@
  * lalu DELIVERED; faktur baru bisa dibuat setelah semua terkirim dan menagih seluruh pesanan (belum ada faktur per surat jalan).
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
-import { WorkflowService } from '../../workflow/workflow.module';
+import { and, desc, eq, gte, lte } from 'drizzle-orm';
+import { WorkflowService } from '../../workflow/workflow.service';
 import { ApprovalsService } from '../../../common/approvals/approvals.service';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
@@ -20,13 +20,14 @@ import { DocDate, toDocDate } from '../../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../../common/utils/money';
 import { Db, Tx } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, deliveryOrderLines, deliveryOrders, salesOrders } from '../../../db/schema';
+import { deliveryOrders, salesOrders } from '../../../db/schema';
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { StockService } from '../../inventory/stock.service';
 import { SalesOrdersService } from '../orders/sales-orders.service';
-
-type OrderWithLines = Awaited<ReturnType<SalesOrdersService['lockOrder']>>;
+import { insertOne, patchById } from '../../../db/owned';
+import { DeliveriesRepository } from './deliveries.repository';
+import type { OrderWithLines } from './deliveries.repository';
 
 @Injectable()
 export class DeliveriesService {
@@ -39,6 +40,7 @@ export class DeliveriesService {
     private readonly audit: AuditService,
     private readonly workflow: WorkflowService,
     private readonly approvals: ApprovalsService,
+    private readonly repo: DeliveriesRepository,
   ) {}
 
   /** Kirim barang atas pesanan CONFIRMED: stok keluar, HPP dijurnal, pesanan → DELIVERED */
@@ -55,11 +57,9 @@ export class DeliveriesService {
       if (order.status !== 'CONFIRMED') {
         throw new BadRequestException(`Pesanan berstatus ${order.status}; hanya pesanan CONFIRMED yang bisa dikirim`);
       }
-      const [customer] = await tx.select().from(customers).where(eq(customers.id, order.customerId));
+      const [customer] = await this.repo.findCustomersById(tx, order.customerId);
       const number = await this.seq.next(tx, user.tenantId, 'DELIVERY', date);
-      const [delivery] = await tx
-        .insert(deliveryOrders)
-        .values({
+      const delivery = await insertOne(tx, deliveryOrders, {
           tenantId: user.tenantId,
           number,
           date,
@@ -68,8 +68,7 @@ export class DeliveriesService {
           warehouseId: order.warehouseId,
           notes: dto.notes,
           createdById: user.sub,
-        })
-        .returning();
+        });
 
       const remaining = await this.remainingQty(tx, order.id, order.lines);
       const ship = this.planShipment(order.lines, remaining, dto.lines);
@@ -87,15 +86,7 @@ export class DeliveriesService {
           date,
         });
         cogs = cogs.plus(moved.value);
-        await tx.insert(deliveryOrderLines).values({
-          deliveryId: delivery.id,
-          orderLineId: line.id,
-          productId: line.productId,
-          uom: line.uom,
-          uomFactor: line.uomFactor,
-          qty: qty.toFixed(4),
-          unitCost: moved.unitCost.toFixed(4),
-        });
+        await this.repo.insertDeliveryOrderLines(tx, delivery.id, line.id, line.productId, line.uom, line.uomFactor, qty, moved.unitCost);
       }
       complete = order.lines.every((l) => D(remaining.get(l.id) ?? 0).minus(ship.find((x) => x.line.id === l.id)?.qty ?? 0).lte(0));
       cogs = money(cogs);
@@ -115,8 +106,8 @@ export class DeliveriesService {
         });
         journalId = journal.id;
       }
-      await tx.update(deliveryOrders).set({ cogsAmount: cogs.toFixed(2), journalId }).where(eq(deliveryOrders.id, delivery.id));
-      if (complete) await tx.update(salesOrders).set({ status: 'DELIVERED' }).where(eq(salesOrders.id, order.id));
+      await patchById(tx, deliveryOrders, delivery.id, { cogsAmount: cogs.toFixed(2), journalId });
+      if (complete) await patchById(tx, salesOrders, order.id, { status: 'DELIVERED' });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'DeliveryOrder', entityId: delivery.id, data: { number, partial: !complete } });
       return delivery.id;
     });
@@ -129,9 +120,7 @@ export class DeliveriesService {
 
   /** Sisa yang belum dikirim per baris pesanan (pesanan dikurangi surat jalan aktif) */
   async remainingQty(db: Db | Tx, orderId: string, lines: { id: string; qty: string }[]) {
-    const r = await db.execute<{ order_line_id: string; q: string }>(sql`
-      SELECT dl.order_line_id::text, SUM(dl.qty)::text AS q FROM delivery_order_lines dl JOIN delivery_orders d ON d.id = dl.delivery_id
-      WHERE d.sales_order_id = ${orderId} AND d.status = 'DELIVERED' GROUP BY dl.order_line_id`);
+    const r = await this.repo.queryDeliveryOrderLine(db, orderId);
     const sent = new Map(r.rows.map((x) => [x.order_line_id, D(x.q)]));
     return new Map(lines.map((l) => [l.id, D(l.qty).minus(sent.get(l.id) ?? 0)]));
   }
@@ -174,7 +163,7 @@ export class DeliveriesService {
     if (!this.approvals.isApprover(user.role) && (dto.reason?.trim().length ?? 0) < 5) throw new BadRequestException('Isi alasan pembatalan surat jalan (minimal 5 huruf)');
     let dnNumber = '';
     await this.db.transaction(async (tx) => {
-      const locked = await tx.execute(sql`SELECT id FROM delivery_orders WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      const locked = await this.repo.queryDeliveryOrder(tx, id, user.tenantId);
       if (!locked.rows.length) throw new NotFoundException('Surat jalan tidak ditemukan');
       const delivery = await tx.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.id, id), with: { lines: true } });
       if (!delivery) throw new NotFoundException('Surat jalan tidak ditemukan');
@@ -182,9 +171,7 @@ export class DeliveriesService {
       if (delivery.invoiceId) throw new BadRequestException('Surat jalan sudah difakturkan; koreksi lewat retur penjualan');
       await this.orders.lockOrder(tx, user.tenantId, delivery.salesOrderId);
       for (const l of delivery.lines) {
-        const wd = await tx.execute<{ wu: string }>(sql`
-          SELECT COALESCE(SUM(-writedown_value) / NULLIF(SUM(-qty), 0), 0) AS wu FROM stock_moves
-          WHERE ref_type = 'DELIVERY' AND ref_id = ${delivery.id} AND product_id = ${l.productId} AND type = 'SALE'`);
+        const wd = await this.repo.queryStockMove(tx, delivery.id, l.productId);
         await this.stock.move(tx, {
           tenantId: user.tenantId,
           productId: l.productId,
@@ -201,8 +188,8 @@ export class DeliveriesService {
       }
       if (delivery.journalId) await this.posting.reverse(tx, user.tenantId, delivery.journalId, date, user.sub, true);
       dnNumber = delivery.number;
-      await tx.update(deliveryOrders).set({ status: 'CANCELLED', cancelReason: dto.reason?.trim() || null, cancelledById: user.sub }).where(eq(deliveryOrders.id, id));
-      await tx.update(salesOrders).set({ status: 'CONFIRMED' }).where(eq(salesOrders.id, delivery.salesOrderId));
+      await patchById(tx, deliveryOrders, id, { status: 'CANCELLED', cancelReason: dto.reason?.trim() || null, cancelledById: user.sub });
+      await patchById(tx, salesOrders, delivery.salesOrderId, { status: 'CONFIRMED' });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'DeliveryOrder', entityId: id, data: { reason: dto.reason?.trim() || null } });
     });
     void this.approvals.notifyRoles(user.tenantId, { roles: ['OWNER', 'ADMIN', 'WAREHOUSE'], excludeUserId: user.sub, info: true, title: `Surat jalan ${dnNumber} dibatalkan`, lines: [dto.reason?.trim() ? `Alasan: ${dto.reason.trim()}` : 'Tanpa alasan tertulis'], path: '/deliveries' });
@@ -219,9 +206,7 @@ export class DeliveriesService {
     p: { order: OrderWithLines; date: DocDate; invoiceId: string; cogs: Dec; costs: Map<string, { unitCost: Dec }> },
   ) {
     const number = await this.seq.next(tx, user.tenantId, 'DELIVERY', p.date);
-    const [delivery] = await tx
-      .insert(deliveryOrders)
-      .values({
+    const delivery = await insertOne(tx, deliveryOrders, {
         tenantId: user.tenantId,
         number,
         date: p.date,
@@ -232,18 +217,9 @@ export class DeliveriesService {
         invoiceId: p.invoiceId,
         notes: 'Dibuat otomatis bersama faktur',
         createdById: user.sub,
-      })
-      .returning();
-    for (const line of p.order.lines) {
-      await tx.insert(deliveryOrderLines).values({
-        deliveryId: delivery.id,
-        orderLineId: line.id,
-        productId: line.productId,
-        uom: line.uom,
-        uomFactor: line.uomFactor,
-        qty: line.qty,
-        unitCost: (p.costs.get(line.id)?.unitCost ?? ZERO).toFixed(4),
       });
+    for (const line of p.order.lines) {
+      await this.repo.insertDeliveryOrderLinesForRecordWithInvoice(tx, delivery.id, line.id, line.productId, line.uom, line.uomFactor, line.qty, p);
     }
     return delivery;
   }
@@ -304,32 +280,27 @@ export class DeliveriesService {
     let orderId = ref.orderId;
     let invoiceId = ref.invoiceId;
     if (!orderId && invoiceId) {
-      const r = await this.db.execute<{ sales_order_id: string | null }>(sql`SELECT sales_order_id FROM invoices WHERE id = ${invoiceId} AND tenant_id = ${tenantId}`);
+      const r = await this.repo.queryInvoice(this.db, invoiceId, tenantId);
       if (!r.rows.length) throw new NotFoundException('Faktur tidak ditemukan');
       orderId = r.rows[0].sales_order_id ?? undefined;
     }
-    const rows = async <T extends Record<string, unknown>>(q: ReturnType<typeof sql>) => (await this.db.execute<T>(q)).rows;
-    const quotation = orderId ? (await rows<{ id: string; number: string; status: string }>(sql`SELECT id, number, status FROM quotations WHERE tenant_id = ${tenantId} AND sales_order_id = ${orderId} LIMIT 1`))[0] ?? null : null;
-    const order = orderId ? (await rows<{ id: string; number: string; status: string; total: string; date: string }>(sql`SELECT id, number, status, total, date::text FROM sales_orders WHERE tenant_id = ${tenantId} AND id = ${orderId}`))[0] ?? null : null;
+    const quotation = orderId ? ((await this.repo.queryQuotation(this.db, tenantId, orderId)).rows)[0] ?? null : null;
+    const order = orderId ? ((await this.repo.querySalesOrder(this.db, tenantId, orderId)).rows)[0] ?? null : null;
     const deliveries = orderId
-      ? await rows<{ id: string; number: string; status: string; date: string; journal_id: string | null; cogs_amount: string }>(sql`SELECT id, number, status, date::text, journal_id, cogs_amount FROM delivery_orders WHERE tenant_id = ${tenantId} AND sales_order_id = ${orderId} ORDER BY created_at`)
+      ? (await this.repo.queryDeliveryOrderForChain(this.db, tenantId, orderId)).rows
       : [];
     const invoice = (
-      await rows<{ id: string; number: string; status: string; total: string; paid_amount: string; date: string; journal_id: string | null }>(
-        invoiceId
-          ? sql`SELECT id, number, status, total, paid_amount, date::text, journal_id FROM invoices WHERE tenant_id = ${tenantId} AND id = ${invoiceId}`
-          : sql`SELECT id, number, status, total, paid_amount, date::text, journal_id FROM invoices WHERE tenant_id = ${tenantId} AND sales_order_id = ${orderId} ORDER BY created_at LIMIT 1`,
-      )
+      (await this.repo.queryInvoiceForChain(this.db, invoiceId, tenantId, orderId)).rows
     )[0] ?? null;
     const payments = invoice
-      ? await rows<{ id: string; number: string; date: string; amount: string; method: string; journal_id: string | null }>(sql`SELECT id, number, date::text, amount, method, journal_id FROM payments WHERE tenant_id = ${tenantId} AND invoice_id = ${invoice.id} ORDER BY date, number`)
+      ? (await this.repo.queryPayment(this.db, tenantId, invoice.id)).rows
       : [];
     const returns = invoice
-      ? await rows<{ id: string; number: string; date: string; total: string; journal_id: string | null }>(sql`SELECT id, number, date::text, total, journal_id FROM sales_returns WHERE tenant_id = ${tenantId} AND invoice_id = ${invoice.id} ORDER BY date, number`)
+      ? (await this.repo.querySalesReturn(this.db, tenantId, invoice.id)).rows
       : [];
     const journalIds = [...deliveries.map((d) => d.journal_id), invoice?.journal_id, ...payments.map((p) => p.journal_id), ...returns.map((r) => r.journal_id)].filter((x): x is string => !!x);
     const journals = journalIds.length
-      ? await rows<{ id: string; number: string; date: string; description: string; source_type: string }>(sql`SELECT id, number, date::text, description, source_type FROM journal_entries WHERE tenant_id = ${tenantId} AND id IN (${sql.join(journalIds.map((j) => sql`${j}`), sql`, `)}) ORDER BY date, number`)
+      ? (await this.repo.queryJournalEntry(this.db, tenantId, journalIds)).rows
       : [];
     return { quotation, order, deliveries, invoice, payments, returns, journals };
   }

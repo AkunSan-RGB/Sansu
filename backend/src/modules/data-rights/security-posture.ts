@@ -5,7 +5,7 @@
  */
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
-import { BackupStatusService } from './backup-status';
+import { BackupStatusService } from './backup-status.service';
 import { FieldEncryptionService } from './field-encryption';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';

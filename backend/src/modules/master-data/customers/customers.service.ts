@@ -1,14 +1,16 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, eq, ilike, ne, or, sql } from 'drizzle-orm';
 import { ApprovalsService } from '../../../common/approvals/approvals.service';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { D } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, invoices, priceLists } from '../../../db/schema';
-import { supplierNameKey } from '../../purchasing/suppliers.service';
+import { customers } from '../../../db/schema';
+import { partyNameKey } from '../../../common/utils/party-name';
 import { CreateCustomerDto, UpdateCustomerDto } from './customers.dto';
+import { ReferenceRepository } from '../../../db/reference.repository';
+import { insertOne } from '../../../db/owned';
+import { CustomersRepository } from './customers.repository';
 
 @Injectable()
 export class CustomersService {
@@ -16,49 +18,32 @@ export class CustomersService {
     @InjectDb() private readonly db: Db,
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
+    private readonly refs: ReferenceRepository,
+    private readonly repo: CustomersRepository,
   ) {}
 
   list(tenantId: string, q?: string) {
-    return this.db
-      .select()
-      .from(customers)
-      .where(
-        and(
-          eq(customers.tenantId, tenantId),
-          q ? or(ilike(customers.code, `%${q}%`), ilike(customers.name, `%${q}%`)) : undefined,
-        ),
-      )
-      .orderBy(asc(customers.code))
-      .limit(500);
+    return this.repo.listCustomersByCodeAndName(this.db, tenantId, q);
   }
 
   async get(tenantId: string, id: string) {
-    const [c] = await this.db
-      .select()
-      .from(customers)
-      .where(and(eq(customers.id, id), eq(customers.tenantId, tenantId)));
+    const c = await this.refs.customer(this.db, tenantId, id);
     if (!c) throw new NotFoundException('Pelanggan tidak ditemukan');
-    const [open] = await this.db
-      .select({ outstanding: sql<string>`COALESCE(SUM(${invoices.total} - ${invoices.paidAmount} - ${invoices.returnedAmount}), 0)` })
-      .from(invoices)
-      .where(and(eq(invoices.tenantId, tenantId), eq(invoices.customerId, id), ne(invoices.status, 'PAID')));
+    const [open] = await this.repo.sumInvoicesByCustomerIdAndStatus(this.db, tenantId, id);
     return { ...c, outstanding: D(open.outstanding).toFixed(2) };
   }
 
   /** Daftar harga harus milik perusahaan yang sama (kunci asing saja tidak membatasi per perusahaan) */
   private async checkPriceList(tenantId: string, priceListId?: string | null) {
     if (!priceListId) return;
-    const [l] = await this.db.select({ id: priceLists.id }).from(priceLists).where(and(eq(priceLists.id, priceListId), eq(priceLists.tenantId, tenantId)));
+    const [l] = await this.repo.findPriceListsById(this.db, priceListId, tenantId);
     if (!l) throw new BadRequestException('Daftar harga tidak ditemukan');
   }
 
   async create(tenantId: string, dto: CreateCustomerDto) {
     await this.checkPriceList(tenantId, dto.priceListId);
     const { confirmDuplicate: _c, ...rest } = dto;
-    const [row] = await this.db
-      .insert(customers)
-      .values({ ...rest, geoLat: dto.geoLat?.toFixed(6), geoLng: dto.geoLng?.toFixed(6), code: dto.code.trim().toUpperCase(), tenantId })
-      .returning();
+    const row = await insertOne(this.db, customers, { ...rest, geoLat: dto.geoLat?.toFixed(6), geoLng: dto.geoLng?.toFixed(6), code: dto.code.trim().toUpperCase(), tenantId });
     return row;
   }
 
@@ -66,21 +51,17 @@ export class CustomersService {
     await this.get(tenantId, id);
     await this.checkPriceList(tenantId, dto.priceListId);
     const { confirmDuplicate: _c, ...rest } = dto;
-    const [row] = await this.db
-      .update(customers)
-      .set({ ...rest, geoLat: dto.geoLat?.toFixed(6), geoLng: dto.geoLng?.toFixed(6), code: dto.code?.trim().toUpperCase() })
-      .where(eq(customers.id, id))
-      .returning();
+    const [row] = await this.repo.updateCustomersById(this.db, { ...rest, geoLat: dto.geoLat?.toFixed(6), geoLng: dto.geoLng?.toFixed(6), code: dto.code?.trim().toUpperCase() }, id);
     return row;
   }
 
   /** Anti pelanggan fiktif / ganda: NPWP sama (angka saja) atau nama sangat mirip → 409 sampai dikonfirmasi; konfirmasi tercatat di jejak audit */
   private async assertNoLookalike(u: AuthUser, dto: { name?: string; npwp?: string; confirmDuplicate?: boolean }, exceptId?: string) {
     const npwp = dto.npwp?.replace(/\D/g, '') ?? '';
-    const key = dto.name ? supplierNameKey(dto.name) : '';
+    const key = dto.name ? partyNameKey(dto.name) : '';
     if (npwp.length < 10 && !key) return null;
-    const all = await this.db.select({ id: customers.id, code: customers.code, name: customers.name, npwp: customers.npwp }).from(customers).where(eq(customers.tenantId, u.tenantId));
-    const dup = all.filter((o) => o.id !== exceptId && ((npwp.length >= 10 && (o.npwp ?? '').replace(/\D/g, '') === npwp) || (key && supplierNameKey(o.name) === key)));
+    const all = await this.repo.listCustomers(this.db, u.tenantId);
+    const dup = all.filter((o) => o.id !== exceptId && ((npwp.length >= 10 && (o.npwp ?? '').replace(/\D/g, '') === npwp) || (key && partyNameKey(o.name) === key)));
     if (!dup.length) return null;
     if (!dto.confirmDuplicate) {
       throw new ConflictException({

@@ -1,7 +1,8 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiHideProperty, ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
+  Equals,
   IsDateString,
   IsIn,
   IsNumberString,
@@ -26,6 +27,9 @@ export class AdjustmentLineDto {
   @ApiPropertyOptional({ example: 'LOT-2310A', description: 'Barang masuk: nomor lot' }) @IsOptional() @IsString() @MaxLength(40) lotNo?: string;
   @ApiPropertyOptional({ example: '2026-11-30', description: 'Barang masuk: tanggal kedaluwarsa' }) @IsOptional() @IsDateString() expiryDate?: string;
   @ApiPropertyOptional({ description: 'Barang keluar: kurangi hanya lot ini (membuang lot tertentu); kosong = lot yang paling cepat kedaluwarsa' }) @IsOptional() @IsUUID() lotId?: string;
+  @ApiPropertyOptional({ description: 'Gudang yang memakai rak: rak tujuan (masuk) atau rak yang diutamakan (keluar)' }) @IsOptional() @IsUUID() binId?: string;
+  /** Internal (opname per rak): keluar bagian tanpa lot. Tidak diterima dari klien. */
+  @ApiHideProperty() @IsOptional() @Equals(undefined, { message: 'noLot tidak dapat diisi dari luar' }) noLot?: boolean;
 }
 
 export class StockAdjustmentDto {
