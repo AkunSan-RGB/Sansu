@@ -16,6 +16,7 @@ import { tenants } from '../../db/schema';
 import { AccountingService } from '../accounting/accounting.service';
 import { AssetsService } from '../assets/assets.service';
 import { AGING_BUCKETS, AgingRow, openBalanceAging } from './aging';
+import { FinancialReportsService } from '../accounting/financial-reports.service';
 
 type Cell = string | number | null;
 interface Table {
@@ -44,6 +45,7 @@ export class AppendixService {
     private readonly accounting: AccountingService,
     private readonly assets: AssetsService,
     private readonly settings: SettingsService,
+    private readonly financialReports: FinancialReportsService,
   ) {}
 
   private agingTable(title: string, partyLabel: string, rows: AgingRow[]): Table {
@@ -141,7 +143,7 @@ export class AppendixService {
     if (!stock.length) sections[sections.length - 1].paragraphs.push(empty('persediaan'));
 
     // L5 neraca saldo
-    const tb = await this.accounting.trialBalance(tenantId, undefined, to);
+    const tb = await this.financialReports.trialBalance(tenantId, undefined, to);
     const tbRows = tb.rows.filter((r) => !r.debit.isZero() || !r.credit.isZero());
     push({
       key: 'trial-balance',
