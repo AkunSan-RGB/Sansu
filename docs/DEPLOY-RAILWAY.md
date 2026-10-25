@@ -37,6 +37,7 @@ Migrasi database dijalankan otomatis setiap start. Healthcheck Railway memakai `
 | Gejala | Penyebab umum |
 | --- | --- |
 | Deploy gagal "Konfigurasi produksi tidak aman" | `JWT_SECRET` kurang dari 32 karakter atau memuat kata `ganti`/`secret`/`rahasia` |
+| Login/demo/daftar 500 dengan log `new row violates row-level security policy for table "tenants"` (kode 42501) | RLS aktif di tabel global tanpa kebijakan (mis. diaktifkan manual). Migrasi 0105 memulihkannya otomatis saat start; atau jalankan `ALTER TABLE tenants DISABLE ROW LEVEL SECURITY;` |
 | Healthcheck gagal (503 `database: down`) | `DATABASE_URL` belum diisi atau salah referensi ke layanan Postgres |
 | Halaman terbuka tetapi login gagal | `APP_URL`/`CORS_ORIGIN` belum sama dengan alamat publik; cek tab **Logs** |
 | Email tidak terkirim | `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` belum diisi, atau pengirim belum diverifikasi di Brevo (lihat tab Logs: "Brevo menolak email (401/400)"). Jangan pakai `SMTP_*` di Railway: port SMTP diblokir pada paket gratis/Hobby |

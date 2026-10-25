@@ -736,6 +736,13 @@
       "when": 1797359886484,
       "tag": "0104_kunci_idempotensi",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1797446286484,
+      "tag": "0105_tabel_global_tanpa_rls",
+      "breakpoints": true
     }
   ]
 }
