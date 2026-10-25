@@ -13,6 +13,7 @@ import { PROVIDERS, type NormalizedOrder, type ProviderContext, type ProviderKey
 import { KEYS } from './sync.shared';
 import { StartConnectionDto, UpdateConnectionDto } from './sync.dto';
 import { findOwned, patchById } from '../../../db/owned';
+import { SyncRepository } from './sync.repository';
 
 const DAY = 86_400_000;
 
@@ -42,6 +43,7 @@ export class MarketplaceSyncService {
     private readonly jwt: JwtService,
     private readonly integrations: IntegrationsService,
     private readonly subs: SubscriptionService,
+    private readonly repo: SyncRepository,
   ) {}
 
   providers() {
@@ -74,7 +76,7 @@ export class MarketplaceSyncService {
   }
 
   private async assertWarehouse(tenantId: string, id: string) {
-    const [w] = await this.db.select({ id: warehouses.id }).from(warehouses).where(and(eq(warehouses.id, id), eq(warehouses.tenantId, tenantId)));
+    const [w] = await this.repo.findWarehousesById(this.db, id, tenantId);
     if (!w) throw new BadRequestException('Gudang tidak ditemukan');
   }
 
@@ -111,39 +113,22 @@ export class MarketplaceSyncService {
 
   private async save(tenantId: string, userId: string, provider: ProviderKey, shop: Tokens & { shopId: string; shopName: string }, warehouseId: string, pricesIncludeVat: boolean) {
     const p = PROVIDERS[provider];
-    const others = await this.db
-      .select({ shopId: marketplaceConnections.shopId })
-      .from(marketplaceConnections)
-      .where(and(eq(marketplaceConnections.tenantId, tenantId), eq(marketplaceConnections.provider, provider)));
+    const others = await this.repo.listMarketplaceConnectionsByProvider(this.db, tenantId, provider);
     const channel = others.some((o) => o.shopId !== shop.shopId) ? `${p.channel} (${shop.shopName})`.slice(0, 40) : p.channel;
     const credentials = encrypt(JSON.stringify({ accessToken: shop.accessToken, refreshToken: shop.refreshToken, extra: shop.extra }));
-    const [row] = await this.db
-      .insert(marketplaceConnections)
-      .values({ tenantId, provider, channel, shopId: shop.shopId, shopName: shop.shopName, credentials, tokenExpiresAt: shop.expiresAt ?? null, warehouseId, pricesIncludeVat, createdBy: userId })
-      .onConflictDoUpdate({
-        target: [marketplaceConnections.tenantId, marketplaceConnections.provider, marketplaceConnections.shopId],
-        set: { shopName: shop.shopName, credentials, tokenExpiresAt: shop.expiresAt ?? null, warehouseId, pricesIncludeVat, isActive: true, lastError: null },
-      })
-      .returning();
+    const [row] = await this.repo.insertMarketplaceConnections(this.db, tenantId, provider, channel, shop, credentials, warehouseId, pricesIncludeVat, userId);
     return row;
   }
 
   async update(u: AuthUser, id: string, dto: UpdateConnectionDto) {
     if (dto.warehouseId) await this.assertWarehouse(u.tenantId, dto.warehouseId);
-    const [r] = await this.db
-      .update(marketplaceConnections)
-      .set(dto)
-      .where(and(eq(marketplaceConnections.id, id), eq(marketplaceConnections.tenantId, u.tenantId)))
-      .returning({ id: marketplaceConnections.id });
+    const [r] = await this.repo.updateMarketplaceConnectionsById(this.db, dto, id, u.tenantId);
     if (!r) throw new NotFoundException('Koneksi tidak ditemukan');
     return { ok: true };
   }
 
   async remove(u: AuthUser, id: string) {
-    const [r] = await this.db
-      .delete(marketplaceConnections)
-      .where(and(eq(marketplaceConnections.id, id), eq(marketplaceConnections.tenantId, u.tenantId)))
-      .returning({ id: marketplaceConnections.id });
+    const [r] = await this.repo.deleteMarketplaceConnectionsById(this.db, id, u.tenantId);
     if (!r) throw new NotFoundException('Koneksi tidak ditemukan');
     return { ok: true };
   }
@@ -152,7 +137,7 @@ export class MarketplaceSyncService {
     return {
       fetch: this.fetchFn,
       now: () => new Date(),
-      products: async () => (await this.db.select({ sku: products.sku, price: products.sellPrice }).from(products).where(and(eq(products.tenantId, tenantId), eq(products.isActive, true))).limit(200)),
+      products: async () => (await this.repo.listProductsByIsActive(this.db, tenantId)),
     };
   }
 
@@ -164,8 +149,8 @@ export class MarketplaceSyncService {
 
   /** Pengguna yang "menjalankan" impor: pembuat koneksi, atau pemilik aktif */
   private async actor(c: Conn): Promise<AuthUser> {
-    const [u] = await this.db.select().from(users).where(and(eq(users.id, c.createdBy), eq(users.isActive, true)));
-    const [o] = u ? [u] : await this.db.select().from(users).where(and(eq(users.tenantId, c.tenantId), eq(users.role, 'OWNER'), eq(users.isActive, true))).limit(1);
+    const [u] = await this.repo.findUsersByIdAndIsActive(this.db, c.createdBy);
+    const [o] = u ? [u] : await this.repo.findUsersByRoleAndIsActive(this.db, c.tenantId);
     if (!o) throw new Error('Tidak ada pengguna aktif untuk menjalankan impor');
     return { sub: o.id, tenantId: o.tenantId, role: o.role, email: o.email };
   }
@@ -208,10 +193,7 @@ export class MarketplaceSyncService {
     const known = new Set(
       orders.length
         ? (
-            await this.db
-              .select({ orderNo: marketplaceOrders.orderNo })
-              .from(marketplaceOrders)
-              .where(and(eq(marketplaceOrders.tenantId, c.tenantId), eq(marketplaceOrders.channel, c.channel), inArray(marketplaceOrders.orderNo, orders.map((o) => o.orderNo))))
+            await this.repo.listMarketplaceOrdersByChannelAndOrderNo(this.db, c.tenantId, c.channel, orders)
           ).map((r) => r.orderNo)
         : [],
     );
@@ -239,7 +221,7 @@ export class MarketplaceSyncService {
 
   /** Dipanggil penjadwal: semua koneksi aktif */
   async syncAll() {
-    const conns = await this.db.select().from(marketplaceConnections).where(eq(marketplaceConnections.isActive, true)).orderBy(desc(marketplaceConnections.lastSyncAt));
+    const conns = await this.repo.listMarketplaceConnectionsByIsActiveAndLastSyncAt(this.db);
     for (const c of conns) {
       if (!PROVIDERS[c.provider as ProviderKey]?.configured()) continue;
       if (c.provider === 'SIMULASI') continue; // simulasi hanya saat tombol ditekan

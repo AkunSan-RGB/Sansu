@@ -13,6 +13,7 @@ import { activeGateway } from './gateways';
 import { UpdateSubscriptionDto, RejectDto, PlanDto } from './billing.dto';
 import { BillingService, DAY } from './billing.service';
 import { insertOne, patchById } from '../../db/owned';
+import { PlatformBillingRepository } from './platform-billing.repository';
 
 @Injectable()
 export class PlatformBillingService {
@@ -22,44 +23,15 @@ export class PlatformBillingService {
     private readonly mail: MailService,
     private readonly audit: AuditService,
     private readonly billing: BillingService,
+    private readonly repo: PlatformBillingRepository,
   ) {}
 
   // ===== Panel admin pemilik layanan =====
   async platformOverview() {
     const now = new Date();
-    const r = await this.db.execute<{
-      tenants: number;
-      trial: number;
-      active: number;
-      expired: number;
-      suspended: number;
-      internal: number;
-      mrr: string;
-      new30: number;
-      paid_month: string;
-      waiting: number;
-    }>(sql`
-      WITH s AS (
-        SELECT t.id, t.created_at, sub.status, sub.trial_ends_at, sub.current_period_end, sub.cycle, p.price_monthly, p.price_yearly
-        FROM tenants t LEFT JOIN subscriptions sub ON sub.tenant_id = t.id LEFT JOIN plans p ON p.id = sub.plan_id)
-      SELECT
-        COUNT(*)::int AS tenants,
-        COUNT(*) FILTER (WHERE status = 'TRIAL' AND trial_ends_at > ${now})::int AS trial,
-        COUNT(*) FILTER (WHERE status = 'ACTIVE' AND current_period_end > ${now})::int AS active,
-        COUNT(*) FILTER (WHERE (status = 'TRIAL' AND trial_ends_at <= ${now}) OR (status = 'ACTIVE' AND current_period_end <= ${now}))::int AS expired,
-        COUNT(*) FILTER (WHERE status IN ('SUSPENDED','CANCELLED'))::int AS suspended,
-        COUNT(*) FILTER (WHERE status IS NULL OR (status = 'ACTIVE' AND current_period_end IS NULL))::int AS internal,
-        COALESCE(SUM(CASE WHEN status = 'ACTIVE' AND current_period_end > ${now} THEN CASE WHEN cycle = 'YEARLY' THEN price_yearly / 12 ELSE price_monthly END END), 0)::numeric(18,2) AS mrr,
-        COUNT(*) FILTER (WHERE created_at > ${new Date(now.getTime() - 30 * DAY)})::int AS new30,
-        (SELECT COALESCE(SUM(amount), 0) FROM billing_invoices WHERE status = 'PAID' AND paid_at >= date_trunc('month', ${now}::timestamptz))::numeric(18,2) AS paid_month,
-        (SELECT COUNT(*) FROM billing_invoices WHERE status = 'WAITING')::int AS waiting
-      FROM s`);
-    const signups = await this.db.execute<{ month: string; n: number }>(sql`
-      SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS month, COUNT(*)::int AS n
-      FROM tenants WHERE created_at > now() - interval '12 months' GROUP BY 1 ORDER BY 1`);
-    const revenue = await this.db.execute<{ month: string; amount: string }>(sql`
-      SELECT to_char(date_trunc('month', paid_at), 'YYYY-MM') AS month, SUM(amount)::numeric(18,2) AS amount
-      FROM billing_invoices WHERE status = 'PAID' AND paid_at > now() - interval '12 months' GROUP BY 1 ORDER BY 1`);
+    const r = await this.repo.queryS(this.db, now);
+    const signups = await this.repo.queryTenant(this.db);
+    const revenue = await this.repo.queryBillingInvoice(this.db);
     return {
       ...r.rows[0],
       billingEnabled: (await this.subs.settings()).enabled,
@@ -133,23 +105,7 @@ export class PlatformBillingService {
 
   async platformTenants(q?: string) {
     const term = q?.trim();
-    const rows = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT t.id, t.name, t.npwp, t.created_at,
-        sub.status, sub.cycle, sub.trial_ends_at, sub.current_period_end, sub.notes,
-        p.id AS plan_id, p.name AS plan_name, p.code AS plan_code,
-        (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND u.is_active)::int AS users,
-        (SELECT MAX(u.last_login_at) FROM users u WHERE u.tenant_id = t.id) AS last_login,
-        (SELECT u.email FROM users u WHERE u.tenant_id = t.id AND u.role = 'OWNER' ORDER BY u.created_at LIMIT 1) AS owner_email,
-        (SELECT u.name FROM users u WHERE u.tenant_id = t.id AND u.role = 'OWNER' ORDER BY u.created_at LIMIT 1) AS owner_name,
-        (SELECT u.email_verified_at IS NOT NULL FROM users u WHERE u.tenant_id = t.id AND u.role = 'OWNER' ORDER BY u.created_at LIMIT 1) AS owner_verified,
-        (SELECT COUNT(*) FROM invoices i WHERE i.tenant_id = t.id)::int AS sales_invoices,
-        (SELECT COUNT(*) FROM billing_invoices b WHERE b.tenant_id = t.id AND b.status = 'WAITING')::int AS waiting
-      FROM tenants t
-      LEFT JOIN subscriptions sub ON sub.tenant_id = t.id
-      LEFT JOIN plans p ON p.id = sub.plan_id
-      ${term ? sql`WHERE t.name ILIKE ${`%${term}%`} OR EXISTS (SELECT 1 FROM users u WHERE u.tenant_id = t.id AND u.email ILIKE ${`%${term}%`})` : sql``}
-      ORDER BY t.created_at DESC
-      LIMIT 500`);
+    const rows = await this.repo.queryTenantForPlatformTenants(this.db, term);
     const settings = await this.subs.settings();
     return rows.rows.map((r) => {
       const state = SubscriptionService.compute(
@@ -169,39 +125,11 @@ export class PlatformBillingService {
   }
 
   async platformTenant(id: string) {
-    const [t] = await this.db.select().from(tenants).where(eq(tenants.id, id));
+    const [t] = await this.repo.findTenantsById(this.db, id);
     if (!t) throw new NotFoundException('Perusahaan tidak ditemukan');
-    const [sub] = await this.db.select().from(subscriptions).where(eq(subscriptions.tenantId, id));
-    const people = await this.db
-      .select({
-        id: users.id,
-        name: users.name,
-        email: users.email,
-        role: users.role,
-        isActive: users.isActive,
-        lastLoginAt: users.lastLoginAt,
-        emailVerifiedAt: users.emailVerifiedAt,
-        createdAt: users.createdAt,
-      })
-      .from(users)
-      .where(eq(users.tenantId, id))
-      .orderBy(asc(users.createdAt));
-    const invs = await this.db
-      .select({
-        id: billingInvoices.id,
-        number: billingInvoices.number,
-        amount: billingInvoices.amount,
-        status: billingInvoices.status,
-        method: billingInvoices.method,
-        cycle: billingInvoices.cycle,
-        planName: plans.name,
-        paidAt: billingInvoices.paidAt,
-        createdAt: billingInvoices.createdAt,
-      })
-      .from(billingInvoices)
-      .innerJoin(plans, eq(plans.id, billingInvoices.planId))
-      .where(eq(billingInvoices.tenantId, id))
-      .orderBy(desc(billingInvoices.createdAt));
+    const [sub] = await this.repo.findSubscriptions(this.db, id);
+    const people = await this.repo.listUsersByCreatedAt(this.db, id);
+    const invs = await this.repo.listBillingInvoicesWithPlansByCreatedAt(this.db, id);
     return {
       tenant: { id: t.id, name: t.name, npwp: t.npwp, address: t.address, createdAt: t.createdAt },
       subscription: sub ?? null,
@@ -213,13 +141,13 @@ export class PlatformBillingService {
   }
 
   async updateSubscription(actor: AuthUser, tenantId: string, dto: UpdateSubscriptionDto) {
-    const [t] = await this.db.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, tenantId));
+    const [t] = await this.repo.findTenantsByIdForUpdateSubscription(this.db, tenantId);
     if (!t) throw new NotFoundException('Perusahaan tidak ditemukan');
     if (dto.planId) {
-      const [p] = await this.db.select({ id: plans.id }).from(plans).where(eq(plans.id, dto.planId));
+      const [p] = await this.repo.findPlansById(this.db, dto.planId);
       if (!p) throw new BadRequestException('Paket tidak ditemukan');
     }
-    const [sub] = await this.db.select().from(subscriptions).where(eq(subscriptions.tenantId, tenantId));
+    const [sub] = await this.repo.findSubscriptionsForUpdateSubscription(this.db, tenantId);
     const patch: Partial<typeof subscriptions.$inferInsert> = { updatedAt: new Date() };
     if (dto.planId) patch.planId = dto.planId;
     if (dto.status) patch.status = dto.status;
@@ -245,7 +173,7 @@ export class PlatformBillingService {
     else {
       const planId =
         dto.planId ??
-        (await this.db.select({ id: plans.id }).from(plans).orderBy(asc(plans.sortOrder)).limit(1))[0]?.id;
+        (await this.repo.findPlans(this.db))[0]?.id;
       if (!planId) throw new BadRequestException('Belum ada paket');
       await this.db.insert(subscriptions).values({ tenantId, planId, status: dto.status ?? 'ACTIVE', ...patch });
     }
@@ -290,16 +218,13 @@ export class PlatformBillingService {
   }
 
   async proof(id: string) {
-    const [r] = await this.db
-      .select({ proof: billingInvoices.proof })
-      .from(billingInvoices)
-      .where(eq(billingInvoices.id, id));
+    const [r] = await this.repo.findBillingInvoicesById(this.db, id);
     if (!r?.proof) throw new NotFoundException('Bukti transfer tidak ada');
     return { proof: r.proof };
   }
 
   async reject(actor: AuthUser, id: string, dto: RejectDto) {
-    const [inv] = await this.db.select().from(billingInvoices).where(eq(billingInvoices.id, id));
+    const [inv] = await this.repo.findBillingInvoicesByIdForReject(this.db, id);
     if (!inv) throw new NotFoundException('Tagihan tidak ditemukan');
     if (inv.status !== 'WAITING')
       throw new BadRequestException('Hanya bukti yang menunggu konfirmasi yang bisa ditolak');
@@ -336,7 +261,7 @@ export class PlatformBillingService {
   }
 
   async updatePlan(id: string, dto: PlanDto) {
-    const [p] = await this.db.update(plans).set(dto).where(eq(plans.id, id)).returning();
+    const [p] = await this.repo.updatePlansById(this.db, dto, id);
     if (!p) throw new NotFoundException('Paket tidak ditemukan');
     this.subs.invalidate();
     return p;

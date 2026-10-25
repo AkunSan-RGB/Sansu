@@ -9,6 +9,7 @@ import { InjectDb } from '../../../db/db.module';
 import { TimesheetService } from './timesheets.service';
 import { ResourceDto, BookingDto, RecurringBookingDto, CancelDto, MoveDto } from './scheduling.dto';
 import { BookingsQuery, SlotQuery } from './scheduling.shared';
+import { SchedulingRepository } from './scheduling.repository';
 
 const MAX_DAYS = 14;
 
@@ -30,6 +31,7 @@ export class SchedulingService {
     @InjectDb() private readonly db: Db,
     private readonly audit: AuditService,
     private readonly timesheets: TimesheetService,
+    private readonly repo: SchedulingRepository,
   ) {}
 
   resources(tenantId: string) {
@@ -38,7 +40,7 @@ export class SchedulingService {
 
   async saveResource(u: AuthUser, dto: ResourceDto, id?: string) {
     if (dto.kind === 'PERSON' && dto.employeeId) {
-      const e = await this.db.execute(sql`SELECT 1 FROM employees WHERE id = ${dto.employeeId} AND tenant_id = ${u.tenantId}`);
+      const e = await this.repo.queryEmployee(this.db, dto.employeeId, u.tenantId);
       if (!e.rows.length) throw new BadRequestException('Karyawan tidak ditemukan');
     }
     if (dto.kind !== 'PERSON' && dto.employeeId) throw new BadRequestException('Karyawan hanya untuk sumber daya berjenis orang');
@@ -51,12 +53,12 @@ export class SchedulingService {
     const wd = dto.workDays ? [...new Set(dto.workDays.split(',').map(Number))].sort().join(',') : (cur?.work_days ?? '1,2,3,4,5,6');
     try {
       if (id) {
-        const r = await this.db.execute(sql`UPDATE scheduling_resources SET name = ${dto.name.trim()}, kind = ${dto.kind}, employee_id = ${dto.employeeId ?? null}, note = ${dto.note ?? null}, is_active = ${dto.isActive ?? true}, work_start = ${ws}, work_end = ${we}, work_days = ${wd} WHERE id = ${id} AND tenant_id = ${u.tenantId} RETURNING id`);
+        const r = await this.repo.querySaveResource(this.db, dto, ws, we, wd, id, u.tenantId);
         if (!r.rows.length) throw new NotFoundException('Sumber daya tidak ditemukan');
         await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'SchedulingResource', entityId: id, data: dto });
         return { id };
       }
-      const r = await this.db.execute<{ id: string }>(sql`INSERT INTO scheduling_resources (tenant_id, name, kind, employee_id, note, work_start, work_end, work_days) VALUES (${u.tenantId}, ${dto.name.trim()}, ${dto.kind}, ${dto.employeeId ?? null}, ${dto.note ?? null}, ${ws}, ${we}, ${wd}) RETURNING id`);
+      const r = await this.repo.querySchedulingResource(this.db, u.tenantId, dto, ws, we, wd);
       await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'SchedulingResource', entityId: r.rows[0].id, data: dto });
       return { id: r.rows[0].id };
     } catch (e) {
@@ -76,10 +78,7 @@ export class SchedulingService {
 
   /** Pemesanan aktif yang bertabrakan dengan rentang ini (sumber daya sudah terkunci oleh pemanggil) */
   private async conflicts(tx: Tx | Db, tenantId: string, resourceId: string, s: Date, e: Date, exceptId?: string) {
-    const r = await tx.execute<{ id: string; title: string; starts_at: Date; ends_at: Date }>(sql`
-      SELECT id, title, starts_at, ends_at FROM resource_bookings
-      WHERE tenant_id = ${tenantId} AND resource_id = ${resourceId} AND status = 'BOOKED' AND starts_at < ${e.toISOString()}::timestamptz AND ends_at > ${s.toISOString()}::timestamptz ${exceptId ? sql`AND id <> ${exceptId}` : sql``}
-      ORDER BY starts_at`);
+    const r = await this.repo.queryResourceBooking(tx, tenantId, resourceId, e, s, exceptId);
     return r.rows;
   }
 
@@ -92,7 +91,7 @@ export class SchedulingService {
     if (!res.employee_id) return [];
     const d1 = new Date(s.getTime() + WIB).toISOString().slice(0, 10);
     const d2 = new Date(e.getTime() - 1 + WIB).toISOString().slice(0, 10);
-    const r = await tx.execute<{ start_date: string; end_date: string; type: string }>(sql`SELECT start_date, end_date, type FROM leave_requests WHERE tenant_id = ${tenantId} AND employee_id = ${res.employee_id} AND status = 'APPROVED' AND start_date <= ${d2}::date AND end_date >= ${d1}::date ORDER BY start_date`);
+    const r = await this.repo.queryLeaveRequest(tx, tenantId, res.employee_id, d2, d1);
     return r.rows;
   }
 
@@ -124,13 +123,13 @@ export class SchedulingService {
   private async validateLinks(tx: Tx, tenantId: string, projectId?: string, customerId?: string) {
     let cust = customerId ?? null;
     if (projectId) {
-      const p = (await tx.execute<{ customer_id: string; status: string }>(sql`SELECT customer_id, status FROM projects WHERE id = ${projectId} AND tenant_id = ${tenantId}`)).rows[0];
+      const p = (await this.repo.queryProject(tx, projectId, tenantId)).rows[0];
       if (!p) throw new BadRequestException('Proyek tidak ditemukan');
       if (cust && cust !== p.customer_id) throw new BadRequestException('Proyek ini milik pelanggan lain');
       cust = p.customer_id;
     }
     if (cust) {
-      const c = await tx.execute(sql`SELECT 1 FROM customers WHERE id = ${cust} AND tenant_id = ${tenantId}`);
+      const c = await this.repo.queryCustomer(tx, cust, tenantId);
       if (!c.rows.length) throw new BadRequestException('Pelanggan tidak ditemukan');
     }
     return cust;
@@ -187,7 +186,7 @@ export class SchedulingService {
       const b = await this.lockBooking(tx, u.tenantId, id);
       const sid = (b as Booking & { series_id: string | null }).series_id;
       if (!sid) throw new BadRequestException('Pemesanan ini bukan bagian dari seri berulang');
-      const r = await tx.execute<{ id: string }>(sql`UPDATE resource_bookings SET status = 'CANCELLED', cancel_reason = ${dto.reason} WHERE tenant_id = ${u.tenantId} AND series_id = ${sid} AND status = 'BOOKED' AND starts_at >= ${new Date(b.starts_at).toISOString()}::timestamptz RETURNING id`);
+      const r = await this.repo.queryCancelSeries(tx, dto.reason, u.tenantId, sid, b.starts_at);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CANCEL', entity: 'ResourceBookingSeries', entityId: sid, data: { reason: dto.reason, cancelled: r.rows.length, from: b.starts_at } });
       return r.rows.length;
     });
@@ -221,7 +220,7 @@ export class SchedulingService {
     await this.db.transaction(async (tx) => {
       const b = await this.lockBooking(tx, u.tenantId, id);
       if (b.status !== 'BOOKED') throw new BadRequestException('Hanya pemesanan aktif yang dapat dibatalkan');
-      await tx.execute(sql`UPDATE resource_bookings SET status = 'CANCELLED', cancel_reason = ${dto.reason} WHERE id = ${id}`);
+      await this.repo.queryCancel(tx, dto.reason, id);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CANCEL', entity: 'ResourceBooking', entityId: id, data: { reason: dto.reason, title: b.title } });
     });
     return this.get(u.tenantId, id);
@@ -232,7 +231,7 @@ export class SchedulingService {
       const b = await this.lockBooking(tx, u.tenantId, id);
       if (b.status !== 'BOOKED') throw new BadRequestException('Hanya pemesanan aktif yang dapat ditandai selesai');
       if (new Date(b.starts_at) > new Date()) throw new BadRequestException('Pemesanan yang belum dimulai tidak bisa ditandai selesai');
-      await tx.execute(sql`UPDATE resource_bookings SET status = 'DONE' WHERE id = ${id}`);
+      await this.repo.queryDone(tx, id);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'ResourceBooking', entityId: id, data: { status: 'DONE' } });
     });
     return this.get(u.tenantId, id);
@@ -246,13 +245,13 @@ export class SchedulingService {
     if (!b.customer_id && !b.project_id) throw new BadRequestException('Pemesanan belum terkait pelanggan/proyek');
     if (b.status === 'CANCELLED') throw new BadRequestException('Pemesanan sudah dibatalkan');
     if (new Date(b.starts_at) > new Date()) throw new BadRequestException('Pemesanan belum dimulai');
-    const exist = await this.db.execute(sql`SELECT 1 FROM time_entries WHERE booking_id = ${id}`);
+    const exist = await this.repo.queryTimeEntry(this.db, id);
     if (exist.rows.length) throw new BadRequestException('Pemesanan ini sudah dijadikan catatan waktu');
     const hours = Math.min(16, Math.max(0.25, Math.round(((new Date(b.ends_at).getTime() - new Date(b.starts_at).getTime()) / 3_600_000) * 4) / 4));
     const workDate = new Date(new Date(b.starts_at).getTime() + WIB).toISOString().slice(0, 10);
     const entry = (await this.timesheets.create(u, { employeeId: b.employee_id, projectId: b.project_id ?? undefined, customerId: b.customer_id ?? undefined, workDate, hours: String(hours), description: b.title })) as { id: string };
-    await this.db.execute(sql`UPDATE time_entries SET booking_id = ${id} WHERE id = ${entry.id}`);
-    await this.db.execute(sql`UPDATE resource_bookings SET status = 'DONE' WHERE id = ${id} AND status = 'BOOKED'`);
+    await this.repo.queryToTimeEntry(this.db, id, entry.id);
+    await this.repo.queryToTimeEntryForToTimeEntry(this.db, id);
     return entry;
   }
 
@@ -265,14 +264,7 @@ export class SchedulingService {
   async list(tenantId: string, q: BookingsQuery, onlyId?: string) {
     const from = q.from ?? addDays(todayJakarta(), -7);
     const to = q.to ?? addDays(todayJakarta(), 30);
-    const r = await this.db.execute(sql`
-      SELECT b.id, b.resource_id AS "resourceId", r.name AS "resourceName", r.kind, b.title, b.starts_at AS "startsAt", b.ends_at AS "endsAt", b.status, b.note, b.cancel_reason AS "cancelReason",
-             b.customer_id AS "customerId", c.name AS "customerName", b.project_id AS "projectId", p.name AS "projectName", b.series_id AS "seriesId", b.off_hours AS "offHours"
-      FROM resource_bookings b JOIN scheduling_resources r ON r.id = b.resource_id LEFT JOIN customers c ON c.id = b.customer_id LEFT JOIN projects p ON p.id = b.project_id
-      WHERE b.tenant_id = ${tenantId}
-        ${onlyId ? sql`AND b.id = ${onlyId}` : sql`AND b.starts_at < (${to}::date + 1)::timestamptz AND b.ends_at > ${from}::date::timestamptz`}
-        ${q.resourceId ? sql`AND b.resource_id = ${q.resourceId}` : sql``}
-      ORDER BY b.starts_at LIMIT 1000`);
+    const r = await this.repo.queryResourceBookingForList(this.db, tenantId, onlyId, to, from, q);
     return r.rows as Record<string, unknown>[];
   }
 
@@ -310,8 +302,8 @@ export class SchedulingService {
       FROM resource_bookings b JOIN scheduling_resources r ON r.id = b.resource_id
       WHERE b.tenant_id = ${tenantId} AND b.status = 'BOOKED' AND r.kind = 'PERSON' AND b.starts_at > now() - interval '7 days'
       GROUP BY r.name, (b.starts_at AT TIME ZONE 'Asia/Jakarta')::date HAVING SUM(EXTRACT(EPOCH FROM (b.ends_at - b.starts_at)) / 3600) > ${OVERLOAD_HOURS} ORDER BY 2 LIMIT 50`);
-    const stale = await this.db.execute(sql`SELECT b.id, b.title, r.name AS resource, b.ends_at AS "endsAt" FROM resource_bookings b JOIN scheduling_resources r ON r.id = b.resource_id WHERE b.tenant_id = ${tenantId} AND b.status = 'BOOKED' AND b.ends_at < now() - interval '1 day' ORDER BY b.ends_at LIMIT 50`);
-    const offHours = await this.db.execute(sql`SELECT b.id, b.title, r.name AS resource, b.starts_at AS "startsAt" FROM resource_bookings b JOIN scheduling_resources r ON r.id = b.resource_id WHERE b.tenant_id = ${tenantId} AND b.status = 'BOOKED' AND b.off_hours AND b.ends_at > now() - interval '7 days' ORDER BY b.starts_at LIMIT 50`);
+    const stale = await this.repo.queryResourceBookingForControls(this.db, tenantId);
+    const offHours = await this.repo.queryResourceBookingForControls2(this.db, tenantId);
     return { overloadedPeople: overloaded.rows, notCompleted: stale.rows, offHours: offHours.rows, overloadHours: OVERLOAD_HOURS };
   }
 }

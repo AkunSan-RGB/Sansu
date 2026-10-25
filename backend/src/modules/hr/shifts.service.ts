@@ -10,6 +10,7 @@ import { InjectDb } from '../../db/db.module';
 import { employees, serviceRates, shiftAssignments, shiftTemplates } from '../../db/schema';
 import { CreateTemplateDto, UpdateTemplateDto, AssignDto, RosterQueryDto } from './shifts.dto';
 import { findOwned, insertOne } from '../../db/owned';
+import { ShiftsRepository } from './shifts.repository';
 
 export const SHIFT_RULES = { maxPerDay: 2, minRestHours: 8, maxConsecutiveDays: 6, normalWeekHours: 40, maxWeekHours: 58, maxAheadDays: 90 } as const;
 
@@ -56,6 +57,7 @@ export class ShiftsService {
     @InjectDb() private readonly db: Db,
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
+    private readonly repo: ShiftsRepository,
   ) {}
 
   private async requireShiftModel(tenantId: string) {
@@ -65,17 +67,13 @@ export class ShiftsService {
 
   /** Nama pegawai aktif untuk memilih petugas shift — tanpa data gaji/rekening, jadi aman dibuka untuk Admin */
   async staff(u: AuthUser) {
-    const r = await this.db.execute<{ id: string; code: string; name: string; jobTitle: string | null; isActive: boolean }>(sql`
-      SELECT id, code, name, job_title AS "jobTitle", is_active AS "isActive" FROM employees WHERE tenant_id = ${u.tenantId} AND is_active ORDER BY name`);
+    const r = await this.repo.queryEmployee(this.db, u.tenantId);
     return r.rows;
   }
 
   async templates(u: AuthUser) {
     await this.requireShiftModel(u.tenantId);
-    const rows = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT t.id, t.name, t.start_time AS "startTime", t.end_time AS "endTime", t.min_staff AS "minStaff", t.premium_rate_id AS "premiumRateId", t.is_active AS "isActive",
-             sr.name AS "premiumRateName", sr.rate AS "premiumRate"
-      FROM shift_templates t LEFT JOIN service_rates sr ON sr.id = t.premium_rate_id WHERE t.tenant_id = ${u.tenantId} ORDER BY t.start_time, t.name`);
+    const rows = await this.repo.queryShiftTemplate(this.db, u.tenantId);
     return rows.rows.map((r) => ({ ...r, hours: Number((shiftMinutes(r.startTime as string, r.endTime as string) / 60).toFixed(1)) })) as (Record<string, unknown> & { hours: number })[];
   }
 
@@ -90,7 +88,7 @@ export class ShiftsService {
     const mins = shiftMinutes(dto.startTime, dto.endTime);
     if (dto.startTime === dto.endTime || mins < 60 || mins > 14 * 60) throw new BadRequestException('Lama shift 1–14 jam');
     await this.checkRate(u.tenantId, dto.premiumRateId);
-    const [dup] = await this.db.select({ id: shiftTemplates.id }).from(shiftTemplates).where(and(eq(shiftTemplates.tenantId, u.tenantId), eq(shiftTemplates.name, dto.name.trim())));
+    const [dup] = await this.repo.findShiftTemplatesByName(this.db, u.tenantId, dto.name);
     if (dup) throw new BadRequestException('Nama shift sudah dipakai');
     const row = await insertOne(this.db, shiftTemplates, { tenantId: u.tenantId, name: dto.name.trim(), startTime: dto.startTime, endTime: dto.endTime, minStaff: dto.minStaff ?? 1, premiumRateId: dto.premiumRateId ?? null, createdById: u.sub });
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'ShiftTemplate', entityId: row.id, data: { name: row.name, start: row.startTime, end: row.endTime } });
@@ -102,7 +100,7 @@ export class ShiftsService {
     const t = await findOwned(this.db, shiftTemplates, u.tenantId, id);
     if (!t) throw new NotFoundException('Shift tidak ditemukan');
     if (dto.premiumRateId !== undefined) await this.checkRate(u.tenantId, dto.premiumRateId);
-    const [row] = await this.db.update(shiftTemplates).set({ minStaff: dto.minStaff, premiumRateId: dto.premiumRateId, isActive: dto.isActive }).where(eq(shiftTemplates.id, id)).returning();
+    const [row] = await this.repo.updateShiftTemplatesById(this.db, dto.minStaff, dto.premiumRateId, dto.isActive, id);
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'ShiftTemplate', entityId: id, data: { before: { minStaff: t.minStaff, premiumRateId: t.premiumRateId, isActive: t.isActive }, after: { minStaff: row.minStaff, premiumRateId: row.premiumRateId, isActive: row.isActive } } });
     return row;
   }
@@ -113,17 +111,15 @@ export class ShiftsService {
     if (date < today) throw new BadRequestException('Jadwal hanya untuk hari ini dan ke depan');
     if (date > addDays(today, SHIFT_RULES.maxAheadDays)) throw new BadRequestException(`Jadwal maksimal ${SHIFT_RULES.maxAheadDays} hari ke depan`);
     return this.db.transaction(async (tx) => {
-      const lock = await tx.execute(sql`SELECT id FROM employees WHERE id = ${employeeId} AND tenant_id = ${u.tenantId} FOR UPDATE`);
+      const lock = await this.repo.queryEmployeeForAssignOne(tx, employeeId, u.tenantId);
       if (!lock.rows.length) throw new NotFoundException('Pegawai tidak ditemukan');
-      const [emp] = await tx.select().from(employees).where(eq(employees.id, employeeId));
+      const [emp] = await this.repo.findEmployeesById(tx, employeeId);
       if (!emp.isActive || !emp.verified) throw new BadRequestException(`${emp.name}: pegawai tidak aktif / belum diverifikasi`);
       if (emp.userId && emp.userId === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Anda tidak dapat menjadwalkan diri sendiri (premi shift)');
       if (date < emp.joinDate || (emp.resignDate && date > emp.resignDate) || (emp.contractEnd && date > emp.contractEnd)) throw new BadRequestException(`${emp.name}: di luar masa kerja / kontrak pada ${date}`);
-      const leave = await tx.execute(sql`SELECT 1 FROM leave_requests WHERE employee_id = ${employeeId} AND status = 'APPROVED' AND start_date <= ${date} AND end_date >= ${date} LIMIT 1`);
+      const leave = await this.repo.queryLeaveRequest(tx, employeeId, date);
       if (leave.rows.length) throw new BadRequestException(`${emp.name}: cuti yang disetujui pada ${date}`);
-      const near = await tx.execute<{ id: string; work_date: string; start_time: string; end_time: string; template_id: string }>(sql`
-        SELECT a.id, a.work_date::text, t.start_time, t.end_time, a.template_id FROM shift_assignments a JOIN shift_templates t ON t.id = a.template_id
-        WHERE a.employee_id = ${employeeId} AND a.work_date BETWEEN ${addDays(date, -8)} AND ${addDays(date, 8)}`);
+      const near = await this.repo.queryShiftAssignment(tx, employeeId, date);
       if (near.rows.some((a) => a.work_date === date && a.template_id === tpl.id)) throw new BadRequestException(`${emp.name}: sudah dijadwalkan di shift ini`);
       if (near.rows.filter((a) => a.work_date === date).length >= SHIFT_RULES.maxPerDay) throw new BadRequestException(`${emp.name}: maksimal ${SHIFT_RULES.maxPerDay} shift per hari`);
       const [ns, ne] = interval(date, tpl.startTime, tpl.endTime);
@@ -141,12 +137,11 @@ export class ShiftsService {
       if (run > SHIFT_RULES.maxConsecutiveDays) throw new BadRequestException(`${emp.name}: lebih dari ${SHIFT_RULES.maxConsecutiveDays} hari kerja berturut-turut`);
       // jam per minggu
       const ws = weekStart(date);
-      const week = await tx.execute<{ start_time: string; end_time: string }>(sql`
-        SELECT t.start_time, t.end_time FROM shift_assignments a JOIN shift_templates t ON t.id = a.template_id WHERE a.employee_id = ${employeeId} AND a.work_date BETWEEN ${ws} AND ${addDays(ws, 6)}`);
+      const week = await this.repo.queryShiftAssignmentForAssignOne(tx, employeeId, ws);
       const hours = (week.rows.reduce((a, r) => a + shiftMinutes(r.start_time, r.end_time), 0) + shiftMinutes(tpl.startTime, tpl.endTime)) / 60;
       if (hours > SHIFT_RULES.maxWeekHours) throw new BadRequestException(`${emp.name}: ${hours.toFixed(1)} jam dalam seminggu melebihi batas ${SHIFT_RULES.maxWeekHours} jam`);
       const warnings = hours > SHIFT_RULES.normalWeekHours ? [`${emp.name}: ${hours.toFixed(1)} jam minggu ini melebihi ${SHIFT_RULES.normalWeekHours} jam normal (selisihnya lembur)`] : [];
-      const [row] = await tx.insert(shiftAssignments).values({ tenantId: u.tenantId, employeeId, templateId: tpl.id, workDate: date, createdById: u.sub }).returning({ id: shiftAssignments.id });
+      const [row] = await this.repo.insertShiftAssignments(tx, u.tenantId, employeeId, tpl.id, date, u.sub);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'ShiftAssignment', entityId: row.id, data: { employee: emp.code, date, shift: tpl.name } });
       return { id: row.id, warnings };
     });
@@ -175,9 +170,9 @@ export class ShiftsService {
     const a = await findOwned(this.db, shiftAssignments, u.tenantId, id);
     if (!a) throw new NotFoundException('Penugasan tidak ditemukan');
     if (a.workDate < todayJakarta()) throw new BadRequestException('Jadwal yang sudah lewat tidak bisa diubah');
-    const used = await this.db.execute(sql`SELECT 1 FROM service_work_entries WHERE shift_assignment_id = ${id} AND status IN ('PENDING','APPROVED') LIMIT 1`);
+    const used = await this.repo.queryServiceWorkEntry(this.db, id);
     if (used.rows.length) throw new BadRequestException('Penugasan ini sudah punya premi shift; batalkan premi dulu');
-    await this.db.delete(shiftAssignments).where(eq(shiftAssignments.id, id));
+    await this.repo.deleteShiftAssignmentsById(this.db, id);
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'DELETE', entity: 'ShiftAssignment', entityId: id, data: { date: a.workDate } });
     return { id };
   }
@@ -187,13 +182,7 @@ export class ShiftsService {
     await this.requireShiftModel(u.tenantId);
     if (q.to < q.from || dayIdx(q.to) - dayIdx(q.from) > 42) throw new BadRequestException('Rentang jadwal maksimal 6 minggu');
     await generateShiftPremiums(this.db, u.tenantId, todayJakarta());
-    const rows = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT a.id, a.employee_id AS "employeeId", e.code AS "employeeCode", e.name AS "employeeName", a.template_id AS "templateId", t.name AS "templateName",
-             a.work_date::text AS "workDate", t.start_time AS "startTime", t.end_time AS "endTime",
-             (SELECT w.status FROM service_work_entries w WHERE w.shift_assignment_id = a.id AND w.status IN ('PENDING','APPROVED') LIMIT 1) AS "premiumStatus",
-             (SELECT at.status::text FROM attendances at WHERE at.employee_id = a.employee_id AND at.date = a.work_date) AS "attendance"
-      FROM shift_assignments a JOIN employees e ON e.id = a.employee_id JOIN shift_templates t ON t.id = a.template_id
-      WHERE a.tenant_id = ${u.tenantId} AND a.work_date BETWEEN ${q.from} AND ${q.to} ORDER BY a.work_date, t.start_time, e.name`);
+    const rows = await this.repo.queryShiftAssignmentForRoster(this.db, u.tenantId, q.from, q.to);
     const tpls = await this.templates(u);
     const gaps: { date: string; templateId: string; templateName: string; need: number; have: number }[] = [];
     for (let d = dayIdx(q.from); d <= dayIdx(q.to); d++) {

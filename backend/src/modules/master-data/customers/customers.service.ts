@@ -11,6 +11,7 @@ import { partyNameKey } from '../../../common/utils/party-name';
 import { CreateCustomerDto, UpdateCustomerDto } from './customers.dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
 import { insertOne } from '../../../db/owned';
+import { CustomersRepository } from './customers.repository';
 
 @Injectable()
 export class CustomersService {
@@ -19,6 +20,7 @@ export class CustomersService {
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: CustomersRepository,
   ) {}
 
   list(tenantId: string, q?: string) {
@@ -38,17 +40,14 @@ export class CustomersService {
   async get(tenantId: string, id: string) {
     const c = await this.refs.customer(this.db, tenantId, id);
     if (!c) throw new NotFoundException('Pelanggan tidak ditemukan');
-    const [open] = await this.db
-      .select({ outstanding: sql<string>`COALESCE(SUM(${invoices.total} - ${invoices.paidAmount} - ${invoices.returnedAmount}), 0)` })
-      .from(invoices)
-      .where(and(eq(invoices.tenantId, tenantId), eq(invoices.customerId, id), ne(invoices.status, 'PAID')));
+    const [open] = await this.repo.sumInvoicesByCustomerIdAndStatus(this.db, tenantId, id);
     return { ...c, outstanding: D(open.outstanding).toFixed(2) };
   }
 
   /** Daftar harga harus milik perusahaan yang sama (kunci asing saja tidak membatasi per perusahaan) */
   private async checkPriceList(tenantId: string, priceListId?: string | null) {
     if (!priceListId) return;
-    const [l] = await this.db.select({ id: priceLists.id }).from(priceLists).where(and(eq(priceLists.id, priceListId), eq(priceLists.tenantId, tenantId)));
+    const [l] = await this.repo.findPriceListsById(this.db, priceListId, tenantId);
     if (!l) throw new BadRequestException('Daftar harga tidak ditemukan');
   }
 
@@ -76,7 +75,7 @@ export class CustomersService {
     const npwp = dto.npwp?.replace(/\D/g, '') ?? '';
     const key = dto.name ? partyNameKey(dto.name) : '';
     if (npwp.length < 10 && !key) return null;
-    const all = await this.db.select({ id: customers.id, code: customers.code, name: customers.name, npwp: customers.npwp }).from(customers).where(eq(customers.tenantId, u.tenantId));
+    const all = await this.repo.listCustomers(this.db, u.tenantId);
     const dup = all.filter((o) => o.id !== exceptId && ((npwp.length >= 10 && (o.npwp ?? '').replace(/\D/g, '') === npwp) || (key && partyNameKey(o.name) === key)));
     if (!dup.length) return null;
     if (!dto.confirmDuplicate) {

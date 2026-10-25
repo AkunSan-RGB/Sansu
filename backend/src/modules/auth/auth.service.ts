@@ -41,6 +41,7 @@ import {
 import { LoginLimiter } from './login-limiter';
 import { TenantSetupService } from './tenant-setup.service';
 import { insertOne, patchById } from '../../db/owned';
+import { AuthRepository } from './auth.repository';
 
 type UserRow = typeof users.$inferSelect;
 // hash bcrypt dari string acak — dipakai saat email tidak ditemukan
@@ -60,6 +61,7 @@ export class AuthService {
     private readonly twoFactor: TwoFactorPolicy,
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
+    private readonly repo: AuthRepository,
   ) {}
 
   /** Daftar perusahaan baru (self-service trial) + user OWNER. */
@@ -117,7 +119,7 @@ export class AuthService {
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-    const [user] = await this.db.select().from(users).where(eq(users.email, email));
+    const [user] = await this.repo.findUsersByEmail(this.db, email);
     // tetap jalankan bcrypt walau email tidak ada, agar waktu respons tidak membocorkan email terdaftar
     const ok = await bcrypt.compare(dto.password, user?.passwordHash ?? DUMMY_HASH);
     if (!user || !user.isActive || !ok) {
@@ -159,7 +161,7 @@ export class AuthService {
       throw new UnauthorizedException('Waktu verifikasi habis. Silakan masuk lagi.');
     }
     if (c.k !== '2fa') throw new UnauthorizedException('Permintaan tidak valid');
-    const [user] = await this.db.select().from(users).where(eq(users.id, c.sub));
+    const [user] = await this.repo.findUsersById(this.db, c.sub);
     if (!user || !user.isActive || user.tokenVersion !== c.tv || !user.totpEnabledAt || !user.totpSecret)
       throw new UnauthorizedException('Silakan masuk lagi.');
     const wait = this.limiter.lockedMinutes(user.email);
@@ -193,7 +195,7 @@ export class AuthService {
 
   /** Ganti sandi sendiri: semua sesi lain otomatis keluar, sesi ini mendapat token baru */
   async changePassword(u: AuthUser, dto: ChangePasswordDto) {
-    const [user] = await this.db.select().from(users).where(eq(users.id, u.sub));
+    const [user] = await this.repo.findUsersById(this.db, u.sub);
     if (!user || !(await bcrypt.compare(dto.currentPassword, user.passwordHash))) {
       throw new BadRequestException('Kata sandi lama salah');
     }
@@ -218,13 +220,8 @@ export class AuthService {
   private async createToken(userId: string, purpose: 'RESET' | 'VERIFY', ttlMs: number) {
     const token = randomToken();
     await this.db.transaction(async (tx) => {
-      await tx
-        .update(authTokens)
-        .set({ usedAt: new Date() })
-        .where(and(eq(authTokens.userId, userId), eq(authTokens.purpose, purpose), isNull(authTokens.usedAt)));
-      await tx
-        .insert(authTokens)
-        .values({ userId, purpose, tokenHash: sha256(token), expiresAt: new Date(Date.now() + ttlMs) });
+      await this.repo.updateAuthTokensByUserIdAndPurposeAndUsedAt(tx, userId, purpose);
+      await this.repo.insertAuthTokens(tx, userId, purpose, token, ttlMs);
     });
     return token;
   }
@@ -234,7 +231,7 @@ export class AuthService {
    * bermasalah). Tautan berlaku 1 jam, sekali pakai, mencabut tautan lama, dan pembuatannya dicatat di jejak audit.
    */
   async issueResetLink(actor: { sub: string }, userId: string) {
-    const [user] = await this.db.select().from(users).where(eq(users.id, userId));
+    const [user] = await this.repo.findUsersByIdForIssueResetLink(this.db, userId);
     if (!user) throw new BadRequestException('Pengguna tidak ditemukan');
     if (!user.isActive) throw new BadRequestException('Akun pengguna ini nonaktif');
     const token = await this.createToken(user.id, 'RESET', 60 * 60_000);
@@ -244,18 +241,7 @@ export class AuthService {
 
   /** Ambil & tandai token terpakai (atomik — token tidak bisa dipakai dua kali) */
   private async consumeToken(token: string, purpose: 'RESET' | 'VERIFY') {
-    const [row] = await this.db
-      .update(authTokens)
-      .set({ usedAt: new Date() })
-      .where(
-        and(
-          eq(authTokens.tokenHash, sha256(token)),
-          eq(authTokens.purpose, purpose),
-          isNull(authTokens.usedAt),
-          gt(authTokens.expiresAt, new Date()),
-        ),
-      )
-      .returning();
+    const [row] = await this.repo.updateAuthTokensByTokenHashAndPurposeAndUsedAt(this.db, token, purpose);
     if (!row) {
       throw new BadRequestException(
         purpose === 'RESET'
@@ -268,16 +254,7 @@ export class AuthService {
 
   /** Terlalu sering? (satu email per menit per pengguna & keperluan) */
   private async recentlySent(userId: string, purpose: 'RESET' | 'VERIFY') {
-    const [r] = await this.db
-      .select({ id: authTokens.id })
-      .from(authTokens)
-      .where(
-        and(
-          eq(authTokens.userId, userId),
-          eq(authTokens.purpose, purpose),
-          gt(authTokens.createdAt, new Date(Date.now() - 60_000)),
-        ),
-      );
+    const [r] = await this.repo.findAuthTokensByUserIdAndPurposeAndCreatedAt(this.db, userId, purpose);
     return !!r;
   }
 
@@ -301,7 +278,7 @@ export class AuthService {
   /** Selalu menjawab sama, agar tidak bisa dipakai menebak email yang terdaftar */
   async forgotPassword(dto: ForgotPasswordDto) {
     const email = dto.email.toLowerCase();
-    const [user] = await this.db.select().from(users).where(eq(users.email, email));
+    const [user] = await this.repo.findUsersByEmail(this.db, email);
     // Alasan tidak mengirim hanya dicatat di log server (jawaban ke klien selalu sama agar email terdaftar tidak bisa ditebak)
     if (!user) this.logger.warn(`Lupa sandi: email ${email} tidak terdaftar — tidak ada email dikirim`);
     else if (!user.isActive) this.logger.warn(`Lupa sandi: akun ${email} nonaktif — tidak ada email dikirim`);
@@ -366,7 +343,7 @@ export class AuthService {
   /** Kirim ulang tautan verifikasi dari layar masuk (belum login). Jawaban selalu sama agar email terdaftar tidak bisa ditebak */
   async resendVerificationByEmail(emailRaw: string) {
     const email = emailRaw.trim().toLowerCase();
-    const [user] = await this.db.select().from(users).where(eq(users.email, email));
+    const [user] = await this.repo.findUsersByEmail(this.db, email);
     if (user && user.isActive && !user.emailVerifiedAt && !(await this.recentlySent(user.id, 'VERIFY'))) {
       await this.sendVerification(user);
     }
@@ -374,7 +351,7 @@ export class AuthService {
   }
 
   async resendVerification(u: AuthUser) {
-    const [user] = await this.db.select().from(users).where(eq(users.id, u.sub));
+    const [user] = await this.repo.findUsersById(this.db, u.sub);
     if (!user) throw new UnauthorizedException();
     if (user.emailVerifiedAt) return { ok: true, alreadyVerified: true };
     if (await this.recentlySent(user.id, 'VERIFY'))
@@ -387,25 +364,7 @@ export class AuthService {
   }
 
   async me(u: AuthUser) {
-    const [row] = await this.db
-      .select({
-        id: users.id,
-        name: users.name,
-        email: users.email,
-        role: users.role,
-        tenantId: tenants.id,
-        tenantName: tenants.name,
-        ppnRate: tenants.ppnRate,
-        emailVerifiedAt: users.emailVerifiedAt,
-        warehouseIds: users.warehouseIds,
-        branchIds: users.branchIds,
-        totpEnabledAt: users.totpEnabledAt,
-        customRoleName: customRoles.name,
-      })
-      .from(users)
-      .innerJoin(tenants, eq(tenants.id, users.tenantId))
-      .leftJoin(customRoles, eq(customRoles.id, users.customRoleId))
-      .where(eq(users.id, u.sub));
+    const [row] = await this.repo.findUsersWithTenantsAndCustomRolesById(this.db, u.sub);
     const { emailVerifiedAt, totpEnabledAt, customRoleName, ...rest } = row;
     return {
       ...rest,
@@ -417,7 +376,7 @@ export class AuthService {
       multiBranch: await this.multiBranch(u.tenantId),
       recipeTerm: (await this.settings.section(this.db, u.tenantId, 'terms', { recipe: 'Resep' })).recipe,
       demo: await this.demoInfo(u.tenantId),
-      hasBudget: !!(await this.db.select({ id: budgets.id }).from(budgets).where(eq(budgets.tenantId, u.tenantId)).limit(1))[0],
+      hasBudget: !!(await this.repo.findBudgets(this.db, u.tenantId))[0],
       framework: (await this.settings.reporting(this.db, u.tenantId)).framework,
       taxProfile: await this.settings.taxProfile(this.db, u.tenantId),
       taxFeatures: await this.taxFeatures(u.tenantId),
@@ -435,9 +394,7 @@ export class AuthService {
       this.settings.taxProfile(this.db, tenantId),
       this.settings.reporting(this.db, tenantId),
     ]);
-    const withheld = await this.db.execute<{ n: boolean }>(
-      sql`SELECT EXISTS (SELECT 1 FROM invoices WHERE tenant_id = ${tenantId} AND withholding_amount > 0) AS n`,
-    );
+    const withheld = await this.repo.queryTaxFeatures(this.db, tenantId);
     return taxFeatures({ model, pkp: tax.pkp, taxScheme: reporting.taxScheme, hasData: { withheldByCustomers: !!withheld.rows[0]?.n } });
   }
 
@@ -468,7 +425,7 @@ export class AuthService {
       throw new BadRequestException('Hanya OWNER yang bisa membuat OWNER');
     if (dto.customRoleId) {
       if (actor.role !== 'OWNER') throw new ForbiddenException('Hanya Pemilik yang dapat menetapkan peran khusus');
-      const [cr] = await this.db.select({ baseRole: customRoles.baseRole }).from(customRoles).where(and(eq(customRoles.id, dto.customRoleId), eq(customRoles.tenantId, actor.tenantId)));
+      const [cr] = await this.repo.findCustomRolesById(this.db, dto.customRoleId, actor.tenantId);
       if (!cr) throw new BadRequestException('Peran khusus tidak ditemukan');
       if (cr.baseRole !== role) throw new BadRequestException('Peran khusus harus turunan dari peran dasar yang dipilih');
     }
@@ -504,20 +461,20 @@ export class AuthService {
   private async multiBranch(tenantId: string) {
     const flag = await this.settings.section(this.db, tenantId, 'branches', { enabled: false });
     if (flag.enabled) return true;
-    const [b] = await this.db.select({ id: branches.id }).from(branches).where(eq(branches.tenantId, tenantId)).limit(1);
+    const [b] = await this.repo.findBranches(this.db, tenantId);
     return !!b;
   }
 
   private async normalizeBranchIds(tenantId: string, ids?: string[]) {
     const uniq = [...new Set(ids ?? [])];
     if (!uniq.length) return null;
-    const rows = await this.db.select({ id: branches.id }).from(branches).where(and(eq(branches.tenantId, tenantId), inArray(branches.id, uniq)));
+    const rows = await this.repo.listBranchesById(this.db, tenantId, uniq);
     if (rows.length !== uniq.length) throw new BadRequestException('Ada cabang yang tidak ditemukan');
     return uniq;
   }
 
   private async assertEmailFree(email: string) {
-    const [exists] = await this.db.select({ id: users.id }).from(users).where(eq(users.email, email));
+    const [exists] = await this.repo.findUsersByEmailForAssertEmailFree(this.db, email);
     if (exists) throw new ConflictException('Email sudah terdaftar');
   }
 

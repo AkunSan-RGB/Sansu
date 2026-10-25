@@ -12,6 +12,7 @@ import { PostingService } from './posting.service';
 import { AccountingRepository } from './accounting.repository';
 import { AccountingService, nextOccurrence } from './accounting.service';
 import { insertOne, patchById } from '../../db/owned';
+import { RecurringJournalsRepository } from './recurring-journals.repository';
 
 @Injectable()
 export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
@@ -25,6 +26,7 @@ export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
     private readonly audit: AuditService,
     private readonly repo: AccountingRepository,
     private readonly accounting: AccountingService,
+    private readonly queries: RecurringJournalsRepository,
   ) {}
 
   /** Jurnal berulang dijalankan otomatis setiap jam untuk semua perusahaan */
@@ -77,20 +79,13 @@ export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
         'Jurnal berulang',
       );
     }
-    const [r] = await this.db
-      .update(recurringJournals)
-      .set({ ...dto, nextDate: dto.nextDate ? toDocDate(dto.nextDate) : undefined })
-      .where(and(eq(recurringJournals.id, id), eq(recurringJournals.tenantId, user.tenantId)))
-      .returning();
+    const [r] = await this.queries.updateRecurringJournalsById(this.db, dto, id, user.tenantId);
     if (!r) throw new NotFoundException('Jurnal berulang tidak ditemukan');
     return r;
   }
 
   async deleteRecurring(user: AuthUser, id: string) {
-    const gone = await this.db
-      .delete(recurringJournals)
-      .where(and(eq(recurringJournals.id, id), eq(recurringJournals.tenantId, user.tenantId)))
-      .returning({ id: recurringJournals.id });
+    const gone = await this.queries.deleteRecurringJournalsById(this.db, id, user.tenantId);
     if (!gone.length) throw new NotFoundException('Jurnal berulang tidak ditemukan');
     return { ok: true };
   }
@@ -104,16 +99,7 @@ export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
   async runDue(tenantId: string, userId?: string) {
     const today = todayJakarta();
     const reversed = await this.runScheduledReversals(tenantId);
-    const due = await this.db
-      .select({ id: recurringJournals.id })
-      .from(recurringJournals)
-      .where(
-        and(
-          eq(recurringJournals.tenantId, tenantId),
-          eq(recurringJournals.isActive, true),
-          lte(recurringJournals.nextDate, today),
-        ),
-      );
+    const due = await this.queries.listRecurringJournalsByIsActiveAndNextDate(this.db, tenantId, today);
     const posted: { name: string; number: string; date: string }[] = [];
     const errors: { name: string; error: string }[] = [];
     for (const { id } of due) {
@@ -158,16 +144,7 @@ export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
    */
   async runScheduledReversals(tenantId: string) {
     const today = todayJakarta();
-    const due = await this.db
-      .select({ id: scheduledReversals.id })
-      .from(scheduledReversals)
-      .where(
-        and(
-          eq(scheduledReversals.tenantId, tenantId),
-          eq(scheduledReversals.status, 'PENDING'),
-          lte(scheduledReversals.reverseOn, today),
-        ),
-      );
+    const due = await this.queries.listScheduledReversalsByStatusAndReverseOn(this.db, tenantId, today);
     const done: { journalNumber: string; reversalNumber: string | null; date: string; skipped?: boolean }[] = [];
     for (const { id } of due) {
       try {
@@ -203,17 +180,7 @@ export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
 
   /** Batalkan jadwal balik otomatis sebuah jurnal (jurnalnya sendiri tidak berubah) */
   async cancelScheduledReversal(user: AuthUser, journalId: string) {
-    const r = await this.db
-      .update(scheduledReversals)
-      .set({ status: 'CANCELLED', processedAt: new Date() })
-      .where(
-        and(
-          eq(scheduledReversals.journalId, journalId),
-          eq(scheduledReversals.tenantId, user.tenantId),
-          eq(scheduledReversals.status, 'PENDING'),
-        ),
-      )
-      .returning({ id: scheduledReversals.id });
+    const r = await this.queries.updateScheduledReversalsByJournalIdAndStatusAndId(this.db, journalId, user.tenantId);
     if (!r.length) throw new NotFoundException('Tidak ada jadwal balik otomatis yang menunggu untuk jurnal ini');
     await this.audit.log(this.db, {
       tenantId: user.tenantId,
@@ -226,14 +193,8 @@ export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async runAllDue() {
-    const rec = await this.db
-      .selectDistinct({ id: recurringJournals.tenantId })
-      .from(recurringJournals)
-      .where(eq(recurringJournals.isActive, true));
-    const rev = await this.db
-      .selectDistinct({ id: scheduledReversals.tenantId })
-      .from(scheduledReversals)
-      .where(eq(scheduledReversals.status, 'PENDING'));
+    const rec = await this.queries.listRecurringJournalsByIsActive(this.db);
+    const rev = await this.queries.listScheduledReversalsByStatus(this.db);
     for (const id of new Set([...rec.map((x) => x.id), ...rev.map((x) => x.id)])) {
       const r = await this.runDue(id);
       if (r.posted.length) this.logger.log(`${r.posted.length} jurnal berulang diposting untuk tenant ${id}`);

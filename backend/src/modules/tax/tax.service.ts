@@ -17,6 +17,7 @@ import { FiscalService } from '../insights/fiscal.service';
 import { decryptField } from '../../common/utils/secret';
 import { CreateTaxPaymentDto } from './tax.dto';
 import { findOwned, insertOne, patchById } from '../../db/owned';
+import { TaxRepository } from './tax.repository';
 
 const LIABILITY_KEY: Partial<Record<TaxPaymentType, SystemKey>> = {
   PPH21: SYS.PPH21_PAYABLE,
@@ -61,30 +62,25 @@ export class TaxService {
     private readonly settings: SettingsService,
     private readonly fiscal: FiscalService,
     private readonly audit: AuditService,
+    private readonly repo: TaxRepository,
   ) {}
 
   private async keyAccounts(db: DbOrTx, tenantId: string) {
-    const rows = await db
-      .select({ id: accounts.id, key: accounts.systemKey })
-      .from(accounts)
-      .where(and(eq(accounts.tenantId, tenantId), inArray(accounts.systemKey, Object.values(SYS))));
+    const rows = await this.repo.listAccountsBySystemKey(db, tenantId);
     return new Map(rows.map((r) => [r.key!, r.id]));
   }
 
   /** Total setoran per jenis s/d masa tertentu (inklusif) */
   private async paidThrough(db: DbOrTx, tenantId: string, type: TaxPaymentType, period: string) {
     const [r] = (
-      await db.execute<{ amount: string; vat_out: string; vat_in: string }>(sql`
-        SELECT COALESCE(SUM(amount), 0) AS amount, COALESCE(SUM(vat_out), 0) AS vat_out, COALESCE(SUM(vat_in), 0) AS vat_in
-        FROM tax_payments WHERE tenant_id = ${tenantId} AND type = ${type} AND period <= ${period}`)
+      await this.repo.queryTaxPayment(db, tenantId, type, period)
     ).rows;
     return { amount: D(r.amount), vatOut: D(r.vat_out), vatIn: D(r.vat_in) };
   }
 
   private async paidIn(db: DbOrTx, tenantId: string, type: TaxPaymentType, period: string) {
     const [r] = (
-      await db.execute<{ amount: string }>(sql`
-        SELECT COALESCE(SUM(amount), 0) AS amount FROM tax_payments WHERE tenant_id = ${tenantId} AND type = ${type} AND period = ${period}`)
+      await this.repo.queryTaxPaymentForPaidIn(db, tenantId, type, period)
     ).rows;
     return D(r.amount);
   }
@@ -258,7 +254,7 @@ export class TaxService {
     assertNotFarFuture(date, 'setor pajak');
     if (date < `${dto.period}-01` && dto.type !== 'PPH25') throw new BadRequestException('Tanggal setor tidak boleh sebelum masa pajaknya');
     return this.db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`tax:${user.tenantId}`}))`);
+      await this.repo.queryCreate(tx, user.tenantId);
       const keys = await this.keyAccounts(tx, user.tenantId);
       const bank = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'BANK');
       const label = TAX_LABEL[dto.type];
@@ -357,10 +353,7 @@ export class TaxService {
     const today = todayJakarta();
     const lastMonth = String(year) === today.slice(0, 4) ? Number(today.slice(5, 7)) : String(year) < today.slice(0, 4) ? 12 : 0;
     const payments = (
-      await db.execute<{ type: TaxPaymentType; period: string; amount: string; last_date: string; first_date: string; ntpn: string | null; n: number }>(sql`
-        SELECT type, period, SUM(amount)::text AS amount, MAX(date)::text AS last_date, MIN(date)::text AS first_date,
-               STRING_AGG(NULLIF(ntpn, ''), ', ' ORDER BY date) AS ntpn, COUNT(*)::int AS n
-        FROM tax_payments WHERE tenant_id = ${tenantId} AND period LIKE ${`${year}-%`} GROUP BY type, period`)
+      await this.repo.queryTaxPaymentForAnnualRecap(db, tenantId, year)
     ).rows;
     const pay = (type: TaxPaymentType, period: string) => payments.find((p) => p.type === type && p.period === period);
 
@@ -482,13 +475,7 @@ export class TaxService {
     const from = isYear ? `${period}-01-01` : `${period}-01`;
     const to = isYear ? `${period}-12-31` : monthEnd(period);
     const rows = (
-      await this.db.execute<Record<string, string | null>>(sql`
-        SELECT pi.id, pi.number, pi.supplier_invoice_no AS "supplierInvoiceNo", pi.date::text AS date, pi.description,
-               pi.withholding_type AS type, pi.withholding_base AS base, pi.withholding_rate AS rate, pi.withholding_amount AS amount,
-               s.id AS "supplierId", s.code AS "supplierCode", s.name AS "supplierName", s.npwp AS "supplierNpwp", s.address AS "supplierAddress"
-        FROM purchase_invoices pi JOIN suppliers s ON s.id = pi.supplier_id
-        WHERE pi.tenant_id = ${tenantId} AND pi.withholding_amount > 0 AND pi.date BETWEEN ${from} AND ${to}
-        ORDER BY pi.withholding_type, pi.date, pi.number`)
+      await this.repo.queryPurchaseInvoice(this.db, tenantId, from, to)
     ).rows;
     for (const r of rows) r.supplierNpwp = decryptField(r.supplierNpwp);
     const keys = await this.keyAccounts(this.db, tenantId);
@@ -537,14 +524,10 @@ export class TaxService {
     return this.db.transaction(async (tx) => {
       const row = await findOwned(tx, taxPayments, user.tenantId, id);
       if (!row) throw new NotFoundException('Setoran tidak ditemukan');
-      const later = await tx
-        .select({ n: taxPayments.number })
-        .from(taxPayments)
-        .where(and(eq(taxPayments.tenantId, user.tenantId), eq(taxPayments.type, row.type), sql`${taxPayments.period} > ${row.period}`))
-        .limit(1);
+      const later = await this.repo.findTaxPaymentsByTypeAndPeriod(tx, user.tenantId, row.type, row.period);
       if (row.type === 'PPN' && later.length) throw new BadRequestException(`Batalkan dulu setoran PPN masa berikutnya (${later[0].n})`);
       if (row.journalId) await this.posting.reverse(tx, user.tenantId, row.journalId, todayJakarta() < row.date ? row.date : todayJakarta(), user.sub, true);
-      await tx.delete(taxPayments).where(eq(taxPayments.id, id));
+      await this.repo.deleteTaxPaymentsById(tx, id);
       return { ok: true };
     });
   }

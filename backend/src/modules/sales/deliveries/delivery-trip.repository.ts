@@ -17,7 +17,12 @@ export class DeliveryTripRepository {
     if (q.from) where.push(gte(deliveryTrips.date, q.from));
     if (q.to) where.push(lte(deliveryTrips.date, q.to));
     if (q.status) where.push(eq(deliveryTrips.status, q.status as 'PLANNED'));
-    return db.select().from(deliveryTrips).where(and(...where)).orderBy(desc(deliveryTrips.date), desc(deliveryTrips.number)).limit(300);
+    return db
+      .select()
+      .from(deliveryTrips)
+      .where(and(...where))
+      .orderBy(desc(deliveryTrips.date), desc(deliveryTrips.number))
+      .limit(300);
   }
 
   async insertTrip(db: DbOrTx, values: NewTrip) {
@@ -43,12 +48,21 @@ export class DeliveryTripRepository {
     return db
       .select({ id: deliveryTrips.id, number: deliveryTrips.number, date: deliveryTrips.date })
       .from(deliveryTrips)
-      .where(and(eq(deliveryTrips.tenantId, tenantId), eq(deliveryTrips.status, 'ON_ROUTE'), sql`${deliveryTrips.date} < ${today}::date`));
+      .where(
+        and(
+          eq(deliveryTrips.tenantId, tenantId),
+          eq(deliveryTrips.status, 'ON_ROUTE'),
+          sql`${deliveryTrips.date} < ${today}::date`,
+        ),
+      );
   }
 
   // ---- stop ----
   stopStatuses(db: DbOrTx, tripIds: string[]) {
-    return db.select({ tripId: deliveryTripStops.tripId, status: deliveryTripStops.status }).from(deliveryTripStops).where(inArray(deliveryTripStops.tripId, tripIds));
+    return db
+      .select({ tripId: deliveryTripStops.tripId, status: deliveryTripStops.status })
+      .from(deliveryTripStops)
+      .where(inArray(deliveryTripStops.tripId, tripIds));
   }
 
   /** Stop satu rute lengkap dengan surat jalan dan pelanggan, berurutan */
@@ -93,7 +107,10 @@ export class DeliveryTripRepository {
   }
 
   customerGeo(db: DbOrTx, tenantId: string, customerIds: string[]) {
-    return db.select({ id: customers.id, lat: customers.geoLat, lng: customers.geoLng }).from(customers).where(and(eq(customers.tenantId, tenantId), inArray(customers.id, customerIds)));
+    return db
+      .select({ id: customers.id, lat: customers.geoLat, lng: customers.geoLng })
+      .from(customers)
+      .where(and(eq(customers.tenantId, tenantId), inArray(customers.id, customerIds)));
   }
 
   async deliveryGeo(db: DbOrTx, deliveryId: string) {
@@ -106,7 +123,10 @@ export class DeliveryTripRepository {
   }
 
   async maxStopSequence(db: DbOrTx, tripId: string) {
-    const [{ max }] = await db.select({ max: sql<number>`COALESCE(MAX(${deliveryTripStops.sequence}), 0)::int` }).from(deliveryTripStops).where(eq(deliveryTripStops.tripId, tripId));
+    const [{ max }] = await db
+      .select({ max: sql<number>`COALESCE(MAX(${deliveryTripStops.sequence}), 0)::int` })
+      .from(deliveryTripStops)
+      .where(eq(deliveryTripStops.tripId, tripId));
     return max;
   }
 
@@ -114,16 +134,25 @@ export class DeliveryTripRepository {
     const [{ n }] = await db
       .select({ n: sql<number>`COUNT(*)::int` })
       .from(deliveryTripStops)
-      .where(status ? and(eq(deliveryTripStops.tripId, tripId), eq(deliveryTripStops.status, status)) : eq(deliveryTripStops.tripId, tripId));
+      .where(
+        status
+          ? and(eq(deliveryTripStops.tripId, tripId), eq(deliveryTripStops.status, status))
+          : eq(deliveryTripStops.tripId, tripId),
+      );
     return n;
   }
 
   async insertStops(db: DbOrTx, tenantId: string, tripId: string, deliveryIds: string[], startAfter: number) {
-    await db.insert(deliveryTripStops).values(deliveryIds.map((deliveryId, i) => ({ tenantId, tripId, deliveryId, sequence: startAfter + i + 1 })));
+    await db
+      .insert(deliveryTripStops)
+      .values(deliveryIds.map((deliveryId, i) => ({ tenantId, tripId, deliveryId, sequence: startAfter + i + 1 })));
   }
 
   deleteStop(db: DbOrTx, tripId: string, stopId: string) {
-    return db.delete(deliveryTripStops).where(and(eq(deliveryTripStops.id, stopId), eq(deliveryTripStops.tripId, tripId))).returning({ id: deliveryTripStops.id });
+    return db
+      .delete(deliveryTripStops)
+      .where(and(eq(deliveryTripStops.id, stopId), eq(deliveryTripStops.tripId, tripId)))
+      .returning({ id: deliveryTripStops.id });
   }
 
   async deleteStopsOfTrip(db: DbOrTx, tripId: string) {
@@ -135,7 +164,11 @@ export class DeliveryTripRepository {
   }
 
   stopIdsInOrder(db: DbOrTx, tripId: string) {
-    return db.select({ id: deliveryTripStops.id }).from(deliveryTripStops).where(eq(deliveryTripStops.tripId, tripId)).orderBy(asc(deliveryTripStops.sequence));
+    return db
+      .select({ id: deliveryTripStops.id })
+      .from(deliveryTripStops)
+      .where(eq(deliveryTripStops.tripId, tripId))
+      .orderBy(asc(deliveryTripStops.sequence));
   }
 
   async setStopSequence(db: DbOrTx, stopId: string, sequence: number) {
@@ -143,7 +176,11 @@ export class DeliveryTripRepository {
   }
 
   async lockStop(db: DbOrTx, tripId: string, stopId: string) {
-    const [s] = await db.select().from(deliveryTripStops).where(and(eq(deliveryTripStops.id, stopId), eq(deliveryTripStops.tripId, tripId))).for('update');
+    const [s] = await db
+      .select()
+      .from(deliveryTripStops)
+      .where(and(eq(deliveryTripStops.id, stopId), eq(deliveryTripStops.tripId, tripId)))
+      .for('update');
     return s;
   }
 
@@ -165,12 +202,27 @@ export class DeliveryTripRepository {
     const onTrip = db
       .select({ id: deliveryTripStops.deliveryId })
       .from(deliveryTripStops)
-      .where(and(eq(deliveryTripStops.tenantId, tenantId), inArray(deliveryTripStops.status, ['PENDING', 'DELIVERED'])));
+      .where(
+        and(eq(deliveryTripStops.tenantId, tenantId), inArray(deliveryTripStops.status, ['PENDING', 'DELIVERED'])),
+      );
     return db
-      .select({ id: deliveryOrders.id, number: deliveryOrders.number, date: deliveryOrders.date, customerId: customers.id, customerName: customers.name, address: customers.address })
+      .select({
+        id: deliveryOrders.id,
+        number: deliveryOrders.number,
+        date: deliveryOrders.date,
+        customerId: customers.id,
+        customerName: customers.name,
+        address: customers.address,
+      })
       .from(deliveryOrders)
       .innerJoin(customers, eq(customers.id, deliveryOrders.customerId))
-      .where(and(eq(deliveryOrders.tenantId, tenantId), eq(deliveryOrders.status, 'DELIVERED'), notInArray(deliveryOrders.id, onTrip)))
+      .where(
+        and(
+          eq(deliveryOrders.tenantId, tenantId),
+          eq(deliveryOrders.status, 'DELIVERED'),
+          notInArray(deliveryOrders.id, onTrip),
+        ),
+      )
       .orderBy(asc(deliveryOrders.date), asc(deliveryOrders.number))
       .limit(300);
   }
@@ -189,7 +241,9 @@ export class DeliveryTripRepository {
       .from(deliveryTripStops)
       .innerJoin(deliveryTrips, eq(deliveryTrips.id, deliveryTripStops.tripId))
       .innerJoin(deliveryOrders, eq(deliveryOrders.id, deliveryTripStops.deliveryId))
-      .where(and(inArray(deliveryTripStops.deliveryId, ids), inArray(deliveryTripStops.status, ['PENDING', 'DELIVERED'])));
+      .where(
+        and(inArray(deliveryTripStops.deliveryId, ids), inArray(deliveryTripStops.status, ['PENDING', 'DELIVERED'])),
+      );
   }
 
   /** Stop gagal kirim yang suratnya belum dijadwalkan ulang */
@@ -208,7 +262,12 @@ export class DeliveryTripRepository {
             db
               .select({ id: deliveryTripStops.deliveryId })
               .from(deliveryTripStops)
-              .where(and(eq(deliveryTripStops.tenantId, tenantId), inArray(deliveryTripStops.status, ['PENDING', 'DELIVERED']))),
+              .where(
+                and(
+                  eq(deliveryTripStops.tenantId, tenantId),
+                  inArray(deliveryTripStops.status, ['PENDING', 'DELIVERED']),
+                ),
+              ),
           ),
         ),
       );
@@ -217,31 +276,51 @@ export class DeliveryTripRepository {
   /** Pengiriman terkirim yang titik terimanya jauh dari lokasi pelanggan */
   deliveredFarFromCustomer(db: DbOrTx, tenantId: string, farMeters: number) {
     return db
-      .select({ number: deliveryOrders.number, trip: deliveryTrips.number, customer: customers.name, distanceM: deliveryTripStops.resultDistanceM })
+      .select({
+        number: deliveryOrders.number,
+        trip: deliveryTrips.number,
+        customer: customers.name,
+        distanceM: deliveryTripStops.resultDistanceM,
+      })
       .from(deliveryTripStops)
       .innerJoin(deliveryTrips, eq(deliveryTrips.id, deliveryTripStops.tripId))
       .innerJoin(deliveryOrders, eq(deliveryOrders.id, deliveryTripStops.deliveryId))
       .innerJoin(customers, eq(customers.id, deliveryOrders.customerId))
-      .where(and(eq(deliveryTripStops.tenantId, tenantId), eq(deliveryTripStops.status, 'DELIVERED'), sql`${deliveryTripStops.resultDistanceM} > ${farMeters}`))
+      .where(
+        and(
+          eq(deliveryTripStops.tenantId, tenantId),
+          eq(deliveryTripStops.status, 'DELIVERED'),
+          sql`${deliveryTripStops.resultDistanceM} > ${farMeters}`,
+        ),
+      )
       .orderBy(desc(deliveryTrips.date))
       .limit(100);
   }
 
   // ---- kendaraan ----
   async vehicleCapacityKg(db: DbOrTx, vehicleId: string) {
-    const [v] = await db.select({ c: deliveryVehicles.capacityKg }).from(deliveryVehicles).where(eq(deliveryVehicles.id, vehicleId));
+    const [v] = await db
+      .select({ c: deliveryVehicles.capacityKg })
+      .from(deliveryVehicles)
+      .where(eq(deliveryVehicles.id, vehicleId));
     return v?.c ?? null;
   }
 
   listVehicles(db: DbOrTx, tenantId: string) {
-    return db.select().from(deliveryVehicles).where(eq(deliveryVehicles.tenantId, tenantId)).orderBy(asc(deliveryVehicles.plate));
+    return db
+      .select()
+      .from(deliveryVehicles)
+      .where(eq(deliveryVehicles.tenantId, tenantId))
+      .orderBy(asc(deliveryVehicles.plate));
   }
 
   async plateExists(db: DbOrTx, tenantId: string, plate: string) {
     const [dup] = await db
       .select({ id: deliveryVehicles.id })
       .from(deliveryVehicles)
-      .where(and(eq(deliveryVehicles.tenantId, tenantId), sql`lower(${deliveryVehicles.plate}) = ${plate.toLowerCase()}`));
+      .where(
+        and(eq(deliveryVehicles.tenantId, tenantId), sql`lower(${deliveryVehicles.plate}) = ${plate.toLowerCase()}`),
+      );
     return !!dup;
   }
 
@@ -253,5 +332,17 @@ export class DeliveryTripRepository {
   async patchVehicle(db: DbOrTx, id: string, patch: VehiclePatch) {
     const [v] = await db.update(deliveryVehicles).set(patch).where(eq(deliveryVehicles.id, id)).returning();
     return v;
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh DeliveryTripsService.load */
+  queryDeliveryTripStop(db: DbOrTx, tripId: string) {
+    return db.execute<{ kg: string; unweighted: number }>(sql`
+      SELECT COALESCE(SUM(dol.qty * dol.uom_factor * COALESCE(p.weight_kg, 0)), 0)::text AS kg,
+             COUNT(DISTINCT dol.product_id) FILTER (WHERE p.weight_kg IS NULL)::int AS unweighted
+      FROM delivery_trip_stops s
+      JOIN delivery_order_lines dol ON dol.delivery_id = s.delivery_id
+      JOIN products p ON p.id = dol.product_id
+      WHERE s.trip_id = ${tripId} AND s.status <> 'FAILED'`);
   }
 }

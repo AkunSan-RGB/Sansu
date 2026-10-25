@@ -13,6 +13,7 @@ import { type EmploymentType, isPerJob } from './employment.shared';
 import { LinkAccountDto, CreateEmployeeDto, UpdateEmployeeDto, SaveAttendanceDto, CreateLeaveDto, DecideLeaveDto } from './hr.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { findOwned, insertOne, lockOwned, patchById } from '../../db/owned';
+import { HrRepository } from './hr.repository';
 
 const dow = (d: DocDate) => new Date(`${d}T00:00:00Z`).getUTCDay();
  // 0 = Minggu
@@ -38,6 +39,7 @@ export class HrService {
     private readonly audit: AuditService,
     private readonly employment: EmploymentService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: HrRepository,
   ) {}
 
   listEmployees(tenantId: string, activeOnly = false) {
@@ -56,7 +58,7 @@ export class HrService {
 
   /** Akun pengguna yang bisa dihubungkan ke karyawan, beserta karyawan yang sudah memakainya */
   async accounts(tenantId: string) {
-    const r = await this.db.execute(sql`SELECT u.id, u.name, u.email, u.role, e.id AS "employeeId", e.name AS "employeeName" FROM users u LEFT JOIN employees e ON e.user_id = u.id AND e.tenant_id = u.tenant_id WHERE u.tenant_id = ${tenantId} AND u.is_active ORDER BY u.name`);
+    const r = await this.repo.queryUser(this.db, tenantId);
     return r.rows;
   }
 
@@ -74,9 +76,9 @@ export class HrService {
       if (e.userId && (dto.reason?.trim().length ?? 0) < 5) throw new BadRequestException('Mengganti atau melepas hubungan akun wajib menyertakan alasan (minimal 5 huruf)');
       if (userId) {
         if (userId === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Anda tidak dapat menghubungkan akun Anda sendiri ke data karyawan; minta Pemilik atau pengguna lain');
-        const usr = (await tx.execute<{ id: string }>(sql`SELECT id FROM users WHERE id = ${userId} AND tenant_id = ${u.tenantId} AND is_active`)).rows[0];
+        const usr = (await this.repo.queryUserForLinkAccount(tx, userId, u.tenantId)).rows[0];
         if (!usr) throw new BadRequestException('Akun pengguna tidak ditemukan atau nonaktif');
-        const taken = (await tx.execute<{ name: string }>(sql`SELECT name FROM employees WHERE tenant_id = ${u.tenantId} AND user_id = ${userId} AND id <> ${id}`)).rows[0];
+        const taken = (await this.repo.queryEmployee(tx, u.tenantId, userId, id)).rows[0];
         if (taken) throw new ConflictException(`Akun ini sudah terhubung dengan karyawan ${taken.name}`);
       }
       await patchById(tx, employees, id, { userId });
@@ -87,13 +89,13 @@ export class HrService {
 
   private async assertProject(tenantId: string, projectId?: string | null) {
     if (!projectId) return;
-    const [p] = await this.db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, projectId), eq(projects.tenantId, tenantId)));
+    const [p] = await this.repo.findProjectsById(this.db, projectId, tenantId);
     if (!p) throw new BadRequestException('Proyek tidak ditemukan');
   }
 
   private async assertBranch(tenantId: string, branchId?: string | null) {
     if (!branchId) return;
-    const r = await this.db.execute<{ id: string }>(sql`SELECT id FROM branches WHERE id = ${branchId} AND tenant_id = ${tenantId} AND is_active`);
+    const r = await this.repo.queryBranche(this.db, branchId, tenantId);
     if (!r.rows.length) throw new BadRequestException('Cabang tidak ditemukan atau nonaktif');
   }
 
@@ -146,7 +148,7 @@ export class HrService {
     await this.assertProject(user.tenantId, dto.projectId);
     await this.assertBranch(user.tenantId, dto.branchId);
     const { reason, ...body } = dto;
-    const [emp] = await this.db.select().from(employees).where(eq(employees.id, id));
+    const [emp] = await this.repo.findEmployeesById(this.db, id);
     const model = await this.settings.businessModel(this.db, user.tenantId);
     const jasa = model === 'JASA';
     let direct: Record<string, unknown> = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined));
@@ -162,7 +164,7 @@ export class HrService {
       for (const k of ['bpjsKes', 'bpjsTk', 'bpjsJp'] as const) if (norm[k] !== merged[k]) direct[k] = norm[k];
     }
     const [e] = Object.keys(direct).length
-      ? await this.db.update(employees).set({ ...direct, code: (direct.code as string | undefined)?.trim().toUpperCase() }).where(eq(employees.id, id)).returning()
+      ? await this.repo.updateEmployeesById(this.db, direct, id)
       : [emp];
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'Employee', entityId: id, data: { applied: direct, requested: request?.fields } });
     return { ...e, pendingChange: request };
@@ -171,7 +173,7 @@ export class HrService {
   /** Absensi satu tanggal: semua karyawan aktif + catatan yang sudah ada */
   async attendanceDay(tenantId: string, date: DocDate) {
     const emps = (await this.listEmployees(tenantId, true)).filter((e) => !isPerJob(e.employmentType));
-    const rows = await this.db.select().from(attendances).where(and(eq(attendances.tenantId, tenantId), eq(attendances.date, date)));
+    const rows = await this.repo.listAttendancesByDate(this.db, tenantId, date);
     const byEmp = new Map(rows.map((r) => [r.employeeId, r]));
     const s = await this.settings.payroll(this.db, tenantId);
     return {
@@ -184,10 +186,7 @@ export class HrService {
   async saveAttendance(user: AuthUser, dto: SaveAttendanceDto) {
     const date = toDocDate(dto.date);
     const ids = [...new Set(dto.rows.map((r) => r.employeeId))];
-    const found = await this.db
-      .select({ id: employees.id, type: employees.employmentType })
-      .from(employees)
-      .where(and(eq(employees.tenantId, user.tenantId), inArray(employees.id, ids)));
+    const found = await this.repo.listEmployeesById(this.db, user.tenantId, ids);
     if (found.length !== ids.length) throw new BadRequestException('Ada karyawan yang tidak ditemukan');
     if (found.some((f) => isPerJob(f.type))) throw new BadRequestException('Tenaga lepas / mitra tidak diabsen; upahnya dari catatan kerja');
     await this.db.transaction(async (tx) => {
@@ -214,10 +213,7 @@ export class HrService {
   /** Rekap absensi per karyawan dalam satu bulan */
   async attendanceMonth(tenantId: string, period: string) {
     const { from, to } = monthRange(period);
-    const res = await this.db.execute<{ employee_id: string; status: AttendanceStatus; n: number; ot: string }>(sql`
-      SELECT employee_id, status, COUNT(*)::int AS n, COALESCE(SUM(overtime_hours), 0) AS ot
-      FROM attendances WHERE tenant_id = ${tenantId} AND date BETWEEN ${from} AND ${to}
-      GROUP BY employee_id, status`);
+    const res = await this.repo.queryAttendance(this.db, tenantId, from, to);
     const emps = (await this.listEmployees(tenantId, true)).filter((e) => !isPerJob(e.employmentType));
     const s = await this.settings.payroll(this.db, tenantId);
     const workDays = workDaysBetween(from, to, s.workDaysPerWeek).length;
@@ -240,10 +236,7 @@ export class HrService {
   /** Sisa cuti tahunan tahun berjalan */
   async leaveBalance(tenantId: string, employeeId: string, quota: number, db: DbOrTx = this.db, year = new Date().getFullYear()) {
     const [r] = (
-      await db.execute<{ used: number }>(sql`
-      SELECT COALESCE(SUM(days), 0)::int AS used FROM leave_requests
-      WHERE tenant_id = ${tenantId} AND employee_id = ${employeeId} AND type = 'ANNUAL' AND status = 'APPROVED'
-        AND start_date BETWEEN ${`${year}-01-01`} AND ${`${year}-12-31`}`)
+      await this.repo.queryLeaveRequest(db, tenantId, employeeId, year)
     ).rows;
     return { year, quota, used: r.used, remaining: quota - r.used };
   }
@@ -272,17 +265,7 @@ export class HrService {
     if (dto.type === 'ANNUAL' && days > emp.leave.remaining) {
       throw new BadRequestException(`Sisa cuti tahunan ${emp.leave.remaining} hari, diajukan ${days} hari`);
     }
-    const [overlap] = await this.db
-      .select({ id: leaveRequests.id })
-      .from(leaveRequests)
-      .where(
-        and(
-          eq(leaveRequests.employeeId, emp.id),
-          inArray(leaveRequests.status, ['PENDING', 'APPROVED']),
-          lte(leaveRequests.startDate, end),
-          gte(leaveRequests.endDate, start),
-        ),
-      );
+    const [overlap] = await this.repo.findLeaveRequestsByEmployeeIdAndStatusAndStartDate(this.db, emp.id, end, start);
     if (overlap) throw new BadRequestException('Sudah ada pengajuan cuti di tanggal yang sama');
     const l = await insertOne(this.db, leaveRequests, { tenantId: user.tenantId, employeeId: emp.id, type: dto.type, startDate: start, endDate: end, days, reason: dto.reason });
     return l;
@@ -309,14 +292,10 @@ export class HrService {
             overtimeHours: '0',
             notes: l.type === 'UNPAID' ? 'Cuti tidak dibayar' : (l.reason ?? null),
           };
-          await tx.insert(attendances).values(values).onConflictDoUpdate({ target: [attendances.employeeId, attendances.date], set: values });
+          await this.repo.insertAttendances(tx, values);
         }
       }
-      const [updated] = await tx
-        .update(leaveRequests)
-        .set({ status: dto.decision, decidedById: user.sub })
-        .where(eq(leaveRequests.id, id))
-        .returning();
+      const [updated] = await this.repo.updateLeaveRequestsById(tx, dto.decision, user.sub, id);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: dto.decision, entity: 'LeaveRequest', entityId: id });
       return updated;
     });

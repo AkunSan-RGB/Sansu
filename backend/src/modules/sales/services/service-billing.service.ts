@@ -19,6 +19,7 @@ import { decryptField } from '../../../common/utils/secret';
 import { CreateServiceInvoiceDto, WithholdingSlipDto, ProjectProgressDto, CreateProjectDto, UpdateProjectDto, CreateDepositDto, ApplyDepositDto } from './service-billing.dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
 import { findOwned, insertOne, patchById } from '../../../db/owned';
+import { ServiceBillingRepository } from './service-billing.repository';
 
 export const outstandingOf = (i: { total: string; paidAmount: string; returnedAmount: string }) =>
   D(i.total).minus(i.paidAmount).minus(i.returnedAmount);
@@ -31,13 +32,11 @@ export class ServiceBillingService {
     private readonly posting: PostingService,
     private readonly audit: AuditService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: ServiceBillingRepository,
   ) {}
 
   async keyAccount(tx: Tx | Db, tenantId: string, key: string) {
-    const [a] = await tx
-      .select({ id: accounts.id })
-      .from(accounts)
-      .where(and(eq(accounts.tenantId, tenantId), eq(accounts.systemKey, key)));
+    const [a] = await this.repo.findAccountsBySystemKey(tx, tenantId, key);
     if (!a)
       throw new BadRequestException(`Akun ${key} belum tersedia — jalankan ulang aplikasi agar bagan akun diperbarui`);
     return a.id;
@@ -48,7 +47,7 @@ export class ServiceBillingService {
   async createInvoice(user: AuthUser, dto: CreateServiceInvoiceDto, opts: { inTx?: (tx: Tx, invoice: { id: string; number: string }) => Promise<void> } = {}) {
     const date = toDocDate(dto.date);
     const result = await this.db.transaction(async (tx) => {
-      const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
+      const [tenant] = await this.repo.findTenantsById(tx, user.tenantId);
       const customer = await this.refs.customer(tx, user.tenantId, dto.customerId);
       if (!customer || !customer.isActive) throw new BadRequestException('Pelanggan tidak ditemukan / nonaktif');
 
@@ -69,10 +68,7 @@ export class ServiceBillingService {
 
       const ids = [...new Set(dto.lines.map((l) => l.accountId).filter((x): x is string => !!x))];
       const accs = ids.length
-        ? await tx
-            .select()
-            .from(accounts)
-            .where(and(eq(accounts.tenantId, user.tenantId), inArray(accounts.id, ids)))
+        ? await this.repo.listAccountsById(tx, user.tenantId, ids)
         : [];
       for (const a of accs)
         if (a.type !== 'REVENUE' || !a.isPostable)
@@ -101,8 +97,7 @@ export class ServiceBillingService {
         if (p.customerId !== customer.id) throw new BadRequestException('Proyek ini milik pelanggan lain');
         if (p.status !== 'ACTIVE') throw new BadRequestException('Proyek sudah selesai / dibatalkan');
         const [b] = (
-          await tx.execute<{ v: string }>(sql`
-            SELECT COALESCE(SUM(subtotal), 0) AS v FROM invoices WHERE project_id = ${p.id} AND tenant_id = ${user.tenantId}`)
+          await this.repo.queryInvoice(tx, p.id, user.tenantId)
         ).rows;
         const after = D(b.v).plus(doc.subtotal);
         if (D(p.contractValue).gt(0) && after.gt(p.contractValue)) {
@@ -134,17 +129,7 @@ export class ServiceBillingService {
           // PPh yang dipotong pelanggan mengurangi piutang sejak faktur terbit
           paidAmount: withholding.toFixed(2),
         });
-      await tx.insert(serviceInvoiceLines).values(
-        doc.lines.map((l) => ({
-          invoiceId: invoice.id,
-          description: l.description.trim(),
-          qty: D(l.qty).toFixed(4),
-          unit: l.unit?.trim() || 'Paket',
-          price: l.price.toFixed(2),
-          lineTotal: l.lineTotal.toFixed(2),
-          accountId: l.accountId,
-        })),
-      );
+      await this.repo.insertServiceInvoiceLines(tx, doc.lines, invoice.id);
 
       const byAccount = new Map<string, Dec>();
       for (const l of doc.lines) byAccount.set(l.accountId, (byAccount.get(l.accountId) ?? ZERO).plus(l.lineTotal));
@@ -212,24 +197,7 @@ export class ServiceBillingService {
     const from = period.length === 4 ? `${period}-01-01` : `${period}-01`;
     const to = period.length === 4 ? `${period}-12-31` : addDays(`${addDays(`${period}-01`, 32).slice(0, 7)}-01`, -1);
     const rows = (
-      await this.db.execute<{
-        id: string;
-        number: string;
-        date: string;
-        customer: string;
-        npwp: string | null;
-        type: 'PPH23' | 'PPH4_2';
-        rate: string;
-        base: string;
-        amount: string;
-        slip_no: string | null;
-        slip_date: string | null;
-      }>(sql`
-        SELECT i.id, i.number, i.date::text, c.name AS customer, c.npwp, i.withholding_type AS type, i.withholding_rate AS rate,
-               i.withholding_base AS base, i.withholding_amount AS amount, i.withholding_slip_no AS slip_no, i.withholding_slip_date::text AS slip_date
-        FROM invoices i JOIN customers c ON c.id = i.customer_id
-        WHERE i.tenant_id = ${tenantId} AND i.withholding_amount > 0 AND i.date BETWEEN ${from} AND ${to}
-        ORDER BY i.date, i.number`)
+      await this.repo.queryInvoiceForWithheld(this.db, tenantId, from, to)
     ).rows;
     const totals = (['PPH23', 'PPH4_2'] as const)
       .map((type) => {

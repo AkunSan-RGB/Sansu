@@ -35,6 +35,7 @@ import { AssetDisposalService } from '../assets/asset-disposal.service';
 import { AssetMethodService } from '../assets/asset-method.service';
 import { SupplierBillsService } from '../purchasing/supplier-bills.service';
 import { findOwned, patchById } from '../../db/owned';
+import { ApprovalsRepository } from './approvals.repository';
 
 @Injectable()
 export class ApprovalRequestsService {
@@ -61,6 +62,7 @@ export class ApprovalRequestsService {
     private readonly assetDisposal: AssetDisposalService,
     private readonly assetMethod: AssetMethodService,
     private readonly supplierBills: SupplierBillsService,
+    private readonly repo: ApprovalsRepository,
   ) {}
 
   policy(user: AuthUser) {
@@ -83,17 +85,7 @@ export class ApprovalRequestsService {
   async list(user: AuthUser, q: ListDto) {
     const approver = this.approvals.isApprover(user.role);
     const mineOnly = q.mine === 'true' || !approver;
-    const rows = await this.db.execute<{
-      id: string; kind: string; ref_id: string | null; title: string; amount: string; status: string; requested_at: string; decided_at: string | null;
-      decision_note: string | null; result_ref: string | null; requested_by: string; decided_by: string | null; requested_by_id: string; assigned_to_id: string | null; assigned_to: string | null;
-    }>(sql`
-      SELECT r.id, r.kind, r.ref_id, r.title, r.amount, r.status, r.requested_at, r.decided_at, r.decision_note, r.result_ref, r.requested_by_id, r.assigned_to_id,
-             u.name AS requested_by, d.name AS decided_by, a.name AS assigned_to
-      FROM approval_requests r JOIN users u ON u.id = r.requested_by_id LEFT JOIN users d ON d.id = r.decided_by_id LEFT JOIN users a ON a.id = r.assigned_to_id
-      WHERE r.tenant_id = ${user.tenantId}
-        ${q.status === 'PENDING' ? sql`AND r.status = 'PENDING'` : sql``}
-        ${mineOnly ? sql`AND r.requested_by_id = ${user.sub}` : user.role === 'OWNER' ? sql`` : sql`AND (r.assigned_to_id IS NULL OR r.assigned_to_id = ${user.sub} OR r.requested_by_id = ${user.sub} OR r.status <> 'PENDING')`}
-      ORDER BY (r.status = 'PENDING') DESC, r.requested_at DESC LIMIT 200`);
+    const rows = await this.repo.queryApprovalRequest(this.db, user, q, mineOnly);
     return rows.rows.map((r) => ({
       id: r.id, kind: r.kind, kindLabel: APPROVAL_KIND_LABELS[r.kind as keyof typeof APPROVAL_KIND_LABELS] ?? r.kind, refId: r.ref_id, title: r.title,
       amount: r.amount, status: r.status, requestedAt: r.requested_at, decidedAt: r.decided_at, decisionNote: r.decision_note, resultRef: r.result_ref,
@@ -105,8 +97,7 @@ export class ApprovalRequestsService {
 
   async pendingCount(user: AuthUser) {
     if (!this.approvals.isApprover(user.role)) return { count: 0 };
-    const r = await this.db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM approval_requests WHERE tenant_id = ${user.tenantId} AND status = 'PENDING' AND requested_by_id <> ${user.sub}
-      ${user.role === 'OWNER' ? sql`` : sql`AND (assigned_to_id IS NULL OR assigned_to_id = ${user.sub})`}`);
+    const r = await this.repo.queryApprovalRequestForPendingCount(this.db, user);
     return { count: r.rows[0].n };
   }
 
@@ -132,7 +123,7 @@ export class ApprovalRequestsService {
     if (req.requestedById !== user.sub) throw new ForbiddenException('Hanya pemohon yang dapat memilih penyetuju');
     if (req.status !== 'PENDING') throw new ConflictException('Permintaan ini sudah diputuskan');
     if (dto.approverId && !(await this.approvals.eligibleApprovers(this.db, user.tenantId, user.sub)).some((a) => a.id === dto.approverId)) throw new BadRequestException('Penyetuju yang dipilih tidak berwenang');
-    await this.db.update(approvalRequests).set({ assignedToId: dto.approverId ?? null }).where(and(eq(approvalRequests.id, id), eq(approvalRequests.status, 'PENDING')));
+    await this.repo.updateApprovalRequestsByIdAndStatus(this.db, dto, id);
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'ASSIGN', entity: 'ApprovalRequest', entityId: id, data: { approverId: dto.approverId ?? null } });
     void this.approvals.notifyApprovers(user.tenantId, { kind: 'AR', id, requesterId: user.sub, title: `${APPROVAL_KIND_LABELS[req.kind]}: ${req.title}`, lines: [`Nilai: Rp${Math.round(Number(req.amount)).toLocaleString('id-ID')}`], onlyIds: dto.approverId ? [dto.approverId] : undefined });
     return { id, assignedToId: dto.approverId ?? null };
@@ -143,11 +134,7 @@ export class ApprovalRequestsService {
     if (req.requestedById === user.sub) throw new ForbiddenException('Permintaan sendiri tidak bisa disetujui oleh pemohonnya');
     this.assertAssignee(user, req);
     // Ambil keputusan secara atomik: hanya satu penyetuju yang berhasil
-    const claimed = await this.db
-      .update(approvalRequests)
-      .set({ status: 'APPROVED', decidedById: user.sub, decidedAt: new Date(), decisionNote: dto.note })
-      .where(and(eq(approvalRequests.id, id), eq(approvalRequests.status, 'PENDING')))
-      .returning({ id: approvalRequests.id });
+    const claimed = await this.repo.updateApprovalRequestsByIdAndStatusForApprove(this.db, user.sub, dto.note, id);
     if (!claimed.length) throw new ConflictException('Permintaan ini sudah diputuskan');
     try {
       let resultRef: string | undefined;
@@ -238,11 +225,7 @@ export class ApprovalRequestsService {
     const req = await this.load(user, id);
     this.assertAssignee(user, req);
     if (!dto.note?.trim()) throw new BadRequestException('Isi alasan penolakan');
-    const done = await this.db
-      .update(approvalRequests)
-      .set({ status: 'REJECTED', decidedById: user.sub, decidedAt: new Date(), decisionNote: dto.note })
-      .where(and(eq(approvalRequests.id, id), eq(approvalRequests.status, 'PENDING')))
-      .returning({ id: approvalRequests.id });
+    const done = await this.repo.updateApprovalRequestsByIdAndStatusForReject(this.db, user.sub, dto.note, id);
     if (!done.length) throw new ConflictException('Permintaan ini sudah diputuskan');
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'REJECT', entity: 'ApprovalRequest', entityId: id, data: { kind: req.kind, title: req.title, note: dto.note } });
     void this.approvals.notifyUser(req.requestedById, `❌ Permintaan Anda ditolak\n${APPROVAL_KIND_LABELS[req.kind]}: ${req.title}\nAlasan: ${dto.note}`);
@@ -253,11 +236,7 @@ export class ApprovalRequestsService {
   async cancel(user: AuthUser, id: string) {
     const req = await this.load(user, id);
     if (req.requestedById !== user.sub) throw new ForbiddenException('Hanya pemohon yang dapat membatalkan permintaannya');
-    const done = await this.db
-      .update(approvalRequests)
-      .set({ status: 'CANCELLED', decidedAt: new Date() })
-      .where(and(eq(approvalRequests.id, id), eq(approvalRequests.status, 'PENDING')))
-      .returning({ id: approvalRequests.id });
+    const done = await this.repo.updateApprovalRequestsByIdAndStatusForCancel(this.db, id);
     if (!done.length) throw new ConflictException('Permintaan ini sudah diputuskan');
     return { id, status: 'CANCELLED' };
   }

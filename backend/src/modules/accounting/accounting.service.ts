@@ -109,7 +109,7 @@ export class AccountingService {
       throw new BadRequestException('Akun kas/bank harus di kelompok Kas dan setara kas');
     }
     if (dto.isActive === false && acc.systemKey) throw new BadRequestException('Akun sistem tidak bisa dinonaktifkan');
-    const [row] = await this.db.update(accounts).set(dto).where(eq(accounts.id, id)).returning();
+    const [row] = await this.repo.updateAccountsById(this.db, dto, id);
     return row;
   }
 
@@ -118,11 +118,11 @@ export class AccountingService {
     const acc = await this.repo.accountOfTenant(this.db, tenantId, id);
     if (!acc) throw new NotFoundException('Akun tidak ditemukan');
     if (acc.systemKey) throw new BadRequestException('Akun sistem tidak bisa dihapus');
-    const [used] = await this.db.select({ id: journalLines.id }).from(journalLines).where(eq(journalLines.accountId, id)).limit(1);
+    const [used] = await this.repo.findJournalLinesByAccountId(this.db, id);
     if (used) throw new BadRequestException('Akun sudah dipakai di jurnal; nonaktifkan saja');
-    const [child] = await this.db.select({ id: accounts.id }).from(accounts).where(eq(accounts.parentId, id)).limit(1);
+    const [child] = await this.repo.findAccountsByParentId(this.db, id);
     if (child) throw new BadRequestException('Akun masih memiliki sub-akun');
-    await this.db.delete(accounts).where(eq(accounts.id, id));
+    await this.repo.deleteAccountsById(this.db, id);
     return { ok: true };
   }
 
@@ -218,7 +218,7 @@ export class AccountingService {
       let scheduledReversal: string | null = null;
       if (dto.autoReverse) {
         scheduledReversal = nextMonthStart(j.date);
-        await tx.insert(scheduledReversals).values({ tenantId: user.tenantId, journalId: j.id, reverseOn: scheduledReversal, createdById: user.sub });
+        await this.repo.insertScheduledReversals(tx, user.tenantId, j.id, scheduledReversal, user.sub);
       }
       return { ...j, scheduledReversal };
     });
@@ -233,16 +233,7 @@ export class AccountingService {
     const total = dto.lines.reduce<Dec>((a, l) => a.plus(money(D(l.debit))), ZERO);
     const ids = [...new Set(dto.lines.filter((l) => money(D(l.debit)).gt(0) || money(D(l.credit)).gt(0)).map((l) => l.accountId))].sort();
     if (!ids.length || total.lte(0)) return;
-    const res = await this.db.execute<{ number: string; date: string; description: string }>(sql`
-      SELECT j.number, j.date::text AS date, j.description
-      FROM journal_entries j
-      WHERE j.tenant_id = ${tenantId} AND j.reversal_of_id IS NULL
-        AND j.date BETWEEN ${addDays(date, -7)} AND ${addDays(date, 7)}
-        AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = j.id)
-        AND (SELECT COALESCE(SUM(l.debit), 0) FROM journal_lines l WHERE l.journal_id = j.id) = ${total.toFixed(2)}
-        AND (SELECT array_agg(DISTINCT l.account_id) FROM journal_lines l WHERE l.journal_id = j.id) @> ${`{${ids.join(',')}}`}::uuid[]
-        AND (SELECT array_agg(DISTINCT l.account_id) FROM journal_lines l WHERE l.journal_id = j.id) <@ ${`{${ids.join(',')}}`}::uuid[]
-      ORDER BY j.date DESC LIMIT 3`);
+    const res = await this.repo.queryJournalEntry(this.db, tenantId, date, total, ids);
     if (res.rows.length) {
       throw new ConflictException({
         statusCode: 409,
@@ -291,7 +282,7 @@ export class AccountingService {
       }
       const rev = await this.posting.reverse(tx, user.tenantId, id, useDate, user.sub);
       // mutasi bank yang dibuatkan jurnalnya dari jurnal ini kembali "belum diproses" agar bisa dibuatkan jurnal yang benar
-      await tx.execute(sql`UPDATE bank_statement_lines SET status = 'UNMATCHED', journal_id = NULL, journal_line_id = NULL, matched_by = NULL WHERE status = 'CREATED' AND journal_id = ${id}`);
+      await this.repo.queryReverseJournal(tx, id);
       return rev;
     });
   }
@@ -304,7 +295,7 @@ export class AccountingService {
     const date = toDocDate(dto.date);
     const run = async (tx: Tx) => {
       const ids = dto.lines.map((l) => l.accountId);
-      const accs = await tx.select().from(accounts).where(eq(accounts.tenantId, user.tenantId));
+      const accs = await this.repo.listAccounts(tx, user.tenantId);
       const byId = new Map(accs.map((a) => [a.id, a]));
       for (const id of ids) {
         const a = byId.get(id);
@@ -417,10 +408,10 @@ export class AccountingService {
   async assertNoControlAccounts(user: AuthUser, accountIds: string[], override?: string, context = 'Jurnal manual') {
     const ids = [...new Set(accountIds)];
     if (!ids.length) return;
-    const accs = await this.db.select().from(accounts).where(and(eq(accounts.tenantId, user.tenantId), inArray(accounts.id, ids)));
-    const cats = await this.db.select({ a: assetCategories.assetAccountId, b: assetCategories.accumulatedAccountId }).from(assetCategories).where(eq(assetCategories.tenantId, user.tenantId));
+    const accs = await this.repo.listAccountsById(this.db, user.tenantId, ids);
+    const cats = await this.repo.listAssetCategories(this.db, user.tenantId);
     const assetAccounts = new Set(cats.flatMap((c) => [c.a, c.b].filter((x): x is string => !!x)));
-    const petty = await this.db.execute<{ account_id: string }>(sql`SELECT account_id FROM petty_cash_funds WHERE tenant_id = ${user.tenantId} AND status = 'ACTIVE'`);
+    const petty = await this.repo.queryPettyCashFund(this.db, user.tenantId);
     const pettyAccounts = new Set(petty.rows.map((r) => r.account_id));
     const reasonOf = (a: (typeof accs)[number]) =>
       a.systemKey === SYS.AR ? 'piutang usaha (dikoreksi lewat faktur, pembayaran, atau retur)'
@@ -444,7 +435,7 @@ export class AccountingService {
 
   async validateLines(tenantId: string, lines: { accountId: string; debit?: string; credit?: string }[]) {
     const ids = [...new Set(lines.map((l) => l.accountId))];
-    const accs = await this.db.select().from(accounts).where(eq(accounts.tenantId, tenantId));
+    const accs = await this.repo.listAccounts(this.db, tenantId);
     for (const id of ids) {
       const a = accs.find((x) => x.id === id);
       if (!a) throw new BadRequestException('Akun tidak ditemukan');
@@ -462,11 +453,7 @@ export class AccountingService {
 
   async periodStatus(tenantId: string) {
     const lockedUntil = await this.period.lockedUntil(this.db, tenantId);
-    const closings = await this.db
-      .select({ year: journalEntries.sourceId, number: journalEntries.number, date: journalEntries.date })
-      .from(journalEntries)
-      .where(and(eq(journalEntries.tenantId, tenantId), eq(journalEntries.sourceType, 'CLOSING')))
-      .orderBy(desc(journalEntries.date));
+    const closings = await this.repo.listJournalEntriesBySourceTypeAndDate(this.db, tenantId);
     return { lockedUntil, closings };
   }
 
@@ -503,17 +490,8 @@ export class AccountingService {
     if (to >= todayJakarta()) throw new BadRequestException(`Tahun ${dto.year} belum berakhir; buku hanya bisa ditutup setelah 31 Desember ${dto.year}`);
     const result = await this.db.transaction(async (tx) => {
       // Satu penutupan pada satu waktu per perusahaan; saldo dibaca di dalam transaksi yang sama dengan jurnal penutupnya
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`close:${user.tenantId}`}))`);
-      const [existing] = await tx
-        .select({ number: journalEntries.number })
-        .from(journalEntries)
-        .where(
-          and(
-            eq(journalEntries.tenantId, user.tenantId),
-            eq(journalEntries.sourceType, 'CLOSING'),
-            eq(journalEntries.sourceId, String(dto.year)),
-          ),
-        );
+      await this.repo.queryCloseYear(tx, user.tenantId);
+      const [existing] = await this.repo.findJournalEntriesBySourceTypeAndSourceId(tx, user.tenantId, dto.year);
       if (existing) throw new BadRequestException(`Tahun ${dto.year} sudah ditutup (${existing.number})`);
 
       const rows = (await this.balances(user.tenantId, from, to, true, tx)).filter(
@@ -522,11 +500,7 @@ export class AccountingService {
       if (!rows.length) throw new BadRequestException(`Tidak ada saldo pendapatan/beban di tahun ${dto.year}`);
 
       // Nolkan per akun per cabang (label cabang dipertahankan) agar laba ditahan tiap cabang benar dan neraca per cabang tetap seimbang
-      const grouped = await tx.execute<{ account_id: string; type: string; b: string | null; d: string; c: string }>(sql`
-        SELECT l.account_id, a.type, l.branch_id::text AS b, SUM(l.debit) AS d, SUM(l.credit) AS c
-        FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
-        WHERE j.tenant_id = ${user.tenantId} AND j.date >= ${from} AND j.date <= ${to} AND j.source_type <> 'CLOSING' AND a.type IN ('REVENUE', 'EXPENSE')
-        GROUP BY l.account_id, a.type, l.branch_id`);
+      const grouped = await this.repo.queryJournalLine(tx, user.tenantId, from, to);
       const netByBranch = new Map<string | null, Dec>();
       const lines: { accountId: string; debit: Dec | number; credit: Dec | number; branchId: string | null }[] = [];
       for (const g of grouped.rows) {

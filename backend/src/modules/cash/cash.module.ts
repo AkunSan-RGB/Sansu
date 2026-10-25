@@ -7,11 +7,14 @@ import { PettyCashController } from './petty-cash.controller';
 import { PettyCashService } from './petty-cash.service';
 import { CashController } from './cash.controller';
 import { CashService } from './cash.service';
+import { CashCountRepository } from './cash-count.repository';
+import { CashRepository } from './cash.repository';
+import { PettyCashRepository } from './petty-cash.repository';
 
 @Module({
   imports: [AccountingModule, AssetsModule],
   controllers: [CashController, CashCountController, PettyCashController],
-  providers: [CashService, CashCountService, PettyCashService],
+  providers: [PettyCashRepository, CashRepository, CashCountRepository, CashService, CashCountService, PettyCashService],
   exports: [CashService, PettyCashService],
 })
 export class CashModule {}

@@ -16,11 +16,13 @@ import { EntityProfileService } from './entity-profile.service';
 import { NotesService } from './notes.service';
 import { ThresholdsService } from './thresholds.service';
 import { InsightsController, SupportInsightsSettingsController } from './insights.controller';
+import { FiscalRepository } from './fiscal.repository';
+import { NotesRepository } from './notes.repository';
 
 @Module({
   imports: [AccountingModule, AssetsModule, FxModule],
   controllers: [InsightsController, SupportInsightsSettingsController],
-  providers: [HealthService, FiscalService, NotesService, AppendixService, SupportQueries, TradeSupportReports, StockCashSupportReports, IndustrySupportReports, ManufacturingSupportReports, ServiceSupportReports, SupportReportsService, EntityProfileService, ThresholdsService],
+  providers: [NotesRepository, FiscalRepository, HealthService, FiscalService, NotesService, AppendixService, SupportQueries, TradeSupportReports, StockCashSupportReports, IndustrySupportReports, ManufacturingSupportReports, ServiceSupportReports, SupportReportsService, EntityProfileService, ThresholdsService],
   exports: [FiscalService, HealthService, EntityProfileService, ThresholdsService],
 })
 export class InsightsModule {}

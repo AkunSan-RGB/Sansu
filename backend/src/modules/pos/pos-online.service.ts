@@ -19,6 +19,7 @@ import { PostingService } from '../accounting/posting.service';
 import { CommissionsDto, CreateApiKeyDto, CreateSettlementDto } from './pos-online.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { insertOne, patchById } from '../../db/owned';
+import { PosOnlineRepository } from './pos-online.repository';
 
 const hash = (k: string) => createHash('sha256').update(k).digest('hex');
 
@@ -57,6 +58,7 @@ export class OnlineKeysService {
     @InjectDb() private readonly db: Db,
     private readonly audit: AuditService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: PosOnlineRepository,
   ) {}
 
   list(tenantId: string) {
@@ -82,11 +84,7 @@ export class OnlineKeysService {
   }
 
   async revoke(user: AuthUser, id: string) {
-    const [row] = await this.db
-      .update(onlineApiKeys)
-      .set({ revokedAt: new Date() })
-      .where(and(eq(onlineApiKeys.id, id), eq(onlineApiKeys.tenantId, user.tenantId), isNull(onlineApiKeys.revokedAt)))
-      .returning({ id: onlineApiKeys.id, name: onlineApiKeys.name });
+    const [row] = await this.repo.updateOnlineApiKeysByIdAndRevokedAtAndName(this.db, id, user.tenantId);
     if (!row) throw new NotFoundException('Kunci tidak ditemukan atau sudah dicabut');
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'REVOKE', entity: 'OnlineApiKey', entityId: id, data: { name: row.name } });
     return { ok: true };
@@ -123,16 +121,12 @@ export class PlatformSettlementsService {
     private readonly posting: PostingService,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
+    private readonly repo: PosOnlineRepository,
   ) {}
 
   /** Pesanan online yang sudah dibayar platform (piutang) tetapi dananya belum dicairkan */
   async unsettled(tenantId: string, channel?: OnlineChannel) {
-    const rows = await this.db
-      .select()
-      .from(posOrders)
-      .where(and(eq(posOrders.tenantId, tenantId), isNull(posOrders.settlementId), channel ? eq(posOrders.channel, channel) : sql`${posOrders.channel} IS NOT NULL`))
-      .orderBy(posOrders.date, posOrders.number)
-      .limit(1000);
+    const rows = await this.repo.listPosOrdersBySettlementIdAndChannelAndDate(this.db, tenantId, channel);
     const items = rows.map((o) => ({ id: o.id, number: o.number, date: o.date, channel: o.channel!, externalRef: o.externalRef, total: o.total, platformFee: o.platformFee, net: D(o.total).minus(o.platformFee).toFixed(2) }));
     return { items, totals: { count: items.length, total: items.reduce<Dec>((a, i) => a.plus(i.total), ZERO).toFixed(2), fee: items.reduce<Dec>((a, i) => a.plus(i.platformFee), ZERO).toFixed(2), net: items.reduce<Dec>((a, i) => a.plus(i.net), ZERO).toFixed(2) } };
   }
@@ -147,8 +141,8 @@ export class PlatformSettlementsService {
       const ids = [...new Set(dto.orderIds)];
       if (ids.length !== dto.orderIds.length) throw new BadRequestException('Pesanan yang sama dipilih lebih dari sekali');
       // kunci pesanan agar tidak dicairkan dua kali oleh permintaan bersamaan
-      await tx.execute(sql`SELECT id FROM pos_orders WHERE id IN (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)}) AND tenant_id = ${user.tenantId} FOR UPDATE`);
-      const orders = await tx.select().from(posOrders).where(and(eq(posOrders.tenantId, user.tenantId), inArray(posOrders.id, ids)));
+      await this.repo.queryPosOrder(tx, ids, user.tenantId);
+      const orders = await this.repo.listPosOrdersById(tx, user.tenantId, ids);
       if (orders.length !== ids.length) throw new BadRequestException('Ada pesanan yang tidak ditemukan');
       if (orders.some((o) => o.channel !== dto.channel)) throw new BadRequestException(`Semua pesanan harus dari kanal ${ONLINE_CHANNEL_LABELS[dto.channel]}`);
       const done = orders.find((o) => o.settlementId);
@@ -177,7 +171,7 @@ export class PlatformSettlementsService {
         ],
       });
       await patchById(tx, posPlatformSettlements, row.id, { journalId: journal.id });
-      await tx.update(posOrders).set({ settlementId: row.id }).where(inArray(posOrders.id, ids));
+      await this.repo.updatePosOrdersById(tx, row.id, ids);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PlatformSettlement', entityId: row.id, data: { number, channel: dto.channel, orders: orders.length, expected: expected.toFixed(2), received: received.toFixed(2) } });
       return { ...row, journalId: journal.id, journalNumber: journal.number };
     });
@@ -186,12 +180,12 @@ export class PlatformSettlementsService {
   /** Batalkan pencairan yang salah input: jurnal dibalik, pesanan kembali belum dicairkan */
   async cancel(user: AuthUser, id: string) {
     return this.db.transaction(async (tx) => {
-      const lock = await tx.execute(sql`SELECT id FROM pos_platform_settlements WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      const lock = await this.repo.queryPosPlatformSettlement(tx, id, user.tenantId);
       if (!lock.rows.length) throw new NotFoundException('Pencairan tidak ditemukan');
-      const [row] = await tx.select().from(posPlatformSettlements).where(eq(posPlatformSettlements.id, id));
+      const [row] = await this.repo.findPosPlatformSettlementsById(tx, id);
       if (row.status === 'CANCELLED') throw new BadRequestException('Pencairan sudah dibatalkan');
       if (row.journalId) await this.posting.reverse(tx, user.tenantId, row.journalId, toDocDate(undefined) < row.date ? row.date : toDocDate(undefined), user.sub, true);
-      await tx.update(posOrders).set({ settlementId: null }).where(eq(posOrders.settlementId, id));
+      await this.repo.updatePosOrdersBySettlementId(tx, id);
       await patchById(tx, posPlatformSettlements, id, { status: 'CANCELLED' });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CANCEL', entity: 'PlatformSettlement', entityId: id, data: { number: row.number } });
       return { ok: true };

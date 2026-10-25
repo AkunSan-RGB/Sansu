@@ -15,6 +15,7 @@ import { DeliveriesService } from '../deliveries/deliveries.service';
 import { SalesOrdersService } from '../orders/sales-orders.service';
 import { CreateInvoiceDto, InvoiceQueryDto } from '../sales.dto';
 import { insertOne, patchById } from '../../../db/owned';
+import { InvoicesRepository } from './invoices.repository';
 
 @Injectable()
 export class InvoicesService {
@@ -26,6 +27,7 @@ export class InvoicesService {
     private readonly posting: PostingService,
     private readonly orders: SalesOrdersService,
     private readonly audit: AuditService,
+    private readonly repo: InvoicesRepository,
   ) {}
 
   list(tenantId: string, q: InvoiceQueryDto) {
@@ -68,7 +70,7 @@ export class InvoicesService {
   /** Staf (selain Pemilik/Admin) hanya boleh menagih pesanan yang sudah dikirim Gudang (ada surat jalan) */
   async assertDeliveredBeforeInvoice(user: AuthUser, orderId: string) {
     if (['OWNER', 'ADMIN'].includes(user.role)) return;
-    const [o] = await this.db.select({ status: salesOrders.status }).from(salesOrders).where(and(eq(salesOrders.id, orderId), eq(salesOrders.tenantId, user.tenantId)));
+    const [o] = await this.repo.findSalesOrdersById(this.db, orderId, user.tenantId);
     if (o?.status === 'CONFIRMED') {
       throw new BadRequestException('Barang pada pesanan ini belum dikirim Gudang. Minta Gudang mencatat pengiriman (surat jalan) dulu, baru faktur dicatat.');
     }
@@ -89,7 +91,7 @@ export class InvoicesService {
       const delivery = sent.length
         ? { id: sent[0].id, cogsAmount: sent.reduce((a, d) => a.plus(d.cogsAmount), ZERO).toFixed(2), lines: sent.flatMap((d) => d.lines) }
         : undefined;
-      const [customer] = await tx.select().from(customers).where(eq(customers.id, order.customerId));
+      const [customer] = await this.repo.findCustomersById(tx, order.customerId);
       const number = await this.seq.next(tx, user.tenantId, 'INVOICE', date);
 
       // Header dulu untuk mendapatkan id (referensi kartu stok)
@@ -135,18 +137,7 @@ export class InvoicesService {
           unitCost = moved.unitCost;
         }
         costs.set(line.id, { unitCost });
-        await tx.insert(invoiceLines).values({
-          invoiceId: invoice.id,
-          productId: line.productId,
-          uom: line.uom,
-          uomFactor: line.uomFactor,
-          qty: line.qty,
-          price: line.price,
-          priceForeign: line.priceForeign,
-          discountPct: line.discountPct,
-          lineTotal: line.lineTotal,
-          unitCost: unitCost.toFixed(4),
-        });
+        await this.repo.insertInvoiceLines(tx, invoice.id, line.productId, line.uom, line.uomFactor, line.qty, line.price, line.priceForeign, line.discountPct, line.lineTotal, unitCost);
       }
       cogs = delivery ? D(delivery.cogsAmount) : money(cogs);
 

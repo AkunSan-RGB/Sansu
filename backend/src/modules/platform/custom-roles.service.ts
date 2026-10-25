@@ -8,6 +8,7 @@ import { InjectDb } from '../../db/db.module';
 import { customRoles, Role, users } from '../../db/schema';
 import { RoleDto, UpdateRoleDto } from './custom-roles.dto';
 import { findOwned, insertOne } from '../../db/owned';
+import { CustomRolesRepository } from './custom-roles.repository';
 
 /** Kunci di luar katalog: aksi akun sendiri dan panel pemilik layanan tidak boleh dicabut lewat peran khusus */
 const EXCLUDED = /^[A-Z]+ \/(auth|platform|platform-admin|billing)(\/|$)/;
@@ -40,6 +41,7 @@ export class CustomRolesService {
     @InjectDb() private readonly db: Db,
     private readonly perms: PermissionsService,
     private readonly audit: AuditService,
+    private readonly repo: CustomRolesRepository,
   ) {}
 
   /** Hak tulis yang dimiliki peran dasar dan boleh dicabut, beserta label dan kelompok untuk tampilan */
@@ -56,18 +58,7 @@ export class CustomRolesService {
   }
 
   async list(tenantId: string) {
-    const rows = await this.db
-      .select({
-        id: customRoles.id,
-        name: customRoles.name,
-        baseRole: customRoles.baseRole,
-        denied: customRoles.denied,
-        createdAt: customRoles.createdAt,
-        users: sql<number>`(SELECT COUNT(*)::int FROM users u WHERE u.custom_role_id = custom_roles.id)`,
-      })
-      .from(customRoles)
-      .where(eq(customRoles.tenantId, tenantId))
-      .orderBy(asc(customRoles.name));
+    const rows = await this.repo.countCustomRolesByName(this.db, tenantId);
     return rows;
   }
 
@@ -83,7 +74,7 @@ export class CustomRolesService {
     const name = dto.name.trim();
     if (name.length < 2) throw new BadRequestException('Nama minimal 2 huruf');
     const denied = this.validDenied(dto.baseRole, dto.denied);
-    const [dup] = await this.db.select({ id: customRoles.id }).from(customRoles).where(and(eq(customRoles.tenantId, user.tenantId), sql`lower(${customRoles.name}) = lower(${name})`));
+    const [dup] = await this.repo.findCustomRolesByName(this.db, user.tenantId, name);
     if (dup) throw new BadRequestException('Sudah ada peran khusus dengan nama itu');
     const row = await insertOne(this.db, customRoles, { tenantId: user.tenantId, name, baseRole: dto.baseRole, denied, createdById: user.sub });
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'CustomRole', entityId: row.id, data: { name, baseRole: dto.baseRole, denied } });
@@ -96,11 +87,11 @@ export class CustomRolesService {
     const name = dto.name?.trim() ?? cur.name;
     if (name.length < 2) throw new BadRequestException('Nama minimal 2 huruf');
     if (name.toLowerCase() !== cur.name.toLowerCase()) {
-      const [dup] = await this.db.select({ id: customRoles.id }).from(customRoles).where(and(eq(customRoles.tenantId, user.tenantId), sql`lower(${customRoles.name}) = lower(${name})`));
+      const [dup] = await this.repo.findCustomRolesByName(this.db, user.tenantId, name);
       if (dup) throw new BadRequestException('Sudah ada peran khusus dengan nama itu');
     }
     const denied = dto.denied === undefined ? cur.denied : this.validDenied(cur.baseRole, dto.denied);
-    const [row] = await this.db.update(customRoles).set({ name, denied }).where(eq(customRoles.id, id)).returning();
+    const [row] = await this.repo.updateCustomRolesById(this.db, name, denied, id);
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'CustomRole', entityId: id, data: { before: { name: cur.name, denied: cur.denied }, after: { name, denied } } });
     return row;
   }
@@ -108,9 +99,9 @@ export class CustomRolesService {
   async remove(user: AuthUser, id: string) {
     const cur = await findOwned(this.db, customRoles, user.tenantId, id);
     if (!cur) throw new NotFoundException('Peran khusus tidak ditemukan');
-    const [used] = await this.db.select({ n: sql<number>`COUNT(*)::int` }).from(users).where(eq(users.customRoleId, id));
+    const [used] = await this.repo.countUsersByCustomRoleId(this.db, id);
     if (used.n) throw new BadRequestException(`Peran ini masih dipakai ${used.n} pengguna. Pindahkan pengguna ke peran lain dulu.`);
-    await this.db.delete(customRoles).where(eq(customRoles.id, id));
+    await this.repo.deleteCustomRolesById(this.db, id);
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'DELETE', entity: 'CustomRole', entityId: id, data: { name: cur.name } });
     return { ok: true };
   }

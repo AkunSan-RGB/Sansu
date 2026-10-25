@@ -8,6 +8,7 @@ import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { WorkCenterDto, DowntimeDto, ShiftsDto, BomOpsDto, ScheduleDto, FinishOpDto, CorrectOpDto } from './work-centers.dto';
 import { RangeQuery } from './work-centers.shared';
+import { WorkCentersRepository } from './work-centers.repository';
 
 const WIB_MS = 7 * 3600_000;
 
@@ -28,6 +29,7 @@ export class WorkCenterService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly audit: AuditService,
+    private readonly repo: WorkCentersRepository,
   ) {}
 
   list(tenantId: string) {
@@ -37,12 +39,12 @@ export class WorkCenterService {
   async save(u: AuthUser, dto: WorkCenterDto, id?: string) {
     try {
       if (id) {
-        const r = await this.db.execute(sql`UPDATE work_centers SET code = ${dto.code.trim()}, name = ${dto.name.trim()}, kind = ${dto.kind ?? 'MACHINE'}, labor_rate = ${dto.laborRate}, overhead_rate = ${dto.overheadRate}, capacity_hours = ${dto.capacityHours ?? 8}, is_active = ${dto.isActive ?? true} WHERE id = ${id} AND tenant_id = ${u.tenantId} RETURNING id`);
+        const r = await this.repo.querySave(this.db, dto, id, u);
         if (!r.rows.length) throw new NotFoundException('Pusat kerja tidak ditemukan');
         await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'WorkCenter', entityId: id, data: dto });
         return { id };
       }
-      const r = await this.db.execute<{ id: string }>(sql`INSERT INTO work_centers (tenant_id, code, name, kind, labor_rate, overhead_rate, capacity_hours) VALUES (${u.tenantId}, ${dto.code.trim()}, ${dto.name.trim()}, ${dto.kind ?? 'MACHINE'}, ${dto.laborRate}, ${dto.overheadRate}, ${dto.capacityHours ?? 8}) RETURNING id`);
+      const r = await this.repo.queryWorkCenter(this.db, u, dto);
       await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'WorkCenter', entityId: r.rows[0].id, data: dto });
       return { id: r.rows[0].id };
     } catch (e) {
@@ -61,7 +63,7 @@ export class WorkCenterService {
     if (e <= s) throw new BadRequestException('Waktu selesai harus setelah waktu mulai');
     await this.db.transaction(async (tx) => {
       await this.lockWc(tx, u.tenantId, workCenterId, false);
-      await tx.execute(sql`INSERT INTO work_center_downtime (tenant_id, work_center_id, starts_at, ends_at, reason, created_by_id) VALUES (${u.tenantId}, ${workCenterId}, ${s.toISOString()}, ${e.toISOString()}, ${dto.reason}, ${u.sub})`);
+      await this.repo.queryWorkCenterDowntime(tx, u.tenantId, workCenterId, s, e, dto.reason, u.sub);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'WorkCenterDowntime', entityId: workCenterId, data: dto });
     });
     // jadwal operasi yang kini bertabrakan dengan mesin mati dilaporkan di kontrol; tidak dibatalkan otomatis
@@ -82,8 +84,8 @@ export class WorkCenterService {
     }
     await this.db.transaction(async (tx) => {
       await this.lockWc(tx, u.tenantId, workCenterId, false);
-      await tx.execute(sql`DELETE FROM work_center_shifts WHERE work_center_id = ${workCenterId} AND tenant_id = ${u.tenantId}`);
-      for (const r of rows) await tx.execute(sql`INSERT INTO work_center_shifts (tenant_id, work_center_id, weekday, start_minute, end_minute) VALUES (${u.tenantId}, ${workCenterId}, ${r.weekday}, ${r.s}, ${r.e})`);
+      await this.repo.queryWorkCenterShift(tx, workCenterId, u.tenantId);
+      for (const r of rows) await this.repo.queryWorkCenterShiftForSetShifts(tx, u.tenantId, workCenterId, r.weekday, r.s, r.e);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'WorkCenterShifts', entityId: workCenterId, data: { shifts: dto.shifts } });
     });
     return this.shifts(u.tenantId, workCenterId);
@@ -91,7 +93,7 @@ export class WorkCenterService {
 
   /** Apakah rentang berada di dalam satu shift (waktu Jakarta)? Tanpa kalender selalu benar. */
   private async withinShift(tx: DbOrTx, tenantId: string, workCenterId: string, s: Date, e: Date) {
-    const cal = (await tx.execute<{ weekday: number; start_minute: number; end_minute: number }>(sql`SELECT weekday, start_minute, end_minute FROM work_center_shifts WHERE tenant_id = ${tenantId} AND work_center_id = ${workCenterId}`)).rows;
+    const cal = (await this.repo.queryWorkCenterShiftForWithinShift(tx, tenantId, workCenterId)).rows;
     if (!cal.length) return { hasCalendar: false, ok: true };
     const ls = new Date(s.getTime() + WIB_MS);
     const le = new Date(e.getTime() + WIB_MS);
@@ -104,7 +106,7 @@ export class WorkCenterService {
   }
 
   private async lockWc(tx: Tx, tenantId: string, id: string, mustBeActive = true) {
-    const r = await tx.execute<{ id: string; is_active: boolean; labor_rate: string; overhead_rate: string; code: string }>(sql`SELECT id, is_active, labor_rate, overhead_rate, code FROM work_centers WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
+    const r = await this.repo.queryWorkCenterForLockWc(tx, id, tenantId);
     if (!r.rows.length) throw new BadRequestException('Pusat kerja tidak ditemukan');
     if (mustBeActive && !r.rows[0].is_active) throw new BadRequestException('Pusat kerja nonaktif');
     return r.rows[0];
@@ -116,16 +118,16 @@ export class WorkCenterService {
 
   async setBomOperations(u: AuthUser, bomId: string, dto: BomOpsDto) {
     await this.db.transaction(async (tx) => {
-      const b = await tx.execute(sql`SELECT 1 FROM boms WHERE id = ${bomId} AND tenant_id = ${u.tenantId}`);
+      const b = await this.repo.queryBom(tx, bomId, u.tenantId);
       if (!b.rows.length) throw new NotFoundException('Resep tidak ditemukan');
       const ids = [...new Set(dto.operations.map((o) => o.workCenterId))];
       if (ids.length) {
-        const w = await tx.execute(sql`SELECT id FROM work_centers WHERE tenant_id = ${u.tenantId} AND is_active AND id IN (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)})`);
+        const w = await this.repo.queryWorkCenterForSetBomOperations(tx, u.tenantId, ids);
         if (w.rows.length !== ids.length) throw new BadRequestException('Ada pusat kerja yang tidak ditemukan atau nonaktif');
       }
-      await tx.execute(sql`DELETE FROM bom_operations WHERE bom_id = ${bomId}`);
+      await this.repo.queryBomOperation(tx, bomId);
       for (const [i, o] of dto.operations.entries()) {
-        await tx.execute(sql`INSERT INTO bom_operations (tenant_id, bom_id, sequence, name, work_center_id, minutes_per_batch) VALUES (${u.tenantId}, ${bomId}, ${i + 1}, ${o.name.trim()}, ${o.workCenterId}, ${o.minutesPerBatch})`);
+        await this.repo.queryBomOperationForSetBomOperations(tx, u.tenantId, bomId, i, o.name, o.workCenterId, o.minutesPerBatch);
       }
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'BomOperations', entityId: bomId, data: { operations: dto.operations.length } });
     });
@@ -134,12 +136,12 @@ export class WorkCenterService {
 
   /** Menyalin operasi resep ke perintah produksi baru (dipanggil dalam transaksi pembuatan perintah) */
   async copyToOrder(tx: DbOrTx, tenantId: string, bomId: string, orderId: string, batches: number) {
-    await tx.execute(sql`INSERT INTO production_order_operations (tenant_id, order_id, sequence, name, work_center_id, planned_minutes) SELECT tenant_id, ${orderId}::uuid, sequence, name, work_center_id, ROUND(minutes_per_batch * ${batches}::numeric, 2) FROM bom_operations WHERE bom_id = ${bomId} AND tenant_id = ${tenantId}`);
+    await this.repo.queryProductionOrderOperation(tx, orderId, batches, bomId, tenantId);
   }
 
   /** Biaya operasi perintah ini; null bila perintah tidak punya operasi. Semua operasi harus selesai. */
   async orderConversionCost(tx: DbOrTx, tenantId: string, orderId: string): Promise<{ labor: ReturnType<typeof D>; overhead: ReturnType<typeof D> } | null> {
-    const r = await tx.execute<{ status: string; labor_cost: string; overhead_cost: string; name: string }>(sql`SELECT status, labor_cost, overhead_cost, name FROM production_order_operations WHERE tenant_id = ${tenantId} AND order_id = ${orderId} AND status <> 'CANCELLED' ORDER BY sequence`);
+    const r = await this.repo.queryProductionOrderOperationForOrderConversionCost(tx, tenantId, orderId);
     if (!r.rows.length) return null;
     const open = r.rows.filter((o) => o.status !== 'DONE');
     if (open.length) throw new BadRequestException(`Selesaikan dulu operasi: ${open.map((o) => o.name).join(', ')}`);
@@ -147,7 +149,7 @@ export class WorkCenterService {
   }
 
   async cancelOrderOps(tx: DbOrTx, tenantId: string, orderId: string) {
-    await tx.execute(sql`UPDATE production_order_operations SET status = 'CANCELLED' WHERE tenant_id = ${tenantId} AND order_id = ${orderId} AND status IN ('PENDING', 'RUNNING')`);
+    await this.repo.queryCancelOrderOps(tx, tenantId, orderId);
   }
 
   orderOperations(tenantId: string, orderId: string) {
@@ -165,11 +167,8 @@ export class WorkCenterService {
 
   /** Operasi lain yang menempati pusat kerja pada rentang ini, serta jadwal mesin mati */
   private async clashes(tx: DbOrTx, tenantId: string, workCenterId: string, s: Date, e: Date, exceptOpId: string) {
-    const ops = await tx.execute<{ id: string; name: string; order_number: string; scheduled_start: Date; scheduled_end: Date }>(sql`
-      SELECT o.id, o.name, p.number AS order_number, o.scheduled_start, o.scheduled_end FROM production_order_operations o JOIN production_orders p ON p.id = o.order_id
-      WHERE o.tenant_id = ${tenantId} AND o.work_center_id = ${workCenterId} AND o.id <> ${exceptOpId} AND o.status IN ('PENDING', 'RUNNING') AND o.scheduled_start IS NOT NULL
-        AND o.scheduled_start < ${e.toISOString()}::timestamptz AND o.scheduled_end > ${s.toISOString()}::timestamptz ORDER BY o.scheduled_start`);
-    const down = await tx.execute<{ reason: string; starts_at: Date; ends_at: Date }>(sql`SELECT reason, starts_at, ends_at FROM work_center_downtime WHERE tenant_id = ${tenantId} AND work_center_id = ${workCenterId} AND starts_at < ${e.toISOString()}::timestamptz AND ends_at > ${s.toISOString()}::timestamptz`);
+    const ops = await this.repo.queryProductionOrderOperationForClashes(tx, tenantId, workCenterId, exceptOpId, e, s);
+    const down = await this.repo.queryWorkCenterDowntimeForClashes(tx, tenantId, workCenterId, e, s);
     return [
       ...ops.rows.map((r) => ({ type: 'OPERASI', title: `${r.order_number} · ${r.name}`, startsAt: r.scheduled_start, endsAt: r.scheduled_end })),
       ...down.rows.map((r) => ({ type: 'MESIN_MATI', title: r.reason, startsAt: r.starts_at, endsAt: r.ends_at })),
@@ -198,11 +197,11 @@ export class WorkCenterService {
       const clash = await this.clashes(tx, u.tenantId, op.work_center_id, s, e, opId);
       if (clash.length) throw new ConflictException({ message: `Jadwal bentrok dengan ${clash.length} jadwal lain di pusat kerja ini`, conflicts: clash });
       // urutan: operasi tidak boleh mulai sebelum operasi sebelumnya (jadwal) selesai
-      const prev = (await tx.execute<{ name: string; scheduled_end: Date | null }>(sql`SELECT name, scheduled_end FROM production_order_operations WHERE order_id = ${op.order_id} AND sequence < ${op.sequence} AND status <> 'CANCELLED' ORDER BY sequence DESC LIMIT 1`)).rows[0];
+      const prev = (await this.repo.queryProductionOrderOperationForSchedule(tx, op.order_id, op.sequence)).rows[0];
       if (prev?.scheduled_end && s < new Date(prev.scheduled_end)) throw new BadRequestException(`Operasi ini tidak boleh mulai sebelum "${prev.name}" selesai (${new Date(prev.scheduled_end).toISOString()})`);
-      const next = (await tx.execute<{ name: string; scheduled_start: Date | null }>(sql`SELECT name, scheduled_start FROM production_order_operations WHERE order_id = ${op.order_id} AND sequence > ${op.sequence} AND status <> 'CANCELLED' AND scheduled_start IS NOT NULL ORDER BY sequence LIMIT 1`)).rows[0];
+      const next = (await this.repo.queryProductionOrderOperationForSchedule2(tx, op.order_id, op.sequence)).rows[0];
       if (next?.scheduled_start && e > new Date(next.scheduled_start)) throw new BadRequestException(`Operasi ini harus selesai sebelum "${next.name}" dimulai`);
-      await tx.execute(sql`UPDATE production_order_operations SET scheduled_start = ${s.toISOString()}, scheduled_end = ${e.toISOString()}, off_shift = ${offShift} WHERE id = ${opId}`);
+      await this.repo.querySchedule(tx, s, e, offShift, opId);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'ProductionOperation', entityId: opId, data: { scheduledStart: s, scheduledEnd: e, offShift, offShiftReason: offShift ? dto.offShiftReason : undefined } });
     });
     return { ok: true };
@@ -212,7 +211,7 @@ export class WorkCenterService {
     await this.db.transaction(async (tx) => {
       const op = await this.lockOp(tx, u.tenantId, opId);
       if (op.status !== 'PENDING') throw new BadRequestException('Hanya operasi yang belum dimulai');
-      await tx.execute(sql`UPDATE production_order_operations SET scheduled_start = NULL, scheduled_end = NULL, off_shift = false WHERE id = ${opId}`);
+      await this.repo.queryUnschedule(tx, opId);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'ProductionOperation', entityId: opId, data: { unscheduled: true } });
     });
     return { ok: true };
@@ -223,13 +222,13 @@ export class WorkCenterService {
       const op = await this.lockOp(tx, u.tenantId, opId);
       if (op.status !== 'PENDING') throw new BadRequestException('Operasi sudah dimulai atau selesai');
       if (op.order_status !== 'IN_PROGRESS') throw new BadRequestException('Mulai produksi (keluarkan bahan) dulu sebelum menjalankan operasi');
-      const prev = (await tx.execute<{ name: string; status: string }>(sql`SELECT name, status FROM production_order_operations WHERE order_id = ${op.order_id} AND sequence < ${op.sequence} AND status NOT IN ('DONE', 'CANCELLED') LIMIT 1`)).rows[0];
+      const prev = (await this.repo.queryProductionOrderOperationForStartOp(tx, op.order_id, op.sequence)).rows[0];
       if (prev) throw new BadRequestException(`Selesaikan dulu operasi "${prev.name}"`);
       const wc = await this.lockWc(tx, u.tenantId, op.work_center_id);
       // satu pusat kerja hanya menjalankan satu operasi pada satu waktu
-      const busy = (await tx.execute<{ name: string }>(sql`SELECT name FROM production_order_operations WHERE work_center_id = ${wc.id} AND status = 'RUNNING' AND id <> ${opId} LIMIT 1`)).rows[0];
+      const busy = (await this.repo.queryProductionOrderOperationForStartOp2(tx, wc.id, opId)).rows[0];
       if (busy) throw new ConflictException(`Pusat kerja ${wc.code} sedang menjalankan "${busy.name}"`);
-      await tx.execute(sql`UPDATE production_order_operations SET status = 'RUNNING', started_at = now() WHERE id = ${opId}`);
+      await this.repo.queryStartOp(tx, opId);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'START', entity: 'ProductionOperation', entityId: opId, data: { name: op.name } });
     });
     return { ok: true };
@@ -244,10 +243,10 @@ export class WorkCenterService {
       const planned = num(op.planned_minutes);
       if (minutes > planned * OVERRUN && (dto.note ?? '').trim().length < 5) throw new BadRequestException(`Waktu aktual ${minutes} menit melebihi ${Math.round(OVERRUN * 100)}% dari rencana (${planned} menit); tulis penjelasannya`);
       if (dto.operatorEmployeeId) {
-        const e = await tx.execute(sql`SELECT 1 FROM employees WHERE id = ${dto.operatorEmployeeId} AND tenant_id = ${u.tenantId}`);
+        const e = await this.repo.queryEmployee(tx, dto.operatorEmployeeId, u.tenantId);
         if (!e.rows.length) throw new BadRequestException('Operator tidak ditemukan');
       }
-      const wc = (await tx.execute<{ labor_rate: string; overhead_rate: string }>(sql`SELECT labor_rate, overhead_rate FROM work_centers WHERE id = ${op.work_center_id}`)).rows[0];
+      const wc = (await this.repo.queryWorkCenterForFinishOp(tx, op.work_center_id)).rows[0];
       const hours = D(minutes).div(60);
       const labor = money(hours.times(wc.labor_rate));
       const overhead = money(hours.times(wc.overhead_rate));
@@ -263,7 +262,7 @@ export class WorkCenterService {
       const op = await this.lockOp(tx, u.tenantId, opId);
       if (op.status !== 'DONE') throw new BadRequestException('Hanya operasi yang sudah selesai yang dapat dikoreksi');
       if (op.order_status === 'COMPLETED') throw new BadRequestException('Perintah produksi sudah selesai; biayanya sudah dijurnal');
-      const wc = (await tx.execute<{ labor_rate: string; overhead_rate: string }>(sql`SELECT labor_rate, overhead_rate FROM work_centers WHERE id = ${op.work_center_id}`)).rows[0];
+      const wc = (await this.repo.queryWorkCenterForFinishOp(tx, op.work_center_id)).rows[0];
       const hours = D(dto.actualMinutes).div(60);
       const labor = money(hours.times(wc.labor_rate));
       const overhead = money(hours.times(wc.overhead_rate));
@@ -275,7 +274,7 @@ export class WorkCenterService {
 
   /** Rincian biaya perintah: bahan per baris, tiap operasi, dan total */
   async costing(tenantId: string, orderId: string) {
-    const o = (await this.db.execute<{ number: string; status: string; batches: string; planned_qty: string; output_qty: string; material_cost: string; labor_cost: string; overhead_cost: string; total_cost: string; unit_cost: string }>(sql`SELECT number, status, batches, planned_qty, output_qty, material_cost, labor_cost, overhead_cost, total_cost, unit_cost FROM production_orders WHERE id = ${orderId} AND tenant_id = ${tenantId}`)).rows[0];
+    const o = (await this.repo.queryProductionOrder(this.db, orderId, tenantId)).rows[0];
     if (!o) throw new NotFoundException('Perintah produksi tidak ditemukan');
     const ops = (await this.orderOperations(tenantId, orderId)) as { plannedMinutes: string; actualMinutes: string | null; laborCost: string; overheadCost: string; status: string }[];
     const opLabor = ops.reduce((a, x) => a.plus(x.laborCost), D(0));
@@ -286,13 +285,8 @@ export class WorkCenterService {
   async schedulePlan(tenantId: string, q: RangeQuery) {
     const from = q.from ?? addDays(todayJakarta(), -2);
     const to = q.to ?? addDays(todayJakarta(), 14);
-    const r = await this.db.execute(sql`
-      SELECT o.id, o.name, o.status, o.sequence, o.work_center_id AS "workCenterId", w.code AS "workCenterCode", w.name AS "workCenterName", p.id AS "orderId", p.number AS "orderNumber",
-             o.scheduled_start AS "scheduledStart", o.scheduled_end AS "scheduledEnd", o.planned_minutes AS "plannedMinutes"
-      FROM production_order_operations o JOIN work_centers w ON w.id = o.work_center_id JOIN production_orders p ON p.id = o.order_id
-      WHERE o.tenant_id = ${tenantId} AND o.status <> 'CANCELLED' AND o.scheduled_start IS NOT NULL AND o.scheduled_start < (${to}::date + 1)::timestamptz AND o.scheduled_end > ${from}::date::timestamptz
-        ${q.workCenterId ? sql`AND o.work_center_id = ${q.workCenterId}` : sql``} ORDER BY o.scheduled_start LIMIT 1000`);
-    const down = await this.db.execute(sql`SELECT d.id, d.work_center_id AS "workCenterId", d.starts_at AS "startsAt", d.ends_at AS "endsAt", d.reason FROM work_center_downtime d WHERE d.tenant_id = ${tenantId} AND d.starts_at < (${to}::date + 1)::timestamptz AND d.ends_at > ${from}::date::timestamptz ORDER BY d.starts_at`);
+    const r = await this.repo.queryProductionOrderOperationForSchedulePlan(this.db, tenantId, to, from, q);
+    const down = await this.repo.queryWorkCenterDowntimeForSchedulePlan(this.db, tenantId, to, from);
     return { from, to, operations: r.rows, downtime: down.rows };
   }
 
@@ -324,13 +318,7 @@ export class WorkCenterService {
   async utilization(tenantId: string, q: RangeQuery) {
     const to = q.to ?? todayJakarta();
     const from = q.from ?? addDays(to, -30);
-    const r = await this.db.execute(sql`
-      SELECT w.id, w.code, w.name, w.capacity_hours AS "capacityHours",
-             COALESCE(SUM(o.actual_minutes) FILTER (WHERE o.status = 'DONE'), 0) / 60.0 AS "actualHours",
-             COALESCE(SUM(o.planned_minutes) FILTER (WHERE o.status = 'DONE'), 0) / 60.0 AS "plannedHours",
-             COALESCE(SUM(o.labor_cost + o.overhead_cost) FILTER (WHERE o.status = 'DONE'), 0) AS cost
-      FROM work_centers w LEFT JOIN production_order_operations o ON o.work_center_id = w.id AND o.finished_at >= ${from}::date::timestamptz AND o.finished_at < (${to}::date + 1)::timestamptz
-      WHERE w.tenant_id = ${tenantId} GROUP BY w.id ORDER BY w.code`);
+    const r = await this.repo.queryWorkCenterForUtilization(this.db, from, to, tenantId);
     return { from, to, rows: r.rows };
   }
 }

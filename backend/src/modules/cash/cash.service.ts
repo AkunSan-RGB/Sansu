@@ -18,6 +18,7 @@ import { PostingService } from '../accounting/posting.service';
 import { AssetsService } from '../assets/assets.service';
 import { CreateCashTxDto, CashLineDto, CashQueryDto, VoidCashDto, CashEvidenceDto } from './cash.dto';
 import { insertOne, patchById } from '../../db/owned';
+import { CashRepository } from './cash.repository';
 
 /** Kas yang sudah melewati penentuan sumber: setiap baris punya akun */
 export type ResolvedCashTx = Omit<CreateCashTxDto, 'lines'> & { lines?: (Omit<CashLineDto, 'accountId'> & { accountId: string; sourceKey?: string })[] };
@@ -39,16 +40,12 @@ export class CashService {
     private readonly approvals: ApprovalsService,
     private readonly settings: SettingsService,
     private readonly budget: BudgetService,
+    private readonly repo: CashRepository,
   ) {}
 
   /** Akun kas & bank beserta saldo per hari ini */
   async accounts(tenantId: string) {
-    const res = await this.db.execute<{ id: string; code: string; name: string; balance: string }>(sql`
-      SELECT a.id, a.code, a.name,
-             COALESCE((SELECT SUM(l.debit - l.credit) FROM journal_lines l WHERE l.account_id = a.id), 0) AS balance
-      FROM accounts a
-      WHERE a.tenant_id = ${tenantId} AND a.is_cash_account = true AND a.is_postable = true
-      ORDER BY a.code`);
+    const res = await this.repo.queryAccount(this.db, tenantId);
     return res.rows.map((r) => ({ ...r, balance: D(r.balance).toFixed(2) }));
   }
 
@@ -186,10 +183,7 @@ export class CashService {
       } else {
         if (!lines.length) throw new BadRequestException('Isi minimal satu baris akun lawan');
         const ids = [...new Set(lines.map((l) => l.accountId))];
-        const accs = await tx
-          .select()
-          .from(accounts)
-          .where(and(eq(accounts.tenantId, user.tenantId), inArray(accounts.id, ids)));
+        const accs = await this.repo.listAccountsById(tx, user.tenantId, ids);
         if (accs.length !== ids.length) throw new BadRequestException('Ada akun lawan yang tidak ditemukan');
         if (accs.some((a) => a.isCashAccount)) {
           throw new BadRequestException('Akun lawan tidak boleh akun kas/bank; gunakan Transfer');
@@ -212,7 +206,7 @@ export class CashService {
         const pids = [...new Set(lines.map((l) => l.projectId).filter((x): x is string => !!x))];
         if (pids.length) {
           if (dto.type !== 'OUT') throw new BadRequestException('Proyek hanya untuk kas keluar (biaya proyek)');
-          const ps = await tx.select({ id: projects.id }).from(projects).where(and(eq(projects.tenantId, user.tenantId), inArray(projects.id, pids)));
+          const ps = await this.repo.listProjectsById(tx, user.tenantId, pids);
           if (ps.length !== pids.length) throw new BadRequestException('Proyek tidak ditemukan');
         }
       }
@@ -231,7 +225,7 @@ export class CashService {
         }
       }
       if (dto.branchId) {
-        const [br] = (await tx.execute<{ id: string }>(sql`SELECT id FROM branches WHERE id = ${dto.branchId} AND tenant_id = ${user.tenantId}`)).rows;
+        const [br] = (await this.repo.queryBranche(tx, dto.branchId, user.tenantId)).rows;
         if (!br) throw new BadRequestException('Cabang tidak ditemukan');
       }
       // pengguna terbatas cabang hanya boleh memakai rekening & cabang miliknya
@@ -242,8 +236,8 @@ export class CashService {
       if (!opts.petty) await this.assertNotPettyCash(tx, user.tenantId, dto, cash.id, to?.id, amount);
       if (dto.type !== 'IN' && (await this.cashSettings(user.tenantId, tx)).blockNegative) {
         // serialkan per akun kas: tanpa kunci, dua pengeluaran serentak sama-sama melihat saldo cukup lalu keduanya lolos
-        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`cash-balance:${cash.id}`}))`);
-        const [b] = (await tx.execute<{ bal: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0) AS bal FROM journal_lines l WHERE l.account_id = ${cash.id}`)).rows;
+        await this.repo.queryCreate(tx, cash.id);
+        const [b] = (await this.repo.queryJournalLine(tx, cash.id)).rows;
         if (D(b.bal).minus(amount).lt(0)) {
           throw new BadRequestException(`Saldo ${cash.name ?? 'akun kas'} tidak cukup (Rp${D(b.bal).toNumber().toLocaleString('id-ID')}); kas keluar akan membuat saldo negatif`);
         }
@@ -349,9 +343,7 @@ export class CashService {
    * jadi transaksi kas umum tidak boleh keluar/masuk langsung dari akun kas kecil atau mengisinya melebihi plafon.
    */
   private async assertNotPettyCash(tx: Tx, tenantId: string, dto: CreateCashTxDto, cashId: string, toId: string | undefined, amount: Dec) {
-    const res = await tx.execute<{ account_id: string; imprest_amount: string }>(
-      sql`SELECT account_id, imprest_amount FROM petty_cash_funds WHERE tenant_id = ${tenantId} AND status = 'ACTIVE'`,
-    );
+    const res = await this.repo.queryPettyCashFund(tx, tenantId);
     if (!res.rows.length) return;
     const fund = new Map(res.rows.map((r) => [r.account_id, D(r.imprest_amount)]));
     if (dto.type === 'OUT' && fund.has(cashId)) throw new BadRequestException('Akun ini adalah kas kecil (dana tetap). Pengeluarannya dicatat lewat menu Kas Kecil › Bukti kas kecil');
@@ -359,7 +351,7 @@ export class CashService {
     if (dto.type === 'TRANSFER') {
       if (fund.has(cashId)) throw new BadRequestException('Kas kecil tidak boleh dipakai sebagai sumber transfer. Pengeluarannya lewat bukti kas kecil');
       if (toId && fund.has(toId)) {
-        const [b] = (await tx.execute<{ bal: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0) AS bal FROM journal_lines l WHERE l.account_id = ${toId}`)).rows;
+        const [b] = (await this.repo.queryJournalLineForAssertNotPettyCash(tx, toId)).rows;
         if (D(b.bal).plus(amount).gt(fund.get(toId)!)) throw new BadRequestException(`Pengisian melebihi dana tetap kas kecil (plafon Rp${fund.get(toId)!.toNumber().toLocaleString('id-ID')})`);
       }
     }
@@ -380,18 +372,14 @@ export class CashService {
     const reason = dto.reason?.trim() ?? '';
     if (reason.length < 5) throw new BadRequestException('Alasan pembatalan wajib diisi (minimal 5 karakter)');
     const work = async (tx: Tx) => {
-      const locked = await tx.execute<{ id: string }>(sql`SELECT id FROM cash_transactions WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      const locked = await this.repo.queryCashTransaction(tx, id, user.tenantId);
       if (!locked.rows.length) throw new NotFoundException('Transaksi kas tidak ditemukan');
-      const [t] = await tx.select().from(cashTransactions).where(eq(cashTransactions.id, id));
+      const [t] = await this.repo.findCashTransactionsById(tx, id);
       if (t.status === 'VOID') throw new BadRequestException('Transaksi ini sudah dibatalkan');
       if (!t.journalId) throw new BadRequestException('Transaksi belum punya jurnal');
-      const matched = await tx.execute<{ n: number }>(sql`
-        SELECT (SELECT COUNT(*) FROM bank_statement_lines b
-                WHERE b.status IN ('MATCHED', 'CREATED')
-                  AND (b.journal_id = ${t.journalId} OR b.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${t.journalId})))::int
-             + (SELECT COUNT(*) FROM bank_line_extra_matches x WHERE x.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${t.journalId}))::int AS n`);
+      const matched = await this.repo.queryVoid(tx, t.journalId);
       if (matched.rows[0].n > 0) throw new BadRequestException('Transaksi ini sudah dicocokkan dengan mutasi bank. Batalkan pencocokannya di Rekonsiliasi Bank dulu');
-      const assetRows = await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM fixed_assets WHERE tenant_id = ${user.tenantId} AND acquisition_journal_id = ${t.journalId}`);
+      const assetRows = await this.repo.queryFixedAsset(tx, user.tenantId, t.journalId);
       if (assetRows.rows[0].n > 0) throw new BadRequestException('Transaksi ini sudah menjadi kartu Aset Tetap. Lepaskan atau hapus asetnya dulu di Aset Tetap');
       const rev = await this.posting.reverse(tx, user.tenantId, t.journalId, todayJakarta(), user.sub, true);
       await patchById(tx, cashTransactions, id, { status: 'VOID', voidedAt: new Date(), voidedById: user.sub, voidReason: reason, voidJournalId: rev.id });
@@ -406,9 +394,9 @@ export class CashService {
     const reference = dto.reference?.trim() ?? '';
     if (reference.length < 2) throw new BadRequestException('Isi nomor bukti (minimal 2 karakter)');
     return this.db.transaction(async (tx) => {
-      const locked = await tx.execute<{ id: string }>(sql`SELECT id FROM cash_transactions WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      const locked = await this.repo.queryCashTransaction(tx, id, user.tenantId);
       if (!locked.rows.length) throw new NotFoundException('Transaksi kas tidak ditemukan');
-      const [t] = await tx.select().from(cashTransactions).where(eq(cashTransactions.id, id));
+      const [t] = await this.repo.findCashTransactionsById(tx, id);
       if (t.status === 'VOID') throw new BadRequestException('Transaksi ini sudah dibatalkan');
       if (t.reference?.trim()) throw new BadRequestException('Transaksi ini sudah punya nomor bukti dan tidak bisa diubah');
       await patchById(tx, cashTransactions, id, { reference });
@@ -466,70 +454,39 @@ export class CashService {
       add('OVER_MAX', 'warning', 'Saldo kas melebihi batas simpanan', over.map((a) => `${a.code} ${a.name}`), `Batas Rp${cfg.maxCashBalance.toLocaleString('id-ID')}. Setor sebagian ke bank: ${over.map((a) => `${a.name} Rp${D(a.balance).toNumber().toLocaleString('id-ID')}`).join('; ')}`);
     }
 
-    const stale = await this.db.execute<{ id: string; code: string; name: string; last: string | null }>(sql`
-      SELECT a.id, a.code, a.name, (SELECT MAX(s.period_to) FROM bank_statements s WHERE s.cash_account_id = a.id) AS last
-      FROM accounts a
-      WHERE a.tenant_id = ${tenantId} AND a.is_cash_account = true AND a.is_postable = true
-        AND EXISTS (SELECT 1 FROM bank_statements s WHERE s.cash_account_id = a.id)`);
+    const stale = await this.repo.queryAccountForControls(this.db, tenantId);
     const old = stale.rows.filter((r) => r.last && r.last < addDays(today, -30));
     add('BANK_STALE', 'warning', 'Rekening bank lama belum direkonsiliasi', old.map((r) => `${r.code} ${r.name}`), old.map((r) => `${r.code} ${r.name}: mutasi terakhir ${r.last}`).join('; '));
 
     // Mutasi bank yang sudah diimpor tetapi tidak ada padanannya di catatan (uang keluar/masuk yang tidak tercatat), lebih dari 7 hari
-    const orphanBank = async (sign: '<' | '>') => (await this.db.execute<{ d: string; amt: string; descr: string; acc: string }>(sql`
-      SELECT b.date::text AS d, b.amount::text AS amt, b.description AS descr, a.name AS acc
-      FROM bank_statement_lines b JOIN bank_statements s ON s.id = b.statement_id JOIN accounts a ON a.id = s.cash_account_id
-      WHERE b.tenant_id = ${tenantId} AND b.status = 'UNMATCHED' AND b.date >= ${since} AND b.date <= ${addDays(today, -7)}
-        AND ${sign === '<' ? sql`b.amount < 0` : sql`b.amount > 0`}
-      ORDER BY ABS(b.amount) DESC LIMIT 30`)).rows;
+    const orphanBank = async (sign: '<' | '>') => (await this.repo.queryBankStatementLine(this.db, tenantId, since, today, sign)).rows;
     const bankLine = (r: { d: string; amt: string; descr: string; acc: string }) => `${r.d} ${r.acc} Rp${Math.abs(Math.round(Number(r.amt))).toLocaleString('id-ID')} ${r.descr}`.slice(0, 120);
     add('BANK_OUT_UNRECORDED', 'error', 'Uang keluar di rekening koran tidak ada di catatan', (await orphanBank('<')).map(bankLine), 'Bank mencatat uang keluar yang belum dicatat/dicocokkan di sistem lebih dari 7 hari. Bisa transfer tak sah, biaya bank yang belum dibukukan, atau pencatatan yang terlupa.');
     add('BANK_IN_UNRECORDED', 'warning', 'Uang masuk di rekening koran belum dicatat', (await orphanBank('>')).map(bankLine), 'Ada uang masuk di bank yang belum dicocokkan lebih dari 7 hari. Pastikan semua tercatat sebagai penjualan/pembayaran yang benar, bukan dipakai pihak lain.');
     // Uang keluar tercatat di buku (rekening bank) pada periode mutasi yang sudah diimpor, tetapi tidak ada di mutasi bank (kemungkinan pembayaran fiktif)
-    const ghost = await this.db.execute<{ number: string; d: string; v: string; acc: string }>(sql`
-      SELECT j.number, j.date::text AS d, jl.credit::text AS v, a.name AS acc
-      FROM journal_lines jl JOIN journal_entries j ON j.id = jl.journal_id JOIN accounts a ON a.id = jl.account_id
-      WHERE j.tenant_id = ${tenantId} AND a.is_cash_account AND jl.credit > 0 AND j.date >= ${since} AND j.date <= ${addDays(today, -3)}
-        AND j.source_type NOT IN ('TRANSFER', 'CLOSING', 'OPENING', 'REVERSAL')
-        AND EXISTS (SELECT 1 FROM bank_statements s WHERE s.tenant_id = ${tenantId} AND s.cash_account_id = a.id AND j.date BETWEEN s.period_from AND s.period_to)
-        AND NOT EXISTS (SELECT 1 FROM bank_statement_lines b WHERE b.journal_line_id = jl.id)
-        AND NOT EXISTS (SELECT 1 FROM bank_line_extra_matches x WHERE x.journal_line_id = jl.id)
-        AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = j.id OR r.id = j.reversal_of_id)
-      ORDER BY jl.credit DESC LIMIT 30`);
+    const ghost = await this.repo.queryJournalLineForControls(this.db, tenantId, since, today);
     add('BANK_OUT_NOT_IN_STATEMENT', 'error', 'Uang keluar tercatat tetapi tidak ada di mutasi bank', ghost.rows.map((r) => `${r.number} (${r.d}) ${r.acc} Rp${Math.round(Number(r.v)).toLocaleString('id-ID')}`), 'Mutasi bank periode itu sudah diimpor, tetapi tidak ada baris yang cocok dengan pembayaran ini. Kemungkinan pembayaran fiktif atau salah rekening. Periksa bukti transfernya.');
     // Saldo akhir rekening koran terbaru vs saldo buku pada tanggal itu
-    const bb = await this.db.execute<{ acc: string; to_d: string; closing: string; book: string }>(sql`
-      SELECT a.name AS acc, s.period_to::text AS to_d, s.closing_balance::text AS closing,
-        (SELECT COALESCE(SUM(jl.debit - jl.credit), 0) FROM journal_lines jl JOIN journal_entries j ON j.id = jl.journal_id WHERE jl.account_id = a.id AND j.tenant_id = ${tenantId} AND j.date <= s.period_to)::text AS book
-      FROM bank_statements s JOIN accounts a ON a.id = s.cash_account_id
-      WHERE s.tenant_id = ${tenantId} AND s.closing_balance IS NOT NULL
-        AND s.period_to = (SELECT MAX(s2.period_to) FROM bank_statements s2 WHERE s2.cash_account_id = s.cash_account_id AND s2.closing_balance IS NOT NULL)`);
+    const bb = await this.repo.queryBankStatement(this.db, tenantId);
     const bd = bb.rows.filter((r) => Math.abs(Number(r.closing) - Number(r.book)) >= 1);
     add('BANK_BALANCE_DIFF', 'warning', 'Saldo akhir rekening koran berbeda dari saldo buku', bd.map((r) => `${r.acc} per ${r.to_d}: bank Rp${Math.round(Number(r.closing)).toLocaleString('id-ID')} · buku Rp${Math.round(Number(r.book)).toLocaleString('id-ID')} · selisih Rp${Math.round(Number(r.closing) - Number(r.book)).toLocaleString('id-ID')}`), 'Selisih saldo harus bisa dijelaskan (cek yang belum cair, biaya bank, mutasi belum dicatat). Selisih tanpa penjelasan adalah tanda uang tidak tercatat.');
 
     // Penggajian: lonjakan total gaji, gaji untuk karyawan yang sudah berhenti, tambahan manual besar, karyawan bergaji tanpa rekening
-    const runs = await this.db.execute<{ period: string; net: string }>(sql`SELECT period, total_net::text AS net FROM payroll_runs WHERE tenant_id = ${tenantId} ORDER BY period DESC LIMIT 2`);
+    const runs = await this.repo.queryPayrollRun(this.db, tenantId);
     if (runs.rows.length === 2 && Number(runs.rows[1].net) > 0) {
       const ratio = Number(runs.rows[0].net) / Number(runs.rows[1].net);
       if (ratio > 1.2 || ratio < 0.8) {
         add('PAYROLL_JUMP', 'warning', 'Total gaji bersih berubah > 20% dari bulan sebelumnya', [`${runs.rows[1].period}: Rp${Math.round(Number(runs.rows[1].net)).toLocaleString('id-ID')} → ${runs.rows[0].period}: Rp${Math.round(Number(runs.rows[0].net)).toLocaleString('id-ID')} (${ratio > 1 ? '+' : ''}${Math.round((ratio - 1) * 100)}%)`], 'Cocokkan dengan karyawan masuk/keluar, kenaikan gaji, atau lembur. Lonjakan tanpa sebab adalah tanda karyawan fiktif atau tambahan manual yang tidak sah.');
       }
     }
-    const resigned = await this.db.execute<{ period: string; name: string; resign: string }>(sql`
-      SELECT r.period, e.name, e.resign_date::text AS resign FROM payslips p JOIN payroll_runs r ON r.id = p.run_id JOIN employees e ON e.id = p.employee_id
-      WHERE r.tenant_id = ${tenantId} AND e.resign_date IS NOT NULL AND (r.period || '-01')::date > e.resign_date AND p.net_pay > 0
-      ORDER BY r.period DESC LIMIT 30`);
+    const resigned = await this.repo.queryPayslip(this.db, tenantId);
     add('PAYROLL_AFTER_RESIGN', 'error', 'Gaji dibayarkan setelah karyawan berhenti', resigned.rows.map((r) => `${r.name} (berhenti ${r.resign}) — slip ${r.period}`), 'Karyawan sudah berhenti tetapi masih menerima slip gaji. Telusuri: bisa karyawan fiktif/terlupa dinonaktifkan atau tanggal berhenti salah.');
-    const extra = await this.db.execute<{ period: string; name: string; v: string }>(sql`
-      SELECT r.period, e.name, p.other_income::text AS v FROM payslips p JOIN payroll_runs r ON r.id = p.run_id JOIN employees e ON e.id = p.employee_id
-      WHERE r.tenant_id = ${tenantId} AND r.period >= to_char(${addDays(today, -90)}::date, 'YYYY-MM') AND p.other_income >= GREATEST(1000000, p.base_salary * 0.2)
-      ORDER BY p.other_income DESC LIMIT 30`);
+    const extra = await this.repo.queryPayslipForControls(this.db, tenantId, today);
     add('PAYROLL_OTHER_INCOME', 'warning', 'Tambahan penghasilan manual besar pada slip gaji', extra.rows.map((r) => `${r.name} ${r.period}: Rp${Math.round(Number(r.v)).toLocaleString('id-ID')}`), 'Penghasilan lain yang diisi manual oleh HR (≥ Rp1 juta atau ≥ 20% gaji pokok). Pastikan ada dasar (bonus, THR, persetujuan).');
-    const nobank = await this.db.execute<{ name: string }>(sql`
-      SELECT name FROM employees WHERE tenant_id = ${tenantId} AND is_active AND base_salary > 0 AND COALESCE(NULLIF(TRIM(bank_account), ''), '') = '' ORDER BY name LIMIT 30`);
+    const nobank = await this.repo.queryEmployee(this.db, tenantId);
     add('PAYROLL_NO_BANK', 'info', 'Karyawan bergaji tanpa nomor rekening', nobank.rows.map((r) => r.name), 'Gaji sulit ditelusuri bila dibayar tunai tanpa rekening. Lengkapi rekening atau pastikan tanda terimanya.');
 
-    const diff = await this.db.execute<{ number: string }>(sql`
-      SELECT number FROM cash_counts WHERE tenant_id = ${tenantId} AND date >= ${addDays(today, -30)} AND status = 'POSTED' AND difference <> 0`);
+    const diff = await this.repo.queryCashCount(this.db, tenantId, today);
     add('COUNT_DIFF', 'warning', 'Hitung kas fisik dengan selisih (30 hari)', diff.rows.map((r) => r.number), `Telusuri penyebab selisih: ${list(diff.rows)}`);
 
     const voided = await this.db.query.cashTransactions.findMany({ where: and(eq(cashTransactions.tenantId, tenantId), eq(cashTransactions.status, 'VOID'), gte(cashTransactions.voidedAt, new Date(`${addDays(today, -30)}T00:00:00Z`))) });
@@ -577,19 +534,8 @@ export class CashService {
   async incomeSources(tenantId: string, q: { from?: string; to?: string }) {
     const to = toDocDate(q.to);
     const from = q.from ? toDocDate(q.from) : addDays(to, -29);
-    const base = await this.db.execute<{ st: string; amount: string; n: number }>(sql`
-      SELECT j.source_type AS st, COALESCE(SUM(l.debit), 0) AS amount, COUNT(DISTINCT j.id)::int AS n
-      FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
-      WHERE j.tenant_id = ${tenantId} AND a.is_cash_account AND l.debit > 0 AND j.date BETWEEN ${from} AND ${to}
-        AND j.source_type NOT IN ('TRANSFER', 'CLOSING', 'OPENING', 'REVERSAL', 'CASH_COUNT', 'CASH_IN', 'BANK')
-      GROUP BY j.source_type`);
-    const counter = await this.db.execute<{ st: string; code: string; name: string; type: string; system_key: string | null; amount: string; n: number }>(sql`
-      SELECT j.source_type AS st, ca.code, ca.name, ca.type, ca.system_key, COALESCE(SUM(lc.credit), 0) AS amount, COUNT(DISTINCT j.id)::int AS n
-      FROM journal_entries j
-      JOIN journal_lines l ON l.journal_id = j.id AND l.debit > 0 JOIN accounts a ON a.id = l.account_id AND a.is_cash_account
-      JOIN journal_lines lc ON lc.journal_id = j.id AND lc.credit > 0 JOIN accounts ca ON ca.id = lc.account_id AND NOT ca.is_cash_account
-      WHERE j.tenant_id = ${tenantId} AND j.source_type IN ('CASH_IN', 'BANK') AND j.date BETWEEN ${from} AND ${to}
-      GROUP BY j.source_type, ca.code, ca.name, ca.type, ca.system_key`);
+    const base = await this.repo.queryJournalLineForIncomeSources(this.db, tenantId, from, to);
+    const counter = await this.repo.queryJournalEntry(this.db, tenantId, from, to);
     type Row = { key: string; label: string; group: 'SALES' | 'NONSALES' | 'OTHER'; category: 'SALES' | 'CAPITAL' | 'LOAN' | 'OTHER'; amount: number; count: number; suspect?: string };
     const LABEL: Record<string, [string, Row['group']]> = {
       PAYMENT: ['Pembayaran pelanggan (faktur)', 'SALES'],

@@ -9,6 +9,7 @@ import { InjectDb } from '../../../db/db.module';
 import { ServiceBillingService } from './service-billing.service';
 import { TimeEntryDto, UpdateTimeEntryDto, ApproveDto, ReasonDto, RateDto, BillDto, TimerStartDto, TimerWhoDto } from './timesheets.dto';
 import { EntriesQuery, RangeQuery } from './timesheets.shared';
+import { TimesheetsRepository } from './timesheets.repository';
 
 export const MAX_HOURS_PER_DAY = 16;
 
@@ -30,25 +31,18 @@ export class TimesheetService {
     @InjectDb() private readonly db: Db,
     private readonly audit: AuditService,
     private readonly billing: ServiceBillingService,
+    private readonly repo: TimesheetsRepository,
   ) {}
 
   /** Karyawan yang terhubung dengan akun pengguna ini */
   private async ownEmployee(db: DbOrTx, u: AuthUser) {
-    const r = await db.execute<{ id: string }>(sql`SELECT id FROM employees WHERE tenant_id = ${u.tenantId} AND user_id = ${u.sub} LIMIT 1`);
+    const r = await this.repo.queryEmployee(db, u.tenantId, u.sub);
     return r.rows[0]?.id ?? null;
   }
 
   /** Tarif paling spesifik yang berlaku pada tanggal kerja; null bila belum ada */
   async resolveRate(db: DbOrTx, tenantId: string, employeeId: string, projectId: string | null, date: string): Promise<string | null> {
-    const r = await db.execute<{ rate: string }>(sql`
-      SELECT rate FROM (
-        SELECT rate, valid_from, created_at,
-          CASE WHEN project_id IS NOT DISTINCT FROM ${projectId}::uuid AND project_id IS NOT NULL AND employee_id = ${employeeId}::uuid THEN 4
-               WHEN project_id IS NOT DISTINCT FROM ${projectId}::uuid AND project_id IS NOT NULL AND employee_id IS NULL THEN 3
-               WHEN project_id IS NULL AND employee_id = ${employeeId}::uuid THEN 2
-               WHEN project_id IS NULL AND employee_id IS NULL THEN 1 ELSE 0 END AS spec
-        FROM billing_rates WHERE tenant_id = ${tenantId} AND valid_from <= ${date}::date) x
-      WHERE spec > 0 ORDER BY spec DESC, valid_from DESC, created_at DESC LIMIT 1`);
+    const r = await this.repo.queryResolveRate(db, projectId, employeeId, tenantId, date);
     return r.rows[0]?.rate ?? null;
   }
 
@@ -68,7 +62,7 @@ export class TimesheetService {
 
   /** Total jam aktif karyawan pada hari itu (tidak termasuk catatan ditolak/dihapus-tagih dan `exceptId`) */
   private async dayHours(tx: DbOrTx, tenantId: string, employeeId: string, date: string, exceptId?: string) {
-    const r = await tx.execute<{ h: string }>(sql`SELECT COALESCE(SUM(hours), 0) AS h FROM time_entries WHERE tenant_id = ${tenantId} AND employee_id = ${employeeId} AND work_date = ${date} AND status NOT IN ('REJECTED', 'WRITTEN_OFF') ${exceptId ? sql`AND id <> ${exceptId}` : sql``}`);
+    const r = await this.repo.queryTimeEntry(tx, tenantId, employeeId, date, exceptId);
     return num(r.rows[0].h);
   }
 
@@ -80,12 +74,12 @@ export class TimesheetService {
     const hours = this.checkHours(dto.hours);
     const date = this.checkDate(u, dto.workDate);
     const id = await this.db.transaction(async (tx) => {
-      const emp = await tx.execute<{ id: string; is_active: boolean | null }>(sql`SELECT id FROM employees WHERE id = ${employeeId} AND tenant_id = ${u.tenantId} FOR UPDATE`);
+      const emp = await this.repo.queryEmployeeForCreate(tx, employeeId, u.tenantId);
       if (!emp.rows.length) throw new BadRequestException('Karyawan tidak ditemukan');
       let customerId = dto.customerId ?? null;
       let projectId: string | null = null;
       if (dto.projectId) {
-        const p = (await tx.execute<{ id: string; customer_id: string; status: string }>(sql`SELECT id, customer_id, status FROM projects WHERE id = ${dto.projectId} AND tenant_id = ${u.tenantId}`)).rows[0];
+        const p = (await this.repo.queryProject(tx, dto.projectId, u.tenantId)).rows[0];
         if (!p) throw new BadRequestException('Proyek tidak ditemukan');
         if (p.status !== 'ACTIVE') throw new BadRequestException('Proyek sudah selesai / dibatalkan');
         if (customerId && customerId !== p.customer_id) throw new BadRequestException('Proyek ini milik pelanggan lain');
@@ -93,7 +87,7 @@ export class TimesheetService {
         projectId = p.id;
       }
       if (!customerId) throw new BadRequestException('Pilih proyek atau pelanggan');
-      const c = await tx.execute(sql`SELECT 1 FROM customers WHERE id = ${customerId} AND tenant_id = ${u.tenantId}`);
+      const c = await this.repo.queryCustomer(tx, customerId, u.tenantId);
       if (!c.rows.length) throw new BadRequestException('Pelanggan tidak ditemukan');
       const already = await this.dayHours(tx, u.tenantId, employeeId, date);
       if (already + hours.toNumber() > MAX_HOURS_PER_DAY) throw new BadRequestException(`Total jam karyawan pada ${date} akan menjadi ${already + hours.toNumber()} (batas ${MAX_HOURS_PER_DAY} jam per hari)`);
@@ -143,7 +137,7 @@ export class TimesheetService {
         const e = await this.lock(tx, u, id);
         await this.assertOwner(tx, u, e);
         if (!['DRAFT', 'REJECTED'].includes(e.status)) throw new BadRequestException('Hanya catatan draf atau yang ditolak yang dapat diajukan');
-        await tx.execute(sql`UPDATE time_entries SET status = 'SUBMITTED', submitted_at = now(), decision_note = NULL WHERE id = ${id}`);
+        await this.repo.querySubmit(tx, id);
         done.push(id);
       }
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'TimeEntry', entityId: done[0], data: { submitted: done.length } });
@@ -155,7 +149,7 @@ export class TimesheetService {
     await this.db.transaction(async (tx) => {
       const e = await this.lock(tx, u, id);
       if (e.status !== 'SUBMITTED') throw new BadRequestException('Hanya catatan yang diajukan yang dapat disetujui');
-      const empUser = (await tx.execute<{ user_id: string | null }>(sql`SELECT user_id FROM employees WHERE id = ${e.employee_id}`)).rows[0]?.user_id;
+      const empUser = (await this.repo.queryEmployeeForApprove(tx, e.employee_id)).rows[0]?.user_id;
       if (u.role !== 'OWNER' && (e.created_by_id === u.sub || empUser === u.sub)) throw new ForbiddenException('Catatan waktu harus disetujui orang lain dari pencatatnya (pemisahan fungsi)');
       let rate = e.rate;
       if (e.billable) {
@@ -170,7 +164,7 @@ export class TimesheetService {
         }
         if (!rate) throw new BadRequestException('Belum ada tarif tagih untuk catatan ini; atur di tab Tarif');
       }
-      await tx.execute(sql`UPDATE time_entries SET status = 'APPROVED', rate = ${rate}, rate_note = ${dto.rate !== undefined ? dto.rateNote!.trim() : null}, decided_by_id = ${u.sub}, decided_at = now(), decision_note = ${dto.note ?? null} WHERE id = ${id}`);
+      await this.repo.queryApprove(tx, rate, dto, u, id);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'APPROVE', entity: 'TimeEntry', entityId: id, data: { hours: e.hours, rate, overridden: dto.rate !== undefined, note: dto.rateNote } });
     });
     return this.get(u, id);
@@ -180,7 +174,7 @@ export class TimesheetService {
     await this.db.transaction(async (tx) => {
       const e = await this.lock(tx, u, id);
       if (e.status !== 'SUBMITTED') throw new BadRequestException('Hanya catatan yang diajukan yang dapat ditolak');
-      await tx.execute(sql`UPDATE time_entries SET status = 'REJECTED', decided_by_id = ${u.sub}, decided_at = now(), decision_note = ${dto.reason} WHERE id = ${id}`);
+      await this.repo.queryReject(tx, u.sub, dto.reason, id);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'REJECT', entity: 'TimeEntry', entityId: id, data: { reason: dto.reason } });
     });
     return this.get(u, id);
@@ -190,7 +184,7 @@ export class TimesheetService {
     await this.db.transaction(async (tx) => {
       const e = await this.lock(tx, u, id);
       if (e.status !== 'APPROVED') throw new BadRequestException('Hanya catatan yang disetujui dan belum ditagih yang dapat dihapus-tagih');
-      await tx.execute(sql`UPDATE time_entries SET status = 'WRITTEN_OFF', decision_note = ${dto.reason}, decided_by_id = ${u.sub}, decided_at = now() WHERE id = ${id}`);
+      await this.repo.queryWriteOff(tx, dto.reason, u.sub, id);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CANCEL', entity: 'TimeEntry', entityId: id, data: { reason: dto.reason, hours: e.hours, rate: e.rate } });
     });
     return this.get(u, id);
@@ -206,17 +200,7 @@ export class TimesheetService {
   async list(u: AuthUser, q: EntriesQuery, onlyId?: string) {
     const own = isPriv(u) || u.role === 'ACCOUNTANT' ? null : await this.ownEmployee(this.db, u);
     const scoped = !isPriv(u) && u.role !== 'ACCOUNTANT';
-    const r = await this.db.execute(sql`
-      SELECT t.id, t.employee_id AS "employeeId", e.name AS "employeeName", t.project_id AS "projectId", p.name AS "projectName", t.customer_id AS "customerId", c.name AS "customerName",
-             t.work_date AS "workDate", t.hours, t.description, t.billable, t.rate, (t.hours * COALESCE(t.rate, 0)) AS amount, t.rate_note AS "rateNote", t.status,
-             t.decision_note AS "decisionNote", t.invoice_id AS "invoiceId", t.created_by_id AS "createdById", t.created_at AS "createdAt"
-      FROM time_entries t JOIN employees e ON e.id = t.employee_id JOIN customers c ON c.id = t.customer_id LEFT JOIN projects p ON p.id = t.project_id
-      WHERE t.tenant_id = ${u.tenantId}
-        ${onlyId ? sql`AND t.id = ${onlyId}` : sql``}
-        ${scoped ? sql`AND (t.employee_id = ${own}::uuid OR t.created_by_id = ${u.sub})` : sql``}
-        ${q.status ? sql`AND t.status = ${q.status}` : sql``} ${q.employeeId ? sql`AND t.employee_id = ${q.employeeId}` : sql``} ${q.customerId ? sql`AND t.customer_id = ${q.customerId}` : sql``}
-        ${q.from ? sql`AND t.work_date >= ${q.from}` : sql``} ${q.to ? sql`AND t.work_date <= ${q.to}` : sql``}
-      ORDER BY t.work_date DESC, t.created_at DESC LIMIT 500`);
+    const r = await this.repo.queryTimeEntryForList(this.db, u, onlyId, scoped, own, q);
     return r.rows as Record<string, unknown>[];
   }
 
@@ -228,11 +212,11 @@ export class TimesheetService {
     const rate = money(dto.rate);
     if (rate.lte(0) || rate.gt(100_000_000)) throw new BadRequestException('Tarif per jam tidak wajar');
     if (dto.employeeId) {
-      const e = await this.db.execute(sql`SELECT 1 FROM employees WHERE id = ${dto.employeeId} AND tenant_id = ${u.tenantId}`);
+      const e = await this.repo.queryEmployeeForCreateRate(this.db, dto.employeeId, u.tenantId);
       if (!e.rows.length) throw new BadRequestException('Karyawan tidak ditemukan');
     }
     if (dto.projectId) {
-      const p = await this.db.execute(sql`SELECT 1 FROM projects WHERE id = ${dto.projectId} AND tenant_id = ${u.tenantId}`);
+      const p = await this.repo.queryProjectForCreateRate(this.db, dto.projectId, u.tenantId);
       if (!p.rows.length) throw new BadRequestException('Proyek tidak ditemukan');
     }
     const r = await this.db.execute<{ id: string }>(sql`INSERT INTO billing_rates (tenant_id, employee_id, project_id, rate, valid_from, note, created_by_id) VALUES (${u.tenantId}, ${dto.employeeId ?? null}, ${dto.projectId ?? null}, ${rate.toFixed(2)}, ${toDocDate(dto.validFrom)}, ${dto.note ?? null}, ${u.sub}) RETURNING id`);
@@ -242,12 +226,7 @@ export class TimesheetService {
 
   /** Waktu disetujui yang belum ditagih, dikelompokkan per pelanggan/proyek */
   async unbilled(tenantId: string) {
-    const r = await this.db.execute(sql`
-      SELECT t.customer_id AS "customerId", c.name AS "customerName", t.project_id AS "projectId", p.name AS "projectName",
-             COUNT(*)::int AS entries, SUM(t.hours) AS hours, SUM(t.hours * t.rate) AS amount, MIN(t.work_date) AS oldest
-      FROM time_entries t JOIN customers c ON c.id = t.customer_id LEFT JOIN projects p ON p.id = t.project_id
-      WHERE t.tenant_id = ${tenantId} AND t.status = 'APPROVED' AND t.billable
-      GROUP BY t.customer_id, c.name, t.project_id, p.name ORDER BY MIN(t.work_date)`);
+    const r = await this.repo.queryTimeEntryForUnbilled(this.db, tenantId);
     return r.rows;
   }
 
@@ -286,10 +265,10 @@ export class TimesheetService {
       {
         // penandaan tertagih satu transaksi dengan faktur; bila ada yang berubah sejak dibaca, seluruhnya dibatalkan
         inTx: async (tx, invoice) => {
-          const locked = (await tx.execute<{ id: string; hours: string; rate: string }>(sql`SELECT id, hours, rate FROM time_entries WHERE tenant_id = ${u.tenantId} AND id IN (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)}) AND status = 'APPROVED' AND billable AND invoice_id IS NULL FOR UPDATE`)).rows;
+          const locked = (await this.repo.queryTimeEntryForBill(tx, u.tenantId, ids)).rows;
           const sum = locked.reduce((a, r) => a.plus(D(r.hours).times(r.rate)), D(0));
           if (locked.length !== ids.length || !sum.eq(total)) throw new BadRequestException('Catatan waktu berubah sejak dipilih (sudah ditagih atau diubah); muat ulang daftar');
-          await tx.execute(sql`UPDATE time_entries SET status = 'BILLED', invoice_id = ${invoice.id} WHERE id IN (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)})`);
+          await this.repo.queryBill(tx, invoice.id, ids);
           await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'TimesheetBilling', entityId: invoice.id, data: { invoice: invoice.number, entries: ids.length, hours: rows.reduce((a, r) => a.plus(r.hours), D(0)).toFixed(2), amount: total.toFixed(2) } });
         },
       },
@@ -308,7 +287,7 @@ export class TimesheetService {
 
   async timer(u: AuthUser, employeeId?: string) {
     const emp = await this.timerOwner(u, employeeId);
-    const r = await this.db.execute(sql`SELECT t.id, t.employee_id AS "employeeId", t.customer_id AS "customerId", c.name AS "customerName", t.project_id AS "projectId", t.description, t.billable, t.started_at AS "startedAt", EXTRACT(EPOCH FROM (now() - t.started_at))::int AS "elapsedSeconds" FROM time_timers t JOIN customers c ON c.id = t.customer_id WHERE t.tenant_id = ${u.tenantId} AND t.employee_id = ${emp}`);
+    const r = await this.repo.queryTimeTimer(this.db, u.tenantId, emp);
     return r.rows[0] ?? null;
   }
 
@@ -317,7 +296,7 @@ export class TimesheetService {
     let customerId = dto.customerId ?? null;
     let projectId: string | null = null;
     if (dto.projectId) {
-      const p = (await this.db.execute<{ id: string; customer_id: string; status: string }>(sql`SELECT id, customer_id, status FROM projects WHERE id = ${dto.projectId} AND tenant_id = ${u.tenantId}`)).rows[0];
+      const p = (await this.repo.queryProject(this.db, dto.projectId, u.tenantId)).rows[0];
       if (!p) throw new BadRequestException('Proyek tidak ditemukan');
       if (p.status !== 'ACTIVE') throw new BadRequestException('Proyek sudah selesai / dibatalkan');
       if (customerId && customerId !== p.customer_id) throw new BadRequestException('Proyek ini milik pelanggan lain');
@@ -325,10 +304,10 @@ export class TimesheetService {
       projectId = p.id;
     }
     if (!customerId) throw new BadRequestException('Pilih proyek atau pelanggan');
-    const c = await this.db.execute(sql`SELECT 1 FROM customers WHERE id = ${customerId} AND tenant_id = ${u.tenantId}`);
+    const c = await this.repo.queryCustomer(this.db, customerId, u.tenantId);
     if (!c.rows.length) throw new BadRequestException('Pelanggan tidak ditemukan');
     try {
-      await this.db.execute(sql`INSERT INTO time_timers (tenant_id, employee_id, project_id, customer_id, description, billable, created_by_id) VALUES (${u.tenantId}, ${emp}, ${projectId}, ${customerId}, ${dto.description.trim()}, ${dto.billable ?? true}, ${u.sub})`);
+      await this.repo.queryTimeTimerForStartTimer(this.db, u.tenantId, emp, projectId, customerId, dto, u.sub);
     } catch (e) {
       if (((e as { code?: string }).code ?? (e as { cause?: { code?: string } }).cause?.code) === '23505') throw new BadRequestException('Timer karyawan ini masih berjalan; hentikan atau buang dulu');
       throw e;
@@ -339,7 +318,7 @@ export class TimesheetService {
   async stopTimer(u: AuthUser, dto: TimerWhoDto) {
     const emp = await this.timerOwner(u, dto.employeeId);
     // DELETE ... RETURNING atomik: dua permintaan henti bersamaan hanya satu yang mendapat baris
-    const t = (await this.db.execute<{ project_id: string | null; customer_id: string; description: string; billable: boolean; started_at: Date; created_by_id: string }>(sql`DELETE FROM time_timers WHERE tenant_id = ${u.tenantId} AND employee_id = ${emp} RETURNING project_id, customer_id, description, billable, started_at, created_by_id`)).rows[0];
+    const t = (await this.repo.queryTimeTimerForStopTimer(this.db, u.tenantId, emp)).rows[0];
     if (!t) throw new BadRequestException('Tidak ada timer yang berjalan');
     const restore = () => this.db.execute(sql`INSERT INTO time_timers (tenant_id, employee_id, project_id, customer_id, description, billable, started_at, created_by_id) VALUES (${u.tenantId}, ${emp}, ${t.project_id}, ${t.customer_id}, ${t.description}, ${t.billable}, ${new Date(t.started_at).toISOString()}, ${t.created_by_id}) ON CONFLICT DO NOTHING`);
     const hoursRaw = (Date.now() - new Date(t.started_at).getTime()) / 3_600_000;
@@ -361,7 +340,7 @@ export class TimesheetService {
 
   async discardTimer(u: AuthUser, dto: TimerWhoDto & { reason: string }) {
     const emp = await this.timerOwner(u, dto.employeeId);
-    const r = await this.db.execute(sql`DELETE FROM time_timers WHERE tenant_id = ${u.tenantId} AND employee_id = ${emp} RETURNING started_at`);
+    const r = await this.repo.queryTimeTimerForDiscardTimer(this.db, u.tenantId, emp);
     if (!r.rows.length) throw new BadRequestException('Tidak ada timer yang berjalan');
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'DELETE', entity: 'TimeTimer', entityId: emp, data: { reason: dto.reason, startedAt: (r.rows[0] as { started_at: Date }).started_at } });
     return { ok: true };
@@ -383,14 +362,7 @@ export class TimesheetService {
   async utilization(tenantId: string, q: RangeQuery) {
     const to = q.to ?? todayJakarta();
     const from = q.from ?? addDays(to, -30);
-    const r = await this.db.execute(sql`
-      SELECT e.id AS "employeeId", e.name AS employee,
-             COALESCE(SUM(t.hours) FILTER (WHERE t.status NOT IN ('REJECTED', 'WRITTEN_OFF')), 0) AS "totalHours",
-             COALESCE(SUM(t.hours) FILTER (WHERE t.billable AND t.status NOT IN ('REJECTED', 'WRITTEN_OFF', 'DRAFT')), 0) AS "billableHours",
-             COALESCE(SUM(t.hours * t.rate) FILTER (WHERE t.status = 'BILLED'), 0) AS billed,
-             COALESCE(SUM(t.hours * t.rate) FILTER (WHERE t.status = 'APPROVED' AND t.billable), 0) AS "approvedUnbilled"
-      FROM employees e JOIN time_entries t ON t.employee_id = e.id AND t.work_date BETWEEN ${from} AND ${to}
-      WHERE e.tenant_id = ${tenantId} GROUP BY e.id, e.name ORDER BY e.name`);
+    const r = await this.repo.queryEmployeeForUtilization(this.db, from, to, tenantId);
     return { from, to, rows: r.rows };
   }
 }

@@ -14,6 +14,7 @@ import { InjectDb } from '../../db/db.module';
 import { accounts, budgetAlerts, budgetLines, budgets, users } from '../../db/schema';
 import { SaveBudgetDto, SeedBudgetDto, BudgetRowDto } from './budget.dto';
 import { patchById } from '../../db/owned';
+import { BudgetRepository } from './budget.repository';
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
 
@@ -29,6 +30,7 @@ export class BudgetService {
     private readonly telegram: TelegramService,
     private readonly approvals: ApprovalsService,
     private readonly settings: SettingsService,
+    private readonly repo: BudgetRepository,
   ) {}
 
   /** Akun pendapatan & beban yang boleh dianggarkan */
@@ -41,7 +43,7 @@ export class BudgetService {
   }
 
   private async find(tenantId: string, year: number) {
-    const [b] = await this.db.select().from(budgets).where(and(eq(budgets.tenantId, tenantId), eq(budgets.year, year)));
+    const [b] = await this.repo.findBudgetsByYear(this.db, tenantId, year);
     return b;
   }
 
@@ -57,7 +59,7 @@ export class BudgetService {
   async get(tenantId: string, year: number) {
     const budget = await this.find(tenantId, year);
     const accs = await this.plAccounts(tenantId);
-    const lines = budget ? await this.db.select().from(budgetLines).where(eq(budgetLines.budgetId, budget.id)) : [];
+    const lines = budget ? await this.repo.listBudgetLinesByBudgetId(this.db, budget.id) : [];
     const grid = new Map<string, string[]>();
     for (const l of lines) {
       const arr = grid.get(l.accountId) ?? Array(12).fill('0');
@@ -77,16 +79,16 @@ export class BudgetService {
       if (r.months.some((m) => D(m).isNegative())) throw new BadRequestException('Nilai anggaran tidak boleh negatif');
     }
     await this.db.transaction(async (tx) => {
-      let [b] = await tx.select().from(budgets).where(and(eq(budgets.tenantId, user.tenantId), eq(budgets.year, year))).for('update');
+      let [b] = await this.repo.findBudgetsByYearForSave(tx, user.tenantId, year);
       if (b?.status === 'APPROVED') throw new BadRequestException('Anggaran sudah disetujui dan terkunci. Minta Pemilik/Admin membukanya dulu (dengan alasan).');
       if (!b) {
-        [b] = await tx.insert(budgets).values({ tenantId: user.tenantId, year, name: dto.name?.trim() || `Anggaran ${year}`, createdById: user.sub, tolerancePct: dto.tolerancePct ?? 10 }).returning();
+        [b] = await this.repo.insertBudgets(tx, user.tenantId, year, dto, user.sub);
       } else {
         await patchById(tx, budgets, b.id, { name: dto.name?.trim() || b.name, tolerancePct: dto.tolerancePct ?? b.tolerancePct });
       }
-      await tx.delete(budgetLines).where(eq(budgetLines.budgetId, b.id));
+      await this.repo.deleteBudgetLinesByBudgetId(tx, b.id);
       const values = dto.rows.flatMap((r) => r.months.map((m, i) => ({ tenantId: user.tenantId, budgetId: b.id, accountId: r.accountId, month: i + 1, amount: money(m).toFixed(2) }))).filter((v) => D(v.amount).gt(0));
-      for (let i = 0; i < values.length; i += 500) await tx.insert(budgetLines).values(values.slice(i, i + 500));
+      for (let i = 0; i < values.length; i += 500) await this.repo.insertBudgetLines(tx, values, i);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'Budget', entityId: b.id, data: { year, accounts: dto.rows.length } });
     });
     return this.get(user.tenantId, year);
@@ -112,12 +114,12 @@ export class BudgetService {
 
   async approve(user: AuthUser, year: number) {
     await this.db.transaction(async (tx) => {
-      const [b] = await tx.select().from(budgets).where(and(eq(budgets.tenantId, user.tenantId), eq(budgets.year, year))).for('update');
+      const [b] = await this.repo.findBudgetsByYearForSave(tx, user.tenantId, year);
       if (!b) throw new NotFoundException('Anggaran belum dibuat');
       if (b.status === 'APPROVED') throw new BadRequestException('Anggaran sudah disetujui');
       // pemisahan tugas: penyusun tidak menyetujui sendiri (kecuali Pemilik)
       if (b.createdById === user.sub && user.role !== 'OWNER') throw new ForbiddenException('Anggaran harus disetujui orang lain (Pemilik atau Admin lain)');
-      const [n] = (await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM budget_lines WHERE budget_id = ${b.id}`)).rows;
+      const [n] = (await this.repo.queryBudgetLine(tx, b.id)).rows;
       if (!n.n) throw new BadRequestException('Anggaran masih kosong');
       await patchById(tx, budgets, b.id, { status: 'APPROVED', approvedById: user.sub, approvedAt: new Date() });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'APPROVE', entity: 'Budget', entityId: b.id, data: { year } });
@@ -127,7 +129,7 @@ export class BudgetService {
 
   async reopen(user: AuthUser, year: number, reason: string) {
     await this.db.transaction(async (tx) => {
-      const [b] = await tx.select().from(budgets).where(and(eq(budgets.tenantId, user.tenantId), eq(budgets.year, year))).for('update');
+      const [b] = await this.repo.findBudgetsByYearForSave(tx, user.tenantId, year);
       if (!b) throw new NotFoundException('Anggaran belum dibuat');
       if (b.status !== 'APPROVED') throw new BadRequestException('Anggaran belum disetujui');
       await patchById(tx, budgets, b.id, { status: 'DRAFT', approvedById: null, approvedAt: null });
@@ -138,12 +140,7 @@ export class BudgetService {
 
   /** Realisasi per akun per bulan (jurnal penutup tahun tidak dihitung) */
   private async actualByMonth(tenantId: string, year: number) {
-    const res = await this.db.execute<{ account_id: string; m: number; d: string; c: string }>(sql`
-      SELECT l.account_id, EXTRACT(MONTH FROM j.date)::int AS m, SUM(l.debit) AS d, SUM(l.credit) AS c
-      FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
-      WHERE j.tenant_id = ${tenantId} AND j.date >= ${`${year}-01-01`} AND j.date <= ${`${year}-12-31`}
-        AND j.source_type <> 'CLOSING' AND a.type IN ('REVENUE', 'EXPENSE')
-      GROUP BY l.account_id, EXTRACT(MONTH FROM j.date)`);
+    const res = await this.repo.queryJournalLine(this.db, tenantId, year);
     return new Map(res.rows.map((r) => [`${r.account_id}:${r.m}`, { debit: D(r.d), credit: D(r.c) }]));
   }
 
@@ -154,7 +151,7 @@ export class BudgetService {
     if (through < 1 || through > 12) throw new BadRequestException('Bulan tidak valid');
     const budget = await this.find(tenantId, year);
     const accs = await this.plAccounts(tenantId);
-    const lines = budget ? await this.db.select().from(budgetLines).where(eq(budgetLines.budgetId, budget.id)) : [];
+    const lines = budget ? await this.repo.listBudgetLinesByBudgetId(this.db, budget.id) : [];
     const bud = new Map<string, Dec>();
     for (const l of lines) bud.set(`${l.accountId}:${l.month}`, D(l.amount));
     const act = await this.actualByMonth(tenantId, year);
@@ -225,7 +222,7 @@ export class BudgetService {
     const mode = (await this.approvals.policy(this.db, user.tenantId)).budgetControl ?? 'OFF';
     if (mode === 'OFF') return;
     const ids = [...new Set(items.map((i) => i.accountId))];
-    const exp = await this.db.select({ id: accounts.id, code: accounts.code, name: accounts.name }).from(accounts).where(and(eq(accounts.tenantId, user.tenantId), inArray(accounts.id, ids), eq(accounts.type, 'EXPENSE')));
+    const exp = await this.repo.listAccountsByIdAndType(this.db, user.tenantId, ids);
     if (!exp.length) return;
     const expIds = new Map(exp.map((a) => [a.id, a]));
     const byYear = new Map<number, typeof items>();
@@ -234,7 +231,7 @@ export class BudgetService {
     for (const [year, list] of byYear) {
       const b = await this.find(user.tenantId, year);
       if (!b || b.status !== 'APPROVED') continue;
-      const lines = await this.db.select().from(budgetLines).where(eq(budgetLines.budgetId, b.id));
+      const lines = await this.repo.listBudgetLinesByBudgetId(this.db, b.id);
       const act = await this.actualByMonth(user.tenantId, year);
       const tol = 1 + b.tolerancePct / 100;
       for (const id of new Set(list.map((x) => x.accountId))) {
@@ -277,7 +274,7 @@ export class BudgetService {
 
   async alertAll() {
     const year = Number(todayJakarta().slice(0, 4));
-    const list = await this.db.select().from(budgets).where(and(eq(budgets.year, year), eq(budgets.status, 'APPROVED')));
+    const list = await this.repo.listBudgetsByYearAndStatus(this.db, year);
     for (const b of list) {
       try {
         await this.alertTenant(b.tenantId, b.id, year);
@@ -293,14 +290,14 @@ export class BudgetService {
     const fresh: typeof rep.alerts = [];
     for (const r of rep.alerts) {
       if (r.status === 'SHORT') continue; // kekurangan pendapatan hanya tampil di laporan
-      const ins = await this.db.insert(budgetAlerts).values({ tenantId, budgetId, accountId: r.accountId, month: rep.month, level: r.status }).onConflictDoNothing().returning({ id: budgetAlerts.id });
+      const ins = await this.repo.insertBudgetAlerts(this.db, tenantId, budgetId, r.accountId, rep.month, r.status);
       if (ins.length) fresh.push(r);
     }
     if (!fresh.length) return 0;
     const rp = (v: string) => `Rp${Math.round(Number(v)).toLocaleString('id-ID')}`;
     const label = { OVER: 'melebihi anggaran', WARN: 'hampir habis (≥90% anggaran setahun)', UNBUDGETED: 'tanpa anggaran' } as const;
     const lines = fresh.map((r) => `• ${r.code} ${r.name}: ${label[r.status as 'OVER' | 'WARN' | 'UNBUDGETED']} — realisasi ${rp(r.actualYtd)} dari anggaran ${rp(r.budgetYtd)}`);
-    const to = await this.db.select({ id: users.id, email: users.email }).from(users).where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, ['OWNER', 'ADMIN'])));
+    const to = await this.repo.listUsersByIsActiveAndRole(this.db, tenantId);
     await this.telegram.notifyUsers(to.map((t) => t.id), `⚠️ Peringatan anggaran ${year}\n${lines.join('\n')}`);
     for (const t of to) {
       void this.mail.send({ to: t.email, subject: `Peringatan anggaran ${year}: ${fresh.length} akun perlu ditinjau`, heading: 'Peringatan anggaran', paragraphs: lines, footnote: 'Buka SANSU › Akuntansi › Anggaran vs realisasi untuk rinciannya.' });

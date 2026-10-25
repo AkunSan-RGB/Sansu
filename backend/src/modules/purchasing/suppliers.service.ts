@@ -11,6 +11,7 @@ import { InjectDb } from '../../db/db.module';
 import { purchaseInvoices, suppliers } from '../../db/schema';
 import { CreateSupplierDto, UpdateSupplierDto } from './purchasing.dto';
 import { findOwned, insertOne } from '../../db/owned';
+import { SuppliersRepository } from './suppliers.repository';
 
 @Injectable()
 export class SuppliersService {
@@ -18,6 +19,7 @@ export class SuppliersService {
     @InjectDb() private readonly db: Db,
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
+    private readonly repo: SuppliersRepository,
   ) {}
 
   /** Supplier favorit + batas persetujuan otomatis menembus kontrol persetujuan: hanya pemilik/admin yang boleh menetapkannya */
@@ -44,12 +46,7 @@ export class SuppliersService {
   async get(tenantId: string, id: string) {
     const s = await findOwned(this.db, suppliers, tenantId, id);
     if (!s) throw new NotFoundException('Supplier tidak ditemukan');
-    const [open] = await this.db
-      .select({
-        v: sql<string>`COALESCE(SUM(${purchaseInvoices.total} - ${purchaseInvoices.paidAmount} - ${purchaseInvoices.returnedAmount}), 0)`,
-      })
-      .from(purchaseInvoices)
-      .where(and(eq(purchaseInvoices.tenantId, tenantId), eq(purchaseInvoices.supplierId, id), ne(purchaseInvoices.status, 'PAID')));
+    const [open] = await this.repo.sumPurchaseInvoicesBySupplierIdAndStatus(this.db, tenantId, id);
     return { ...s, outstanding: D(open.v).toFixed(2) };
   }
 
@@ -61,7 +58,7 @@ export class SuppliersService {
     const npwp = dto.npwp?.replace(/\D/g, '') ?? '';
     const key = dto.name ? partyNameKey(dto.name) : '';
     if (npwp.length < 10 && !key) return [];
-    const all = await this.db.select({ id: suppliers.id, code: suppliers.code, name: suppliers.name, npwp: suppliers.npwp }).from(suppliers).where(eq(suppliers.tenantId, tenantId));
+    const all = await this.repo.listSuppliers(this.db, tenantId);
     return all.filter((o) => o.id !== exceptId && ((npwp.length >= 10 && (o.npwp ?? '').replace(/\D/g, '') === npwp) || (key && partyNameKey(o.name) === key)));
   }
 
@@ -136,7 +133,7 @@ export class SuppliersService {
   async applyBankChange(u: AuthUser, payload: { supplierId: string; bankName?: string; bankAccountNo?: string; bankAccountName?: string }) {
     const cur = await this.get(u.tenantId, payload.supplierId);
     const { supplierId: _s, ...bank } = payload;
-    const [row] = await this.db.update(suppliers).set({ ...bank, bankChangedAt: new Date() }).where(eq(suppliers.id, payload.supplierId)).returning();
+    const [row] = await this.repo.updateSuppliersById(this.db, bank, payload.supplierId);
     await this.bankChanged(u, row, cur, 'UPDATE_BANK');
     return row;
   }

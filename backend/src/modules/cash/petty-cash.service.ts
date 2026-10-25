@@ -13,6 +13,7 @@ import { CashService } from './cash.service';
 import { PettyFundDto, PettyFundTopUpDto, PettyVoucherDto, PettyVoidDto, PettyReplenishDto } from './petty-cash.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { findOwned, insertOne, patchById } from '../../db/owned';
+import { PettyCashRepository } from './petty-cash.repository';
 
 type Fund = typeof pettyCashFunds.$inferSelect;
 
@@ -27,10 +28,11 @@ export class PettyCashService {
     private readonly audit: AuditService,
     private readonly seq: SequenceService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: PettyCashRepository,
   ) {}
 
   private async balanceOf(db: Db | Tx, accountId: string): Promise<Dec> {
-    const [r] = (await db.execute<{ bal: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0) AS bal FROM journal_lines l WHERE l.account_id = ${accountId}`)).rows;
+    const [r] = (await this.repo.queryJournalLine(db, accountId)).rows;
     return D(r.bal);
   }
 
@@ -42,16 +44,14 @@ export class PettyCashService {
 
   /** Dana kas kecil beserta posisi: saldo buku, bukti belum diganti, dan selisih terhadap plafon */
   async funds(tenantId: string) {
-    const rows = await this.db.select().from(pettyCashFunds).where(eq(pettyCashFunds.tenantId, tenantId)).orderBy(pettyCashFunds.createdAt);
+    const rows = await this.repo.listPettyCashFundsByCreatedAt(this.db, tenantId);
     const out = [];
     for (const f of rows) {
       const balance = await this.balanceOf(this.db, f.accountId);
       const [o] = (
-        await this.db.execute<{ total: string; n: number; oldest: string | null }>(sql`
-          SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*)::int AS n, MIN(date)::text AS oldest
-          FROM petty_cash_vouchers WHERE fund_id = ${f.id} AND status = 'OPEN'`)
+        await this.repo.queryPettyCashVoucher(this.db, f.id)
       ).rows;
-      const [c] = (await this.db.execute<{ last: string | null }>(sql`SELECT MAX(date)::text AS last FROM cash_counts WHERE tenant_id = ${tenantId} AND account_id = ${f.accountId} AND status = 'POSTED'`)).rows;
+      const [c] = (await this.repo.queryCashCount(this.db, tenantId, f.accountId)).rows;
       const open = D(o.total);
       out.push({
         ...f,
@@ -74,17 +74,13 @@ export class PettyCashService {
     if (imprest.lte(0)) throw new BadRequestException('Dana tetap harus lebih dari 0');
     if (max.lte(0) || max.gt(imprest)) throw new BadRequestException('Batas per bukti harus lebih dari 0 dan tidak melebihi dana tetap');
     if (dto.accountId === dto.fundingAccountId) throw new BadRequestException('Sumber pengisian harus akun yang berbeda dari kas kecil');
-    const accs = await this.db.select().from(accounts).where(and(eq(accounts.tenantId, user.tenantId), inArray(accounts.id, [dto.accountId, dto.fundingAccountId])));
+    const accs = await this.repo.listAccountsById(this.db, user.tenantId, dto.accountId, dto.fundingAccountId);
     if (accs.length !== 2 || accs.some((a) => !a.isCashAccount || !a.isPostable)) throw new BadRequestException('Kas kecil dan sumber pengisian harus akun kas/bank');
-    const [exist] = await this.db.select().from(pettyCashFunds).where(and(eq(pettyCashFunds.tenantId, user.tenantId), eq(pettyCashFunds.accountId, dto.accountId)));
+    const [exist] = await this.repo.findPettyCashFundsByAccountId(this.db, user.tenantId, dto.accountId);
     if (exist) {
       const bal = await this.balanceOf(this.db, exist.accountId);
       if (imprest.lt(bal)) throw new BadRequestException('Plafon baru lebih kecil dari saldo kas kecil saat ini. Setor kelebihannya dulu');
-      const [f] = await this.db
-        .update(pettyCashFunds)
-        .set({ fundingAccountId: dto.fundingAccountId, name: dto.name.trim(), custodianName: dto.custodianName.trim(), imprestAmount: imprest.toFixed(2), maxVoucher: max.toFixed(2) })
-        .where(eq(pettyCashFunds.id, exist.id))
-        .returning();
+      const [f] = await this.repo.updatePettyCashFundsById(this.db, dto.fundingAccountId, dto.name, dto.custodianName, imprest, max, exist.id);
       await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'PettyCashFund', entityId: f.id, data: { imprest: imprest.toFixed(2), custodian: f.custodianName } });
       return f;
     }
@@ -98,7 +94,7 @@ export class PettyCashService {
     return this.db.transaction(async (tx) => {
       const f = await this.getFund(tx, user.tenantId, fundId);
       if (f.status !== 'ACTIVE') throw new BadRequestException('Dana kas kecil sudah ditutup');
-      const [o] = (await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM petty_cash_vouchers WHERE fund_id = ${f.id} AND status = 'OPEN'`)).rows;
+      const [o] = (await this.repo.queryPettyCashVoucherForTopUp(tx, f.id)).rows;
       if (o.n > 0) throw new BadRequestException('Ada bukti yang belum diganti. Gunakan Pengisian kembali');
       const need = D(f.imprestAmount).minus(await this.balanceOf(tx, f.accountId));
       if (need.lte(0)) throw new BadRequestException('Dana kas kecil sudah penuh');
@@ -114,7 +110,7 @@ export class PettyCashService {
       orderBy: [desc(pettyCashVouchers.date), desc(pettyCashVouchers.number)],
       limit: 300,
     });
-    const accs = await this.db.select({ id: accounts.id, code: accounts.code, name: accounts.name }).from(accounts).where(eq(accounts.tenantId, tenantId));
+    const accs = await this.repo.listAccounts(this.db, tenantId);
     const byId = new Map(accs.map((a) => [a.id, a]));
     return rows.map((r) => ({ ...r, expenseAccount: byId.get(r.expenseAccountId) ?? null }));
   }
@@ -134,7 +130,7 @@ export class PettyCashService {
       if (!acc || !acc.isPostable) throw new BadRequestException('Akun beban tidak valid');
       if (acc.type !== 'EXPENSE') throw new BadRequestException('Kas kecil hanya untuk biaya operasional. Prive, pinjaman karyawan, dan pembelian aset tidak boleh lewat kas kecil');
       const receipt = dto.receiptRef.trim();
-      const dup = await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM petty_cash_vouchers WHERE fund_id = ${f.id} AND lower(receipt_ref) = lower(${receipt}) AND status <> 'VOID'`);
+      const dup = await this.repo.queryPettyCashVoucherForCreateVoucher(tx, f.id, receipt);
       if (dup.rows[0].n > 0) throw new BadRequestException(`Nomor nota "${receipt}" sudah pernah dipakai di bukti kas kecil lain`);
       const bal = await this.balanceOf(tx, f.accountId);
       if (amount.gt(bal)) throw new BadRequestException(`Saldo kas kecil tidak cukup (Rp${bal.toNumber().toLocaleString('id-ID')}). Ajukan pengisian kembali`);
@@ -183,7 +179,7 @@ export class PettyCashService {
   }
 
   private async pickVouchers(db: Db | Tx, f: Fund, ids?: string[]) {
-    const open = await db.select().from(pettyCashVouchers).where(and(eq(pettyCashVouchers.fundId, f.id), eq(pettyCashVouchers.status, 'OPEN')));
+    const open = await this.repo.listPettyCashVouchersByFundIdAndStatus(db, f.id);
     if (!ids?.length) return open;
     const set = new Set(ids);
     const picked = open.filter((v) => set.has(v.id));
@@ -205,7 +201,7 @@ export class PettyCashService {
       const number = await this.seq.next(tx, user.tenantId, 'PETTY_REPLENISH', date);
       const t = await this.cash.create(user, { type: 'TRANSFER', cashAccountId: f.fundingAccountId, toCashAccountId: f.accountId, date, description: `Pengisian kembali kas kecil ${f.name} ${number}`, amount: total.toFixed(2), reference: number }, { petty: true, approved: true, tx });
       const r = await insertOne(tx, pettyCashReplenishments, { tenantId: user.tenantId, fundId: f.id, number, date, total: total.toFixed(2), voucherCount: picked.length, cashTransactionId: t.id, requestedById: user.sub });
-      await tx.update(pettyCashVouchers).set({ status: 'REPLENISHED', replenishmentId: r.id }).where(inArray(pettyCashVouchers.id, picked.map((v) => v.id)));
+      await this.repo.updatePettyCashVouchersById(tx, r.id, picked);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'REPLENISH', entity: 'PettyCashFund', entityId: f.id, data: { number, total: total.toFixed(2), vouchers: picked.length } });
       return { number, total: total.toFixed(2), vouchers: picked.length };
     });

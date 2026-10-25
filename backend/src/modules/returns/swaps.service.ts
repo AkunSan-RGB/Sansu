@@ -14,6 +14,7 @@ import { inventoryLines, semiSet } from '../inventory/inventory-accounts';
 import { StockService } from '../inventory/stock.service';
 import { CreateSwapDto } from './swaps.dto';
 import { findOwned, insertOne, lockOwned, patchById } from '../../db/owned';
+import { SwapsRepository } from './swaps.repository';
 
 const MAX_AGE_DAYS = 180;
 
@@ -25,6 +26,7 @@ export class SwapsService {
     private readonly posting: PostingService,
     private readonly stock: StockService,
     private readonly audit: AuditService,
+    private readonly repo: SwapsRepository,
   ) {}
 
   async list(tenantId: string, status?: string) {
@@ -33,22 +35,22 @@ export class SwapsService {
       orderBy: [desc(goodsSwaps.date), desc(goodsSwaps.number)],
       limit: 300,
     });
-    const cust = rows.length ? await this.db.select({ id: customers.id, code: customers.code, name: customers.name }).from(customers).where(inArray(customers.id, [...new Set(rows.map((r) => r.customerId))])) : [];
-    const inv = rows.length ? await this.db.select({ id: invoices.id, number: invoices.number }).from(invoices).where(inArray(invoices.id, [...new Set(rows.map((r) => r.invoiceId))])) : [];
-    const lines = rows.length ? await this.db.select().from(goodsSwapLines).where(inArray(goodsSwapLines.swapId, rows.map((r) => r.id))) : [];
+    const cust = rows.length ? await this.repo.listCustomersById(this.db, rows) : [];
+    const inv = rows.length ? await this.repo.listInvoicesById(this.db, rows) : [];
+    const lines = rows.length ? await this.repo.listGoodsSwapLinesBySwapId(this.db, rows) : [];
     return rows.map((r) => ({ ...r, customer: cust.find((c) => c.id === r.customerId), invoiceNumber: inv.find((i) => i.id === r.invoiceId)?.number, lines: lines.filter((l) => l.swapId === r.id) }));
   }
 
   async create(u: AuthUser, dto: CreateSwapDto) {
     const date = toDocDate(dto.date);
     return this.db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT id FROM invoices WHERE id = ${dto.invoiceId} AND tenant_id = ${u.tenantId} FOR UPDATE`);
+      await this.repo.queryInvoice(tx, dto.invoiceId, u.tenantId);
       const inv = await tx.query.invoices.findFirst({ where: and(eq(invoices.id, dto.invoiceId), eq(invoices.tenantId, u.tenantId)), with: { lines: true } });
       if (!inv) throw new NotFoundException('Faktur tidak ditemukan');
       if (inv.kind === 'SERVICE') throw new BadRequestException('Faktur jasa tidak dapat ditukar-guling');
       if (date < inv.date) throw new BadRequestException('Tanggal tukar tidak boleh sebelum tanggal faktur');
       if (date > addDays(inv.date, MAX_AGE_DAYS)) throw new BadRequestException(`Tukar-guling hanya untuk faktur yang berumur paling lama ${MAX_AGE_DAYS} hari`);
-      const [order] = inv.salesOrderId ? await tx.select({ warehouseId: salesOrders.warehouseId }).from(salesOrders).where(eq(salesOrders.id, inv.salesOrderId)) : [];
+      const [order] = inv.salesOrderId ? await this.repo.listSalesOrdersById(tx, inv.salesOrderId) : [];
       if (!order) throw new BadRequestException('Gudang asal faktur tidak diketahui');
       const seen = new Set<string>();
       for (const l of dto.lines) {
@@ -58,9 +60,7 @@ export class SwapsService {
         if (!src) throw new BadRequestException('Baris faktur tidak ditemukan pada faktur ini');
         const q = D(l.qty);
         if (q.lte(0)) throw new BadRequestException('Jumlah tukar harus lebih dari nol');
-        const used = await tx.execute<{ q: string }>(sql`
-          SELECT COALESCE(SUM(sl.qty), 0)::text AS q FROM goods_swap_lines sl JOIN goods_swaps s ON s.id = sl.swap_id
-          WHERE sl.invoice_line_id = ${src.id} AND s.status IN ('PENDING', 'APPROVED')`);
+        const used = await this.repo.queryGoodsSwapLine(tx, src.id);
         const room = D(src.qty).minus(src.returnedQty).minus(used.rows[0].q);
         if (q.gt(room)) throw new BadRequestException(`Jumlah tukar melebihi yang tersisa pada baris faktur (${room.toFixed(4).replace(/\.?0+$/, '')}) setelah retur dan tukar sebelumnya`);
       }
@@ -83,13 +83,11 @@ export class SwapsService {
       if (!swap) throw new NotFoundException('Dokumen tukar-guling tidak ditemukan');
       if (swap.status !== 'PENDING') throw new BadRequestException('Dokumen ini sudah diputuskan');
       if (swap.createdById === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Tukar-guling disetujui oleh orang lain dari pembuatnya (pemisahan fungsi)');
-      const lines = await tx.select().from(goodsSwapLines).where(eq(goodsSwapLines.swapId, id));
+      const lines = await this.repo.listGoodsSwapLinesBySwapIdForApprove(tx, id);
       // periksa ulang batas jumlah saat disetujui (retur lain mungkin masuk sejak dibuat)
       for (const l of lines) {
-        const [src] = await tx.select().from(invoiceLines).where(eq(invoiceLines.id, l.invoiceLineId));
-        const used = await tx.execute<{ q: string }>(sql`
-          SELECT COALESCE(SUM(sl.qty), 0)::text AS q FROM goods_swap_lines sl JOIN goods_swaps s ON s.id = sl.swap_id
-          WHERE sl.invoice_line_id = ${l.invoiceLineId} AND s.status = 'APPROVED'`);
+        const [src] = await this.repo.findInvoiceLinesById(tx, l.invoiceLineId);
+        const used = await this.repo.queryGoodsSwapLineForApprove(tx, l.invoiceLineId);
         if (D(l.qty).gt(D(src.qty).minus(src.returnedQty).minus(used.rows[0].q))) throw new BadRequestException('Jumlah tukar sudah melebihi sisa baris faktur (ada retur/tukar lain); tolak dan buat ulang');
       }
       const items: { productId: string; value: ReturnType<typeof D> }[] = [];

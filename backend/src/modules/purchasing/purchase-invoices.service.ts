@@ -181,9 +181,7 @@ export class PurchaseInvoicesService {
     }
     if (policy.priceControl && exceeded && !this.approvals.isApprover(user.role) && !opts.approvalId) {
       const [dup] = (
-        await this.db.execute<{ id: string }>(sql`
-          SELECT id FROM approval_requests WHERE tenant_id = ${user.tenantId} AND kind = 'PURCHASE_INVOICE_PRICE' AND status = 'PENDING'
-            AND ref_id = ${order.id} AND payload->>'supplierInvoiceNo' = ${dto.supplierInvoiceNo.trim()}`)
+        await this.repo.queryApprovalRequest(this.db, user.tenantId, order.id, dto.supplierInvoiceNo)
       ).rows;
       if (dup) throw this.approvals.required(dup.id, 'Faktur ini sudah dimintakan persetujuan dan masih menunggu keputusan pemilik atau admin.');
       const worst = diffs.reduce((a, d) => (d.pct > a ? d.pct : a), 0);
@@ -242,7 +240,7 @@ export class PurchaseInvoicesService {
 
   /** PPN faktur dari DPP-nya (tarif dan pembulatan sesuai pengaturan perusahaan) */
   private async vatOn(tx: Tx, tenantId: string, dpp: Dec) {
-    const [t] = await tx.select({ ppnRate: tenants.ppnRate, settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+    const [t] = await this.repo.findTenantsById(tx, tenantId);
     return roundVat(money(dpp.times(t.ppnRate).div(100)), taxProfileOf(t.settings).vatRounding);
   }
 
@@ -376,13 +374,7 @@ export class PurchaseInvoicesService {
     }
 
     // Penerimaan paling lama ditagih lebih dulu
-    const recLines = await tx
-      .select({ rl: goodsReceiptLines, date: goodsReceipts.date, number: goodsReceipts.number, capitalized: goodsReceipts.vatCapitalized })
-      .from(goodsReceiptLines)
-      .innerJoin(goodsReceipts, eq(goodsReceipts.id, goodsReceiptLines.receiptId))
-      .where(and(eq(goodsReceipts.purchaseOrderId, order.id), eq(goodsReceipts.status, 'RECEIVED')))
-      .orderBy(asc(goodsReceipts.date), asc(goodsReceipts.number), asc(goodsReceiptLines.id))
-      .for('update', { of: goodsReceiptLines });
+    const recLines = await this.repo.listGoodsReceiptLinesWithGoodsReceiptsById(tx, order.id);
 
     const pr = this.pricing(order, dto);
     const over = pr.over;
@@ -422,8 +414,7 @@ export class PurchaseInvoicesService {
     }
 
     // PPN: sebanding dengan DPP yang sudah ditagih; faktur yang menuntaskan pesanan memikul sisa pembulatan
-    const prior = (await tx.execute<{ tax: string; sub: string; var: string }>(sql`
-      SELECT COALESCE(SUM(tax_amount), 0) AS tax, COALESCE(SUM(subtotal), 0) AS sub, COALESCE(SUM(price_variance), 0) AS var FROM purchase_invoices WHERE purchase_order_id = ${order.id}`)).rows[0];
+    const prior = (await this.repo.queryPurchaseInvoice(tx, order.id)).rows[0];
     const variances = invLines.map((x) => x.dpp.minus(x.poDpp));
     // Ada selisih harga (pada faktur ini atau sebelumnya): PPN mengikuti DPP faktur, bukan pro-rata PO
     const actualVat = variances.some((v) => !v.isZero()) || !D(prior.var).isZero();
@@ -454,7 +445,7 @@ export class PurchaseInvoicesService {
         vatCapitalized: capitalized,
         ...this.fxFields(order, { rate: pr.rate, tax, lineForeign: invLines.reduce<Dec>((a, x) => a.plus(lineTotal({ qty: x.q, price: pr.foreignPrice.get(x.line.id) ?? 0, discountPct: x.line.discountPct })), ZERO) }),
       });
-    if (billings.length) await tx.insert(goodsReceiptBillings).values(billings.map((b) => ({ tenantId: user.tenantId, receiptId: b.receiptId, receiptLineId: b.receiptLineId, invoiceId: invoice.id, date, qty: b.qty.toFixed(4), value: b.value.toFixed(2) })));
+    if (billings.length) await this.repo.insertGoodsReceiptBillings(tx, billings, user.tenantId, invoice.id, date);
 
     // Biaya perolehan mengikuti harga faktur: selisih harga dibagi ke stok yang masih ada (persediaan) dan ke barang yang sudah terjual (HPP)
     const capFactor = capitalized && D(order.subtotal).gt(0) ? D(order.total).div(order.subtotal) : D(1);
@@ -463,7 +454,7 @@ export class PurchaseInvoicesService {
     for (const [i, x] of invLines.entries()) {
       if (variances[i].isZero()) continue;
       const v = money(variances[i].times(capFactor));
-      const [bal] = (await tx.execute<{ qty: string }>(sql`SELECT qty FROM stock_balances WHERE tenant_id = ${user.tenantId} AND product_id = ${x.line.productId} AND warehouse_id = ${order.warehouseId}`)).rows;
+      const [bal] = (await this.repo.queryStockBalance(tx, user.tenantId, x.line.productId, order.warehouseId)).rows;
       const onHand = D(bal?.qty ?? 0);
       const share = onHand.lte(0) ? ZERO : onHand.gte(x.baseQty) ? D(1) : onHand.div(x.baseQty);
       const inv = money(v.times(share));
@@ -508,7 +499,7 @@ export class PurchaseInvoicesService {
     });
     await patchById(tx, purchaseInvoices, invoice.id, { journalId: journal.id });
     // pesanan tuntas bila seluruh barang sudah ditagih
-    const after = await tx.select({ qty: purchaseOrderLines.qty, billedQty: purchaseOrderLines.billedQty }).from(purchaseOrderLines).where(eq(purchaseOrderLines.orderId, order.id));
+    const after = await this.repo.listPurchaseOrderLinesByOrderId(tx, order.id);
     if (after.every((l) => D(l.billedQty).plus(QTY_EPS).gte(l.qty))) {
       await patchById(tx, purchaseOrders, order.id, { status: 'BILLED' });
     }
@@ -522,7 +513,7 @@ export class PurchaseInvoicesService {
    *  Cr Utang Usaha (yang dibayar ke supplier) · Cr Utang PPh 23 / 4(2) (PPh yang dipotong)
    */
   private async isPkp(tx: Tx, tenantId: string) {
-    const [t] = await tx.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+    const [t] = await this.repo.findTenantsByIdForIsPkp(tx, tenantId);
     return taxProfileOf(t?.settings).pkp;
   }
 }

@@ -17,6 +17,7 @@ import { CreateDepositDto, ApplyDepositDto } from './service-billing.dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
 import { ServiceBillingService, outstandingOf } from './service-billing.service';
 import { findOwned, insertOne, patchById } from '../../../db/owned';
+import { CustomerDepositsRepository } from './customer-deposits.repository';
 
 @Injectable()
 export class CustomerDepositsService {
@@ -27,6 +28,7 @@ export class CustomerDepositsService {
     private readonly audit: AuditService,
     private readonly refs: ReferenceRepository,
     private readonly billing: ServiceBillingService,
+    private readonly repo: CustomerDepositsRepository,
   ) {}
 
   // ================= Uang muka pelanggan =================
@@ -46,34 +48,12 @@ export class CustomerDepositsService {
       limit: 500,
     });
     if (!rows.length) return [];
-    const custs = await this.db
-      .select({ id: customers.id, code: customers.code, name: customers.name })
-      .from(customers)
-      .where(inArray(customers.id, [...new Set(rows.map((r) => r.customerId))]));
+    const custs = await this.repo.listCustomersById(this.db, rows);
     const projIds = [...new Set(rows.map((r) => r.projectId).filter((x): x is string => !!x))];
     const projs = projIds.length
-      ? await this.db
-          .select({ id: projects.id, code: projects.code, name: projects.name })
-          .from(projects)
-          .where(inArray(projects.id, projIds))
+      ? await this.repo.listProjectsById(this.db, projIds)
       : [];
-    const apps = await this.db
-      .select({
-        id: depositApplications.id,
-        depositId: depositApplications.depositId,
-        date: depositApplications.date,
-        amount: depositApplications.amount,
-        invoiceId: invoices.id,
-        invoiceNumber: invoices.number,
-      })
-      .from(depositApplications)
-      .innerJoin(invoices, eq(invoices.id, depositApplications.invoiceId))
-      .where(
-        inArray(
-          depositApplications.depositId,
-          rows.map((r) => r.id),
-        ),
-      );
+    const apps = await this.repo.listDepositApplicationsWithInvoicesByDepositId(this.db, rows);
     return rows.map((r) => {
       const c = custs.find((x) => x.id === r.customerId)!;
       const p = projs.find((x) => x.id === r.projectId);
@@ -110,7 +90,7 @@ export class CustomerDepositsService {
     const amount = money(dto.amount);
     if (amount.lte(0)) throw new BadRequestException('Jumlah uang muka harus > 0');
     return this.db.transaction(async (tx) => {
-      const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
+      const [tenant] = await this.repo.findTenantsById(tx, user.tenantId);
       const customer = await this.refs.customer(tx, user.tenantId, dto.customerId);
       if (!customer) throw new BadRequestException('Pelanggan tidak ditemukan');
       if (dto.projectId) {
@@ -176,16 +156,12 @@ export class CustomerDepositsService {
   async applyDeposit(user: AuthUser, id: string, dto: ApplyDepositDto) {
     const date = toDocDate(dto.date);
     return this.db.transaction(async (tx) => {
-      const lockD = await tx.execute(
-        sql`SELECT id FROM customer_deposits WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`,
-      );
+      const lockD = await this.repo.queryCustomerDeposit(tx, id, user.tenantId);
       if (!lockD.rows.length) throw new NotFoundException('Uang muka tidak ditemukan');
-      const lockI = await tx.execute(
-        sql`SELECT id FROM invoices WHERE id = ${dto.invoiceId} AND tenant_id = ${user.tenantId} FOR UPDATE`,
-      );
+      const lockI = await this.repo.queryInvoice(tx, dto.invoiceId, user.tenantId);
       if (!lockI.rows.length) throw new NotFoundException('Faktur tidak ditemukan');
-      const [d] = await tx.select().from(customerDeposits).where(eq(customerDeposits.id, id));
-      const [inv] = await tx.select().from(invoices).where(eq(invoices.id, dto.invoiceId));
+      const [d] = await this.repo.findCustomerDepositsById(tx, id);
+      const [inv] = await this.repo.findInvoicesById(tx, dto.invoiceId);
       if (inv.customerId !== d.customerId)
         throw new BadRequestException('Uang muka dan faktur harus dari pelanggan yang sama');
       if (inv.isOpening) throw new BadRequestException('Uang muka tidak bisa dipakai untuk faktur saldo awal');
@@ -210,8 +186,7 @@ export class CustomerDepositsService {
 
       // Bagian DPP & PPN dari uang muka; pemakaian terakhir mengambil sisanya agar tidak ada sisa pembulatan
       const [used] = (
-        await tx.execute<{ dpp: string; tax: string }>(sql`
-          SELECT COALESCE(SUM(dpp), 0) AS dpp, COALESCE(SUM(tax_amount), 0) AS tax FROM deposit_applications WHERE deposit_id = ${id}`)
+        await this.repo.queryDepositApplication(tx, id)
       ).rows;
       const dppShare = amount.eq(remaining) ? D(d.dpp).minus(used.dpp) : money(amount.times(d.dpp).div(d.amount));
       const taxShare = amount.minus(dppShare);

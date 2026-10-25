@@ -14,6 +14,7 @@ import { monthRange } from '../hr/hr.service';
 import { CreateRateDto, UpdateRateDto, EntryQueryDto, CreateEntryDto, DecideEntryDto, VoidEntryDto } from './service-work.dto';
 import { invoiceUsable } from './service-work.shared';
 import { findOwned, insertOne, lockOwned } from '../../db/owned';
+import { ServiceWorkRepository } from './service-work.repository';
 
 export const MAX_HOURS_PER_DAY = 16;
 
@@ -28,12 +29,12 @@ export class ServiceWorkService {
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
+    private readonly repo: ServiceWorkRepository,
   ) {}
 
   /** Nama pegawai aktif untuk memilih pegawai pada catatan kerja — tanpa gaji/rekening, jadi aman dibuka untuk Admin */
   async staff(u: AuthUser) {
-    const r = await this.db.execute<{ id: string; code: string; name: string; isActive: boolean; verified: boolean }>(sql`
-      SELECT id, code, name, is_active AS "isActive", verified FROM employees WHERE tenant_id = ${u.tenantId} AND is_active ORDER BY name`);
+    const r = await this.repo.queryEmployee(this.db, u.tenantId);
     return r.rows;
   }
 
@@ -60,7 +61,7 @@ export class ServiceWorkService {
     if (!(await this.unitsOf(u.tenantId)).includes(dto.unit)) throw new BadRequestException(`Satuan "${WORK_UNIT_LABELS[dto.unit]}" tidak dipakai di jenis usaha Anda`);
     const rate = D(dto.rate);
     this.checkRate(dto.unit, rate);
-    const [dup] = await this.db.select({ id: serviceRates.id }).from(serviceRates).where(and(eq(serviceRates.tenantId, u.tenantId), eq(serviceRates.name, dto.name.trim())));
+    const [dup] = await this.repo.findServiceRatesByName(this.db, u.tenantId, dto.name);
     if (dup) throw new BadRequestException('Nama tarif sudah dipakai');
     const row = await insertOne(this.db, serviceRates, { tenantId: u.tenantId, name: dto.name.trim(), unit: dto.unit, rate: rate.toFixed(2), createdById: u.sub });
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'ServiceRate', entityId: row.id, data: { name: row.name, unit: row.unit, rate: row.rate } });
@@ -72,7 +73,7 @@ export class ServiceWorkService {
     if (!r) throw new NotFoundException('Tarif tidak ditemukan');
     const rate = dto.rate !== undefined ? D(dto.rate) : D(r.rate);
     this.checkRate(r.unit, rate);
-    const [row] = await this.db.update(serviceRates).set({ rate: rate.toFixed(2), isActive: dto.isActive ?? r.isActive }).where(eq(serviceRates.id, id)).returning();
+    const [row] = await this.repo.updateServiceRatesById(this.db, rate, dto, r.isActive, id);
     // tarif baru hanya berlaku untuk catatan berikutnya; catatan lama memakai tarif saat dibuat
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'ServiceRate', entityId: id, data: { before: { rate: r.rate, isActive: r.isActive }, after: { rate: row.rate, isActive: row.isActive } } });
     return row;
@@ -86,34 +87,13 @@ export class ServiceWorkService {
 
   async list(u: AuthUser, q: EntryQueryDto) {
     const range = q.period ? monthRange(q.period) : null;
-    const rows = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT w.id, w.employee_id AS "employeeId", e.code AS "employeeCode", e.name AS "employeeName", w.rate_id AS "rateId", sr.name AS "rateName", w.unit,
-             w.work_date::text AS "workDate", w.project_id AS "projectId", p.code AS "projectCode", w.invoice_id AS "invoiceId", i.number AS "invoiceNumber", w.production_order_id AS "productionOrderId", po.number AS "productionNumber",
-             w.quantity, w.rate, w.base_amount AS "baseAmount", w.amount, w.description, w.status, w.created_by_id AS "createdById", cu.name AS "createdByName",
-             w.decided_by_id AS "decidedById", du.name AS "decidedByName", w.decision_note AS "decisionNote", w.run_id AS "runId", r.number AS "runNumber", r.status AS "runStatus"
-      FROM service_work_entries w
-      JOIN employees e ON e.id = w.employee_id
-      JOIN service_rates sr ON sr.id = w.rate_id
-      LEFT JOIN projects p ON p.id = w.project_id
-      LEFT JOIN invoices i ON i.id = w.invoice_id
-      LEFT JOIN production_orders po ON po.id = w.production_order_id
-      LEFT JOIN payroll_runs r ON r.id = w.run_id
-      LEFT JOIN users cu ON cu.id = w.created_by_id
-      LEFT JOIN users du ON du.id = w.decided_by_id
-      WHERE w.tenant_id = ${u.tenantId}
-        ${range ? sql`AND w.work_date BETWEEN ${range.from} AND ${range.to}` : sql``}
-        ${q.status ? sql`AND w.status = ${q.status}` : sql``}
-        ${q.employeeId ? sql`AND w.employee_id = ${q.employeeId}` : sql``}
-      ORDER BY w.work_date DESC, w.created_at DESC LIMIT 500`);
+    const rows = await this.repo.queryServiceWorkEntry(this.db, u, range, q);
     return rows.rows;
   }
 
   /** Perintah produksi yang bisa dijadikan dasar upah per hasil (sedang berjalan atau selesai) */
   async productionOrdersForPay(u: AuthUser) {
-    const rows = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT po.id, po.number, po.status, po.planned_qty AS "plannedQty", po.output_qty AS "outputQty",
-             COALESCE((SELECT SUM(w.quantity) FROM service_work_entries w WHERE w.production_order_id = po.id AND w.status IN ('PENDING','APPROVED')), 0) AS "paidQty"
-      FROM production_orders po WHERE po.tenant_id = ${u.tenantId} AND po.status IN ('IN_PROGRESS','COMPLETED') ORDER BY po.created_at DESC LIMIT 100`);
+    const rows = await this.repo.queryProductionOrder(this.db, u.tenantId);
     return rows.rows;
   }
 
@@ -121,12 +101,7 @@ export class ServiceWorkService {
   async commissionableInvoices(u: AuthUser) {
     await this.requireJasa(u.tenantId);
     const since = addDays(todayJakarta(), -180);
-    const rows = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT i.id, i.number, i.date::text AS date, i.subtotal, c.name AS "customerName", i.project_id AS "projectId",
-             COALESCE((SELECT SUM(w.rate) FROM service_work_entries w WHERE w.invoice_id = i.id AND w.status IN ('PENDING','APPROVED')), 0) AS "allocatedPct"
-      FROM invoices i JOIN customers c ON c.id = i.customer_id
-      WHERE i.tenant_id = ${u.tenantId} AND i.date >= ${since} AND ${invoiceUsable}
-      ORDER BY i.date DESC LIMIT 200`);
+    const rows = await this.repo.queryInvoice(this.db, u.tenantId, since);
     return rows.rows;
   }
 
@@ -138,9 +113,9 @@ export class ServiceWorkService {
 
     return this.db.transaction(async (tx) => {
       // kunci baris pegawai: mencegah dua catatan bersamaan melewati batas jam harian
-      const lock = await tx.execute<{ id: string }>(sql`SELECT id FROM employees WHERE id = ${dto.employeeId} AND tenant_id = ${u.tenantId} FOR UPDATE`);
+      const lock = await this.repo.queryEmployeeForCreate(tx, dto.employeeId, u.tenantId);
       if (!lock.rows.length) throw new NotFoundException('Pegawai tidak ditemukan');
-      const [emp] = await tx.select().from(employees).where(eq(employees.id, dto.employeeId));
+      const [emp] = await this.repo.findEmployeesById(tx, dto.employeeId);
       if (!emp.isActive && !emp.resignDate) throw new BadRequestException('Pegawai tidak aktif');
       if (emp.userId && emp.userId === u.sub) throw new ForbiddenException('Anda tidak dapat mencatat upah jasa untuk diri sendiri');
       if (!emp.verified) throw new BadRequestException('Karyawan ini belum diverifikasi; belum bisa dicatat upahnya');
@@ -156,7 +131,7 @@ export class ServiceWorkService {
 
       let projectId = dto.projectId ?? null;
       if (projectId) {
-        const [p] = await tx.select({ id: projects.id }).from(projects).where(and(eq(projects.id, projectId), eq(projects.tenantId, u.tenantId)));
+        const [p] = await this.repo.findProjectsById(tx, projectId, u.tenantId);
         if (!p) throw new BadRequestException('Proyek tidak ditemukan');
       }
 
@@ -167,10 +142,9 @@ export class ServiceWorkService {
       let invoiceId: string | null = null;
       if (rate.unit === 'PERCENT') {
         if (!dto.invoiceId) throw new BadRequestException('Komisi harus dikaitkan ke faktur jasa yang sudah lunas');
-        const inv = await tx.execute<{ id: string; subtotal: string; project_id: string | null }>(sql`
-          SELECT i.id, i.subtotal, i.project_id FROM invoices i WHERE i.id = ${dto.invoiceId} AND i.tenant_id = ${u.tenantId} AND ${invoiceUsable} FOR UPDATE OF i`);
+        const inv = await this.repo.queryInvoiceForCreate(tx, dto.invoiceId, u.tenantId);
         if (!inv.rows.length) throw new BadRequestException('Faktur harus faktur jasa yang sudah LUNAS, tidak dibatalkan, dan tanpa retur');
-        const allocated = await tx.execute<{ pct: string }>(sql`SELECT COALESCE(SUM(rate), 0) AS pct FROM service_work_entries WHERE invoice_id = ${dto.invoiceId} AND status IN ('PENDING','APPROVED')`);
+        const allocated = await this.repo.queryServiceWorkEntryForCreate(tx, dto.invoiceId);
         if (D(allocated.rows[0].pct).plus(rate.rate).gt(100)) throw new BadRequestException('Total persen komisi untuk faktur ini melebihi 100%');
         invoiceId = dto.invoiceId;
         projectId = projectId ?? inv.rows[0].project_id;
@@ -185,11 +159,11 @@ export class ServiceWorkService {
         if (quantity.decimalPlaces() > 2) throw new BadRequestException('Jumlah maksimal 2 angka di belakang koma');
         if (rate.unit === 'HOUR') {
           if (quantity.gt(MAX_HOURS_PER_DAY)) throw new BadRequestException(`Satu catatan maksimal ${MAX_HOURS_PER_DAY} jam`);
-          const day = await tx.execute<{ h: string }>(sql`SELECT COALESCE(SUM(quantity), 0) AS h FROM service_work_entries WHERE employee_id = ${emp.id} AND work_date = ${workDate} AND unit = 'HOUR' AND status IN ('PENDING','APPROVED')`);
+          const day = await this.repo.queryServiceWorkEntryForCreate2(tx, emp.id, workDate);
           if (D(day.rows[0].h).plus(quantity).gt(MAX_HOURS_PER_DAY)) throw new BadRequestException(`Jam kerja pegawai pada tanggal itu melebihi ${MAX_HOURS_PER_DAY} jam per hari`);
         } else if (rate.unit === 'SHIFT') {
           if (!quantity.isInteger()) throw new BadRequestException('Jumlah shift harus bilangan bulat');
-          const day = await tx.execute<{ n: string }>(sql`SELECT COALESCE(SUM(quantity), 0) AS n FROM service_work_entries WHERE employee_id = ${emp.id} AND work_date = ${workDate} AND unit = 'SHIFT' AND status IN ('PENDING','APPROVED')`);
+          const day = await this.repo.queryServiceWorkEntryForCreate3(tx, emp.id, workDate);
           if (D(day.rows[0].n).plus(quantity).gt(WORK_LIMITS.shiftPerDay)) throw new BadRequestException(`Satu pegawai maksimal ${WORK_LIMITS.shiftPerDay} shift per hari`);
         } else if (rate.unit === 'PIECE') {
           if (quantity.gt(WORK_LIMITS.maxPieceQty)) throw new BadRequestException('Jumlah hasil terlalu besar untuk satu catatan');
@@ -199,21 +173,18 @@ export class ServiceWorkService {
             if (!po) throw new BadRequestException('Perintah produksi tidak ditemukan');
             if (po.status !== 'IN_PROGRESS' && po.status !== 'COMPLETED') throw new BadRequestException('Perintah produksi harus sedang berjalan atau sudah selesai');
             const cap = D(po.status === 'COMPLETED' ? po.outputQty : po.plannedQty);
-            const used = await tx.execute<{ q: string }>(sql`SELECT COALESCE(SUM(quantity), 0) AS q FROM service_work_entries WHERE production_order_id = ${po.id} AND rate_id = ${rate.id} AND status IN ('PENDING','APPROVED')`);
+            const used = await this.repo.queryServiceWorkEntryForCreate4(tx, po.id, rate.id);
             if (D(used.rows[0].q).plus(quantity).gt(cap)) throw new BadRequestException(`Jumlah hasil melebihi keluaran perintah produksi ${po.number} (${cap.toFixed(2)} sudah termasuk catatan lain untuk tarif ini)`);
             productionOrderId = po.id;
           }
         } else if (quantity.gt(100)) {
           throw new BadRequestException('Jumlah sesi / pekerjaan terlalu besar untuk satu catatan');
         }
-        const [att] = await tx.select({ status: attendances.status }).from(attendances).where(and(eq(attendances.employeeId, emp.id), eq(attendances.date, workDate)));
+        const [att] = await this.repo.findAttendancesByEmployeeIdAndDate(tx, emp.id, workDate);
         if (att && att.status !== 'HADIR') throw new BadRequestException(`Absensi pegawai pada ${workDate} tercatat ${att.status}; tidak bisa ada catatan kerja`);
         amount = money(quantity.times(rate.rate));
       }
-      const dup = await tx.execute<{ id: string }>(sql`
-        SELECT id FROM service_work_entries WHERE employee_id = ${emp.id} AND work_date = ${workDate} AND rate_id = ${rate.id} AND quantity = ${quantity.toFixed(2)}
-          AND project_id IS NOT DISTINCT FROM ${projectId}::uuid AND invoice_id IS NOT DISTINCT FROM ${invoiceId}::uuid
-          AND production_order_id IS NOT DISTINCT FROM ${productionOrderId}::uuid AND status IN ('PENDING','APPROVED') LIMIT 1`);
+      const dup = await this.repo.queryServiceWorkEntryForCreate5(tx, emp.id, workDate, rate.id, quantity, projectId, invoiceId, productionOrderId);
       if (dup.rows.length) throw new BadRequestException('Catatan yang sama persis sudah ada');
 
       const row = await insertOne(tx, serviceWorkEntries, {
@@ -246,7 +217,7 @@ export class ServiceWorkService {
 
   /** Pemisahan fungsi saat memutuskan: bukan pegawai yang bersangkutan, dan bukan pembuat catatan (kecuali Pemilik) */
   private async assertCanDecide(tx: Tx, u: AuthUser, e: typeof serviceWorkEntries.$inferSelect) {
-    const [emp] = await tx.select({ userId: employees.userId }).from(employees).where(eq(employees.id, e.employeeId));
+    const [emp] = await this.repo.findEmployeesByIdForAssertCanDecide(tx, e.employeeId);
     if (emp?.userId && emp.userId === u.sub) throw new ForbiddenException('Anda tidak dapat memutuskan catatan upah Anda sendiri');
     if (e.createdById === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Catatan harus diputuskan oleh orang lain dari pembuatnya (pemisahan fungsi)');
   }
@@ -257,10 +228,10 @@ export class ServiceWorkService {
       if (e.status !== 'PENDING') throw new BadRequestException('Catatan ini sudah diputuskan');
       await this.assertCanDecide(tx, u, e);
       if (e.unit === 'PERCENT') {
-        const ok = await tx.execute(sql`SELECT 1 FROM invoices i WHERE i.id = ${e.invoiceId} AND ${invoiceUsable}`);
+        const ok = await this.repo.queryInvoiceForApprove(tx, e.invoiceId);
         if (!ok.rows.length) throw new BadRequestException('Faktur komisi ini tidak lagi layak (belum lunas / dibatalkan / ada retur)');
       }
-      const [row] = await tx.update(serviceWorkEntries).set({ status: 'APPROVED', decidedById: u.sub, decidedAt: new Date(), decisionNote: dto.note ?? null }).where(eq(serviceWorkEntries.id, id)).returning();
+      const [row] = await this.repo.updateServiceWorkEntriesById(tx, u.sub, dto, id);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'APPROVE', entity: 'ServiceWorkEntry', entityId: id, data: { amount: e.amount, createdBy: e.createdById } });
       return row;
     });
@@ -271,7 +242,7 @@ export class ServiceWorkService {
       const e = await this.lockEntry(tx, u.tenantId, id);
       if (e.status !== 'PENDING') throw new BadRequestException('Catatan ini sudah diputuskan');
       await this.assertCanDecide(tx, u, e);
-      const [row] = await tx.update(serviceWorkEntries).set({ status: 'REJECTED', decidedById: u.sub, decidedAt: new Date(), decisionNote: dto.reason }).where(eq(serviceWorkEntries.id, id)).returning();
+      const [row] = await this.repo.updateServiceWorkEntriesByIdForReject(tx, u.sub, dto.reason, id);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'REJECT', entity: 'ServiceWorkEntry', entityId: id, data: { reason: dto.reason } });
       return row;
     });
@@ -286,10 +257,10 @@ export class ServiceWorkService {
       if (e.status === 'APPROVED' && !isDecider) throw new ForbiddenException('Catatan yang sudah disetujui hanya dapat dibatalkan oleh Keuangan / Admin');
       if (e.status === 'PENDING' && !isDecider && e.createdById !== u.sub) throw new ForbiddenException('Hanya pembuat catatan yang dapat menariknya');
       if (e.runId) {
-        const [run] = await tx.execute<{ status: string; number: string }>(sql`SELECT status, number FROM payroll_runs WHERE id = ${e.runId}`).then((r) => r.rows);
+        const [run] = await this.repo.queryPayrollRun(tx, e.runId);
         if (run && run.status !== 'DRAFT') throw new BadRequestException(`Sudah masuk gaji ${run.number} yang diposting; tidak bisa dibatalkan`);
       }
-      const [row] = await tx.update(serviceWorkEntries).set({ status: 'VOID', decisionNote: dto.reason, decidedById: u.sub, decidedAt: new Date(), runId: null }).where(eq(serviceWorkEntries.id, id)).returning();
+      const [row] = await this.repo.updateServiceWorkEntriesByIdForVoidIt(tx, dto.reason, u.sub, id);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'VOID', entity: 'ServiceWorkEntry', entityId: id, data: { reason: dto.reason, wasStatus: e.status, amount: e.amount } });
       return row;
     });
@@ -304,34 +275,16 @@ export class ServiceWorkService {
       WHERE w.tenant_id = ${u.tenantId} AND w.unit = 'HOUR' AND w.status IN ('PENDING','APPROVED') AND w.work_date BETWEEN ${from} AND ${to}
       GROUP BY w.employee_id, e.name HAVING SUM(w.quantity) > ${MAX_HOURS_PER_MONTH}`);
     for (const r of hours.rows) out.push({ kind: 'JAM_BERLEBIH', severity: 'warn', employeeId: r.employee_id, message: `${r.name}: ${D(r.h).toFixed(1)} jam dalam sebulan (batas wajar ${MAX_HOURS_PER_MONTH})` });
-    const stuck = await this.db.execute<{ employee_id: string; name: string; number: string | null }>(sql`
-      SELECT w.employee_id, e.name, i.number FROM service_work_entries w JOIN employees e ON e.id = w.employee_id LEFT JOIN invoices i ON i.id = w.invoice_id
-      WHERE w.tenant_id = ${u.tenantId} AND w.unit = 'PERCENT' AND w.status = 'APPROVED' AND w.run_id IS NULL AND w.work_date <= ${to}`);
+    const stuck = await this.repo.queryServiceWorkEntryForAnomalies(this.db, u.tenantId, to);
     for (const r of stuck.rows) out.push({ kind: 'KOMISI_TERTAHAN', severity: 'warn', employeeId: r.employee_id, message: `Komisi ${r.name} dari faktur ${r.number ?? '-'} tertahan: faktur belum lunas, dibatalkan, atau diretur` });
-    const conflict = await this.db.execute<{ employee_id: string; name: string; d: string; st: string }>(sql`
-      SELECT w.employee_id, e.name, w.work_date::text AS d, a.status::text AS st
-      FROM service_work_entries w JOIN employees e ON e.id = w.employee_id JOIN attendances a ON a.employee_id = w.employee_id AND a.date = w.work_date
-      WHERE w.tenant_id = ${u.tenantId} AND w.unit <> 'PERCENT' AND w.status IN ('PENDING','APPROVED') AND a.status <> 'HADIR' AND w.work_date BETWEEN ${from} AND ${to}`);
+    const conflict = await this.repo.queryServiceWorkEntryForAnomalies2(this.db, u.tenantId, from, to);
     for (const r of conflict.rows) out.push({ kind: 'BENTROK_ABSENSI', severity: 'warn', employeeId: r.employee_id, message: `${r.name}: ada catatan kerja pada ${r.d} padahal absensi ${r.st}` });
-    const big = await this.db.execute<{ employee_id: string; name: string; svc: string; base: string }>(sql`
-      SELECT w.employee_id, e.name, SUM(w.amount) AS svc, (e.base_salary + e.fixed_allowance) AS base
-      FROM service_work_entries w JOIN employees e ON e.id = w.employee_id
-      WHERE w.tenant_id = ${u.tenantId} AND w.status IN ('PENDING','APPROVED') AND w.work_date BETWEEN ${from} AND ${to}
-      GROUP BY w.employee_id, e.name, e.base_salary, e.fixed_allowance
-      HAVING (e.base_salary + e.fixed_allowance) > 0 AND SUM(w.amount) > 3 * (e.base_salary + e.fixed_allowance)`);
+    const big = await this.repo.queryServiceWorkEntryForAnomalies3(this.db, u.tenantId, from, to);
     for (const r of big.rows) out.push({ kind: 'UPAH_JASA_BESAR', severity: 'info', employeeId: r.employee_id, message: `${r.name}: upah kerja bulan ini lebih dari 3× gaji tetapnya` });
     // premi shift berlebihan dan hasil per perintah produksi yang sudah melebihi keluaran (mis. setelah keluaran dikoreksi)
-    const shifts = await this.db.execute<{ employee_id: string; name: string; n: string }>(sql`
-      SELECT w.employee_id, e.name, SUM(w.quantity) AS n FROM service_work_entries w JOIN employees e ON e.id = w.employee_id
-      WHERE w.tenant_id = ${u.tenantId} AND w.unit = 'SHIFT' AND w.status IN ('PENDING','APPROVED') AND w.work_date BETWEEN ${from} AND ${to}
-      GROUP BY w.employee_id, e.name HAVING SUM(w.quantity) > 31`);
+    const shifts = await this.repo.queryServiceWorkEntryForAnomalies4(this.db, u.tenantId, from, to);
     for (const r of shifts.rows) out.push({ kind: 'SHIFT_BERLEBIH', severity: 'warn', employeeId: r.employee_id, message: `${r.name}: ${D(r.n).toFixed(0)} shift dalam sebulan (lebih dari 31)` });
-    const over = await this.db.execute<{ number: string; paid: string; cap: string }>(sql`
-      SELECT po.number, SUM(w.quantity) AS paid, (CASE WHEN po.status = 'COMPLETED' THEN po.output_qty ELSE po.planned_qty END) AS cap
-      FROM service_work_entries w JOIN production_orders po ON po.id = w.production_order_id
-      WHERE w.tenant_id = ${u.tenantId} AND w.unit = 'PIECE' AND w.status IN ('PENDING','APPROVED')
-      GROUP BY po.id, po.number, po.status, po.output_qty, po.planned_qty
-      HAVING SUM(w.quantity) > (CASE WHEN po.status = 'COMPLETED' THEN po.output_qty ELSE po.planned_qty END)`);
+    const over = await this.repo.queryServiceWorkEntryForAnomalies5(this.db, u.tenantId);
     for (const r of over.rows) out.push({ kind: 'HASIL_MELEBIHI_PRODUKSI', severity: 'warn', message: `Perintah produksi ${r.number}: hasil yang dibayar ${D(r.paid).toFixed(2)} melebihi keluaran ${D(r.cap).toFixed(2)}` });
     return out;
   }

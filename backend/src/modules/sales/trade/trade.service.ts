@@ -12,6 +12,7 @@ import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { TermDto, PeriodQueryDto, SettleDto, GenerateClaimDto, DecideClaimDto, ReceiveClaimDto } from './trade.dto';
 import { findOwned, insertOne, lockOwned, patchById } from '../../../db/owned';
+import { TradeRepository } from './trade.repository';
 
 const lastDay = (p: string) => {
   const [y, m] = p.split('-').map(Number);
@@ -27,21 +28,17 @@ export class TradeService {
     private readonly seq: SequenceService,
     private readonly posting: PostingService,
     private readonly audit: AuditService,
+    private readonly repo: TradeRepository,
   ) {}
 
   // ================= syarat dagang =================
   async terms(tenantId: string, customerId?: string) {
-    const rows = await this.db
-      .select({ t: tradeTerms, code: customers.code, name: customers.name })
-      .from(tradeTerms)
-      .innerJoin(customers, eq(customers.id, tradeTerms.customerId))
-      .where(and(eq(tradeTerms.tenantId, tenantId), customerId ? eq(tradeTerms.customerId, customerId) : undefined))
-      .orderBy(customers.name, tradeTerms.name);
+    const rows = await this.repo.listTradeTermsWithCustomersByCustomerIdAndName(this.db, tenantId, customerId);
     return rows.map((r) => ({ ...r.t, customerCode: r.code, customerName: r.name }));
   }
 
   private async checkTerm(tenantId: string, d: TermDto) {
-    const [c] = await this.db.select({ id: customers.id }).from(customers).where(and(eq(customers.id, d.customerId), eq(customers.tenantId, tenantId)));
+    const [c] = await this.repo.findCustomersById(this.db, d.customerId, tenantId);
     if (!c) throw new BadRequestException('Pelanggan tidak ditemukan');
     const v = D(d.value);
     if (v.lt(0) || (d.kind === 'PCT_SALES' && v.gt(100))) throw new BadRequestException(d.kind === 'PCT_SALES' ? 'Persen harus 0–100' : 'Nilai tidak boleh negatif');
@@ -64,14 +61,7 @@ export class TradeService {
   }
 
   async accruals(tenantId: string, q: PeriodQueryDto) {
-    const rows = await this.db
-      .select({ a: tradeAccruals, term: tradeTerms.name, code: customers.code, name: customers.name })
-      .from(tradeAccruals)
-      .innerJoin(tradeTerms, eq(tradeTerms.id, tradeAccruals.termId))
-      .innerJoin(customers, eq(customers.id, tradeAccruals.customerId))
-      .where(and(eq(tradeAccruals.tenantId, tenantId), q.period ? eq(tradeAccruals.period, q.period) : undefined, q.customerId ? eq(tradeAccruals.customerId, q.customerId) : undefined))
-      .orderBy(desc(tradeAccruals.period), desc(tradeAccruals.number))
-      .limit(500);
+    const rows = await this.repo.listTradeAccrualsWithTradeTermsAndCustomersByPeriodAndCustomerIdAndNumber(this.db, tenantId, q);
     return rows.map((r) => ({ ...r.a, termName: r.term, customerCode: r.code, customerName: r.name, remaining: D(r.a.amount).minus(r.a.settledAmount).toFixed(2) }));
   }
 
@@ -80,16 +70,16 @@ export class TradeService {
     if (period >= todayJakarta().slice(0, 7)) throw new BadRequestException('Syarat dagang baru dapat dihitung setelah bulannya berakhir');
     const from = firstDay(period);
     const to = lastDay(period);
-    const terms = await this.db.select().from(tradeTerms).where(and(eq(tradeTerms.tenantId, u.tenantId), eq(tradeTerms.isActive, true)));
+    const terms = await this.repo.listTradeTermsByIsActive(this.db, u.tenantId);
     const date = toDocDate(to);
     const made = await this.db.transaction(async (tx) => {
       const out: { id: string; number: string; amount: string; customerId: string }[] = [];
       for (const t of terms) {
         if ((t.validFrom && t.validFrom > to) || (t.validTo && t.validTo < from)) continue;
-        const [dup] = await tx.select({ id: tradeAccruals.id }).from(tradeAccruals).where(and(eq(tradeAccruals.termId, t.id), eq(tradeAccruals.period, period), sql`${tradeAccruals.status} <> 'VOID'`));
+        const [dup] = await this.repo.findTradeAccrualsByTermIdAndPeriodAndStatus(tx, t.id, period);
         if (dup) continue;
-        const sold = await tx.execute<{ v: string }>(sql`SELECT COALESCE(SUM(subtotal), 0)::text AS v FROM invoices WHERE tenant_id = ${u.tenantId} AND customer_id = ${t.customerId} AND kind <> 'SERVICE' AND date >= ${from} AND date <= ${to}`);
-        const ret = await tx.execute<{ v: string }>(sql`SELECT COALESCE(SUM(subtotal), 0)::text AS v FROM sales_returns WHERE tenant_id = ${u.tenantId} AND customer_id = ${t.customerId} AND date >= ${from} AND date <= ${to}`);
+        const sold = await this.repo.queryInvoice(tx, u.tenantId, t.customerId, from, to);
+        const ret = await this.repo.querySalesReturn(tx, u.tenantId, t.customerId, from, to);
         const base = D(sold.rows[0].v).minus(ret.rows[0].v);
         const amount = money(t.kind === 'PCT_SALES' ? base.gt(0) ? base.times(t.value).div(100) : 0 : t.value);
         if (amount.lte(0)) continue;
@@ -128,7 +118,7 @@ export class TradeService {
       let settleJournalId: string | null = null;
       if (dto.mode === 'DEDUCT') {
         if (!dto.invoiceId) throw new BadRequestException('Pilih faktur yang dipotong');
-        await tx.execute(sql`SELECT id FROM invoices WHERE id = ${dto.invoiceId} AND tenant_id = ${u.tenantId} FOR UPDATE`);
+        await this.repo.queryInvoiceForSettle(tx, dto.invoiceId, u.tenantId);
         const inv = await findOwned(tx, invoices, u.tenantId, dto.invoiceId);
         if (!inv) throw new NotFoundException('Faktur tidak ditemukan');
         if (inv.customerId !== a.customerId) throw new BadRequestException('Faktur harus milik outlet yang sama dengan rebate');
@@ -188,42 +178,26 @@ export class TradeService {
 
   // ================= klaim ke prinsipal =================
   async claims(tenantId: string) {
-    const rows = await this.db
-      .select({ c: principalClaims, name: suppliers.name })
-      .from(principalClaims)
-      .innerJoin(suppliers, eq(suppliers.id, principalClaims.supplierId))
-      .where(eq(principalClaims.tenantId, tenantId))
-      .orderBy(desc(principalClaims.period), desc(principalClaims.number))
-      .limit(300);
+    const rows = await this.repo.listPrincipalClaimsWithSuppliersByPeriodAndNumber(this.db, tenantId);
     return rows.map((r) => ({ ...r.c, supplierName: r.name }));
   }
 
   async claim(tenantId: string, id: string) {
     const c = await findOwned(this.db, principalClaims, tenantId, id);
     if (!c) throw new NotFoundException('Klaim tidak ditemukan');
-    const lines = await this.db.select().from(principalClaimLines).where(eq(principalClaimLines.claimId, id));
+    const lines = await this.repo.listPrincipalClaimLinesByClaimId(this.db, id);
     return { ...c, lines };
   }
 
   /** Kumpulkan baris pesanan berpromo (difakturkan di bulan itu, belum pernah diklaim) yang didanai prinsipal */
   async generateClaim(u: AuthUser, dto: GenerateClaimDto) {
     if (dto.period >= todayJakarta().slice(0, 7)) throw new BadRequestException('Klaim baru dapat dibuat setelah bulannya berakhir');
-    const [sup] = await this.db.select({ id: suppliers.id, name: suppliers.name }).from(suppliers).where(and(eq(suppliers.id, dto.supplierId), eq(suppliers.tenantId, u.tenantId)));
+    const [sup] = await this.repo.findSuppliersById(this.db, dto.supplierId, u.tenantId);
     if (!sup) throw new BadRequestException('Prinsipal tidak ditemukan');
     const from = firstDay(dto.period);
     const to = lastDay(dto.period);
     return this.db.transaction(async (tx) => {
-      const rows = await tx.execute<{ line_id: string; promo_id: string; promo_name: string; kind: string; funded: string; ret_ratio: string; qty: string; factor: string; price: string; line_total: string; is_bonus: boolean; inv_no: string; sku: string; cost: string | null }>(sql`
-        SELECT l.id AS line_id, p.id AS promo_id, p.name AS promo_name, p.kind, l.promo_funded_pct AS funded,
-               COALESCE((SELECT 1 - SUM(il.returned_qty) / NULLIF(SUM(il.qty), 0) FROM invoice_lines il WHERE il.invoice_id = i.id AND il.product_id = l.product_id AND il.uom = l.uom AND il.price = l.price AND il.discount_pct = l.discount_pct), 1)::text AS ret_ratio, l.qty, l.uom_factor AS factor, l.price, l.line_total, l.is_bonus, i.number AS inv_no, pr.sku,
-               (SELECT AVG(m.unit_cost) FROM stock_moves m WHERE m.tenant_id = ${u.tenantId}::uuid AND m.product_id = l.product_id AND m.type = 'SALE' AND (m.ref_id = i.id::text OR m.ref_id = i.delivery_order_id::text)) AS cost
-        FROM sales_order_lines l
-        JOIN promos p ON p.id = l.promo_id
-        JOIN sales_orders o ON o.id = l.order_id
-        JOIN invoices i ON i.sales_order_id = o.id
-        JOIN products pr ON pr.id = l.product_id
-        WHERE o.tenant_id = ${u.tenantId} AND l.promo_funded_supplier_id = ${sup.id} AND l.promo_funded_pct > 0 AND i.date >= ${from} AND i.date <= ${to}
-          AND NOT EXISTS (SELECT 1 FROM principal_claim_lines x WHERE x.order_line_id = l.id)`);
+      const rows = await this.repo.querySalesOrderLine(tx, u.tenantId, sup.id, from, to);
       const items: { orderLineId: string; promoId: string; kind: 'DISCOUNT' | 'BONUS'; invoiceNumber: string; description: string; base: ReturnType<typeof D>; pct: string; amount: ReturnType<typeof D> }[] = [];
       for (const r of rows.rows) {
         const isBonus = r.is_bonus || r.kind === 'BONUS';
@@ -274,7 +248,7 @@ export class TradeService {
       if (approved.lt(0) || approved.gt(c.claimedAmount)) throw new BadRequestException('Jumlah disetujui tidak boleh melebihi jumlah klaim');
       if (approved.isZero()) {
         // ditolak seluruhnya: lepaskan baris agar bisa diklaim ulang dengan dokumen yang benar
-        await tx.delete(principalClaimLines).where(eq(principalClaimLines.claimId, id));
+        await this.repo.deletePrincipalClaimLinesByClaimId(tx, id);
         await patchById(tx, principalClaims, id, { status: 'REJECTED', principalRef: dto.principalRef, decidedById: u.sub });
         await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'REJECT', entity: 'PrincipalClaim', entityId: id, data: { number: c.number, ref: dto.principalRef } });
         return { id, status: 'REJECTED' };

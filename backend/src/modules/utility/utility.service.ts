@@ -18,6 +18,7 @@ import { SYS } from '../accounting/default-coa';
 import { ServiceBillingService } from '../sales/services/service-billing.service';
 import { RulesDto, TariffDto, ConnectionDto, SuspendDto, ReasonDto, ZoneDto, ZoneSupplyDto, ReadingDto, VerifyDto, BillRunDto } from './utility.dto';
 import { findOwned, insertOne, patchById } from '../../db/owned';
+import { UtilityRepository } from './utility.repository';
 
 const SECTION = 'utility';
 
@@ -57,6 +58,7 @@ export class UtilityService {
     private readonly approvals: ApprovalsService,
     private readonly billing: ServiceBillingService,
     private readonly storage: StorageService,
+    private readonly repo: UtilityRepository,
   ) {}
 
   rules(tenantId: string): Promise<UtilityRules> {
@@ -72,10 +74,7 @@ export class UtilityService {
   }
 
   async tariffs(tenantId: string) {
-    const r = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT t.id, t.name, t.service_type AS "serviceType", t.unit, t.metered, t.fixed_fee AS "fixedFee", t.admin_fee AS "adminFee", t.min_usage AS "minUsage", t.blocks, t.vatable, t.is_active AS "isActive",
-             (SELECT COUNT(*)::int FROM utility_connections c WHERE c.tariff_id = t.id AND c.status <> 'DISCONNECTED') AS "connections"
-      FROM utility_tariffs t WHERE t.tenant_id = ${tenantId} ORDER BY t.service_type, t.name`);
+    const r = await this.repo.queryUtilityTariff(this.db, tenantId);
     return r.rows;
   }
 
@@ -107,11 +106,7 @@ export class UtilityService {
     if (old.serviceType !== dto.serviceType) throw new BadRequestException('Jenis layanan tarif tidak bisa diubah — buat tarif baru');
     const n = this.normalizeTariff(dto);
     try {
-      const [row] = await this.db
-        .update(utilityTariffs)
-        .set({ name: dto.name.trim(), unit: n.unit, fixedFee: dto.fixedFee.toFixed(2), adminFee: dto.adminFee.toFixed(2), minUsage: String(dto.minUsage ?? 0), blocks: n.blocks, vatable: !!dto.vatable, isActive: dto.isActive ?? old.isActive })
-        .where(eq(utilityTariffs.id, id))
-        .returning();
+      const [row] = await this.repo.updateUtilityTariffsById(this.db, dto, n, old.isActive, id);
       await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'UtilityTariff', entityId: id, data: { before: { name: old.name, fixedFee: old.fixedFee, adminFee: old.adminFee, blocks: old.blocks, vatable: old.vatable }, after: { name: row.name, fixedFee: row.fixedFee, adminFee: row.adminFee, blocks: row.blocks, vatable: row.vatable } } });
       void this.approvals.notifyRoles(u.tenantId, { roles: ['FINANCE', 'OWNER'], excludeUserId: u.sub, title: `Tarif "${row.name}" diubah`, lines: ['Berlaku untuk tagihan berikutnya. Periksa riwayat perubahan di jejak audit.'], path: '/utility' });
       return row;
@@ -122,34 +117,21 @@ export class UtilityService {
   }
 
   async connections(tenantId: string, q: { status?: string; search?: string }) {
-    const r = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT c.id, c.number, c.status, c.meter_no AS "meterNo", c.address, c.zone, c.installed_at::text AS "installedAt", c.status_note AS "statusNote",
-             c.customer_id AS "customerId", cu.name AS "customerName", c.tariff_id AS "tariffId", t.name AS "tariffName", t.service_type AS "serviceType", t.unit, t.metered,
-             (SELECT r.current FROM utility_readings r WHERE r.connection_id = c.id AND r.status <> 'REJECTED' ORDER BY r.period DESC LIMIT 1) AS "lastReading",
-             (SELECT r.period FROM utility_readings r WHERE r.connection_id = c.id AND r.status <> 'REJECTED' ORDER BY r.period DESC LIMIT 1) AS "lastPeriod"
-      FROM utility_connections c JOIN customers cu ON cu.id = c.customer_id JOIN utility_tariffs t ON t.id = c.tariff_id
-      WHERE c.tenant_id = ${tenantId} ${q.status ? sql`AND c.status = ${q.status}` : sql``}
-        ${q.search ? sql`AND (cu.name ILIKE ${'%' + q.search + '%'} OR c.number ILIKE ${'%' + q.search + '%'} OR c.meter_no ILIKE ${'%' + q.search + '%'} OR c.address ILIKE ${'%' + q.search + '%'})` : sql``}
-      ORDER BY c.number DESC LIMIT 500`);
+    const r = await this.repo.queryUtilityConnection(this.db, tenantId, q);
     return r.rows;
   }
 
   async connection(tenantId: string, id: string) {
     const [c] = (await this.connections(tenantId, {})).filter((x) => x.id === id);
     if (!c) throw new NotFoundException('Sambungan tidak ditemukan');
-    const readings = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT r.id, r.period, r.previous, r.current, r.usage, r.status, r.flags, r.meter_replaced AS "meterReplaced", r.note, eu.name AS "enteredByName", vu.name AS "verifiedByName", r.verify_note AS "verifyNote"
-      FROM utility_readings r LEFT JOIN users eu ON eu.id = r.entered_by_id LEFT JOIN users vu ON vu.id = r.verified_by_id
-      WHERE r.connection_id = ${id} AND r.tenant_id = ${tenantId} ORDER BY r.period DESC LIMIT 24`);
-    const bills = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT b.id, b.period, b.usage, b.subtotal, b.late_fee AS "lateFee", i.id AS "invoiceId", i.number AS "invoiceNumber", i.total, i.paid_amount AS "paidAmount", i.status, i.due_date::text AS "dueDate"
-      FROM utility_bills b LEFT JOIN invoices i ON i.id = b.invoice_id WHERE b.connection_id = ${id} AND b.tenant_id = ${tenantId} ORDER BY b.period DESC LIMIT 24`);
+    const readings = await this.repo.queryUtilityReading(this.db, id, tenantId);
+    const bills = await this.repo.queryUtilityBill(this.db, id, tenantId);
     return { ...c, readings: readings.rows, bills: bills.rows };
   }
 
   async createConnection(u: AuthUser, dto: ConnectionDto) {
     return this.db.transaction(async (tx) => {
-      const [cust] = await tx.select({ id: customers.id, isActive: customers.isActive }).from(customers).where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, u.tenantId)));
+      const [cust] = await this.repo.findCustomersById(tx, dto.customerId, u.tenantId);
       if (!cust || !cust.isActive) throw new BadRequestException('Pelanggan tidak ditemukan / nonaktif');
       const t = await findOwned(tx, utilityTariffs, u.tenantId, dto.tariffId);
       if (!t || !t.isActive) throw new BadRequestException('Tarif tidak ditemukan / nonaktif');
@@ -160,10 +142,7 @@ export class UtilityService {
       if (installed > todayJakarta()) throw new BadRequestException('Tanggal pasang tidak boleh di masa depan');
       const initial = D(dto.initialReading ?? '0');
       if (!initial.isFinite() || initial.lt(0)) throw new BadRequestException('Angka awal meter tidak valid');
-      const dup = await tx.execute(sql`
-        SELECT c.number FROM utility_connections c JOIN utility_tariffs t2 ON t2.id = c.tariff_id
-        WHERE c.tenant_id = ${u.tenantId} AND c.status <> 'DISCONNECTED' AND t2.service_type = ${t.serviceType}
-          AND (lower(btrim(c.address)) = lower(btrim(${dto.address})) OR (${meterNo}::text IS NOT NULL AND c.meter_no = ${meterNo})) LIMIT 1`);
+      const dup = await this.repo.queryUtilityConnectionForCreateConnection(tx, u.tenantId, t.serviceType, dto.address, meterNo);
       if (dup.rows.length) throw new BadRequestException(`Alamat atau nomor meter ini sudah terdaftar pada sambungan ${(dup.rows[0] as { number: string }).number} (layanan sama)`);
       const number = await this.seq.next(tx, u.tenantId, 'UTILITY_CONNECTION', installed);
       const row = await insertOne(tx, utilityConnections, { tenantId: u.tenantId, number, customerId: dto.customerId, tariffId: dto.tariffId, meterNo, address: dto.address.trim(), zone: normZone(dto.zone), installedAt: installed, initialReading: initial.toString(), createdById: u.sub });
@@ -173,21 +152,18 @@ export class UtilityService {
   }
 
   private async lockConnection(tx: Db | Parameters<Parameters<Db['transaction']>[0]>[0], tenantId: string, id: string) {
-    const r = await tx.execute(sql`SELECT c.*, cu.name AS customer_name FROM utility_connections c JOIN customers cu ON cu.id = c.customer_id WHERE c.id = ${id} AND c.tenant_id = ${tenantId} FOR UPDATE OF c`);
+    const r = await this.repo.queryUtilityConnectionForLockConnection(tx, id, tenantId);
     if (!r.rows.length) throw new NotFoundException('Sambungan tidak ditemukan');
     return r.rows[0] as unknown as ConnRow;
   }
 
   /** Tunggakan melewati jatuh tempo untuk satu sambungan */
   private async overdueOf(db: Db | Parameters<Parameters<Db['transaction']>[0]>[0], tenantId: string, connectionId: string) {
-    const r = await db.execute<{ outstanding: string; days_late: number }>(sql`
-      SELECT COALESCE(SUM(i.total - i.paid_amount), 0) AS outstanding, COALESCE(MAX(${todayJakarta()}::date - i.due_date), 0)::int AS days_late
-      FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id
-      WHERE b.tenant_id = ${tenantId} AND b.connection_id = ${connectionId} AND i.status <> 'PAID' AND i.due_date < ${todayJakarta()}::date`);
+    const r = await this.repo.queryUtilityBillForOverdueOf(db, tenantId, connectionId);
     return { outstanding: num(r.rows[0]?.outstanding), daysLate: Number(r.rows[0]?.days_late ?? 0) };
   }
   private async unpaidOf(db: Db | Parameters<Parameters<Db['transaction']>[0]>[0], tenantId: string, connectionId: string) {
-    const r = await db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id WHERE b.tenant_id = ${tenantId} AND b.connection_id = ${connectionId} AND i.status <> 'PAID'`);
+    const r = await this.repo.queryUtilityBillForUnpaidOf(db, tenantId, connectionId);
     return Number(r.rows[0]?.n ?? 0);
   }
 
@@ -253,10 +229,10 @@ export class UtilityService {
     if (!supplied.isFinite() || supplied.lt(0)) throw new BadRequestException('Jumlah pasokan tidak valid');
     if (dto.period > todayJakarta().slice(0, 7)) throw new BadRequestException('Periode di masa depan belum dapat diisi');
     return this.db.transaction(async (tx) => {
-      const z = await tx.execute<{ units: string[] | null; n: number }>(sql`SELECT array_agg(DISTINCT t.unit) AS units, COUNT(*)::int AS n FROM utility_connections c JOIN utility_tariffs t ON t.id = c.tariff_id WHERE c.tenant_id = ${u.tenantId} AND c.zone = ${zone} AND t.metered`);
+      const z = await this.repo.queryUtilityConnectionForSaveSupply(tx, u.tenantId, zone);
       if (!z.rows[0]?.n) throw new BadRequestException('Zona belum punya sambungan terukur; isi zona pada sambungan lebih dulu');
       if ((z.rows[0].units ?? []).length > 1) throw new BadRequestException('Zona ini memuat layanan dengan satuan berbeda; pisahkan zona per layanan');
-      const before = await tx.execute<{ supplied: string }>(sql`SELECT supplied FROM utility_zone_supply WHERE tenant_id = ${u.tenantId} AND zone = ${zone} AND period = ${dto.period}`);
+      const before = await this.repo.queryUtilityZoneSupply(tx, u.tenantId, zone, dto.period);
       await tx.execute(sql`INSERT INTO utility_zone_supply (tenant_id, zone, period, supplied, note, entered_by_id) VALUES (${u.tenantId}, ${zone}, ${dto.period}, ${supplied.toFixed(3)}, ${dto.note?.trim() || null}, ${u.sub}) ON CONFLICT (tenant_id, zone, period) DO UPDATE SET supplied = EXCLUDED.supplied, note = EXCLUDED.note, entered_by_id = EXCLUDED.entered_by_id, updated_at = now()`);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: before.rows.length ? 'UPDATE' : 'CREATE', entity: 'UtilityZoneSupply', entityId: `${zone}:${dto.period}`, data: { zone, period: dto.period, before: before.rows[0]?.supplied ?? null, after: supplied.toFixed(3), note: dto.note } });
       return { ok: true };
@@ -264,27 +240,14 @@ export class UtilityService {
   }
 
   async readings(tenantId: string, q: { period?: string; status?: string; connectionId?: string }) {
-    const r = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT r.id, r.period, r.previous, r.current, r.usage, r.status, r.flags, r.meter_replaced AS "meterReplaced", r.note, r.verify_note AS "verifyNote",
-             r.connection_id AS "connectionId", c.number AS "connectionNumber", c.meter_no AS "meterNo", cu.name AS "customerName", t.unit,
-             eu.name AS "enteredByName", r.entered_by_id AS "enteredById", vu.name AS "verifiedByName", r.entered_at AS "enteredAt", r.source, (r.photo IS NOT NULL) AS "hasPhoto"
-      FROM utility_readings r JOIN utility_connections c ON c.id = r.connection_id JOIN customers cu ON cu.id = c.customer_id JOIN utility_tariffs t ON t.id = c.tariff_id
-      LEFT JOIN users eu ON eu.id = r.entered_by_id LEFT JOIN users vu ON vu.id = r.verified_by_id
-      WHERE r.tenant_id = ${tenantId} ${q.period ? sql`AND r.period = ${q.period}` : sql``} ${q.status ? sql`AND r.status = ${q.status}` : sql``} ${q.connectionId ? sql`AND r.connection_id = ${q.connectionId}` : sql``}
-      ORDER BY (r.status = 'ENTERED') DESC, r.entered_at DESC LIMIT 500`);
+    const r = await this.repo.queryUtilityReadingForReadings(this.db, tenantId, q);
     return r.rows;
   }
 
   /** Sambungan terukur aktif yang belum punya pencatatan untuk periode ini (daftar kerja petugas) */
   async due(tenantId: string, period: string) {
     if (!isPeriod(period)) throw new BadRequestException('Periode tidak valid (YYYY-MM)');
-    const r = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT c.id, c.number, c.meter_no AS "meterNo", c.address, cu.name AS "customerName", t.unit,
-             COALESCE((SELECT r.current FROM utility_readings r WHERE r.connection_id = c.id AND r.status <> 'REJECTED' ORDER BY r.period DESC LIMIT 1), c.initial_reading) AS previous
-      FROM utility_connections c JOIN customers cu ON cu.id = c.customer_id JOIN utility_tariffs t ON t.id = c.tariff_id
-      WHERE c.tenant_id = ${tenantId} AND c.status = 'ACTIVE' AND t.metered AND to_char(c.installed_at, 'YYYY-MM') <= ${period}
-        AND NOT EXISTS (SELECT 1 FROM utility_readings r WHERE r.connection_id = c.id AND r.period = ${period} AND r.status <> 'REJECTED')
-      ORDER BY c.address LIMIT 1000`);
+    const r = await this.repo.queryUtilityConnectionForDue(this.db, tenantId, period);
     return r.rows;
   }
 
@@ -297,10 +260,10 @@ export class UtilityService {
     const result = await this.storage.guard([photoRef], () => this.db.transaction(async (tx) => {
       const c = await this.lockConnection(tx, u.tenantId, dto.connectionId);
       if (c.status !== 'ACTIVE') throw new BadRequestException('Sambungan tidak aktif');
-      const [t] = await tx.select().from(utilityTariffs).where(eq(utilityTariffs.id, c.tariff_id));
+      const [t] = await this.repo.findUtilityTariffsById(tx, c.tariff_id);
       if (!t.metered) throw new BadRequestException('Layanan ini tarif tetap — tidak perlu catat meter');
       if (dto.period < c.installed_at.slice(0, 7)) throw new BadRequestException('Periode sebelum tanggal pasang sambungan');
-      const last = (await tx.execute<{ period: string; current: string; status: string; id: string }>(sql`SELECT id, period, current, status FROM utility_readings WHERE connection_id = ${c.id} AND status <> 'REJECTED' ORDER BY period DESC LIMIT 1`)).rows[0];
+      const last = (await this.repo.queryUtilityReadingForEnterReading(tx, c.id)).rows[0];
       if (last && last.period >= dto.period) throw new BadRequestException(last.period === dto.period ? 'Periode ini sudah dicatat' : `Pencatatan terakhir sudah periode ${last.period}; periode harus setelahnya`);
       const prev = D(last?.current ?? c.initial_reading);
       const cur = D(dto.current);
@@ -317,11 +280,11 @@ export class UtilityService {
       } else if (cur.lt(prev)) {
         throw new BadRequestException(`Angka meter (${cur.toString()}) lebih kecil dari catatan sebelumnya (${prev.toString()}). Bila meter diganti, centang "meter diganti".`);
       }
-      const hist = (await tx.execute<{ usage: string }>(sql`SELECT usage FROM utility_readings WHERE connection_id = ${c.id} AND status <> 'REJECTED' ORDER BY period DESC LIMIT 3`)).rows.map((x) => num(x.usage));
+      const hist = (await this.repo.queryUtilityReadingForEnterReading2(tx, c.id)).rows.map((x) => num(x.usage));
       const flags = flagReading(usage.toNumber(), hist, rules, !!dto.meterReplaced);
       // lokasi pencatat jauh dari lokasi pelanggan → tandai agar pemeriksa mengecek (foto/cek ulang)
       if (dto.lat != null && dto.lng != null) {
-        const [cu] = await tx.select({ lat: customers.geoLat, lng: customers.geoLng }).from(customers).where(eq(customers.id, c.customer_id));
+        const [cu] = await this.repo.findCustomersByIdForEnterReading(tx, c.customer_id);
         if (cu?.lat && cu?.lng && haversineM(dto.lat, dto.lng, Number(cu.lat), Number(cu.lng)) > FAR_READING_M) flags.push('JAUH_DARI_LOKASI');
       }
       try {
@@ -337,7 +300,7 @@ export class UtilityService {
   }
 
   private async lockReading(tx: Db | Parameters<Parameters<Db['transaction']>[0]>[0], tenantId: string, id: string) {
-    const r = await tx.execute(sql`SELECT * FROM utility_readings WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
+    const r = await this.repo.queryUtilityReadingForLockReading(tx, id, tenantId);
     if (!r.rows.length) throw new NotFoundException('Pencatatan tidak ditemukan');
     return r.rows[0] as unknown as { id: string; status: string; entered_by_id: string; flags: string[]; connection_id: string; period: string };
   }
@@ -368,11 +331,7 @@ export class UtilityService {
   /** Tagihan menunggak yang belum didenda, dikelompokkan per sambungan (satu query untuk seluruh perusahaan) */
   private async lateFeesByConnection(tenantId: string, rules: UtilityRules) {
     const today = todayJakarta();
-    const r = await this.db.execute<{ connection_id: string; invoice_id: string; number: string; total: string; paid_amount: string; due_date: string; bill_id: string }>(sql`
-      SELECT b.connection_id, i.id AS invoice_id, i.number, i.total, i.paid_amount, i.due_date::text, b.id AS bill_id
-      FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id
-      WHERE b.tenant_id = ${tenantId} AND i.status <> 'PAID' AND i.due_date < ${today}::date
-        AND NOT EXISTS (SELECT 1 FROM utility_late_fees f WHERE f.invoice_id = i.id)`);
+    const r = await this.repo.queryUtilityBillForLateFeesByConnection(this.db, tenantId, today);
     const out = new Map<string, { invoiceId: string; number: string; billId: string; amount: number; daysLate: number }[]>();
     for (const x of r.rows) {
       const daysLate = diffDays(x.due_date, today);
@@ -391,14 +350,7 @@ export class UtilityService {
     if (period > todayJakarta().slice(0, 7)) throw new BadRequestException('Periode penagihan tidak boleh di masa depan');
     const rules = await this.rules(tenantId);
     const lateFees = await this.lateFeesByConnection(tenantId, rules);
-    const rows = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT c.id AS connection_id, c.number, c.status, c.address, cu.id AS customer_id, cu.name AS customer_name, t.id AS tariff_id, t.name AS tariff_name, t.unit, t.metered, t.fixed_fee, t.admin_fee, t.min_usage, t.blocks, t.vatable,
-             r.id AS reading_id, r.status AS reading_status, r.usage, b.id AS bill_id, b.invoice_id AS bill_invoice_id
-      FROM utility_connections c JOIN customers cu ON cu.id = c.customer_id JOIN utility_tariffs t ON t.id = c.tariff_id
-      LEFT JOIN utility_readings r ON r.connection_id = c.id AND r.period = ${period} AND r.status <> 'REJECTED'
-      LEFT JOIN utility_bills b ON b.connection_id = c.id AND b.period = ${period}
-      WHERE c.tenant_id = ${tenantId} AND c.status <> 'DISCONNECTED' AND to_char(c.installed_at, 'YYYY-MM') <= ${period}
-      ORDER BY c.number`);
+    const rows = await this.repo.queryUtilityConnectionForPlan(this.db, period, tenantId);
     const ready: { connectionId: string; number: string; customerId: string; customerName: string; tariffId: string; tariffName: string; vatable: boolean; unit: string; usage: number | null; readingId: string | null; lines: ReturnType<typeof computeBill>['lines']; subtotal: number; lateFees: { invoiceId: string; number: string; billId: string; amount: number; daysLate: number }[]; lateFeeTotal: number }[] = [];
     const held: { connectionId: string; number: string; customerName: string; reason: string }[] = [];
     for (const x of rows.rows) {
@@ -429,7 +381,7 @@ export class UtilityService {
   }
 
   private async key(tenantId: string, systemKey: string) {
-    const [a] = await this.db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.tenantId, tenantId), eq(accounts.systemKey, systemKey)));
+    const [a] = await this.repo.findAccountsBySystemKey(this.db, tenantId, systemKey);
     if (!a) throw new BadRequestException(`Akun ${systemKey} belum tersedia — pastikan jenis usaha perusahaan adalah Utilitas lalu muat ulang aplikasi`);
     return a.id;
   }
@@ -483,13 +435,13 @@ export class UtilityService {
         await this.db.transaction(async (tx) => {
           await patchById(tx, utilityBills, claimId, { invoiceId: invoice.id });
           if (item.readingId) await patchById(tx, utilityReadings, item.readingId, { status: 'BILLED', billId: claimId });
-          for (const l of item.lateFees) await tx.insert(utilityLateFees).values({ tenantId: u.tenantId, invoiceId: l.invoiceId, billId: claimId, amount: l.amount.toFixed(2) }).onConflictDoNothing();
+          for (const l of item.lateFees) await this.repo.insertUtilityLateFees(tx, u.tenantId, l.invoiceId, claimId, l.amount);
           await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityBill', entityId: claimId, data: { connection: item.number, period: dto.period, invoice: invoice.number, subtotal: item.subtotal, lateFee: item.lateFeeTotal, lateInvoice } });
         });
         billed.push({ number: item.number, invoice: invoice.number, total: item.subtotal + item.lateFeeTotal });
       } catch (e) {
         // faktur gagal dibuat: lepas klaim agar bisa diulang
-        await this.db.delete(utilityBills).where(and(eq(utilityBills.id, claimId), sql`${utilityBills.invoiceId} IS NULL`));
+        await this.repo.deleteUtilityBillsByIdAndInvoiceId(this.db, claimId);
         failed.push({ number: item.number, reason: e instanceof Error ? e.message : 'Gagal membuat faktur' });
       }
     }
@@ -499,12 +451,7 @@ export class UtilityService {
   async overdue(tenantId: string) {
     const rules = await this.rules(tenantId);
     const today = todayJakarta();
-    const r = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT c.id, c.number, c.status, c.address, cu.name AS "customerName", cu.phone,
-             SUM(i.total - i.paid_amount) AS outstanding, MAX(${today}::date - i.due_date)::int AS "daysLate", COUNT(*)::int AS bills
-      FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id JOIN utility_connections c ON c.id = b.connection_id JOIN customers cu ON cu.id = c.customer_id
-      WHERE b.tenant_id = ${tenantId} AND i.status <> 'PAID' AND i.due_date < ${today}::date AND c.status <> 'DISCONNECTED'
-      GROUP BY c.id, c.number, c.status, c.address, cu.name, cu.phone ORDER BY MAX(${today}::date - i.due_date) DESC LIMIT 500`);
+    const r = await this.repo.queryUtilityBillForOverdue(this.db, today, tenantId);
     return r.rows.map((x) => ({ ...x, outstanding: x.outstanding as string, suggestSuspend: x.status === 'ACTIVE' && Number(x.daysLate) > rules.suspendAfterDays }));
   }
 

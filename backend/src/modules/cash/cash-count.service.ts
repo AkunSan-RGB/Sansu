@@ -15,6 +15,7 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { CashCountSettingsDto, CreateCashCountDto, UpdateCashCountDto } from './cash-count.dto';
 import { insertOne, patchById } from '../../db/owned';
+import { CashCountRepository } from './cash-count.repository';
 
 const DEFAULTS: CashCountSettings = { approvalThreshold: 50_000 };
 
@@ -35,6 +36,7 @@ export class CashCountService {
     private readonly audit: AuditService,
     private readonly settings: SettingsService,
     private readonly approvals: ApprovalsService,
+    private readonly repo: CashCountRepository,
   ) {}
 
   getSettings(tenantId: string, db: DbOrTx = this.db) {
@@ -64,9 +66,7 @@ export class CashCountService {
   }
 
   private async bookBalance(db: DbOrTx, tenantId: string, accountId: string, date: DocDate): Promise<Dec> {
-    const r = await db.execute<{ v: string }>(sql`
-      SELECT COALESCE(SUM(l.debit - l.credit), 0) AS v FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-      WHERE j.tenant_id = ${tenantId} AND l.account_id = ${accountId} AND j.date <= ${date}`);
+    const r = await this.repo.queryJournalLine(db, tenantId, accountId, date);
     return money(r.rows[0]?.v ?? 0);
   }
 
@@ -94,33 +94,20 @@ export class CashCountService {
   }
 
   async list(tenantId: string, accountId?: string) {
-    const rows = await this.db
-      .select({ c: cashCounts, code: accounts.code, name: accounts.name })
-      .from(cashCounts)
-      .innerJoin(accounts, eq(accounts.id, cashCounts.accountId))
-      .where(and(eq(cashCounts.tenantId, tenantId), accountId ? eq(cashCounts.accountId, accountId) : undefined))
-      .orderBy(desc(cashCounts.date), desc(cashCounts.number))
-      .limit(300);
+    const rows = await this.repo.listCashCountsWithAccountsByAccountIdAndDateAndNumber(this.db, tenantId, accountId);
     return rows.map((r) => ({ ...r.c, account: { code: r.code, name: r.name } }));
   }
 
   async get(tenantId: string, id: string, db: DbOrTx = this.db) {
-    const [r] = await db
-      .select({ c: cashCounts, code: accounts.code, name: accounts.name })
-      .from(cashCounts)
-      .innerJoin(accounts, eq(accounts.id, cashCounts.accountId))
-      .where(and(eq(cashCounts.id, id), eq(cashCounts.tenantId, tenantId)));
+    const [r] = await this.repo.findCashCountsWithAccountsById(db, id, tenantId);
     if (!r) throw new NotFoundException('Opname kas tidak ditemukan');
     const ids = [r.c.createdById, r.c.approvedById].filter((x): x is string => !!x);
     const names = ids.length
-      ? await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, ids))
+      ? await this.repo.listUsersById(db, ids)
       : [];
     const nm = (x: string | null) => names.find((n) => n.id === x)?.name ?? null;
     const [j] = r.c.journalId
-      ? await db
-          .select({ number: journalEntries.number })
-          .from(journalEntries)
-          .where(eq(journalEntries.id, r.c.journalId))
+      ? await this.repo.listJournalEntriesById(db, r.c.journalId)
       : [];
     // selama masih dihitung, saldo buku ditampilkan terkini (bisa berubah bila ada transaksi kas susulan)
     let c = r.c;
@@ -152,18 +139,10 @@ export class CashCountService {
       );
       if (!acc.rows.length)
         throw new BadRequestException('Pilih akun kas (opname tidak untuk rekening bank — gunakan rekonsiliasi bank)');
-      const open = await tx
-        .select({ number: cashCounts.number })
-        .from(cashCounts)
-        .where(and(eq(cashCounts.accountId, dto.accountId), inArray(cashCounts.status, ['DRAFT', 'WAITING_APPROVAL'])));
+      const open = await this.repo.listCashCountsByAccountIdAndStatus(tx, dto.accountId);
       if (open.length)
         throw new BadRequestException(`Masih ada opname ${open[0].number} untuk kas ini yang belum selesai`);
-      const [last] = await tx
-        .select({ date: cashCounts.date, number: cashCounts.number })
-        .from(cashCounts)
-        .where(and(eq(cashCounts.accountId, dto.accountId), eq(cashCounts.status, 'POSTED')))
-        .orderBy(desc(cashCounts.date))
-        .limit(1);
+      const [last] = await this.repo.findCashCountsByAccountIdAndStatusAndDate(tx, dto.accountId);
       if (last && date <= last.date)
         throw new BadRequestException(`Tanggal harus sesudah opname terakhir (${last.number}, ${last.date})`);
       const book = await this.bookBalance(tx, u.tenantId, dto.accountId, date);
@@ -191,11 +170,9 @@ export class CashCountService {
   }
 
   private async lock(tx: Tx, tenantId: string, id: string) {
-    const r = await tx.execute<{ id: string }>(
-      sql`SELECT id FROM cash_counts WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`,
-    );
+    const r = await this.repo.queryCashCount(tx, id, tenantId);
     if (!r.rows.length) throw new NotFoundException('Opname kas tidak ditemukan');
-    const [c] = await tx.select().from(cashCounts).where(eq(cashCounts.id, id));
+    const [c] = await this.repo.findCashCountsById(tx, id);
     return c;
   }
 
@@ -234,7 +211,7 @@ export class CashCountService {
   private async post(tx: Tx, u: AuthUser, c: typeof cashCounts.$inferSelect, diff: Dec, approver?: string) {
     let journalId: string | null = null;
     if (!diff.isZero()) {
-      const [acc] = await tx.select({ name: accounts.name }).from(accounts).where(eq(accounts.id, c.accountId));
+      const [acc] = await this.repo.findAccountsById(tx, c.accountId);
       const j = await this.posting.post(tx, {
         tenantId: u.tenantId,
         date: c.date,
@@ -349,17 +326,7 @@ export class CashCountService {
       if (c.status === 'POSTED') {
         if (u.role !== 'OWNER')
           throw new ForbiddenException('Hanya Pemilik yang bisa membatalkan opname yang sudah selesai');
-        const [later] = await tx
-          .select({ number: cashCounts.number })
-          .from(cashCounts)
-          .where(
-            and(
-              eq(cashCounts.accountId, c.accountId),
-              eq(cashCounts.status, 'POSTED'),
-              sql`${cashCounts.date} > ${c.date}`,
-            ),
-          )
-          .limit(1);
+        const [later] = await this.repo.findCashCountsByAccountIdAndStatusAndDateForCancel(tx, c.accountId, c.date);
         if (later) throw new BadRequestException(`Batalkan dulu opname yang lebih baru (${later.number})`);
         if (c.journalId) await this.posting.reverse(tx, u.tenantId, c.journalId, c.date, u.sub, true);
       }

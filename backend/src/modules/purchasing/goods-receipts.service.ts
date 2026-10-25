@@ -26,6 +26,7 @@ import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { insertOne, patchById } from '../../db/owned';
+import { GoodsReceiptsRepository } from './goods-receipts.repository';
 
 export type LockedOrder = Awaited<ReturnType<PurchaseOrdersService['lock']>>;
 export interface ReceiveItem {
@@ -50,10 +51,11 @@ export class GoodsReceiptsService {
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
     private readonly qc: QcService,
+    private readonly repo: GoodsReceiptsRepository,
   ) {}
 
   async isPkp(tx: Tx, tenantId: string) {
-    const [t] = await tx.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+    const [t] = await this.repo.findTenantsById(tx, tenantId);
     return taxProfileOf(t?.settings).pkp;
   }
 
@@ -106,7 +108,7 @@ export class GoodsReceiptsService {
     });
     const rec = await this.get(user.tenantId, id);
     if (diffs.length) {
-      const names = (await this.db.execute<{ id: string; name: string }>(sql`SELECT id, name FROM products WHERE tenant_id = ${user.tenantId} AND id IN (${sql.join(diffs.map((d) => sql`${d.sku}::uuid`), sql`, `)})`)).rows;
+      const names = (await this.repo.queryProduct(this.db, user.tenantId, diffs)).rows;
       const nm = new Map(names.map((n) => [n.id, n.name]));
       void this.approvals.notifyRoles(user.tenantId, {
         roles: ['PURCHASING', 'ADMIN', 'OWNER'],
@@ -130,7 +132,7 @@ export class GoodsReceiptsService {
     date: DocDate,
     o: { deliveryNo?: string; notes?: string },
   ) {
-    const [supplier] = await tx.select().from(suppliers).where(eq(suppliers.id, order.supplierId));
+    const [supplier] = await this.repo.findSuppliersById(tx, order.supplierId);
     // Non-PKP: PPN supplier tidak bisa dikreditkan → bagian harga perolehan sejak penerimaan
     const capitalize = D(order.taxAmount).gt(0) && !(await this.isPkp(tx, user.tenantId));
     const factor = capitalize && D(order.subtotal).gt(0) ? D(order.total).div(order.subtotal) : D(1);
@@ -172,16 +174,7 @@ export class GoodsReceiptsService {
         binId: toQc ? undefined : binId,
       });
       total = total.plus(moved.value);
-      await tx.insert(goodsReceiptLines).values({
-        receiptId: receipt.id,
-        orderLineId: line.id,
-        productId: line.productId,
-        uom: line.uom,
-        uomFactor: line.uomFactor,
-        qty: qty.toFixed(4),
-        unitCost: unitCost.toFixed(4),
-        value: moved.value.toFixed(2),
-      });
+      await this.repo.insertGoodsReceiptLines(tx, receipt.id, line.id, line.productId, line.uom, line.uomFactor, qty, unitCost, moved.value);
       await patchById(tx, purchaseOrderLines, line.id, { receivedQty: sql`${purchaseOrderLines.receivedQty} + ${qty.toFixed(4)}` });
       if (toQc) await this.qc.createForReceiptTx(tx, user, { receiptId: receipt.id, productId: line.productId, warehouseId: quarantine.warehouseId!, releaseWarehouseId: order.warehouseId, qty: baseQty.toFixed(4), unitCost: unitCost.toFixed(4), lot: { lotNo: lot?.lotNo, expiryDate: lot?.expiryDate } });
     }
@@ -229,23 +222,9 @@ export class GoodsReceiptsService {
       });
     for (const line of p.order.lines) {
       const v = p.values.get(line.id);
-      await tx.insert(goodsReceiptLines).values({
-        receiptId: receipt.id,
-        orderLineId: line.id,
-        productId: line.productId,
-        uom: line.uom,
-        uomFactor: line.uomFactor,
-        qty: line.qty,
-        unitCost: (v?.unitCost ?? ZERO).toFixed(4),
-        value: (v?.value ?? ZERO).toFixed(2),
-        billedQty: line.qty,
-        billedValue: (v?.value ?? ZERO).toFixed(2),
-      });
+      await this.repo.insertGoodsReceiptLinesForRecordWithInvoice(tx, receipt.id, line.id, line.productId, line.uom, line.uomFactor, line.qty, v);
     }
-    await tx
-      .update(purchaseOrderLines)
-      .set({ receivedQty: purchaseOrderLines.qty, billedQty: purchaseOrderLines.qty, billedAmount: purchaseOrderLines.lineTotal })
-      .where(eq(purchaseOrderLines.orderId, p.order.id));
+    await this.repo.updatePurchaseOrderLinesByOrderId(tx, p.order.id);
     return receipt;
   }
 
@@ -253,14 +232,14 @@ export class GoodsReceiptsService {
   async cancel(user: AuthUser, id: string, dto: { date?: string }) {
     const date = toDocDate(dto.date);
     await this.db.transaction(async (tx) => {
-      const locked = await tx.execute(sql`SELECT id FROM goods_receipts WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      const locked = await this.repo.queryGoodsReceipt(tx, id, user.tenantId);
       if (!locked.rows.length) throw new NotFoundException('Penerimaan barang tidak ditemukan');
       const receipt = await tx.query.goodsReceipts.findFirst({ where: eq(goodsReceipts.id, id), with: { lines: true } });
       if (!receipt) throw new NotFoundException('Penerimaan barang tidak ditemukan');
       if (receipt.status === 'CANCELLED') throw new BadRequestException('Penerimaan sudah dibatalkan');
       if (receipt.autoInvoiceId) throw new BadRequestException('Penerimaan ini dibuat bersama faktur; koreksi lewat retur pembelian');
       if (receipt.lines.some((l) => D(l.billedQty).gt(0))) throw new BadRequestException('Sebagian barang sudah difakturkan; koreksi lewat retur pembelian');
-      const qcRows = await tx.execute(sql`SELECT 1 FROM qc_inspections WHERE receipt_id = ${id} LIMIT 1`);
+      const qcRows = await this.repo.queryQcInspection(tx, id);
       if (qcRows.rows.length) throw new BadRequestException('Penerimaan ini sudah memiliki inspeksi QC (barang di karantina atau sudah diputuskan); selesaikan lewat Pengendalian mutu');
       await this.orders.lock(tx, user.tenantId, receipt.purchaseOrderId);
       let out: Dec = ZERO;

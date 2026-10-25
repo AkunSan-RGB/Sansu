@@ -16,6 +16,7 @@ import { SalesOrdersService } from '../sales/orders/sales-orders.service';
 import { IntegrationSettingsDto, MarketplaceImportDto, MarketplaceSettleDto } from './integrations.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { patchById } from '../../db/owned';
+import { IntegrationsRepository } from './integrations.repository';
 
 export interface IntegrationSettings {
   /** Kode satuan Coretax per satuan barang, mis. { PCS: 'UM.00xx' } */
@@ -54,6 +55,7 @@ export class IntegrationsService {
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: IntegrationsRepository,
   ) {}
 
   getSettings(tenantId: string) {
@@ -111,10 +113,7 @@ export class IntegrationsService {
       orderBy: [asc(customerDeposits.date), asc(customerDeposits.number)],
     });
     const depCustomers = deps.length
-      ? await this.db
-          .select()
-          .from(customers)
-          .where(inArray(customers.id, [...new Set(deps.map((d) => d.customerId))]))
+      ? await this.repo.listCustomersById(this.db, deps)
       : [];
 
     type Item = { opt: 'A' | 'B'; name: string; uom: string; qty: string; price: string; lineTotal: string; base: Dec };
@@ -203,7 +202,7 @@ export class IntegrationsService {
 
   /** Faktur penjualan ber-PPN dalam periode, dengan pemeriksaan kelengkapan data sebelum ekspor */
   async coretaxPreview(tenantId: string, from: string, to: string) {
-    const [tenant] = await this.db.select().from(tenants).where(eq(tenants.id, tenantId));
+    const [tenant] = await this.repo.findTenantsById(this.db, tenantId);
     const conf = await this.getSettings(tenantId);
     const docs = await this.coretaxDocs(tenantId, from, to);
     const problems: string[] = [];
@@ -214,9 +213,7 @@ export class IntegrationsService {
     if (missingUnits.length) problems.push(`Kode satuan Coretax belum diisi untuk: ${missingUnits.join(', ')}.`);
     // Faktur yang pelanggannya masih punya uang muka ber-PPN belum dipakai → DPP pelunasan belum dikurangi
     const open = (
-      await this.db.execute<{ customer_id: string }>(sql`
-        SELECT DISTINCT customer_id FROM customer_deposits
-        WHERE tenant_id = ${tenantId} AND tax_amount > 0 AND amount > applied_amount AND date <= ${to}`)
+      await this.repo.queryCustomerDeposit(this.db, tenantId, to)
     ).rows.map((r) => r.customer_id);
     const pending = docs.filter((d) => d.kind === 'INVOICE' && open.includes(d.customer.id) && d.depositDpp.isZero());
     const warnings: string[] = [];
@@ -257,7 +254,7 @@ export class IntegrationsService {
    * PPN 11% efektif → TrxCode 04, DPP nilai lain = 11/12 × DPP, tarif 12% (PMK 131/2024).
    */
   async coretaxXml(tenantId: string, from: string, to: string, ids?: string[]) {
-    const [tenant] = await this.db.select().from(tenants).where(eq(tenants.id, tenantId));
+    const [tenant] = await this.repo.findTenantsById(this.db, tenantId);
     const conf = await this.getSettings(tenantId);
     const sellerTin = tin16(tenant.npwp);
     if (sellerTin.length !== 16)
@@ -336,12 +333,9 @@ export class IntegrationsService {
       if (c) return c;
     }
     const code = `MP-${channel.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20)}`;
-    let [c] = await this.db.select().from(customers).where(and(eq(customers.tenantId, tenantId), eq(customers.code, code)));
+    let [c] = await this.repo.findCustomersByCode(this.db, tenantId, code);
     if (!c) {
-      [c] = await this.db
-        .insert(customers)
-        .values({ tenantId, code, name: `Penjualan ${channel}`, address: `Marketplace ${channel}`, creditLimit: '0', paymentTermDays: 14 })
-        .returning();
+      [c] = await this.repo.insertCustomers(this.db, tenantId, code, channel);
     }
     await this.settings.saveSection(this.db, tenantId, 'integrations', DEFAULT_INTEGRATIONS, {
       marketplaceCustomers: { ...conf.marketplaceCustomers, [channel]: c.id },
@@ -358,15 +352,12 @@ export class IntegrationsService {
     const wh = await this.refs.warehouse(this.db, user.tenantId, dto.warehouseId);
     if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
     const customer = await this.channelCustomer(user.tenantId, channel);
-    const [tenant] = await this.db.select({ ppnRate: tenants.ppnRate }).from(tenants).where(eq(tenants.id, user.tenantId));
-    const prods = await this.db.select({ id: products.id, sku: products.sku, baseUom: products.baseUom }).from(products).where(eq(products.tenantId, user.tenantId));
+    const [tenant] = await this.repo.findTenantsByIdForImportMarketplace(this.db, user.tenantId);
+    const prods = await this.repo.listProducts(this.db, user.tenantId);
     const bySku = new Map(prods.map((p) => [p.sku.toUpperCase(), p]));
     const already = new Set(
       (
-        await this.db
-          .select({ orderNo: marketplaceOrders.orderNo })
-          .from(marketplaceOrders)
-          .where(and(eq(marketplaceOrders.tenantId, user.tenantId), eq(marketplaceOrders.channel, channel)))
+        await this.repo.listMarketplaceOrdersByChannel(this.db, user.tenantId, channel)
       ).map((r) => r.orderNo),
     );
     const divisor = dto.pricesIncludeVat === false ? D(1) : D(1).plus(D(tenant.ppnRate).div(100));
@@ -399,9 +390,9 @@ export class IntegrationsService {
           })),
         });
         // Pesanan marketplace sudah dibayar pembeli ke platform → tanpa cek limit kredit
-        await this.db.update(salesOrders).set({ status: 'CONFIRMED' }).where(and(eq(salesOrders.id, so.id), eq(salesOrders.status, 'DRAFT')));
+        await this.repo.updateSalesOrdersByIdAndStatus(this.db, so.id);
         const inv = await this.invoicesSvc.createFromOrder(user, { salesOrderId: so.id, date });
-        await this.db.insert(marketplaceOrders).values({ tenantId: user.tenantId, channel, orderNo, date, invoiceId: inv.id, total: inv.total });
+        await this.repo.insertMarketplaceOrders(this.db, user.tenantId, channel, orderNo, date, inv.id, inv.total);
         already.add(orderNo);
         result.imported.push({ orderNo, invoice: inv.number, total: inv.total });
       } catch (e) {
@@ -432,10 +423,7 @@ export class IntegrationsService {
   }
 
   async channels(tenantId: string) {
-    const r = await this.db.execute<{ channel: string; orders: number; open: string }>(sql`
-      SELECT m.channel, COUNT(*)::int AS orders, COALESCE(SUM(i.total - i.paid_amount - i.returned_amount) FILTER (WHERE i.status <> 'PAID'), 0) AS open
-      FROM marketplace_orders m LEFT JOIN invoices i ON i.id = m.invoice_id
-      WHERE m.tenant_id = ${tenantId} GROUP BY m.channel ORDER BY m.channel`);
+    const r = await this.repo.queryMarketplaceOrder(this.db, tenantId);
     return r.rows;
   }
 
@@ -450,21 +438,7 @@ export class IntegrationsService {
     if (received.lte(0)) throw new BadRequestException('Dana diterima harus > 0');
     return this.db.transaction(async (tx) => {
       const bank = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'BANK');
-      const open = await tx
-        .select({ inv: invoices, orderNo: marketplaceOrders.orderNo })
-        .from(marketplaceOrders)
-        .innerJoin(invoices, eq(invoices.id, marketplaceOrders.invoiceId))
-        .where(
-          and(
-            eq(marketplaceOrders.tenantId, user.tenantId),
-            eq(marketplaceOrders.channel, channel),
-            ne(invoices.status, 'PAID'),
-            sql`${invoices.date} <= ${date}`,
-            dto.orderNos?.length ? inArray(marketplaceOrders.orderNo, dto.orderNos) : undefined,
-          ),
-        )
-        .orderBy(asc(invoices.date), asc(invoices.number))
-        .for('update', { of: invoices });
+      const open = await this.repo.listMarketplaceOrdersWithInvoicesByChannelAndOrderNo(tx, user.tenantId, channel, date, dto);
       // Tanpa daftar pesanan: lunasi faktur terlama sampai dana (+ perkiraan biaya maks. 30%) habis
       const picked: typeof open = [];
       let gross: Dec = ZERO;
@@ -496,18 +470,7 @@ export class IntegrationsService {
       for (const r of picked) {
         const out = D(r.inv.total).minus(r.inv.paidAmount).minus(r.inv.returnedAmount);
         const number = await this.seq.next(tx, user.tenantId, 'PAYMENT', date);
-        await tx.insert(payments).values({
-          tenantId: user.tenantId,
-          number,
-          date,
-          customerId: r.inv.customerId,
-          invoiceId: r.inv.id,
-          amount: out.toFixed(2),
-          method: 'TRANSFER',
-          cashAccountId: bank.id,
-          notes: `Pencairan ${channel} #${r.orderNo}`,
-          journalId: journal.id,
-        });
+        await this.repo.insertPayments(tx, user.tenantId, number, date, r.inv.customerId, r.inv.id, out, bank.id, channel, r.orderNo, journal.id);
         await patchById(tx, invoices, r.inv.id, { paidAmount: D(r.inv.paidAmount).plus(out).toFixed(2), status: 'PAID' });
       }
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'SETTLE', entity: 'Marketplace', entityId: journal.id, data: { channel, orders: picked.length, journal: journal.number } });

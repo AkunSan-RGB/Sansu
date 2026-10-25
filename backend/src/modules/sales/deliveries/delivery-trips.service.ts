@@ -101,13 +101,7 @@ export class DeliveryTripsService {
 
   /** Muatan rute (kg) dari berat barang pada surat jalannya; stop gagal tidak dihitung */
   private async load(tripId: string, db: DbOrTx = this.db) {
-    const r = await db.execute<{ kg: string; unweighted: number }>(sql`
-      SELECT COALESCE(SUM(dol.qty * dol.uom_factor * COALESCE(p.weight_kg, 0)), 0)::text AS kg,
-             COUNT(DISTINCT dol.product_id) FILTER (WHERE p.weight_kg IS NULL)::int AS unweighted
-      FROM delivery_trip_stops s
-      JOIN delivery_order_lines dol ON dol.delivery_id = s.delivery_id
-      JOIN products p ON p.id = dol.product_id
-      WHERE s.trip_id = ${tripId} AND s.status <> 'FAILED'`);
+    const r = await this.repo.queryDeliveryTripStop(db, tripId);
     return { loadKg: Number(r.rows[0].kg), unweightedProducts: r.rows[0].unweighted };
   }
 

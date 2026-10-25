@@ -18,6 +18,7 @@ import { CreateSalesOrderDto, SalesOrderLineDto, SalesOrderQueryDto } from '../s
 import { CreditService } from './credit.service';
 import { ReferenceRepository } from '../../../db/reference.repository';
 import { patchById } from '../../../db/owned';
+import { SalesOrdersRepository } from './sales-orders.repository';
 
 @Injectable()
 export class SalesOrdersService {
@@ -30,6 +31,7 @@ export class SalesOrdersService {
     private readonly pricing: PricingService,
     private readonly approvals: ApprovalsService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: SalesOrdersRepository,
   ) {}
 
   list(tenantId: string, q: SalesOrderQueryDto) {
@@ -57,9 +59,7 @@ export class SalesOrdersService {
     });
     if (!o) throw new NotFoundException('Sales order tidak ditemukan');
     // Jumlah yang sudah dikirim per baris (pengiriman bisa bertahap)
-    const sent = await db.execute<{ id: string; q: string }>(sql`
-      SELECT dl.order_line_id::text AS id, SUM(dl.qty)::text AS q FROM delivery_order_lines dl JOIN delivery_orders d ON d.id = dl.delivery_id
-      WHERE d.sales_order_id = ${id} AND d.status = 'DELIVERED' GROUP BY dl.order_line_id`);
+    const sent = await this.repo.queryDeliveryOrderLine(db, id);
     const m = new Map(sent.rows.map((r) => [r.id, r.q]));
     return { ...o, lines: o.lines.map((l) => ({ ...l, deliveredQty: m.get(l.id) ?? '0' })) };
   }
@@ -67,13 +67,13 @@ export class SalesOrdersService {
   async create(user: AuthUser, dto: CreateSalesOrderDto, opts: { consignment?: boolean } = {}) {
     const date = toDocDate(dto.date);
     const id = await this.db.transaction(async (tx) => {
-      const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
+      const [tenant] = await this.repo.findTenantsById(tx, user.tenantId);
       const customer = await this.refs.customer(tx, user.tenantId, dto.customerId);
       if (!customer || !customer.isActive) throw new BadRequestException('Pelanggan tidak ditemukan / nonaktif');
       const poNo = dto.customerPoNo?.trim() || null;
       if (customer.requirePo && !poNo && !opts.consignment) throw new BadRequestException(`${customer.name} mewajibkan nomor PO outlet pada setiap pesanan`);
       if (poNo) {
-        const [dup] = await tx.select({ number: salesOrders.number }).from(salesOrders).where(and(eq(salesOrders.tenantId, user.tenantId), eq(salesOrders.customerId, customer.id), eq(salesOrders.customerPoNo, poNo), sql`${salesOrders.status} <> 'CANCELLED'`));
+        const [dup] = await this.repo.findSalesOrdersByCustomerIdAndCustomerPoNoAndStatus(tx, user.tenantId, customer.id, poNo);
         if (dup) throw new BadRequestException(`Nomor PO ${poNo} sudah dipakai pada pesanan ${dup.number} (satu PO tidak boleh ditagih dua kali)`);
       }
       const wh = await this.refs.warehouse(tx, user.tenantId, dto.warehouseId);
@@ -96,7 +96,7 @@ export class SalesOrdersService {
       // Sales tidak boleh mengalihkan pesanan (dan komisinya) ke sales lain; hanya Admin/Pemilik yang menunjuk
       if (dto.salespersonId && user.role === 'SALES' && dto.salespersonId !== user.sub) throw new BadRequestException('Sales hanya dapat mencatat pesanan atas namanya sendiri');
       if (dto.salespersonId) {
-        const [sp] = await tx.select({ id: users.id }).from(users).where(and(eq(users.id, dto.salespersonId), eq(users.tenantId, user.tenantId), eq(users.role, 'SALES'), eq(users.isActive, true)));
+        const [sp] = await this.repo.findUsersByIdAndRoleAndIsActive(tx, dto.salespersonId, user.tenantId);
         if (!sp) throw new BadRequestException('Sales tidak ditemukan / nonaktif');
         salespersonId = sp.id;
       } else if (user.role === 'SALES') {
@@ -120,7 +120,7 @@ export class SalesOrdersService {
       const promoIds = [...new Set(rawLines.map((l) => l.promoId).filter((x): x is string => !!x))];
       const funded = new Map<string, { s: string | null; p: string }>();
       if (promoIds.length) {
-        const pr = await tx.select({ id: promos.id, s: promos.fundedSupplierId, p: promos.fundedPct }).from(promos).where(and(eq(promos.tenantId, user.tenantId), inArray(promos.id, promoIds)));
+        const pr = await this.repo.listPromosById(tx, user.tenantId, promoIds);
         for (const r of pr) funded.set(r.id, { s: r.s, p: r.p });
       }
       const lines = rawLines.map((l) => {
@@ -231,10 +231,7 @@ export class SalesOrdersService {
         // Harga jual (setelah diskon) di bawah harga pokok rata-rata gudang: menembus batas diskon lewat harga yang diketik langsung
         let belowCost: string[] = [];
         if (pol.salesBelowCost) {
-          const bal = await this.db
-            .select({ productId: stockBalances.productId, avg: stockBalances.avgCost })
-            .from(stockBalances)
-            .where(and(eq(stockBalances.tenantId, user.tenantId), eq(stockBalances.warehouseId, pre.warehouseId), inArray(stockBalances.productId, pre.lines.map((l) => l.productId))));
+          const bal = await this.repo.listStockBalancesByWarehouseIdAndProductId(this.db, user.tenantId, pre.warehouseId, pre.lines);
           const avg = new Map(bal.map((b) => [b.productId, Number(b.avg)]));
           belowCost = pre.lines
             .filter((l) => Number(l.price) > 0 && (avg.get(l.productId) ?? 0) > 0 && Number(l.price) * (1 - Number(l.discountPct) / 100) < (avg.get(l.productId) ?? 0) * Number(l.uomFactor) - 0.005)
@@ -269,7 +266,7 @@ export class SalesOrdersService {
       customerId = order.customerId;
     });
     // Gudang tahu pesanan apa yang harus disiapkan dan dikirim
-    const [c] = await this.db.select({ name: customers.name }).from(customers).where(eq(customers.id, customerId));
+    const [c] = await this.repo.findCustomersById(this.db, customerId);
     void this.approvals.notifyRoles(user.tenantId, { roles: ['WAREHOUSE'], excludeUserId: user.sub, info: true, title: `Pesanan ${number} untuk ${c?.name ?? 'pelanggan'} siap disiapkan dan dikirim`, lines: ['Siapkan barang, hitung, lalu catat pengiriman (surat jalan).'], path: '/sales-orders' });
     return this.get(user.tenantId, id);
   }
@@ -282,7 +279,7 @@ export class SalesOrdersService {
       if (order.status === 'INVOICED') throw new BadRequestException('Order sudah difakturkan; buat retur penjualan');
       if (order.status === 'DELIVERED') throw new BadRequestException('Barang sudah dikirim; batalkan surat jalannya dulu atau buat faktur');
       if (order.status === 'CANCELLED') throw new BadRequestException('Order sudah dibatalkan');
-      if ((await tx.execute(sql`SELECT 1 FROM delivery_orders WHERE sales_order_id = ${id} AND status = 'DELIVERED' LIMIT 1`)).rows.length) throw new BadRequestException('Sebagian barang sudah dikirim; batalkan surat jalannya dulu');
+      if ((await this.repo.queryDeliveryOrder(tx, id)).rows.length) throw new BadRequestException('Sebagian barang sudah dikirim; batalkan surat jalannya dulu');
       // Pesanan yang sudah dikonfirmasi lalu dibatalkan staf: wajib alasan (tidak boleh dipakai menghilangkan jejak penjualan)
       if (order.status === 'CONFIRMED' && !this.approvals.isApprover(user.role) && (reason?.trim().length ?? 0) < 5) {
         throw new BadRequestException('Isi alasan pembatalan pesanan yang sudah dikonfirmasi (minimal 5 huruf)');
@@ -307,8 +304,7 @@ export class SalesOrdersService {
 
   /** Kunci baris order agar konfirmasi/faktur tidak berjalan dua kali bersamaan. */
   async lockOrder(tx: Tx, tenantId: string, id: string) {
-    const locked = await tx.execute(sql`
-      SELECT id FROM sales_orders WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
+    const locked = await this.repo.querySalesOrder(tx, id, tenantId);
     if (!locked.rows.length) throw new NotFoundException('Sales order tidak ditemukan');
     const order = await tx.query.salesOrders.findFirst({ where: eq(salesOrders.id, id), with: { lines: true } });
     return order!;

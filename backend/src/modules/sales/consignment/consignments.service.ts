@@ -16,6 +16,7 @@ import { ShipDto, ReportSoldDto, ReturnConsignDto } from './consignments.dto';
 import { asDto } from '../../../common/utils/dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
 import { findOwned, insertOne, patchById } from '../../../db/owned';
+import { ConsignmentsRepository } from './consignments.repository';
 
 const STALE_DAYS = 45;
 
@@ -30,6 +31,7 @@ export class ConsignmentsService {
     private readonly audit: AuditService,
     private readonly subs: SubscriptionService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: ConsignmentsRepository,
   ) {}
 
   private async customer(tenantId: string, id: string) {
@@ -46,7 +48,7 @@ export class ConsignmentsService {
   }
 
   private async consignWarehouse(tenantId: string, customer: { id: string; code: string; name: string }, create: boolean) {
-    const [w] = await this.db.select().from(warehouses).where(and(eq(warehouses.tenantId, tenantId), eq(warehouses.kind, 'CONSIGNMENT'), eq(warehouses.consigneeCustomerId, customer.id)));
+    const [w] = await this.repo.findWarehousesByKindAndConsigneeCustomerId(this.db, tenantId, customer.id);
     if (w) return w;
     if (!create) throw new BadRequestException('Outlet ini belum memiliki stok konsinyasi');
     await this.subs.assertCanAdd(tenantId, 'warehouses');
@@ -56,9 +58,9 @@ export class ConsignmentsService {
 
   /** Sisa titipan yang bisa dilaporkan/ditarik per produk (satuan dasar) = stok di outlet − laporan yang belum ditagih */
   private async available(tenantId: string, warehouseId: string): Promise<Map<string, ReturnType<typeof D>>> {
-    const bal = await this.db.execute<{ product_id: string; qty: string }>(sql`SELECT product_id, qty FROM stock_balances WHERE tenant_id = ${tenantId} AND warehouse_id = ${warehouseId} AND qty > 0`);
+    const bal = await this.repo.queryStockBalance(this.db, tenantId, warehouseId);
     const out = new Map(bal.rows.map((r) => [r.product_id, D(r.qty)]));
-    const pending = await this.db.select().from(consignmentDocs).where(and(eq(consignmentDocs.tenantId, tenantId), eq(consignmentDocs.warehouseId, warehouseId), eq(consignmentDocs.kind, 'REPORT'), eq(consignmentDocs.status, 'REPORTED')));
+    const pending = await this.repo.listConsignmentDocsByWarehouseIdAndKindAndStatus(this.db, tenantId, warehouseId);
     const prods = await this.db.query.products.findMany({ where: eq(products.tenantId, tenantId), with: { uoms: true }, columns: { id: true, baseUom: true } });
     const byId = new Map(prods.map((p) => [p.id, p]));
     for (const d of pending) for (const l of d.lines) {
@@ -70,17 +72,8 @@ export class ConsignmentsService {
   }
 
   async stockReport(tenantId: string, role?: string) {
-    const rows = await this.db.execute<{ wid: string; wcode: string; cid: string; ccode: string; cname: string; credit: string; pid: string; sku: string; pname: string; uom: string; qty: string; cost: string; sell: string }>(sql`
-      SELECT w.id AS wid, w.code AS wcode, c.id AS cid, c.code AS ccode, c.name AS cname, c.credit_limit AS credit,
-             p.id AS pid, p.sku, p.name AS pname, p.base_uom AS uom, b.qty, (b.qty * b.avg_cost) AS cost, (b.qty * p.sell_price) AS sell
-      FROM warehouses w
-      JOIN customers c ON c.id = w.consignee_customer_id
-      LEFT JOIN stock_balances b ON b.warehouse_id = w.id AND b.qty > 0
-      LEFT JOIN products p ON p.id = b.product_id
-      WHERE w.tenant_id = ${tenantId} AND w.kind = 'CONSIGNMENT'
-      ORDER BY c.name, p.sku`);
-    const docs = await this.db.execute<{ wid: string; kind: string; last: string; pending: string }>(sql`
-      SELECT warehouse_id AS wid, kind, MAX(date)::text AS last, COUNT(*) FILTER (WHERE status = 'REPORTED')::text AS pending FROM consignment_docs WHERE tenant_id = ${tenantId} GROUP BY warehouse_id, kind`);
+    const rows = await this.repo.queryWarehouse(this.db, tenantId);
+    const docs = await this.repo.queryConsignmentDoc(this.db, tenantId);
     const today = todayJakarta();
     const map = new Map<string, { warehouseId: string; warehouseCode: string; customerId: string; customerCode: string; customerName: string; creditLimit: string; items: { productId: string; sku: string; name: string; uom: string; qty: string; cost: string; sell: string }[]; costValue: ReturnType<typeof D>; sellValue: ReturnType<typeof D> }>();
     for (const r of rows.rows) {
@@ -104,13 +97,7 @@ export class ConsignmentsService {
   }
 
   async docs(tenantId: string, customerId?: string) {
-    const rows = await this.db
-      .select({ d: consignmentDocs, code: customers.code, name: customers.name })
-      .from(consignmentDocs)
-      .innerJoin(customers, eq(customers.id, consignmentDocs.customerId))
-      .where(and(eq(consignmentDocs.tenantId, tenantId), customerId ? eq(consignmentDocs.customerId, customerId) : undefined))
-      .orderBy(desc(consignmentDocs.date), desc(consignmentDocs.number))
-      .limit(300);
+    const rows = await this.repo.listConsignmentDocsWithCustomersByCustomerIdAndDateAndNumber(this.db, tenantId, customerId);
     return rows.map((r) => ({ ...r.d, customerCode: r.code, customerName: r.name }));
   }
 
@@ -122,7 +109,7 @@ export class ConsignmentsService {
     for (const l of dto.lines) merged.set(l.productId, (merged.get(l.productId) ?? D(0)).plus(l.qty));
     // batas nilai titipan = limit kredit outlet (bila ada): menahan titipan berlebih ke satu outlet
     if (D(cust.creditLimit).gt(0)) {
-      const cur = await this.db.execute<{ v: string }>(sql`SELECT COALESCE(SUM(qty * avg_cost), 0)::text AS v FROM stock_balances WHERE warehouse_id = ${cw.id}`);
+      const cur = await this.repo.queryStockBalanceForShip(this.db, cw.id);
       const add = await this.db.execute<{ pid: string; avg: string }>(sql`SELECT product_id AS pid, avg_cost AS avg FROM stock_balances WHERE warehouse_id = ${from.id} AND product_id IN (${sql.join([...merged.keys()].map((k) => sql`${k}`), sql`, `)})`);
       const addValue = [...merged].reduce((a, [pid, q]) => a.plus(q.times(add.rows.find((r) => r.pid === pid)?.avg ?? 0)), D(0));
       if (D(cur.rows[0].v).plus(addValue).gt(cust.creditLimit)) throw new BadRequestException(`Nilai titipan di ${cust.name} akan melebihi limit kredit outlet (${D(cust.creditLimit).toFixed(0)}); naikkan limit atau tarik sebagian titipan dulu`);
@@ -177,12 +164,12 @@ export class ConsignmentsService {
     if (doc.status !== 'REPORTED') throw new BadRequestException('Laporan ini sudah diputuskan');
     if (doc.createdById === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Laporan ditagih oleh orang lain dari pelapornya (pemisahan fungsi)');
     // klaim dulu agar dua orang tidak menagih bersamaan
-    const claimed = await this.db.update(consignmentDocs).set({ status: 'INVOICED', decidedById: u.sub }).where(and(eq(consignmentDocs.id, id), eq(consignmentDocs.status, 'REPORTED'))).returning({ id: consignmentDocs.id });
+    const claimed = await this.repo.updateConsignmentDocsByIdAndStatus(this.db, u.sub, id);
     if (!claimed.length) throw new BadRequestException('Laporan ini sedang/sudah ditagih');
     let soId: string | undefined;
     let inv: { id: string; number: string };
     try {
-      const [reporter] = doc.createdById ? await this.db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, doc.createdById)) : [];
+      const [reporter] = doc.createdById ? await this.repo.listUsersById(this.db, doc.createdById) : [];
       const so = await this.orders.create(u, asDto({
         customerId: doc.customerId,
         warehouseId: doc.warehouseId,

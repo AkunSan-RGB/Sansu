@@ -40,11 +40,28 @@ import { SchedulingController } from './services/scheduling.controller';
 import { SchedulingService } from './services/scheduling.service';
 import { RetainerController } from './services/retainers.controller';
 import { RetainerService } from './services/retainers.service';
+import { CustomerDepositsRepository } from './services/customer-deposits.repository';
+import { TimesheetsRepository } from './services/timesheets.repository';
+import { CalendarFeedRepository } from './services/calendar-feed.repository';
+import { ServiceBillingRepository } from './services/service-billing.repository';
+import { SchedulingRepository } from './services/scheduling.repository';
+import { RetainersRepository } from './services/retainers.repository';
+import { ServiceProjectsRepository } from './services/service-projects.repository';
+import { DeliveriesRepository } from './deliveries/deliveries.repository';
+import { InvoicesRepository } from './invoices/invoices.repository';
+import { SalesOrdersRepository } from './orders/sales-orders.repository';
+import { SalesTargetsRepository } from './targets/sales-targets.repository';
+import { SalesCommissionsRepository } from './targets/sales-commissions.repository';
+import { CanvassRepository } from './canvass/canvass.repository';
+import { TradeRepository } from './trade/trade.repository';
+import { PaymentsRepository } from './payments/payments.repository';
+import { ConsignmentsRepository } from './consignment/consignments.repository';
+import { PriceListsRepository } from './pricing/price-lists.repository';
 
 @Module({
   imports: [AccountingModule, InventoryModule, FxModule],
   controllers: [SalesControlsController, SalesOrdersController, DeliveriesController, InvoicesController, PaymentsController, ServiceBillingController, PricingController, SalesTargetsController, SalesCommissionsController, ConsignmentsController, CanvassController, DeliveryTripsController, DeliveryVehiclesController, TradeController, TimesheetController, SchedulingController, CalendarFeedController, CalendarPublicController, RetainerController],
-  providers: [DeliveryTripRepository, RoutingService, DeliveryVehiclesService, DeliveryTripsService, SalesControlsService, TradeService, CanvassService, ConsignmentsService, PricingService, SalesTargetsService, SalesCommissionsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService, CustomerDepositsService, ServiceProjectsService, TimesheetService, SchedulingService, CalendarFeedService, RetainerService],
+  providers: [PriceListsRepository, ConsignmentsRepository, PaymentsRepository, TradeRepository, CanvassRepository, SalesCommissionsRepository, SalesTargetsRepository, SalesOrdersRepository, InvoicesRepository, DeliveriesRepository, ServiceProjectsRepository, RetainersRepository, SchedulingRepository, ServiceBillingRepository, CalendarFeedRepository, TimesheetsRepository, CustomerDepositsRepository, DeliveryTripRepository, RoutingService, DeliveryVehiclesService, DeliveryTripsService, SalesControlsService, TradeService, CanvassService, ConsignmentsService, PricingService, SalesTargetsService, SalesCommissionsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService, CustomerDepositsService, ServiceProjectsService, TimesheetService, SchedulingService, CalendarFeedService, RetainerService],
   exports: [SalesOrdersService, InvoicesService, PricingService, ServiceBillingService, PaymentsService],
 })
 export class SalesModule {}

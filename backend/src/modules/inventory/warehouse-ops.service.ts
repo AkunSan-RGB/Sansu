@@ -84,26 +84,12 @@ export class WarehouseOpsService {
       // stok titipan outlet / mobil sales hanya berpindah lewat menu Konsinyasi / Kanvas (dokumen, pemisahan fungsi, batas nilai)
       if (!opts.special && (from.kind !== 'MAIN' || to.kind !== 'MAIN')) throw new BadRequestException('Gudang konsinyasi/mobil dipindah lewat menu Konsinyasi / Kanvas');
       const ids = [...merged.keys()];
-      const found = await tx
-        .select({ id: products.id })
-        .from(products)
-        .where(and(eq(products.tenantId, u.tenantId), inArray(products.id, ids)));
+      const found = await this.repo.listProductsById(tx, u.tenantId, ids);
       if (found.length !== ids.length) throw new BadRequestException('Ada produk yang tidak ditemukan');
 
       const id = randomUUID();
       const number = await this.seq.next(tx, u.tenantId, 'STOCK_TRANSFER', date);
-      await tx.insert(stockTransfers).values({
-        id,
-        tenantId: u.tenantId,
-        number,
-        date,
-        fromWarehouseId: from.id,
-        toWarehouseId: to.id,
-        notes: dto.notes ?? null,
-        createdById: u.sub,
-        status: transit ? 'IN_TRANSIT' : 'RECEIVED',
-        ...(transit ? {} : { receivedDate: date, receivedAt: new Date(), receivedById: u.sub }),
-      });
+      await this.repo.insertStockTransfers(tx, id, u.tenantId, number, date, from.id, to, dto, u.sub, transit);
       let total = ZERO;
       const sentItems: { productId: string; value: Dec }[] = [];
       for (const [productId, qty] of merged) {
@@ -122,9 +108,7 @@ export class WarehouseOpsService {
         total = total.plus(out.value);
         sentItems.push({ productId, value: out.value });
         if (transit) {
-          await tx
-            .insert(stockTransferLines)
-            .values({ transferId: id, productId, qty: qty.toFixed(4), unitCost: out.unitCost.toFixed(4), writedownUnit: out.writedownUnit.toFixed(4) });
+          await this.repo.insertStockTransferLines(tx, id, productId, qty, out.unitCost, out.writedownUnit);
           continue;
         }
         await this.stock.move(tx, {
@@ -142,16 +126,7 @@ export class WarehouseOpsService {
           skipAccessCheck: true,
           binId: binPick.get(productId)?.to,
         });
-        await tx
-          .insert(stockTransferLines)
-          .values({
-            transferId: id,
-            productId,
-            qty: qty.toFixed(4),
-            unitCost: out.unitCost.toFixed(4),
-            writedownUnit: out.writedownUnit.toFixed(4),
-            receivedQty: qty.toFixed(4),
-          });
+        await this.repo.insertStockTransferLinesForCreateTransfer(tx, id, productId, qty, out.unitCost, out.writedownUnit);
       }
       await patchById(tx, stockTransfers, id, { totalValue: total.toFixed(2) });
       // Kirim langsung antar-cabang: persediaan pindah cabang lewat Rekening Antar Cabang (nol saat digabung), agar neraca tiap cabang tetap seimbang
@@ -199,16 +174,14 @@ export class WarehouseOpsService {
 
   /** Lock transfer dalam perjalanan */
   private async lockTransit(tx: Tx, u: AuthUser, id: string) {
-    const r = await tx.execute<{ id: string }>(
-      sql`SELECT id FROM stock_transfers WHERE id = ${id} AND tenant_id = ${u.tenantId} FOR UPDATE`,
-    );
+    const r = await this.repo.queryStockTransfer(tx, id, u.tenantId);
     if (!r.rows.length) throw new NotFoundException('Transfer tidak ditemukan');
     const t = await this.repo.transferById(tx, id);
     if (t.status !== 'IN_TRANSIT')
       throw new BadRequestException(
         t.status === 'RECEIVED' ? 'Barang transfer ini sudah diterima' : 'Transfer ini sudah dibatalkan',
       );
-    const lines = await tx.select().from(stockTransferLines).where(eq(stockTransferLines.transferId, id));
+    const lines = await this.repo.listStockTransferLinesByTransferId(tx, id);
     return { t, lines };
   }
 
@@ -394,56 +367,21 @@ export class WarehouseOpsService {
       const wh = await this.warehouse(tx, u.tenantId, dto.warehouseId);
       if (dto.binId) {
         if (!wh.binsEnabled) throw new BadRequestException('Opname per rak hanya untuk gudang yang lokasi raknya aktif');
-        const b = await tx.execute<{ id: string }>(sql`SELECT id FROM warehouse_bins WHERE id = ${dto.binId} AND warehouse_id = ${wh.id} AND tenant_id = ${u.tenantId}`);
+        const b = await this.repo.queryWarehouseBin(tx, dto.binId, wh.id, u.tenantId);
         if (!b.rows[0]) throw new BadRequestException('Rak tidak ditemukan di gudang ini');
       }
       // satu opname berjalan per cakupan: opname seluruh gudang memblokir semuanya; opname rak memblokir opname rak yang sama dan opname seluruh gudang
-      const [open] = await tx
-        .select({ number: stockCounts.number })
-        .from(stockCounts)
-        .where(
-          and(
-            eq(stockCounts.tenantId, u.tenantId),
-            eq(stockCounts.warehouseId, wh.id),
-            eq(stockCounts.status, 'DRAFT'),
-            dto.binId ? or(isNull(stockCounts.binId), eq(stockCounts.binId, dto.binId)) : undefined,
-          ),
-        );
+      const [open] = await this.repo.findStockCountsByWarehouseIdAndStatusAndBinId(tx, u.tenantId, wh.id, dto);
       if (open) throw new BadRequestException(`Masih ada stock opname ${open.number} yang belum selesai di ${dto.binId ? 'rak/gudang ini' : 'gudang ini'}`);
       const rows = dto.binId
         ? (
-            await tx.execute<{ id: string; qty: string }>(sql`
-              SELECT p.id, SUM(s.qty)::text AS qty FROM stock_bin_balances s JOIN products p ON p.id = s.product_id
-              WHERE s.bin_id = ${dto.binId} AND s.qty > 0 AND p.tenant_id = ${u.tenantId} ${dto.category ? sql`AND p.category = ${dto.category}` : sql``}
-              GROUP BY p.id`)
+            await this.repo.queryStockBinBalance(tx, dto, u.tenantId)
           ).rows
-        : await tx
-        .select({ id: products.id, qty: sql<string>`COALESCE(${stockBalances.qty}, 0)` })
-        .from(products)
-        .leftJoin(stockBalances, and(eq(stockBalances.productId, products.id), eq(stockBalances.warehouseId, wh.id)))
-        .where(
-          and(
-            eq(products.tenantId, u.tenantId),
-            or(eq(products.isActive, true), sql`COALESCE(${stockBalances.qty}, 0) <> 0`),
-            dto.category ? eq(products.category, dto.category) : undefined,
-          ),
-        );
+        : await this.repo.listProductsWithStockBalancesByIsActiveAndCategory(tx, wh.id, u.tenantId, dto);
       if (!rows.length) throw new BadRequestException(dto.binId ? 'Rak ini kosong: tidak ada barang untuk dihitung. Pindahkan dulu barang yang ditemukan ke rak ini.' : 'Tidak ada produk untuk dihitung');
       const id = randomUUID();
       const number = await this.seq.next(tx, u.tenantId, 'STOCK_COUNT', date);
-      await tx
-        .insert(stockCounts)
-        .values({
-          id,
-          tenantId: u.tenantId,
-          number,
-          date,
-          warehouseId: wh.id,
-          binId: dto.binId ?? null,
-          category: dto.category ?? null,
-          notes: dto.notes ?? null,
-          createdById: u.sub,
-        });
+      await this.repo.insertStockCounts(tx, id, u.tenantId, number, date, wh.id, dto, u.sub);
       for (let i = 0; i < rows.length; i += 1000) {
         await tx
           .insert(stockCountLines)
@@ -492,11 +430,7 @@ export class WarehouseOpsService {
       throw new ForbiddenException('Yang mengisi jumlah fisik tidak boleh memposting selisihnya sendiri. Minta Keuangan/Admin lain yang memposting.');
     }
     // Nilai selisih (|selisih| × HPP rata-rata) untuk persetujuan dan pemberitahuan Pemilik
-    const diffs = await this.db
-      .select({ counted: stockCountLines.countedQty, qty: cur.binId ? sql<string>`COALESCE((SELECT SUM(b.qty) FROM stock_bin_balances b WHERE b.bin_id = ${cur.binId} AND b.product_id = ${stockCountLines.productId}), 0)` : sql<string>`COALESCE(${stockBalances.qty}, 0)`, avg: sql<string>`COALESCE(${stockBalances.avgCost}, 0)` })
-      .from(stockCountLines)
-      .leftJoin(stockBalances, and(eq(stockBalances.productId, stockCountLines.productId), eq(stockBalances.warehouseId, cur.warehouseId)))
-      .where(and(eq(stockCountLines.countId, id), isNotNull(stockCountLines.countedQty)));
+    const diffs = await this.repo.sumStockCountLinesWithStockBalancesByCountIdAndCountedQty(this.db, cur, id);
     const gross = diffs.reduce((a, l) => a + Math.abs(Number(l.counted) - Number(l.qty)) * Number(l.avg), 0);
     // Selisih besar wajib dijelaskan (catatan alasan) sebelum diposting; yang sudah disetujui Pemilik/Admin dikecualikan
     if (!opts.approved && pol.stockAlertValue > 0 && gross >= pol.stockAlertValue && (cur.notes ?? '').trim().length < 5) {
@@ -517,19 +451,7 @@ export class WarehouseOpsService {
     return this.db.transaction(async (tx) => {
       const c = await this.ownCount(u, id, tx, true);
       if (c.status !== 'DRAFT') throw new BadRequestException('Stock opname ini sudah selesai');
-      const lines = await tx
-        .select({
-          productId: stockCountLines.productId,
-          countedQty: stockCountLines.countedQty,
-          qty: c.binId ? sql<string>`COALESCE((SELECT SUM(b.qty) FROM stock_bin_balances b WHERE b.bin_id = ${c.binId} AND b.product_id = ${stockCountLines.productId}), 0)` : sql<string>`COALESCE(${stockBalances.qty}, 0)`,
-          avgCost: sql<string>`COALESCE(${stockBalances.avgCost}, 0)`,
-        })
-        .from(stockCountLines)
-        .leftJoin(
-          stockBalances,
-          and(eq(stockBalances.productId, stockCountLines.productId), eq(stockBalances.warehouseId, c.warehouseId)),
-        )
-        .where(and(eq(stockCountLines.countId, id), isNotNull(stockCountLines.countedQty)));
+      const lines = await this.repo.sumStockCountLinesByCountIdAndCountedQty(tx, c, id);
       if (!lines.length) throw new BadRequestException('Belum ada produk yang diisi jumlah fisiknya');
       const adj: { productId: string; qty: string; unitCost?: string; lotId?: string; noLot?: boolean; binId?: string }[] = [];
       for (const l of lines) {
@@ -547,10 +469,7 @@ export class WarehouseOpsService {
         } else {
           // kurang: dikurangi tepat dari isi rak ini (bagian tanpa lot dulu, lalu lot paling cepat kedaluwarsa), agar rak sama dengan hasil hitung
           let need = diff.abs();
-          const rows = await tx.execute<{ lot_id: string | null; qty: string }>(sql`
-            SELECT s.lot_id, s.qty FROM stock_bin_balances s LEFT JOIN stock_lots l ON l.id = s.lot_id
-            WHERE s.bin_id = ${c.binId} AND s.product_id = ${l.productId} AND s.qty > 0
-            ORDER BY (s.lot_id IS NOT NULL), l.expiry_date NULLS LAST, l.received_date, s.id FOR UPDATE OF s`);
+          const rows = await this.repo.queryStockBinBalanceForPostCountTx(tx, c.binId, l.productId);
           for (const r of rows.rows) {
             if (need.lte(0)) break;
             const take = D(r.qty).lt(need) ? D(r.qty) : need;
@@ -599,17 +518,12 @@ export class WarehouseOpsService {
     await this.warehouse(this.db, u.tenantId, dto.warehouseId);
     const ids = [...new Set(dto.items.map((i) => i.productId))];
     if (!ids.length) return { saved: 0 };
-    const found = await this.db
-      .select({ id: products.id })
-      .from(products)
-      .where(and(eq(products.tenantId, u.tenantId), inArray(products.id, ids)));
+    const found = await this.repo.listProductsByIdForSaveMinimums(this.db, u.tenantId, ids);
     if (found.length !== ids.length) throw new BadRequestException('Ada produk yang tidak ditemukan');
     await this.db.transaction(async (tx) => {
       for (const i of dto.items) {
         if (i.minQty === null || D(i.minQty).lte(0)) {
-          await tx
-            .delete(stockMinimums)
-            .where(and(eq(stockMinimums.productId, i.productId), eq(stockMinimums.warehouseId, dto.warehouseId)));
+          await this.repo.deleteStockMinimumsByProductIdAndWarehouseId(tx, i.productId, dto.warehouseId);
         } else {
           await tx
             .insert(stockMinimums)

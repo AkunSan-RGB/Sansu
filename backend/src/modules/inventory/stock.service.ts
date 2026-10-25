@@ -11,6 +11,7 @@ import { isInventoryMethod, type InventoryMethod } from '@sansu/shared';
 import { consumeLayers, movingAverage } from './costing';
 import { trackBins } from './bin-tracker';
 import { type LotInput, trackLots } from './stock-lots';
+import { StockRepository } from './stock.repository';
 
 export interface MoveInput {
   tenantId: string;
@@ -64,29 +65,24 @@ export interface MoveResult {
  */
 @Injectable()
 export class StockService {
-  constructor(private readonly period: PeriodService) {}
+  constructor(private readonly period: PeriodService,
+    private readonly repo: StockRepository) {}
 
   /** Metode biaya persediaan perusahaan (bawaan rata-rata bergerak) */
   async methodOf(tx: Tx, tenantId: string): Promise<InventoryMethod> {
-    const r = await tx.execute<{ m: string | null }>(sql`SELECT settings->'inventory'->>'method' AS m FROM tenants WHERE id = ${tenantId}`);
+    const r = await this.repo.queryTenant(tx, tenantId);
     const m = r.rows[0]?.m;
     return isInventoryMethod(m) ? m : 'AVERAGE';
   }
 
   /** Lapisan FIFO harus cocok dengan saldo; bila tidak (mis. baru beralih metode), dibangun ulang sebagai satu lapisan pada biaya rata-rata saat ini */
   private async fifoLayers(tx: Tx, m: { tenantId: string; productId: string; warehouseId: string; date: DocDate }, balQty: Dec, balAvg: Dec) {
-    const rows = await tx.execute<{ id: string; qty: string; unit_cost: string }>(sql`
-      SELECT id, qty_remaining AS qty, unit_cost FROM stock_layers
-      WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId} AND qty_remaining > 0
-      ORDER BY received_date, created_at, id FOR UPDATE`);
+    const rows = await this.repo.queryStockLayer(tx, m.productId, m.warehouseId);
     const total = rows.rows.reduce<Dec>((a, r) => a.plus(r.qty), D(0));
     if (total.eq(balQty)) return rows.rows.map((r) => ({ id: r.id, qty: r.qty, unitCost: r.unit_cost }));
-    await tx.execute(sql`DELETE FROM stock_layers WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
+    await this.repo.queryStockLayerForFifoLayers(tx, m.productId, m.warehouseId);
     if (balQty.lte(0)) return [];
-    const [l] = await tx
-      .insert(stockLayers)
-      .values({ tenantId: m.tenantId, productId: m.productId, warehouseId: m.warehouseId, receivedDate: '1970-01-01', qtyRemaining: balQty.toFixed(4), unitCost: balAvg.toFixed(4) })
-      .returning({ id: stockLayers.id });
+    const [l] = await this.repo.insertStockLayers(tx, m.tenantId, m.productId, m.warehouseId, balQty, balAvg);
     return [{ id: l.id, qty: balQty.toFixed(4), unitCost: balAvg.toFixed(4) }];
   }
 
@@ -98,23 +94,17 @@ export class StockService {
     // pengguna yang dibatasi ke gudang tertentu tidak bisa mengubah stok gudang lain
     if (!m.skipAccessCheck) assertWarehouseAccess(auditContext.getStore()?.user, m.warehouseId);
     if (qty.isPositive()) {
-      const [w] = await tx.select({ isActive: warehouses.isActive, name: warehouses.name }).from(warehouses).where(eq(warehouses.id, m.warehouseId));
+      const [w] = await this.repo.findWarehousesById(tx, m.warehouseId);
       if (w && !w.isActive) throw new BadRequestException(`Gudang ${w.name} sudah nonaktif — aktifkan dulu di Inventori › Gudang.`);
     } else if (!m.fromQc) {
       // stok karantina hanya keluar lewat keputusan QC (tidak bisa dijual, dipakai produksi, atau dipindah begitu saja)
-      const [w] = await tx.select({ q: warehouses.isQuarantine, name: warehouses.name }).from(warehouses).where(eq(warehouses.id, m.warehouseId));
+      const [w] = await this.repo.findWarehousesByIdForMove(tx, m.warehouseId);
       if (w?.q) throw new BadRequestException(`Stok di gudang karantina ${w.name} belum lolos QC dan tidak dapat dikeluarkan; selesaikan inspeksi QC-nya.`);
     }
 
-    await tx.execute(sql`
-      INSERT INTO stock_balances (tenant_id, product_id, warehouse_id, qty, avg_cost)
-      VALUES (${m.tenantId}, ${m.productId}, ${m.warehouseId}, 0, 0)
-      ON CONFLICT (product_id, warehouse_id) DO NOTHING`);
+    await this.repo.queryStockBalance(tx, m.tenantId, m.productId, m.warehouseId);
 
-    const locked = await tx.execute<{ qty: string; avg_cost: string; writedown_unit: string }>(sql`
-      SELECT qty, avg_cost, writedown_unit FROM stock_balances
-      WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}
-      FOR UPDATE`);
+    const locked = await this.repo.queryStockBalanceForMove(tx, m.productId, m.warehouseId);
     const oldQty = D(locked.rows[0].qty);
     const oldAvg = D(locked.rows[0].avg_cost);
     const oldWu = D(locked.rows[0].writedown_unit);
@@ -131,7 +121,7 @@ export class StockService {
       unitCost = qty4(m.unitCost);
       if (method === 'FIFO') {
         const layers = await this.fifoLayers(tx, m, oldQty, oldAvg);
-        await tx.insert(stockLayers).values({ tenantId: m.tenantId, productId: m.productId, warehouseId: m.warehouseId, receivedDate: m.date, qtyRemaining: qty.toFixed(4), unitCost: unitCost.toFixed(4) });
+        await this.repo.insertStockLayersForMove(tx, m.tenantId, m.productId, m.warehouseId, m.date, qty, unitCost);
         const oldValue = layers.reduce<Dec>((a, l) => a.plus(D(l.qty).times(l.unitCost)), D(0));
         newAvg = qty4(oldValue.plus(qty.times(unitCost)).div(oldQty.plus(qty)));
       } else {
@@ -143,7 +133,7 @@ export class StockService {
       wdValue = money(qty.times(moveWu));
     } else {
       if (oldQty.plus(qty).isNegative()) {
-        const [p] = await tx.select({ sku: products.sku, name: products.name }).from(products).where(eq(products.id, m.productId));
+        const [p] = await this.repo.findProductsById(tx, m.productId);
         throw new BadRequestException(
           `Stok ${p?.sku} ${p?.name} tidak cukup: tersedia ${oldQty.toString()}, dibutuhkan ${qty.abs().toString()}`,
         );
@@ -168,7 +158,7 @@ export class StockService {
             need = need.minus(take);
             await tx.execute(sql`UPDATE stock_layers SET qty_remaining = ${kept.get(l.id)!.toFixed(4)} WHERE id = ${l.id}`);
           }
-          await tx.execute(sql`DELETE FROM stock_layers WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId} AND qty_remaining <= 0`);
+          await this.repo.queryStockLayerForMove(tx, m.productId, m.warehouseId);
           if (leftQty.gt(0)) newAvg = qty4(layers.reduce<Dec>((a, l) => a.plus(kept.get(l.id)!.times(l.unitCost)), D(0)).div(leftQty));
         } else if (leftQty.gt(0)) {
           const v = oldQty.times(oldAvg).minus(qty.abs().times(unitCost)).div(leftQty);
@@ -177,8 +167,8 @@ export class StockService {
       } else if (method === 'FIFO') {
         const layers = await this.fifoLayers(tx, m, oldQty, oldAvg);
         const used = consumeLayers(layers, qty.abs());
-        for (const r of used.remaining) await tx.execute(sql`UPDATE stock_layers SET qty_remaining = ${r.qty.toFixed(4)} WHERE id = ${r.id}`);
-        await tx.execute(sql`DELETE FROM stock_layers WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId} AND qty_remaining <= 0`);
+        for (const r of used.remaining) await this.repo.queryMove(tx, r.qty, r.id);
+        await this.repo.queryStockLayerForMove(tx, m.productId, m.warehouseId);
         unitCost = qty4(used.cost.div(qty.abs()));
         fifoValue = money(used.cost);
         const left = used.remaining.reduce<Dec>((a, r, i) => a.plus(r.qty.times(layers[i].unitCost)), D(0));
@@ -193,14 +183,11 @@ export class StockService {
     const balanceAfter = oldQty.plus(qty);
     if (balanceAfter.isZero() && oldWu.gt(0)) {
       // stok habis: seluruh sisa penurunan nilai ikut keluar (tanpa sisa pembulatan)
-      const r = await tx.execute<{ v: string }>(sql`
-        SELECT COALESCE(SUM(writedown_value), 0) AS v FROM stock_moves WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
+      const r = await this.repo.queryStockMove(tx, m.productId, m.warehouseId);
       wdValue = D(r.rows[0].v).negated();
       newWu = D(0);
     }
-    await tx.execute(sql`
-      UPDATE stock_balances SET qty = ${balanceAfter.toFixed(4)}, avg_cost = ${newAvg.toFixed(4)}, writedown_unit = ${newWu.toFixed(4)}
-      WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
+    await this.repo.queryStockBalanceForMove2(tx, balanceAfter, newAvg, newWu, m.productId, m.warehouseId);
 
     await tx.insert(stockMoves).values({
       tenantId: m.tenantId,
@@ -260,11 +247,8 @@ export class StockService {
     assertNotFuture(m.date);
     await this.period.assertOpen(tx, m.tenantId, m.date);
     assertWarehouseAccess(auditContext.getStore()?.user, m.warehouseId);
-    const locked = await tx.execute<{ qty: string; avg_cost: string; writedown_unit: string }>(sql`
-      SELECT qty, avg_cost, writedown_unit FROM stock_balances
-      WHERE tenant_id = ${m.tenantId} AND product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}
-      FOR UPDATE`);
-    const [p] = await tx.select({ sku: products.sku, name: products.name }).from(products).where(eq(products.id, m.productId));
+    const locked = await this.repo.queryStockBalanceForRevalue(tx, m.tenantId, m.productId, m.warehouseId);
+    const [p] = await this.repo.findProductsById(tx, m.productId);
     const label = `${p?.sku ?? ''} ${p?.name ?? ''}`.trim();
     const row = locked.rows[0];
     const qty = D(row?.qty ?? 0);
@@ -297,33 +281,15 @@ export class StockService {
     let wdValue = delta;
     if (kind === 'REVERSAL' && newWu.isZero()) {
       // dipulihkan penuh: lepaskan seluruh sisa penurunan nilai agar tidak ada sisa pembulatan
-      const r = await tx.execute<{ v: string }>(sql`
-        SELECT COALESCE(SUM(writedown_value), 0) AS v FROM stock_moves WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
+      const r = await this.repo.queryStockMove(tx, m.productId, m.warehouseId);
       wdValue = D(r.rows[0].v).negated();
     }
-    await tx.execute(sql`
-      UPDATE stock_balances SET avg_cost = ${newCost.toFixed(4)}, writedown_unit = ${newWu.toFixed(4)}
-      WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
+    await this.repo.queryStockBalanceForRevalue2(tx, newCost, newWu, m.productId, m.warehouseId);
     // FIFO: seluruh lapisan dinilai ulang dengan rasio yang sama agar nilai total ikut turun/pulih
     if (!oldCost.isZero()) {
-      await tx.execute(sql`
-        UPDATE stock_layers SET unit_cost = round(unit_cost * ${newCost.toFixed(4)}::numeric / ${oldCost.toFixed(4)}::numeric, 4)
-        WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
+      await this.repo.queryStockLayerForRevalue(tx, newCost, oldCost, m.productId, m.warehouseId);
     }
-    await tx.insert(stockMoves).values({
-      tenantId: m.tenantId,
-      productId: m.productId,
-      warehouseId: m.warehouseId,
-      type: 'REVALUATION',
-      qty: '0',
-      unitCost: newCost.toFixed(4),
-      balanceAfter: qty.toFixed(4),
-      writedownValue: wdValue.toFixed(2),
-      refType: m.refType,
-      refId: m.refId,
-      refNumber: m.refNumber,
-      date: m.date,
-    });
+    await this.repo.insertStockMoves(tx, m.tenantId, m.productId, m.warehouseId, newCost, qty, wdValue, m.refType, m.refId, m.refNumber, m.date);
     return { qty, oldCost, newCost, amount: delta.abs() };
   }
 
@@ -339,10 +305,7 @@ export class StockService {
     assertNotFuture(m.date);
     await this.period.assertOpen(tx, m.tenantId, m.date);
     assertWarehouseAccess(auditContext.getStore()?.user, m.warehouseId);
-    const locked = await tx.execute<{ qty: string; avg_cost: string }>(sql`
-      SELECT qty, avg_cost FROM stock_balances
-      WHERE tenant_id = ${m.tenantId} AND product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}
-      FOR UPDATE`);
+    const locked = await this.repo.queryStockBalanceForAdjustCost(tx, m.tenantId, m.productId, m.warehouseId);
     const row = locked.rows[0];
     const qty = D(row?.qty ?? 0);
     if (qty.lte(0)) return D(0);
@@ -350,33 +313,14 @@ export class StockService {
     let newCost = qty4(oldCost.plus(D(m.amount).div(qty)));
     if (newCost.isNegative()) newCost = D(0);
     if (newCost.equals(oldCost)) return money(qty.times(newCost)).minus(money(qty.times(oldCost)));
-    await tx.execute(sql`
-      UPDATE stock_layers SET unit_cost = GREATEST(0, unit_cost + ${newCost.minus(oldCost).toFixed(4)}::numeric)
-      WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
+    await this.repo.queryStockLayerForAdjustCost(tx, newCost, oldCost, m.productId, m.warehouseId);
     // FIFO: lapisan yang lebih murah dari penurunan tidak bisa di bawah nol, sehingga nilai lapisan bisa lebih besar dari perkiraan rata-rata.
     // Biaya rata-rata mengikuti nilai lapisan yang sebenarnya agar nilai buku stok (dan jurnal) tetap sama dengan kartu stok.
-    const layers = await tx.execute<{ q: string; v: string }>(sql`
-      SELECT COALESCE(SUM(qty_remaining), 0) AS q, COALESCE(SUM(qty_remaining * unit_cost), 0) AS v FROM stock_layers
-      WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId} AND qty_remaining > 0`);
+    const layers = await this.repo.queryStockLayerForAdjustCost2(tx, m.productId, m.warehouseId);
     if (D(layers.rows[0].q).minus(qty).abs().lt(0.0001)) newCost = qty4(D(layers.rows[0].v).div(qty));
     const applied = money(qty.times(newCost)).minus(money(qty.times(oldCost)));
-    await tx.execute(sql`
-      UPDATE stock_balances SET avg_cost = ${newCost.toFixed(4)}
-      WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId}`);
-    await tx.insert(stockMoves).values({
-      tenantId: m.tenantId,
-      productId: m.productId,
-      warehouseId: m.warehouseId,
-      type: 'REVALUATION',
-      qty: '0',
-      unitCost: newCost.toFixed(4),
-      balanceAfter: qty.toFixed(4),
-      writedownValue: '0',
-      refType: m.refType,
-      refId: m.refId,
-      refNumber: m.refNumber,
-      date: m.date,
-    });
+    await this.repo.queryStockBalanceForAdjustCost2(tx, newCost, m.productId, m.warehouseId);
+    await this.repo.insertStockMovesForAdjustCost(tx, m.tenantId, m.productId, m.warehouseId, newCost, qty, m.refType, m.refId, m.refNumber, m.date);
     return applied;
   }
 }

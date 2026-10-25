@@ -43,21 +43,7 @@ export class PosTabsService {
   async listTables(user: AuthUser, q: WarehouseQueryDto) {
     if (q.warehouseId) assertWarehouseAccess(user, q.warehouseId);
     const allowed = allowedWarehouses(user);
-    const rows = await this.db.execute<{
-      id: string; warehouse_id: string; warehouse_code: string; code: string; name: string; seats: number | null; is_active: boolean;
-      tab_id: string | null; tab_number: string | null; tab_since: string | null; items: number | null; amount: string | null;
-    }>(sql`
-      SELECT t.id, t.warehouse_id, w.code AS warehouse_code, t.code, t.name, t.seats, t.is_active,
-             b.id AS tab_id, b.number AS tab_number, b.created_at::text AS tab_since,
-             (SELECT COUNT(*)::int FROM pos_tab_lines l WHERE l.tab_id = b.id AND l.status <> 'VOID' AND l.paid_order_id IS NULL) AS items,
-             (SELECT COALESCE(SUM(l.qty * p.sell_price), 0)::text FROM pos_tab_lines l JOIN products p ON p.id = l.product_id
-                WHERE l.tab_id = b.id AND l.status <> 'VOID' AND l.paid_order_id IS NULL) AS amount
-      FROM pos_tables t
-      JOIN warehouses w ON w.id = t.warehouse_id
-      LEFT JOIN pos_tabs b ON b.table_id = t.id AND b.status = 'OPEN'
-      WHERE t.tenant_id = ${user.tenantId}
-        ${q.warehouseId ? sql`AND t.warehouse_id = ${q.warehouseId}` : allowed ? sql`AND t.warehouse_id = ANY(${allowed}::uuid[])` : sql``}
-      ORDER BY w.code, t.code`);
+    const rows = await this.repo.queryPosTable(this.db, user.tenantId, q, allowed);
     return rows.rows.map((r) => ({
       id: r.id,
       warehouseId: r.warehouse_id,
@@ -90,18 +76,14 @@ export class PosTabsService {
       const open = await this.repo.openTabNumberAtTable(this.db, id);
       if (open) throw new BadRequestException(`Meja masih punya pesanan terbuka (${open}); selesaikan dulu`);
     }
-    const [row] = await this.db
-      .update(posTables)
-      .set({ name: dto.name?.trim(), seats: dto.seats, isActive: dto.isActive })
-      .where(eq(posTables.id, id))
-      .returning();
+    const [row] = await this.repo.updatePosTablesById(this.db, dto, id);
     return row;
   }
 
   // ================= Pesanan terbuka =================
   /** Kunci pesanan terbuka; hanya bisa diubah selagi OPEN */
   private async lockTab(tx: Tx, user: AuthUser, id: string, opts: { allowClosed?: boolean } = {}) {
-    const lock = await tx.execute<{ id: string }>(sql`SELECT id FROM pos_tabs WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+    const lock = await this.repo.queryPosTab(tx, id, user.tenantId);
     if (!lock.rows.length) throw new NotFoundException('Pesanan tidak ditemukan');
     const tab = await this.repo.tabById(tx, id);
     assertWarehouseAccess(user, tab.warehouseId);
@@ -165,7 +147,7 @@ export class PosTabsService {
   /** Produk yang boleh dipesan: aktif, milik perusahaan, bukan barang setengah jadi */
   private async checkProducts(tx: Tx, tenantId: string, lines: TabLineInputDto[]) {
     const ids = [...new Set(lines.map((l) => l.productId))];
-    const found = await tx.select({ id: products.id, sku: products.sku, isActive: products.isActive, kind: products.inventoryKind }).from(products).where(and(eq(products.tenantId, tenantId), inArray(products.id, ids)));
+    const found = await this.repo.listProductsById(tx, tenantId, ids);
     const byId = new Map(found.map((p) => [p.id, p]));
     for (const l of lines) {
       const p = byId.get(l.productId);
@@ -179,12 +161,12 @@ export class PosTabsService {
 
   private async insertLines(tx: Tx, tabId: string, lines: TabLineInputDto[]) {
     if (!lines.length) return;
-    await tx.insert(posTabLines).values(lines.map((l) => ({ tabId, productId: l.productId, qty: qty4(l.qty).toFixed(4), notes: l.notes?.trim() || null })));
+    await this.repo.insertPosTabLines(tx, lines, tabId);
   }
 
   /** Fitur pesanan online butuh akun piutang platform dan komisi (ada pada jenis usaha F&B) */
   private async assertOnlineReady(tx: Tx, tenantId: string) {
-    const r = await tx.select({ k: accounts.systemKey }).from(accounts).where(and(eq(accounts.tenantId, tenantId), inArray(accounts.systemKey, ['PLATFORM_RECEIVABLE', 'PLATFORM_FEE'])));
+    const r = await this.repo.listAccountsBySystemKey(tx, tenantId);
     if (r.length < 2) throw new BadRequestException('Pesanan online tersedia untuk jenis usaha F&B (akun piutang dan komisi platform belum ada)');
   }
 
@@ -221,22 +203,7 @@ export class PosTabsService {
     const number = await this.seq.next(tx, user.tenantId, 'POS_TAB', todayJakarta());
     let tab: typeof posTabs.$inferSelect;
     try {
-      [tab] = await tx
-        .insert(posTabs)
-        .values({
-          tenantId: user.tenantId,
-          number,
-          warehouseId: wh.id,
-          tableId: dto.tableId ?? null,
-          tableLabel: label,
-          channel: dto.channel ?? null,
-          externalRef: online ? dto.externalRef!.trim() : null,
-          orderType,
-          guestName: dto.guestName?.trim() || null,
-          notes: dto.notes?.trim() || null,
-          createdById: user.sub,
-        })
-        .returning();
+      [tab] = await this.repo.insertPosTabs(tx, user.tenantId, number, wh.id, dto, label, online, orderType, user.sub);
     } catch (e) {
       const u = this.uniqueViolation(e);
       if (u === 'pos_tabs_external_uq') throw new BadRequestException('Pesanan online dengan nomor ini sudah tercatat');
@@ -263,7 +230,7 @@ export class PosTabsService {
     if (existing) return { duplicate: true, tab: await this.get(user, existing.id) };
     const id = await this.db.transaction(async (tx) => {
       const skus = [...new Set(dto.items.map((i) => i.sku.trim().toUpperCase()))];
-      const found = await tx.select({ id: products.id, sku: products.sku }).from(products).where(and(eq(products.tenantId, user.tenantId), inArray(products.sku, skus)));
+      const found = await this.repo.listProductsBySku(tx, user.tenantId, skus);
       const missing = skus.filter((k) => !found.some((f) => f.sku === k));
       if (missing.length) throw new BadRequestException(`SKU tidak dikenal: ${missing.join(', ')}`);
       const bySku = new Map(found.map((f) => [f.sku, f.id]));
@@ -293,13 +260,9 @@ export class PosTabsService {
 
   /** Cek stok untuk menu yang akan dimasak: kebutuhan bahan (resep) atau stok barang, ditambah pesanan lain yang sudah dikirim tetapi belum dibayar */
   private async assertAvailable(tx: Tx, tenantId: string, warehouseId: string, sending: { productId: string; qty: Dec }[]) {
-    const outstanding = await tx
-      .select({ productId: posTabLines.productId, qty: posTabLines.qty })
-      .from(posTabLines)
-      .innerJoin(posTabs, eq(posTabs.id, posTabLines.tabId))
-      .where(and(eq(posTabs.tenantId, tenantId), eq(posTabs.warehouseId, warehouseId), eq(posTabs.status, 'OPEN'), inArray(posTabLines.status, ['NEW', 'PREPARING', 'READY', 'SERVED']), sql`${posTabLines.paidOrderId} IS NULL`));
+    const outstanding = await this.repo.listPosTabLinesWithPosTabsByStatusAndPaidOrderId(tx, tenantId, warehouseId);
     const all = [...outstanding.map((o) => ({ productId: o.productId, qty: D(o.qty) })), ...sending];
-    const prods = await tx.select({ id: products.id, sku: products.sku, madeToOrder: products.madeToOrder }).from(products).where(and(eq(products.tenantId, tenantId), inArray(products.id, [...new Set(all.map((a) => a.productId))])));
+    const prods = await this.repo.listProductsByIdForAssertAvailable(tx, tenantId, all);
     const menu = prods.filter((p) => p.madeToOrder);
     const recipes = await recipesFor(tx, tenantId, menu);
     const need = new Map<string, Dec>();
@@ -327,11 +290,11 @@ export class PosTabsService {
 
   /** Kirim pesanan baru ke dapur (di dalam transaksi): menu masuk antrean, barang biasa (mis. air kemasan) langsung dianggap disajikan */
   private async sendTx(tx: Tx, user: AuthUser, tab: typeof posTabs.$inferSelect) {
-    const drafts = await tx.select().from(posTabLines).where(and(eq(posTabLines.tabId, tab.id), eq(posTabLines.status, 'DRAFT')));
+    const drafts = await this.repo.listPosTabLinesByTabIdAndStatus(tx, tab.id);
     if (!drafts.length) throw new BadRequestException('Tidak ada pesanan baru untuk dikirim');
     await this.assertAvailable(tx, user.tenantId, tab.warehouseId, drafts.map((d) => ({ productId: d.productId, qty: D(d.qty) })));
     const menuIds = new Set(
-      (await tx.select({ id: products.id }).from(products).where(and(inArray(products.id, [...new Set(drafts.map((d) => d.productId))]), eq(products.madeToOrder, true)))).map((p) => p.id),
+      (await this.repo.listProductsByIdAndMadeToOrder(tx, drafts)).map((p) => p.id),
     );
     const now = new Date();
     for (const d of drafts) {
@@ -484,8 +447,7 @@ export class PosTabsService {
   // ================= Dapur =================
   async setLineStatus(user: AuthUser, lineId: string, status: 'PREPARING' | 'READY' | 'SERVED') {
     await this.db.transaction(async (tx) => {
-      const found = await tx.execute<{ tab_id: string }>(sql`
-        SELECT l.tab_id FROM pos_tab_lines l JOIN pos_tabs t ON t.id = l.tab_id WHERE l.id = ${lineId} AND t.tenant_id = ${user.tenantId}`);
+      const found = await this.repo.queryPosTabLine(tx, lineId, user.tenantId);
       if (!found.rows.length) throw new NotFoundException('Baris pesanan tidak ditemukan');
       await this.lockTab(tx, user, found.rows[0].tab_id, { allowClosed: true });
       const line = await this.repo.lineById(tx, lineId);
@@ -506,18 +468,7 @@ export class PosTabsService {
   async kitchen(user: AuthUser, q: WarehouseQueryDto) {
     if (q.warehouseId) assertWarehouseAccess(user, q.warehouseId);
     const allowed = allowedWarehouses(user);
-    const rows = await this.db.execute<{
-      line_id: string; tab_id: string; number: string; table_label: string | null; order_type: string; guest_name: string | null; warehouse_id: string; channel: string | null;
-      product: string; sku: string; qty: string; notes: string | null; status: PosTabLineStatus; sent_at: string; paid: boolean;
-    }>(sql`
-      SELECT l.id AS line_id, t.id AS tab_id, t.number, t.table_label, t.order_type, t.guest_name, t.warehouse_id, t.channel,
-             p.name AS product, p.sku, l.qty, l.notes, l.status, l.sent_at::text AS sent_at, (l.paid_order_id IS NOT NULL) AS paid
-      FROM pos_tab_lines l
-      JOIN pos_tabs t ON t.id = l.tab_id
-      JOIN products p ON p.id = l.product_id
-      WHERE t.tenant_id = ${user.tenantId} AND t.status IN ('OPEN', 'PAID') AND l.status IN ('NEW', 'PREPARING', 'READY')
-        ${q.warehouseId ? sql`AND t.warehouse_id = ${q.warehouseId}` : allowed ? sql`AND t.warehouse_id = ANY(${allowed}::uuid[])` : sql``}
-      ORDER BY l.sent_at, l.id`);
+    const rows = await this.repo.queryPosTabLineForKitchen(this.db, user.tenantId, q, allowed);
     const now = Date.now();
     const tickets = new Map<string, { tabId: string; number: string; tableLabel: string | null; orderType: string; channel: string | null; guestName: string | null; since: string; waitingMinutes: number; items: unknown[] }>();
     for (const r of rows.rows) {

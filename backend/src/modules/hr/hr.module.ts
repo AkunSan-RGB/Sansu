@@ -5,10 +5,13 @@ import { EmploymentController } from './employment.controller';
 import { EmploymentService } from './employment.service';
 import { HrController } from './hr.controller';
 import { HrService } from './hr.service';
+import { ShiftsRepository } from './shifts.repository';
+import { EmploymentRepository } from './employment.repository';
+import { HrRepository } from './hr.repository';
 
 @Module({
   controllers: [HrController, EmploymentController, ShiftsController],
-  providers: [HrService, EmploymentService, ShiftsService],
+  providers: [HrRepository, EmploymentRepository, ShiftsRepository, HrService, EmploymentService, ShiftsService],
   exports: [HrService, EmploymentService],
 })
 export class HrModule {}

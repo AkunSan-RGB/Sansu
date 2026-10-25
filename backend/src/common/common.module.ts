@@ -12,11 +12,14 @@ import { TwoFactorPolicy } from './auth/two-factor-policy';
 import { ApprovalsService } from './approvals/approvals.service';
 import { TelegramController } from './telegram/telegram.controller';
 import { TelegramService } from './telegram/telegram.service';
+import { TelegramRepository } from './telegram/telegram.repository';
+import { SubscriptionRepository } from './billing/subscription.repository';
+import { AppsRepository } from './apps/apps.repository';
 
 @Global()
 @Module({
   controllers: [TelegramController],
-  providers: [TelegramService, ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
+  providers: [AppsRepository, SubscriptionRepository, TelegramRepository, TelegramService, ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
   exports: [TelegramService, ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
 })
 export class CommonModule {}

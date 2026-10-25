@@ -10,6 +10,7 @@ import { customers, priceListItems, priceLists, products, promos, suppliers } fr
 import { BonusLine, PriceTier, PromoRule, quote } from './pricing-engine';
 import { PriceListDto, UpdatePriceListDto, PriceItemDto, PromoDto, QuoteDto } from './price-lists.dto';
 import { findOwned, insertOne, patchById } from '../../../db/owned';
+import { PriceListsRepository } from './price-lists.repository';
 
 type ProductWithUoms = { id: string; sku: string; name: string; baseUom: string; sellPrice: string; uoms: { uom: string; factor: string }[] };
 
@@ -26,6 +27,7 @@ export class PricingService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly audit: AuditService,
+    private readonly repo: PriceListsRepository,
   ) {}
 
   /**
@@ -44,11 +46,7 @@ export class PricingService {
     const productIds = [...new Set(lines.map((l) => l.productId))];
     const tiers: PriceTier[] = customer.priceListId
       ? (
-          await db
-            .select({ productId: priceListItems.productId, minQty: priceListItems.minQty, price: priceListItems.price })
-            .from(priceListItems)
-            .innerJoin(priceLists, eq(priceLists.id, priceListItems.priceListId))
-            .where(and(eq(priceListItems.tenantId, tenantId), eq(priceListItems.priceListId, customer.priceListId), eq(priceLists.isActive, true), inArray(priceListItems.productId, productIds)))
+          await this.repo.listPriceListItemsWithPriceListsByPriceListIdAndProductId(db, tenantId, customer.priceListId, productIds)
         ).map((r) => ({ productId: r.productId, minQty: r.minQty, price: r.price }))
       : [];
     const rules = applyPromos ? await this.activeRules(db, tenantId) : [];
@@ -74,28 +72,19 @@ export class PricingService {
   }
 
   private async activeRules(db: DbOrTx, tenantId: string): Promise<PromoRule[]> {
-    const rows = await db.select().from(promos).where(and(eq(promos.tenantId, tenantId), eq(promos.isActive, true)));
+    const rows = await this.repo.listPromosByIsActive(db, tenantId);
     return rows.map((r) => ({ ...r, kind: r.kind as 'DISCOUNT' | 'BONUS' }));
   }
 
   async listPriceLists(tenantId: string) {
-    const rows = await this.db.execute<{ id: string; name: string; description: string | null; is_active: boolean; items: string; customers: string }>(sql`
-      SELECT l.id, l.name, l.description, l.is_active,
-             (SELECT COUNT(*) FROM price_list_items i WHERE i.price_list_id = l.id)::text AS items,
-             (SELECT COUNT(*) FROM customers c WHERE c.price_list_id = l.id)::text AS customers
-      FROM price_lists l WHERE l.tenant_id = ${tenantId} ORDER BY lower(l.name)`);
+    const rows = await this.repo.queryPriceList(this.db, tenantId);
     return rows.rows.map((r) => ({ id: r.id, name: r.name, description: r.description, isActive: r.is_active, itemCount: Number(r.items), customerCount: Number(r.customers) }));
   }
 
   async getPriceList(tenantId: string, id: string) {
     const l = await findOwned(this.db, priceLists, tenantId, id);
     if (!l) throw new NotFoundException('Daftar harga tidak ditemukan');
-    const items = await this.db
-      .select({ productId: priceListItems.productId, sku: products.sku, name: products.name, baseUom: products.baseUom, sellPrice: products.sellPrice, minQty: priceListItems.minQty, price: priceListItems.price })
-      .from(priceListItems)
-      .innerJoin(products, eq(products.id, priceListItems.productId))
-      .where(eq(priceListItems.priceListId, id))
-      .orderBy(asc(products.sku), asc(priceListItems.minQty));
+    const items = await this.repo.listPriceListItemsWithProductsByPriceListIdAndMinQty(this.db, id);
     return { ...l, items };
   }
 
@@ -114,7 +103,7 @@ export class PricingService {
   async updatePriceList(user: AuthUser, id: string, dto: UpdatePriceListDto) {
     const cur = await this.getPriceList(user.tenantId, id);
     const patch = { name: dto.name?.trim() ?? cur.name, description: dto.description !== undefined ? dto.description.trim() || null : cur.description, isActive: dto.isActive ?? cur.isActive };
-    await this.db.update(priceLists).set(patch).where(and(eq(priceLists.id, id), eq(priceLists.tenantId, user.tenantId)));
+    await this.repo.updatePriceListsById(this.db, patch, id, user.tenantId);
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'PriceList', entityId: id, data: { before: { name: cur.name, isActive: cur.isActive }, after: patch } });
     return this.getPriceList(user.tenantId, id);
   }
@@ -132,24 +121,19 @@ export class PricingService {
     }
     const ids = [...new Set(items.map((i) => i.productId))];
     if (ids.length) {
-      const found = await this.db.select({ id: products.id }).from(products).where(and(eq(products.tenantId, user.tenantId), inArray(products.id, ids)));
+      const found = await this.repo.listProductsById(this.db, user.tenantId, ids);
       if (found.length !== ids.length) throw new BadRequestException('Ada produk yang tidak ditemukan');
     }
     await this.db.transaction(async (tx) => {
-      await tx.delete(priceListItems).where(eq(priceListItems.priceListId, id));
-      if (items.length) await tx.insert(priceListItems).values(items.map((i) => ({ tenantId: user.tenantId, priceListId: id, productId: i.productId, minQty: D(i.minQty).toFixed(4), price: D(i.price).toFixed(4) })));
+      await this.repo.deletePriceListItemsByPriceListId(tx, id);
+      if (items.length) await this.repo.insertPriceListItems(tx, items, user.tenantId, id);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'PriceListItems', entityId: id, data: { name: cur.name, before: cur.items.length, after: items.length } });
     });
     return this.getPriceList(user.tenantId, id);
   }
 
   async listPromos(tenantId: string) {
-    const rows = await this.db.execute<Record<string, string | boolean | null>>(sql`
-      SELECT p.id, p.name, p.kind, p.product_id AS "productId", pr.sku AS "productSku", pr.name AS "productName", p.min_qty AS "minQty", p.discount_pct AS "discountPct",
-             p.bonus_product_id AS "bonusProductId", b.sku AS "bonusSku", b.name AS "bonusName", p.bonus_qty AS "bonusQty",
-             p.valid_from AS "validFrom", p.valid_to AS "validTo", p.price_list_id AS "priceListId", l.name AS "priceListName", p.funded_supplier_id AS "fundedSupplierId", p.funded_pct AS "fundedPct", p.is_active AS "isActive"
-      FROM promos p LEFT JOIN products pr ON pr.id = p.product_id LEFT JOIN products b ON b.id = p.bonus_product_id LEFT JOIN price_lists l ON l.id = p.price_list_id
-      WHERE p.tenant_id = ${tenantId} ORDER BY p.is_active DESC, p.created_at DESC`);
+    const rows = await this.repo.queryPromo(this.db, tenantId);
     return rows.rows;
   }
 
@@ -165,17 +149,17 @@ export class PricingService {
     }
     const ids = [d.productId, d.bonusProductId].filter(Boolean) as string[];
     if (ids.length) {
-      const found = await this.db.select({ id: products.id }).from(products).where(and(eq(products.tenantId, tenantId), inArray(products.id, [...new Set(ids)])));
+      const found = await this.repo.listProductsByIdForValidatePromo(this.db, tenantId, ids);
       if (found.length !== new Set(ids).size) throw new BadRequestException('Produk tidak ditemukan');
     }
     if (d.fundedSupplierId) {
       const pct = D(d.fundedPct ?? 0);
       if (pct.lte(0) || pct.gt(100)) throw new BadRequestException('Persen tanggungan prinsipal harus lebih dari 0 dan paling banyak 100');
-      const [s] = await this.db.select({ id: suppliers.id }).from(suppliers).where(and(eq(suppliers.id, d.fundedSupplierId), eq(suppliers.tenantId, tenantId)));
+      const [s] = await this.repo.findSuppliersById(this.db, d.fundedSupplierId, tenantId);
       if (!s) throw new BadRequestException('Prinsipal tidak ditemukan');
     } else if (D(d.fundedPct ?? 0).gt(0)) throw new BadRequestException('Pilih prinsipal yang menanggung biaya promo');
     if (d.priceListId) {
-      const [l] = await this.db.select({ id: priceLists.id }).from(priceLists).where(and(eq(priceLists.id, d.priceListId), eq(priceLists.tenantId, tenantId)));
+      const [l] = await this.repo.findPriceListsById(this.db, d.priceListId, tenantId);
       if (!l) throw new BadRequestException('Daftar harga tidak ditemukan');
     }
   }
@@ -216,7 +200,7 @@ export class PricingService {
   }
 
   async preview(user: AuthUser, dto: QuoteDto) {
-    const [customer] = await this.db.select({ id: customers.id, priceListId: customers.priceListId }).from(customers).where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, user.tenantId)));
+    const [customer] = await this.repo.findCustomersById(this.db, dto.customerId, user.tenantId);
     if (!customer) throw new BadRequestException('Pelanggan tidak ditemukan');
     const prods = await this.db.query.products.findMany({ where: and(eq(products.tenantId, user.tenantId), inArray(products.id, dto.lines.map((l) => l.productId))), with: { uoms: true } });
     const byId = new Map(prods.map((p) => [p.id, p as ProductWithUoms]));

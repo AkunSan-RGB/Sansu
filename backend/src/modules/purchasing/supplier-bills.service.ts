@@ -19,6 +19,7 @@ import { CreateBillDto } from './purchasing.dto';
 import { PurchaseInvoiceRepository } from './purchase-invoice.repository';
 import { PurchaseInvoicesService, assetUnitCount } from './purchase-invoices.service';
 import { insertOne, patchById } from '../../db/owned';
+import { SupplierBillsRepository } from './supplier-bills.repository';
 
 @Injectable()
 export class SupplierBillsService {
@@ -32,6 +33,7 @@ export class SupplierBillsService {
     private readonly budget: BudgetService,
     private readonly repo: PurchaseInvoiceRepository,
     private readonly invoices: PurchaseInvoicesService,
+    private readonly queries: SupplierBillsRepository,
   ) {}
 
   async createBill(user: AuthUser, dto: CreateBillDto, opts: { approved?: boolean } = {}) {
@@ -53,16 +55,10 @@ export class SupplierBillsService {
     const result = await this.db.transaction(async (tx) => {
       const supplier = await this.repo.supplierOfTenant(tx, user.tenantId, dto.supplierId);
       if (!supplier) throw new NotFoundException('Supplier tidak ditemukan');
-      const [tenant] = await tx
-        .select({ ppnRate: tenants.ppnRate, settings: tenants.settings })
-        .from(tenants)
-        .where(eq(tenants.id, user.tenantId));
+      const [tenant] = await this.queries.findTenantsById(tx, user.tenantId);
       const pkp = taxProfileOf(tenant.settings).pkp;
       if (dto.projectId) {
-        const [p] = await tx
-          .select({ id: projects.id })
-          .from(projects)
-          .where(and(eq(projects.id, dto.projectId), eq(projects.tenantId, user.tenantId)));
+        const [p] = await this.queries.findProjectsById(tx, dto.projectId, user.tenantId);
         if (!p) throw new BadRequestException('Proyek tidak ditemukan');
       }
 
@@ -124,10 +120,7 @@ export class SupplierBillsService {
       );
       let smallAssetAccountId: string | undefined;
       if (expensed.some(Boolean)) {
-        const [small] = await tx
-          .select({ id: accounts.id })
-          .from(accounts)
-          .where(and(eq(accounts.tenantId, user.tenantId), eq(accounts.systemKey, SYS.SMALL_ASSET_EXPENSE)));
+        const [small] = await this.queries.findAccountsBySystemKey(tx, user.tenantId);
         if (!small) throw new BadRequestException('Akun "Beban Peralatan Kecil" belum ada di bagan akun');
         smallAssetAccountId = small.id;
       }

@@ -9,10 +9,13 @@ import { BudgetScheduler, BudgetService } from './budget.service';
 import { FinancialReportsService } from './financial-reports.service';
 import { PostingService } from './posting.service';
 import { StatementsService } from './statements.service';
+import { BudgetRepository } from './budget.repository';
+import { RecurringJournalsRepository } from './recurring-journals.repository';
+import { PostingRepository } from './posting.repository';
 
 @Module({
   controllers: [AccountingController, BudgetController],
-  providers: [AccountingRepository, AccountingService, RecurringJournalsService, FinancialReportsService, PostingService, StatementsService, AdjustmentsService, BudgetService, BudgetScheduler],
+  providers: [PostingRepository, RecurringJournalsRepository, BudgetRepository, AccountingRepository, AccountingService, RecurringJournalsService, FinancialReportsService, PostingService, StatementsService, AdjustmentsService, BudgetService, BudgetScheduler],
   exports: [PostingService, AccountingService, RecurringJournalsService, FinancialReportsService, StatementsService, BudgetService],
 })
 export class AccountingModule {}

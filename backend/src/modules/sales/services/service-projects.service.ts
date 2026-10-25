@@ -18,6 +18,7 @@ import { ProjectProgressDto, CreateProjectDto, UpdateProjectDto } from './servic
 import { ServiceBillingService } from './service-billing.service';
 import { CustomerDepositsService } from './customer-deposits.service';
 import { insertOne, patchById } from '../../../db/owned';
+import { ServiceProjectsRepository } from './service-projects.repository';
 
 @Injectable()
 export class ServiceProjectsService {
@@ -28,48 +29,14 @@ export class ServiceProjectsService {
     private readonly audit: AuditService,
     private readonly billing: ServiceBillingService,
     private readonly customerDeposits: CustomerDepositsService,
+    private readonly repo: ServiceProjectsRepository,
   ) {}
 
   // ================= Proyek =================
 
   async listProjects(tenantId: string, id?: string): Promise<Project[]> {
     const rows = (
-      await this.db.execute<{
-        id: string;
-        code: string;
-        name: string;
-        customer_id: string;
-        customer_code: string;
-        customer_name: string;
-        contract_value: string;
-        start_date: string | null;
-        end_date: string | null;
-        status: Project['status'];
-        notes: string | null;
-        billed: string;
-        outstanding: string;
-        deposits: string;
-        deposits_remaining: string;
-        progress_pct: string | null;
-        progress_date: string | null;
-        accrual: string;
-        direct_cost: string;
-      }>(sql`
-        SELECT p.id, p.code, p.name, p.customer_id, c.code AS customer_code, c.name AS customer_name, p.contract_value,
-               p.start_date::text, p.end_date::text, p.status, p.notes,
-               COALESCE((SELECT SUM(subtotal) FROM invoices i WHERE i.project_id = p.id), 0) AS billed,
-               COALESCE((SELECT SUM(total - paid_amount - returned_amount) FROM invoices i WHERE i.project_id = p.id), 0) AS outstanding,
-               COALESCE((SELECT SUM(amount) FROM customer_deposits d WHERE d.project_id = p.id), 0) AS deposits,
-               COALESCE((SELECT SUM(amount - applied_amount) FROM customer_deposits d WHERE d.project_id = p.id), 0) AS deposits_remaining,
-               (SELECT percent FROM project_progress g WHERE g.project_id = p.id ORDER BY date DESC, created_at DESC LIMIT 1) AS progress_pct,
-               (SELECT date::text FROM project_progress g WHERE g.project_id = p.id ORDER BY date DESC, created_at DESC LIMIT 1) AS progress_date,
-               COALESCE((SELECT SUM(adjustment) FROM project_progress g WHERE g.project_id = p.id), 0) AS accrual,
-               COALESCE(pc.v, 0) AS direct_cost
-        FROM projects p JOIN customers c ON c.id = p.customer_id
-        LEFT JOIN (SELECT project_id, SUM(amount) AS v FROM ${projectCostsSql(tenantId)} x GROUP BY project_id) pc ON pc.project_id = p.id
-        WHERE p.tenant_id = ${tenantId} ${id ? sql`AND p.id = ${id}` : sql``}
-        ORDER BY (p.status = 'ACTIVE') DESC, p.created_at DESC
-        LIMIT 500`)
+      await this.repo.queryProject(this.db, tenantId, id)
     ).rows;
     return rows.map((r) => ({
       id: r.id,
@@ -122,24 +89,17 @@ export class ServiceProjectsService {
         'SAK EMKM mengakui pendapatan sebesar jumlah tagihan; pengakuan berdasarkan persentase penyelesaian hanya untuk SAK EP. Tagih per termin.',
       );
     return this.db.transaction(async (tx) => {
-      const lock = await tx.execute(
-        sql`SELECT id FROM projects WHERE id = ${projectId} AND tenant_id = ${user.tenantId} FOR UPDATE`,
-      );
+      const lock = await this.repo.queryProjectForRecordProgress(tx, projectId, user.tenantId);
       if (!lock.rows.length) throw new NotFoundException('Proyek tidak ditemukan');
-      const [p] = await tx.select().from(projects).where(eq(projects.id, projectId));
+      const [p] = await this.repo.findProjectsById(tx, projectId);
       if (p.status === 'CANCELLED') throw new BadRequestException('Proyek dibatalkan');
       if (D(p.contractValue).lte(0)) throw new BadRequestException('Isi nilai kontrak proyek dulu');
-      const prev = await tx
-        .select()
-        .from(projectProgress)
-        .where(eq(projectProgress.projectId, projectId))
-        .orderBy(desc(projectProgress.date), desc(projectProgress.createdAt));
+      const prev = await this.repo.listProjectProgressByProjectIdAndDateAndCreatedAt(tx, projectId);
       if (prev[0] && date < prev[0].date)
         throw new BadRequestException(`Tanggal tidak boleh sebelum kemajuan terakhir (${prev[0].date})`);
       const before = prev.reduce<Dec>((a, r) => a.plus(r.adjustment), ZERO);
       const [b] = (
-        await tx.execute<{ v: string }>(sql`
-          SELECT COALESCE(SUM(subtotal), 0) AS v FROM invoices WHERE project_id = ${projectId} AND date <= ${date}`)
+        await this.repo.queryInvoice(tx, projectId, date)
       ).rows;
       const billed = D(b.v);
       const earned = money(D(p.contractValue).times(pct).div(100));
@@ -148,9 +108,7 @@ export class ServiceProjectsService {
 
       // Akun pendapatan: yang paling sering dipakai di faktur proyek ini (mis. 4-2100 konstruksi), bawaan Pendapatan Jasa
       const [acc] = (
-        await tx.execute<{ account_id: string }>(sql`
-          SELECT l.account_id FROM service_invoice_lines l JOIN invoices i ON i.id = l.invoice_id
-          WHERE i.project_id = ${projectId} GROUP BY l.account_id ORDER BY SUM(l.line_total) DESC LIMIT 1`)
+        await this.repo.queryServiceInvoiceLine(tx, projectId)
       ).rows;
       const revenueAccountId =
         acc?.account_id ?? (await this.billing.keyAccount(tx, user.tenantId, SYS.SERVICE_REVENUE));
@@ -219,19 +177,7 @@ export class ServiceProjectsService {
     const deps = await this.customerDeposits.listDeposits(tenantId, { projectId: id });
     const progress = await this.listProgress(tenantId, id);
     const costs = (
-      await this.db.execute<{
-        source: string;
-        doc_id: string;
-        number: string;
-        date: string;
-        description: string | null;
-        account: string;
-        amount: string;
-      }>(sql`
-        SELECT x.source, x.doc_id, x.number, x.date::text, x.description, a.code || ' ' || a.name AS account, x.amount
-        FROM ${projectCostsSql(tenantId)} x JOIN accounts a ON a.id = x.account_id
-        WHERE x.project_id = ${id} AND x.amount <> 0
-        ORDER BY x.date, x.number`)
+      await this.repo.queryAccount(this.db, tenantId, id)
     ).rows.map((r) => ({
       source: r.source as 'BILL' | 'CASH' | 'PAYROLL' | 'JOURNAL',
       docId: r.doc_id,
@@ -245,32 +191,14 @@ export class ServiceProjectsService {
   }
 
   async createProject(user: AuthUser, dto: CreateProjectDto) {
-    const [c] = await this.db
-      .select({ id: customers.id })
-      .from(customers)
-      .where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, user.tenantId)));
+    const [c] = await this.repo.findCustomersById(this.db, dto.customerId, user.tenantId);
     if (!c) throw new BadRequestException('Pelanggan tidak ditemukan');
     if (D(dto.contractValue).lt(0)) throw new BadRequestException('Nilai kontrak tidak boleh negatif');
     const id = await this.db.transaction(async (tx) => {
       const code = dto.code?.trim() || (await this.seq.next(tx, user.tenantId, 'PROJECT', toDocDate(dto.startDate)));
-      const [dup] = await tx
-        .select({ id: projects.id })
-        .from(projects)
-        .where(and(eq(projects.tenantId, user.tenantId), eq(projects.code, code)));
+      const [dup] = await this.repo.findProjectsByCode(tx, user.tenantId, code);
       if (dup) throw new BadRequestException(`Kode proyek ${code} sudah dipakai`);
-      const [p] = await tx
-        .insert(projects)
-        .values({
-          tenantId: user.tenantId,
-          code,
-          name: dto.name.trim(),
-          customerId: dto.customerId,
-          contractValue: money(dto.contractValue).toFixed(2),
-          startDate: dto.startDate ? toDocDate(dto.startDate) : null,
-          endDate: dto.endDate ? toDocDate(dto.endDate) : null,
-          notes: dto.notes,
-        })
-        .returning({ id: projects.id });
+      const [p] = await this.repo.insertProjects(tx, user.tenantId, code, dto);
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,

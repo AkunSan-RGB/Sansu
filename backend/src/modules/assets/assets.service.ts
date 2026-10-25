@@ -122,22 +122,7 @@ export class AssetsService {
    * debit ke akun aset tetap pada jurnal yang bukan saldo awal, belum dibalik, dikurangi nilai kartu aset yang sudah terhubung.
    */
   async unregistered(tenantId: string, db: DbOrTx = this.db) {
-    const res = await db.execute<{
-      journal_id: string; number: string; date: string; description: string; source_type: string; account_id: string; code: string; name: string; amount: string; registered: string;
-    }>(sql`
-      SELECT j.id AS journal_id, j.number, j.date::text AS date, j.description, j.source_type, a.id AS account_id, a.code, a.name,
-             SUM(l.debit) AS amount,
-             COALESCE((SELECT SUM(fa.cost) FROM fixed_assets fa JOIN asset_categories c ON c.id = fa.category_id
-                       WHERE fa.acquisition_journal_id = j.id AND c.asset_account_id = a.id), 0) AS registered
-      FROM journal_lines l
-      JOIN journal_entries j ON j.id = l.journal_id
-      JOIN accounts a ON a.id = l.account_id
-      WHERE j.tenant_id = ${tenantId} AND l.debit > 0
-        AND a.id IN (SELECT asset_account_id FROM asset_categories WHERE tenant_id = ${tenantId})
-        AND j.source_type NOT IN ('OPENING', 'REVERSAL', 'ASSET_DISPOSAL', 'CLOSING')
-        AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = j.id)
-      GROUP BY j.id, j.number, j.date, j.description, j.source_type, a.id, a.code, a.name
-      ORDER BY j.date, j.number`);
+    const res = await this.repo.queryJournalLine(db, tenantId);
     const cats = await this.listCategories(tenantId, db);
     return res.rows
       .map((r) => ({ ...r, remaining: D(r.amount).minus(r.registered) }))
@@ -174,7 +159,7 @@ export class AssetsService {
       if (!cat) throw new BadRequestException(dto.categoryId ? 'Kategori tidak sesuai dengan akun aset jurnal ini' : 'Akun ini dipakai beberapa kategori; pilih kategori asetnya');
       const amount = money(dto.amount ?? row.remaining);
       if (amount.lte(0) || amount.gt(row.remaining)) throw new BadRequestException(`Nilai harus lebih dari 0 dan paling banyak sisa yang belum terdaftar (${D(row.remaining).toFixed(2)})`);
-      const [jl] = (await tx.execute<{ b: string | null }>(sql`SELECT branch_id::text AS b FROM journal_lines WHERE journal_id = ${dto.journalId} AND account_id = ${dto.accountId} LIMIT 1`)).rows;
+      const [jl] = (await this.repo.queryJournalLineForRegisterFromJournalTx(tx, dto.journalId, dto.accountId)).rows;
       const asset = await this.insertAsset(tx, user.tenantId, cat, {
         name: dto.name.trim(),
         acquisitionDate: row.date,
@@ -209,9 +194,7 @@ export class AssetsService {
   }
 
   async postedTotals(db: DbOrTx, tenantId: string, upTo: string) {
-    const res = await db.execute<{ asset_id: string; total: string; last: string }>(sql`
-      SELECT asset_id, SUM(amount) AS total, MAX(period) AS last FROM asset_depreciations
-      WHERE tenant_id = ${tenantId} AND period <= ${upTo} GROUP BY asset_id`);
+    const res = await this.repo.queryAssetDepreciation(db, tenantId, upTo);
     return new Map(res.rows.map((r) => [r.asset_id, { total: D(r.total), last: r.last }]));
   }
 
@@ -250,7 +233,7 @@ export class AssetsService {
       const cat = await this.repo.categoryById(tx, user.tenantId, dto.categoryId);
       if (!cat) throw new BadRequestException('Kategori tidak ditemukan');
       if (dto.branchId) {
-        const [b] = (await tx.execute<{ id: string }>(sql`SELECT id FROM branches WHERE id = ${dto.branchId} AND tenant_id = ${user.tenantId} AND is_active`)).rows;
+        const [b] = (await this.repo.queryBranche(tx, dto.branchId, user.tenantId)).rows;
         if (!b) throw new BadRequestException('Cabang tidak ditemukan atau nonaktif');
       }
       assertNotFarFuture(toDocDate(dto.acquisitionDate), 'perolehan aset');
@@ -325,7 +308,7 @@ export class AssetsService {
   async update(user: AuthUser, id: string, dto: UpdateAssetDto) {
     const before = await this.repo.assetById(this.db, user.tenantId, id);
     if (!before) throw new NotFoundException('Aset tidak ditemukan');
-    const [a] = await this.db.update(fixedAssets).set(dto).where(and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId))).returning();
+    const [a] = await this.repo.updateFixedAssetsById(this.db, dto, id, user.tenantId);
     // Penanggung jawab/lokasi yang berubah sering dipakai menutupi aset yang hilang: tercatat siapa, dari apa ke apa
     const changed = (['name', 'custodian', 'location', 'notes'] as const).filter((k) => dto[k] !== undefined && dto[k] !== before[k]);
     if (changed.length) {
@@ -481,8 +464,8 @@ export class AssetsService {
 
   private async nextCode(tx: Tx, tenantId: string) {
     // Nomor berurutan dari hitungan baris: serialkan per perusahaan agar dua pendaftaran serentak tidak mendapat kode yang sama
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`asset-code:${tenantId}`}))`);
-    const [r] = (await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM fixed_assets WHERE tenant_id = ${tenantId}`)).rows;
+    await this.repo.queryNextCode(tx, tenantId);
+    const [r] = (await this.repo.queryFixedAsset(tx, tenantId)).rows;
     return `AT-${String(r.n + 1).padStart(4, '0')}`;
   }
 
@@ -492,7 +475,7 @@ export class AssetsService {
    */
   async run(user: AuthUser, period: string, onlyAssetId?: string, txArg?: Tx) {
     const work = async (tx: Tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`dep:${user.tenantId}`}))`);
+      await this.repo.queryRun(tx, user.tenantId);
       const assets = await tx.query.fixedAssets.findMany({
         where: and(eq(fixedAssets.tenantId, user.tenantId), eq(fixedAssets.status, 'ACTIVE'), onlyAssetId ? eq(fixedAssets.id, onlyAssetId) : undefined),
         with: { category: true },
@@ -554,10 +537,7 @@ export class AssetsService {
 
   /** Riwayat penyusutan per bulan */
   async runs(tenantId: string) {
-    const res = await this.db.execute<{ period: string; total: string; n: number; journal_id: string; number: string }>(sql`
-      SELECT d.period, SUM(d.amount) AS total, COUNT(*)::int AS n, MIN(j.id::text) AS journal_id, MIN(j.number) AS number
-      FROM asset_depreciations d LEFT JOIN journal_entries j ON j.id = d.journal_id
-      WHERE d.tenant_id = ${tenantId} GROUP BY d.period ORDER BY d.period DESC`);
+    const res = await this.repo.queryAssetDepreciationForRuns(this.db, tenantId);
     return res.rows.map((r) => ({ ...r, total: D(r.total).toFixed(2) }));
   }
 
@@ -574,11 +554,7 @@ export class AssetsService {
 
   /** Catat hasil pemeriksaan fisik satu aset (tercatat di jejak audit) */
   async verify(user: AuthUser, id: string, dto: VerifyDto) {
-    const [a] = await this.db
-      .update(fixedAssets)
-      .set({ lastVerifiedAt: new Date(), verificationStatus: dto.status, verificationNote: dto.note?.trim() || null, ...(dto.location?.trim() ? { location: dto.location.trim() } : {}) })
-      .where(and(eq(fixedAssets.id, id), eq(fixedAssets.tenantId, user.tenantId), eq(fixedAssets.status, 'ACTIVE')))
-      .returning();
+    const [a] = await this.repo.updateFixedAssetsByIdAndStatus(this.db, dto, id, user.tenantId);
     if (!a) throw new NotFoundException('Aset aktif tidak ditemukan');
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'VERIFY', entity: 'FixedAsset', entityId: id, data: { status: dto.status, note: dto.note } });
     return a;
@@ -586,17 +562,12 @@ export class AssetsService {
 
   /** Penyusutan otomatis: dipanggil penjadwal untuk semua perusahaan yang punya aset berpenyusutan */
   async autoDepreciateAll(logger: Logger) {
-    const res = await this.db.execute<{ tenant_id: string }>(sql`
-      SELECT DISTINCT tenant_id FROM fixed_assets WHERE status = 'ACTIVE' AND method <> 'NONE' AND useful_life_months > 0`);
+    const res = await this.repo.queryFixedAssetForAutoDepreciateAll(this.db);
     const prev = periodOf(monthIndex(todayJakarta().slice(0, 7)) - 1);
     for (const { tenant_id: tenantId } of res.rows) {
       try {
         if (!(await this.assetSettings(tenantId)).autoDepreciation) continue;
-        const [owner] = await this.db
-          .select({ id: users.id, email: users.email })
-          .from(users)
-          .where(and(eq(users.tenantId, tenantId), eq(users.role, 'OWNER'), eq(users.isActive, true)))
-          .limit(1);
+        const [owner] = await this.repo.findUsersByRoleAndIsActive(this.db, tenantId);
         if (!owner) continue;
         const user: AuthUser = { sub: owner.id, tenantId, role: 'OWNER', email: owner.email };
         const r = await this.run(user, prev);
@@ -613,7 +584,7 @@ export class AssetsService {
 
   private async notifyAutoFailure(tenantId: string, period: string, reason: string) {
     try {
-      const owners = await this.db.select({ id: users.id }).from(users).where(and(eq(users.tenantId, tenantId), eq(users.role, 'OWNER'), eq(users.isActive, true)));
+      const owners = await this.repo.listUsersByRoleAndIsActive(this.db, tenantId);
       await this.telegram.notifyUsers(owners.map((o) => o.id), `⚠️ Penyusutan otomatis ${period} gagal: ${reason}\nBuka Aset Tetap › Penyusutan untuk menjalankannya manual.`);
     } catch {
       /* pemberitahuan opsional */

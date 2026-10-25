@@ -19,6 +19,7 @@ import { CreateSupplierPaymentDto } from './purchasing.dto';
 import { PurchaseInvoiceRepository } from './purchase-invoice.repository';
 import { PurchaseInvoicesService } from './purchase-invoices.service';
 import { insertOne, patchById } from '../../db/owned';
+import { SupplierPaymentsRepository } from './supplier-payments.repository';
 
 @Injectable()
 export class SupplierPaymentsService {
@@ -32,6 +33,7 @@ export class SupplierPaymentsService {
     private readonly fx: FxService,
     private readonly repo: PurchaseInvoiceRepository,
     private readonly invoices: PurchaseInvoicesService,
+    private readonly queries: SupplierPaymentsRepository,
   ) {}
 
   /** Pembayaran hutang: Dr Hutang Usaha | Cr Kas/Bank */
@@ -45,10 +47,7 @@ export class SupplierPaymentsService {
     if (!opts.approved) {
       const limit = await this.approvals.needs(this.db, user, 'SUPPLIER_PAYMENT', amount.toNumber());
       if (limit !== null) {
-        const [inv] = await this.db
-          .select({ n: purchaseInvoices.supplierInvoiceNo })
-          .from(purchaseInvoices)
-          .where(and(eq(purchaseInvoices.id, dto.purchaseInvoiceId), eq(purchaseInvoices.tenantId, user.tenantId)));
+        const [inv] = await this.queries.findPurchaseInvoicesById(this.db, dto.purchaseInvoiceId, user.tenantId);
         if (!inv) throw new NotFoundException('Faktur pembelian tidak ditemukan');
         const req = await this.approvals.create(this.db, user, {
           kind: 'SUPPLIER_PAYMENT',
@@ -69,9 +68,7 @@ export class SupplierPaymentsService {
       const hold = (await this.approvals.policy(this.db, user.tenantId)).bankChangeHoldDays;
       if (hold > 0) {
         const r = (
-          await this.db.execute<{ no: string; code: string }>(sql`
-          SELECT i.supplier_invoice_no AS no, s.code FROM purchase_invoices i JOIN suppliers s ON s.id = i.supplier_id
-          WHERE i.id = ${dto.purchaseInvoiceId} AND i.tenant_id = ${user.tenantId} AND s.bank_changed_at IS NOT NULL AND s.bank_changed_at > now() - (${hold} || ' days')::interval`)
+          await this.queries.queryPurchaseInvoice(this.db, dto.purchaseInvoiceId, user.tenantId, hold)
         ).rows[0];
         if (r) {
           const req = await this.approvals.create(this.db, user, {
@@ -95,9 +92,7 @@ export class SupplierPaymentsService {
       !this.approvals.isApprover(user.role) &&
       (await this.approvals.policy(this.db, user.tenantId)).firstSupplierPayment
     ) {
-      const first = await this.db.execute<{ n: number; no: string }>(sql`
-        SELECT (SELECT COUNT(*)::int FROM supplier_payments p WHERE p.tenant_id = ${user.tenantId} AND p.supplier_id = i.supplier_id AND p.status = 'POSTED') AS n, i.supplier_invoice_no AS no
-        FROM purchase_invoices i WHERE i.id = ${dto.purchaseInvoiceId} AND i.tenant_id = ${user.tenantId}`);
+      const first = await this.queries.queryPurchaseInvoiceForPay(this.db, user.tenantId, dto.purchaseInvoiceId);
       if (first.rows[0] && first.rows[0].n === 0) {
         const req = await this.approvals.create(this.db, user, {
           kind: 'SUPPLIER_PAYMENT',
@@ -114,8 +109,7 @@ export class SupplierPaymentsService {
     }
 
     return this.db.transaction(async (tx) => {
-      const locked = await tx.execute(sql`
-        SELECT id FROM purchase_invoices WHERE id = ${dto.purchaseInvoiceId} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      const locked = await this.queries.queryPurchaseInvoiceForPay2(tx, dto.purchaseInvoiceId, user.tenantId);
       if (!locked.rows.length) throw new NotFoundException('Faktur pembelian tidak ditemukan');
       const inv = await this.repo.invoiceById(tx, dto.purchaseInvoiceId);
       const supplier = await this.repo.supplierById(tx, inv.supplierId);
@@ -213,26 +207,15 @@ export class SupplierPaymentsService {
     const reason = reasonInput?.trim() ?? '';
     if (reason.length < 5) throw new BadRequestException('Alasan pembatalan wajib diisi (minimal 5 karakter)');
     return this.db.transaction(async (tx) => {
-      const [p0] = await tx
-        .select({ invoiceId: supplierPayments.purchaseInvoiceId })
-        .from(supplierPayments)
-        .where(and(eq(supplierPayments.id, id), eq(supplierPayments.tenantId, user.tenantId)));
+      const [p0] = await this.queries.findSupplierPaymentsById(tx, id, user.tenantId);
       if (!p0) throw new NotFoundException('Pembayaran tidak ditemukan');
       // urutan kunci sama dengan pay(): faktur dulu, lalu pembayaran
-      await tx.execute(
-        sql`SELECT id FROM purchase_invoices WHERE id = ${p0.invoiceId} AND tenant_id = ${user.tenantId} FOR UPDATE`,
-      );
-      await tx.execute(
-        sql`SELECT id FROM supplier_payments WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`,
-      );
+      await this.queries.queryPurchaseInvoiceForVoidPayment(tx, p0.invoiceId, user.tenantId);
+      await this.queries.querySupplierPayment(tx, id, user.tenantId);
       const p = await this.repo.paymentById(tx, id);
       if (p.status === 'VOID') throw new BadRequestException('Pembayaran ini sudah dibatalkan');
       if (!p.journalId) throw new BadRequestException('Pembayaran belum punya jurnal');
-      const matched = await tx.execute<{ n: number }>(sql`
-        SELECT (SELECT COUNT(*) FROM bank_statement_lines b
-                WHERE b.status IN ('MATCHED', 'CREATED')
-                  AND (b.journal_id = ${p.journalId} OR b.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${p.journalId})))::int
-             + (SELECT COUNT(*) FROM bank_line_extra_matches x WHERE x.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${p.journalId}))::int AS n`);
+      const matched = await this.queries.queryVoidPayment(tx, p.journalId);
       if (matched.rows[0].n > 0)
         throw new BadRequestException(
           'Pembayaran ini sudah dicocokkan dengan mutasi bank. Batalkan pencocokannya di Rekonsiliasi Bank dulu',

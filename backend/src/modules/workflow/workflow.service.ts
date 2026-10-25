@@ -12,6 +12,7 @@ import { InjectDb } from '../../db/db.module';
 import { customers, suppliers, workflowCases, workflowEvents, workflowLinks } from '../../db/schema';
 import { WorkflowSettingsDto, CaseQueryDto, CreateCaseDto, AddLinkDto, AdvanceDto, NoteDto } from './workflow.dto';
 import { findOwned, insertOne, lockOwned, patchById } from '../../db/owned';
+import { WorkflowRepository } from './workflow.repository';
 
 /** Tabel dokumen sumber tiap jenis tautan (semua ber-tenant_id) */
 const col = (c: string) => (a: string) => `${a}.${c}::text`;
@@ -92,6 +93,7 @@ export class WorkflowService {
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
+    private readonly repo: WorkflowRepository,
   ) {}
 
   async cfg(tenantId: string, db: DbOrTx = this.db): Promise<WorkflowSettings> {
@@ -138,7 +140,7 @@ export class WorkflowService {
 
   /** Status terkini semua dokumen yang ditautkan ke kasus (dibaca dari tabel sumber, tidak disalin) */
   private async liveLinks(db: DbOrTx, tenantId: string, caseId: string): Promise<LiveLink[]> {
-    const links = await db.select().from(workflowLinks).where(and(eq(workflowLinks.caseId, caseId), eq(workflowLinks.tenantId, tenantId))).orderBy(asc(workflowLinks.createdAt));
+    const links = await this.repo.listWorkflowLinksByCaseIdAndCreatedAt(db, caseId, tenantId);
     const out: LiveLink[] = [];
     for (const l of links) {
       const s = SOURCES[l.linkType as WorkflowLinkType];
@@ -165,7 +167,7 @@ export class WorkflowService {
   }
 
   async pipelines(u: AuthUser) {
-    const counts = await this.db.execute<{ pipeline: string; stage: string; n: number }>(sql`SELECT pipeline, stage, COUNT(*)::int AS n FROM workflow_cases WHERE tenant_id = ${u.tenantId} AND status = 'ACTIVE' GROUP BY pipeline, stage`);
+    const counts = await this.repo.queryWorkflowCase(this.db, u.tenantId);
     return (await this.defs(u.tenantId)).map((p) => ({
       ...p,
       stages: p.stages.map((s) => ({ ...s, count: counts.rows.find((c) => c.pipeline === p.key && c.stage === s.key)?.n ?? 0 })),
@@ -175,14 +177,7 @@ export class WorkflowService {
   async list(u: AuthUser, q: CaseQueryDto) {
     await this.sweep(u.tenantId, u.sub);
     const keys = (await this.defs(u.tenantId)).map((p) => p.key);
-    const rows = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT c.id, c.pipeline, c.number, c.title, c.stage, c.status, c.amount, c.due_date::text AS "dueDate", c.stage_entered_at AS "stageEnteredAt", c.created_at AS "createdAt", c.auto_opened AS "autoOpened",
-             cu.name AS "customerName", su.name AS "supplierName",
-             (SELECT COUNT(*)::int FROM workflow_links l WHERE l.case_id = c.id) AS "linkCount"
-      FROM workflow_cases c LEFT JOIN customers cu ON cu.id = c.customer_id LEFT JOIN suppliers su ON su.id = c.supplier_id
-      WHERE c.tenant_id = ${u.tenantId} AND c.pipeline = ANY(${sql.raw(`ARRAY[${keys.map((k) => `'${k}'`).join(',')}]::text[]`)})
-        ${q.pipeline ? sql`AND c.pipeline = ${q.pipeline}` : sql``} ${q.status ? sql`AND c.status = ${q.status}` : sql``}
-      ORDER BY c.created_at DESC LIMIT 300`);
+    const rows = await this.repo.queryWorkflowCaseForList(this.db, u, keys, q);
     return rows.rows;
   }
 
@@ -192,9 +187,7 @@ export class WorkflowService {
     if (!c) throw new NotFoundException('Kasus tidak ditemukan');
     const p = await this.pipelineOf(u.tenantId, c.pipeline);
     const links = await this.liveLinks(this.db, u.tenantId, id);
-    const events = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT e.id, e.kind, e.from_stage AS "fromStage", e.to_stage AS "toStage", e.note, e.auto, e.at, us.name AS "byName"
-      FROM workflow_events e LEFT JOIN users us ON us.id = e.by_id WHERE e.tenant_id = ${u.tenantId} AND e.case_id = ${id} ORDER BY e.id`);
+    const events = await this.repo.queryWorkflowEvent(this.db, u.tenantId, id);
     const cur = stageOf(p, c.stage)!;
     const moves = c.status === 'ACTIVE'
       ? cur.next.filter((k) => k !== 'BATAL').map((k) => {
@@ -224,7 +217,7 @@ export class WorkflowService {
    */
   async tasksFor(u: AuthUser): Promise<{ count: number; oldestDays: number }> {
     const defs = await this.defs(u.tenantId);
-    const rows = await this.db.select().from(workflowCases).where(and(eq(workflowCases.tenantId, u.tenantId), eq(workflowCases.status, 'ACTIVE')));
+    const rows = await this.repo.listWorkflowCasesByStatus(this.db, u.tenantId);
     let count = 0;
     let oldest = 0;
     for (const c of rows) {
@@ -264,16 +257,14 @@ export class WorkflowService {
 
   /** Piutang berjalan pelanggan (setelah retur) dan batas kreditnya */
   private async creditPosition(tenantId: string, customerId: string) {
-    const r = await this.db.execute<{ lim: string; ar: string }>(sql`
-      SELECT cu.credit_limit AS lim, COALESCE((SELECT SUM(i.total - i.paid_amount - i.returned_amount) FROM invoices i WHERE i.tenant_id = cu.tenant_id AND i.customer_id = cu.id AND i.status <> 'PAID'), 0) AS ar
-      FROM customers cu WHERE cu.id = ${customerId} AND cu.tenant_id = ${tenantId}`);
+    const r = await this.repo.queryCustomer(this.db, customerId, tenantId);
     return { limit: Number(r.rows[0]?.lim ?? 0), ar: Number(r.rows[0]?.ar ?? 0) };
   }
 
   async alerts(u: AuthUser) {
     const defs = await this.defs(u.tenantId);
     const out: { kind: string; severity: 'warn' | 'info'; caseId: string; number: string; message: string }[] = [];
-    const rows = await this.db.select().from(workflowCases).where(and(eq(workflowCases.tenantId, u.tenantId), eq(workflowCases.status, 'ACTIVE')));
+    const rows = await this.repo.listWorkflowCasesByStatus(this.db, u.tenantId);
     const today = Date.now();
     const rp = (v: number) => `Rp${Math.round(v).toLocaleString('id-ID')}`;
     for (const c of rows) {
@@ -296,16 +287,13 @@ export class WorkflowService {
       }
       // Dagang/Ritel/FMCG: faktur terjual di bawah harga pokok (rugi) — perlu dicek harga, diskon, atau salah input
       for (const l of links.filter((x) => x.type === 'INVOICE' && !x.dead)) {
-        const r = await this.db.execute<{ n: number; loss: string }>(sql`
-          SELECT COUNT(*)::int AS n, COALESCE(SUM((il.unit_cost * il.uom_factor - il.line_total / NULLIF(il.qty, 0)) * il.qty), 0) AS loss
-          FROM invoice_lines il JOIN invoices i ON i.id = il.invoice_id
-          WHERE i.id = ${l.docId} AND i.tenant_id = ${u.tenantId} AND il.qty > 0 AND il.unit_cost > 0 AND il.line_total / il.qty < il.unit_cost * il.uom_factor`);
+        const r = await this.repo.queryInvoiceLine(this.db, l.docId, u.tenantId);
         if (r.rows[0]?.n) out.push({ kind: 'JUAL_RUGI', severity: 'warn', caseId: c.id, number: c.number, message: `${c.number} · ${c.title}: ${r.rows[0].n} baris di faktur ${l.number} dijual di bawah harga pokok (rugi sekitar ${rp(Number(r.rows[0].loss))})` });
       }
       // Ritel/F&B: selisih kas pada sesi kasir
       const sess = links.find((l) => l.type === 'POS_SESSION' && !l.dead);
       if (sess) {
-        const r = await this.db.execute<{ difference: string | null }>(sql`SELECT difference FROM pos_sessions WHERE id = ${sess.docId} AND tenant_id = ${u.tenantId}`);
+        const r = await this.repo.queryPosSession(this.db, sess.docId, u.tenantId);
         const diff = Number(r.rows[0]?.difference ?? 0);
         if (diff !== 0) out.push({ kind: 'SELISIH_KAS', severity: 'warn', caseId: c.id, number: c.number, message: `${c.number} · ${c.title}: selisih kas ${rp(diff)} pada sesi ${sess.number} — periksa saat menghitung ulang uang` });
       }
@@ -314,7 +302,7 @@ export class WorkflowService {
   }
 
   private async event(tx: DbOrTx, tenantId: string, caseId: string, e: { kind: string; from?: string; to?: string; note?: string; by?: string; auto?: boolean }) {
-    await tx.insert(workflowEvents).values({ tenantId, caseId, kind: e.kind, fromStage: e.from ?? null, toStage: e.to ?? null, note: e.note ?? null, byId: e.by ?? null, auto: !!e.auto });
+    await this.repo.insertWorkflowEvents(tx, tenantId, caseId, e);
   }
 
   async create(u: AuthUser, dto: CreateCaseDto) {
@@ -326,11 +314,11 @@ export class WorkflowService {
     if (dto.dueDate && toDocDate(dto.dueDate) < todayJakarta()) throw new BadRequestException('Tenggat tidak boleh di masa lalu');
     return this.db.transaction(async (tx) => {
       if (dto.customerId) {
-        const [x] = await tx.select({ id: customers.id }).from(customers).where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, u.tenantId)));
+        const [x] = await this.repo.findCustomersById(tx, dto.customerId, u.tenantId);
         if (!x) throw new BadRequestException('Pelanggan tidak ditemukan');
       }
       if (dto.supplierId) {
-        const [x] = await tx.select({ id: suppliers.id }).from(suppliers).where(and(eq(suppliers.id, dto.supplierId), eq(suppliers.tenantId, u.tenantId)));
+        const [x] = await this.repo.findSuppliersById(tx, dto.supplierId, u.tenantId);
         if (!x) throw new BadRequestException('Pemasok tidak ditemukan');
       }
       return this.insertCase(tx, u.tenantId, u.sub, p, { title: dto.title.trim(), customerId: dto.customerId, supplierId: dto.supplierId, amount: dto.amount, dueDate: dto.dueDate ? toDocDate(dto.dueDate) : undefined });
@@ -411,7 +399,7 @@ export class WorkflowService {
     await this.db.transaction(async (tx) => {
       const c = await this.lock(tx, u.tenantId, id);
       const p = await this.pipelineOf(u.tenantId, c.pipeline, tx);
-      const [prev] = await tx.select().from(workflowEvents).where(and(eq(workflowEvents.caseId, id), eq(workflowEvents.toStage, c.stage))).orderBy(desc(workflowEvents.id)).limit(1);
+      const [prev] = await this.repo.findWorkflowEventsByCaseIdAndToStageAndId(tx, id, c.stage);
       if (!prev?.fromStage) throw new BadRequestException('Kasus ini belum punya tahap sebelumnya');
       const to = stageOf(p, prev.fromStage)!;
       await this.setStage(tx, c, to, u.sub, { kind: 'BACK', note: dto.note.trim() });
@@ -435,10 +423,10 @@ export class WorkflowService {
 
   /** Tautkan dokumen turunan (faktur, surat jalan, penerimaan, tagihan, ...) dari dokumen yang sudah tertaut */
   private async followLinks(tx: Tx, c: CaseRow, p: WorkflowPipeline) {
-    for (const l of await tx.select().from(workflowLinks).where(and(eq(workflowLinks.caseId, c.id), eq(workflowLinks.tenantId, c.tenantId)))) {
+    for (const l of await this.repo.listWorkflowLinksByCaseId(tx, c.id, c.tenantId)) {
       for (const f of FOLLOW[l.linkType as WorkflowLinkType] ?? []) {
         if (!p.links.includes(f.to)) continue;
-        const found = await tx.execute<{ id: string | null }>(sql.raw(f.ids(c.tenantId, l.docId)));
+        const found = await this.repo.queryFollowLinks(tx, f, c.tenantId, l.docId);
         for (const d of found.rows) {
           if (!d.id) continue;
           const s = SOURCES[f.to];
@@ -506,21 +494,7 @@ export class WorkflowService {
     if (!p) return 0;
     let opened = 0;
     // posisi stok = ada di gudang + sedang dipesan + sedang diminta; kasus hanya dibuka bila posisi ini masih di bawah minimum
-    const low = await this.db.execute<{ product_id: string; warehouse_id: string; min_qty: string; qty: string; incoming: string; sku: string; name: string; supplier_id: string | null; supplier_name: string | null }>(sql`
-      SELECT sm.product_id, sm.warehouse_id, sm.min_qty, COALESCE(sb.qty, 0) AS qty, COALESCE(po.qty, 0) + COALESCE(pr.qty, 0) AS incoming, pr0.sku, pr0.name, ls.supplier_id, ls.supplier_name
-      FROM stock_minimums sm JOIN products pr0 ON pr0.id = sm.product_id AND pr0.tenant_id = sm.tenant_id AND pr0.is_active
-      LEFT JOIN stock_balances sb ON sb.tenant_id = sm.tenant_id AND sb.product_id = sm.product_id AND sb.warehouse_id = sm.warehouse_id
-      LEFT JOIN (SELECT l.product_id, o.warehouse_id, SUM((l.qty - l.received_qty) * l.uom_factor) AS qty
-                 FROM purchase_order_lines l JOIN purchase_orders o ON o.id = l.order_id
-                 WHERE o.tenant_id = ${tenantId} AND o.status IN ('DRAFT', 'CONFIRMED') AND l.qty > l.received_qty GROUP BY 1, 2) po ON po.product_id = sm.product_id AND po.warehouse_id = sm.warehouse_id
-      LEFT JOIN (SELECT l.product_id, r.warehouse_id, SUM(l.qty * l.uom_factor) AS qty
-                 FROM purchase_request_lines l JOIN purchase_requests r ON r.id = l.request_id
-                 WHERE r.tenant_id = ${tenantId} AND r.status IN ('SUBMITTED', 'APPROVED') AND l.purchase_order_id IS NULL GROUP BY 1, 2) pr ON pr.product_id = sm.product_id AND pr.warehouse_id = sm.warehouse_id
-      LEFT JOIN LATERAL (SELECT o.supplier_id, s.name AS supplier_name FROM purchase_order_lines l JOIN purchase_orders o ON o.id = l.order_id JOIN suppliers s ON s.id = o.supplier_id
-                         WHERE o.tenant_id = sm.tenant_id AND l.product_id = sm.product_id AND o.status <> 'CANCELLED' ORDER BY o.date DESC, o.created_at DESC LIMIT 1) ls ON true
-      WHERE sm.tenant_id = ${tenantId} AND COALESCE(sb.qty, 0) + COALESCE(po.qty, 0) + COALESCE(pr.qty, 0) < sm.min_qty
-        AND NOT EXISTS (SELECT 1 FROM workflow_cases c WHERE c.tenant_id = sm.tenant_id AND c.status = 'ACTIVE' AND c.ref_key = 'RESTOCK:' || sm.product_id || ':' || sm.warehouse_id)
-      ORDER BY pr0.sku LIMIT 30`);
+    const low = await this.repo.queryStockMinimum(this.db, tenantId);
     for (const r of low.rows) {
       try {
         await this.db.transaction(async (tx) => {
@@ -532,18 +506,14 @@ export class WorkflowService {
       }
     }
     // stok sudah pulih dan belum ada dokumen: kasus ditutup
-    const open = await this.db.select().from(workflowCases).where(and(eq(workflowCases.tenantId, tenantId), eq(workflowCases.status, 'ACTIVE'), eq(workflowCases.pipeline, p.key), sql`${workflowCases.refKey} LIKE 'RESTOCK:%'`));
+    const open = await this.repo.listWorkflowCasesByStatusAndPipelineAndRefKey(this.db, tenantId, p.key);
     for (const c of open) {
       if (c.stage !== p.start) continue;
       const [, pid, wid] = (c.refKey ?? '').split(':');
-      const r = await this.db.execute<{ ok: boolean; links: number }>(sql`
-        SELECT (COALESCE((SELECT qty FROM stock_balances WHERE tenant_id = ${tenantId} AND product_id = ${pid}::uuid AND warehouse_id = ${wid}::uuid), 0)
-                + COALESCE((SELECT SUM((l.qty - l.received_qty) * l.uom_factor) FROM purchase_order_lines l JOIN purchase_orders o ON o.id = l.order_id WHERE o.tenant_id = ${tenantId} AND l.product_id = ${pid}::uuid AND o.warehouse_id = ${wid}::uuid AND o.status IN ('DRAFT', 'CONFIRMED') AND l.qty > l.received_qty), 0)
-                >= COALESCE((SELECT min_qty FROM stock_minimums WHERE tenant_id = ${tenantId} AND product_id = ${pid}::uuid AND warehouse_id = ${wid}::uuid), 0)) AS ok,
-               (SELECT COUNT(*)::int FROM workflow_links WHERE case_id = ${c.id}) AS links`);
+      const r = await this.repo.queryDiscoverRestock(this.db, tenantId, pid, wid, c.id);
       if (!r.rows[0]?.ok || r.rows[0].links > 0) continue;
       await this.db.transaction(async (tx) => {
-        const [locked] = await tx.select().from(workflowCases).where(eq(workflowCases.id, c.id)).for('update');
+        const [locked] = await this.repo.findWorkflowCasesById(tx, c.id);
         if (locked?.status !== 'ACTIVE' || locked.stage !== p.start) return;
         await this.setStage(tx, locked, stageOf(p, 'BATAL')!, null, { kind: 'CANCEL', note: 'Stok sudah di atas minimum; kasus ditutup otomatis', auto: true });
       });
@@ -561,7 +531,7 @@ export class WorkflowService {
       opened += await this.discoverRestock(tenantId, actor, defs);
     }
     let moved = 0;
-    const rows = await this.db.select({ id: workflowCases.id }).from(workflowCases).where(and(eq(workflowCases.tenantId, tenantId), eq(workflowCases.status, 'ACTIVE'))).limit(300);
+    const rows = await this.repo.listWorkflowCasesByStatusForSweep(this.db, tenantId);
     for (const r of rows) moved += await this.refreshCase(tenantId, r.id, defs);
     return { opened, moved };
   }
@@ -595,9 +565,7 @@ export class WorkflowService {
     const g = GATES[action];
     let row = (await this.db.execute<{ case_id: string }>(sql`SELECT case_id FROM workflow_links WHERE tenant_id = ${tenantId} AND link_type = ${g.link} AND doc_id = ${docId} LIMIT 1`)).rows[0];
     if (!row && g.viaPo) {
-      row = (await this.db.execute<{ case_id: string }>(sql`
-        SELECT l.case_id FROM purchase_invoices i JOIN workflow_links l ON l.tenant_id = i.tenant_id AND l.link_type = 'PURCHASE_ORDER' AND l.doc_id = i.purchase_order_id
-        WHERE i.tenant_id = ${tenantId} AND i.id = ${docId} LIMIT 1`)).rows[0];
+      row = (await this.repo.queryPurchaseInvoice(this.db, tenantId, docId)).rows[0];
     }
     if (!row) return;
     await this.refreshCase(tenantId, row.case_id);
@@ -623,12 +591,11 @@ export class WorkflowService {
 export class WorkflowScheduler implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private readonly logger = new Logger('AlurKerja');
-  constructor(@InjectDb() private readonly db: Db, private readonly svc: WorkflowService) {}
+  constructor(@InjectDb() private readonly db: Db, private readonly svc: WorkflowService,
+    private readonly repo: WorkflowRepository) {}
 
   async sweepAll() {
-    const t = await this.db.execute<{ id: string; owner: string | null }>(sql`
-      SELECT t.id, (SELECT u.id FROM users u WHERE u.tenant_id = t.id AND u.role = 'OWNER' ORDER BY u.created_at LIMIT 1) AS owner
-      FROM tenants t LIMIT 500`);
+    const t = await this.repo.queryTenant(this.db);
     for (const r of t.rows) {
       if (!r.owner) continue;
       try {

@@ -11,6 +11,7 @@ import { exchangeRates } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { RevaluationDto, UpsertRateDto } from './fx.dto';
+import { FxRepository } from './fx.repository';
 
 interface OpenItem {
   kind: 'AR' | 'AP';
@@ -29,6 +30,7 @@ export class FxService {
     @InjectDb() private readonly db: Db,
     private readonly posting: PostingService,
     private readonly audit: AuditService,
+    private readonly repo: FxRepository,
   ) {}
 
   list(tenantId: string, currency?: string) {
@@ -41,12 +43,7 @@ export class FxService {
 
   /** Kurs terbaru pada atau sebelum tanggal; kosong bila belum pernah diisi */
   async rateOn(db: DbOrTx, tenantId: string, currency: string, date: string): Promise<string | null> {
-    const [r] = await db
-      .select({ rate: exchangeRates.rate })
-      .from(exchangeRates)
-      .where(and(eq(exchangeRates.tenantId, tenantId), eq(exchangeRates.currency, currency), lte(exchangeRates.date, date)))
-      .orderBy(desc(exchangeRates.date))
-      .limit(1);
+    const [r] = await this.repo.findExchangeRatesByCurrencyAndDate(db, tenantId, currency, date);
     return r?.rate ?? null;
   }
 
@@ -79,17 +76,13 @@ export class FxService {
     if (rate.lte(0)) throw new BadRequestException('Kurs harus lebih dari 0');
     const date = toDocDate(dto.date);
     assertNotFarFuture(date, 'kurs');
-    const [row] = await this.db
-      .insert(exchangeRates)
-      .values({ tenantId: user.tenantId, currency: dto.currency, date, rate: rate.toFixed(6), note: dto.note })
-      .onConflictDoUpdate({ target: [exchangeRates.tenantId, exchangeRates.currency, exchangeRates.date], set: { rate: rate.toFixed(6), note: dto.note ?? null } })
-      .returning();
+    const [row] = await this.repo.insertExchangeRates(this.db, user.tenantId, dto, date, rate);
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'UPSERT', entity: 'ExchangeRate', entityId: row.id, data: { currency: dto.currency, date, rate: rate.toFixed(6) } });
     return row;
   }
 
   async remove(user: AuthUser, id: string) {
-    const [row] = await this.db.delete(exchangeRates).where(and(eq(exchangeRates.id, id), eq(exchangeRates.tenantId, user.tenantId))).returning();
+    const [row] = await this.repo.deleteExchangeRatesById(this.db, id, user.tenantId);
     if (!row) throw new NotFoundException('Kurs tidak ditemukan');
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'DELETE', entity: 'ExchangeRate', entityId: id });
     return { ok: true };
@@ -162,8 +155,7 @@ export class FxService {
     if (exp.missingRates.length) throw new BadRequestException(`Kurs ${exp.missingRates.join(', ')} belum ada pada atau sebelum ${date}. Isi kurs penutup dulu.`);
 
     return this.db.transaction(async (tx) => {
-      const [dup] = (await tx.execute<{ number: string }>(sql`
-        SELECT e.number FROM journal_entries e WHERE e.tenant_id = ${user.tenantId} AND e.source_type = 'FX_REVAL' AND e.date = ${date} LIMIT 1`)).rows;
+      const [dup] = (await this.repo.queryJournalEntry(tx, user.tenantId, date)).rows;
       if (dup) throw new BadRequestException(`Penilaian ulang tanggal ${date} sudah dicatat (${dup.number})`);
 
       const sum = (kind: 'AR' | 'AP') => exp.rows.filter((r) => r.kind === kind).reduce<Dec>((a, r) => a.plus(r.unrealized ?? 0), ZERO);

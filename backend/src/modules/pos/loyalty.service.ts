@@ -12,6 +12,7 @@ import { InjectDb } from '../../db/db.module';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { LoyaltySettingsDto, AdjustDto } from './loyalty.dto';
+import { LoyaltyRepository } from './loyalty.repository';
 
 const SECTION = 'loyalty';
 
@@ -26,6 +27,7 @@ export class LoyaltyService {
     private readonly audit: AuditService,
     private readonly settingsSvc: SettingsService,
     private readonly posting: PostingService,
+    private readonly repo: LoyaltyRepository,
   ) {}
 
   settings(tenantId: string, db: DbOrTx = this.db): Promise<LoyaltySettings> {
@@ -46,22 +48,19 @@ export class LoyaltyService {
 
   /** Saldo poin pelanggan (jumlah seluruh perubahan) */
   async balance(db: DbOrTx, tenantId: string, customerId: string) {
-    const r = await db.execute<{ p: string }>(sql`SELECT COALESCE(SUM(points), 0) AS p FROM loyalty_ledger WHERE tenant_id = ${tenantId} AND customer_id = ${customerId}`);
+    const r = await this.repo.queryLoyaltyLedger(db, tenantId, customerId);
     return num(r.rows[0].p);
   }
 
   /** Kunci baris pelanggan agar tukar/perolehan poin bersamaan berjalan bergiliran */
   async lockCustomer(tx: Tx, tenantId: string, customerId: string) {
-    const r = await tx.execute<{ id: string; name: string }>(sql`SELECT id, name FROM customers WHERE id = ${customerId} AND tenant_id = ${tenantId} FOR UPDATE`);
+    const r = await this.repo.queryCustomer(tx, customerId, tenantId);
     if (!r.rows.length) throw new BadRequestException('Pelanggan tidak ditemukan');
     return r.rows[0];
   }
 
   private async lots(tx: DbOrTx, tenantId: string, customerId: string): Promise<Lot[]> {
-    const r = await tx.execute<{ id: string; remaining: number; value: string; points: number }>(sql`
-      SELECT id, remaining, value, points FROM loyalty_ledger
-      WHERE tenant_id = ${tenantId} AND customer_id = ${customerId} AND remaining > 0
-      ORDER BY expires_on NULLS LAST, created_at, id`);
+    const r = await this.repo.queryLoyaltyLedgerForLots(tx, tenantId, customerId);
     return r.rows;
   }
 
@@ -73,7 +72,7 @@ export class LoyaltyService {
       if (need <= 0) break;
       const take = Math.min(need, lot.remaining);
       value = value.plus(D(lot.value).times(take).div(lot.points));
-      await tx.execute(sql`UPDATE loyalty_ledger SET remaining = remaining - ${take} WHERE id = ${lot.id}`);
+      await this.repo.queryConsume(tx, take, lot.id);
       need -= take;
     }
     if (need > 0) throw new BadRequestException('Poin tidak cukup');
@@ -109,7 +108,7 @@ export class LoyaltyService {
     for (const lot of due) {
       const v = money(D(lot.value).times(lot.remaining).div(lot.points));
       await tx.execute(sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, note, created_by_id) VALUES (${user.tenantId}, ${customerId}, 'EXPIRE', ${-lot.remaining}, ${v.negated().toFixed(2)}, 'Poin kedaluwarsa', ${user.sub ?? null})`);
-      await tx.execute(sql`UPDATE loyalty_ledger SET remaining = 0 WHERE id = ${lot.id}`);
+      await this.repo.queryExpireLots(tx, lot.id);
       total = total.plus(v);
       pts += lot.remaining;
     }
@@ -146,7 +145,7 @@ export class LoyaltyService {
 
   /** Retur transaksi: balik poin yang diperoleh dan kembalikan poin yang dipakai (porsi `ratio` dari transaksi) */
   async returnTx(tx: Tx, user: AuthUser, p: { customerId: string; orderId: string; earned: number; redeemed: number; redeemedValue: string; ratio: number; final: boolean; settings: LoyaltySettings }) {
-    const prior = (await tx.execute<{ kind: string; p: string; v: string }>(sql`SELECT kind, COALESCE(SUM(points), 0) AS p, COALESCE(SUM(value), 0) AS v FROM loyalty_ledger WHERE order_id = ${p.orderId} AND kind IN ('REVERSE', 'REFUND') GROUP BY kind`)).rows;
+    const prior = (await this.repo.queryLoyaltyLedgerForReturnTx(tx, p.orderId)).rows;
     const sumOf = (k: string) => prior.find((x) => x.kind === k);
     await this.lockCustomer(tx, user.tenantId, p.customerId);
     // poin yang diperoleh dibalik (saldo boleh menjadi negatif bila poinnya sudah terpakai; tampil di kontrol)
@@ -155,12 +154,12 @@ export class LoyaltyService {
       const done = -num(sumOf('REVERSE')?.p);
       const pts = p.final ? p.earned - done : Math.round(p.earned * p.ratio);
       if (pts > 0) {
-        const earnRow = (await tx.execute<{ value: string; points: number }>(sql`SELECT value, points FROM loyalty_ledger WHERE order_id = ${p.orderId} AND kind = 'EARN'`)).rows[0];
+        const earnRow = (await this.repo.queryLoyaltyLedgerForReturnTx2(tx, p.orderId)).rows[0];
         const v = money(D(earnRow.value).times(pts).div(earnRow.points));
         // kurangi dari lot yang sama bila masih ada sisa, selebihnya langsung mengurangi saldo
-        const lotLeft = (await tx.execute<{ id: string; remaining: number }>(sql`SELECT id, remaining FROM loyalty_ledger WHERE order_id = ${p.orderId} AND kind = 'EARN' FOR UPDATE`)).rows[0];
+        const lotLeft = (await this.repo.queryLoyaltyLedgerForReturnTx3(tx, p.orderId)).rows[0];
         const fromLot = Math.min(pts, lotLeft?.remaining ?? 0);
-        if (fromLot > 0) await tx.execute(sql`UPDATE loyalty_ledger SET remaining = remaining - ${fromLot} WHERE id = ${lotLeft.id}`);
+        if (fromLot > 0) await this.repo.queryReturnTx(tx, fromLot, lotLeft.id);
         await tx.execute(sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, order_id, note, created_by_id) VALUES (${user.tenantId}, ${p.customerId}, 'REVERSE', ${-pts}, ${v.negated().toFixed(2)}, ${p.orderId}, 'Retur transaksi', ${user.sub})`);
         reverseValue = v;
       }
@@ -222,14 +221,14 @@ export class LoyaltyService {
   }
 
   async member(tenantId: string, customerId: string) {
-    const c = (await this.db.execute<{ id: string; code: string; name: string; phone: string | null }>(sql`SELECT id, code, name, phone FROM customers WHERE id = ${customerId} AND tenant_id = ${tenantId}`)).rows[0];
+    const c = (await this.repo.queryCustomerForMember(this.db, customerId, tenantId)).rows[0];
     if (!c) throw new NotFoundException('Pelanggan tidak ditemukan');
     const s = await this.settings(tenantId);
     const raw = await this.balance(this.db, tenantId, customerId);
-    const stale = num((await this.db.execute<{ p: string }>(sql`SELECT COALESCE(SUM(remaining), 0) AS p FROM loyalty_ledger WHERE tenant_id = ${tenantId} AND customer_id = ${customerId} AND remaining > 0 AND expires_on IS NOT NULL AND expires_on <= ${todayJakarta()}`)).rows[0].p);
+    const stale = num((await this.repo.queryLoyaltyLedgerForMember(this.db, tenantId, customerId)).rows[0].p);
     const balance = raw - stale; // poin yang sudah lewat tanggal tidak ditampilkan sebagai tersedia
-    const expiring = (await this.db.execute<{ expires_on: string; remaining: number }>(sql`SELECT expires_on, remaining FROM loyalty_ledger WHERE tenant_id = ${tenantId} AND customer_id = ${customerId} AND remaining > 0 AND expires_on IS NOT NULL ORDER BY expires_on LIMIT 5`)).rows;
-    const history = (await this.db.execute(sql`SELECT kind, points, value, order_id AS "orderId", note, created_at AS "createdAt" FROM loyalty_ledger WHERE tenant_id = ${tenantId} AND customer_id = ${customerId} ORDER BY created_at DESC, id DESC LIMIT 100`)).rows;
+    const expiring = (await this.repo.queryLoyaltyLedgerForMember2(this.db, tenantId, customerId)).rows;
+    const history = (await this.repo.queryLoyaltyLedgerForMember3(this.db, tenantId, customerId)).rows;
     return { customer: c, balance, expiredPending: stale, valueRp: balance * s.pointValueRp, expiring, history };
   }
 
@@ -237,24 +236,20 @@ export class LoyaltyService {
     const term = q.trim();
     if (term.length < 2) return [];
     const like = `%${term}%`;
-    const r = await this.db.execute(sql`
-      SELECT c.id, c.code, c.name, c.phone, (COALESCE((SELECT SUM(l.points) FROM loyalty_ledger l WHERE l.customer_id = c.id), 0) - COALESCE((SELECT SUM(l.remaining) FROM loyalty_ledger l WHERE l.customer_id = c.id AND l.remaining > 0 AND l.expires_on IS NOT NULL AND l.expires_on <= ${todayJakarta()}), 0))::int AS balance
-      FROM customers c WHERE c.tenant_id = ${tenantId} AND c.is_active AND (c.name ILIKE ${like} OR c.code ILIKE ${like} OR c.phone ILIKE ${like})
-      ORDER BY c.name LIMIT 20`);
+    const r = await this.repo.queryCustomerForLookup(this.db, tenantId, like);
     return r.rows;
   }
 
   /** Ringkasan kewajiban dan kontrol */
   async summary(tenantId: string) {
     const s = await this.settings(tenantId);
-    const tot = (await this.db.execute<{ points: string; value: string; members: string }>(sql`SELECT COALESCE(SUM(points), 0) AS points, COALESCE(SUM(value), 0) AS value, COUNT(DISTINCT customer_id) AS members FROM loyalty_ledger WHERE tenant_id = ${tenantId}`)).rows[0];
-    const gl = (await this.db.execute<{ bal: string }>(sql`
-      SELECT COALESCE(SUM(l.credit - l.debit), 0) AS bal FROM journal_lines l JOIN accounts a ON a.id = l.account_id WHERE a.tenant_id = ${tenantId} AND a.system_key = 'LOYALTY_LIABILITY'`)).rows[0];
+    const tot = (await this.repo.queryLoyaltyLedgerForSummary(this.db, tenantId)).rows[0];
+    const gl = (await this.repo.queryJournalLine(this.db, tenantId)).rows[0];
     const today = todayJakarta();
-    const dueNow = (await this.db.execute<{ n: string; p: string }>(sql`SELECT COUNT(*) AS n, COALESCE(SUM(remaining), 0) AS p FROM loyalty_ledger WHERE tenant_id = ${tenantId} AND remaining > 0 AND expires_on IS NOT NULL AND expires_on <= ${today}`)).rows[0];
-    const soon = (await this.db.execute<{ p: string }>(sql`SELECT COALESCE(SUM(remaining), 0) AS p FROM loyalty_ledger WHERE tenant_id = ${tenantId} AND remaining > 0 AND expires_on > ${today} AND expires_on <= (${today}::date + 30)`)).rows[0];
-    const negative = (await this.db.execute(sql`SELECT c.id, c.name, SUM(l.points)::int AS balance FROM loyalty_ledger l JOIN customers c ON c.id = l.customer_id WHERE l.tenant_id = ${tenantId} GROUP BY c.id, c.name HAVING SUM(l.points) < 0 ORDER BY SUM(l.points) LIMIT 20`)).rows;
-    const adjustments = (await this.db.execute(sql`SELECT c.name AS customer, l.points, l.note, l.created_at AS "createdAt" FROM loyalty_ledger l JOIN customers c ON c.id = l.customer_id WHERE l.tenant_id = ${tenantId} AND l.kind = 'ADJUST' AND l.created_at > now() - interval '30 days' ORDER BY l.created_at DESC LIMIT 20`)).rows;
+    const dueNow = (await this.repo.queryLoyaltyLedgerForSummary2(this.db, tenantId, today)).rows[0];
+    const soon = (await this.repo.queryLoyaltyLedgerForSummary3(this.db, tenantId, today)).rows[0];
+    const negative = (await this.repo.queryLoyaltyLedgerForSummary4(this.db, tenantId)).rows;
+    const adjustments = (await this.repo.queryLoyaltyLedgerForSummary5(this.db, tenantId)).rows;
     const ledgerValue = money(D(tot.value));
     const glValue = money(D(gl.bal));
     return {

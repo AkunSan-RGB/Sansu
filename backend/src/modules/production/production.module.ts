@@ -9,11 +9,14 @@ import { QcService } from './qc.service';
 import { ProductionController } from './production.controller';
 import { ProductionService } from './production.service';
 import { ProductionRepository } from './production.repository';
+import { ManufacturingRepository } from './manufacturing.repository';
+import { WorkCentersRepository } from './work-centers.repository';
+import { QcRepository } from './qc.repository';
 
 @Module({
   imports: [AccountingModule, InventoryModule],
   controllers: [ProductionController, WorkCenterController, QcController],
-  providers: [ProductionRepository, ProductionService, ManufacturingService, WorkCenterService, QcService],
+  providers: [QcRepository, WorkCentersRepository, ManufacturingRepository, ProductionRepository, ProductionService, ManufacturingService, WorkCenterService, QcService],
   exports: [QcService],
 })
 export class ProductionModule {}

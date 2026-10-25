@@ -19,6 +19,7 @@ import { UtilityService } from './utility.service';
 import { MeterRowDto, IngestKeyDto, CounterPayDto, RemitDto, DecideDto } from './utility-field.dto';
 import { PERIOD } from './utility-field.shared';
 import { insertOne, patchById } from '../../db/owned';
+import { UtilityFieldRepository } from './utility-field.repository';
 
 const hash = (k: string) => createHash('sha256').update(k).digest('hex');
 
@@ -37,11 +38,12 @@ export class UtilityFieldService {
     private readonly audit: AuditService,
     private readonly posting: PostingService,
     private readonly storage: StorageService,
+    private readonly repo: UtilityFieldRepository,
   ) {}
 
   /** Cari sambungan menurut nomor (kunci unik per perusahaan) */
   private async idsByNumber(tenantId: string, numbers: string[]) {
-    const r = await this.db.execute<{ id: string; number: string }>(sql`SELECT id, number FROM utility_connections WHERE tenant_id = ${tenantId} AND number IN (${sql.join([...new Set(numbers)].map((n) => sql`${n}`), sql`, `)})`);
+    const r = await this.repo.queryUtilityConnection(this.db, tenantId, numbers);
     return new Map(r.rows.map((x) => [x.number, x.id]));
   }
 
@@ -57,7 +59,7 @@ export class UtilityFieldService {
       }
       // alat yang mengulang kirim (jaringan putus) tidak dianggap gagal bila angkanya sama dengan yang sudah tercatat dari jalur yang sama
       if (source === 'API') {
-        const dup = await this.db.execute(sql`SELECT 1 FROM utility_readings WHERE connection_id = ${connectionId} AND period = ${r.period} AND status <> 'REJECTED' AND source = 'API' AND current = ${r.current}::numeric LIMIT 1`);
+        const dup = await this.repo.queryUtilityReading(this.db, connectionId, r.period, r.current);
         if (dup.rows.length) {
           results.push({ row: i + 1, connectionNumber: r.connectionNumber, ok: true, duplicate: true });
           continue;
@@ -93,11 +95,7 @@ export class UtilityFieldService {
     return { ...row, key, warning: 'Simpan kunci ini sekarang. Kunci tidak bisa ditampilkan lagi.' };
   }
   async revokeKey(u: AuthUser, id: string) {
-    const [row] = await this.db
-      .update(utilityIngestKeys)
-      .set({ revokedAt: new Date() })
-      .where(and(eq(utilityIngestKeys.id, id), eq(utilityIngestKeys.tenantId, u.tenantId), isNull(utilityIngestKeys.revokedAt)))
-      .returning({ id: utilityIngestKeys.id, name: utilityIngestKeys.name });
+    const [row] = await this.repo.updateUtilityIngestKeysByIdAndRevokedAtAndName(this.db, id, u.tenantId);
     if (!row) throw new NotFoundException('Kunci tidak ditemukan atau sudah dicabut');
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'REVOKE', entity: 'UtilityIngestKey', entityId: id, data: { name: row.name } });
     return { ok: true };
@@ -107,22 +105,13 @@ export class UtilityFieldService {
   async counterSearch(tenantId: string, q: string) {
     const like = `%${q.trim()}%`;
     if (q.trim().length < 2) return [];
-    const r = await this.db.execute(sql`
-      SELECT i.id AS "invoiceId", i.number AS "invoiceNumber", c.number AS "connectionNumber", cu.name AS "customerName", c.address, b.period,
-             (i.total - i.paid_amount - i.returned_amount) AS outstanding, i.due_date AS "dueDate"
-      FROM utility_bills b
-      JOIN invoices i ON i.id = b.invoice_id
-      JOIN utility_connections c ON c.id = b.connection_id
-      JOIN customers cu ON cu.id = c.customer_id
-      WHERE b.tenant_id = ${tenantId} AND i.status IN ('UNPAID','PARTIAL') AND i.total - i.paid_amount - i.returned_amount > 0
-        AND (c.number ILIKE ${like} OR cu.name ILIKE ${like} OR i.number ILIKE ${like} OR c.meter_no ILIKE ${like})
-      ORDER BY i.due_date LIMIT 50`);
+    const r = await this.repo.queryUtilityBill(this.db, tenantId, like);
     return r.rows;
   }
 
   /** Terima pembayaran tunai di loket: pelunasan biasa + catatan penerimaan milik petugas */
   async counterPay(u: AuthUser, dto: CounterPayDto) {
-    const [bill] = await this.db.select({ id: utilityBills.id }).from(utilityBills).where(and(eq(utilityBills.invoiceId, dto.invoiceId), eq(utilityBills.tenantId, u.tenantId)));
+    const [bill] = await this.repo.findUtilityBillsByInvoiceId(this.db, dto.invoiceId, u.tenantId);
     if (!bill) throw new BadRequestException('Faktur ini bukan tagihan utilitas');
     const method = dto.method ?? 'CASH';
     let receipt: { id: string; amount: string } | undefined;
@@ -140,11 +129,7 @@ export class UtilityFieldService {
 
   /** Penerimaan loket petugas ini yang belum disetor */
   async openReceipts(u: AuthUser) {
-    const rows = await this.db
-      .select()
-      .from(utilityCounterReceipts)
-      .where(and(eq(utilityCounterReceipts.tenantId, u.tenantId), eq(utilityCounterReceipts.collectorId, u.sub), eq(utilityCounterReceipts.method, 'CASH'), isNull(utilityCounterReceipts.remittanceId)))
-      .orderBy(utilityCounterReceipts.receivedAt);
+    const rows = await this.repo.listUtilityCounterReceiptsByCollectorIdAndMethodAndRemittanceId(this.db, u.tenantId, u.sub);
     return { items: rows, expected: rows.reduce((a, r) => a.plus(r.amount), D(0)).toFixed(2) };
   }
 
@@ -154,21 +139,18 @@ export class UtilityFieldService {
     const counted = money(dto.counted);
     if (counted.lt(0)) throw new BadRequestException('Jumlah setoran tidak valid');
     await this.db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT id FROM utility_counter_receipts WHERE tenant_id = ${u.tenantId} AND collector_id = ${u.sub} AND method = 'CASH' AND remittance_id IS NULL FOR UPDATE`);
-      const rows = await tx
-        .select()
-        .from(utilityCounterReceipts)
-        .where(and(eq(utilityCounterReceipts.tenantId, u.tenantId), eq(utilityCounterReceipts.collectorId, u.sub), eq(utilityCounterReceipts.method, 'CASH'), isNull(utilityCounterReceipts.remittanceId)));
+      await this.repo.queryUtilityCounterReceipt(tx, u.tenantId, u.sub);
+      const rows = await this.repo.listUtilityCounterReceiptsByCollectorIdAndMethodAndRemittanceIdForRemit(tx, u.tenantId, u.sub);
       if (!rows.length) throw new BadRequestException('Tidak ada penerimaan loket yang perlu disetor');
       const expected = rows.reduce((a, r) => a.plus(r.amount), D(0));
       const diff = counted.minus(expected);
       if (!diff.isZero() && (dto.note ?? '').trim().length < 5) throw new BadRequestException(`Ada selisih ${diff.toFixed(2)} antara hitungan fisik dan catatan sistem; tulis penjelasannya.`);
       const number = await this.seq.next(tx, u.tenantId, 'UTILITY_REMITTANCE', date);
       const rem = await insertOne(tx, utilityRemittances, { tenantId: u.tenantId, number, date, collectorId: u.sub, expected: expected.toFixed(2), counted: counted.toFixed(2), difference: diff.toFixed(2), receiptCount: rows.length, note: dto.note?.trim() || null });
-      await tx.update(utilityCounterReceipts).set({ remittanceId: rem.id }).where(sql`${utilityCounterReceipts.id} IN (${sql.join(rows.map((r) => sql`${r.id}::uuid`), sql`, `)})`);
+      await this.repo.updateUtilityCounterReceiptsById(tx, rem.id, rows);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityRemittance', entityId: rem.id, data: { number, expected: rem.expected, counted: rem.counted, difference: rem.difference } });
     });
-    const [latest] = await this.db.select().from(utilityRemittances).where(and(eq(utilityRemittances.tenantId, u.tenantId), eq(utilityRemittances.collectorId, u.sub))).orderBy(desc(utilityRemittances.createdAt)).limit(1);
+    const [latest] = await this.repo.findUtilityRemittancesByCollectorIdAndCreatedAt(this.db, u.tenantId, u.sub);
     return latest;
   }
 
@@ -179,7 +161,7 @@ export class UtilityFieldService {
   /** Konfirmasi (atau sengketakan) setoran oleh orang lain dari penyetor */
   async decide(u: AuthUser, id: string, dto: DecideDto) {
     await this.db.transaction(async (tx) => {
-      const r = await tx.execute(sql`SELECT * FROM utility_remittances WHERE id = ${id} AND tenant_id = ${u.tenantId} FOR UPDATE`);
+      const r = await this.repo.queryUtilityRemittance(tx, id, u.tenantId);
       const rem = r.rows[0] as unknown as { status: string; collector_id: string; difference: string; number: string; counted: string; date: string } | undefined;
       if (!rem) throw new NotFoundException('Setoran tidak ditemukan');
       if (rem.status !== 'SUBMITTED') throw new BadRequestException('Setoran ini sudah diputuskan');
@@ -212,17 +194,9 @@ export class UtilityFieldService {
 
   /** Kontrol loket: pembayaran tunai atas tagihan utilitas yang tidak tercatat sebagai penerimaan loket, setoran lama belum dikonfirmasi, setoran berselisih */
   async counterControls(tenantId: string) {
-    const outside = await this.db.execute(sql`
-      SELECT p.number, p.date, p.amount, i.number AS "invoiceNumber"
-      FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN utility_bills b ON b.invoice_id = i.id
-      WHERE p.tenant_id = ${tenantId} AND p.notes LIKE 'Loket%'
-        AND NOT EXISTS (SELECT 1 FROM utility_counter_receipts r WHERE r.payment_id = p.id)
-      ORDER BY p.date DESC LIMIT 100`);
-    const stale = await this.db.execute(sql`
-      SELECT collector_id AS "collectorId", count(*)::int AS count, sum(amount) AS amount, min(received_at) AS since
-      FROM utility_counter_receipts WHERE tenant_id = ${tenantId} AND method = 'CASH' AND remittance_id IS NULL AND received_at < now() - interval '1 day'
-      GROUP BY collector_id`);
-    const pending = await this.db.execute(sql`SELECT number, date, difference FROM utility_remittances WHERE tenant_id = ${tenantId} AND status = 'SUBMITTED' AND created_at < now() - interval '2 days' ORDER BY date`);
+    const outside = await this.repo.queryPayment(this.db, tenantId);
+    const stale = await this.repo.queryUtilityCounterReceiptForCounterControls(this.db, tenantId);
+    const pending = await this.repo.queryUtilityRemittanceForCounterControls(this.db, tenantId);
     const mismatch = await this.db.execute(sql`SELECT number, date, difference, status FROM utility_remittances WHERE tenant_id = ${tenantId} AND difference <> 0 AND date >= ${addMonths()} ORDER BY date DESC LIMIT 50`);
     return { receiptsWithoutRecord: outside.rows, unremittedOverOneDay: stale.rows, remittancesNotConfirmed: pending.rows, remittancesWithDifference: mismatch.rows };
   }
@@ -230,19 +204,13 @@ export class UtilityFieldService {
   /** Daftar kerja petugas lapangan: sambungan yang belum dicatat periode ini, beserta koordinat pelanggan bila ada */
   async fieldRoute(tenantId: string, period: string) {
     if (!PERIOD.test(period)) throw new BadRequestException('Periode tidak valid (YYYY-MM)');
-    const r = await this.db.execute(sql`
-      SELECT c.id, c.number, c.meter_no AS "meterNo", c.address, cu.name AS "customerName", cu.geo_lat AS lat, cu.geo_lng AS lng, t.unit,
-             COALESCE((SELECT r.current FROM utility_readings r WHERE r.connection_id = c.id AND r.status <> 'REJECTED' ORDER BY r.period DESC LIMIT 1), c.initial_reading) AS previous
-      FROM utility_connections c JOIN customers cu ON cu.id = c.customer_id JOIN utility_tariffs t ON t.id = c.tariff_id
-      WHERE c.tenant_id = ${tenantId} AND c.status = 'ACTIVE' AND t.metered AND to_char(c.installed_at, 'YYYY-MM') <= ${period}
-        AND NOT EXISTS (SELECT 1 FROM utility_readings r WHERE r.connection_id = c.id AND r.period = ${period} AND r.status <> 'REJECTED')
-      ORDER BY c.address LIMIT 1000`);
+    const r = await this.repo.queryUtilityConnectionForFieldRoute(this.db, tenantId, period);
     return r.rows;
   }
 
   /** Foto meter satu pencatatan (tidak ikut daftar agar ringan) */
   async photo(tenantId: string, id: string) {
-    const r = await this.db.execute<{ photo: string | null }>(sql`SELECT photo FROM utility_readings WHERE id = ${id} AND tenant_id = ${tenantId}`);
+    const r = await this.repo.queryUtilityReadingForPhoto(this.db, id, tenantId);
     if (!r.rows.length) throw new NotFoundException('Pencatatan tidak ditemukan');
     return { photo: await this.storage.load(tenantId, r.rows[0].photo) };
   }

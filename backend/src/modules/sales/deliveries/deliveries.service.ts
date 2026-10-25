@@ -26,6 +26,7 @@ import { PostingService } from '../../accounting/posting.service';
 import { StockService } from '../../inventory/stock.service';
 import { SalesOrdersService } from '../orders/sales-orders.service';
 import { insertOne, patchById } from '../../../db/owned';
+import { DeliveriesRepository } from './deliveries.repository';
 
 type OrderWithLines = Awaited<ReturnType<SalesOrdersService['lockOrder']>>;
 
@@ -40,6 +41,7 @@ export class DeliveriesService {
     private readonly audit: AuditService,
     private readonly workflow: WorkflowService,
     private readonly approvals: ApprovalsService,
+    private readonly repo: DeliveriesRepository,
   ) {}
 
   /** Kirim barang atas pesanan CONFIRMED: stok keluar, HPP dijurnal, pesanan → DELIVERED */
@@ -56,7 +58,7 @@ export class DeliveriesService {
       if (order.status !== 'CONFIRMED') {
         throw new BadRequestException(`Pesanan berstatus ${order.status}; hanya pesanan CONFIRMED yang bisa dikirim`);
       }
-      const [customer] = await tx.select().from(customers).where(eq(customers.id, order.customerId));
+      const [customer] = await this.repo.findCustomersById(tx, order.customerId);
       const number = await this.seq.next(tx, user.tenantId, 'DELIVERY', date);
       const delivery = await insertOne(tx, deliveryOrders, {
           tenantId: user.tenantId,
@@ -85,15 +87,7 @@ export class DeliveriesService {
           date,
         });
         cogs = cogs.plus(moved.value);
-        await tx.insert(deliveryOrderLines).values({
-          deliveryId: delivery.id,
-          orderLineId: line.id,
-          productId: line.productId,
-          uom: line.uom,
-          uomFactor: line.uomFactor,
-          qty: qty.toFixed(4),
-          unitCost: moved.unitCost.toFixed(4),
-        });
+        await this.repo.insertDeliveryOrderLines(tx, delivery.id, line.id, line.productId, line.uom, line.uomFactor, qty, moved.unitCost);
       }
       complete = order.lines.every((l) => D(remaining.get(l.id) ?? 0).minus(ship.find((x) => x.line.id === l.id)?.qty ?? 0).lte(0));
       cogs = money(cogs);
@@ -127,9 +121,7 @@ export class DeliveriesService {
 
   /** Sisa yang belum dikirim per baris pesanan (pesanan dikurangi surat jalan aktif) */
   async remainingQty(db: Db | Tx, orderId: string, lines: { id: string; qty: string }[]) {
-    const r = await db.execute<{ order_line_id: string; q: string }>(sql`
-      SELECT dl.order_line_id::text, SUM(dl.qty)::text AS q FROM delivery_order_lines dl JOIN delivery_orders d ON d.id = dl.delivery_id
-      WHERE d.sales_order_id = ${orderId} AND d.status = 'DELIVERED' GROUP BY dl.order_line_id`);
+    const r = await this.repo.queryDeliveryOrderLine(db, orderId);
     const sent = new Map(r.rows.map((x) => [x.order_line_id, D(x.q)]));
     return new Map(lines.map((l) => [l.id, D(l.qty).minus(sent.get(l.id) ?? 0)]));
   }
@@ -172,7 +164,7 @@ export class DeliveriesService {
     if (!this.approvals.isApprover(user.role) && (dto.reason?.trim().length ?? 0) < 5) throw new BadRequestException('Isi alasan pembatalan surat jalan (minimal 5 huruf)');
     let dnNumber = '';
     await this.db.transaction(async (tx) => {
-      const locked = await tx.execute(sql`SELECT id FROM delivery_orders WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      const locked = await this.repo.queryDeliveryOrder(tx, id, user.tenantId);
       if (!locked.rows.length) throw new NotFoundException('Surat jalan tidak ditemukan');
       const delivery = await tx.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.id, id), with: { lines: true } });
       if (!delivery) throw new NotFoundException('Surat jalan tidak ditemukan');
@@ -180,9 +172,7 @@ export class DeliveriesService {
       if (delivery.invoiceId) throw new BadRequestException('Surat jalan sudah difakturkan; koreksi lewat retur penjualan');
       await this.orders.lockOrder(tx, user.tenantId, delivery.salesOrderId);
       for (const l of delivery.lines) {
-        const wd = await tx.execute<{ wu: string }>(sql`
-          SELECT COALESCE(SUM(-writedown_value) / NULLIF(SUM(-qty), 0), 0) AS wu FROM stock_moves
-          WHERE ref_type = 'DELIVERY' AND ref_id = ${delivery.id} AND product_id = ${l.productId} AND type = 'SALE'`);
+        const wd = await this.repo.queryStockMove(tx, delivery.id, l.productId);
         await this.stock.move(tx, {
           tenantId: user.tenantId,
           productId: l.productId,
@@ -299,7 +289,7 @@ export class DeliveriesService {
     let orderId = ref.orderId;
     let invoiceId = ref.invoiceId;
     if (!orderId && invoiceId) {
-      const r = await this.db.execute<{ sales_order_id: string | null }>(sql`SELECT sales_order_id FROM invoices WHERE id = ${invoiceId} AND tenant_id = ${tenantId}`);
+      const r = await this.repo.queryInvoice(this.db, invoiceId, tenantId);
       if (!r.rows.length) throw new NotFoundException('Faktur tidak ditemukan');
       orderId = r.rows[0].sales_order_id ?? undefined;
     }

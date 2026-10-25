@@ -17,6 +17,7 @@ import { PostingService } from '../accounting/posting.service';
 import { StockAdjustmentDto, StockQueryDto } from './dto/inventory.dto';
 import { StockService } from './stock.service';
 import { ReferenceRepository } from '../../db/reference.repository';
+import { InventoryRepository } from './inventory.repository';
 
 @Injectable()
 export class InventoryService {
@@ -28,33 +29,13 @@ export class InventoryService {
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: InventoryRepository,
   ) {}
 
   async balances(tenantId: string, q: StockQueryDto, u?: AuthUser) {
     if (q.warehouseId) assertWarehouseAccess(u, q.warehouseId);
     const allowed = allowedWarehouses(u);
-    const rows = await this.db
-      .select({
-        productId: stockBalances.productId,
-        warehouseId: stockBalances.warehouseId,
-        qty: stockBalances.qty,
-        avgCost: stockBalances.avgCost,
-        sku: products.sku,
-        productName: products.name,
-        baseUom: products.baseUom,
-        warehouseCode: warehouses.code,
-      })
-      .from(stockBalances)
-      .innerJoin(products, eq(products.id, stockBalances.productId))
-      .innerJoin(warehouses, eq(warehouses.id, stockBalances.warehouseId))
-      .where(
-        and(
-          eq(stockBalances.tenantId, tenantId),
-          q.warehouseId ? eq(stockBalances.warehouseId, q.warehouseId) : allowed ? inArray(stockBalances.warehouseId, allowed) : undefined,
-          q.productId ? eq(stockBalances.productId, q.productId) : undefined,
-        ),
-      )
-      .orderBy(products.sku);
+    const rows = await this.repo.listStockBalancesWithProductsAndWarehousesByWarehouseIdAndProductId(this.db, tenantId, q, allowed);
     return rows.map((r) => ({ ...r, value: D(r.qty).times(r.avgCost).toFixed(2) }));
   }
 
@@ -87,10 +68,7 @@ export class InventoryService {
       if (wh.kind !== 'MAIN' && !opts.special) throw new BadRequestException('Gudang konsinyasi/mobil hanya dipakai lewat menu Konsinyasi / Kanvas; koreksi stoknya lewat stock opname gudang itu');
 
       const productIds = [...new Set(dto.lines.map((l) => l.productId))];
-      const found = await tx
-        .select({ id: products.id })
-        .from(products)
-        .where(and(eq(products.tenantId, user.tenantId), inArray(products.id, productIds)));
+      const found = await this.repo.listProductsById(tx, user.tenantId, productIds);
       if (found.length !== productIds.length) throw new BadRequestException('Ada produk yang tidak ditemukan');
 
       const id = randomUUID();
@@ -101,10 +79,7 @@ export class InventoryService {
       const outs: { productId: string; value: Dec }[] = [];
 
       // Penyesuaian masuk: harga pokok yang diketik dibandingkan HPP rata-rata stok saat ini (anti penggelembungan nilai persediaan)
-      const bal = await tx
-        .select({ productId: stockBalances.productId, avg: stockBalances.avgCost })
-        .from(stockBalances)
-        .where(and(eq(stockBalances.tenantId, user.tenantId), eq(stockBalances.warehouseId, dto.warehouseId), inArray(stockBalances.productId, productIds)));
+      const bal = await this.repo.listStockBalancesByWarehouseIdAndProductId(tx, user.tenantId, dto.warehouseId, productIds);
       const avgBefore = new Map(bal.map((b) => [b.productId, Number(b.avg)]));
       const pol = await this.approvals.policy(tx, user.tenantId);
       const costHigh: string[] = [];

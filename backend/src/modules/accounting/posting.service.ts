@@ -10,6 +10,7 @@ import { DEFAULT_COA, SystemKey } from './default-coa';
 import { JournalValidationError, normalizeJournalLines } from './journal-rules';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { insertOne, patchById } from '../../db/owned';
+import { PostingRepository } from './posting.repository';
 
 export interface PostLine {
   /** Salah satu: id akun, atau kunci akun sistem (AR, SALES, ...) */
@@ -49,6 +50,7 @@ export class PostingService {
     private readonly seq: SequenceService,
     private readonly period: PeriodService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: PostingRepository,
   ) {}
 
   async post(tx: Tx, input: PostJournalInput) {
@@ -66,14 +68,14 @@ export class PostingService {
     }
     const pids = [...new Set(normalized.lines.map((l) => l.projectId).filter((x): x is string => !!x))];
     if (pids.length) {
-      const found = await tx.execute(sql`SELECT id FROM projects WHERE tenant_id = ${input.tenantId} AND id IN (${sql.join(pids.map((p) => sql`${p}`), sql`, `)})`);
+      const found = await this.repo.queryProject(tx, input.tenantId, pids);
       if (found.rows.length !== pids.length) throw new BadRequestException('Proyek tidak ditemukan');
     }
     if (input.sourceType !== 'CASH_COUNT') await this.assertCashNotCounted(tx, input.tenantId, input.date, normalized.lines.map((l) => l.accountId));
     // Cabang: eksplisit per baris / per jurnal, atau diturunkan otomatis dari gudang atau kas dokumen sumber
     const explicit = [...new Set([...normalized.lines.map((l) => l.branchId).filter((x): x is string => !!x), ...(input.branchId ? [input.branchId] : [])])];
     if (explicit.length) {
-      const ok = await tx.execute(sql`SELECT id FROM branches WHERE tenant_id = ${input.tenantId} AND id IN (${sql.join(explicit.map((b) => sql`${b}`), sql`, `)})`);
+      const ok = await this.repo.queryBranche(tx, input.tenantId, explicit);
       if (ok.rows.length !== explicit.length) throw new BadRequestException('Cabang tidak ditemukan');
     }
     const entryBranch = input.branchId ?? (await this.deriveBranch(tx, input.tenantId, input.sourceType, input.sourceId));
@@ -126,7 +128,7 @@ export class PostingService {
    */
   private async deriveBranch(tx: Tx, tenantId: string, sourceType: string, sourceId?: string): Promise<string | null> {
     if (!sourceId) return null;
-    const any = await tx.execute(sql`SELECT 1 FROM branches WHERE tenant_id = ${tenantId} LIMIT 1`);
+    const any = await this.repo.queryBrancheForDeriveBranch(tx, tenantId);
     if (!any.rows.length) return null;
     const id = sourceId;
     const wh = (whSql: ReturnType<typeof sql>) => sql`SELECT w.branch_id::text AS b FROM warehouses w WHERE w.tenant_id = ${tenantId} AND w.id = (${whSql})`;
@@ -209,20 +211,7 @@ export class PostingService {
         reversalOfId: original.id,
         createdById: userId,
       });
-    const lines = await tx
-      .insert(journalLines)
-      .values(
-        original.lines.map((l) => ({
-          journalId: entry.id,
-          accountId: l.accountId,
-          debit: l.credit,
-          credit: l.debit,
-          memo: l.memo,
-          projectId: l.projectId,
-          branchId: l.branchId,
-        })),
-      )
-      .returning();
+    const lines = await this.repo.insertJournalLines(tx, original.lines, entry.id);
     return { ...entry, lines };
   }
 
@@ -233,11 +222,7 @@ export class PostingService {
   async assertCashNotCounted(tx: DbOrTx, tenantId: string, date: DocDate, accountIds: string[]) {
     const ids = [...new Set(accountIds)];
     if (!ids.length) return;
-    const r = await tx.execute<{ number: string; date: string; name: string }>(sql`
-      SELECT c.number, c.date::text AS date, a.name FROM cash_counts c JOIN accounts a ON a.id = c.account_id
-      WHERE c.tenant_id = ${tenantId} AND c.status = 'POSTED' AND c.date >= ${date}
-        AND c.account_id = ANY(${`{${ids.join(',')}}`}::uuid[])
-      ORDER BY c.date DESC LIMIT 1`);
+    const r = await this.repo.queryCashCount(tx, tenantId, date, ids);
     const c = r.rows[0];
     if (c) {
       const [y, m, d] = c.date.split('-');
@@ -255,10 +240,7 @@ export class PostingService {
       if (!acc || !acc.isCashAccount || !acc.isPostable) throw new BadRequestException('Akun kas/bank tidak valid');
       return acc;
     }
-    const [acc] = await db
-      .select()
-      .from(accounts)
-      .where(and(eq(accounts.tenantId, tenantId), eq(accounts.systemKey, fallback)));
+    const [acc] = await this.repo.findAccountsBySystemKey(db, tenantId, fallback);
     if (!acc) throw new BadRequestException(`Akun sistem ${fallback} tidak ditemukan`);
     return acc;
   }
@@ -268,10 +250,10 @@ export class PostingService {
    * Kas Keluar punya pemeriksaan sendiri; pembelian aset, bayar pemasok, setoran pajak, uang muka pemasok, dan gaji memakai yang ini.
    */
   async assertCashCovers(tx: Tx, tenantId: string, cash: { id: string; name?: string | null }, amount: DecValue) {
-    const [t] = (await tx.execute<{ block: boolean | null }>(sql`SELECT (settings->'cashControl'->>'blockNegative')::boolean AS block FROM tenants WHERE id = ${tenantId}`)).rows;
+    const [t] = (await this.repo.queryTenant(tx, tenantId)).rows;
     if (t?.block === false) return;
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`cash-balance:${cash.id}`}))`); // serialkan per akun kas (lihat CashService.create)
-    const [b] = (await tx.execute<{ bal: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0) AS bal FROM journal_lines l WHERE l.account_id = ${cash.id}`)).rows;
+    await this.repo.queryAssertCashCovers(tx, cash.id); // serialkan per akun kas (lihat CashService.create)
+    const [b] = (await this.repo.queryJournalLine(tx, cash.id)).rows;
     if (D(b.bal).minus(D(amount)).lt(0)) {
       throw new BadRequestException(`Saldo ${cash.name ?? 'akun kas'} tidak cukup (Rp${D(b.bal).toNumber().toLocaleString('id-ID')}); pengeluaran ini akan membuat saldo negatif`);
     }
@@ -307,38 +289,21 @@ export class PostingService {
    * (mis. Retur Penjualan). Buat otomatis dari bagan akun standar saat pertama dibutuhkan.
    */
   private async ensureSystemAccounts(tx: Tx, tenantId: string, keys: SystemKey[]) {
-    const existing = await tx
-      .select({ systemKey: accounts.systemKey })
-      .from(accounts)
-      .where(and(eq(accounts.tenantId, tenantId), inArray(accounts.systemKey, keys)));
+    const existing = await this.repo.listAccountsBySystemKey(tx, tenantId, keys);
     const have = new Set(existing.map((e) => e.systemKey));
     for (const key of keys.filter((k) => !have.has(k))) {
       const row = DEFAULT_COA.find((r) => r.key === key);
       if (!row) continue;
       const [parent] = row.parent
-        ? await tx
-            .select({ id: accounts.id })
-            .from(accounts)
-            .where(and(eq(accounts.tenantId, tenantId), eq(accounts.code, row.parent)))
+        ? await this.repo.listAccountsByCode(tx, tenantId, row.parent)
         : [];
-      const [sameCode] = await tx
-        .select({ id: accounts.id, systemKey: accounts.systemKey, type: accounts.type, isPostable: accounts.isPostable })
-        .from(accounts)
-        .where(and(eq(accounts.tenantId, tenantId), eq(accounts.code, row.code)));
+      const [sameCode] = await this.repo.findAccountsByCode(tx, tenantId, row.code);
       // Akun dengan kode sama yang belum bertanda sistem (mis. 6-1000 Beban Gaji lama) dipakai langsung
       if (sameCode && !sameCode.systemKey && sameCode.type === row.type && sameCode.isPostable) {
         await patchById(tx, accounts, sameCode.id, { systemKey: key });
         continue;
       }
-      await tx.insert(accounts).values({
-        tenantId,
-        code: sameCode ? `${row.code}-S` : row.code,
-        name: row.name,
-        type: row.type,
-        parentId: parent?.id,
-        systemKey: key,
-        isCashAccount: !!row.cash,
-      });
+      await this.repo.insertAccounts(tx, tenantId, sameCode, row.code, row.name, row.type, parent, key, row.cash);
     }
   }
 }

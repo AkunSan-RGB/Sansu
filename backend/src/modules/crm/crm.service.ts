@@ -15,6 +15,7 @@ import { SalesOrdersService } from '../sales/orders/sales-orders.service';
 import { documentTotals, inclusiveDocument } from '../sales/pricing';
 import { StageDto, CreateLeadDto, UpdateLeadDto, MarkLeadDto, CreateActivityDto, DoneActivityDto, QuotationQueryDto, CreateQuotationDto } from './crm.dto';
 import { insertOne, patchById } from '../../db/owned';
+import { CrmRepository } from './crm.repository';
 
 @Injectable()
 export class CrmService {
@@ -24,18 +25,16 @@ export class CrmService {
     private readonly audit: AuditService,
     private readonly orders: SalesOrdersService,
     private readonly settings: SettingsService,
+    private readonly repo: CrmRepository,
   ) {}
 
   /** Tahap pipeline; dibuat otomatis saat pertama dipakai */
   async stages(tenantId: string, db: DbOrTx = this.db) {
-    let rows = await db.select().from(crmStages).where(eq(crmStages.tenantId, tenantId)).orderBy(asc(crmStages.sequence));
+    let rows = await this.repo.listCrmStagesBySequence(db, tenantId);
     if (!rows.length) {
       // tahap bawaan mengikuti jenis usaha (survei untuk jasa, kunjungan outlet untuk FMCG, dst.)
       const model = await this.settings.businessModel(db, tenantId);
-      rows = await db
-        .insert(crmStages)
-        .values(CRM_PROFILES[model].stages.map((s, i) => ({ tenantId, sequence: i + 1, ...s })))
-        .returning();
+      rows = await this.repo.insertCrmStages(db, model, tenantId);
     }
     return rows;
   }
@@ -47,23 +46,19 @@ export class CrmService {
   }
 
   async renameStage(tenantId: string, id: string, dto: StageDto) {
-    const [s] = await this.db
-      .update(crmStages)
-      .set({ name: dto.name, probability: dto.probability })
-      .where(and(eq(crmStages.id, id), eq(crmStages.tenantId, tenantId)))
-      .returning();
+    const [s] = await this.repo.updateCrmStagesById(this.db, dto.name, dto.probability, id, tenantId);
     if (!s) throw new NotFoundException('Tahap tidak ditemukan');
     return s;
   }
 
   async deleteStage(tenantId: string, id: string) {
-    const [mine] = await this.db.select({ id: crmStages.id }).from(crmStages).where(and(eq(crmStages.id, id), eq(crmStages.tenantId, tenantId)));
+    const [mine] = await this.repo.findCrmStagesById(this.db, id, tenantId);
     if (!mine) throw new NotFoundException('Tahap tidak ditemukan');
-    const [used] = await this.db.select({ id: leads.id }).from(leads).where(eq(leads.stageId, id)).limit(1);
+    const [used] = await this.repo.findLeadsByStageId(this.db, id);
     if (used) throw new BadRequestException('Tahap masih berisi prospek; pindahkan dulu prospeknya');
     const all = await this.stages(tenantId);
     if (all.length <= 1) throw new BadRequestException('Minimal harus ada satu tahap');
-    await this.db.delete(crmStages).where(and(eq(crmStages.id, id), eq(crmStages.tenantId, tenantId)));
+    await this.repo.deleteCrmStagesById(this.db, id, tenantId);
     return { ok: true };
   }
 
@@ -160,8 +155,8 @@ export class CrmService {
       let customerId = lead.customerId;
       if (dto.status === 'WON' && !customerId && dto.createCustomer) {
         const name = lead.companyName || lead.contactName || lead.title;
-        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`customer-code:${user.tenantId}`}))`); // kode dari hitungan baris: serialkan agar tidak ganda
-        const [{ n }] = (await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM customers WHERE tenant_id = ${user.tenantId}`)).rows;
+        await this.repo.queryMark(tx, user.tenantId); // kode dari hitungan baris: serialkan agar tidak ganda
+        const [{ n }] = (await this.repo.queryCustomer(tx, user.tenantId)).rows;
         const c = await insertOne(tx, customers, {
             tenantId: user.tenantId,
             code: `CUST-${String(n + 1).padStart(4, '0')}`,
@@ -189,11 +184,7 @@ export class CrmService {
   }
 
   async doneActivity(user: AuthUser, id: string, dto: DoneActivityDto) {
-    const [a] = await this.db
-      .update(crmActivities)
-      .set({ done: true, doneAt: new Date(), result: dto.result })
-      .where(and(eq(crmActivities.id, id), eq(crmActivities.tenantId, user.tenantId)))
-      .returning();
+    const [a] = await this.repo.updateCrmActivitiesById(this.db, dto.result, id, user.tenantId);
     if (!a) throw new NotFoundException('Aktivitas tidak ditemukan');
     return a;
   }
@@ -211,15 +202,9 @@ export class CrmService {
   /** Ringkasan pipeline: nilai per tahap, nilai tertimbang, rasio menang */
   async summary(tenantId: string) {
     const stages = await this.stages(tenantId);
-    const res = await this.db.execute<{ stage_id: string; n: number; value: string; weighted: string }>(sql`
-      SELECT stage_id, COUNT(*)::int AS n, COALESCE(SUM(expected_revenue), 0) AS value,
-             COALESCE(SUM(expected_revenue * probability / 100.0), 0) AS weighted
-      FROM leads WHERE tenant_id = ${tenantId} AND status = 'OPEN' GROUP BY stage_id`);
+    const res = await this.repo.queryLead(this.db, tenantId);
     const [wl] = (
-      await this.db.execute<{ won: number; lost: number; won_value: string }>(sql`
-      SELECT COUNT(*) FILTER (WHERE status = 'WON')::int AS won, COUNT(*) FILTER (WHERE status = 'LOST')::int AS lost,
-             COALESCE(SUM(expected_revenue) FILTER (WHERE status = 'WON'), 0) AS won_value
-      FROM leads WHERE tenant_id = ${tenantId} AND closed_at >= now() - interval '90 days'`)
+      await this.repo.queryLeadForSummary(this.db, tenantId)
     ).rows;
     const byStage = new Map(res.rows.map((r) => [r.stage_id, r]));
     return {
@@ -262,19 +247,19 @@ export class CrmService {
       },
     });
     if (!q) throw new NotFoundException('Penawaran tidak ditemukan');
-    const [tenant] = await this.db.select({ name: tenants.name, address: tenants.address, npwp: tenants.npwp }).from(tenants).where(eq(tenants.id, tenantId));
+    const [tenant] = await this.repo.findTenantsById(this.db, tenantId);
     return { ...q, company: tenant };
   }
 
   async createQuotation(user: AuthUser, dto: CreateQuotationDto) {
     const date = toDocDate(dto.date);
     const id = await this.db.transaction(async (tx) => {
-      const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
+      const [tenant] = await this.repo.findTenantsByIdForCreateQuotation(tx, user.tenantId);
       await this.assertCustomer(user.tenantId, dto.customerId, tx);
-      const [wh] = await tx.select({ id: warehouses.id }).from(warehouses).where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
+      const [wh] = await this.repo.findWarehousesById(tx, dto.warehouseId, user.tenantId);
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
       if (dto.leadId) {
-        const [l] = await tx.select({ id: leads.id }).from(leads).where(and(eq(leads.id, dto.leadId), eq(leads.tenantId, user.tenantId)));
+        const [l] = await this.repo.findLeadsById(tx, dto.leadId, user.tenantId);
         if (!l) throw new BadRequestException('Prospek tidak ditemukan');
       }
       const built = await buildLines(tx, user.tenantId, dto.lines, 'sell');
@@ -319,7 +304,7 @@ export class CrmService {
       );
       // Tautkan prospek ke pelanggan yang diberi penawaran
       if (dto.leadId) {
-        await tx.update(leads).set({ customerId: dto.customerId }).where(and(eq(leads.id, dto.leadId), sql`${leads.customerId} IS NULL`));
+        await this.repo.updateLeadsByIdAndCustomerId(tx, dto.customerId, dto.leadId);
       }
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'Quotation', entityId: q.id });
       return q.id;
@@ -355,21 +340,17 @@ export class CrmService {
         discountPct: l.discountPct,
       })),
     });
-    const updated = await this.db
-      .update(quotations)
-      .set({ status: 'ACCEPTED', salesOrderId: so.id })
-      .where(and(eq(quotations.id, id), inArray(quotations.status, ['DRAFT', 'SENT'])))
-      .returning({ id: quotations.id });
+    const updated = await this.repo.updateQuotationsByIdAndStatus(this.db, so.id, id);
     if (!updated.length) throw new BadRequestException('Penawaran sudah diproses pengguna lain');
     if (q.leadId) {
-      await this.db.update(leads).set({ status: 'WON', probability: 100, closedAt: new Date() }).where(and(eq(leads.id, q.leadId), eq(leads.status, 'OPEN')));
+      await this.repo.updateLeadsByIdAndStatus(this.db, q.leadId);
     }
     return { quotation: await this.getQuotation(user.tenantId, id), salesOrder: so };
   }
 
   private async assertCustomer(tenantId: string, customerId?: string | null, db: DbOrTx = this.db) {
     if (!customerId) return;
-    const [c] = await db.select({ id: customers.id }).from(customers).where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId)));
+    const [c] = await this.repo.findCustomersById(db, customerId, tenantId);
     if (!c) throw new BadRequestException('Pelanggan tidak ditemukan');
   }
 }

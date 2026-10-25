@@ -12,6 +12,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { users } from '../../db/schema';
 import { patchById } from '../../db/owned';
+import { TelegramRepository } from './telegram.repository';
 
 export interface TelegramUpdate {
   update_id: number;
@@ -39,6 +40,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     @InjectDb() private readonly db: Db,
     private readonly audit: AuditService,
     private readonly mail: MailService,
+    private readonly repo: TelegramRepository,
   ) {}
 
   private get token() {
@@ -73,17 +75,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   /** Kirim ke pengguna yang sudah menghubungkan Telegram; pengguna lain dilewati. Mengembalikan jumlah terkirim. */
   async notifyUsers(userIds: string[], text: string): Promise<number> {
     if (!this.enabled || !userIds.length) return 0;
-    const rows = await this.db
-      .select({ chat: users.telegramChatId })
-      .from(users)
-      .where(and(inArray(users.id, userIds), eq(users.isActive, true), isNotNull(users.telegramChatId)));
+    const rows = await this.repo.listUsersByIdAndIsActiveAndTelegramChatId(this.db, userIds);
     let sent = 0;
     for (const r of rows) if (r.chat && (await this.send(r.chat, text))) sent++;
     return sent;
   }
 
   async status(userId: string) {
-    const [u] = await this.db.select({ chat: users.telegramChatId }).from(users).where(eq(users.id, userId));
+    const [u] = await this.repo.findUsersById(this.db, userId);
     return { enabled: this.enabled, botUsername: this.botUsername || null, linked: !!u?.chat };
   }
 
@@ -107,7 +106,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const chatId = String(m.chat.id);
     const [cmd, arg] = m.text.trim().split(/\s+/);
     if (cmd === '/stop') {
-      await this.db.update(users).set({ telegramChatId: null }).where(eq(users.telegramChatId, chatId));
+      await this.repo.updateUsersByTelegramChatId(this.db, chatId);
       await this.send(chatId, 'Notifikasi SANSU dimatikan untuk chat ini.');
       return;
     }
@@ -131,7 +130,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
     this.badTries.delete(chatId);
     // satu chat hanya untuk satu pengguna
-    await this.db.update(users).set({ telegramChatId: null }).where(eq(users.telegramChatId, chatId));
+    await this.repo.updateUsersByTelegramChatId(this.db, chatId);
     await patchById(this.db, users, user.id, { telegramChatId: chatId, telegramLinkCode: null, telegramLinkExpires: null });
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.id, action: 'TELEGRAM_LINK', entity: 'User', entityId: user.id });
     await this.send(chatId, `Terhubung ✅ Halo ${user.name}, notifikasi persetujuan SANSU akan dikirim ke sini. Kirim /stop untuk berhenti.`);

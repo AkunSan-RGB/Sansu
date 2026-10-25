@@ -14,6 +14,7 @@ import { SYS } from '../accounting/default-coa';
 import { CreateBranchDto, UpdateBranchDto } from './branches.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { findOwned, insertOne, patchById } from '../../db/owned';
+import { BranchesRepository } from './branches.repository';
 
 const NONE = 'NONE';
 
@@ -39,18 +40,19 @@ export class BranchesService {
     private readonly audit: AuditService,
     private readonly settings: SettingsService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: BranchesRepository,
   ) {}
 
   async list(tenantId: string) {
-    const rows = await this.db.select().from(branches).where(eq(branches.tenantId, tenantId)).orderBy(asc(branches.code));
-    const whs = await this.db.select({ id: warehouses.id, code: warehouses.code, name: warehouses.name, branchId: warehouses.branchId, isActive: warehouses.isActive }).from(warehouses).where(eq(warehouses.tenantId, tenantId)).orderBy(asc(warehouses.code));
-    const cash = await this.db.select({ id: accounts.id, code: accounts.code, name: accounts.name, branchId: accounts.branchId }).from(accounts).where(and(eq(accounts.tenantId, tenantId), eq(accounts.isCashAccount, true), eq(accounts.isPostable, true))).orderBy(asc(accounts.code));
+    const rows = await this.repo.listBranchesByCode(this.db, tenantId);
+    const whs = await this.repo.listWarehousesByCode(this.db, tenantId);
+    const cash = await this.repo.listAccountsByIsCashAccountAndIsPostableAndCode(this.db, tenantId);
     return { branches: rows.map((b) => ({ ...b, warehouses: whs.filter((w) => w.branchId === b.id) })), unassignedWarehouses: whs.filter((w) => !w.branchId && w.isActive), cashAccounts: cash };
   }
 
   async create(user: AuthUser, dto: CreateBranchDto) {
     const code = dto.code.trim().toUpperCase();
-    const [dup] = await this.db.select({ id: branches.id }).from(branches).where(and(eq(branches.tenantId, user.tenantId), eq(branches.code, code)));
+    const [dup] = await this.repo.findBranchesByCode(this.db, user.tenantId, code);
     if (dup) throw new BadRequestException(`Kode cabang ${code} sudah dipakai`);
     const row = await insertOne(this.db, branches, { tenantId: user.tenantId, code, name: dto.name.trim(), address: dto.address });
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'Branch', entityId: row.id, data: { code } });
@@ -61,10 +63,10 @@ export class BranchesService {
     const b = await findOwned(this.db, branches, user.tenantId, id);
     if (!b) throw new NotFoundException('Cabang tidak ditemukan');
     if (dto.isActive === false && b.isActive) {
-      const [n] = (await this.db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM warehouses WHERE branch_id = ${id} AND is_active`)).rows;
+      const [n] = (await this.repo.queryWarehouse(this.db, id)).rows;
       if (n.n > 0) throw new BadRequestException('Cabang masih punya gudang/toko aktif. Pindahkan atau nonaktifkan dulu.');
     }
-    const [row] = await this.db.update(branches).set({ name: dto.name?.trim(), address: dto.address, isActive: dto.isActive }).where(eq(branches.id, id)).returning();
+    const [row] = await this.repo.updateBranchesById(this.db, dto, id);
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'Branch', entityId: id, data: { ...dto } });
     return row;
   }
@@ -85,7 +87,7 @@ export class BranchesService {
   /** Nyalakan/matikan fitur cabang. Tidak bisa dimatikan selama masih ada cabang. */
   async setEnabled(user: AuthUser, enabled: boolean) {
     if (!enabled) {
-      const [b] = await this.db.select({ id: branches.id }).from(branches).where(eq(branches.tenantId, user.tenantId)).limit(1);
+      const [b] = await this.repo.findBranches(this.db, user.tenantId);
       if (b) throw new BadRequestException('Fitur cabang tidak bisa dimatikan selama masih ada cabang. Nonaktifkan semua cabang lebih dulu atau biarkan menyala.');
     }
     await this.settings.saveSection(this.db, user.tenantId, 'branches', { enabled: false }, { enabled });
@@ -95,7 +97,7 @@ export class BranchesService {
 
   /** Rekening kas/bank milik cabang: transaksi lewat rekening ini otomatis berlabel cabang itu */
   async assignAccount(user: AuthUser, accountId: string, branchId: string | null) {
-    const [a] = await this.db.select().from(accounts).where(and(eq(accounts.id, accountId), eq(accounts.tenantId, user.tenantId), eq(accounts.isCashAccount, true)));
+    const [a] = await this.repo.findAccountsByIdAndIsCashAccount(this.db, accountId, user.tenantId);
     if (!a) throw new NotFoundException('Rekening kas/bank tidak ditemukan');
     if (branchId) {
       const b = await findOwned(this.db, branches, user.tenantId, branchId);
@@ -112,12 +114,8 @@ export class BranchesService {
     const to = toIn ? toDocDate(toIn) : today;
     const from = fromIn ? toDocDate(fromIn) : `${to.slice(0, 7)}-01`;
     const accs = new Map((await loadAccounts(this.db, tenantId)).filter((a) => a.type === 'REVENUE' || a.type === 'EXPENSE').map((a) => [a.id, a]));
-    const brs = await this.db.select().from(branches).where(eq(branches.tenantId, tenantId)).orderBy(asc(branches.code));
-    const res = await this.db.execute<{ account_id: string; branch_id: string | null; d: string; c: string }>(sql`
-      SELECT l.account_id, l.branch_id::text AS branch_id, SUM(l.debit) AS d, SUM(l.credit) AS c
-      FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
-      WHERE j.tenant_id = ${tenantId} AND j.date >= ${from} AND j.date <= ${to} AND j.source_type <> 'CLOSING' AND a.type IN ('REVENUE', 'EXPENSE')
-      GROUP BY l.account_id, l.branch_id`);
+    const brs = await this.repo.listBranchesByCode(this.db, tenantId);
+    const res = await this.repo.queryJournalLine(this.db, tenantId, from, to);
     const cols = [...brs.map((b) => b.id), NONE];
     const cells = new Map<string, Cell>(cols.map((k) => [k, emptyCell()]));
     const lines = new Map<string, Map<string, Dec>>(); // akun → kolom → nilai natural
@@ -169,12 +167,8 @@ export class BranchesService {
   async balanceSheet(tenantId: string, asOfIn?: string) {
     const asOf = asOfIn ? toDocDate(asOfIn) : todayJakarta();
     const accs = (await loadAccounts(this.db, tenantId)).filter((a) => a.isPostable);
-    const brs = await this.db.select().from(branches).where(eq(branches.tenantId, tenantId)).orderBy(asc(branches.code));
-    const res = await this.db.execute<{ account_id: string; branch_id: string | null; d: string; c: string }>(sql`
-      SELECT l.account_id, l.branch_id::text AS branch_id, SUM(l.debit) AS d, SUM(l.credit) AS c
-      FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-      WHERE j.tenant_id = ${tenantId} AND j.date <= ${asOf}
-      GROUP BY l.account_id, l.branch_id`);
+    const brs = await this.repo.listBranchesByCode(this.db, tenantId);
+    const res = await this.repo.queryJournalLineForBalanceSheet(this.db, tenantId, asOf);
     const keys = [...brs.map((b) => b.id), NONE];
     const bal = new Map<string, Map<string, Sum>>(keys.map((k) => [k, new Map()]));
     const all = new Map<string, Sum>();
@@ -208,11 +202,7 @@ export class BranchesService {
       .filter((r) => !D(r.total).isZero() || Object.values(r.values).some((v) => !D(v).isZero()));
     const columns = [...brs.map((b) => ({ key: b.id, code: b.code, name: b.name })), { key: NONE, code: '-', name: 'Pusat / belum ditentukan' }];
     // perpindahan persediaan antar-cabang (nilai yang dieliminasi lewat Rekening Antar Cabang)
-    const transfers = await this.db.execute<{ number: string; date: string; from_b: string | null; to_b: string | null; total: string }>(sql`
-      SELECT t.number, t.date::text AS date, wf.branch_id::text AS from_b, wt.branch_id::text AS to_b, t.total_value AS total
-      FROM stock_transfers t JOIN warehouses wf ON wf.id = t.from_warehouse_id JOIN warehouses wt ON wt.id = t.to_warehouse_id
-      WHERE t.tenant_id = ${tenantId} AND t.date <= ${asOf} AND wf.branch_id IS DISTINCT FROM wt.branch_id AND t.status <> 'CANCELLED'
-      ORDER BY t.date DESC LIMIT 50`);
+    const transfers = await this.repo.queryStockTransfer(this.db, tenantId, asOf);
     const name = (id: string | null) => (id ? brs.find((b) => b.id === id)?.name ?? '-' : 'Pusat');
     return {
       asOf,
@@ -231,11 +221,11 @@ export class BranchesService {
     const add = (key: string, level: 'error' | 'warning' | 'info', title: string, refs: string[], detail: string) => {
       if (refs.length) items.push({ key, level, title: `${title} (${refs.length})`, detail, refs });
     };
-    const brs = await this.db.select().from(branches).where(and(eq(branches.tenantId, tenantId), eq(branches.isActive, true)));
+    const brs = await this.repo.listBranchesByIsActive(this.db, tenantId);
     if (!brs.length) return { items };
     const today = todayJakarta();
     const cp = CONTROL_PROFILES[await this.settings.businessModel(this.db, tenantId)];
-    const unassigned = await this.db.select({ code: warehouses.code, name: warehouses.name }).from(warehouses).where(and(eq(warehouses.tenantId, tenantId), eq(warehouses.isActive, true), sql`${warehouses.branchId} IS NULL`));
+    const unassigned = await this.repo.listWarehousesByIsActiveAndBranchId(this.db, tenantId);
     add('WAREHOUSE_NO_BRANCH', 'warning', 'Gudang/toko belum masuk cabang mana pun', unassigned.map((w) => `${w.code} ${w.name}`), 'Transaksi di gudang ini tidak berlabel cabang sehingga masuk "Pusat / belum ditentukan". Atur di Pengaturan › Cabang.');
     const rep90 = await this.report(tenantId, addDays(today, -90), today);
     const co = rep90.consolidated;
@@ -254,11 +244,9 @@ export class BranchesService {
     }
     add('BRANCH_LOSS', 'warning', 'Cabang merugi (90 hari)', neg, 'Biaya cabang melebihi pendapatannya. Tinjau biaya dan kemungkinan pendapatan yang belum tercatat.');
     add('BRANCH_LOW_MARGIN', 'info', 'Margin cabang jauh di bawah rata-rata', low, `Margin laba bersih lebih dari ${cp.branchMarginGapPts} poin di bawah rata-rata perusahaan.`);
-    const act = await this.db.execute<{ id: string }>(sql`
-      SELECT DISTINCT l.branch_id::text AS id FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
-      WHERE j.tenant_id = ${tenantId} AND a.type = 'REVENUE' AND l.branch_id IS NOT NULL AND j.date >= ${addDays(today, -cp.branchNoSalesDays)} AND j.source_type <> 'CLOSING'`);
+    const act = await this.repo.queryJournalLineForControls(this.db, tenantId, today, cp.branchNoSalesDays);
     const active = new Set(act.rows.map((r) => r.id));
-    const firstTx = await this.db.execute<{ id: string }>(sql`SELECT DISTINCT branch_id::text AS id FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id WHERE j.tenant_id = ${tenantId} AND branch_id IS NOT NULL AND j.date < ${addDays(today, -cp.branchNoSalesDays)}`);
+    const firstTx = await this.repo.queryJournalLineForControls2(this.db, tenantId, today, cp.branchNoSalesDays);
     const hadHistory = new Set(firstTx.rows.map((r) => r.id));
     add('BRANCH_NO_SALES', 'warning', `Cabang tanpa pendapatan ${cp.branchNoSalesDays} hari terakhir`, brs.filter((b) => hadHistory.has(b.id) && !active.has(b.id)).map((b) => `${b.code} ${b.name}`), 'Cabang yang biasanya berjualan tiba-tiba tanpa pendapatan: periksa apakah penjualan tidak dicatat.');
     const bs = await this.balanceSheet(tenantId, today);

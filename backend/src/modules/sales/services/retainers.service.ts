@@ -8,6 +8,7 @@ import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
 import { ServiceBillingService } from './service-billing.service';
 import { RetainerDto, RetainerUpdateDto, RetainerBillDto } from './retainers.dto';
+import { RetainersRepository } from './retainers.repository';
 
 const MAX_PERIODS = 36;
 
@@ -30,11 +31,12 @@ export class RetainerService {
     @InjectDb() private readonly db: Db,
     private readonly audit: AuditService,
     private readonly billing: ServiceBillingService,
+    private readonly repo: RetainersRepository,
   ) {}
 
   async list(tenantId: string) {
     const rows = (await this.db.execute<Ret & { customer_name: string; project_name: string | null }>(sql`SELECT r.*, c.name AS customer_name, p.name AS project_name FROM service_retainers r JOIN customers c ON c.id = r.customer_id LEFT JOIN projects p ON p.id = r.project_id WHERE r.tenant_id = ${tenantId} ORDER BY r.is_active DESC, c.name, r.title`)).rows;
-    const billed = (await this.db.execute<{ retainer_id: string; period: string; number: string }>(sql`SELECT ri.retainer_id, ri.period, i.number FROM service_retainer_invoices ri JOIN invoices i ON i.id = ri.invoice_id WHERE ri.tenant_id = ${tenantId}`)).rows;
+    const billed = (await this.repo.queryServiceRetainerInvoice(this.db, tenantId)).rows;
     const now = monthOf(todayJakarta());
     return rows.map((r) => {
       const mine = billed.filter((b) => b.retainer_id === r.id);
@@ -51,10 +53,10 @@ export class RetainerService {
     const start = toDocDate(dto.startDate);
     const end = dto.endDate ? toDocDate(dto.endDate) : null;
     if (end && end < start) throw new BadRequestException('Tanggal akhir sebelum tanggal mulai');
-    const c = await this.db.execute(sql`SELECT 1 FROM customers WHERE id = ${dto.customerId} AND tenant_id = ${u.tenantId} AND is_active`);
+    const c = await this.repo.queryCustomer(this.db, dto.customerId, u.tenantId);
     if (!c.rows.length) throw new BadRequestException('Pelanggan tidak ditemukan / nonaktif');
     if (dto.projectId) {
-      const p = (await this.db.execute<{ customer_id: string; status: string }>(sql`SELECT customer_id, status FROM projects WHERE id = ${dto.projectId} AND tenant_id = ${u.tenantId}`)).rows[0];
+      const p = (await this.repo.queryProject(this.db, dto.projectId, u.tenantId)).rows[0];
       if (!p) throw new BadRequestException('Proyek tidak ditemukan');
       if (p.customer_id !== dto.customerId) throw new BadRequestException('Proyek ini milik pelanggan lain');
     }
@@ -83,7 +85,7 @@ export class RetainerService {
     if (dto.period < monthOf(String(r.start_date))) throw new BadRequestException('Periode sebelum masa mulai retainer');
     if (r.end_date && dto.period > monthOf(String(r.end_date))) throw new BadRequestException('Periode setelah masa berakhir retainer');
     if (dto.period > monthOf(todayJakarta())) throw new BadRequestException('Periode di masa depan belum dapat ditagih');
-    const exists = await this.db.execute(sql`SELECT 1 FROM service_retainer_invoices WHERE retainer_id = ${id} AND period = ${dto.period}`);
+    const exists = await this.repo.queryServiceRetainerInvoiceForBill(this.db, id, dto.period);
     if (exists.rows.length) throw new BadRequestException(`Periode ${dto.period} sudah ditagih`);
     const inv = await this.billing.createInvoice(
       u,
@@ -92,7 +94,7 @@ export class RetainerService {
         inTx: async (tx, invoice) => {
           // indeks unik (retainer, periode) menjamin dua penagihan bersamaan hanya satu yang berhasil; yang kalah dibatalkan utuh bersama fakturnya
           try {
-            await tx.execute(sql`INSERT INTO service_retainer_invoices (tenant_id, retainer_id, period, invoice_id) VALUES (${u.tenantId}, ${id}, ${dto.period}, ${invoice.id})`);
+            await this.repo.queryServiceRetainerInvoiceForBill2(tx, u.tenantId, id, dto.period, invoice.id);
           } catch (e) {
             if (((e as { code?: string }).code ?? (e as { cause?: { code?: string } }).cause?.code) === '23505') throw new ConflictException(`Periode ${dto.period} sudah ditagih`);
             throw e;

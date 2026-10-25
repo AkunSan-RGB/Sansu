@@ -18,6 +18,7 @@ import { AGING_BUCKETS, openBalanceAging } from './aging';
 import { FiscalService } from './fiscal.service';
 import { FxService } from '../fx/fx.service';
 import { AssetReportsService } from '../assets/asset-reports.service';
+import { NotesRepository } from './notes.repository';
 
 type Cell = string | number | null;
 export interface NoteTable {
@@ -53,12 +54,13 @@ export class NotesService {
     private readonly settings: SettingsService,
     private readonly fx: FxService,
     private readonly assetReports: AssetReportsService,
+    private readonly repo: NotesRepository,
   ) {}
 
   async build(tenantId: string, year: number) {
     const to = `${year}-12-31` < todayJakarta() ? `${year}-12-31` : todayJakarta();
     const [prod] = (
-      await this.db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM production_orders WHERE tenant_id = ${tenantId} AND status = 'COMPLETED'`)
+      await this.repo.queryProductionOrder(this.db, tenantId)
     ).rows;
     const hasProduction = (prod?.n ?? 0) > 0;
     const [[tenant], reporting, pkg, roll, categories, overrides, fiscal] = await Promise.all([
@@ -71,17 +73,11 @@ export class NotesService {
       this.fiscal.reconcile(tenantId, year).catch(() => null),
     ]);
     // Mata uang asing: ada tidaknya transaksi valas, posisi terbuka per tanggal laporan, dan selisih kurs tahun berjalan
-    const [{ has: hasForeign }] = (await this.db.execute<{ has: boolean }>(sql`
-      SELECT (EXISTS (SELECT 1 FROM invoices WHERE tenant_id = ${tenantId} AND currency <> 'IDR')
-           OR EXISTS (SELECT 1 FROM purchase_invoices WHERE tenant_id = ${tenantId} AND currency <> 'IDR')) AS has`)).rows;
+    const [{ has: hasForeign }] = (await this.repo.queryBuild(this.db, tenantId)).rows;
     const fxExposure = hasForeign ? await this.fx.exposure(tenantId, to) : null;
     const fxMoves = hasForeign
       ? (
-          await this.db.execute<{ source_type: string; net: string }>(sql`
-            SELECT e.source_type, SUM(l.credit - l.debit) AS net FROM journal_lines l
-            JOIN journal_entries e ON e.id = l.journal_id JOIN accounts a ON a.id = l.account_id
-            WHERE e.tenant_id = ${tenantId} AND a.system_key IN ('FX_GAIN', 'FX_LOSS') AND e.date >= ${`${year}-01-01`} AND e.date <= ${to}
-            GROUP BY e.source_type`)
+          await this.repo.queryJournalLine(this.db, tenantId, year, to)
         ).rows
       : [];
     const model = await this.statements.businessModel(tenantId);
@@ -281,19 +277,10 @@ export class NotesService {
 
     // Piutang: per pelanggan & umur
     const arRows = (
-      await this.db.execute<{ name: string; v: string }>(sql`
-        SELECT c.name, SUM(i.total - i.paid_amount - i.returned_amount) AS v FROM invoices i JOIN customers c ON c.id = i.customer_id
-        WHERE i.tenant_id = ${tenantId} AND i.date <= ${to} AND i.status <> 'PAID' GROUP BY c.name ORDER BY v DESC LIMIT 10`)
+      await this.repo.queryInvoice(this.db, tenantId, to)
     ).rows.filter((r) => n(r.v) > 0);
     const aging = (
-      await this.db.execute<{ bucket: string; v: string }>(sql`
-        SELECT CASE WHEN due_date >= ${to} THEN '1. Belum jatuh tempo'
-                    WHEN due_date >= (${to}::date - 30) THEN '2. 1–30 hari'
-                    WHEN due_date >= (${to}::date - 60) THEN '3. 31–60 hari'
-                    WHEN due_date >= (${to}::date - 90) THEN '4. 61–90 hari'
-                    ELSE '5. Lebih dari 90 hari' END AS bucket,
-               SUM(total - paid_amount - returned_amount) AS v
-        FROM invoices WHERE tenant_id = ${tenantId} AND date <= ${to} AND status <> 'PAID' GROUP BY 1 ORDER BY 1`)
+      await this.repo.queryInvoiceForBuild(this.db, to, tenantId)
     ).rows;
     itemNote(
       'receivables',
@@ -312,15 +299,10 @@ export class NotesService {
     itemNote('other-receivables', 'Piutang lain-lain', ['OTHER_RECEIVABLE'], ['Terutama terdiri dari pinjaman karyawan (kasbon) yang dipotong dari gaji.']);
 
     const invRows = (
-      await this.db.execute<{ category: string | null; v: string }>(sql`
-        SELECT p.category, SUM(b.qty * b.avg_cost) AS v FROM stock_balances b JOIN products p ON p.id = b.product_id
-        WHERE b.tenant_id = ${tenantId} GROUP BY p.category ORDER BY v DESC`)
+      await this.repo.queryStockBalance(this.db, tenantId)
     ).rows.filter((r) => n(r.v) !== 0);
     const [wd] = (
-      await this.db.execute<{ v: string; r: string }>(sql`
-        SELECT COALESCE(SUM(total) FILTER (WHERE kind = 'WRITEDOWN'), 0) AS v, COALESCE(SUM(total) FILTER (WHERE kind = 'REVERSAL'), 0) AS r
-        FROM inventory_writedowns
-        WHERE tenant_id = ${tenantId} AND date BETWEEN ${`${year}-01-01`} AND ${to}`)
+      await this.repo.queryInventoryWritedown(this.db, tenantId, year, to)
     ).rows;
     const writedown = n(wd?.v ?? 0);
     const writeup = n(wd?.r ?? 0);
@@ -402,14 +384,7 @@ export class NotesService {
 
     // Pendapatan per kategori
     const revCat = (
-      await this.db.execute<{ category: string | null; v: string }>(sql`
-        SELECT category, SUM(v) AS v FROM (
-          SELECT p.category, l.line_total AS v FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id JOIN products p ON p.id = l.product_id
-            WHERE i.tenant_id = ${tenantId} AND i.date BETWEEN ${`${year}-01-01`} AND ${to}
-          UNION ALL
-          SELECT p.category, CASE WHEN o.prices_include_vat AND o.total <> 0 THEN l.line_total * o.subtotal / o.total ELSE l.line_total END FROM pos_order_lines l JOIN pos_orders o ON o.id = l.order_id JOIN products p ON p.id = l.product_id
-            WHERE o.tenant_id = ${tenantId} AND o.date BETWEEN ${`${year}-01-01`} AND ${to}
-        ) x GROUP BY category ORDER BY v DESC`)
+      await this.repo.queryBuildForBuild(this.db, tenantId, year, to)
     ).rows;
     itemNote(
       'revenue',
@@ -482,9 +457,7 @@ export class NotesService {
 
     // Komitmen: pesanan pembelian terkonfirmasi yang belum ditagih
     const commitRows = (
-      await this.db.execute<{ number: string; supplier: string; date: string; total: string }>(sql`
-        SELECT o.number, s.name AS supplier, o.date, o.total FROM purchase_orders o JOIN suppliers s ON s.id = o.supplier_id
-        WHERE o.tenant_id = ${tenantId} AND o.status = 'CONFIRMED' AND o.date <= ${to} ORDER BY o.date, o.number`)
+      await this.repo.queryPurchaseOrder(this.db, tenantId, to)
     ).rows;
     const commitTotal = commitRows.reduce((a, r) => a + n(r.total), 0);
     push({
@@ -579,15 +552,12 @@ export class NotesService {
   }
 
   async save(tenantId: string, year: number, key: string, content: string) {
-    await this.db
-      .insert(reportNotes)
-      .values({ tenantId, year, key, content })
-      .onConflictDoUpdate({ target: [reportNotes.tenantId, reportNotes.year, reportNotes.key], set: { content, updatedAt: new Date() } });
+    await this.repo.insertReportNotes(this.db, tenantId, year, key, content);
     return this.build(tenantId, year);
   }
 
   async reset(tenantId: string, year: number, key: string) {
-    await this.db.delete(reportNotes).where(and(eq(reportNotes.tenantId, tenantId), eq(reportNotes.year, year), eq(reportNotes.key, key)));
+    await this.repo.deleteReportNotesByYearAndKey(this.db, tenantId, year, key);
     return this.build(tenantId, year);
   }
 }

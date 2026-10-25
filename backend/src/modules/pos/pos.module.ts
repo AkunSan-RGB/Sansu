@@ -6,11 +6,13 @@ import { PosReturnsController } from './pos-returns.controller';
 import { LoyaltyModule } from './loyalty.module';
 import { PosController } from './pos.controller';
 import { PosService } from './pos.service';
+import { PosReturnsRepository } from './pos-returns.repository';
+import { PosRepository } from './pos.repository';
 
 @Module({
   imports: [AccountingModule, InventoryModule, LoyaltyModule],
   controllers: [PosController, PosReturnsController],
-  providers: [PosService, PosReturnsService, PosControlsService],
+  providers: [PosRepository, PosReturnsRepository, PosService, PosReturnsService, PosControlsService],
   exports: [PosService],
 })
 export class PosModule {}

@@ -13,6 +13,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { reminderSnoozes } from '../../db/schema';
 import { TAX_LABEL, TaxService } from '../tax/tax.service';
+import { RemindersRepository } from './reminders.repository';
 
 export type ReminderCategory = 'PIUTANG' | 'UTANG' | 'STOK' | 'PEMBELIAN' | 'PENJUALAN' | 'PAJAK' | 'PERSETUJUAN' | 'SDM' | 'LANGGANAN';
 export type ReminderLevel = 'error' | 'warning' | 'info';
@@ -107,6 +108,7 @@ export class RemindersService {
     private readonly apps: AppsService,
     private readonly subs: SubscriptionService,
     private readonly tax: TaxService,
+    private readonly repo: RemindersRepository,
   ) {}
 
   async config(tenantId: string): Promise<ReminderSettings> {
@@ -345,10 +347,7 @@ export class RemindersService {
   async forUser(user: AuthUser, includeSnoozed = false) {
     const all = (await this.compute(user.tenantId)).filter((i) => audienceOf(i.key).includes(user.role));
     const today = todayJakarta();
-    const snoozes = await this.db
-      .select({ key: reminderSnoozes.key, until: reminderSnoozes.until })
-      .from(reminderSnoozes)
-      .where(and(eq(reminderSnoozes.userId, user.sub), gt(reminderSnoozes.until, today)));
+    const snoozes = await this.repo.listReminderSnoozesByUserIdAndUntil(this.db, user.sub, today);
     const until = new Map(snoozes.map((s) => [s.key, s.until]));
     const visible = all.filter((i) => !until.has(i.key));
     const snoozed = all.filter((i) => until.has(i.key)).map((i) => ({ ...i, snoozedUntil: until.get(i.key) }));
@@ -363,15 +362,12 @@ export class RemindersService {
   async snooze(user: AuthUser, key: string, days: number) {
     if (!audienceOf(key).length) throw new BadRequestException('Pengingat tidak dikenal');
     const until = addDays(todayJakarta(), days);
-    await this.db
-      .insert(reminderSnoozes)
-      .values({ tenantId: user.tenantId, userId: user.sub, key, until })
-      .onConflictDoUpdate({ target: [reminderSnoozes.userId, reminderSnoozes.key], set: { until } });
+    await this.repo.insertReminderSnoozes(this.db, user.tenantId, user.sub, key, until);
     return { key, until };
   }
 
   async unsnooze(user: AuthUser, key: string) {
-    await this.db.delete(reminderSnoozes).where(and(eq(reminderSnoozes.userId, user.sub), eq(reminderSnoozes.key, key)));
+    await this.repo.deleteReminderSnoozesByUserIdAndKey(this.db, user.sub, key);
     return { key };
   }
 

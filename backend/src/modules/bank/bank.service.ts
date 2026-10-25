@@ -89,7 +89,7 @@ export class BankService {
           )})`)
       : { rows: [] as BookLine[] };
     const byId = new Map(book.rows.map((b) => [b.id, b]));
-    const extra = await this.db.execute<{ line_id: string; n: number }>(sql`SELECT line_id, COUNT(*)::int AS n FROM bank_line_extra_matches WHERE tenant_id = ${tenantId} AND line_id IN (SELECT id FROM bank_statement_lines WHERE statement_id = ${id}) GROUP BY line_id`);
+    const extra = await this.repo.queryBankLineExtraMatche(this.db, tenantId, id);
     const extraBy = new Map(extra.rows.map((r) => [r.line_id, r.n]));
     const lines = st.lines.map((l) => {
       const b = l.journalLineId ? byId.get(l.journalLineId) : undefined;
@@ -122,11 +122,7 @@ export class BankService {
       }
       // Anti catat ganda: mutasi yang sama persis (tanggal, nilai, keterangan) yang sudah pernah diimpor dilewati
       // (banyaknya diperhitungkan, jadi dua mutasi kembar yang sah di hari yang sama tetap masuk)
-      const existing = await tx.execute<{ k: string; n: number }>(sql`
-        SELECT l.date::text || '|' || l.amount::text || '|' || l.description AS k, COUNT(*)::int AS n
-        FROM bank_statement_lines l JOIN bank_statements s ON s.id = l.statement_id
-        WHERE s.tenant_id = ${user.tenantId} AND s.cash_account_id = ${dto.cashAccountId} AND l.date BETWEEN ${dates[0]} AND ${dates[dates.length - 1]}
-        GROUP BY 1`);
+      const existing = await this.repo.queryBankStatementLine(tx, user.tenantId, dto.cashAccountId, dates, dates.length);
       const seen = new Map(existing.rows.map((r) => [r.k, r.n]));
       const fresh = rows.filter((r) => {
         const k = `${r.date}|${r.amount.toFixed(2)}|${r.description.trim()}`;
@@ -150,24 +146,12 @@ export class BankService {
           closingBalance: dto.closingBalance ? money(dto.closingBalance).toFixed(2) : last?.balance ? money(last.balance).toFixed(2) : null,
           importedById: user.sub,
         });
-      await tx.insert(bankStatementLines).values(
-        fresh.map((r, i) => ({
-          tenantId: user.tenantId,
-          statementId: st.id,
-          seq: i + 1,
-          date: r.date,
-          description: r.description.trim(),
-          amount: r.amount.toFixed(2),
-          balance: r.balance ? money(r.balance).toFixed(2) : null,
-        })),
-      );
+      await this.repo.insertBankStatementLines(tx, fresh, user.tenantId, st.id);
       await this.autoMatchTx(tx, user.tenantId, st.id);
       const byRule = await this.applyRules(tx, user, st.id);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'IMPORT', entity: 'BankStatement', entityId: st.id, data: { lines: fresh.length, skippedDuplicates: skipped, byRule } });
       // Uang masuk di rekening yang belum cocok dengan pembayaran mana pun: Keuangan langsung diberi tahu (tidak menunggu membuka halaman Bank)
-      const open = (await tx.execute<{ n: number; total: string }>(sql`
-        SELECT COUNT(*)::int AS n, COALESCE(SUM(amount), 0) AS total FROM bank_statement_lines
-        WHERE statement_id = ${st.id} AND tenant_id = ${user.tenantId} AND amount > 0 AND status = 'UNMATCHED'`)).rows[0];
+      const open = (await this.repo.queryBankStatementLineForImport(tx, st.id, user.tenantId)).rows[0];
       if (open && open.n > 0) {
         void this.approvals.notifyRoles(user.tenantId, { roles: ['FINANCE'], excludeUserId: user.sub, info: true, title: `${open.n} uang masuk di rekening belum jelas sumbernya: Rp${D(open.total).toNumber().toLocaleString('id-ID')}`, lines: ['Cocokkan dengan pembayaran faktur atau pilih sumber uangnya.'], path: '/bank' });
       }
@@ -195,7 +179,7 @@ export class BankService {
   }
 
   private async autoMatchTx(tx: Tx, tenantId: string, statementId: string) {
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`bank:${tenantId}`}))`);
+    await this.repo.queryAutoMatchTx(tx, tenantId);
     const st = await findOwned(tx, bankStatements, tenantId, statementId);
     if (!st) throw new NotFoundException('Rekening koran tidak ditemukan');
     const lines = await this.repo.unmatchedLines(tx, statementId);
@@ -229,7 +213,7 @@ export class BankService {
   }
 
   private async lockLine(tx: Tx, tenantId: string, id: string) {
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`bank:${tenantId}`}))`);
+    await this.repo.queryAutoMatchTx(tx, tenantId);
     const l = await findOwned(tx, bankStatementLines, tenantId, id);
     if (!l) throw new NotFoundException('Mutasi tidak ditemukan');
     const st = await this.repo.statementById(tx, l.statementId);
@@ -274,17 +258,15 @@ export class BankService {
     await this.db.transaction(async (tx) => {
       const { l, st } = await this.lockLine(tx, user.tenantId, lineId);
       if (l.status !== 'UNMATCHED') throw new BadRequestException('Mutasi ini sudah diproses');
-      const rows = await tx.execute<{ id: string; account_id: string; debit: string; credit: string; tenant_id: string }>(sql`
-        SELECT l.id, l.account_id, l.debit, l.credit, j.tenant_id FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-        WHERE l.id IN (${sql.join(ids.map((x) => sql`${x}`), sql`, `)})`);
+      const rows = await this.repo.queryJournalLine(tx, ids);
       if (rows.rows.length !== ids.length || rows.rows.some((r) => r.tenant_id !== user.tenantId)) throw new BadRequestException('Ada baris buku yang tidak ditemukan');
       if (rows.rows.some((r) => r.account_id !== st.cashAccountId)) throw new BadRequestException('Semua transaksi buku harus di rekening yang sama dengan mutasi');
       const amt = D(l.amount);
       if (rows.rows.some((r) => D(r.debit).minus(r.credit).isZero() || D(r.debit).minus(r.credit).isPositive() !== amt.isPositive())) throw new BadRequestException('Semua transaksi buku harus searah dengan mutasi bank (masuk dengan masuk, keluar dengan keluar)');
       const sum = rows.rows.reduce<Dec>((a, r) => a.plus(D(r.debit).minus(r.credit)), ZERO);
       if (!sum.equals(amt)) throw new BadRequestException(`Jumlah transaksi buku (${sum.toFixed(2)}) harus persis sama dengan mutasi bank (${amt.toFixed(2)})`);
-      const usedMain = await tx.execute(sql`SELECT 1 FROM bank_statement_lines WHERE journal_line_id IN (${sql.join(ids.map((x) => sql`${x}`), sql`, `)}) LIMIT 1`);
-      const usedExtra = await tx.execute(sql`SELECT 1 FROM bank_line_extra_matches WHERE journal_line_id IN (${sql.join(ids.map((x) => sql`${x}`), sql`, `)}) LIMIT 1`);
+      const usedMain = await this.repo.queryBankStatementLineForMatchMany(tx, ids);
+      const usedExtra = await this.repo.queryBankLineExtraMatcheForMatchMany(tx, ids);
       if (usedMain.rows.length || usedExtra.rows.length) throw new BadRequestException('Ada transaksi buku yang sudah dicocokkan dengan mutasi lain');
       const [first, ...rest] = ids;
       await this.repo.patchLine(tx, l.id, { status: 'MATCHED', journalLineId: first, matchedBy: 'MANUAL' });
@@ -467,12 +449,10 @@ export class BankService {
     const rec = await this.reconciliation(user.tenantId, dto.cashAccountId, end);
     if (!rec.reconciled) throw new BadRequestException(`Rekonsiliasi ${dto.period} belum selisih nol (selisih ${rec.difference ?? 'belum ada saldo bank'}). Selesaikan dulu mutasi yang belum cocok.`);
     if (user.role !== 'OWNER') {
-      const [mine] = (await this.db.execute<{ n: number }>(sql`
-        SELECT COUNT(*)::int AS n FROM bank_statements WHERE tenant_id = ${user.tenantId} AND cash_account_id = ${dto.cashAccountId}
-          AND imported_by_id = ${user.sub} AND period_from <= ${end} AND period_to >= ${start}`)).rows;
+      const [mine] = (await this.repo.queryBankStatement(this.db, user.tenantId, dto.cashAccountId, user.sub, end, start)).rows;
       if (mine.n > 0) throw new ForbiddenException('Rekonsiliasi harus disahkan orang lain dari yang mengimpor rekening koran bulan itu (pemisahan tugas)');
     }
-    const ins = await this.db.insert(bankReconciliations).values({ tenantId: user.tenantId, cashAccountId: dto.cashAccountId, period: dto.period, bookBalance: rec.bookBalance, signedById: user.sub, notes: dto.notes }).onConflictDoNothing().returning();
+    const ins = await this.repo.insertBankReconciliations(this.db, user.tenantId, dto.cashAccountId, dto.period, rec.bookBalance, user.sub, dto.notes);
     if (!ins.length) throw new BadRequestException('Periode ini sudah disahkan');
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'SIGN', entity: 'BankReconciliation', entityId: ins[0].id, data: { period: dto.period, bookBalance: rec.bookBalance } });
     return ins[0];
@@ -486,32 +466,17 @@ export class BankService {
       if (refs.length) items.push({ key, level, title: `${title} (${refs.length})`, detail, refs });
     };
     const rp = (v: string | number) => `Rp${Math.abs(Math.round(Number(v))).toLocaleString('id-ID')}`;
-    const outRows = await this.db.execute<{ date: string; amount: string; description: string; name: string }>(sql`
-      SELECT l.date::text, l.amount, l.description, a.name FROM bank_statement_lines l JOIN bank_statements s ON s.id = l.statement_id JOIN accounts a ON a.id = s.cash_account_id
-      WHERE s.tenant_id = ${tenantId} AND l.status = 'UNMATCHED' AND l.amount < 0 AND l.date <= ${addDays(today, -cp.bankOutDays)} ORDER BY l.date`);
+    const outRows = await this.repo.queryBankStatementLineForControls(this.db, tenantId, today, cp.bankOutDays);
     add('BANK_OUT_UNRECORDED', 'error', 'Uang keluar di bank belum ada di buku', outRows.rows.map((r) => `${r.date} ${rp(r.amount)} ${r.description.slice(0, 40)}`), `Bank mencatat uang keluar yang tidak ada transaksinya di SANSU > ${cp.bankOutDays} hari. Cari bukti dan catat, atau selidiki.`);
-    const inRows = await this.db.execute<{ date: string; amount: string; description: string }>(sql`
-      SELECT l.date::text, l.amount, l.description FROM bank_statement_lines l JOIN bank_statements s ON s.id = l.statement_id
-      WHERE s.tenant_id = ${tenantId} AND l.status = 'UNMATCHED' AND l.amount > 0 AND l.date <= ${addDays(today, -cp.bankInDays)} ORDER BY l.date`);
+    const inRows = await this.repo.queryBankStatementLineForControls2(this.db, tenantId, today, cp.bankInDays);
     add('BANK_IN_UNRECORDED', 'warning', 'Uang masuk di bank belum dicatat', inRows.rows.map((r) => `${r.date} ${rp(r.amount)} ${r.description.slice(0, 40)}`), `Uang masuk > ${cp.bankInDays} hari belum dicocokkan ke faktur/penerimaan; bisa jadi penjualan tidak tercatat.`);
-    const book = await this.db.execute<{ number: string; credit: string }>(sql`
-      SELECT j.number, l.credit FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
-      WHERE j.tenant_id = ${tenantId} AND a.is_cash_account AND a.code IN (SELECT a2.code FROM accounts a2 WHERE a2.tenant_id = ${tenantId} AND EXISTS (SELECT 1 FROM bank_statements s WHERE s.cash_account_id = a2.id))
-        AND l.credit > 0 AND j.date <= ${addDays(today, -cp.bookNotInBankDays)} AND j.source_type <> 'CLOSING'
-        AND EXISTS (SELECT 1 FROM bank_statements s WHERE s.cash_account_id = l.account_id AND s.period_to >= j.date)
-        AND NOT EXISTS (SELECT 1 FROM bank_statement_lines b WHERE b.journal_line_id = l.id)
-        AND NOT EXISTS (SELECT 1 FROM bank_line_extra_matches x WHERE x.journal_line_id = l.id) ORDER BY j.date LIMIT 50`);
+    const book = await this.repo.queryJournalLineForControls(this.db, tenantId, today, cp.bookNotInBankDays);
     add('BOOK_OUT_NOT_IN_BANK', 'warning', `Pembayaran di buku tidak muncul di bank > ${cp.bookNotInBankDays} hari`, book.rows.map((r) => `${r.number} ${rp(r.credit)}`), 'Pembayaran tercatat tetapi tidak pernah keluar dari bank (cek/giro tidak dicairkan, atau pencatatan fiktif).');
-    const ign = await this.db.execute<{ date: string; amount: string; note: string | null }>(sql`
-      SELECT l.date::text, l.amount, l.note FROM bank_statement_lines l JOIN bank_statements s ON s.id = l.statement_id
-      WHERE s.tenant_id = ${tenantId} AND l.status = 'IGNORED' AND l.date >= ${addDays(today, -60)} ORDER BY l.date DESC`);
+    const ign = await this.repo.queryBankStatementLineForControls3(this.db, tenantId, today);
     add('BANK_IGNORED', 'info', 'Mutasi bank yang diabaikan', ign.rows.map((r) => `${r.date} ${rp(r.amount)}${r.note ? ` — ${r.note}` : ''}`), 'Tinjau alasan mutasi yang diabaikan; ini cara menyembunyikan uang keluar.');
     const prev = addDays(`${today.slice(0, 7)}-01`, -1).slice(0, 7);
     if (Number(today.slice(8, 10)) > 10) {
-      const unsigned = await this.db.execute<{ name: string }>(sql`
-        SELECT a.name FROM accounts a WHERE a.tenant_id = ${tenantId} AND a.is_cash_account
-          AND EXISTS (SELECT 1 FROM bank_statements s WHERE s.cash_account_id = a.id AND s.period_to >= ${`${prev}-01`})
-          AND NOT EXISTS (SELECT 1 FROM bank_reconciliations r WHERE r.cash_account_id = a.id AND r.period = ${prev})`);
+      const unsigned = await this.repo.queryAccount(this.db, tenantId, prev);
       add('RECON_NOT_SIGNED', 'warning', `Rekonsiliasi ${prev} belum disahkan`, unsigned.rows.map((r) => r.name), 'Selesaikan dan sahkan rekonsiliasi bulan lalu (oleh orang selain pengimpor).');
     }
     const rank = { error: 0, warning: 1, info: 2 } as const;
@@ -540,32 +505,16 @@ export class BankService {
   async reconciliation(tenantId: string, cashAccountId: string, asOf: DocDate) {
     const acc = await this.bankAccount(this.db, tenantId, cashAccountId);
     const [bal] = (
-      await this.db.execute<{ v: string }>(sql`
-        SELECT COALESCE(SUM(l.debit - l.credit), 0) AS v FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-        WHERE j.tenant_id = ${tenantId} AND l.account_id = ${cashAccountId} AND j.date <= ${asOf}`)
+      await this.repo.queryJournalLineForReconciliation(this.db, tenantId, cashAccountId, asOf)
     ).rows;
     const book = D(bal.v);
-    const [lastLine] = await this.db
-      .select({ balance: bankStatementLines.balance, date: bankStatementLines.date })
-      .from(bankStatementLines)
-      .innerJoin(bankStatements, eq(bankStatements.id, bankStatementLines.statementId))
-      .where(and(eq(bankStatements.cashAccountId, cashAccountId), sql`${bankStatementLines.date} <= ${asOf}`, sql`${bankStatementLines.balance} IS NOT NULL`))
-      .orderBy(desc(bankStatementLines.date), desc(bankStatementLines.seq))
-      .limit(1);
-    const [firstStmt] = await this.db
-      .select({ from: bankStatements.periodFrom })
-      .from(bankStatements)
-      .where(eq(bankStatements.cashAccountId, cashAccountId))
-      .orderBy(asc(bankStatements.periodFrom))
-      .limit(1);
+    const [lastLine] = await this.repo.findBankStatementLinesWithBankStatementsByDateAndBalanceAndSeq(this.db, cashAccountId, asOf);
+    const [firstStmt] = await this.repo.findBankStatementsByCashAccountIdAndPeriodFrom(this.db, cashAccountId);
     // Transaksi buku sejak rekening koran pertama yang belum muncul di bank
     const outstanding = firstStmt ? await this.openBookLines(this.db, tenantId, cashAccountId, firstStmt.from, asOf) : [];
     const deposits = outstanding.filter((b) => D(b.debit).gt(0) && b.source_type !== 'OPENING');
     const payments = outstanding.filter((b) => D(b.credit).gt(0));
-    const unrecorded = await this.db.execute<{ id: string; date: string; description: string; amount: string }>(sql`
-      SELECT l.id, l.date, l.description, l.amount FROM bank_statement_lines l JOIN bank_statements s ON s.id = l.statement_id
-      WHERE s.tenant_id = ${tenantId} AND s.cash_account_id = ${cashAccountId} AND l.status = 'UNMATCHED' AND l.date <= ${asOf}
-      ORDER BY l.date`);
+    const unrecorded = await this.repo.queryBankStatementLineForReconciliation(this.db, tenantId, cashAccountId, asOf);
     const depTotal = deposits.reduce<Dec>((a, b) => a.plus(b.debit), ZERO);
     const payTotal = payments.reduce<Dec>((a, b) => a.plus(b.credit), ZERO);
     const unrecTotal = unrecorded.rows.reduce<Dec>((a, b) => a.plus(b.amount), ZERO);
@@ -591,13 +540,7 @@ export class BankService {
 
   /** Ringkasan per rekening: tanggal mutasi terakhir yang diimpor & jumlah yang belum cocok (untuk cek kesehatan / dashboard) */
   async status(tenantId: string) {
-    const r = await this.db.execute<{ id: string; code: string; name: string; last_date: string | null; unmatched: number }>(sql`
-      SELECT a.id, a.code, a.name, MAX(l.date) AS last_date, COUNT(l.id) FILTER (WHERE l.status = 'UNMATCHED')::int AS unmatched
-      FROM accounts a
-      LEFT JOIN bank_statements s ON s.cash_account_id = a.id
-      LEFT JOIN bank_statement_lines l ON l.statement_id = s.id
-      WHERE a.tenant_id = ${tenantId} AND a.is_cash_account = true AND a.is_postable = true
-      GROUP BY a.id ORDER BY a.code`);
+    const r = await this.repo.queryAccountForStatus(this.db, tenantId);
     return r.rows.map((x) => ({ ...x, stale: !x.last_date || diffDays(x.last_date, todayJakarta()) > 45 }));
   }
 }

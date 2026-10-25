@@ -9,12 +9,14 @@ import { products, productUoms } from '../../../db/schema';
 import { canonicalCategory, categorySpellings, cleanCategory, isPlain } from './category';
 import { AddCategoryDto, CreateProductDto, MergeCategoriesDto, ProductUomDto, UpdateProductDto } from './products.dto';
 import { patchById } from '../../../db/owned';
+import { ProductsRepository } from './products.repository';
 
 @Injectable()
 export class ProductsService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly settings: SettingsService,
+    private readonly repo: ProductsRepository,
   ) {}
 
   /** Kategori tambahan yang didaftarkan Admin (di luar daftar bawaan jenis usaha) */
@@ -29,10 +31,7 @@ export class ProductsService {
   async options(tenantId: string) {
     const model: BusinessModel = await this.settings.businessModel(this.db, tenantId);
     const profile = PRODUCT_FORM[model];
-    const used = await this.db.execute<{ category: string | null; uom: string }>(sql`
-      SELECT DISTINCT category, NULL AS uom FROM products WHERE tenant_id = ${tenantId} AND category IS NOT NULL AND btrim(category) <> ''
-      UNION ALL SELECT NULL, base_uom FROM products WHERE tenant_id = ${tenantId}
-      UNION ALL SELECT NULL, u.uom FROM product_uoms u JOIN products p ON p.id = u.product_id WHERE p.tenant_id = ${tenantId}`);
+    const used = await this.repo.queryProduct(this.db, tenantId);
     const seen = new Set<string>();
     const categories: { value: string; source: 'PRESET' | 'CUSTOM' | 'USED' }[] = [];
     const add = (v: string | null, source: 'PRESET' | 'CUSTOM' | 'USED') => {
@@ -98,8 +97,8 @@ export class ProductsService {
 
   /** Nomor urut barcode internal berikutnya untuk perusahaan ini (aman dari balapan dua pembuatan sekaligus) */
   private async nextInternalBarcode(tx: DbOrTx, tenantId: string) {
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${tenantId}:barcode`}))`);
-    const r = await tx.execute<{ n: string }>(sql`SELECT COALESCE(MAX(substr(barcode, 2, 11)::bigint), 0) + 1 AS n FROM products WHERE tenant_id = ${tenantId} AND barcode_source = 'GENERATED'`);
+    await this.repo.queryNextInternalBarcode(tx, tenantId);
+    const r = await this.repo.queryProductForNextInternalBarcode(tx, tenantId);
     return internalBarcode(Number(r.rows[0].n));
   }
 
@@ -114,7 +113,7 @@ export class ProductsService {
     if (current?.barcode && (code === undefined || code === current.barcode)) return { barcode: current.barcode, barcodeSource: current.barcodeSource };
     if (code) {
       if (current?.barcodeSource === 'GENERATED') {
-        const moves = await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM stock_moves WHERE tenant_id = ${tenantId} AND product_id = ${current.id}`);
+        const moves = await this.repo.queryStockMove(tx, tenantId, current.id);
         if (moves.rows[0].n > 0) throw new BadRequestException('Barcode otomatis tidak bisa diganti karena produk sudah punya mutasi stok');
       }
       return { barcode: code, barcodeSource: 'MANUFACTURER' };
@@ -128,10 +127,10 @@ export class ProductsService {
     return this.db.transaction(async (tx) => {
       const model = await this.settings.businessModel(tx, tenantId);
       if (!PRODUCT_FORM[model].barcode) throw new BadRequestException('Jenis usaha ini tidak memakai barcode');
-      const rows = await tx.execute<{ id: string }>(sql`SELECT id FROM products WHERE tenant_id = ${tenantId} AND is_active AND barcode IS NULL ORDER BY sku`);
+      const rows = await this.repo.queryProductForGenerateMissingBarcodes(tx, tenantId);
       for (const r of rows.rows) {
         const barcode = await this.nextInternalBarcode(tx, tenantId);
-        await tx.execute(sql`UPDATE products SET barcode = ${barcode}, barcode_source = 'GENERATED' WHERE id = ${r.id}`);
+        await this.repo.queryGenerateMissingBarcodes(tx, barcode, r.id);
       }
       return { generated: rows.rows.length };
     });
@@ -139,9 +138,7 @@ export class ProductsService {
 
   /** Daftar kategori beserta jumlah produknya, dan kelompok ejaan ganda (beda huruf besar/kecil atau spasi) yang bisa disatukan */
   async categories(tenantId: string) {
-    const r = await this.db.execute<{ name: string; count: number }>(sql`
-      SELECT category AS name, COUNT(*)::int AS count FROM products
-      WHERE tenant_id = ${tenantId} AND category IS NOT NULL AND btrim(category) <> '' GROUP BY category ORDER BY category`);
+    const r = await this.repo.queryProductForCategories(this.db, tenantId);
     const items = r.rows;
     const groups = new Map<string, { name: string; count: number }[]>();
     for (const it of items) {
@@ -194,8 +191,8 @@ export class ProductsService {
    * TRADING = belum terkait resep (barang dagang / belum dipakai produksi).
    */
   private async roles(tenantId: string): Promise<{ material: Set<string>; output: Set<string> }> {
-    const mat = await this.db.execute<{ id: string }>(sql`SELECT DISTINCT l.product_id AS id FROM bom_lines l JOIN boms b ON b.id = l.bom_id WHERE b.tenant_id = ${tenantId}`);
-    const out = await this.db.execute<{ id: string }>(sql`SELECT DISTINCT product_id AS id FROM boms WHERE tenant_id = ${tenantId}`);
+    const mat = await this.repo.queryBomLine(this.db, tenantId);
+    const out = await this.repo.queryBom(this.db, tenantId);
     return { material: new Set(mat.rows.map((r) => r.id)), output: new Set(out.rows.map((r) => r.id)) };
   }
 
@@ -251,7 +248,7 @@ export class ProductsService {
         })
         .returning({ id: products.id });
       if (dto.uoms?.length) {
-        await tx.insert(productUoms).values(dto.uoms.map((u) => ({ productId: p.id, uom: u.uom, factor: u.factor })));
+        await this.repo.insertProductUoms(tx, dto.uoms, p.id);
       }
       return p.id;
     });
@@ -267,15 +264,15 @@ export class ProductsService {
     if (dto.inventoryKind !== undefined && dto.inventoryKind !== current.inventoryKind) {
       if (dto.inventoryKind === 'SEMI') await this.assertSemiAllowed(tenantId);
       // riwayat jurnal persediaan mengikuti jenis barang saat bergerak; jenisnya tidak boleh berubah setelah ada mutasi stok
-      const moves = await this.db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM stock_moves WHERE tenant_id = ${tenantId} AND product_id = ${id}`);
+      const moves = await this.repo.queryStockMove(this.db, tenantId, id);
       if (moves.rows[0].n > 0) throw new BadRequestException('Jenis barang tidak bisa diubah karena sudah memiliki mutasi stok');
     }
 
     await this.db.transaction(async (tx) => {
       if (dto.uoms) {
-        await tx.delete(productUoms).where(eq(productUoms.productId, id));
+        await this.repo.deleteProductUomsByProductId(tx, id);
         if (dto.uoms.length) {
-          await tx.insert(productUoms).values(dto.uoms.map((u) => ({ productId: id, uom: u.uom, factor: u.factor })));
+          await this.repo.insertProductUoms(tx, dto.uoms, id);
         }
       }
       await patchById(tx, products, id, {

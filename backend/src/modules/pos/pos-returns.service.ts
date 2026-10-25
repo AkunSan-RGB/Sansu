@@ -16,6 +16,7 @@ import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
 import { CreatePosReturnDto } from './pos-returns.dto';
 import { insertOne, patchById } from '../../db/owned';
+import { PosReturnsRepository } from './pos-returns.repository';
 
 const QTY_EPS = D('0.00005');
 
@@ -36,6 +37,7 @@ export class PosReturnsService {
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
     private readonly loyalty: LoyaltyService,
+    private readonly repo: PosReturnsRepository,
   ) {}
 
   async create(user: AuthUser, orderId: string, dto: CreatePosReturnDto) {
@@ -44,12 +46,12 @@ export class PosReturnsService {
     if (!dto.all && !dto.lines?.length) throw new BadRequestException('Pilih barang yang diretur atau batalkan seluruh transaksi');
     const date = todayJakarta();
     const id = await this.db.transaction(async (tx) => {
-      const locked = await tx.execute<{ id: string }>(sql`SELECT id FROM pos_orders WHERE id = ${orderId} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      const locked = await this.repo.queryPosOrder(tx, orderId, user.tenantId);
       if (!locked.rows.length) throw new NotFoundException('Transaksi kasir tidak ditemukan');
-      const [order] = await tx.select().from(posOrders).where(eq(posOrders.id, orderId));
+      const [order] = await this.repo.findPosOrdersById(tx, orderId);
       if (order.channel) throw new BadRequestException('Pesanan online tidak diretur lewat kasir: uang dikembalikan oleh platform. Catat koreksinya dengan jurnal penyesuaian setelah platform mengonfirmasi.');
-      const [session] = await tx.select().from(posSessions).where(eq(posSessions.id, order.sessionId));
-      const lines = await tx.select().from(posOrderLines).where(eq(posOrderLines.orderId, orderId));
+      const [session] = await this.repo.findPosSessionsById(tx, order.sessionId);
+      const lines = await this.repo.listPosOrderLinesByOrderId(tx, orderId);
       const byId = new Map(lines.map((l) => [l.id, l]));
 
       // baris yang diretur
@@ -75,7 +77,7 @@ export class PosReturnsService {
       if (!picks.length) throw new BadRequestException('Seluruh barang pada transaksi ini sudah diretur');
 
       // nilai retur proporsional; retur terakhir menutup sisa persis agar total retur = total penjualan
-      const prev = (await tx.execute<{ total: string; tax: string }>(sql`SELECT COALESCE(SUM(total), 0) AS total, COALESCE(SUM(tax_amount), 0) AS tax FROM pos_returns WHERE order_id = ${orderId}`)).rows[0];
+      const prev = (await this.repo.queryPosReturn(tx, orderId)).rows[0];
       const completes = lines.every((l) => {
         const p = picks.find((x) => x.line.id === l.id);
         return D(l.qty).minus(l.returnedQty).minus(p?.qty ?? 0).abs().lte(QTY_EPS);
@@ -95,7 +97,7 @@ export class PosReturnsService {
       const subtotal = total.minus(tax);
 
       // pengembalian uang
-      const pays = await tx.select().from(posPayments).where(eq(posPayments.orderId, orderId));
+      const pays = await this.repo.listPosPaymentsByOrderId(tx, orderId);
       const hadCash = pays.some((p) => p.method === 'CASH');
       const method: 'CASH' | 'BANK' = dto.refundMethod ?? (hadCash ? 'CASH' : 'BANK');
       const refundAccount = method === 'CASH' ? session.cashAccountId : session.bankAccountId;
@@ -108,7 +110,7 @@ export class PosReturnsService {
       for (const p of picks) {
         if (p.line.fromRecipe) {
           // menu yang sudah dibuat: bahan sudah diolah dan tidak kembali ke stok; pendapatan dibalik, biaya bahan tetap tercatat sebagai beban
-          await tx.insert(posReturnLines).values({ returnId: ret.id, orderLineId: p.line.id, productId: p.line.productId, qty: p.qty.toFixed(4), unitCost: '0' });
+          await this.repo.insertPosReturnLines(tx, ret.id, p.line.id, p.line.productId, p.qty);
           await patchById(tx, posOrderLines, p.line.id, { returnedQty: D(p.line.returnedQty).plus(p.qty).toFixed(4) });
           continue;
         }
@@ -125,7 +127,7 @@ export class PosReturnsService {
           date,
         });
         cogs = cogs.plus(moved.value);
-        await tx.insert(posReturnLines).values({ returnId: ret.id, orderLineId: p.line.id, productId: p.line.productId, qty: p.qty.toFixed(4), unitCost: D(p.line.unitCost).toFixed(4) });
+        await this.repo.insertPosReturnLinesForCreate(tx, ret.id, p.line.id, p.line.productId, p.qty, p.line.unitCost);
         await patchById(tx, posOrderLines, p.line.id, { returnedQty: D(p.line.returnedQty).plus(p.qty).toFixed(4) });
       }
       cogs = money(cogs);
@@ -205,6 +207,7 @@ export class PosControlsService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly settings: SettingsService,
+    private readonly repo: PosReturnsRepository,
   ) {}
 
   async controls(tenantId: string) {
@@ -215,32 +218,18 @@ export class PosControlsService {
     const add = (key: string, level: PosFinding['level'], title: string, refs: string[], detail: string) => {
       if (refs.length) items.push({ key, level, title: `${title} (${refs.length})`, detail, refs });
     };
-    const diff = await this.db.execute<{ number: string; name: string; difference: string }>(sql`
-      SELECT s.number, u.name, s.difference FROM pos_sessions s JOIN users u ON u.id = s.user_id
-      WHERE s.tenant_id = ${tenantId} AND s.status = 'CLOSED' AND s.difference <> 0 AND s.closed_at >= ${since}::date ORDER BY s.closed_at DESC`);
+    const diff = await this.repo.queryPosSession(this.db, tenantId, since);
     add('SESSION_DIFF', 'warning', 'Selisih kas saat tutup kasir', diff.rows.map((r) => `${r.number} ${r.name} (${Number(r.difference) > 0 ? '+' : '−'}Rp${Math.abs(Number(r.difference)).toLocaleString('id-ID')})`), 'Uang di laci tidak sama dengan seharusnya. Selisih berulang pada kasir yang sama patut diselidiki.');
-    const old = await this.db.execute<{ number: string; name: string }>(sql`
-      SELECT s.number, u.name FROM pos_sessions s JOIN users u ON u.id = s.user_id
-      WHERE s.tenant_id = ${tenantId} AND s.status = 'OPEN' AND s.opened_at < now() - make_interval(hours => ${cp.posOpenHours})`);
+    const old = await this.repo.queryPosSessionForControls(this.db, tenantId, cp.posOpenHours);
     add('SESSION_OPEN_OLD', 'warning', 'Sesi kasir terbuka lebih dari sehari', old.rows.map((r) => `${r.number} ${r.name}`), 'Tutup kasir tiap hari agar uang laci dihitung dan dijurnal.');
-    const rets = await this.db.execute<{ number: string; total: string; reason: string }>(sql`
-      SELECT r.number, r.total, r.reason FROM pos_returns r WHERE r.tenant_id = ${tenantId} AND r.date >= ${since} ORDER BY r.date DESC`);
+    const rets = await this.repo.queryPosReturnForControls(this.db, tenantId, since);
     add('POS_RETURNS', 'info', 'Retur / pembatalan penjualan kasir', rets.rows.map((r) => `${r.number} Rp${Number(r.total).toLocaleString('id-ID')} — ${r.reason}`), 'Tinjau alasan retur; pembatalan sering menjadi celah penggelapan.');
-    const heavy = await this.db.execute<{ number: string; n: number }>(sql`
-      SELECT s.number, COUNT(*)::int AS n FROM pos_returns r JOIN pos_sessions s ON s.id = r.session_id
-      WHERE r.tenant_id = ${tenantId} AND r.date >= ${since} GROUP BY s.number HAVING COUNT(*) >= 3`);
+    const heavy = await this.repo.queryPosReturnForControls2(this.db, tenantId, since);
     add('POS_RETURNS_HEAVY', 'warning', 'Banyak retur tunai dalam satu sesi', heavy.rows.map((r) => `${r.number}: ${r.n} retur`), 'Tiga retur tunai atau lebih dalam satu sesi kasir.');
-    const below = await this.db.execute<{ number: string; sku: string }>(sql`
-      SELECT DISTINCT o.number, p.sku FROM pos_order_lines l JOIN pos_orders o ON o.id = l.order_id JOIN products p ON p.id = l.product_id
-      WHERE o.tenant_id = ${tenantId} AND o.date >= ${since} AND NOT o.prices_include_vat AND l.qty > 0
-        AND l.line_total / l.qty < l.unit_cost * l.uom_factor - 0.005 AND l.unit_cost > 0`);
+    const below = await this.repo.queryPosOrderLine(this.db, tenantId, since);
     add('BELOW_COST', 'warning', 'Dijual di bawah harga pokok', below.rows.map((r) => `${r.number} (${r.sku})`), 'Harga jual lebih rendah dari HPP barang saat itu. Periksa harga master atau kemungkinan penyalahgunaan.');
     // Pesanan meja: pembatalan menu yang sudah dimasak/disajikan (rawan penggelapan: menu dihidangkan lalu "dibatalkan" dan uangnya diambil)
-    const voids = await this.db.execute<{ number: string; product: string; from_status: string; reason: string | null; by: string | null }>(sql`
-      SELECT t.number, p.name AS product, l.void_from_status AS from_status, l.void_reason AS reason, u.name AS by
-      FROM pos_tab_lines l JOIN pos_tabs t ON t.id = l.tab_id JOIN products p ON p.id = l.product_id LEFT JOIN users u ON u.id = l.voided_by_id
-      WHERE t.tenant_id = ${tenantId} AND l.status = 'VOID' AND l.void_from_status IN ('PREPARING', 'READY', 'SERVED') AND l.voided_at >= ${since}::date
-      ORDER BY l.voided_at DESC`);
+    const voids = await this.repo.queryPosTabLine(this.db, tenantId, since);
     add('POS_TAB_VOIDS', 'warning', 'Menu dibatalkan setelah dimasak atau disajikan', voids.rows.map((r) => `${r.number} ${r.product} (${r.from_status === 'SERVED' ? 'sudah disajikan' : 'sudah dimasak'}) oleh ${r.by ?? '-'} — ${r.reason ?? ''}`), 'Pastikan menu yang sudah dibuat memang tidak jadi dibayar (komplain, salah buat), bukan dihidangkan lalu dibatalkan.');
     const stale = await this.db.execute<{ number: string; label: string | null }>(sql`
       SELECT t.number, t.table_label AS label FROM pos_tabs t

@@ -11,6 +11,7 @@ import { InjectDb } from '../../db/db.module';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { CreateSupplierAdvanceDto, ApplySupplierAdvanceDto, RefundSupplierAdvanceDto, AdvanceQueryDto } from './supplier-advances.dto';
+import { SupplierAdvancesRepository } from './supplier-advances.repository';
 
 /** Staf (selain Pemilik/Admin): DP di atas persen ini dari nilai PO butuh persetujuan */
 export const ADVANCE_STAFF_MAX_PO_PCT = 30;
@@ -28,6 +29,7 @@ export class SupplierAdvancesService {
     private readonly posting: PostingService,
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
+    private readonly repo: SupplierAdvancesRepository,
   ) {}
 
   /** Sisa DP milik pemasok yang belum dipakai/dikembalikan */
@@ -42,25 +44,19 @@ export class SupplierAdvancesService {
     assertNotFuture(date, 'Tanggal uang muka');
     const method = dto.method ?? 'TRANSFER';
 
-    const sup = (await this.db.execute<{ id: string; code: string; name: string; is_active: boolean; bank_changed_at: Date | null }>(
-      sql`SELECT id, code, name, is_active, bank_changed_at FROM suppliers WHERE id = ${dto.supplierId} AND tenant_id = ${user.tenantId}`,
-    )).rows[0];
+    const sup = (await this.repo.querySupplier(this.db, dto.supplierId, user.tenantId)).rows[0];
     if (!sup) throw new BadRequestException('Pemasok tidak ditemukan');
     if (!sup.is_active) throw new BadRequestException('Pemasok nonaktif');
 
     let po: { number: string; total: string; status: string; currency: string } | undefined;
     let existing = D(0);
     if (dto.purchaseOrderId) {
-      po = (await this.db.execute<{ number: string; total: string; status: string; currency: string; supplier_id: string }>(
-        sql`SELECT number, total, status, currency, supplier_id FROM purchase_orders WHERE id = ${dto.purchaseOrderId} AND tenant_id = ${user.tenantId}`,
-      )).rows[0] as typeof po & { supplier_id: string };
+      po = (await this.repo.queryPurchaseOrder(this.db, dto.purchaseOrderId, user.tenantId)).rows[0] as typeof po & { supplier_id: string };
       if (!po) throw new BadRequestException('Pesanan pembelian tidak ditemukan');
       if ((po as unknown as { supplier_id: string }).supplier_id !== sup.id) throw new BadRequestException('Pesanan pembelian itu bukan milik pemasok yang dipilih');
       if (po.status !== 'CONFIRMED') throw new BadRequestException(`Uang muka hanya untuk pesanan pembelian yang sudah dikonfirmasi dan belum difakturkan (status sekarang ${po.status})`);
       if (po.currency !== 'IDR') throw new BadRequestException('Uang muka untuk pesanan pembelian mata uang asing belum didukung');
-      existing = D((await this.db.execute<{ s: string }>(
-        sql`SELECT COALESCE(SUM(amount - refunded_amount), 0)::text AS s FROM supplier_advances WHERE purchase_order_id = ${dto.purchaseOrderId} AND tenant_id = ${user.tenantId} AND status <> 'VOID'`,
-      )).rows[0].s);
+      existing = D((await this.repo.querySupplierAdvance(this.db, dto.purchaseOrderId, user.tenantId)).rows[0].s);
       if (existing.plus(amount).gt(po.total)) {
         throw new BadRequestException(`Uang muka melebihi nilai pesanan ${po.number}: sudah ${existing.toFixed(2)}, nilai pesanan ${D(po.total).toFixed(2)}`);
       }
@@ -78,9 +74,7 @@ export class SupplierAdvancesService {
         reasons.push(`rekening pemasok baru diubah (≤ ${pol.bankChangeHoldDays} hari)`);
       }
       if (pol.firstSupplierPayment) {
-        const n = (await this.db.execute<{ n: number }>(sql`
-          SELECT (SELECT COUNT(*)::int FROM supplier_payments WHERE tenant_id = ${user.tenantId} AND supplier_id = ${sup.id} AND status = 'POSTED')
-               + (SELECT COUNT(*)::int FROM supplier_advances WHERE tenant_id = ${user.tenantId} AND supplier_id = ${sup.id} AND status <> 'VOID') AS n`)).rows[0].n;
+        const n = (await this.repo.queryCreate(this.db, user.tenantId, sup.id)).rows[0].n;
         if (n === 0) reasons.push('pembayaran pertama ke pemasok ini');
       }
       if (reasons.length) {
@@ -114,7 +108,7 @@ export class SupplierAdvancesService {
           { accountId: cash.id, credit: amount },
         ],
       });
-      await tx.execute(sql`UPDATE supplier_advances SET journal_id = ${journal.id} WHERE id = ${adv.id}`);
+      await this.repo.queryCreateForCreate(tx, journal.id, adv.id);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'SupplierAdvance', entityId: adv.id, data: { number, supplier: sup.code, po: po?.number ?? null, amount: amount.toFixed(2) } });
       return { id: adv.id, number, status: 'OPEN', amount: amount.toFixed(2), journalNumber: journal.number };
     });
@@ -127,7 +121,7 @@ export class SupplierAdvancesService {
     if (amount.lte(0)) throw new BadRequestException('Jumlah harus lebih dari nol');
     assertNotFuture(date, 'Tanggal pemakaian');
     return this.db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT id FROM supplier_advances WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      await this.repo.querySupplierAdvanceForApply(tx, id, user.tenantId);
       const a = (await tx.execute<AdvanceRow>(sql`SELECT * FROM supplier_advances WHERE id = ${id} AND tenant_id = ${user.tenantId}`)).rows[0];
       if (!a) throw new NotFoundException('Uang muka tidak ditemukan');
       if (a.status !== 'OPEN') throw new BadRequestException(a.status === 'VOID' ? 'Uang muka ini sudah dibatalkan' : 'Uang muka ini sudah habis dipakai/dikembalikan');
@@ -135,10 +129,8 @@ export class SupplierAdvancesService {
       const left = this.remaining(a);
       if (amount.gt(left)) throw new BadRequestException(`Melebihi sisa uang muka (${left.toFixed(2)})`);
 
-      await tx.execute(sql`SELECT id FROM purchase_invoices WHERE id = ${dto.purchaseInvoiceId} AND tenant_id = ${user.tenantId} FOR UPDATE`);
-      const inv = (await tx.execute<{ id: string; number: string; supplier_id: string; purchase_order_id: string | null; total: string; paid_amount: string; returned_amount: string; status: string; currency: string }>(
-        sql`SELECT id, number, supplier_id, purchase_order_id, total, paid_amount, returned_amount, status, currency FROM purchase_invoices WHERE id = ${dto.purchaseInvoiceId} AND tenant_id = ${user.tenantId}`,
-      )).rows[0];
+      await this.repo.queryPurchaseInvoice(tx, dto.purchaseInvoiceId, user.tenantId);
+      const inv = (await this.repo.queryPurchaseInvoiceForApply(tx, dto.purchaseInvoiceId, user.tenantId)).rows[0];
       if (!inv) throw new NotFoundException('Faktur pembelian tidak ditemukan');
       if (inv.supplier_id !== a.supplier_id) throw new BadRequestException('Uang muka hanya bisa dipakai untuk faktur pemasok yang sama');
       if (inv.currency !== 'IDR') throw new BadRequestException('Pemakaian uang muka untuk faktur mata uang asing belum didukung');
@@ -163,7 +155,7 @@ export class SupplierAdvancesService {
           { key: SYS.SUPPLIER_ADVANCE, credit: amount },
         ],
       });
-      await tx.execute(sql`UPDATE supplier_advance_movements SET journal_id = ${journal.id} WHERE id = ${mv.id}`);
+      await this.repo.queryApply(tx, journal.id, mv.id);
       const paid = D(inv.paid_amount).plus(amount);
       await tx.execute(sql`UPDATE purchase_invoices SET paid_amount = ${paid.toFixed(2)}, status = ${paid.plus(inv.returned_amount).gte(inv.total) ? 'PAID' : 'PARTIAL'}::invoice_status WHERE id = ${inv.id}`);
       const applied = D(a.applied_amount).plus(amount);
@@ -181,7 +173,7 @@ export class SupplierAdvancesService {
     if (amount.lte(0)) throw new BadRequestException('Jumlah harus lebih dari nol');
     assertNotFuture(date, 'Tanggal pengembalian');
     return this.db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT id FROM supplier_advances WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      await this.repo.querySupplierAdvanceForApply(tx, id, user.tenantId);
       const a = (await tx.execute<AdvanceRow & { cash_account_id: string; method: string }>(sql`SELECT * FROM supplier_advances WHERE id = ${id} AND tenant_id = ${user.tenantId}`)).rows[0];
       if (!a) throw new NotFoundException('Uang muka tidak ditemukan');
       if (a.status !== 'OPEN') throw new BadRequestException(a.status === 'VOID' ? 'Uang muka ini sudah dibatalkan' : 'Uang muka ini sudah habis dipakai/dikembalikan');
@@ -205,7 +197,7 @@ export class SupplierAdvancesService {
           { key: SYS.SUPPLIER_ADVANCE, credit: amount },
         ],
       });
-      await tx.execute(sql`UPDATE supplier_advance_movements SET journal_id = ${journal.id} WHERE id = ${mv.id}`);
+      await this.repo.queryApply(tx, journal.id, mv.id);
       const refunded = D(a.refunded_amount).plus(amount);
       const closed = D(a.amount).minus(a.applied_amount).minus(refunded).lte(0);
       await tx.execute(sql`UPDATE supplier_advances SET refunded_amount = ${refunded.toFixed(2)}, status = ${closed ? 'CLOSED' : 'OPEN'} WHERE id = ${a.id}`);
@@ -217,70 +209,43 @@ export class SupplierAdvancesService {
   /** Batalkan uang muka yang salah catat: hanya bila belum dipakai/dikembalikan dan belum dicocokkan dengan mutasi bank; jurnal dibalik */
   async void(user: AuthUser, id: string, reason: string) {
     return this.db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT id FROM supplier_advances WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      await this.repo.querySupplierAdvanceForApply(tx, id, user.tenantId);
       const a = (await tx.execute<AdvanceRow>(sql`SELECT * FROM supplier_advances WHERE id = ${id} AND tenant_id = ${user.tenantId}`)).rows[0];
       if (!a) throw new NotFoundException('Uang muka tidak ditemukan');
       if (a.status === 'VOID') throw new BadRequestException('Uang muka ini sudah dibatalkan');
       if (D(a.applied_amount).gt(0) || D(a.refunded_amount).gt(0)) throw new BadRequestException('Uang muka yang sudah dipakai atau dikembalikan tidak bisa dibatalkan');
       if (!a.journal_id) throw new BadRequestException('Uang muka belum punya jurnal');
-      const matched = await tx.execute<{ n: number }>(sql`
-        SELECT (SELECT COUNT(*) FROM bank_statement_lines b
-                WHERE b.status IN ('MATCHED', 'CREATED')
-                  AND (b.journal_id = ${a.journal_id} OR b.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${a.journal_id})))::int
-             + (SELECT COUNT(*) FROM bank_line_extra_matches x WHERE x.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${a.journal_id}))::int AS n`);
+      const matched = await this.repo.queryVoid(tx, a.journal_id);
       if (matched.rows[0].n > 0) throw new BadRequestException('Uang muka ini sudah dicocokkan dengan mutasi bank. Batalkan pencocokannya di Rekonsiliasi Bank dulu');
       const rev = await this.posting.reverse(tx, user.tenantId, a.journal_id, todayJakarta(), user.sub, true);
-      await tx.execute(sql`UPDATE supplier_advances SET status = 'VOID', voided_at = now(), voided_by_id = ${user.sub}, void_reason = ${reason.trim()}, void_journal_id = ${rev.id} WHERE id = ${a.id}`);
+      await this.repo.queryVoidForVoid(tx, user.sub, reason, rev.id, a.id);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'VOID', entity: 'SupplierAdvance', entityId: a.id, data: { number: a.number, amount: a.amount, reason: reason.trim() } });
       return { id: a.id, number: a.number, status: 'VOID', reversalJournal: rev.number };
     });
   }
 
   async list(tenantId: string, q: AdvanceQueryDto) {
-    const r = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT a.id, a.number, a.date, a.supplier_id AS "supplierId", s.code AS "supplierCode", s.name AS "supplierName",
-             a.purchase_order_id AS "purchaseOrderId", po.number AS "purchaseOrderNumber", a.method, a.amount, a.applied_amount AS "appliedAmount",
-             a.refunded_amount AS "refundedAmount", (a.amount - a.applied_amount - a.refunded_amount) AS remaining, a.status, a.description,
-             u.name AS "createdByName", (CURRENT_DATE - a.date)::int AS "ageDays"
-      FROM supplier_advances a JOIN suppliers s ON s.id = a.supplier_id LEFT JOIN purchase_orders po ON po.id = a.purchase_order_id LEFT JOIN users u ON u.id = a.created_by_id
-      WHERE a.tenant_id = ${tenantId}
-        ${q.supplierId ? sql`AND a.supplier_id = ${q.supplierId}` : sql``}
-        ${q.open === '1' ? sql`AND a.status = 'OPEN'` : sql``}
-      ORDER BY a.date DESC, a.number DESC LIMIT 500`);
+    const r = await this.repo.querySupplierAdvanceForList(this.db, tenantId, q);
     return r.rows;
   }
 
   async get(tenantId: string, id: string) {
     const head = (await this.list(tenantId, {})).find((x) => (x as { id: string }).id === id);
     if (!head) throw new NotFoundException('Uang muka tidak ditemukan');
-    const moves = (await this.db.execute<Record<string, unknown>>(sql`
-      SELECT m.id, m.kind, m.number, m.date, m.amount, m.note, i.number AS "invoiceNumber", i.supplier_invoice_no AS "supplierInvoiceNo", u.name AS "createdByName"
-      FROM supplier_advance_movements m LEFT JOIN purchase_invoices i ON i.id = m.purchase_invoice_id LEFT JOIN users u ON u.id = m.created_by_id
-      WHERE m.tenant_id = ${tenantId} AND m.advance_id = ${id} ORDER BY m.date, m.number`)).rows;
+    const moves = (await this.repo.querySupplierAdvanceMovement(this.db, tenantId, id)).rows;
     return { ...head, movements: moves };
   }
 
   /** Saldo uang muka terbuka per pemasok */
   async summary(tenantId: string) {
-    const r = await this.db.execute<{ supplierId: string; supplierCode: string; supplierName: string; open: string; count: number; oldest: string | null; openInvoices: string }>(sql`
-      SELECT s.id AS "supplierId", s.code AS "supplierCode", s.name AS "supplierName",
-             SUM(a.amount - a.applied_amount - a.refunded_amount)::text AS open, COUNT(*)::int AS count, MIN(a.date)::text AS oldest,
-             COALESCE((SELECT SUM(i.total - i.paid_amount - i.returned_amount) FROM purchase_invoices i WHERE i.tenant_id = ${tenantId} AND i.supplier_id = s.id AND i.status <> 'PAID' AND i.currency = 'IDR'), 0)::text AS "openInvoices"
-      FROM supplier_advances a JOIN suppliers s ON s.id = a.supplier_id
-      WHERE a.tenant_id = ${tenantId} AND a.status = 'OPEN'
-      GROUP BY s.id, s.code, s.name ORDER BY SUM(a.amount - a.applied_amount - a.refunded_amount) DESC`);
+    const r = await this.repo.querySupplierAdvanceForSummary(this.db, tenantId);
     const total = r.rows.reduce((t, x) => t.plus(x.open), D(0));
     return { total: total.toFixed(2), suppliers: r.rows };
   }
 
   /** Temuan untuk pemeriksa: uang keluar tanpa barang yang perlu ditindaklanjuti */
   async controls(tenantId: string) {
-    const rows = (await this.db.execute<{ id: string; number: string; date: string; supplier: string; po: string | null; poStatus: string | null; remaining: string; openInvoices: string }>(sql`
-      SELECT a.id, a.number, a.date::text, s.name AS supplier, po.number AS po, po.status AS "poStatus",
-             (a.amount - a.applied_amount - a.refunded_amount)::text AS remaining,
-             COALESCE((SELECT SUM(i.total - i.paid_amount - i.returned_amount) FROM purchase_invoices i WHERE i.tenant_id = ${tenantId} AND i.supplier_id = a.supplier_id AND i.status <> 'PAID' AND i.currency = 'IDR'), 0)::text AS "openInvoices"
-      FROM supplier_advances a JOIN suppliers s ON s.id = a.supplier_id LEFT JOIN purchase_orders po ON po.id = a.purchase_order_id
-      WHERE a.tenant_id = ${tenantId} AND a.status = 'OPEN' ORDER BY a.date`)).rows;
+    const rows = (await this.repo.querySupplierAdvanceForControls(this.db, tenantId)).rows;
     const today = todayJakarta();
     const item = (r: (typeof rows)[number], extra: Record<string, unknown> = {}) => ({ number: r.number, supplier: r.supplier, date: r.date, remaining: r.remaining, ...extra });
     return [

@@ -10,6 +10,7 @@ import { InjectDb } from '../../db/db.module';
 import { products, stockBalances, stockCountLines, stockCounts, stockMinimums, stockTransferLines, stockTransfers, users, warehouses } from '../../db/schema';
 import { WarehouseOpsService, UUID } from './warehouse-ops.service';
 import { findOwned } from '../../db/owned';
+import { WarehouseQueryRepository } from './warehouse-query.repository';
 
 @Injectable()
 export class WarehouseQueryService {
@@ -17,6 +18,7 @@ export class WarehouseQueryService {
     @InjectDb() private readonly db: Db,
     private readonly approvals: ApprovalsService,
     private readonly ops: WarehouseOpsService,
+    private readonly repo: WarehouseQueryRepository,
   ) {}
 
 
@@ -25,22 +27,7 @@ export class WarehouseQueryService {
     const allowed = allowedWarehouses(u);
     if (warehouseId && !UUID.test(warehouseId)) throw new BadRequestException('Gudang tidak valid');
     if (warehouseId) assertWarehouseAccess(u, warehouseId);
-    const rows = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT t.id, t.number, t.date, t.notes, t.total_value AS "totalValue", t.created_at AS "createdAt",
-             t.status, t.received_date AS "receivedDate",
-             t.from_warehouse_id AS "fromWarehouseId", fw.code AS "fromCode", fw.name AS "fromName",
-             t.to_warehouse_id AS "toWarehouseId", tw.code AS "toCode", tw.name AS "toName",
-             (SELECT COUNT(*) FROM stock_transfer_lines l WHERE l.transfer_id = t.id)::int AS lines,
-             u.name AS "createdBy"
-      FROM stock_transfers t
-      JOIN warehouses fw ON fw.id = t.from_warehouse_id
-      JOIN warehouses tw ON tw.id = t.to_warehouse_id
-      LEFT JOIN users u ON u.id = t.created_by_id
-      WHERE t.tenant_id = ${u.tenantId}
-        ${warehouseId ? sql`AND (t.from_warehouse_id = ${warehouseId} OR t.to_warehouse_id = ${warehouseId})` : sql``}
-        ${allowed ? sql`AND (t.from_warehouse_id = ANY(${`{${allowed.join(',')}}`}::uuid[]) OR t.to_warehouse_id = ANY(${`{${allowed.join(',')}}`}::uuid[]))` : sql``}
-      ORDER BY (t.status = 'IN_TRANSIT') DESC, t.date DESC, t.number DESC
-      LIMIT 500`);
+    const rows = await this.repo.queryStockTransfer(this.db, u, warehouseId, allowed);
     return rows.rows;
   }
 
@@ -55,25 +42,12 @@ export class WarehouseQueryService {
       this.ops.warehouse(this.db, u.tenantId, t.fromWarehouseId),
       this.ops.warehouse(this.db, u.tenantId, t.toWarehouseId),
     ]);
-    const lines = await this.db
-      .select({
-        productId: stockTransferLines.productId,
-        sku: products.sku,
-        name: products.name,
-        baseUom: products.baseUom,
-        qty: stockTransferLines.qty,
-        unitCost: stockTransferLines.unitCost,
-        receivedQty: stockTransferLines.receivedQty,
-      })
-      .from(stockTransferLines)
-      .innerJoin(products, eq(products.id, stockTransferLines.productId))
-      .where(eq(stockTransferLines.transferId, id))
-      .orderBy(asc(products.sku));
+    const lines = await this.repo.listStockTransferLinesWithProductsByTransferId(this.db, id);
     const [by] = t.createdById
-      ? await this.db.select({ name: users.name }).from(users).where(eq(users.id, t.createdById))
+      ? await this.repo.listUsersById(this.db, t.createdById)
       : [];
     const [rb] = t.receivedById
-      ? await this.db.select({ name: users.name }).from(users).where(eq(users.id, t.receivedById))
+      ? await this.repo.listUsersByIdForGetTransfer(this.db, t.receivedById)
       : [];
     return {
       ...t,
@@ -117,31 +91,10 @@ export class WarehouseQueryService {
   async getCount(u: AuthUser, id: string) {
     const c = await this.ops.ownCount(u, id);
     const wh = await this.ops.warehouse(this.db, u.tenantId, c.warehouseId);
-    const lines = await this.db
-      .select({
-        productId: stockCountLines.productId,
-        sku: products.sku,
-        name: products.name,
-        category: products.category,
-        baseUom: products.baseUom,
-        systemQty: stockCountLines.systemQty,
-        currentQty: c.binId ? sql<string>`COALESCE((SELECT SUM(b.qty) FROM stock_bin_balances b WHERE b.bin_id = ${c.binId} AND b.product_id = ${stockCountLines.productId}), 0)` : sql<string>`COALESCE(${stockBalances.qty}, 0)`,
-        avgCost: sql<string>`COALESCE(${stockBalances.avgCost}, 0)`,
-        countedQty: stockCountLines.countedQty,
-        postedSystemQty: stockCountLines.postedSystemQty,
-        difference: stockCountLines.difference,
-      })
-      .from(stockCountLines)
-      .innerJoin(products, eq(products.id, stockCountLines.productId))
-      .leftJoin(
-        stockBalances,
-        and(eq(stockBalances.productId, stockCountLines.productId), eq(stockBalances.warehouseId, c.warehouseId)),
-      )
-      .where(eq(stockCountLines.countId, id))
-      .orderBy(asc(products.category), asc(products.sku));
+    const lines = await this.repo.sumStockCountLinesWithProductsByCountId(this.db, c, id);
     // Opname buta: penghitung (Gudang) tidak melihat stok sistem selama opname masih berjalan
     const blind = u.role === 'WAREHOUSE' && c.status === 'DRAFT' && (await this.approvals.policy(this.db, u.tenantId)).blindCount;
-    const binCode = c.binId ? ((await this.db.execute<{ code: string }>(sql`SELECT code FROM warehouse_bins WHERE id = ${c.binId}`)).rows[0]?.code ?? null) : null;
+    const binCode = c.binId ? ((await this.repo.queryWarehouseBin(this.db, c.binId)).rows[0]?.code ?? null) : null;
     return {
       ...c,
       binCode,
@@ -221,45 +174,15 @@ export class WarehouseQueryService {
   // ===================== Rekap semua gudang =====================
   async matrix(u: AuthUser, opts: { includeZero?: boolean; category?: string }) {
     const allowed = allowedWarehouses(u);
-    const whs = await this.db
-      .select({ id: warehouses.id, code: warehouses.code, name: warehouses.name, isActive: warehouses.isActive })
-      .from(warehouses)
-      .where(and(eq(warehouses.tenantId, u.tenantId), allowed ? inArray(warehouses.id, allowed) : undefined))
-      .orderBy(asc(warehouses.code));
+    const whs = await this.repo.listWarehousesByIdAndCode(this.db, u.tenantId, allowed);
     const ids = whs.map((w) => w.id);
     const bal = ids.length
-      ? await this.db
-          .select({
-            productId: stockBalances.productId,
-            warehouseId: stockBalances.warehouseId,
-            qty: stockBalances.qty,
-            avgCost: stockBalances.avgCost,
-          })
-          .from(stockBalances)
-          .where(and(eq(stockBalances.tenantId, u.tenantId), inArray(stockBalances.warehouseId, ids)))
+      ? await this.repo.listStockBalancesByWarehouseId(this.db, u.tenantId, ids)
       : [];
     const mins = ids.length
-      ? await this.db
-          .select({
-            productId: stockMinimums.productId,
-            warehouseId: stockMinimums.warehouseId,
-            minQty: stockMinimums.minQty,
-          })
-          .from(stockMinimums)
-          .where(and(eq(stockMinimums.tenantId, u.tenantId), inArray(stockMinimums.warehouseId, ids)))
+      ? await this.repo.listStockMinimumsByWarehouseId(this.db, u.tenantId, ids)
       : [];
-    const prods = await this.db
-      .select({
-        id: products.id,
-        sku: products.sku,
-        name: products.name,
-        category: products.category,
-        baseUom: products.baseUom,
-        isActive: products.isActive,
-      })
-      .from(products)
-      .where(and(eq(products.tenantId, u.tenantId), opts.category ? eq(products.category, opts.category) : undefined))
-      .orderBy(asc(products.sku));
+    const prods = await this.repo.listProductsByCategoryAndSku(this.db, u.tenantId, opts);
     const byProd = new Map<
       string,
       {

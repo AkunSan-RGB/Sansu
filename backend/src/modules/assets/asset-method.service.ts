@@ -15,6 +15,7 @@ import { monthIndex, periodOf, type MethodChange } from './depreciation';
 import { UsageDto, ChangeMethodDto } from './assets.dto';
 import { AssetsService } from './assets.service';
 import { patchById } from '../../db/owned';
+import { AssetMethodRepository } from './asset-method.repository';
 
 @Injectable()
 export class AssetMethodService {
@@ -24,6 +25,7 @@ export class AssetMethodService {
     private readonly approvals: ApprovalsService,
     private readonly repo: AssetRepository,
     private readonly assets: AssetsService,
+    private readonly queries: AssetMethodRepository,
   ) {}
 
   /** Catatan pemakaian bulanan (metode unit produksi) */
@@ -68,11 +70,8 @@ export class AssetMethodService {
         throw new BadRequestException(
           `Penyusutan sudah diposting sampai ${last}; pemakaian bulan itu tidak bisa diubah.`,
         );
-      const [existing] = await tx
-        .select()
-        .from(assetUsage)
-        .where(and(eq(assetUsage.assetId, id), eq(assetUsage.period, dto.period)));
-      const others = (await tx.select().from(assetUsage).where(eq(assetUsage.assetId, id)))
+      const [existing] = await this.queries.findAssetUsageByAssetIdAndPeriod(tx, id, dto.period);
+      const others = (await this.queries.listAssetUsageByAssetId(tx, id))
         .filter((r) => r.period !== dto.period)
         .reduce((t, r) => t.plus(r.units), ZERO);
       if (others.plus(units).gt(D(a.totalUnits ?? 0)))
@@ -172,9 +171,7 @@ export class AssetMethodService {
       // Susutkan dulu sampai bulan sebelum bulan berlaku dengan metode lama
       await this.assets.run(user, periodOf(monthIndex(effective) - 1), a.id, tx);
       const [p] = (
-        await tx.execute<{ total: string }>(
-          sql`SELECT COALESCE(SUM(amount), 0) AS total FROM asset_depreciations WHERE asset_id = ${a.id}`,
-        )
+        await this.queries.queryAssetDepreciation(tx, a.id)
       ).rows;
       const acc = D(a.openingAccumulated).plus(p.total);
       if (D(a.cost).minus(acc).minus(a.residualValue).lte(0))

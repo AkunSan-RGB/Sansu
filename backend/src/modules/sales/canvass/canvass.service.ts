@@ -18,6 +18,7 @@ import { VanDto, VanMoveDto, CanvassSaleDto, CollectionDto, VerifyDto, RouteDto,
 import { asDto } from '../../../common/utils/dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
 import { findOwned, insertOne, lockOwned, patchById } from '../../../db/owned';
+import { CanvassRepository } from './canvass.repository';
 
 /** Jarak maksimum kunjungan dari titik outlet sebelum ditandai mencurigakan */
 const FAR_METERS = 300;
@@ -43,32 +44,29 @@ export class CanvassService {
     private readonly audit: AuditService,
     private readonly subs: SubscriptionService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: CanvassRepository,
   ) {}
 
   async vans(tenantId: string, role?: string) {
-    const rows = await this.db.execute<{ id: string; code: string; name: string; user_id: string; user_name: string; is_active: boolean; qty: string; value: string; skus: string }>(sql`
-      SELECT w.id, w.code, w.name, w.van_user_id AS user_id, u.name AS user_name, w.is_active,
-             COALESCE(SUM(b.qty), 0)::text AS qty, COALESCE(SUM(b.qty * b.avg_cost), 0)::text AS value, COUNT(b.product_id) FILTER (WHERE b.qty > 0)::text AS skus
-      FROM warehouses w LEFT JOIN users u ON u.id = w.van_user_id LEFT JOIN stock_balances b ON b.warehouse_id = w.id AND b.qty > 0
-      WHERE w.tenant_id = ${tenantId} AND w.kind = 'VAN' GROUP BY w.id, u.name ORDER BY w.code`);
+    const rows = await this.repo.queryWarehouse(this.db, tenantId);
     return rows.rows.map((r) => ({ id: r.id, code: r.code, name: r.name, userId: r.user_id, userName: r.user_name, isActive: r.is_active, qty: r.qty, // harga pokok tidak ditampilkan ke Sales
       value: role === 'SALES' ? '0.00' : D(r.value).toFixed(2), skus: Number(r.skus) }));
   }
 
   async createVan(u: AuthUser, dto: VanDto) {
-    const [sp] = await this.db.select().from(users).where(and(eq(users.id, dto.userId), eq(users.tenantId, u.tenantId), eq(users.role, 'SALES'), eq(users.isActive, true)));
+    const [sp] = await this.repo.findUsersByIdAndRoleAndIsActive(this.db, dto.userId, u.tenantId);
     if (!sp) throw new BadRequestException('Mobil hanya untuk pengguna berperan Sales yang aktif');
-    const [exist] = await this.db.select({ id: warehouses.id }).from(warehouses).where(and(eq(warehouses.tenantId, u.tenantId), eq(warehouses.kind, 'VAN'), eq(warehouses.vanUserId, sp.id)));
+    const [exist] = await this.repo.findWarehousesByKindAndVanUserId(this.db, u.tenantId, sp.id);
     if (exist) throw new BadRequestException(`${sp.name} sudah punya mobil`);
     await this.subs.assertCanAdd(u.tenantId, 'warehouses');
-    const n = await this.db.execute<{ n: string }>(sql`SELECT COUNT(*)::text AS n FROM warehouses WHERE tenant_id = ${u.tenantId} AND kind = 'VAN'`);
+    const n = await this.repo.queryWarehouseForCreateVan(this.db, u.tenantId);
     const row = await insertOne(this.db, warehouses, { tenantId: u.tenantId, code: `VAN-${String(Number(n.rows[0].n) + 1).padStart(2, '0')}`, name: `Mobil ${sp.name}`, kind: 'VAN', vanUserId: sp.id });
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'Van', entityId: row.id, data: { code: row.code, sales: sp.name } });
     return row;
   }
 
   private async van(tenantId: string, id: string) {
-    const [w] = await this.db.select().from(warehouses).where(and(eq(warehouses.id, id), eq(warehouses.tenantId, tenantId), eq(warehouses.kind, 'VAN')));
+    const [w] = await this.repo.findWarehousesByIdAndKind(this.db, id, tenantId);
     if (!w) throw new NotFoundException('Mobil tidak ditemukan');
     return w;
   }
@@ -98,7 +96,7 @@ export class CanvassService {
   async sale(u: AuthUser, dto: CanvassSaleDto) {
     let van;
     if (u.role === 'SALES') {
-      const [mine] = await this.db.select().from(warehouses).where(and(eq(warehouses.tenantId, u.tenantId), eq(warehouses.kind, 'VAN'), eq(warehouses.vanUserId, u.sub), eq(warehouses.isActive, true)));
+      const [mine] = await this.repo.findWarehousesByKindAndVanUserIdAndIsActive(this.db, u.tenantId, u.sub);
       if (!mine) throw new BadRequestException('Anda belum punya mobil kanvas; minta Admin membuatnya');
       van = mine;
     } else {
@@ -138,15 +136,15 @@ export class CanvassService {
     if (amount.lte(0)) throw new BadRequestException('Jumlah harus lebih dari nol');
     const date = toDocDate(undefined);
     return this.db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT id FROM invoices WHERE id = ${dto.invoiceId} AND tenant_id = ${u.tenantId} FOR UPDATE`);
+      await this.repo.queryInvoice(tx, dto.invoiceId, u.tenantId);
       const inv = await tx.query.invoices.findFirst({ where: and(eq(invoices.id, dto.invoiceId), eq(invoices.tenantId, u.tenantId)) });
       if (!inv) throw new NotFoundException('Faktur tidak ditemukan');
       if (u.role === 'SALES') {
         // sales hanya menagih faktur dari pesanan yang ia pegang
-        const mine = await tx.execute(sql`SELECT 1 FROM sales_orders WHERE id = ${inv.salesOrderId} AND salesperson_id = ${collectorId}`);
+        const mine = await this.repo.querySalesOrder(tx, inv.salesOrderId, collectorId);
         if (!mine.rows.length) throw new ForbiddenException('Anda hanya dapat menagih faktur pesanan yang Anda pegang');
       }
-      const pending = await tx.execute<{ s: string }>(sql`SELECT COALESCE(SUM(amount), 0)::text AS s FROM canvass_collections WHERE invoice_id = ${inv.id} AND status = 'PENDING'`);
+      const pending = await this.repo.queryCanvassCollection(tx, inv.id);
       const room = D(inv.total).minus(inv.paidAmount).minus(inv.returnedAmount).minus(pending.rows[0].s);
       if (amount.gt(room)) throw new BadRequestException(`Jumlah melebihi sisa tagihan yang belum disetor (${room.toFixed(2)})`);
       const number = await this.seq.next(tx, u.tenantId, 'CANVASS_REMITTANCE', date);
@@ -157,15 +155,7 @@ export class CanvassService {
   }
 
   async collections(u: AuthUser, status?: string) {
-    const rows = await this.db
-      .select({ c: canvassCollections, sales: users.name, cust: customers.name, inv: invoices.number })
-      .from(canvassCollections)
-      .innerJoin(users, eq(users.id, canvassCollections.userId))
-      .innerJoin(customers, eq(customers.id, canvassCollections.customerId))
-      .innerJoin(invoices, eq(invoices.id, canvassCollections.invoiceId))
-      .where(and(eq(canvassCollections.tenantId, u.tenantId), status ? eq(canvassCollections.status, status as 'PENDING') : undefined, u.role === 'SALES' ? eq(canvassCollections.userId, u.sub) : undefined))
-      .orderBy(desc(canvassCollections.date), desc(canvassCollections.number))
-      .limit(300);
+    const rows = await this.repo.listCanvassCollectionsWithUsersAndCustomersByStatusAndUserIdAndDate(this.db, u, status);
     const today = todayJakarta();
     return rows.map((r) => ({ ...r.c, salesName: r.sales, customerName: r.cust, invoiceNumber: r.inv, overdue: r.c.status === 'PENDING' && Date.parse(`${today}T00:00:00Z`) - Date.parse(`${r.c.date}T00:00:00Z`) > STALE_DAYS * 86_400_000 }));
   }
@@ -187,9 +177,9 @@ export class CanvassService {
       if (c.userId === u.sub) throw new ForbiddenException('Setoran tidak dapat diverifikasi oleh sales yang menyetornya');
       if (c.createdById === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Setoran diverifikasi oleh orang lain dari yang mencatatnya (pemisahan fungsi)');
       if (received.gt(c.amount)) throw new BadRequestException('Uang yang diterima tidak boleh melebihi yang dicatat sales; catat kelebihan sebagai penerimaan terpisah');
-      await tx.execute(sql`SELECT id FROM invoices WHERE id = ${c.invoiceId} AND tenant_id = ${u.tenantId} FOR UPDATE`);
-      const [inv] = await tx.select().from(invoices).where(eq(invoices.id, c.invoiceId));
-      const [customer] = await tx.select({ name: customers.name }).from(customers).where(eq(customers.id, inv.customerId));
+      await this.repo.queryInvoice(tx, c.invoiceId, u.tenantId);
+      const [inv] = await this.repo.findInvoicesById(tx, c.invoiceId);
+      const [customer] = await this.repo.findCustomersById(tx, inv.customerId);
       const outstanding = D(inv.total).minus(inv.paidAmount).minus(inv.returnedAmount);
       if (D(c.amount).gt(outstanding)) throw new BadRequestException(`Setoran melebihi sisa tagihan faktur (${outstanding.toFixed(2)}); faktur sudah dilunasi/diretur sejak dicatat`);
       const shortage = D(c.amount).minus(received);
@@ -228,18 +218,18 @@ export class CanvassService {
   }
 
   async routes(u: AuthUser) {
-    const rows = await this.db.select({ r: salesRoutes, sales: users.name }).from(salesRoutes).innerJoin(users, eq(users.id, salesRoutes.salespersonId)).where(and(eq(salesRoutes.tenantId, u.tenantId), u.role === 'SALES' ? eq(salesRoutes.salespersonId, u.sub) : undefined)).orderBy(salesRoutes.name);
+    const rows = await this.repo.listSalesRoutesWithUsersBySalespersonIdAndName(this.db, u);
     const stops = rows.length ? await this.db.select({ s: salesRouteStops, code: customers.code, name: customers.name }).from(salesRouteStops).innerJoin(customers, eq(customers.id, salesRouteStops.customerId)).where(inArray(salesRouteStops.routeId, rows.map((r) => r.r.id))).orderBy(salesRouteStops.seq) : [];
     return rows.map((r) => ({ ...r.r, salesName: r.sales, stops: stops.filter((s) => s.s.routeId === r.r.id).map((s) => ({ customerId: s.s.customerId, seq: s.s.seq, code: s.code, name: s.name })) }));
   }
 
   private async checkRoute(u: AuthUser, dto: RouteDto) {
-    const [sp] = await this.db.select({ id: users.id }).from(users).where(and(eq(users.id, dto.salespersonId), eq(users.tenantId, u.tenantId), eq(users.role, 'SALES')));
+    const [sp] = await this.repo.findUsersByIdAndRole(this.db, dto.salespersonId, u.tenantId);
     if (!sp) throw new BadRequestException('Rute hanya untuk pengguna berperan Sales');
     const ids = [...new Set(dto.customerIds)];
     if (ids.length !== dto.customerIds.length) throw new BadRequestException('Satu outlet tidak boleh dua kali dalam satu rute');
     if (ids.length) {
-      const found = await this.db.select({ id: customers.id }).from(customers).where(and(eq(customers.tenantId, u.tenantId), inArray(customers.id, ids)));
+      const found = await this.repo.listCustomersById(this.db, u.tenantId, ids);
       if (found.length !== ids.length) throw new BadRequestException('Ada outlet yang tidak ditemukan');
     }
   }
@@ -252,7 +242,7 @@ export class CanvassService {
         const cur = await findOwned(tx, salesRoutes, u.tenantId, id);
         if (!cur) throw new NotFoundException('Rute tidak ditemukan');
         await patchById(tx, salesRoutes, id, { name: dto.name.trim(), salespersonId: dto.salespersonId, weekday: dto.weekday ?? null, isActive: dto.isActive ?? true });
-        await tx.delete(salesRouteStops).where(eq(salesRouteStops.routeId, id));
+        await this.repo.deleteSalesRouteStopsByRouteId(tx, id);
       } else {
         try {
           const row = await insertOne(tx, salesRoutes, { tenantId: u.tenantId, name: dto.name.trim(), salespersonId: dto.salespersonId, weekday: dto.weekday ?? null });
@@ -262,7 +252,7 @@ export class CanvassService {
           throw e;
         }
       }
-      if (dto.customerIds.length) await tx.insert(salesRouteStops).values(dto.customerIds.map((customerId, i) => ({ tenantId: u.tenantId, routeId: routeId!, customerId, seq: i + 1 })));
+      if (dto.customerIds.length) await this.repo.insertSalesRouteStops(tx, dto.customerIds, u.tenantId, routeId);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: id ? 'UPDATE' : 'CREATE', entity: 'SalesRoute', entityId: routeId!, data: { name: dto.name, stops: dto.customerIds.length } });
       return { id: routeId };
     });
@@ -287,7 +277,7 @@ export class CanvassService {
     const date = dateStr ? toDocDate(dateStr) : todayJakarta();
     const weekday = ((new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7) + 1;
     const only = u.role === 'SALES' ? u.sub : null;
-    const sales = await this.db.select({ id: users.id, name: users.name }).from(users).where(and(eq(users.tenantId, u.tenantId), eq(users.role, 'SALES'), eq(users.isActive, true), only ? eq(users.id, only) : undefined));
+    const sales = await this.repo.listUsersByRoleAndIsActiveAndId(this.db, u.tenantId, only);
     const q = async <T extends Record<string, unknown>>(query: ReturnType<typeof sql>) => (await this.db.execute<T>(query)).rows;
     const planned = await q<{ uid: string; n: string }>(sql`SELECT r.salesperson_id AS uid, COUNT(s.id)::text AS n FROM sales_routes r JOIN sales_route_stops s ON s.route_id = r.id WHERE r.tenant_id = ${u.tenantId} AND r.is_active AND r.weekday = ${weekday} GROUP BY r.salesperson_id`);
     const visits = await q<{ uid: string; n: string; eff: string; far: string }>(sql`SELECT user_id AS uid, COUNT(*)::text AS n, COUNT(*) FILTER (WHERE result = 'ORDER')::text AS eff, COUNT(*) FILTER (WHERE distance_m > ${FAR_METERS})::text AS far FROM sales_visits WHERE tenant_id = ${u.tenantId} AND date = ${date} GROUP BY user_id`);
@@ -322,13 +312,7 @@ export class CanvassService {
 
   async visits(u: AuthUser, dateStr?: string) {
     const date = dateStr ? toDocDate(dateStr) : todayJakarta();
-    const rows = await this.db
-      .select({ v: salesVisits, sales: users.name, code: customers.code, name: customers.name })
-      .from(salesVisits)
-      .innerJoin(users, eq(users.id, salesVisits.userId))
-      .innerJoin(customers, eq(customers.id, salesVisits.customerId))
-      .where(and(eq(salesVisits.tenantId, u.tenantId), eq(salesVisits.date, date), u.role === 'SALES' ? eq(salesVisits.userId, u.sub) : undefined))
-      .orderBy(desc(salesVisits.checkedInAt));
+    const rows = await this.repo.listSalesVisitsWithUsersAndCustomersByDateAndUserIdAndCheckedInAt(this.db, u, date);
     return rows.map((r) => ({ ...r.v, salesName: r.sales, customerCode: r.code, customerName: r.name, farFromOutlet: r.v.distanceM !== null && r.v.distanceM > FAR_METERS }));
   }
 }

@@ -28,6 +28,7 @@ import { StockService } from '../inventory/stock.service';
 import { lineTotal } from '../sales/pricing';
 import { CreateReturnDto } from './returns.dto';
 import { insertOne, patchById } from '../../db/owned';
+import { ReturnsRepository } from './returns.repository';
 
 interface SourceLine {
   id: string;
@@ -86,6 +87,7 @@ export class ReturnsService {
     private readonly posting: PostingService,
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
+    private readonly repo: ReturnsRepository,
   ) {}
 
   // ================= Retur penjualan =================
@@ -116,7 +118,7 @@ export class ReturnsService {
     if (!opts.approved && !this.approvals.isApprover(user.role) && (await this.approvals.policy(this.db, user.tenantId)).salesSeparateDuties) {
       const creator = await this.approvals.invoiceCreator(this.db, user.tenantId, dto.invoiceId);
       if (creator && creator === user.sub) {
-        const [inv] = await this.db.select({ n: invoices.number }).from(invoices).where(and(eq(invoices.id, dto.invoiceId), eq(invoices.tenantId, user.tenantId)));
+        const [inv] = await this.repo.findInvoicesById(this.db, dto.invoiceId, user.tenantId);
         const req = await this.approvals.create(this.db, user, { kind: 'SALES_RETURN', refId: null, title: `Retur penjualan faktur ${inv?.n ?? ''} oleh pembuat fakturnya`, amount: 0, payload: JSON.parse(JSON.stringify(dto)) });
         throw this.approvals.required(req.id, 'Retur atas faktur yang Anda buat sendiri menunggu persetujuan pemilik atau admin (pemisahan fungsi); permintaan dikirim dan retur dicatat setelah disetujui.');
       }
@@ -148,17 +150,15 @@ export class ReturnsService {
         throw new BadRequestException('Faktur jasa tidak bisa diretur. Untuk pengurangan tagihan jasa, catat nota kredit lewat jurnal penyesuaian.');
       }
       const [order] = inv.salesOrderId
-        ? await tx.select({ warehouseId: salesOrders.warehouseId }).from(salesOrders).where(eq(salesOrders.id, inv.salesOrderId))
+        ? await this.repo.listSalesOrdersById(tx, inv.salesOrderId)
         : [];
       if (!order) throw new BadRequestException('Gudang asal faktur tidak diketahui');
-      const [customer] = await tx.select().from(customers).where(eq(customers.id, inv.customerId));
+      const [customer] = await this.repo.findCustomersById(tx, inv.customerId);
 
       // Barang yang sudah/sedang ditukar-guling tidak boleh diretur lagi (outlet tidak boleh dapat pengganti sekaligus nota kredit)
       for (const l of dto.lines) {
         if (D(l.qty).lte(0)) continue;
-        const sw = await tx.execute<{ q: string }>(sql`
-          SELECT COALESCE(SUM(sl.qty), 0)::text AS q FROM goods_swap_lines sl JOIN goods_swaps s ON s.id = sl.swap_id
-          WHERE sl.invoice_line_id = ${l.invoiceLineId} AND s.status IN ('PENDING', 'APPROVED')`);
+        const sw = await this.repo.queryGoodsSwapLine(tx, l.invoiceLineId);
         const src = inv.lines.find((x) => x.id === l.invoiceLineId);
         if (src && D(sw.rows[0].q).gt(0) && D(l.qty).gt(D(src.qty).minus(src.returnedQty).minus(sw.rows[0].q))) {
           throw new BadRequestException(`Sebagian barang pada baris ini sudah/sedang ditukar-guling (${D(sw.rows[0].q).toFixed(0)} ${src.uom}); jumlah retur melebihi sisa yang boleh diretur`);
@@ -211,14 +211,7 @@ export class ReturnsService {
           date,
         });
         cost = cost.plus(moved.value);
-        await tx.insert(salesReturnLines).values({
-          returnId: ret.id,
-          invoiceLineId: l.src.id,
-          productId: l.src.productId,
-          uom: l.src.uom,
-          qty: l.qty.toFixed(4),
-          lineTotal: l.total.toFixed(2),
-        });
+        await this.repo.insertSalesReturnLines(tx, ret.id, l.src.id, l.src.productId, l.src.uom, l.qty, l.total);
         await patchById(tx, invoiceLines, l.src.id, { returnedQty: D(l.src.returnedQty).plus(l.qty).toFixed(4) });
       }
 
@@ -286,7 +279,7 @@ export class ReturnsService {
         throw new BadRequestException('Retur hanya untuk faktur barang dagang. Untuk tagihan biaya/aset, minta nota kredit supplier dan catat lewat jurnal.');
       }
       const warehouseId = inv.warehouseId;
-      const [supplier] = await tx.select().from(suppliers).where(eq(suppliers.id, inv.supplierId));
+      const [supplier] = await this.repo.findSuppliersById(tx, inv.supplierId);
 
       const { lines, subtotal, isFinal } = buildReturnLines(
         inv.lines.map((l) => ({ ...l, productId: l.productId! })),
@@ -331,14 +324,7 @@ export class ReturnsService {
           date,
         });
         stockValue = stockValue.plus(moved.value);
-        await tx.insert(purchaseReturnLines).values({
-          returnId: ret.id,
-          invoiceLineId: l.src.id,
-          productId: l.src.productId,
-          uom: l.src.uom,
-          qty: l.qty.toFixed(4),
-          lineTotal: l.total.toFixed(2),
-        });
+        await this.repo.insertPurchaseReturnLines(tx, ret.id, l.src.id, l.src.productId, l.src.uom, l.qty, l.total);
         await patchById(tx, purchaseInvoiceLines, l.src.id, { returnedQty: D(l.src.returnedQty).plus(l.qty).toFixed(4) });
       }
       // PPN faktur non-PKP sudah masuk harga perolehan → ikut keluar bersama persediaan, bukan mengurangi PPN Masukan
@@ -374,16 +360,12 @@ export class ReturnsService {
   }
 
   private async lockRow(tx: Tx, table: 'invoices' | 'purchase_invoices', id: string, tenantId: string) {
-    const res = await tx.execute(
-      sql`SELECT id FROM ${sql.identifier(table)} WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`,
-    );
+    const res = await this.repo.queryLockRow(tx, table, id, tenantId);
     if (!res.rows.length) throw new NotFoundException('Faktur tidak ditemukan');
   }
 
   private async sumTax(tx: Tx, table: 'sales_returns' | 'purchase_returns', fk: string, id: string): Promise<Dec> {
-    const res = await tx.execute<{ v: string }>(
-      sql`SELECT COALESCE(SUM(tax_amount), 0) AS v FROM ${sql.identifier(table)} WHERE ${sql.identifier(fk)} = ${id}`,
-    );
+    const res = await this.repo.querySumTax(tx, table, fk, id);
     return D(res.rows[0].v);
   }
 }

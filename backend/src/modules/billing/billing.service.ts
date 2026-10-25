@@ -12,6 +12,7 @@ import { billingInvoices, plans, subscriptions, tenants, users } from '../../db/
 import { activeGateway, midtrans, xendit, type PaymentNotice } from './gateways';
 import { CreateBillingInvoiceDto, ProofDto, UpdateSubscriptionDto, RejectDto, PlanDto } from './billing.dto';
 import { findOwned, insertOne, patchById } from '../../db/owned';
+import { BillingRepository } from './billing.repository';
 
 export const DAY = 86_400_000;
 
@@ -42,6 +43,7 @@ export class BillingService {
     private readonly subs: SubscriptionService,
     private readonly mail: MailService,
     private readonly audit: AuditService,
+    private readonly repo: BillingRepository,
   ) {}
 
   get database() {
@@ -60,11 +62,7 @@ export class BillingService {
 
   /** Email pemilik & admin aktif perusahaan */
   private async ownerEmails(tenantId: string, db: DbOrTx = this.db) {
-    const rows = await db
-      .select({ email: users.email, name: users.name })
-      .from(users)
-      .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, ['OWNER', 'ADMIN'])))
-      .orderBy(asc(users.createdAt));
+    const rows = await this.repo.listUsersByIsActiveAndRoleAndCreatedAt(db, tenantId);
     return rows;
   }
 
@@ -81,7 +79,7 @@ export class BillingService {
   }
 
   private async nextNumber(tx: DbOrTx) {
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(727002)`);
+    await this.repo.queryNextNumber(tx);
     const now = new Date();
     const prefix = `SNS/${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/`;
     // nomor tagihan berurut GLOBAL lintas perusahaan: hitung tanpa penyaringan perusahaan (pengecualian RLS yang disengaja)
@@ -152,10 +150,7 @@ export class BillingService {
   /** Buat tagihan untuk paket & siklus pilihan (tagihan lama yang belum dibayar dibatalkan) */
   async createInvoice(u: AuthUser, dto: CreateBillingInvoiceDto, opts: { auto?: boolean } = {}) {
     if (!(await this.subs.settings()).enabled) throw new BadRequestException('Langganan belum diaktifkan (masih tahap uji). Tidak ada tagihan yang perlu dibayar.');
-    const [plan] = await this.db
-      .select()
-      .from(plans)
-      .where(and(eq(plans.id, dto.planId), eq(plans.isActive, true)));
+    const [plan] = await this.repo.findPlansByIdAndIsActive(this.db, dto.planId);
     if (!plan) throw new BadRequestException('Paket tidak ditemukan');
     const usage = await this.subs.usage(u.tenantId);
     if (plan.maxUsers != null && usage.users > plan.maxUsers) {
@@ -174,10 +169,7 @@ export class BillingService {
     const vatAmount = Math.round((subtotal * vatRate) / 100);
     const amount = (subtotal + vatAmount).toFixed(2);
     const inv = await this.db.transaction(async (tx) => {
-      await tx
-        .update(billingInvoices)
-        .set({ status: 'CANCELLED' })
-        .where(and(eq(billingInvoices.tenantId, u.tenantId), eq(billingInvoices.status, 'UNPAID')));
+      await this.repo.updateBillingInvoicesByStatus(tx, u.tenantId);
       const row = await insertOne(tx, billingInvoices, {
           tenantId: u.tenantId,
           number: await this.nextNumber(tx),
@@ -224,8 +216,8 @@ export class BillingService {
     if (inv.status === 'PAID' || inv.status === 'CANCELLED')
       throw new BadRequestException('Tagihan ini sudah tidak bisa dibayar');
     if (inv.gatewayUrl && inv.method === gw) return { url: inv.gatewayUrl };
-    const [me] = await this.db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, u.sub));
-    const [plan] = await this.db.select().from(plans).where(eq(plans.id, inv.planId));
+    const [me] = await this.repo.findUsersById(this.db, u.sub);
+    const [plan] = await this.repo.findPlansById(this.db, inv.planId);
     const input = {
       orderId: inv.number,
       amount: Number(inv.amount),
@@ -244,7 +236,7 @@ export class BillingService {
     if (inv.status !== 'UNPAID' && inv.status !== 'WAITING')
       throw new BadRequestException('Tagihan ini sudah tidak menunggu pembayaran');
     await patchById(this.db, billingInvoices, inv.id, { status: 'WAITING', method: 'MANUAL', proof: dto.proof, proofNote: dto.note ?? null, rejectReason: null });
-    const [t] = await this.db.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, u.tenantId));
+    const [t] = await this.repo.findTenantsById(this.db, u.tenantId);
     for (const to of platformAdminEmails()) {
       await this.mail.send({
         to,
@@ -273,11 +265,11 @@ export class BillingService {
    */
   async markPaid(invoiceId: string, by: string, ref?: string | null) {
     const done = await this.db.transaction(async (tx) => {
-      const [inv] = await tx.select().from(billingInvoices).where(eq(billingInvoices.id, invoiceId)).for('update');
+      const [inv] = await this.repo.findBillingInvoicesById(tx, invoiceId);
       if (!inv) throw new NotFoundException('Tagihan tidak ditemukan');
       if (inv.status === 'PAID') return null;
       if (inv.status === 'CANCELLED' && by !== 'gateway') throw new BadRequestException('Tagihan sudah dibatalkan');
-      const [sub] = await tx.select().from(subscriptions).where(eq(subscriptions.tenantId, inv.tenantId)).for('update');
+      const [sub] = await this.repo.findSubscriptions(tx, inv.tenantId);
       const now = new Date();
       let start = now;
       if (sub?.status === 'ACTIVE' && sub.currentPeriodEnd && sub.currentPeriodEnd > now) start = sub.currentPeriodEnd;
@@ -299,8 +291,8 @@ export class BillingService {
         reminders: {},
         updatedAt: now,
       };
-      if (sub) await tx.update(subscriptions).set(values).where(eq(subscriptions.tenantId, inv.tenantId));
-      else await tx.insert(subscriptions).values({ tenantId: inv.tenantId, ...values });
+      if (sub) await this.repo.updateSubscriptions(tx, values, inv.tenantId);
+      else await this.repo.insertSubscriptions(tx, inv.tenantId, values);
       await this.audit.log(tx, {
         tenantId: inv.tenantId,
         action: 'PAID',
@@ -312,7 +304,7 @@ export class BillingService {
     });
     this.subs.invalidate();
     if (done) {
-      const [plan] = await this.db.select({ name: plans.name }).from(plans).where(eq(plans.id, done.inv.planId));
+      const [plan] = await this.repo.findPlansByIdForMarkPaid(this.db, done.inv.planId);
       await this.notifyOwners(
         done.inv.tenantId,
         `Pembayaran diterima — ${done.inv.number}`,
@@ -329,7 +321,7 @@ export class BillingService {
   /** Notifikasi dari gerbang pembayaran */
   async handleNotice(n: PaymentNotice | null) {
     if (!n) throw new ForbiddenException('Tanda tangan notifikasi tidak valid');
-    const [inv] = await this.db.select().from(billingInvoices).where(eq(billingInvoices.number, n.orderId));
+    const [inv] = await this.repo.findBillingInvoicesByNumber(this.db, n.orderId);
     if (!inv) return { ok: true, ignored: 'tagihan tidak dikenal' };
     if (n.paid) {
       if (n.amount != null && Math.round(n.amount) !== Math.round(Number(inv.amount))) {
@@ -347,12 +339,7 @@ export class BillingService {
 
   /** Data invoice langganan untuk dicetak (penjual = pemilik SANSU, pembeli = perusahaan pelanggan) */
   async invoiceDoc(id: string, tenantId?: string) {
-    const [r] = await this.db
-      .select({ inv: billingInvoices, plan: plans.name, tenant: tenants })
-      .from(billingInvoices)
-      .innerJoin(plans, eq(plans.id, billingInvoices.planId))
-      .innerJoin(tenants, eq(tenants.id, billingInvoices.tenantId))
-      .where(and(eq(billingInvoices.id, id), tenantId ? eq(billingInvoices.tenantId, tenantId) : undefined));
+    const [r] = await this.repo.findBillingInvoicesWithPlansAndTenantsById(this.db, id, tenantId);
     if (!r) throw new NotFoundException('Tagihan tidak ditemukan');
     const s = await this.subs.settings();
     const { proof: _p, ...inv } = r.inv;
@@ -373,12 +360,7 @@ export class BillingService {
   /** Rekap PPN keluaran langganan per bulan (tagihan lunas) — bahan faktur pajak di Coretax */
   async vatReport(month: string) {
     if (!/^\d{4}-\d{2}$/.test(month)) throw new BadRequestException('Bulan tidak valid (format YYYY-MM)');
-    const r = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT b.id, b.number, b.paid_at AS "paidAt", b.subtotal, b.vat_rate AS "vatRate", b.vat_amount AS "vatAmount", b.amount,
-             t.name AS buyer, t.npwp AS "buyerNpwp", t.address AS "buyerAddress", p.name AS plan, b.cycle
-      FROM billing_invoices b JOIN tenants t ON t.id = b.tenant_id JOIN plans p ON p.id = b.plan_id
-      WHERE b.status = 'PAID' AND to_char(b.paid_at AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM') = ${month}
-      ORDER BY b.paid_at`);
+    const r = await this.repo.queryBillingInvoice(this.db, month);
     return r.rows;
   }
 
@@ -386,18 +368,11 @@ export class BillingService {
   async runReminders(now = new Date()) {
     const s = await this.subs.settings();
     if (!s.enabled) return { checked: 0, sent: 0 }; // tahap uji: tanpa pengingat/tagihan perpanjangan
-    const rows = await this.db
-      .select({ sub: subscriptions, plan: plans })
-      .from(subscriptions)
-      .innerJoin(plans, eq(plans.id, subscriptions.planId))
-      .where(ne(subscriptions.status, 'CANCELLED'));
+    const rows = await this.repo.listSubscriptionsWithPlansByStatus(this.db);
     let sent = 0;
     for (const { sub, plan } of rows) {
       const mark = async (key: string) => {
-        await this.db
-          .update(subscriptions)
-          .set({ reminders: { ...sub.reminders, [key]: now.toISOString().slice(0, 10) } })
-          .where(eq(subscriptions.tenantId, sub.tenantId));
+        await this.repo.updateSubscriptionsForRunReminders(this.db, sub.reminders, key, now, sub.tenantId);
         sub.reminders = { ...sub.reminders, [key]: now.toISOString().slice(0, 10) };
         sent++;
       };
@@ -435,18 +410,9 @@ export class BillingService {
         const key = `renew-${sub.currentPeriodEnd.toISOString().slice(0, 10)}`;
         if (left <= s.renewalNoticeDays && left > -s.graceDays && !sub.reminders[key]) {
           // tagihan perpanjangan otomatis (paket & siklus yang sama) bila belum ada tagihan terbuka
-          const [open] = await this.db
-            .select({ id: billingInvoices.id })
-            .from(billingInvoices)
-            .where(
-              and(eq(billingInvoices.tenantId, sub.tenantId), inArray(billingInvoices.status, ['UNPAID', 'WAITING'])),
-            );
+          const [open] = await this.repo.findBillingInvoicesByStatus(this.db, sub.tenantId);
           if (!open && plan.isActive) {
-            const [owner] = await this.db
-              .select()
-              .from(users)
-              .where(and(eq(users.tenantId, sub.tenantId), eq(users.role, 'OWNER'), eq(users.isActive, true)))
-              .limit(1);
+            const [owner] = await this.repo.findUsersByRoleAndIsActive(this.db, sub.tenantId);
             if (owner)
               await this.createInvoice(
                 { sub: owner.id, tenantId: sub.tenantId, role: 'OWNER', email: owner.email },

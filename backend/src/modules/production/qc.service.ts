@@ -13,6 +13,7 @@ import { InventoryService } from '../inventory/inventory.service';
 import { StockService } from '../inventory/stock.service';
 import { QcPlanDto, DecideDto, ScrapDto, ReworkDto, AttachmentDto } from './qc.dto';
 import { InspectionsQuery } from './qc.shared';
+import { QcRepository } from './qc.repository';
 
 const num = (v: unknown) => Number(v ?? 0);
 
@@ -31,10 +32,11 @@ export class QcService {
     private readonly stock: StockService,
     private readonly inventory: InventoryService,
     private readonly storage: StorageService,
+    private readonly repo: QcRepository,
   ) {}
 
   async quarantineWarehouse(db: Db | Tx, tenantId: string) {
-    return (await db.execute<{ id: string }>(sql`SELECT id FROM warehouses WHERE tenant_id = ${tenantId} AND is_quarantine AND is_active`)).rows[0]?.id ?? null;
+    return (await this.repo.queryWarehouse(db, tenantId)).rows[0]?.id ?? null;
   }
 
   /** Siapkan gudang karantina (sekali) */
@@ -42,7 +44,7 @@ export class QcService {
     const existing = await this.quarantineWarehouse(this.db, u.tenantId);
     if (existing) return { id: existing, created: false };
     const code = 'KARANTINA';
-    const r = await this.db.execute<{ id: string }>(sql`INSERT INTO warehouses (tenant_id, code, name, is_quarantine) VALUES (${u.tenantId}, ${code}, 'Gudang Karantina (QC)', true) ON CONFLICT DO NOTHING RETURNING id`);
+    const r = await this.repo.queryWarehouseForSetup(this.db, u.tenantId, code);
     if (!r.rows.length) throw new BadRequestException(`Kode gudang ${code} sudah dipakai oleh gudang lain; ubah kodenya lebih dulu`);
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'QcSetup', entityId: r.rows[0].id, data: { code } });
     return { id: r.rows[0].id, created: true };
@@ -68,16 +70,16 @@ export class QcService {
     if (!sampling && (dto.sampleMin != null || dto.sampleMax != null || dto.acceptDefects != null)) throw new BadRequestException('Isi persen sampel untuk memakai sampling (atau kosongkan semua isian sampling)');
     if (dto.sampleMin != null && dto.sampleMax != null && dto.sampleMin > dto.sampleMax) throw new BadRequestException('Ukuran sampel minimum lebih besar dari maksimum');
     await this.db.transaction(async (tx) => {
-      const pr = await tx.execute(sql`SELECT 1 FROM products WHERE id = ${productId} AND tenant_id = ${u.tenantId}`);
+      const pr = await this.repo.queryProduct(tx, productId, u.tenantId);
       if (!pr.rows.length) throw new NotFoundException('Produk tidak ditemukan');
-      const plan = (await tx.execute<{ id: string }>(sql`INSERT INTO qc_plans (tenant_id, product_id, name, sample_pct, sample_min, sample_max, accept_defects) VALUES (${u.tenantId}, ${productId}, ${dto.name.trim()}, ${dto.samplePct ?? null}, ${dto.sampleMin ?? null}, ${dto.sampleMax ?? null}, ${dto.acceptDefects ?? null}) ON CONFLICT (tenant_id, product_id) DO UPDATE SET name = EXCLUDED.name, is_active = true, sample_pct = EXCLUDED.sample_pct, sample_min = EXCLUDED.sample_min, sample_max = EXCLUDED.sample_max, accept_defects = EXCLUDED.accept_defects RETURNING id`)).rows[0];
-      await tx.execute(sql`DELETE FROM qc_plan_params WHERE plan_id = ${plan.id}`);
+      const plan = (await this.repo.queryQcPlan(tx, u.tenantId, productId, dto)).rows[0];
+      await this.repo.queryQcPlanParam(tx, plan.id);
       for (const [i, p] of dto.params.entries()) {
         await tx.execute(sql`INSERT INTO qc_plan_params (tenant_id, plan_id, sequence, name, kind, min_value, max_value, unit, critical) VALUES (${u.tenantId}, ${plan.id}, ${i + 1}, ${p.name.trim()}, ${p.kind}, ${p.kind === 'NUMERIC' ? p.minValue ?? null : null}, ${p.kind === 'NUMERIC' ? p.maxValue ?? null : null}, ${p.unit ?? null}, ${p.critical ?? false})`);
       }
       const require = dto.requireOnProduction ?? true;
       if (require && !(await this.quarantineWarehouse(tx, u.tenantId))) throw new BadRequestException('Siapkan gudang karantina dulu (Pengendalian mutu › Siapkan karantina)');
-      await tx.execute(sql`UPDATE products SET qc_required = ${require} WHERE id = ${productId}`);
+      await this.repo.querySavePlan(tx, require, productId);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'QcPlan', entityId: plan.id, data: { productId, params: dto.params.length, required: require, sampling: sampling ? { pct: dto.samplePct, min: dto.sampleMin, max: dto.sampleMax, accept: dto.acceptDefects } : null } });
     });
     return this.plans(u.tenantId);
@@ -85,7 +87,7 @@ export class QcService {
 
   /** Inti pembuatan inspeksi: baris hasil dari rencana (atau dari percobaan sebelumnya pada rework) dan ukuran sampel bila rencana memakai sampling */
   private async createTx(tx: Tx, u: AuthUser, p: { sourceType: 'PRODUCTION' | 'RECEIPT'; orderId?: string | null; receiptId?: string | null; productId: string; warehouseId: string; releaseWarehouseId: string; qty: string; unitCost: string; lot?: { lotNo?: string | null; expiryDate?: string | null }; parentId?: string; attempt?: number }) {
-    const plan = (await tx.execute<{ id: string; sample_pct: string | null; sample_min: number | null; sample_max: number | null; accept_defects: number | null }>(sql`SELECT id, sample_pct, sample_min, sample_max, accept_defects FROM qc_plans WHERE tenant_id = ${u.tenantId} AND product_id = ${p.productId} AND is_active`)).rows[0];
+    const plan = (await this.repo.queryQcPlanForCreateTx(tx, u.tenantId, p.productId)).rows[0];
     let sampleSize: number | null = null;
     if (plan?.sample_pct != null) {
       const total = num(p.qty);
@@ -94,8 +96,8 @@ export class QcService {
     }
     const number = await this.seq.next(tx, u.tenantId, 'QC_INSPECTION', todayJakarta());
     const id = (await tx.execute<{ id: string }>(sql`INSERT INTO qc_inspections (tenant_id, number, source_type, order_id, receipt_id, product_id, plan_id, warehouse_id, release_warehouse_id, qty, unit_cost, completed_by_id, lot_no, expiry_date, parent_id, attempt, sample_size, accept_defects) VALUES (${u.tenantId}, ${number}, ${p.sourceType}, ${p.orderId ?? null}, ${p.receiptId ?? null}, ${p.productId}, ${plan?.id ?? null}, ${p.warehouseId}, ${p.releaseWarehouseId}, ${p.qty}, ${p.unitCost}, ${u.sub}, ${p.lot?.lotNo ?? null}, ${p.lot?.expiryDate ?? null}, ${p.parentId ?? null}, ${p.attempt ?? 1}, ${sampleSize}, ${sampleSize != null ? plan!.accept_defects : null}) RETURNING id`)).rows[0].id;
-    if (p.parentId) await tx.execute(sql`INSERT INTO qc_inspection_results (tenant_id, inspection_id, sequence, name, kind, min_value, max_value, unit, critical) SELECT tenant_id, ${id}::uuid, sequence, name, kind, min_value, max_value, unit, critical FROM qc_inspection_results WHERE inspection_id = ${p.parentId} ORDER BY sequence`);
-    else if (plan) await tx.execute(sql`INSERT INTO qc_inspection_results (tenant_id, inspection_id, sequence, name, kind, min_value, max_value, unit, critical) SELECT tenant_id, ${id}::uuid, sequence, name, kind, min_value, max_value, unit, critical FROM qc_plan_params WHERE plan_id = ${plan.id}`);
+    if (p.parentId) await this.repo.queryQcInspectionResult(tx, id, p.parentId);
+    else if (plan) await this.repo.queryQcInspectionResultForCreateTx(tx, id, plan.id);
     await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'QcInspection', entityId: id, data: { number, source: p.sourceType, qty: p.qty, attempt: p.attempt ?? 1, sampleSize } });
     return { id, number };
   }
@@ -115,7 +117,7 @@ export class QcService {
     if (!productIds.length) return { warehouseId: null, required: new Set<string>() };
     const wh = await this.quarantineWarehouse(tx, tenantId);
     if (!wh) return { warehouseId: null, required: new Set<string>() };
-    const rows = (await tx.execute<{ id: string }>(sql`SELECT id FROM products WHERE tenant_id = ${tenantId} AND qc_required AND id IN (${sql.join(productIds.map((i) => sql`${i}::uuid`), sql`, `)})`)).rows;
+    const rows = (await this.repo.queryProductForInboundQuarantine(tx, tenantId, productIds)).rows;
     return { warehouseId: wh, required: new Set(rows.map((r) => r.id)) };
   }
 
@@ -130,8 +132,8 @@ export class QcService {
   async get(tenantId: string, id: string) {
     const head = (await this.list(tenantId, {})).find((x) => (x as { id: string }).id === id);
     if (!head) throw new NotFoundException('Inspeksi tidak ditemukan');
-    const results = (await this.db.execute(sql`SELECT id, sequence, name, kind, min_value AS "minValue", max_value AS "maxValue", unit, critical, value, passed FROM qc_inspection_results WHERE inspection_id = ${id} AND tenant_id = ${tenantId} ORDER BY sequence`)).rows;
-    const attachments = (await this.db.execute(sql`SELECT a.id, a.kind, a.filename, a.mime, a.created_at AS "createdAt", u.name AS "uploadedBy" FROM qc_attachments a LEFT JOIN users u ON u.id = a.uploaded_by_id WHERE a.inspection_id = ${id} AND a.tenant_id = ${tenantId} ORDER BY a.created_at`)).rows;
+    const results = (await this.repo.queryQcInspectionResultForGet(this.db, id, tenantId)).rows;
+    const attachments = (await this.repo.queryQcAttachment(this.db, id, tenantId)).rows;
     return { ...head, results, attachments };
   }
 
@@ -157,7 +159,7 @@ export class QcService {
       const i = await this.lock(tx, u.tenantId, id);
       if (i.status !== 'PENDING') throw new BadRequestException('Inspeksi ini sudah diputuskan');
       if (u.role !== 'OWNER' && i.completed_by_id === u.sub) throw new ForbiddenException(`Inspeksi harus dilakukan orang lain dari yang ${i.source_type === 'RECEIPT' ? 'menerima barangnya' : i.attempt > 1 ? 'mengerjakan ulang lotnya' : 'menyelesaikan produksinya'} (pemisahan fungsi)`);
-      const rows = (await tx.execute<{ id: string; name: string; kind: string; min_value: string | null; max_value: string | null; critical: boolean }>(sql`SELECT id, name, kind, min_value, max_value, critical FROM qc_inspection_results WHERE inspection_id = ${id} ORDER BY sequence`)).rows;
+      const rows = (await this.repo.queryQcInspectionResultForDecide(tx, id)).rows;
       const given = new Map(dto.results.map((r) => [r.resultId, r]));
       if (given.size !== dto.results.length) throw new BadRequestException('Parameter yang sama diisi dua kali');
       let anyFail = false;
@@ -167,7 +169,7 @@ export class QcService {
         if (dto.sampleDefects == null) throw new BadRequestException(`Isi jumlah cacat yang ditemukan dalam sampel (${num(i.sample_size)} unit)`);
         if (dto.sampleDefects > num(i.sample_size)) throw new BadRequestException('Jumlah cacat melebihi ukuran sampel');
         if (dto.sampleDefects > num(i.accept_defects)) anyFail = true;
-        await tx.execute(sql`UPDATE qc_inspections SET sample_defects = ${dto.sampleDefects} WHERE id = ${id}`);
+        await this.repo.queryDecide(tx, dto.sampleDefects, id);
       } else if (dto.sampleDefects != null) throw new BadRequestException('Inspeksi ini tidak memakai sampling');
       for (const r of rows) {
         const v = given.get(r.id);
@@ -241,9 +243,9 @@ export class QcService {
     return this.storage.guard([ref], async () => {
       await this.db.transaction(async (tx) => {
         const i = await this.lock(tx, u.tenantId, id);
-        const n = (await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM qc_attachments WHERE inspection_id = ${id}`)).rows[0].n;
+        const n = (await this.repo.queryQcAttachmentForAddAttachment(tx, id)).rows[0].n;
         if (n >= MAX_ATTACHMENTS) throw new BadRequestException(`Satu inspeksi paling banyak ${MAX_ATTACHMENTS} lampiran`);
-        await tx.execute(sql`INSERT INTO qc_attachments (tenant_id, inspection_id, kind, filename, mime, ref, uploaded_by_id) VALUES (${u.tenantId}, ${id}, ${dto.kind}, ${dto.filename.trim()}, ${mime}, ${ref}, ${u.sub})`);
+        await this.repo.queryQcAttachmentForAddAttachment2(tx, u.tenantId, id, dto.kind, dto.filename, mime, ref, u.sub);
         await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'QcAttachment', entityId: id, data: { number: i.number, kind: dto.kind, filename: dto.filename } });
       });
       return this.get(u.tenantId, id);
@@ -251,7 +253,7 @@ export class QcService {
   }
 
   async attachment(tenantId: string, id: string, attId: string) {
-    const a = (await this.db.execute<{ filename: string; mime: string; ref: string }>(sql`SELECT filename, mime, ref FROM qc_attachments WHERE id = ${attId} AND inspection_id = ${id} AND tenant_id = ${tenantId}`)).rows[0];
+    const a = (await this.repo.queryQcAttachmentForAttachment(this.db, attId, id, tenantId)).rows[0];
     if (!a) throw new NotFoundException('Lampiran tidak ditemukan');
     return { filename: a.filename, mime: a.mime, dataUrl: await this.storage.load(tenantId, a.ref) };
   }
@@ -261,7 +263,7 @@ export class QcService {
     const ref = await this.db.transaction(async (tx) => {
       const i = await this.lock(tx, u.tenantId, id);
       if (i.status !== 'PENDING') throw new BadRequestException('Inspeksi sudah diputuskan; lampiran bukti tidak dapat dihapus');
-      const r = await tx.execute<{ ref: string; filename: string }>(sql`DELETE FROM qc_attachments WHERE id = ${attId} AND inspection_id = ${id} AND tenant_id = ${u.tenantId} RETURNING ref, filename`);
+      const r = await this.repo.queryQcAttachmentForRemoveAttachment(tx, attId, id, u.tenantId);
       if (!r.rows.length) throw new NotFoundException('Lampiran tidak ditemukan');
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'DELETE', entity: 'QcAttachment', entityId: id, data: { number: i.number, filename: r.rows[0].filename } });
       return r.rows[0].ref;

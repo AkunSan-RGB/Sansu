@@ -8,6 +8,7 @@ import { addDays, todayJakarta } from '../../../common/utils/dates';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
 import { FeedDto } from './calendar-feed.dto';
+import { CalendarFeedRepository } from './calendar-feed.repository';
 
 const hash = (k: string) => createHash('sha256').update(k).digest('hex');
 
@@ -45,16 +46,17 @@ export function buildIcs(calName: string, rows: { id: string; title: string; res
 
 @Injectable()
 export class CalendarFeedService {
-  constructor(@InjectDb() private readonly db: Db, private readonly audit: AuditService, private readonly apps: AppsService) {}
+  constructor(@InjectDb() private readonly db: Db, private readonly audit: AuditService, private readonly apps: AppsService,
+    private readonly repo: CalendarFeedRepository) {}
 
   async list(tenantId: string) {
-    const r = await this.db.execute(sql`SELECT f.id, f.name, f.token_prefix AS "tokenPrefix", f.resource_id AS "resourceId", r.name AS "resourceName", f.created_at AS "createdAt", f.last_used_at AS "lastUsedAt", f.revoked_at AS "revokedAt" FROM scheduling_feeds f LEFT JOIN scheduling_resources r ON r.id = f.resource_id WHERE f.tenant_id = ${tenantId} ORDER BY f.created_at DESC`);
+    const r = await this.repo.querySchedulingFeed(this.db, tenantId);
     return r.rows;
   }
 
   async create(u: AuthUser, dto: FeedDto) {
     if (dto.resourceId) {
-      const ok = await this.db.execute(sql`SELECT 1 FROM scheduling_resources WHERE id = ${dto.resourceId} AND tenant_id = ${u.tenantId}`);
+      const ok = await this.repo.querySchedulingResource(this.db, dto.resourceId, u.tenantId);
       if (!ok.rows.length) throw new BadRequestException('Sumber daya tidak ditemukan');
     }
     const token = `cal_${randomBytes(24).toString('base64url')}`;
@@ -65,7 +67,7 @@ export class CalendarFeedService {
   }
 
   async revoke(u: AuthUser, id: string) {
-    const r = await this.db.execute<{ name: string }>(sql`UPDATE scheduling_feeds SET revoked_at = now() WHERE id = ${id} AND tenant_id = ${u.tenantId} AND revoked_at IS NULL RETURNING name`);
+    const r = await this.repo.queryRevoke(this.db, id, u.tenantId);
     if (!r.rows.length) throw new NotFoundException('Tautan tidak ditemukan atau sudah dicabut');
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'REVOKE', entity: 'SchedulingFeed', entityId: id, data: { name: r.rows[0].name } });
     return { ok: true };
@@ -77,15 +79,10 @@ export class CalendarFeedService {
     if (!/^cal_[A-Za-z0-9_-]{20,80}$/.test(token)) throw new NotFoundException();
     const f = (await this.db.execute<{ id: string; tenant_id: string; resource_id: string | null; name: string; revoked_at: Date | null; last_used_at: Date | null }>(sql`SELECT id, tenant_id, resource_id, name, revoked_at, last_used_at FROM scheduling_feeds WHERE token_hash = ${hash(token)}`)).rows[0];
     if (!f || f.revoked_at || !(await this.apps.isEnabled(f.tenant_id, ['sales']))) throw new NotFoundException();
-    if (!f.last_used_at || Date.now() - new Date(f.last_used_at).getTime() > 5 * 60_000) await this.db.execute(sql`UPDATE scheduling_feeds SET last_used_at = now() WHERE id = ${f.id}`);
+    if (!f.last_used_at || Date.now() - new Date(f.last_used_at).getTime() > 5 * 60_000) await this.repo.queryRender(this.db, f.id);
     const from = addDays(todayJakarta(), -PAST_DAYS);
     const to = addDays(todayJakarta(), FUTURE_DAYS);
-    const rows = (await this.db.execute<{ id: string; title: string; resourceName: string; startsAt: Date; endsAt: Date; status: string }>(sql`
-      SELECT b.id, b.title, r.name AS "resourceName", b.starts_at AS "startsAt", b.ends_at AS "endsAt", b.status
-      FROM resource_bookings b JOIN scheduling_resources r ON r.id = b.resource_id
-      WHERE b.tenant_id = ${f.tenant_id} AND b.status IN ('BOOKED', 'DONE') AND b.starts_at < (${to}::date + 1)::timestamptz AND b.ends_at > ${from}::date::timestamptz
-        ${f.resource_id ? sql`AND b.resource_id = ${f.resource_id}` : sql``}
-      ORDER BY b.starts_at LIMIT 2000`)).rows;
+    const rows = (await this.repo.queryResourceBooking(this.db, f, to, from)).rows;
     return buildIcs(f.name, rows);
   }
 }

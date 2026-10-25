@@ -17,6 +17,7 @@ import { PostingService } from '../accounting/posting.service';
 import { StockService } from './stock.service';
 import { CreateWritedownDto } from './writedown.dto';
 import { insertOne, patchById } from '../../db/owned';
+import { WritedownRepository } from './writedown.repository';
 
 @Injectable()
 export class WritedownService {
@@ -26,36 +27,12 @@ export class WritedownService {
     private readonly posting: PostingService,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
+    private readonly repo: WritedownRepository,
   ) {}
 
   async list(user: AuthUser) {
     const allowed = allowedWarehouses(user);
-    const rows = await this.db
-      .select({
-        id: inventoryWritedowns.id,
-        number: inventoryWritedowns.number,
-        kind: inventoryWritedowns.kind,
-        date: inventoryWritedowns.date,
-        warehouseId: inventoryWritedowns.warehouseId,
-        warehouseName: warehouses.name,
-        reason: inventoryWritedowns.reason,
-        lines: inventoryWritedowns.lines,
-        total: inventoryWritedowns.total,
-        journalId: inventoryWritedowns.journalId,
-        createdByName: users.name,
-        createdAt: inventoryWritedowns.createdAt,
-      })
-      .from(inventoryWritedowns)
-      .innerJoin(warehouses, eq(warehouses.id, inventoryWritedowns.warehouseId))
-      .leftJoin(users, eq(users.id, inventoryWritedowns.createdById))
-      .where(
-        and(
-          eq(inventoryWritedowns.tenantId, user.tenantId),
-          allowed ? inArray(inventoryWritedowns.warehouseId, allowed) : undefined,
-        ),
-      )
-      .orderBy(desc(inventoryWritedowns.date), desc(inventoryWritedowns.number))
-      .limit(300);
+    const rows = await this.repo.listInventoryWritedownsWithWarehousesAndUsersByWarehouseIdAndDateAndNumber(this.db, user.tenantId, allowed);
     return rows;
   }
 
@@ -73,35 +50,7 @@ export class WritedownService {
     const allowed = allowedWarehouses(user);
     if (warehouseId) assertWarehouseAccess(user, warehouseId);
     const pct = Math.min(Math.max(costToSellPct, 0), 90);
-    const res = await this.db.execute<{
-      product_id: string;
-      sku: string;
-      name: string;
-      unit: string;
-      warehouse_id: string;
-      warehouse_name: string;
-      qty: string;
-      avg_cost: string;
-      sell_price: string;
-    }>(sql`
-      SELECT b.product_id, p.sku, p.name, p.base_uom AS unit, b.warehouse_id, w.name AS warehouse_name,
-             b.qty, b.avg_cost, p.sell_price
-      FROM stock_balances b
-      JOIN products p ON p.id = b.product_id
-      JOIN warehouses w ON w.id = b.warehouse_id
-      WHERE b.tenant_id = ${user.tenantId} AND b.qty > 0 AND p.sell_price > 0
-        AND p.sell_price * (100 - ${pct}) / 100 < b.avg_cost
-        ${warehouseId ? sql`AND b.warehouse_id = ${warehouseId}` : sql``}
-        ${
-          allowed
-            ? sql`AND b.warehouse_id IN (${sql.join(
-                allowed.map((a) => sql`${a}`),
-                sql`, `,
-              )})`
-            : sql``
-        }
-      ORDER BY (b.avg_cost - p.sell_price * (100 - ${pct}) / 100) * b.qty DESC
-      LIMIT 500`);
+    const res = await this.repo.queryStockBalance(this.db, user.tenantId, pct, warehouseId, allowed);
     return res.rows.map((r) => {
       const nrv = money(
         D(r.sell_price)
@@ -133,28 +82,7 @@ export class WritedownService {
     const allowed = allowedWarehouses(user);
     if (warehouseId) assertWarehouseAccess(user, warehouseId);
     const pct = Math.min(Math.max(costToSellPct, 0), 90);
-    const res = await this.db.execute<{
-      product_id: string;
-      sku: string;
-      name: string;
-      unit: string;
-      warehouse_id: string;
-      warehouse_name: string;
-      qty: string;
-      avg_cost: string;
-      writedown_unit: string;
-      sell_price: string;
-    }>(sql`
-      SELECT b.product_id, p.sku, p.name, p.base_uom AS unit, b.warehouse_id, w.name AS warehouse_name,
-             b.qty, b.avg_cost, b.writedown_unit, p.sell_price
-      FROM stock_balances b
-      JOIN products p ON p.id = b.product_id
-      JOIN warehouses w ON w.id = b.warehouse_id
-      WHERE b.tenant_id = ${user.tenantId} AND b.qty > 0 AND b.writedown_unit > 0
-        ${warehouseId ? sql`AND b.warehouse_id = ${warehouseId}` : sql``}
-        ${allowed ? sql`AND b.warehouse_id IN (${sql.join(allowed.map((a) => sql`${a}`), sql`, `)})` : sql``}
-      ORDER BY b.writedown_unit * b.qty DESC
-      LIMIT 500`);
+    const res = await this.repo.queryStockBalanceForRecoverable(this.db, user.tenantId, warehouseId, allowed);
     return res.rows.map((r) => {
       const avg = D(r.avg_cost);
       const maxCost = avg.plus(r.writedown_unit);
@@ -189,15 +117,9 @@ export class WritedownService {
     // ED SAK EMKM Bab 9: persediaan hanya sebesar biaya perolehan
     if ((await frameworkOf(this.db, user.tenantId)) === 'SAK_EMKM') throw new BadRequestException('SAK EMKM mengukur persediaan sebesar biaya perolehan; penurunan nilai persediaan hanya untuk SAK EP');
     return this.db.transaction(async (tx) => {
-      const [wh] = await tx
-        .select({ id: warehouses.id, name: warehouses.name })
-        .from(warehouses)
-        .where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
+      const [wh] = await this.repo.findWarehousesById(tx, dto.warehouseId, user.tenantId);
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
-      const prods = await tx
-        .select({ id: products.id, sku: products.sku, name: products.name, unit: products.baseUom })
-        .from(products)
-        .where(and(eq(products.tenantId, user.tenantId), inArray(products.id, ids)));
+      const prods = await this.repo.listProductsById(tx, user.tenantId, ids);
       const byId = new Map(prods.map((p) => [p.id, p]));
       if (byId.size !== ids.length) throw new BadRequestException('Ada barang yang tidak ditemukan');
 

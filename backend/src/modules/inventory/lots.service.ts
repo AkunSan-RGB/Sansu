@@ -9,6 +9,7 @@ import { InjectDb } from '../../db/db.module';
 import { AuditService } from '../../common/audit/audit.service';
 import { InventoryService } from './inventory.service';
 import { LotQueryDto, TraceQueryDto, DiscardLotDto } from './lots.dto';
+import { LotsRepository } from './lots.repository';
 
 /** Batas hari: "segera" ≤ 7 hari, "perlu diperhatikan" ≤ 30 hari */
 const SOON_DAYS = 7;
@@ -38,6 +39,7 @@ export class LotsService {
     @InjectDb() private readonly db: Db,
     private readonly inventory: InventoryService,
     private readonly audit: AuditService,
+    private readonly repo: LotsRepository,
   ) {}
 
   private statusOf(expiry: string | null, today: string): { status: LotStatus; daysLeft: number | null } {
@@ -107,31 +109,9 @@ export class LotsService {
    * sejak jejak lot dicatat yang terlacak; selisihnya ditampilkan sebagai "tidak terlacak" agar tidak menyesatkan.
    */
   async trace(u: AuthUser, q: TraceQueryDto) {
-    const lots = await this.db.execute<{ id: string; warehouse_code: string; received_date: string; expiry_date: string | null; qty_received: string; qty_remaining: string; source_type: string; source_ref: string; grn_number: string | null; supplier: string | null; sku: string; name: string; base_uom: string }>(sql`
-      SELECT l.id, w.code AS warehouse_code, l.received_date, l.expiry_date, l.qty_received, l.qty_remaining, l.source_type, l.source_ref,
-             g.number AS grn_number, s.name AS supplier, p.sku, p.name, p.base_uom
-      FROM stock_lots l
-      JOIN warehouses w ON w.id = l.warehouse_id
-      JOIN products p ON p.id = l.product_id
-      LEFT JOIN goods_receipts g ON l.source_type = 'GOODS_RECEIPT' AND g.id::text = l.source_ref
-      LEFT JOIN suppliers s ON s.id = g.supplier_id
-      WHERE l.tenant_id = ${u.tenantId} AND l.product_id = ${q.productId} AND l.lot_no = ${q.lotNo}
-      ORDER BY l.received_date, l.id`);
+    const lots = await this.repo.queryStockLot(this.db, u.tenantId, q.productId, q.lotNo);
     if (!lots.rows.length) throw new NotFoundException('Lot tidak ditemukan');
-    const issues = await this.db.execute<{ qty: string; move_type: string; ref_type: string; ref_id: string; date: string; doc_number: string | null; cancelled: boolean; is_estimate: boolean; customer_id: string | null; customer_code: string | null; customer_name: string | null; customer_phone: string | null; customer_address: string | null }>(sql`
-      SELECT i.qty, i.move_type, i.ref_type, i.ref_id, i.date, i.is_estimate,
-             COALESCE(d.number, v.number, po.number, gs.number) AS doc_number,
-             COALESCE(d.status = 'CANCELLED', false) AS cancelled,
-             c.id AS customer_id, c.code AS customer_code, c.name AS customer_name, c.phone AS customer_phone, c.address AS customer_address
-      FROM stock_lot_issues i
-      JOIN stock_lots l ON l.id = i.lot_id
-      LEFT JOIN delivery_orders d ON i.ref_type = 'DELIVERY' AND d.id::text = i.ref_id
-      LEFT JOIN invoices v ON i.ref_type = 'INVOICE' AND v.id::text = i.ref_id
-      LEFT JOIN pos_orders po ON i.ref_type = 'POS_ORDER' AND po.id::text = i.ref_id
-      LEFT JOIN goods_swaps gs ON i.ref_type = 'GOODS_SWAP' AND gs.id::text = i.ref_id
-      LEFT JOIN customers c ON c.id = COALESCE(d.customer_id, v.customer_id, po.customer_id, gs.customer_id)
-      WHERE l.tenant_id = ${u.tenantId} AND l.product_id = ${q.productId} AND l.lot_no = ${q.lotNo}
-      ORDER BY i.date, i.created_at`);
+    const issues = await this.repo.queryStockLotIssue(this.db, u.tenantId, q.productId, q.lotNo);
 
     type Doc = { type: string; number: string | null; date: string; qty: string; cancelled: boolean; estimate: boolean };
     const customers = new Map<string, { customerId: string; code: string; name: string; phone: string | null; address: string | null; qty: ReturnType<typeof D>; docs: Doc[] }>();
@@ -182,11 +162,7 @@ export class LotsService {
    * belum terjelaskan pada lot. Hasilnya ditandai "perkiraan" (is_estimate) dan tidak pernah menimpa jejak asli; aman dijalankan ulang.
    */
   async rebuildTrace(u: AuthUser) {
-    const lots = await this.db.execute<{ id: string; product_id: string; warehouse_id: string; received_date: string; expiry_date: string | null; untraced: string }>(sql`
-      SELECT l.id, l.product_id, l.warehouse_id, l.received_date, l.expiry_date,
-             (l.qty_received - l.qty_remaining - COALESCE((SELECT SUM(i.qty) FROM stock_lot_issues i WHERE i.lot_id = l.id), 0))::text AS untraced
-      FROM stock_lots l WHERE l.tenant_id = ${u.tenantId} AND l.lot_no IS NOT NULL
-      ORDER BY l.expiry_date NULLS LAST, l.received_date, l.id`);
+    const lots = await this.repo.queryStockLotForRebuildTrace(this.db, u.tenantId);
     const open = lots.rows.map((l) => ({ ...l, left: D(l.untraced) })).filter((l) => l.left.gt(0));
     if (!open.length) return { allocated: 0, quantity: '0.0000', pairs: 0 };
     const pairs = [...new Set(open.map((l) => `${l.product_id}|${l.warehouse_id}`))];
@@ -196,13 +172,7 @@ export class LotsService {
       for (const pair of pairs) {
         const [pid, wid] = pair.split('|');
         const mine = open.filter((l) => l.product_id === pid && l.warehouse_id === wid);
-        const moves = await tx.execute<{ type: string; qty: string; ref_type: string; ref_id: string; date: string; done: string }>(sql`
-          SELECT m.type, m.qty, m.ref_type, m.ref_id, m.date,
-                 COALESCE((SELECT SUM(i.qty) FROM stock_lot_issues i WHERE i.tenant_id = m.tenant_id AND i.product_id = m.product_id AND i.warehouse_id = m.warehouse_id AND i.ref_type = m.ref_type AND i.ref_id = m.ref_id), 0)::text AS done
-          FROM stock_moves m
-          WHERE m.tenant_id = ${u.tenantId} AND m.product_id = ${pid} AND m.warehouse_id = ${wid} AND m.qty < 0
-            AND m.type IN ('SALE', 'ADJUSTMENT_OUT', 'PRODUCTION_ISSUE', 'PURCHASE_RETURN')
-          ORDER BY m.date, m.id`);
+        const moves = await this.repo.queryStockMove(tx, u.tenantId, pid, wid);
         for (const m of moves.rows) {
           let need = D(m.qty).abs().minus(m.done);
           for (const l of mine) {
@@ -226,8 +196,7 @@ export class LotsService {
 
   /** Buang sisa satu lot: penyesuaian stok "rusak/kedaluwarsa" yang hanya mengurangi lot ini */
   async discard(u: AuthUser, id: string, dto: DiscardLotDto) {
-    const r = await this.db.execute<{ product_id: string; warehouse_id: string; qty_remaining: string; lot_no: string | null; expiry_date: string | null }>(sql`
-      SELECT product_id, warehouse_id, qty_remaining, lot_no, expiry_date FROM stock_lots WHERE id = ${id} AND tenant_id = ${u.tenantId}`);
+    const r = await this.repo.queryStockLotForDiscard(this.db, id, u.tenantId);
     const lot = r.rows[0];
     if (!lot) throw new NotFoundException('Lot tidak ditemukan');
     if (D(lot.qty_remaining).lte(0)) throw new BadRequestException('Lot ini sudah habis');

@@ -19,6 +19,7 @@ import { InventoryService } from '../inventory/inventory.service';
 import { blank, date, num, text } from './parse';
 import { ImportDto } from './imports.dto';
 import { Row } from './imports.shared';
+import { ImportsRepository } from './imports.repository';
 
 export interface RowResult {
   row: number; // nomor baris di Excel (baris 2 = data pertama)
@@ -45,6 +46,7 @@ export class ImportsService {
     private readonly posting: PostingService,
     private readonly audit: AuditService,
     private readonly assetsSvc: AssetsService,
+    private readonly repo: ImportsRepository,
   ) {}
 
   async run(user: AuthUser, dto: ImportDto) {
@@ -138,13 +140,10 @@ export class ImportsService {
   }
 
   private async products(user: AuthUser, rows: Row[]): Promise<Plan> {
-    const existing = await this.db
-      .select({ id: products.id, sku: products.sku, barcode: products.barcode, baseUom: products.baseUom })
-      .from(products)
-      .where(eq(products.tenantId, user.tenantId));
+    const existing = await this.repo.listProducts(this.db, user.tenantId);
     const bySku = new Map(existing.map((p) => [p.sku.toUpperCase(), p]));
     // produk yang pernah punya catatan stok: satuan dasarnya tidak boleh berubah (qty & HPP lama jadi salah arti)
-    const withStock = new Set((await this.db.selectDistinct({ id: stockBalances.productId }).from(stockBalances).where(eq(stockBalances.tenantId, user.tenantId))).map((x) => x.id));
+    const withStock = new Set((await this.repo.listStockBalances(this.db, user.tenantId)).map((x) => x.id));
     const barcodeOwner = new Map(existing.filter((p) => p.barcode).map((p) => [p.barcode!, p.sku.toUpperCase()]));
     const seenSku = new Set<string>();
     const seenBarcode = new Map<string, string>();
@@ -236,9 +235,9 @@ export class ImportsService {
         // satuan bertingkat
         const withUoms = writes.filter((w) => w.uoms);
         const ids = withUoms.map((w) => w.id ?? idBySku.get(w.sku)!);
-        for (const chunk of chunks(ids.filter((_, i) => withUoms[i].id), 500)) await tx.delete(productUoms).where(inArray(productUoms.productId, chunk));
+        for (const chunk of chunks(ids.filter((_, i) => withUoms[i].id), 500)) await this.repo.deleteProductUomsByProductId(tx, chunk);
         const uomRows = withUoms.flatMap((w, i) => w.uoms!.map((u) => ({ productId: ids[i], ...u })));
-        for (const chunk of chunks(uomRows, 1000)) await tx.insert(productUoms).values(chunk);
+        for (const chunk of chunks(uomRows, 1000)) await this.repo.insertProductUoms(tx, chunk);
       },
     };
   }
@@ -309,9 +308,9 @@ export class ImportsService {
   }
 
   private async stock(user: AuthUser, dto: ImportDto): Promise<Plan> {
-    const prods = await this.db.select({ id: products.id, sku: products.sku }).from(products).where(eq(products.tenantId, user.tenantId));
+    const prods = await this.repo.listProductsForStock(this.db, user.tenantId);
     const bySku = new Map(prods.map((p) => [p.sku.toUpperCase(), p.id]));
-    const whs = await this.db.select().from(warehouses).where(eq(warehouses.tenantId, user.tenantId));
+    const whs = await this.repo.listWarehouses(this.db, user.tenantId);
     const byWh = new Map<string, string>();
     for (const w of whs) {
       byWh.set(w.code.toUpperCase(), w.id);
@@ -321,10 +320,7 @@ export class ImportsService {
     if (dto.warehouseId && !whs.some((w) => w.id === dto.warehouseId)) throw new BadRequestException('Gudang tidak ditemukan');
     const stocked = new Set(
       (
-        await this.db
-          .select({ p: stockBalances.productId, w: stockBalances.warehouseId })
-          .from(stockBalances)
-          .where(and(eq(stockBalances.tenantId, user.tenantId), sql`${stockBalances.qty} <> 0`))
+        await this.repo.listStockBalancesByQty(this.db, user.tenantId)
       ).map((x) => `${x.p}|${x.w}`),
     );
     const seen = new Set<string>();
@@ -379,17 +375,14 @@ export class ImportsService {
     const byCode = new Map(parties.map((p) => [p.code.toUpperCase(), p]));
     const used = new Set(
       isAR
-        ? (await this.db.select({ n: invoices.number }).from(invoices).where(eq(invoices.tenantId, user.tenantId))).map((x) => x.n.toUpperCase())
+        ? (await this.repo.listInvoices(this.db, user.tenantId)).map((x) => x.n.toUpperCase())
         : (
-            await this.db
-              .select({ s: purchaseInvoices.supplierId, n: purchaseInvoices.supplierInvoiceNo })
-              .from(purchaseInvoices)
-              .where(eq(purchaseInvoices.tenantId, user.tenantId))
+            await this.repo.listPurchaseInvoices(this.db, user.tenantId)
           ).map((x) => `${x.s}|${x.n.toUpperCase()}`),
     );
     // nomor dokumen internal utang awal = SA/<kode supplier>/<no faktur>; wajib unik per perusahaan (indeks unik di database)
     const usedDocNo = new Set(
-      isAR ? [] : (await this.db.select({ n: purchaseInvoices.number }).from(purchaseInvoices).where(eq(purchaseInvoices.tenantId, user.tenantId))).map((x) => x.n.toUpperCase()),
+      isAR ? [] : (await this.repo.listPurchaseInvoicesForOpenItems(this.db, user.tenantId)).map((x) => x.n.toUpperCase()),
     );
     const docNo = (supplierCode: string, no: string) => `SA/${supplierCode.toUpperCase()}/${no}`;
     const results: RowResult[] = [];
@@ -453,37 +446,9 @@ export class ImportsService {
         });
         for (const chunk of chunks(items, 500)) {
           if (isAR) {
-            await tx.insert(invoices).values(
-              chunk.map((x) => ({
-                tenantId: user.tenantId,
-                number: x.no,
-                date: x.date,
-                dueDate: x.due,
-                customerId: x.partyId,
-                isOpening: true,
-                subtotal: x.amount.toFixed(2),
-                taxAmount: '0',
-                total: x.amount.toFixed(2),
-                journalId: journal.id,
-              })),
-            );
+            await this.repo.insertInvoices(tx, chunk, user.tenantId, journal.id);
           } else {
-            await tx.insert(purchaseInvoices).values(
-              chunk.map((x) => ({
-                tenantId: user.tenantId,
-                number: docNo(x.code, x.no),
-                supplierInvoiceNo: x.no,
-                date: x.date,
-                dueDate: x.due,
-                supplierId: x.partyId,
-                kind: 'OPENING',
-                description: 'Saldo awal utang (impor)',
-                subtotal: x.amount.toFixed(2),
-                taxAmount: '0',
-                total: x.amount.toFixed(2),
-                journalId: journal.id,
-              })),
-            );
+            await this.repo.insertPurchaseInvoices(tx, chunk, user.tenantId, docNo, journal.id);
           }
         }
       },
@@ -491,14 +456,12 @@ export class ImportsService {
   }
 
   private async accountBalances(user: AuthUser, dto: ImportDto): Promise<Plan> {
-    const accs = await this.db.select().from(accounts).where(eq(accounts.tenantId, user.tenantId));
+    const accs = await this.repo.listAccounts(this.db, user.tenantId);
     const byCode = new Map(accs.map((a) => [a.code, a]));
     // akun yang sudah punya jurnal saldo awal: impor lagi akan MENAMBAH, bukan mengganti
     const alreadyOpened = new Set(
       (
-        await this.db.execute<{ account_id: string }>(sql`
-          SELECT DISTINCT l.account_id::text AS account_id FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-          WHERE j.tenant_id = ${user.tenantId} AND j.source_type = 'OPENING'`)
+        await this.repo.queryJournalLine(this.db, user.tenantId)
       ).rows.map((x) => x.account_id),
     );
     const viaOther: Record<string, string> = {
@@ -573,7 +536,7 @@ export class ImportsService {
   private async existingAssets(user: AuthUser, dto: ImportDto): Promise<Plan> {
     const cutoff = toDocDate(dto.date);
     const startMonth = `${addDays(cutoff, 1).slice(0, 7)}-01`;
-    const cats = await this.db.select().from(assetCategories).where(eq(assetCategories.tenantId, user.tenantId));
+    const cats = await this.repo.listAssetCategories(this.db, user.tenantId);
     const catByName = new Map(cats.map((c) => [c.name.trim().toLowerCase(), c]));
     const usedCodes = await this.assetsSvc.existingCodes(user.tenantId);
     const emkm = (await frameworkOf(this.db, user.tenantId)) === 'SAK_EMKM';

@@ -9,6 +9,7 @@ import { SubscriptionService } from '../../../common/billing/subscription.servic
 import { CreateWarehouseDto, UpdateWarehouseDto } from './warehouses.dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
 import { insertOne } from '../../../db/owned';
+import { WarehousesRepository } from './warehouses.repository';
 
 @Injectable()
 export class WarehousesService {
@@ -16,6 +17,7 @@ export class WarehousesService {
     @InjectDb() private readonly db: Db,
     private readonly subs: SubscriptionService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: WarehousesRepository,
   ) {}
 
   list(tenantId: string, u?: AuthUser) {
@@ -37,23 +39,13 @@ export class WarehousesService {
     const w = await this.refs.warehouse(this.db, tenantId, id);
     if (!w) throw new NotFoundException('Gudang tidak ditemukan');
     if (dto.isActive === false && w.isActive) {
-      const [s] = await this.db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(stockBalances)
-        .where(and(eq(stockBalances.tenantId, tenantId), eq(stockBalances.warehouseId, id), ne(stockBalances.qty, '0')));
+      const [s] = await this.repo.countStockBalancesByWarehouseIdAndQty(this.db, tenantId, id);
       if (s.n > 0) throw new BadRequestException(`Gudang masih berisi stok ${s.n} produk. Pindahkan stok ke gudang lain dulu.`);
-      const [other] = await this.db
-        .select({ id: warehouses.id })
-        .from(warehouses)
-        .where(and(eq(warehouses.tenantId, tenantId), eq(warehouses.isActive, true), ne(warehouses.id, id)));
+      const [other] = await this.repo.findWarehousesByIsActiveAndId(this.db, tenantId, id);
       if (!other) throw new BadRequestException('Harus ada minimal satu gudang aktif');
     }
     if (dto.isActive === true && !w.isActive) await this.subs.assertCanAdd(tenantId, 'warehouses');
-    const [row] = await this.db
-      .update(warehouses)
-      .set({ name: dto.name?.trim() || undefined, address: dto.address, isActive: dto.isActive })
-      .where(eq(warehouses.id, id))
-      .returning();
+    const [row] = await this.repo.updateWarehousesById(this.db, dto, id);
     return row;
   }
 }

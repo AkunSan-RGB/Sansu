@@ -13,6 +13,7 @@ import { employeeChangeRequests, employees } from '../../db/schema';
 import { EmploymentType } from './employment.shared';
 import { ChangeQueryDto, DecideChangeDto, RejectChangeDto } from './employment.dto';
 import { findOwned, insertOne, lockOwned, patchById } from '../../db/owned';
+import { EmploymentRepository } from './employment.repository';
 
 /** Kolom yang perubahannya oleh HR harus disetujui orang lain (usaha jasa) */
 export const SENSITIVE_FIELDS = [
@@ -100,6 +101,7 @@ export class EmploymentService {
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
+    private readonly repo: EmploymentRepository,
   ) {}
 
   isJasa = async (tenantId: string, db: DbOrTx = this.db) => (await this.settings.businessModel(db, tenantId)) === 'JASA';
@@ -107,8 +109,7 @@ export class EmploymentService {
   /** NIK / NPWP / rekening yang sama dengan karyawan aktif lain ditolak (cegah karyawan ganda & rekening dialihkan) */
   async assertNoDuplicates(db: DbOrTx, tenantId: string, selfId: string | null, v: { nik?: string | null; npwp?: string | null; bankAccount?: string | null }) {
     // kolom identitas terenkripsi (acak) → dibandingkan di aplikasi, bukan di SQL
-    const active = await db.select({ id: employees.id, code: employees.code, name: employees.name, nik: employees.nik, npwp: employees.npwp, bankAccount: employees.bankAccount })
-      .from(employees).where(and(eq(employees.tenantId, tenantId), eq(employees.isActive, true)));
+    const active = await this.repo.listEmployeesByIsActive(db, tenantId);
     for (const [col, label, raw] of [['nik', 'NIK', v.nik], ['npwp', 'NPWP', v.npwp], ['bankAccount', 'Nomor rekening', v.bankAccount]] as const) {
       const d = DIGITS(raw);
       if (!d) continue;
@@ -149,7 +150,7 @@ export class EmploymentService {
     for (const [k, c] of Object.entries(changes)) merged[k] = c.to;
     applyEmploymentRules('JASA', merged as unknown as EmpShape);
     await this.assertNoDuplicates(this.db, user.tenantId, emp.id, { nik: merged.nik as string, npwp: merged.npwp as string, bankAccount: merged.bankAccount as string });
-    const [pending] = await this.db.select({ id: employeeChangeRequests.id }).from(employeeChangeRequests).where(and(eq(employeeChangeRequests.employeeId, emp.id), eq(employeeChangeRequests.status, 'PENDING')));
+    const [pending] = await this.repo.findEmployeeChangeRequestsByEmployeeIdAndStatus(this.db, emp.id);
     if (pending) throw new BadRequestException('Masih ada permintaan perubahan yang menunggu persetujuan untuk karyawan ini');
     const req = await insertOne(this.db, employeeChangeRequests, { tenantId: user.tenantId, employeeId: emp.id, changes: sealChanges(changes), reason: reason ?? null, requestedById: user.sub });
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'REQUEST', entity: 'EmployeeChange', entityId: req.id, data: { employee: emp.code, fields: Object.keys(changes) } });
@@ -158,20 +159,13 @@ export class EmploymentService {
   }
 
   private async assertCanDecide(tx: DbOrTx, u: AuthUser, requestedBy: string, employeeId: string) {
-    const [emp] = await tx.select({ userId: employees.userId }).from(employees).where(eq(employees.id, employeeId));
+    const [emp] = await this.repo.findEmployeesById(tx, employeeId);
     if (emp?.userId && emp.userId === u.sub) throw new ForbiddenException('Anda tidak dapat memutuskan data Anda sendiri');
     if (requestedBy === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Harus diputuskan oleh orang lain dari pengusulnya (pemisahan fungsi)');
   }
 
   async listChanges(u: AuthUser, q: ChangeQueryDto) {
-    const rows = await this.db.execute<Record<string, unknown>>(sql`
-      SELECT c.id, c.employee_id AS "employeeId", e.code AS "employeeCode", e.name AS "employeeName", c.changes, c.reason, c.status,
-             c.requested_by_id AS "requestedById", ru.name AS "requestedByName", du.name AS "decidedByName", c.decision_note AS "decisionNote",
-             c.created_at AS "createdAt", c.decided_at AS "decidedAt"
-      FROM employee_change_requests c JOIN employees e ON e.id = c.employee_id
-      LEFT JOIN users ru ON ru.id = c.requested_by_id LEFT JOIN users du ON du.id = c.decided_by_id
-      WHERE c.tenant_id = ${u.tenantId} ${q.status ? sql`AND c.status = ${q.status}` : sql``}
-      ORDER BY c.created_at DESC LIMIT 300`);
+    const rows = await this.repo.queryEmployeeChangeRequest(this.db, u, q);
     return rows.rows.map((r) => ({ ...r, changes: openChanges(r.changes as Changes) }));
   }
 
@@ -182,7 +176,7 @@ export class EmploymentService {
       if (c.status !== 'PENDING') throw new BadRequestException('Permintaan ini sudah diputuskan');
       await this.assertCanDecide(tx, u, c.requestedById, c.employeeId);
       const changes = openChanges(c.changes);
-      const [emp] = await tx.select().from(employees).where(eq(employees.id, c.employeeId)).for('update');
+      const [emp] = await this.repo.findEmployeesByIdForApproveChange(tx, c.employeeId);
       // data harus masih sama seperti saat diajukan (cegah menimpa perubahan lain)
       for (const [k, ch] of Object.entries(changes)) {
         const cur = (emp as Record<string, unknown>)[k] ?? null;
@@ -248,7 +242,7 @@ export class EmploymentService {
     const today = todayJakarta();
     const soon = addDays(today, 30);
     const out: { kind: string; severity: 'warn' | 'info'; message: string; employeeId?: string }[] = [];
-    const rows = await this.db.select().from(employees).where(and(eq(employees.tenantId, u.tenantId), eq(employees.isActive, true)));
+    const rows = await this.repo.listEmployeesByIsActiveForAlerts(this.db, u.tenantId);
     const bump = (m: Map<string, EmpRow[]>, k: string, e: EmpRow) => m.set(k, [...(m.get(k) ?? []), e]);
     const byNik = new Map<string, EmpRow[]>();
     const byBank = new Map<string, EmpRow[]>();
@@ -266,7 +260,7 @@ export class EmploymentService {
     }
     for (const [, list] of byNik) if (list.length > 1) out.push({ kind: 'NIK_GANDA', severity: 'warn', message: `NIK sama dipakai ${list.map((e) => e.code).join(', ')}` });
     for (const [, list] of byBank) if (list.length > 1) out.push({ kind: 'REKENING_GANDA', severity: 'warn', message: `Rekening sama dipakai ${list.map((e) => e.code).join(', ')}` });
-    const pending = await this.db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM employee_change_requests WHERE tenant_id = ${u.tenantId} AND status = 'PENDING' AND created_at < now() - interval '3 days'`);
+    const pending = await this.repo.queryEmployeeChangeRequestForAlerts(this.db, u.tenantId);
     if (pending.rows[0].n > 0) out.push({ kind: 'PERMINTAAN_LAMA', severity: 'info', message: `${pending.rows[0].n} permintaan perubahan data menunggu lebih dari 3 hari` });
     return out;
   }

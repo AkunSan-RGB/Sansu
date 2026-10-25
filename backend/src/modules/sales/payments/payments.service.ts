@@ -15,6 +15,7 @@ import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { CreatePaymentDto } from '../sales.dto';
 import { findOwned, insertOne, patchById } from '../../../db/owned';
+import { PaymentsRepository } from './payments.repository';
 
 @Injectable()
 export class PaymentsService {
@@ -25,6 +26,7 @@ export class PaymentsService {
     private readonly audit: AuditService,
     private readonly fx: FxService,
     private readonly approvals: ApprovalsService,
+    private readonly repo: PaymentsRepository,
   ) {}
 
   list(tenantId: string) {
@@ -45,7 +47,7 @@ export class PaymentsService {
     if (!opts.approved && !this.approvals.isApprover(user.role) && (await this.approvals.policy(this.db, user.tenantId)).salesSeparateDuties) {
       const creator = await this.approvals.invoiceCreator(this.db, user.tenantId, dto.invoiceId);
       if (creator && creator === user.sub) {
-        const [inv] = await this.db.select({ n: invoices.number }).from(invoices).where(and(eq(invoices.id, dto.invoiceId), eq(invoices.tenantId, user.tenantId)));
+        const [inv] = await this.repo.findInvoicesById(this.db, dto.invoiceId, user.tenantId);
         const req = await this.approvals.create(this.db, user, { kind: 'CUSTOMER_PAYMENT', refId: null, title: `Pembayaran faktur ${inv?.n ?? ''} oleh pembuat fakturnya`, amount: Number(dto.amount), payload: JSON.parse(JSON.stringify(dto)) });
         throw this.approvals.required(req.id, 'Pembayaran atas faktur yang Anda buat sendiri menunggu persetujuan pemilik atau admin (pemisahan fungsi); permintaan dikirim dan pembayaran dicatat setelah disetujui.');
       }
@@ -53,11 +55,10 @@ export class PaymentsService {
 
     return this.db.transaction(async (tx) => {
       // Kunci faktur agar dua pembayaran bersamaan tidak melebihi sisa tagihan
-      const locked = await tx.execute(sql`
-        SELECT id FROM invoices WHERE id = ${dto.invoiceId} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      const locked = await this.repo.queryInvoice(tx, dto.invoiceId, user.tenantId);
       if (!locked.rows.length) throw new NotFoundException('Faktur tidak ditemukan');
-      const [inv] = await tx.select().from(invoices).where(eq(invoices.id, dto.invoiceId));
-      const [customer] = await tx.select().from(customers).where(eq(customers.id, inv.customerId));
+      const [inv] = await this.repo.findInvoicesByIdForCreate(tx, dto.invoiceId);
+      const [customer] = await this.repo.findCustomersById(tx, inv.customerId);
 
       const outstanding = D(inv.total).minus(inv.paidAmount).minus(inv.returnedAmount);
       const foreign = inv.currency !== 'IDR';
@@ -137,23 +138,21 @@ export class PaymentsService {
       throw this.approvals.required(req.id, 'Penghapusan piutang menunggu persetujuan pemilik atau admin; permintaan dikirim dan piutang dihapus setelah disetujui.');
     }
     const res = await this.db.transaction(async (tx) => {
-      const locked = await tx.execute(sql`SELECT id FROM invoices WHERE id = ${dto.invoiceId} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+      const locked = await this.repo.queryInvoiceForWriteOff(tx, dto.invoiceId, user.tenantId);
       if (!locked.rows.length) throw new NotFoundException('Faktur tidak ditemukan');
-      const [inv] = await tx.select().from(invoices).where(eq(invoices.id, dto.invoiceId));
-      const [customer] = await tx.select().from(customers).where(eq(customers.id, inv.customerId));
+      const [inv] = await this.repo.findInvoicesByIdForCreate(tx, dto.invoiceId);
+      const [customer] = await this.repo.findCustomersById(tx, inv.customerId);
       const outstanding = D(inv.total).minus(inv.paidAmount).minus(inv.returnedAmount);
       if (outstanding.lte(0)) throw new BadRequestException('Faktur ini tidak punya sisa tagihan');
       const amount = dto.amount ? money(dto.amount) : outstanding;
       if (amount.lte(0) || amount.gt(outstanding)) throw new BadRequestException(`Jumlah penghapusan harus > 0 dan tidak melebihi sisa tagihan ${outstanding.toFixed(2)}`);
 
-      const allow = (await tx.execute<{ id: string; bal: string }>(sql`
-        SELECT a.id::text, COALESCE((SELECT SUM(l.credit - l.debit) FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id WHERE l.account_id = a.id AND j.tenant_id = ${user.tenantId}), 0)::text AS bal
-        FROM accounts a WHERE a.tenant_id = ${user.tenantId} AND a.report_group = 'ALLOWANCE_RECEIVABLE' ORDER BY a.code LIMIT 1`)).rows[0];
+      const allow = (await this.repo.queryAccount(tx, user.tenantId)).rows[0];
       const useAllow = allow ? D(allow.bal).gt(0) ? (D(allow.bal).lt(amount) ? D(allow.bal) : amount) : D(0) : D(0);
       const rest = amount.minus(useAllow);
       let expenseId: string | null = null;
       if (rest.gt(0)) {
-        const e = (await tx.execute<{ id: string }>(sql`SELECT id::text FROM accounts WHERE tenant_id = ${user.tenantId} AND code = '6-7300' LIMIT 1`)).rows[0];
+        const e = (await this.repo.queryAccountForWriteOff(tx, user.tenantId)).rows[0];
         if (!e) throw new BadRequestException('Akun "Beban Kerugian Penurunan Nilai Piutang" (6-7300) belum ada di bagan akun; tambahkan dulu atau buat cadangan kerugian piutang.');
         expenseId = e.id;
       }

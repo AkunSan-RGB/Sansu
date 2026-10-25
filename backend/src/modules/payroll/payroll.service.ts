@@ -20,6 +20,7 @@ import { assertServiceEntriesMatch, attachServiceEntries } from './service-work.
 import { decryptField } from '../../common/utils/secret';
 import { CreateRunDto, UpdatePayslipDto, PayRunDto } from './payroll.dto';
 import { insertOne, patchById } from '../../db/owned';
+import { PayrollRepository } from './payroll.repository';
 
 const MONEY_FIELDS = [
   'baseSalary',
@@ -62,6 +63,7 @@ export class PayrollService {
     private readonly seq: SequenceService,
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
+    private readonly repo: PayrollRepository,
   ) {}
 
   listRuns(tenantId: string) {
@@ -92,17 +94,14 @@ export class PayrollService {
       with: { run: true, employee: true },
     });
     if (!p || p.run.tenantId !== tenantId) throw new NotFoundException('Slip gaji tidak ditemukan');
-    const [company] = await this.db.select({ name: tenants.name, address: tenants.address, npwp: tenants.npwp }).from(tenants).where(eq(tenants.id, tenantId));
+    const [company] = await this.repo.findTenantsById(this.db, tenantId);
     return { ...p, company };
   }
 
   async createRun(user: AuthUser, dto: CreateRunDto) {
     const { to } = monthRange(dto.period);
     const id = await this.db.transaction(async (tx) => {
-      const [exists] = await tx
-        .select({ number: payrollRuns.number })
-        .from(payrollRuns)
-        .where(and(eq(payrollRuns.tenantId, user.tenantId), eq(payrollRuns.period, dto.period)));
+      const [exists] = await this.repo.findPayrollRunsByPeriod(tx, user.tenantId, dto.period);
       if (exists) throw new BadRequestException(`Penggajian periode ${dto.period} sudah ada (${exists.number})`);
       const payDate = toDocDate(dto.payDate ?? to);
       const number = await this.seq.next(tx, user.tenantId, 'PAYROLL', payDate);
@@ -124,7 +123,7 @@ export class PayrollService {
   }
 
   async updatePayslip(user: AuthUser, id: string, dto: UpdatePayslipDto) {
-    const [slip] = await this.db.select().from(payslips).where(eq(payslips.id, id));
+    const [slip] = await this.repo.findPayslipsById(this.db, id);
     if (!slip) throw new NotFoundException('Slip tidak ditemukan');
     await this.db.transaction(async (tx) => {
       const run = await this.lockRun(tx, user.tenantId, slip.runId, 'DRAFT');
@@ -137,7 +136,7 @@ export class PayrollService {
   async deleteRun(user: AuthUser, id: string) {
     await this.db.transaction(async (tx) => {
       await this.lockRun(tx, user.tenantId, id, 'DRAFT');
-      await tx.delete(payrollRuns).where(eq(payrollRuns.id, id));
+      await this.repo.deletePayrollRunsById(tx, id);
     });
     return { ok: true };
   }
@@ -150,10 +149,10 @@ export class PayrollService {
   async post(user: AuthUser, id: string) {
     await this.db.transaction(async (tx) => {
       const run = await this.lockRun(tx, user.tenantId, id, 'DRAFT');
-      const slips = await tx.select().from(payslips).where(eq(payslips.runId, id));
+      const slips = await this.repo.listPayslipsByRunId(tx, id);
       if (!slips.length) throw new BadRequestException('Tidak ada slip gaji untuk diposting');
       await assertServiceEntriesMatch(tx, user.tenantId, run.id, slips);
-      const emps = await tx.select({ id: employees.id, isProduction: employees.isProduction, branchId: employees.branchId }).from(employees).where(eq(employees.tenantId, user.tenantId));
+      const emps = await this.repo.listEmployees(tx, user.tenantId);
       const empById = new Map(emps.map((e) => [e.id, e]));
       const sumOf = (list: typeof slips, f: keyof (typeof slips)[number]) => list.reduce<Dec>((a, p) => a.plus(D(p[f] as string)), ZERO);
       const gross = sumOf(slips, 'grossPay');
@@ -209,8 +208,7 @@ export class PayrollService {
 
   /** Gaji bersih per cabang karyawan (untuk jurnal pembayaran) */
   private async netByBranch(tx: Tx, runId: string): Promise<[string | null, Dec][]> {
-    const rows = await tx.execute<{ b: string | null; net: string }>(sql`
-      SELECT e.branch_id::text AS b, SUM(p.net_pay) AS net FROM payslips p JOIN employees e ON e.id = p.employee_id WHERE p.run_id = ${runId} GROUP BY e.branch_id`);
+    const rows = await this.repo.queryPayslip(tx, runId);
     return rows.rows.map((r) => [r.b, D(r.net)]);
   }
 
@@ -242,30 +240,8 @@ export class PayrollService {
 
   /** Rekap PPh 21 per karyawan setahun (bahan bukti potong 1721-A1 & SPT Masa) */
   async pph21Report(tenantId: string, year: number) {
-    const res = await this.db.execute<{
-      employee_id: string;
-      code: string;
-      name: string;
-      npwp: string | null;
-      nik: string | null;
-      ptkp: string;
-      months: number;
-      gross: string;
-      pension: string;
-      pph21: string;
-    }>(sql`
-      SELECT e.id AS employee_id, e.code, e.name, e.npwp, e.nik, e.ptkp, COUNT(*)::int AS months,
-             SUM(p.taxable_gross) AS gross, SUM(p.jht_employee + p.jp_employee) AS pension, SUM(p.pph21) AS pph21
-      FROM payslips p
-      JOIN payroll_runs r ON r.id = p.run_id
-      JOIN employees e ON e.id = p.employee_id
-      WHERE r.tenant_id = ${tenantId} AND r.status <> 'DRAFT' AND r.period LIKE ${`${year}-%`}
-      GROUP BY e.id ORDER BY e.code`);
-    const monthly = await this.db.execute<{ period: string; gross: string; pph21: string; n: number }>(sql`
-      SELECT r.period, SUM(p.taxable_gross) AS gross, SUM(p.pph21) AS pph21, COUNT(*)::int AS n
-      FROM payslips p JOIN payroll_runs r ON r.id = p.run_id
-      WHERE r.tenant_id = ${tenantId} AND r.status <> 'DRAFT' AND r.period LIKE ${`${year}-%`}
-      GROUP BY r.period ORDER BY r.period`);
+    const res = await this.repo.queryPayslipForPph21Report(this.db, tenantId, year);
+    const monthly = await this.repo.queryPayslipForPph21Report2(this.db, tenantId, year);
     return {
       year,
       employees: res.rows.map((r) => ({ ...r, npwp: decryptField(r.npwp), nik: decryptField(r.nik), gross: money(r.gross).toFixed(2), pension: money(r.pension).toFixed(2), pph21: money(r.pph21).toFixed(2) })),
@@ -278,33 +254,15 @@ export class PayrollService {
    * Dipakai mencocokkan tagihan BPJS (SIPP Ketenagakerjaan & e-Dabu Kesehatan) sebelum membayar.
    */
   async bpjsReport(tenantId: string, period: string) {
-    const res = await this.db.execute<Record<string, string | null>>(sql`
-      SELECT e.id, e.code, e.name, e.nik, e.join_date::text AS "joinDate", e.resign_date::text AS "resignDate",
-             (p.base_salary + p.fixed_allowance)::text AS wage,
-             p.bpjs_kes_company AS "kesCompany", p.bpjs_kes_employee AS "kesEmployee",
-             p.jht_company AS "jhtCompany", p.jht_employee AS "jhtEmployee",
-             p.jkk_company AS "jkkCompany", p.jkm_company AS "jkmCompany",
-             p.jp_company AS "jpCompany", p.jp_employee AS "jpEmployee"
-      FROM payslips p JOIN payroll_runs r ON r.id = p.run_id JOIN employees e ON e.id = p.employee_id
-      WHERE r.tenant_id = ${tenantId} AND r.status <> 'DRAFT' AND r.period = ${period}
-      ORDER BY e.code`);
-    const [run] = await this.db
-      .select({ number: payrollRuns.number, status: payrollRuns.status })
-      .from(payrollRuns)
-      .where(and(eq(payrollRuns.tenantId, tenantId), eq(payrollRuns.period, period)));
+    const res = await this.repo.queryPayslipForBpjsReport(this.db, tenantId, period);
+    const [run] = await this.repo.findPayrollRunsByPeriodForBpjsReport(this.db, tenantId, period);
     const keys = ['kesCompany', 'kesEmployee', 'jhtCompany', 'jhtEmployee', 'jkkCompany', 'jkmCompany', 'jpCompany', 'jpEmployee'] as const;
     const totals = Object.fromEntries(keys.map((k) => [k, res.rows.reduce<Dec>((s, r) => s.plus(r[k] ?? 0), ZERO).toFixed(2)])) as Record<(typeof keys)[number], string>;
     const kes = D(totals.kesCompany).plus(totals.kesEmployee);
     const tk = D(totals.jhtCompany).plus(totals.jhtEmployee).plus(totals.jkkCompany).plus(totals.jkmCompany).plus(totals.jpCompany).plus(totals.jpEmployee);
     const { from, to } = monthRange(period);
-    const moves = await this.db.execute<{ code: string; name: string; kind: string; date: string }>(sql`
-      SELECT code, name, 'MASUK' AS kind, join_date::text AS date FROM employees WHERE tenant_id = ${tenantId} AND join_date BETWEEN ${from} AND ${to}
-      UNION ALL
-      SELECT code, name, 'KELUAR' AS kind, resign_date::text AS date FROM employees WHERE tenant_id = ${tenantId} AND resign_date BETWEEN ${from} AND ${to}
-      ORDER BY date`);
-    const paid = await this.db.execute<{ amount: string; date: string | null; ntpn: string | null }>(sql`
-      SELECT COALESCE(SUM(amount), 0)::text AS amount, MAX(date)::text AS date, STRING_AGG(NULLIF(ntpn, ''), ', ') AS ntpn
-      FROM tax_payments WHERE tenant_id = ${tenantId} AND type = 'BPJS' AND period = ${period}`);
+    const moves = await this.repo.queryEmployee(this.db, tenantId, from, to);
+    const paid = await this.repo.queryTaxPayment(this.db, tenantId, period);
     const settings = await this.settings.payroll(this.db, tenantId);
     const [y, m] = period.split('-').map(Number);
     const next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
@@ -333,7 +291,7 @@ export class PayrollService {
     const month = Number(period.slice(5, 7));
 
     // masa kerja efektif: keluar atau kontrak berakhir (mana lebih dulu); karyawan jasa baru ikut setelah diverifikasi
-    const eligible = (await tx.select().from(employees).where(eq(employees.tenantId, tenantId)).orderBy(asc(employees.code))).filter((e) => {
+    const eligible = (await this.repo.listEmployeesByCode(tx, tenantId)).filter((e) => {
       const stop = EmploymentService.endOf(e);
       return (
         (!onlyEmployeeId || e.id === onlyEmployeeId) &&
@@ -349,26 +307,18 @@ export class PayrollService {
     const serviceBy = await attachServiceEntries(tx, tenantId, runId, period, onlyEmployeeId ? null : new Set(eligible.map((e) => e.id)), onlyEmployeeId);
     // tenaga lepas / mitra hanya punya slip bila ada upah jasa bulan itu
     const emps = eligible.filter((e) => !isPerJob(e.employmentType) || (serviceBy.get(e.id)?.gt(0) ?? false));
-    const existing = await tx.select().from(payslips).where(eq(payslips.runId, runId));
+    const existing = await this.repo.listPayslipsByRunIdForGenerate(tx, runId);
     const existingByEmp = new Map(existing.map((p) => [p.employeeId, p]));
     if (!onlyEmployeeId) {
       // karyawan yang tidak lagi memenuhi syarat dihapus dari draft
       const keep = new Set(emps.map((e) => e.id));
-      for (const p of existing) if (!keep.has(p.employeeId)) await tx.delete(payslips).where(eq(payslips.id, p.id));
+      for (const p of existing) if (!keep.has(p.employeeId)) await this.repo.deletePayslipsById(tx, p.id);
     }
 
-    const att = await tx
-      .select()
-      .from(attendances)
-      .where(and(eq(attendances.tenantId, tenantId), sql`${attendances.date} BETWEEN ${from} AND ${to}`));
+    const att = await this.repo.listAttendancesByDate(tx, tenantId, from, to);
 
     // Akumulasi tahun berjalan dari penggajian sebelumnya yang sudah diposting
-    const ytdRows = await tx.execute<{ employee_id: string; gross: string; pension: string; pph: string; n: number }>(sql`
-      SELECT p.employee_id, SUM(p.taxable_gross) AS gross, SUM(p.jht_employee + p.jp_employee) AS pension,
-             SUM(p.pph21) AS pph, COUNT(*)::int AS n
-      FROM payslips p JOIN payroll_runs r ON r.id = p.run_id
-      WHERE r.tenant_id = ${tenantId} AND r.status <> 'DRAFT' AND r.period >= ${`${year}-01`} AND r.period < ${period}
-      GROUP BY p.employee_id`);
+    const ytdRows = await this.repo.queryPayslipForGenerate(tx, tenantId, year, period);
     const ytdBy = new Map(ytdRows.rows.map((r) => [r.employee_id, r]));
 
     for (const e of emps) {
@@ -433,9 +383,9 @@ export class PayrollService {
   }
 
   private async lockRun(tx: Tx, tenantId: string, id: string, status: 'DRAFT' | 'POSTED') {
-    const res = await tx.execute<{ id: string }>(sql`SELECT id FROM payroll_runs WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
+    const res = await this.repo.queryPayrollRun(tx, id, tenantId);
     if (!res.rows.length) throw new NotFoundException('Penggajian tidak ditemukan');
-    const [run] = await tx.select().from(payrollRuns).where(eq(payrollRuns.id, id));
+    const [run] = await this.repo.findPayrollRunsById(tx, id);
     if (run.status !== status) {
       const msg: Record<string, string> = {
         DRAFT: 'Penggajian sudah diposting; tidak bisa diubah',

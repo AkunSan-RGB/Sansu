@@ -24,6 +24,7 @@ import { documentTotals, inclusiveTotals } from '../sales/pricing';
 import { PosProductQueryDto, OpenSessionDto, CreatePosOrderDto, CloseSessionDto } from './pos.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { insertOne, patchById } from '../../db/owned';
+import { PosRepository } from './pos.repository';
 
 @Injectable()
 export class PosService {
@@ -36,6 +37,7 @@ export class PosService {
     private readonly loyalty: LoyaltyService,
     private readonly approvals: ApprovalsService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: PosRepository,
   ) {}
 
   /** Produk untuk layar kasir: harga, satuan, barcode, dan stok di gudang sesi */
@@ -52,10 +54,7 @@ export class PosService {
       limit: 200,
     });
     const stock = q.warehouseId
-      ? await this.db
-          .select({ productId: stockBalances.productId, qty: stockBalances.qty })
-          .from(stockBalances)
-          .where(and(eq(stockBalances.tenantId, tenantId), eq(stockBalances.warehouseId, q.warehouseId)))
+      ? await this.repo.listStockBalancesByWarehouseId(this.db, tenantId, q.warehouseId)
       : [];
     const byId = new Map(stock.map((s) => [s.productId, s.qty]));
     // menu yang dibuat saat dipesan: "stok" = porsi yang masih bisa dibuat dari bahan (resep belum ada = 0)
@@ -95,10 +94,7 @@ export class PosService {
 
   async open(user: AuthUser, dto: OpenSessionDto) {
     return this.db.transaction(async (tx) => {
-      const [existing] = await tx
-        .select({ number: posSessions.number })
-        .from(posSessions)
-        .where(and(eq(posSessions.userId, user.sub), eq(posSessions.status, 'OPEN')));
+      const [existing] = await this.repo.findPosSessionsByUserIdAndStatus(tx, user.sub);
       if (existing) throw new BadRequestException(`Anda masih punya sesi kasir terbuka (${existing.number})`);
       const wh = await this.refs.warehouse(tx, user.tenantId, dto.warehouseId);
       if (!wh) throw new BadRequestException('Gudang / toko tidak ditemukan');
@@ -144,12 +140,9 @@ export class PosService {
   ): Promise<string> {
     const session = await this.lockSession(tx, user, dto.sessionId);
     const date = todayJakarta();
-    const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
+    const [tenant] = await this.repo.findTenantsById(tx, user.tenantId);
     if (dto.customerId) {
-      const [c] = await tx
-        .select({ id: customers.id })
-        .from(customers)
-        .where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, user.tenantId)));
+      const [c] = await this.repo.findCustomersById(tx, dto.customerId, user.tenantId);
       if (!c) throw new BadRequestException('Pelanggan tidak ditemukan');
     }
     const lines = await buildLines(tx, user.tenantId, dto.lines, 'sell', 2, { menuOk: true });
@@ -162,7 +155,7 @@ export class PosService {
         const master = money(D(p.sellPrice).times(l.uomFactor));
         // barang tanpa harga jual (mis. bahan baku) tidak boleh "dijual" kasir: stoknya berkurang tanpa pendapatan (celah barang gratis)
         if (master.lte(0)) {
-          const [pn] = await tx.select({ sku: products.sku, name: products.name }).from(products).where(eq(products.id, l.productId));
+          const [pn] = await this.repo.findProductsById(tx, l.productId);
           throw new BadRequestException(`Harga jual ${pn?.name ?? 'barang'} (${pn?.sku ?? ''}) belum diisi (Rp 0), jadi tidak bisa dijual di kasir. Isi harga jual di Produk, atau minta supervisor.`);
         }
         if (!l.price.eq(master) || l.discountPct.gt(0)) {
@@ -376,9 +369,7 @@ export class PosService {
       orderBy: desc(posSessions.openedAt),
       limit: 200,
     });
-    const totals = await this.db.execute<{ session_id: string; n: number; total: string }>(sql`
-      SELECT session_id, COUNT(*)::int AS n, COALESCE(SUM(total), 0) AS total
-      FROM pos_orders WHERE tenant_id = ${tenantId} GROUP BY session_id`);
+    const totals = await this.repo.queryPosOrder(this.db, tenantId);
     const byId = new Map(totals.rows.map((t) => [t.session_id, t]));
     return rows.map((r) => ({ ...r, orderCount: byId.get(r.id)?.n ?? 0, totalSales: D(byId.get(r.id)?.total).toFixed(2) }));
   }
@@ -419,19 +410,7 @@ export class PosService {
         closeJournalId = j.id;
         journalNumber = j.number;
       }
-      const [closed] = await tx
-        .update(posSessions)
-        .set({
-          status: 'CLOSED',
-          closedAt: nowAt(21),
-          expectedCash: expected.toFixed(2),
-          countedCash: counted.toFixed(2),
-          difference: diff.toFixed(2),
-          notes: dto.notes,
-          closeJournalId,
-        })
-        .where(eq(posSessions.id, s.id))
-        .returning();
+      const [closed] = await this.repo.updatePosSessionsById(tx, expected, counted, diff, dto.notes, closeJournalId, s.id);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CLOSE', entity: 'PosSession', entityId: s.id, data: { diff: diff.toFixed(2) } });
       return { ...closed, summary: sum, journalNumber };
     });
@@ -439,18 +418,14 @@ export class PosService {
 
   /** Ringkasan sesi: total per metode & uang tunai yang seharusnya ada di laci */
   private async summary(db: Db | Tx, sessionId: string, openingCash: string) {
-    const res = await db.execute<{ method: PosPaymentMethod; amount: string }>(sql`
-      SELECT p.method, COALESCE(SUM(p.amount), 0) AS amount
-      FROM pos_payments p JOIN pos_orders o ON o.id = p.order_id
-      WHERE o.session_id = ${sessionId} GROUP BY p.method`);
+    const res = await this.repo.queryPosPayment(db, sessionId);
     const [agg] = (
-      await db.execute<{ n: number; total: string }>(sql`
-      SELECT COUNT(*)::int AS n, COALESCE(SUM(total), 0) AS total FROM pos_orders WHERE session_id = ${sessionId}`)
+      await this.repo.queryPosOrderForSummary(db, sessionId)
     ).rows;
     const byMethod = Object.fromEntries(POS_PAYMENT_METHODS.map((m) => [m, '0.00'])) as Record<PosPaymentMethod, string>;
     res.rows.forEach((r) => (byMethod[r.method] = D(r.amount).toFixed(2)));
     // uang tunai yang dikembalikan dari laci sesi ini (retur kasir oleh supervisor)
-    const [ref] = (await db.execute<{ total: string }>(sql`SELECT COALESCE(SUM(total - points_refund), 0) AS total FROM pos_returns WHERE session_id = ${sessionId} AND refund_method = 'CASH'`)).rows;
+    const [ref] = (await this.repo.queryPosReturn(db, sessionId)).rows;
     return {
       orderCount: agg.n,
       totalSales: D(agg.total).toFixed(2),
@@ -461,10 +436,9 @@ export class PosService {
   }
 
   private async lockSession(tx: Tx, user: AuthUser, id: string, forClose = false) {
-    const res = await tx.execute<{ id: string }>(sql`
-      SELECT id FROM pos_sessions WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
+    const res = await this.repo.queryPosSession(tx, id, user.tenantId);
     if (!res.rows.length) throw new NotFoundException('Sesi kasir tidak ditemukan');
-    const [s] = await tx.select().from(posSessions).where(eq(posSessions.id, id));
+    const [s] = await this.repo.findPosSessionsById(tx, id);
     if (s.status !== 'OPEN') throw new BadRequestException(`Sesi ${s.number} sudah ditutup`);
     const manager = user.role === 'OWNER' || user.role === 'ADMIN' || user.role === 'FINANCE';
     if (s.userId !== user.sub && !(forClose && manager)) {

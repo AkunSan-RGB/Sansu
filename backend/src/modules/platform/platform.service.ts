@@ -13,6 +13,7 @@ import { isDocDate } from '../../common/utils/dates';
 import { refreshChartRelevance } from '../accounting/coa-sync';
 import { UpdateUserDto, UpdateCompanyDto, BrandingDto, TermsSettingsDto, ReportingSettingsDto, PayrollSettingsDto } from './platform.dto';
 import { findOwned, patchById } from '../../db/owned';
+import { PlatformRepository } from './platform.repository';
 
 /** Kop surat & dokumen: logo, kontak, rekening pembayaran, catatan di faktur */
 export interface Branding {
@@ -32,12 +33,13 @@ export class PlatformService {
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
     private readonly subs: SubscriptionService,
+    private readonly repo: PlatformRepository,
   ) {}
 
   private async normalizeBranchIds(tenantId: string, ids: string[]) {
     const uniq = [...new Set(ids)];
     if (!uniq.length) return null;
-    const rows = await this.db.select({ id: branches.id }).from(branches).where(and(eq(branches.tenantId, tenantId), inArray(branches.id, uniq)));
+    const rows = await this.repo.listBranchesById(this.db, tenantId, uniq);
     if (rows.length !== uniq.length) throw new BadRequestException('Ada cabang yang tidak ditemukan');
     return uniq;
   }
@@ -58,12 +60,7 @@ export class PlatformService {
     }
     // Jangan sampai perusahaan kehilangan pemilik aktif terakhir
     if (target.role === 'OWNER' && (dto.isActive === false || (dto.role && dto.role !== 'OWNER'))) {
-      const others = await this.db
-        .select({ id: users.id })
-        .from(users)
-        .where(
-          and(eq(users.tenantId, actor.tenantId), eq(users.role, 'OWNER'), eq(users.isActive, true), ne(users.id, id)),
-        );
+      const others = await this.repo.listUsersByRoleAndIsActiveAndId(this.db, actor.tenantId, id);
       if (!others.length) throw new BadRequestException('Harus ada minimal satu Pemilik aktif');
     }
     // Peran khusus membatasi hak: yang membatasi/melonggarkan hanya Pemilik (Admin tidak bisa melepas batas orang lain atau dirinya)
@@ -75,7 +72,7 @@ export class PlatformService {
     if (dto.customRoleId !== undefined) {
       if (actor.role !== 'OWNER') throw new ForbiddenException('Hanya Pemilik yang dapat menetapkan peran khusus');
       if (dto.customRoleId !== null) {
-        const [cr] = await this.db.select({ baseRole: customRoles.baseRole }).from(customRoles).where(and(eq(customRoles.id, dto.customRoleId), eq(customRoles.tenantId, actor.tenantId)));
+        const [cr] = await this.repo.findCustomRolesById(this.db, dto.customRoleId, actor.tenantId);
         if (!cr) throw new BadRequestException('Peran khusus tidak ditemukan');
         if (cr.baseRole !== nextRole) throw new BadRequestException('Peran khusus harus turunan dari peran dasar pengguna');
       }
@@ -128,7 +125,7 @@ export class PlatformService {
   }
 
   async company(tenantId: string) {
-    const [t] = await this.db.select().from(tenants).where(eq(tenants.id, tenantId));
+    const [t] = await this.repo.findTenantsById(this.db, tenantId);
     return {
       name: t.name,
       npwp: t.npwp,
@@ -165,7 +162,7 @@ export class PlatformService {
 
   /** Data kop surat untuk semua dokumen cetak — boleh dibaca semua pengguna */
   async letterhead(tenantId: string) {
-    const [t] = await this.db.select().from(tenants).where(eq(tenants.id, tenantId));
+    const [t] = await this.repo.findTenantsById(this.db, tenantId);
     const b = await this.settings.section(this.db, tenantId, 'branding', DEFAULT_BRANDING);
     return { name: t.name, address: t.address, npwp: t.npwp, ...b };
   }

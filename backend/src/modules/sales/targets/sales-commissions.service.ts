@@ -13,6 +13,7 @@ import { PostingService } from '../../accounting/posting.service';
 import { SalesTargetsService } from './sales-targets.service';
 import { PayCommissionDto, VoidCommissionDto } from './sales-commissions.dto';
 import { insertOne, lockOwned, patchById } from '../../../db/owned';
+import { SalesCommissionsRepository } from './sales-commissions.repository';
 
 const lastDay = (period: string) => {
   const [y, m] = period.split('-').map(Number);
@@ -27,16 +28,11 @@ export class SalesCommissionsService {
     private readonly posting: PostingService,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
+    private readonly repo: SalesCommissionsRepository,
   ) {}
 
   async list(u: AuthUser, period?: string) {
-    const rows = await this.db
-      .select({ c: salesCommissions, name: users.name })
-      .from(salesCommissions)
-      .innerJoin(users, eq(users.id, salesCommissions.userId))
-      .where(and(eq(salesCommissions.tenantId, u.tenantId), period ? eq(salesCommissions.period, period) : undefined, u.role === 'SALES' ? eq(salesCommissions.userId, u.sub) : undefined))
-      .orderBy(desc(salesCommissions.period), desc(salesCommissions.number))
-      .limit(500);
+    const rows = await this.repo.listSalesCommissionsWithUsersByPeriodAndUserIdAndNumber(this.db, u, period);
     return rows.map((r) => ({ ...r.c, userName: r.name }));
   }
 
@@ -48,8 +44,8 @@ export class SalesCommissionsService {
       const out: { id: string; number: string; userId: string; amount: string }[] = [];
       for (const r of perf.rows) {
         if (!r.hasTarget || D(r.commission).lte(0)) continue;
-        const [dup] = await tx.select({ id: salesCommissions.id }).from(salesCommissions).where(and(eq(salesCommissions.tenantId, u.tenantId), eq(salesCommissions.userId, r.userId), eq(salesCommissions.period, period), eq(salesCommissions.status, 'ACCRUED')));
-        const [paid] = dup ? [] : await tx.select({ id: salesCommissions.id }).from(salesCommissions).where(and(eq(salesCommissions.tenantId, u.tenantId), eq(salesCommissions.userId, r.userId), eq(salesCommissions.period, period), eq(salesCommissions.status, 'PAID')));
+        const [dup] = await this.repo.findSalesCommissionsByUserIdAndPeriodAndStatus(tx, u.tenantId, r.userId, period);
+        const [paid] = dup ? [] : await this.repo.listSalesCommissionsByUserIdAndPeriodAndStatus(tx, u.tenantId, r.userId, period);
         if (dup || paid) continue; // sudah ditutup: tidak dobel
         const number = await this.seq.next(tx, u.tenantId, 'SALES_COMMISSION', date);
         const row = await insertOne(tx, salesCommissions, { tenantId: u.tenantId, number, userId: r.userId, period, netSales: r.net, targetAmount: r.target, commissionPct: r.commissionPct, amount: r.commission, accruedById: u.sub });
