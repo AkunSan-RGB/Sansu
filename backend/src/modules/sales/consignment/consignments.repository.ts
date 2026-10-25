@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../../db/db';
 import { warehouses, consignmentDocs, customers, users } from '../../../db/schema';
 import { and, eq, sql, desc } from 'drizzle-orm';
+import type { Decimal } from 'decimal.js';
 
 /** Akses data untuk Consignments: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -114,5 +115,16 @@ export class ConsignmentsRepository {
   /** Dipakai oleh ConsignmentsService.invoice */
   listUsersById(db: DbOrTx, createdById: string) {
     return db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, createdById));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh ConsignmentsService.ship */
+  queryStockBalanceForShip2(db: DbOrTx, id: string, merged: Map<string, Decimal>) {
+    return db.execute<{ pid: string; avg: string }>(
+      sql`SELECT product_id AS pid, avg_cost AS avg FROM stock_balances WHERE warehouse_id = ${id} AND product_id IN (${sql.join(
+        [...merged.keys()].map((k) => sql`${k}`),
+        sql`, `,
+      )})`,
+    );
   }
 }

@@ -310,17 +310,7 @@ export class BinsService {
     const wf = warehouseId ? sql`AND w.id = ${warehouseId}` : sql``;
     const enabled = await this.repo.queryWarehouseForControls(this.db, tenantId, wf);
     if (!enabled.rows.length) return out;
-    const age = (kinds: string[], days: number) => this.db.execute<{ wh: string; code: string; sku: string; qty: string; d: number }>(sql`
-      SELECT w.code AS wh, b.code, p.sku, SUM(s.qty)::text AS qty, EXTRACT(DAY FROM now() - MIN(m.created_at))::int AS d
-      FROM stock_bin_balances s
-      JOIN warehouse_bins b ON b.id = s.bin_id AND b.kind IN (${sql.join(kinds.map((k) => sql`${k}`), sql`, `)})
-      JOIN warehouses w ON w.id = s.warehouse_id
-      JOIN products p ON p.id = s.product_id
-      LEFT JOIN LATERAL (SELECT MIN(x.created_at) AS created_at FROM bin_moves x WHERE x.to_bin_id = s.bin_id AND x.product_id = s.product_id) m ON true
-      WHERE s.tenant_id = ${tenantId} AND s.qty > 0 ${wf}
-      GROUP BY w.code, b.code, p.sku
-      HAVING MIN(m.created_at) < now() - (${days} || ' days')::interval
-      ORDER BY MIN(m.created_at) LIMIT 50`);
+    const age = (kinds: string[], days: number) => this.repo.queryStockBinBalanceForControls(this.db, kinds, tenantId, wf, days);
     const un = await age(['UNASSIGNED'], UNPLACED_DAYS);
     add('BIN_UNPLACED_OLD', 'warning', `Barang belum ditata di rak > ${UNPLACED_DAYS} hari`, un.rows.map((r) => `${r.wh} · ${r.sku}: ${Number(r.qty)} (${r.d} hari)`), `Barang yang lama berada di ${UNASSIGNED_CODE} sulit dicari dan mudah hilang tanpa terasa. Tata ke rak atau pastikan barangnya ada.`);
     const dm = await age(['DAMAGED', 'QUARANTINE'], DAMAGED_DAYS);

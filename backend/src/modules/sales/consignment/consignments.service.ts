@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { SequenceService } from '../../../common/sequence/sequence.service';
@@ -7,7 +7,7 @@ import { toDocDate, todayJakarta } from '../../../common/utils/dates';
 import { D } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { consignmentDocs, customers, products, users, warehouses } from '../../../db/schema';
+import { consignmentDocs, products, warehouses } from '../../../db/schema';
 import { SubscriptionService } from '../../../common/billing/subscription.service';
 import { WarehouseOpsService } from '../../inventory/warehouse-ops.service';
 import { InvoicesService } from '../invoices/invoices.service';
@@ -109,7 +109,7 @@ export class ConsignmentsService {
     // batas nilai titipan = limit kredit outlet (bila ada): menahan titipan berlebih ke satu outlet
     if (D(cust.creditLimit).gt(0)) {
       const cur = await this.repo.queryStockBalanceForShip(this.db, cw.id);
-      const add = await this.db.execute<{ pid: string; avg: string }>(sql`SELECT product_id AS pid, avg_cost AS avg FROM stock_balances WHERE warehouse_id = ${from.id} AND product_id IN (${sql.join([...merged.keys()].map((k) => sql`${k}`), sql`, `)})`);
+      const add = await this.repo.queryStockBalanceForShip2(this.db, from.id, merged);
       const addValue = [...merged].reduce((a, [pid, q]) => a.plus(q.times(add.rows.find((r) => r.pid === pid)?.avg ?? 0)), D(0));
       if (D(cur.rows[0].v).plus(addValue).gt(cust.creditLimit)) throw new BadRequestException(`Nilai titipan di ${cust.name} akan melebihi limit kredit outlet (${D(cust.creditLimit).toFixed(0)}); naikkan limit atau tarik sebagian titipan dulu`);
     }

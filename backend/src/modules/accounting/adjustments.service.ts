@@ -10,7 +10,7 @@ import { D, Dec } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { frameworkOf } from './coa-sync';
-import { ADJUSTING_SOURCES } from './ledger-data';
+import { AdjustmentsRepository } from './adjustments.repository';
 
 const rp = (v: Dec) => 'Rp ' + Number(v.toFixed(0)).toLocaleString('id-ID');
 
@@ -34,7 +34,8 @@ const lastDay = (period: string): DocDate => {
 
 @Injectable()
 export class AdjustmentsService {
-  constructor(@InjectDb() private readonly db: Db) {}
+  constructor(@InjectDb() private readonly db: Db,
+    private readonly repo: AdjustmentsRepository) {}
 
   private async one<T extends Record<string, unknown>>(q: ReturnType<typeof sql>) {
     return (await this.db.execute<T>(q)).rows[0];
@@ -42,15 +43,7 @@ export class AdjustmentsService {
 
   /** Ringkasan jurnal penyesuaian per sumber dalam rentang tanggal */
   async summary(tenantId: string, from: DocDate, to: DocDate) {
-    const rows = await this.db.execute<{ source_type: string; n: number; total: string }>(sql`
-      SELECT j.source_type, COUNT(DISTINCT j.id)::int AS n, COALESCE(SUM(l.debit), 0) AS total
-      FROM journal_entries j JOIN journal_lines l ON l.journal_id = j.id
-      WHERE j.tenant_id = ${tenantId} AND j.date BETWEEN ${from} AND ${to}
-        AND j.source_type IN (${sql.join(
-          ADJUSTING_SOURCES.map((s) => sql`${s}`),
-          sql`, `,
-        )})
-      GROUP BY j.source_type`);
+    const rows = await this.repo.queryJournalEntry(this.db, tenantId, from, to);
     return rows.rows.map((r) => ({ sourceType: r.source_type, count: r.n, total: D(r.total).toFixed(2) }));
   }
 

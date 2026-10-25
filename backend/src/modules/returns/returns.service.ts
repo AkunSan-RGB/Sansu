@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -9,19 +9,7 @@ import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { returnForeign } from '../../common/utils/fx';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import {
-  customers,
-  invoiceLines,
-  invoices,
-  purchaseInvoiceLines,
-  purchaseInvoices,
-  purchaseReturnLines,
-  purchaseReturns,
-  salesOrders,
-  salesReturnLines,
-  salesReturns,
-  suppliers,
-} from '../../db/schema';
+import { invoiceLines, invoices, purchaseInvoiceLines, purchaseInvoices, purchaseReturns, salesReturns } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
@@ -29,18 +17,7 @@ import { lineTotal } from '../sales/pricing';
 import { CreateReturnDto } from './returns.dto';
 import { insertOne, patchById } from '../../db/owned';
 import { ReturnsRepository } from './returns.repository';
-
-interface SourceLine {
-  id: string;
-  productId: string;
-  uom: string;
-  uomFactor: string;
-  qty: string;
-  price: string;
-  discountPct: string;
-  returnedQty: string;
-  unitCost: string;
-}
+import type { SourceLine } from './returns.repository';
 
 /**
  * PPN retur: proporsional terhadap faktur asal. Jika retur ini menghabiskan seluruh sisa barang,
@@ -194,9 +171,7 @@ export class ReturnsService {
       let cost: Dec = ZERO;
       for (const l of lines) {
         // Barang kembali membawa penurunan nilai yang melekat saat dijual (agar koreksi fiskal ikut terbalik)
-        const wd = await tx.execute<{ wu: string }>(sql`
-          SELECT COALESCE(SUM(-writedown_value) / NULLIF(SUM(-qty), 0), 0) AS wu FROM stock_moves
-          WHERE ((ref_type = 'INVOICE' AND ref_id = ${inv.id}) OR (ref_type = 'DELIVERY' AND ref_id = ${inv.deliveryOrderId ?? inv.id})) AND product_id = ${l.src.productId} AND type = 'SALE'`);
+        const wd = await this.repo.queryStockMove(tx, inv.id, inv.deliveryOrderId, l);
         const moved = await this.stock.move(tx, {
           tenantId: user.tenantId,
           productId: l.src.productId,

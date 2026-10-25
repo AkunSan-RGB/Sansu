@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
 import { addDays, todayJakarta } from '../../common/utils/dates';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { HealthService } from '../insights/health.service';
 import { TaxFocusService } from './tax-focus';
+import { AccountingControlsRepository } from './accounting-controls.repository';
 
 export interface AccountingControlFinding {
   key: string;
@@ -24,6 +24,7 @@ export class AccountingControlsService {
     @InjectDb() private readonly db: Db,
     private readonly health: HealthService,
     private readonly taxFocus: TaxFocusService,
+    private readonly repo: AccountingControlsRepository,
   ) {}
 
   async controls(tenantId: string) {
@@ -45,12 +46,7 @@ export class AccountingControlsService {
 
     // Jurnal dibuat jauh setelah tanggal transaksinya (masuk ke bulan yang sudah lewat lebih dari satu bulan penuh)
     const cutoff = `${addDays(`${today.slice(0, 7)}-01`, -1).slice(0, 7)}-01`;
-    const late = await this.db.execute<{ number: string; d: string; c: string; who: string | null; src: string }>(sql`
-      SELECT j.number, j.date::text AS d, j.created_at::date::text AS c, u.name AS who, j.source_type AS src
-      FROM journal_entries j LEFT JOIN users u ON u.id = j.created_by_id
-      WHERE j.tenant_id = ${tenantId} AND j.created_at::date >= ${since} AND j.date < ${cutoff}
-        AND j.source_type NOT IN ('RECURRING', 'REVERSAL', 'CLOSING', 'OPENING', 'ADJUSTMENT')
-      ORDER BY j.created_at DESC LIMIT 30`);
+    const late = await this.repo.queryJournalEntry(this.db, tenantId, since, cutoff);
     if (late.rows.length) {
       items.push({
         key: 'JE_BACKDATED',

@@ -5,6 +5,7 @@ import { AuthUser } from '../../common/auth/auth-user';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { WorkflowService } from '../workflow/workflow.service';
+import { TaskInboxRepository } from './task-inbox.repository';
 
 export interface TaskItem {
   key: string;
@@ -24,10 +25,11 @@ export class TaskInboxService {
     @InjectDb() private readonly db: Db,
     private readonly apps: AppsService,
     private readonly workflow: WorkflowService,
+    private readonly repo: TaskInboxRepository,
   ) {}
 
   private async one(q: ReturnType<typeof sql>) {
-    const r = await this.db.execute<{ n: number; oldest: number }>(q);
+    const r = await this.repo.queryOne(this.db, q);
     return { n: Number(r.rows[0]?.n ?? 0), oldest: Number(r.rows[0]?.oldest ?? 0) };
   }
 

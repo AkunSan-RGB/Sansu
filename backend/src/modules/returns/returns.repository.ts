@@ -4,6 +4,18 @@ import { invoices, salesOrders, customers, salesReturnLines, suppliers, purchase
 import { and, eq, sql } from 'drizzle-orm';
 import { Dec } from '../../common/utils/money';
 
+export interface SourceLine {
+  id: string;
+  productId: string;
+  uom: string;
+  uomFactor: string;
+  qty: string;
+  price: string;
+  discountPct: string;
+  returnedQty: string;
+  unitCost: string;
+}
+
 /** Akses data untuk Returns: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
 export class ReturnsRepository {
@@ -76,5 +88,18 @@ export class ReturnsRepository {
     return db.execute<{ v: string }>(
       sql`SELECT COALESCE(SUM(tax_amount), 0) AS v FROM ${sql.identifier(table)} WHERE ${sql.identifier(fk)} = ${id}`,
     );
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh ReturnsService.createSales */
+  queryStockMove(
+    db: DbOrTx,
+    invValues: string,
+    invInvValues: string | null,
+    l: { src: SourceLine; qty: Dec; total: Dec },
+  ) {
+    return db.execute<{ wu: string }>(sql`
+          SELECT COALESCE(SUM(-writedown_value) / NULLIF(SUM(-qty), 0), 0) AS wu FROM stock_moves
+          WHERE ((ref_type = 'INVOICE' AND ref_id = ${invValues}) OR (ref_type = 'DELIVERY' AND ref_id = ${invInvValues ?? invValues})) AND product_id = ${l.src.productId} AND type = 'SALE'`);
   }
 }

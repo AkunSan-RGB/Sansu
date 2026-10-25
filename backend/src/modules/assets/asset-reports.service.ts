@@ -1,15 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { type FiscalAssetGroup } from '@sansu/shared';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { SettingsService } from '../../common/settings.service';
-import { addDays, diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
+import { diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { fixedAssets } from '../../db/schema';
 import { depreciationFor, fiscalDepreciation, monthIndex, periodOf } from './depreciation';
 import { AssetsService } from './assets.service';
+import { AssetReportsRepository } from './asset-reports.repository';
 
 @Injectable()
 export class AssetReportsService {
@@ -18,6 +19,7 @@ export class AssetReportsService {
     private readonly settings: SettingsService,
     private readonly approvals: ApprovalsService,
     private readonly assets: AssetsService,
+    private readonly repo: AssetReportsRepository,
   ) {}
 
 
@@ -48,11 +50,7 @@ export class AssetReportsService {
     const ids = [...new Set([...accs.values()].map((x) => x.acc.id))];
     const gl = new Map<string, { debit: Dec; credit: Dec }>();
     if (ids.length) {
-      const res = await this.db.execute<{ account_id: string; debit: string; credit: string }>(sql`
-        SELECT l.account_id, SUM(l.debit) AS debit, SUM(l.credit) AS credit
-        FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-        WHERE j.tenant_id = ${tenantId} AND j.date <= ${date} AND l.account_id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})
-        GROUP BY l.account_id`);
+      const res = await this.repo.queryJournalLine(this.db, tenantId, date, ids);
       for (const r of res.rows) gl.set(r.account_id, { debit: D(r.debit), credit: D(r.credit) });
     }
     const rows = [...accs.values()].map((x) => {
@@ -113,26 +111,12 @@ export class AssetReportsService {
     // Pembelian peralatan kecil yang dibebankan karena di bawah batas kapitalisasi tetapi berulang tepat di bawah batas pada pemasok yang sama
     const { capitalizationThreshold: threshold } = await this.settings.reporting(this.db, tenantId);
     if (threshold > 0) {
-      const small = await this.db.execute<{ supplier: string; n: number; total: string; first: string; last: string }>(sql`
-        WITH lines AS (
-          SELECT s.name AS supplier, j.date, l.debit
-          FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
-          JOIN purchase_invoices i ON i.id::text = j.source_id AND j.source_type = 'PURCHASE_INVOICE' JOIN suppliers s ON s.id = i.supplier_id
-          WHERE j.tenant_id = ${tenantId} AND a.system_key = 'SMALL_ASSET_EXPENSE' AND l.debit >= ${threshold * 0.7} AND l.debit < ${threshold}
-            AND j.date >= ${addDays(today, -60)}
-        )
-        SELECT a.supplier, COUNT(*)::int AS n, SUM(a.debit)::text AS total, MIN(a.date)::text AS first, MAX(a.date)::text AS last
-        FROM lines a JOIN lines b ON b.supplier = a.supplier AND b.date BETWEEN a.date - 14 AND a.date + 14
-        GROUP BY a.supplier HAVING COUNT(DISTINCT (a.date, a.debit)) >= 2 AND SUM(a.debit) >= ${threshold}`);
+      const small = await this.repo.queryLine(this.db, tenantId, threshold, today);
       out.push(...(small.rows.length ? [{ key: 'ASSET_SPLIT', level: 'warning' as const, title: `Pembelian di bawah batas kapitalisasi berulang pada pemasok yang sama (${small.rows.length})`, detail: `Beberapa barang masing-masing ≥ 70% dari batas Rp${threshold.toLocaleString('id-ID')} tetapi di bawahnya, dibeli dari pemasok yang sama dalam 14 hari dan dibebankan, bukan dicatat sebagai aset. Bisa wajar (banyak barang kecil) atau pembelian aset yang dipecah agar langsung menjadi beban.`, assetIds: small.rows.map((r) => `${r.supplier}: ${r.n} baris, total Rp${Math.round(Number(r.total)).toLocaleString('id-ID')} (${r.first} s/d ${r.last})`) }] : []));
     }
 
     // Pelepasan 180 hari terakhir: segera setelah dibeli, atau harga lepas jauh di bawah nilai buku
-    const disposed = await this.db.execute<{ code: string; name: string; acq: string; disp: string; cost: string; opening: string; dep: string; price: string }>(sql`
-      SELECT f.code, f.name, f.acquisition_date::text AS acq, f.disposal_date::text AS disp, f.cost::text AS cost, f.opening_accumulated::text AS opening, f.disposal_price::text AS price,
-        COALESCE((SELECT SUM(d.amount) FROM asset_depreciations d WHERE d.asset_id = f.id), 0)::text AS dep
-      FROM fixed_assets f WHERE f.tenant_id = ${tenantId} AND f.status = 'DISPOSED' AND f.disposal_date >= ${addDays(today, -180)}
-      ORDER BY f.disposal_date DESC`);
+    const disposed = await this.repo.queryFixedAsset(this.db, tenantId, today);
     const quick = disposed.rows.filter((r) => diffDays(r.acq, r.disp) <= 90);
     out.push(...(quick.length ? [{ key: 'DISPOSE_QUICK', level: 'warning' as const, title: `Aset dilepas ≤ 90 hari setelah dibeli (${quick.length})`, detail: 'Aset baru dibeli lalu cepat dilepas bisa berarti pembelian fiktif atau barang dialihkan. Periksa dokumen pembelian dan pembelinya.', assetIds: quick.map((r) => `${r.code} ${r.name} (beli ${r.acq}, lepas ${r.disp})`) }] : []));
     const low = disposed.rows.filter((r) => {
@@ -188,11 +172,7 @@ export class AssetReportsService {
     const from = `${year}-01-01`;
     const to = `${year}-12-31`;
     const assets = await this.db.query.fixedAssets.findMany({ where: eq(fixedAssets.tenantId, tenantId), with: { category: true } });
-    const dep = await this.db.execute<{ asset_id: string; before: string; during: string }>(sql`
-      SELECT asset_id,
-             COALESCE(SUM(amount) FILTER (WHERE period < ${`${year}-01`}), 0) AS before,
-             COALESCE(SUM(amount) FILTER (WHERE period BETWEEN ${`${year}-01`} AND ${`${year}-12`}), 0) AS during
-      FROM asset_depreciations WHERE tenant_id = ${tenantId} GROUP BY asset_id`);
+    const dep = await this.repo.queryAssetDepreciation(this.db, year, tenantId);
     const depBy = new Map(dep.rows.map((r) => [r.asset_id, r]));
     type Row = { category: string; costOpen: Dec; costAdd: Dec; costDisp: Dec; accOpen: Dec; accAdd: Dec; accDisp: Dec };
     const rows = new Map<string, Row>();
@@ -236,11 +216,7 @@ export class AssetReportsService {
   /** Penyusutan komersial vs fiskal per aset untuk satu tahun (bahan koreksi fiskal & pajak tangguhan) */
   async fiscalComparison(tenantId: string, year: number) {
     const assets = await this.db.query.fixedAssets.findMany({ where: eq(fixedAssets.tenantId, tenantId), with: { category: true } });
-    const dep = await this.db.execute<{ asset_id: string; during: string; upto: string }>(sql`
-      SELECT asset_id,
-             COALESCE(SUM(amount) FILTER (WHERE period BETWEEN ${`${year}-01`} AND ${`${year}-12`}), 0) AS during,
-             COALESCE(SUM(amount) FILTER (WHERE period <= ${`${year}-12`}), 0) AS upto
-      FROM asset_depreciations WHERE tenant_id = ${tenantId} GROUP BY asset_id`);
+    const dep = await this.repo.queryAssetDepreciationForFiscalComparison(this.db, year, tenantId);
     const depBy = new Map(dep.rows.map((r) => [r.asset_id, r]));
     return assets
       .filter((a) => a.acquisitionDate <= `${year}-12-31` && !(a.disposalDate && a.disposalDate < `${year}-01-01`))

@@ -401,4 +401,23 @@ export class BinsRepository {
       WHERE m.tenant_id = ${tenantId} AND m.kind = 'MOVE' AND m.created_at > now() - interval '7 days' ${wf}
       GROUP BY u.name HAVING COUNT(*) >= ${HEAVY_MOVES} ORDER BY n DESC LIMIT 20`);
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh BinsService.controls */
+  queryStockBinBalanceForControls(db: DbOrTx, kinds: string[], tenantId: string, wf: SQL<unknown>, days: number) {
+    return db.execute<{ wh: string; code: string; sku: string; qty: string; d: number }>(sql`
+      SELECT w.code AS wh, b.code, p.sku, SUM(s.qty)::text AS qty, EXTRACT(DAY FROM now() - MIN(m.created_at))::int AS d
+      FROM stock_bin_balances s
+      JOIN warehouse_bins b ON b.id = s.bin_id AND b.kind IN (${sql.join(
+        kinds.map((k) => sql`${k}`),
+        sql`, `,
+      )})
+      JOIN warehouses w ON w.id = s.warehouse_id
+      JOIN products p ON p.id = s.product_id
+      LEFT JOIN LATERAL (SELECT MIN(x.created_at) AS created_at FROM bin_moves x WHERE x.to_bin_id = s.bin_id AND x.product_id = s.product_id) m ON true
+      WHERE s.tenant_id = ${tenantId} AND s.qty > 0 ${wf}
+      GROUP BY w.code, b.code, p.sku
+      HAVING MIN(m.created_at) < now() - (${days} || ' days')::interval
+      ORDER BY MIN(m.created_at) LIMIT 50`);
+  }
 }

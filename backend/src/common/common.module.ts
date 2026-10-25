@@ -20,11 +20,12 @@ import { ApprovalsRepository } from './approvals/approvals.repository';
 import { AuditRepository } from './audit/audit.repository';
 import { SettingsRepository } from './settings.repository';
 import { PeriodRepository } from './period/period.repository';
+import { SequenceRepository } from './sequence/sequence.repository';
 
 @Global()
 @Module({
   controllers: [TelegramController],
-  providers: [PlatformSettingsRepository, PeriodRepository, SettingsRepository, AuditRepository, ApprovalsRepository, AppsRepository, SubscriptionRepository, TelegramRepository, TelegramService, ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
+  providers: [SequenceRepository, PlatformSettingsRepository, PeriodRepository, SettingsRepository, AuditRepository, ApprovalsRepository, AppsRepository, SubscriptionRepository, TelegramRepository, TelegramService, ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
   exports: [PlatformSettingsRepository, TelegramService, ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
 })
 export class CommonModule {}

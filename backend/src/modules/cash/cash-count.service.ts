@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { CASH_DENOMINATIONS, type CashCountSettings } from '@sansu/shared';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -10,7 +10,7 @@ import { DocDate, toDocDate } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, cashCounts, journalEntries, users } from '../../db/schema';
+import { cashCounts } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { CashCountSettingsDto, CreateCashCountDto, UpdateCashCountDto } from './cash-count.dto';
@@ -20,12 +20,6 @@ import { CashCountRepository } from './cash-count.repository';
 const DEFAULTS: CashCountSettings = { approvalThreshold: 50_000 };
 
 const DENOM = new Map<string, number>(CASH_DENOMINATIONS.map((d) => [d.key, d.value]));
-
-/** Akun kas fisik (bukan rekening bank) — yang bisa diopname */
-const KAS_FILTER = sql`a.is_cash_account = true AND a.is_postable = true AND a.is_active = true
-  AND COALESCE(a.system_key, '') <> 'BANK'
-  AND a.name !~* '(bank|rekening|giro|tabungan|deposito|qris|wallet|virtual)'
-  AND NOT EXISTS (SELECT 1 FROM bank_statements b WHERE b.cash_account_id = a.id)`;
 
 @Injectable()
 export class CashCountService {
@@ -50,18 +44,7 @@ export class CashCountService {
 
   /** Akun kas yang bisa diopname + saldo hari ini + opname terakhir */
   async kasAccounts(tenantId: string) {
-    const r = await this.db.execute<{
-      id: string;
-      code: string;
-      name: string;
-      balance: string;
-      lastCount: string | null;
-    }>(sql`
-      SELECT a.id, a.code, a.name,
-             COALESCE((SELECT SUM(l.debit - l.credit) FROM journal_lines l WHERE l.account_id = a.id), 0)::numeric(18,2)::text AS balance,
-             (SELECT MAX(c.date)::text FROM cash_counts c WHERE c.account_id = a.id AND c.status = 'POSTED') AS "lastCount"
-      FROM accounts a WHERE a.tenant_id = ${tenantId} AND ${KAS_FILTER}
-      ORDER BY a.code`);
+    const r = await this.repo.queryAccount(this.db, tenantId);
     return r.rows;
   }
 
@@ -134,9 +117,7 @@ export class CashCountService {
   async create(u: AuthUser, dto: CreateCashCountDto) {
     const date = toDocDate(dto.date);
     return this.db.transaction(async (tx) => {
-      const acc = await tx.execute<{ id: string }>(
-        sql`SELECT a.id FROM accounts a WHERE a.id = ${dto.accountId} AND a.tenant_id = ${u.tenantId} AND ${KAS_FILTER}`,
-      );
+      const acc = await this.repo.queryAccountForCreate(tx, dto.accountId, u.tenantId);
       if (!acc.rows.length)
         throw new BadRequestException('Pilih akun kas (opname tidak untuk rekening bank — gunakan rekonsiliasi bank)');
       const open = await this.repo.listCashCountsByAccountIdAndStatus(tx, dto.accountId);

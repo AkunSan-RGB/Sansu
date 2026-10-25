@@ -7,11 +7,13 @@ import { AssetMethodService } from './asset-method.service';
 import { AssetReportsService } from './asset-reports.service';
 import { AssetsService, AssetScheduler } from './assets.service';
 import { AssetMethodRepository } from './asset-method.repository';
+import { AssetDisposalRepository } from './asset-disposal.repository';
+import { AssetReportsRepository } from './asset-reports.repository';
 
 @Module({
   imports: [AccountingModule],
   controllers: [AssetsController],
-  providers: [AssetMethodRepository, AssetRepository, AssetsService, AssetDisposalService, AssetMethodService, AssetReportsService, AssetScheduler],
+  providers: [AssetReportsRepository, AssetDisposalRepository, AssetMethodRepository, AssetRepository, AssetsService, AssetDisposalService, AssetMethodService, AssetReportsService, AssetScheduler],
   exports: [AssetsService, AssetReportsService, AssetDisposalService, AssetMethodService],
 })
 export class AssetsModule {}

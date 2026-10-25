@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { CONTROL_PROFILES } from '@sansu/shared';
 import { SettingsService } from '../../common/settings.service';
 import { LoyaltyService } from './loyalty.service';
@@ -10,7 +10,7 @@ import { addDays, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { posOrderLines, posOrders, posPayments, posReturnLines, posReturns, posSessions } from '../../db/schema';
+import { posOrderLines, posReturns } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
@@ -19,9 +19,6 @@ import { insertOne, patchById } from '../../db/owned';
 import { PosReturnsRepository } from './pos-returns.repository';
 
 const QTY_EPS = D('0.00005');
-
-/** Pesanan meja terbuka lebih lama dari ini dianggap menggantung */
-const STALE_TAB_HOURS = 12;
 
 /**
  * Retur / pembatalan penjualan kasir (hanya supervisor: Pemilik, Admin, Keuangan — kasir tidak bisa membatalkan
@@ -231,9 +228,7 @@ export class PosControlsService {
     // Pesanan meja: pembatalan menu yang sudah dimasak/disajikan (rawan penggelapan: menu dihidangkan lalu "dibatalkan" dan uangnya diambil)
     const voids = await this.repo.queryPosTabLine(this.db, tenantId, since);
     add('POS_TAB_VOIDS', 'warning', 'Menu dibatalkan setelah dimasak atau disajikan', voids.rows.map((r) => `${r.number} ${r.product} (${r.from_status === 'SERVED' ? 'sudah disajikan' : 'sudah dimasak'}) oleh ${r.by ?? '-'} — ${r.reason ?? ''}`), 'Pastikan menu yang sudah dibuat memang tidak jadi dibayar (komplain, salah buat), bukan dihidangkan lalu dibatalkan.');
-    const stale = await this.db.execute<{ number: string; label: string | null }>(sql`
-      SELECT t.number, t.table_label AS label FROM pos_tabs t
-      WHERE t.tenant_id = ${tenantId} AND t.status = 'OPEN' AND t.created_at < now() - make_interval(hours => ${STALE_TAB_HOURS})`);
+    const stale = await this.repo.queryPosTab(this.db, tenantId);
     add('POS_TABS_STALE', 'warning', 'Pesanan meja menggantung lebih dari 12 jam', stale.rows.map((r) => `${r.number}${r.label ? ` · ${r.label}` : ''}`), 'Pesanan belum dibayar atau dibatalkan. Selesaikan agar stok, pajak, dan pendapatan tercatat benar.');
     const rank = { error: 0, warning: 1, info: 2 } as const;
     items.sort((a, b) => rank[a.level] - rank[b.level]);

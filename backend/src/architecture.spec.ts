@@ -5,6 +5,7 @@
  *  3. Arah dependensi: dto -> (tidak ke service/pengendali modul), service -> (tidak ke pengendali)
  *  4. Tidak ada siklus antar-modul (folder src/modules/*)
  *  5. Tidak ada berkas sumber lebih dari 700 baris (kecuali pembuat data demo)
+ *  7. Service tidak menulis kueri database sendiri (select/insert/update/delete/execute): semuanya lewat repositori (`*.repository.ts`)
  *  6. Pelonggaran tipe `as never` hanya di tempat yang diizinkan (pembantu generik owned, bootstrap, impor dinamis)
  */
 import * as fs from 'node:fs';
@@ -97,6 +98,23 @@ describe('arsitektur', () => {
   it('cast `as never` hanya di tempat yang diizinkan', () => {
     const ALLOWED = /(^|\/)(db\/owned\.ts$|bootstrap\.ts$|modules\/imports\/imports\.repository\.ts$)/;
     const offenders = files.filter((f) => !ALLOWED.test(rel(f)) && /\bas never\b/.test(fs.readFileSync(f, 'utf8'))).map(rel);
+    expect(offenders).toEqual([]);
+  });
+
+  it('service tidak menulis kueri database sendiri (lewat repositori)', () => {
+    const QUERY = new Set(['select', 'selectDistinct', 'insert', 'update', 'delete', 'execute']);
+    const DB_RECEIVER = /^(this\.db|this\.\w*db|tx|db|trx)$/i;
+    const offenders: string[] = [];
+    for (const f of files.filter((x) => /\.service\.ts$/.test(x))) {
+      const sf = parsed.get(f)!;
+      (function walk(n: ts.Node) {
+        if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && QUERY.has(n.expression.name.text)) {
+          const recv = n.expression.expression.getText().replace(/\s+/g, '');
+          if (DB_RECEIVER.test(recv)) offenders.push(`${rel(f)}:${sf.getLineAndCharacterOfPosition(n.getStart()).line + 1}`);
+        }
+        ts.forEachChild(n, walk);
+      })(sf);
+    }
     expect(offenders).toEqual([]);
   });
 });

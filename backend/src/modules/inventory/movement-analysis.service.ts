@@ -7,6 +7,7 @@ import { SettingsService } from '../../common/settings.service';
 import { diffDays, todayJakarta, addDays } from '../../common/utils/dates';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
+import { MovementAnalysisRepository } from './movement-analysis.repository';
 
 const ORDER: MovementClass[] = ['OUT', 'FAST', 'DEAD', 'SLOW', 'NORMAL', 'NEW', 'EMPTY'];
 
@@ -17,6 +18,7 @@ export class MovementAnalysisService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly settings: SettingsService,
+    private readonly repo: MovementAnalysisRepository,
   ) {}
 
   /** Barang cepat & lambat keluar. Satuan "keluar" = penjualan (faktur/surat jalan/kasir) dan pemakaian produksi, dikurangi retur. */
@@ -29,26 +31,7 @@ export class MovementAnalysisService {
     const allowed = allowedWarehouses(u);
     const wh = allowed ? sql`AND warehouse_id IN (${sql.join(allowed.map((a) => sql`${a}`), sql`, `)})` : sql``;
 
-    const rows = await this.db.execute<{
-      id: string; sku: string; name: string; category: string | null; base_uom: string;
-      on_hand: string; value: string; net_out: string | null; last_out: string | null; first_move: string | null;
-    }>(sql`
-      SELECT p.id, p.sku, p.name, p.category, p.base_uom,
-             COALESCE(b.qty, 0) AS on_hand, COALESCE(b.value, 0) AS value,
-             m.net_out, m.last_out::text AS last_out, m.first_move::text AS first_move
-      FROM products p
-      LEFT JOIN (
-        SELECT product_id, SUM(qty) AS qty, SUM(qty * avg_cost) AS value
-        FROM stock_balances WHERE tenant_id = ${tenantId} ${wh} GROUP BY product_id
-      ) b ON b.product_id = p.id
-      LEFT JOIN (
-        SELECT product_id,
-               -SUM(qty) FILTER (WHERE type IN ('SALE', 'SALE_RETURN', 'PRODUCTION_ISSUE', 'PRODUCTION_RETURN') AND date >= ${since}) AS net_out,
-               MAX(date) FILTER (WHERE type IN ('SALE', 'PRODUCTION_ISSUE')) AS last_out,
-               MIN(date) AS first_move
-        FROM stock_moves WHERE tenant_id = ${tenantId} ${wh} GROUP BY product_id
-      ) m ON m.product_id = p.id
-      WHERE p.tenant_id = ${tenantId} AND p.is_active AND (b.product_id IS NOT NULL OR m.product_id IS NOT NULL)`);
+    const rows = await this.repo.queryProduct(this.db, tenantId, wh, since);
 
     const items = rows.rows.map((r) => {
       const onHand = Number(r.on_hand);

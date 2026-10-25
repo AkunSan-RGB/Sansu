@@ -30,11 +30,14 @@ import { SupplierAdvancesRepository } from './supplier-advances.repository';
 import { PriceAgreementsRepository } from './price-agreements.repository';
 import { SuppliersRepository } from './suppliers.repository';
 import { PurchaseOrdersRepository } from './purchase-orders.repository';
+import { PurchaseControlsRepository } from './purchase-controls.repository';
+import { PurchaseReportsRepository } from './purchase-reports.repository';
+import { ShoppingListRepository } from './shopping-list.repository';
 
 @Module({
   imports: [AccountingModule, InventoryModule, AssetsModule, FxModule, ProductionModule],
   controllers: [SupplierAdvancesController, ShoppingListController, PriceAgreementsController, PurchaseControlsController, SuppliersController, PurchaseOrdersController, GoodsReceiptsController, PurchaseInvoicesController, PurchaseRequestsController],
-  providers: [PurchaseOrdersRepository, SuppliersRepository, PriceAgreementsRepository, SupplierAdvancesRepository, SupplierBillsRepository, GoodsReceiptsRepository, PurchaseRequestsRepository, SupplierPaymentsRepository, PurchaseInvoiceRepository, SupplierAdvancesService, ShoppingListService, PriceAgreementsService, PurchaseControlsService, SuppliersService, PurchaseOrdersService, GoodsReceiptsService, PurchaseInvoicesService, SupplierPaymentsService, SupplierBillsService, PurchaseReportsService, PurchaseRequestsService],
+  providers: [ShoppingListRepository, PurchaseReportsRepository, PurchaseControlsRepository, PurchaseOrdersRepository, SuppliersRepository, PriceAgreementsRepository, SupplierAdvancesRepository, SupplierBillsRepository, GoodsReceiptsRepository, PurchaseRequestsRepository, SupplierPaymentsRepository, PurchaseInvoiceRepository, SupplierAdvancesService, ShoppingListService, PriceAgreementsService, PurchaseControlsService, SuppliersService, PurchaseOrdersService, GoodsReceiptsService, PurchaseInvoicesService, SupplierPaymentsService, SupplierBillsService, PurchaseReportsService, PurchaseRequestsService],
   exports: [SupplierAdvancesService, PurchaseOrdersService, PurchaseInvoicesService, SupplierPaymentsService, SupplierBillsService, PurchaseReportsService, PurchaseRequestsService, SuppliersService],
 })
 export class PurchasingModule {}

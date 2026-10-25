@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -15,6 +15,7 @@ import { monthIndex, periodOf } from './depreciation';
 import { TransferAssetBranchDto, DisposeDto } from './assets.dto';
 import { AssetsService, ASSET_ALERT_VALUE } from './assets.service';
 import { patchById } from '../../db/owned';
+import { AssetDisposalRepository } from './asset-disposal.repository';
 
 @Injectable()
 export class AssetDisposalService {
@@ -24,6 +25,7 @@ export class AssetDisposalService {
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
     private readonly assets: AssetsService,
+    private readonly repo: AssetDisposalRepository,
   ) {}
 
   /**
@@ -44,9 +46,7 @@ export class AssetDisposalService {
       if ((a.branchId ?? null) === target) throw new BadRequestException('Aset sudah berada di cabang itu');
       if (target) {
         const [b] = (
-          await tx.execute<{ id: string }>(
-            sql`SELECT id FROM branches WHERE id = ${target} AND tenant_id = ${user.tenantId} AND is_active`,
-          )
+          await this.repo.queryBranche(tx, target, user.tenantId)
         ).rows;
         if (!b) throw new BadRequestException('Cabang tidak ditemukan atau nonaktif');
       }
@@ -54,9 +54,7 @@ export class AssetDisposalService {
       // penyusutan sampai bulan sebelumnya dibukukan di cabang lama dulu
       await this.assets.run(user, periodOf(monthIndex(date.slice(0, 7)) - 1), a.id, tx);
       const [p] = (
-        await tx.execute<{ total: string }>(
-          sql`SELECT COALESCE(SUM(amount), 0) AS total FROM asset_depreciations WHERE asset_id = ${a.id}`,
-        )
+        await this.repo.queryAssetDepreciation(tx, a.id)
       ).rows;
       const accumulated = D(a.openingAccumulated).plus(p.total);
       const cost = D(a.cost);
@@ -131,9 +129,7 @@ export class AssetDisposalService {
       const prevPeriod = periodOf(monthIndex(date.slice(0, 7)) - 1);
       await this.assets.run(user, prevPeriod, a.id, tx);
       const [p] = (
-        await tx.execute<{ total: string }>(
-          sql`SELECT COALESCE(SUM(amount), 0) AS total FROM asset_depreciations WHERE asset_id = ${a.id}`,
-        )
+        await this.repo.queryAssetDepreciation(tx, a.id)
       ).rows;
       const accumulated = D(a.openingAccumulated).plus(p.total);
       const cost = D(a.cost);

@@ -7,11 +7,12 @@ import { InsightsModule } from '../insights/insights.module';
 import { TaxController } from './tax.controller';
 import { TaxService } from './tax.service';
 import { TaxRepository } from './tax.repository';
+import { AccountingControlsRepository } from './accounting-controls.repository';
 
 @Module({
   imports: [AccountingModule, InsightsModule],
   controllers: [TaxController, AccountingControlsController],
-  providers: [TaxRepository, TaxService, TaxFocusService, AccountingControlsService],
+  providers: [AccountingControlsRepository, TaxRepository, TaxService, TaxFocusService, AccountingControlsService],
   exports: [TaxService],
 })
 export class TaxModule {}

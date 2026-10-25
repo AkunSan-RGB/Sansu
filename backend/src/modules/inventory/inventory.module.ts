@@ -26,11 +26,13 @@ import { InventoryRepository } from './inventory.repository';
 import { BinsRepository } from './bins.repository';
 import { StockRepository } from './stock.repository';
 import { InventoryMethodRepository } from './inventory-method.repository';
+import { InventoryControlsRepository } from './inventory-controls.repository';
+import { MovementAnalysisRepository } from './movement-analysis.repository';
 
 @Module({
   imports: [AccountingModule],
   controllers: [BinsController, InventoryControlsController, InventoryController, InventoryMethodController, WarehouseOpsController, WritedownController, MovementAnalysisController, LotsController],
-  providers: [InventoryMethodRepository, StockRepository, BinsRepository, InventoryRepository, LotsRepository, WritedownRepository, WarehouseQueryRepository, WarehouseRepository, BinsService, InventoryControlsService, InventoryService, InventoryMethodService, StockService, WarehouseOpsService, WarehouseQueryService, WritedownService, MovementAnalysisService, LotsService],
+  providers: [MovementAnalysisRepository, InventoryControlsRepository, InventoryMethodRepository, StockRepository, BinsRepository, InventoryRepository, LotsRepository, WritedownRepository, WarehouseQueryRepository, WarehouseRepository, BinsService, InventoryControlsService, InventoryService, InventoryMethodService, StockService, WarehouseOpsService, WarehouseQueryService, WritedownService, MovementAnalysisService, LotsService],
   exports: [StockService, InventoryService, WarehouseOpsService, BinsService],
 })
 export class InventoryModule {}
