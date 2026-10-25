@@ -23,6 +23,7 @@ import { PostingService } from '../accounting/posting.service';
 import { projectCostsSql } from '../sales/services/project-costs';
 import { StatementsService } from '../accounting/statements.service';
 import { AssetsService } from '../assets/assets.service';
+import { AssetReportsService } from '../assets/asset-reports.service';
 
 export const CORPORATE_RATE = 22;
 const THRESHOLD_FULL = D(TAX_REVENUE_LIMIT);
@@ -50,6 +51,7 @@ export class FiscalService {
     private readonly assets: AssetsService,
     private readonly settings: SettingsService,
     private readonly posting: PostingService,
+    private readonly assetReports: AssetReportsService,
   ) {}
 
   async reconcile(tenantId: string, year: number) {
@@ -61,7 +63,7 @@ export class FiscalService {
       sumByAccount(this.db, tenantId, { from, to, excludeSources: ['CLOSING'] }),
       sumByAccount(this.db, tenantId, { to }),
       this.statements.income(tenantId, { from, to }, 'SAK_EP'),
-      this.assets.fiscalComparison(tenantId, year),
+      this.assetReports.fiscalComparison(tenantId, year),
       this.db.select().from(fiscalAdjustments).where(and(eq(fiscalAdjustments.tenantId, tenantId), eq(fiscalAdjustments.year, year))),
       this.db.select().from(fiscalYears).where(and(eq(fiscalYears.tenantId, tenantId), eq(fiscalYears.year, year))),
     ]);

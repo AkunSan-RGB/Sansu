@@ -16,6 +16,7 @@ import { get, loadAccounts, natural, sumByAccount } from '../accounting/ledger-d
 import { StatementsService } from '../accounting/statements.service';
 import { AssetsService } from '../assets/assets.service';
 import { ThresholdsService } from './thresholds.service';
+import { AssetReportsService } from '../assets/asset-reports.service';
 
 type Status = 'OK' | 'WARN' | 'ERROR' | 'INFO';
 export interface Check {
@@ -38,6 +39,7 @@ export class HealthService {
     private readonly assets: AssetsService,
     private readonly period: PeriodService,
     private readonly thresholds: ThresholdsService,
+    private readonly assetReports: AssetReportsService,
   ) {}
 
   async run(tenantId: string, asOfInput?: string) {
@@ -316,7 +318,7 @@ export class HealthService {
     }
 
     // 6. Aset tetap: buku besar vs daftar aset
-    const reg = await this.assets.registerTotals(tenantId, asOf);
+    const reg = await this.assetReports.registerTotals(tenantId, asOf);
     const faGl = groupTotal(['FIXED_ASSET', 'INTANGIBLE_ASSET']);
     const accGl = groupTotal(['ACCUMULATED_DEPRECIATION', 'ACCUMULATED_AMORTIZATION']).negated();
     if (reg.count || !faGl.isZero()) {

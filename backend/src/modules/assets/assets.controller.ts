@@ -6,6 +6,7 @@ import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { AssetsService } from './assets.service';
 import { CategoryDto, UpdateCategoryDto, RunDepreciationDto, AssetSettingsDto, RegisterFromJournalDto, CreateAssetDto, UpdateAssetDto, ChangeMethodDto, UsageDto, VerifyDto, TransferAssetBranchDto, DisposeDto } from './assets.dto';
+import { AssetReportsService } from './asset-reports.service';
 
 export class MethodPreviewQuery {
   @ApiProperty() @IsIn(DEPRECIATION_METHODS.filter((m) => m !== 'NONE')) method: string;
@@ -17,7 +18,8 @@ export class MethodPreviewQuery {
 @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
 @Controller('assets')
 export class AssetsController {
-  constructor(private readonly svc: AssetsService) {}
+  constructor(private readonly svc: AssetsService,
+    private readonly assetReports: AssetReportsService) {}
 
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('categories')
@@ -48,18 +50,18 @@ export class AssetsController {
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('reports/roll-forward')
   rollForward(@CurrentUser() u: AuthUser, @Query('year') year?: string) {
-    return this.svc.rollForward(u.tenantId, Number(year) || new Date().getFullYear());
+    return this.assetReports.rollForward(u.tenantId, Number(year) || new Date().getFullYear());
   }
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('reports/fiscal')
   fiscal(@CurrentUser() u: AuthUser, @Query('year') year?: string) {
-    return this.svc.fiscalComparison(u.tenantId, Number(year) || new Date().getFullYear());
+    return this.assetReports.fiscalComparison(u.tenantId, Number(year) || new Date().getFullYear());
   }
 
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('controls')
   controls(@CurrentUser() u: AuthUser) {
-    return this.svc.controls(u.tenantId);
+    return this.assetReports.controls(u.tenantId);
   }
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('settings')
@@ -86,7 +88,7 @@ export class AssetsController {
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get('reconciliation')
   reconciliation(@CurrentUser() u: AuthUser, @Query('asOf') asOf?: string) {
-    return this.svc.reconciliation(u.tenantId, asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : undefined);
+    return this.assetReports.reconciliation(u.tenantId, asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : undefined);
   }
 
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
@@ -118,7 +120,7 @@ export class AssetsController {
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   @Get(':id/method-preview')
   methodPreview(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Query() q: MethodPreviewQuery) {
-    return this.svc.methodPreview(u.tenantId, id, q.method, q.effectiveMonth);
+    return this.assetReports.methodPreview(u.tenantId, id, q.method, q.effectiveMonth);
   }
 
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')

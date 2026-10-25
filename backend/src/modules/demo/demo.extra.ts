@@ -364,7 +364,7 @@ export async function stockOps(c: Demo, ids: Map<string, string>, skus: string[]
   // opname stok di gudang utama: dua barang berselisih
   const cnt = (await c.step('opname stok', () => c.svc.ops.createCount(c.admin, { warehouseId: c.wh, date: c.ago(5), notes: o.countNote } as never))) as { id: string; lines?: { productId: string; systemQty: string }[] } | undefined;
   if (cnt) {
-    const full = (await c.svc.ops.getCount(c.admin, cnt.id)) as { lines: { productId: string; systemQty: string }[] };
+    const full = (await c.svc.whq.getCount(c.admin, cnt.id)) as { lines: { productId: string; systemQty: string }[] };
     const lines = full.lines.slice(0, 8).map((l, i) => ({ productId: l.productId, countedQty: String(Math.max(0, Number(l.systemQty) - (o.shortages[i] ?? 0))) }));
     await c.step('isi hasil opname', () => c.svc.ops.updateCount(c.admin, cnt.id, { lines } as never));
     await c.step('posting opname', () => c.svc.ops.postCount(c.admin, cnt.id));

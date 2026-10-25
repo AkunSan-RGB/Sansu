@@ -20,6 +20,7 @@ import { BudgetService } from '../accounting/budget.service';
 import { CrmService } from '../crm/crm.service';
 import { WritedownService } from '../inventory/writedown.service';
 import { WarehouseOpsService } from '../inventory/warehouse-ops.service';
+import { WarehouseQueryService } from '../inventory/warehouse-query.service';
 import { GoodsReceiptsService } from '../purchasing/goods-receipts.service';
 import { PurchaseRequestsService } from '../purchasing/purchase-requests.service';
 import { ReturnsService } from '../returns/returns.service';
@@ -78,6 +79,7 @@ export interface Demo {
     budget: BudgetService;
     crm: CrmService;
     ops: WarehouseOpsService;
+    whq: WarehouseQueryService;
     grn: GoodsReceiptsService;
     prq: PurchaseRequestsService;
     returns: ReturnsService;
@@ -189,6 +191,7 @@ export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: 
       budget: get(BudgetService),
       crm: get(CrmService),
       ops: get(WarehouseOpsService),
+      whq: get(WarehouseQueryService),
       grn: get(GoodsReceiptsService),
       prq: get(PurchaseRequestsService),
       returns: get(ReturnsService),

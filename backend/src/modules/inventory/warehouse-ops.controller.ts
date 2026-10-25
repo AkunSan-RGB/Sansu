@@ -5,21 +5,23 @@ import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { WarehouseOpsService } from './warehouse-ops.service';
 import { CreateTransferDto, ReceiveTransferDto, CancelTransferDto, CreateCountDto, UpdateCountDto, SaveMinimumsDto } from './warehouse-ops.dto';
+import { WarehouseQueryService } from './warehouse-query.service';
 
 @ApiTags('Inventori')
 @ApiBearerAuth()
 @RequireApp('inventory')
 @Controller('inventory')
 export class WarehouseOpsController {
-  constructor(private readonly svc: WarehouseOpsService) {}
+  constructor(private readonly svc: WarehouseOpsService,
+    private readonly warehouseQuery: WarehouseQueryService) {}
 
   @Get('transfers')
   transfers(@CurrentUser() u: AuthUser, @Query('warehouseId') warehouseId?: string) {
-    return this.svc.listTransfers(u, warehouseId || undefined);
+    return this.warehouseQuery.listTransfers(u, warehouseId || undefined);
   }
   @Get('transfers/:id')
   transfer(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.getTransfer(u, id);
+    return this.warehouseQuery.getTransfer(u, id);
   }
   @Post('transfers')
   @Roles('ADMIN', 'WAREHOUSE')
@@ -40,11 +42,11 @@ export class WarehouseOpsController {
 
   @Get('counts')
   counts(@CurrentUser() u: AuthUser, @Query('warehouseId') warehouseId?: string) {
-    return this.svc.listCounts(u, warehouseId || undefined);
+    return this.warehouseQuery.listCounts(u, warehouseId || undefined);
   }
   @Get('counts/:id')
   count(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.getCount(u, id);
+    return this.warehouseQuery.getCount(u, id);
   }
   @Post('counts')
   @Roles('ADMIN', 'WAREHOUSE')
@@ -69,7 +71,7 @@ export class WarehouseOpsController {
 
   @Get('minimums')
   minimums(@CurrentUser() u: AuthUser, @Query('warehouseId', ParseUUIDPipe) warehouseId: string) {
-    return this.svc.minimums(u, warehouseId);
+    return this.warehouseQuery.minimums(u, warehouseId);
   }
   @Put('minimums')
   @Roles('ADMIN', 'WAREHOUSE', 'SALES')
@@ -78,10 +80,10 @@ export class WarehouseOpsController {
   }
   @Get('low-stock')
   lowStock(@CurrentUser() u: AuthUser, @Query('warehouseId') warehouseId?: string) {
-    return this.svc.lowStock(u, warehouseId || undefined);
+    return this.warehouseQuery.lowStock(u, warehouseId || undefined);
   }
   @Get('matrix')
   matrix(@CurrentUser() u: AuthUser, @Query('includeZero') includeZero?: string, @Query('category') category?: string) {
-    return this.svc.matrix(u, { includeZero: includeZero === 'true', category: category || undefined });
+    return this.warehouseQuery.matrix(u, { includeZero: includeZero === 'true', category: category || undefined });
   }
 }

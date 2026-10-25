@@ -27,6 +27,7 @@ import {
 import { PurchaseRequestsService } from './purchase-requests.service';
 import { ConvertPurchaseRequestDto, CreatePurchaseRequestDto, DecisionNoteDto, PurchaseRequestQueryDto, SuggestionQueryDto } from './purchase-requests.dto';
 import { SuppliersService } from './suppliers.service';
+import { PurchaseReportsService } from './purchase-reports.service';
 
 @ApiTags('Pembelian')
 @ApiBearerAuth()
@@ -165,7 +166,8 @@ export class GoodsReceiptsController {
 @RequireApp('purchase')
 @Controller('purchase-invoices')
 export class PurchaseInvoicesController {
-  constructor(private readonly svc: PurchaseInvoicesService) {}
+  constructor(private readonly svc: PurchaseInvoicesService,
+    private readonly purchaseReports: PurchaseReportsService) {}
 
   @Get()
   @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
@@ -176,20 +178,20 @@ export class PurchaseInvoicesController {
   @Get('reports/ap-aging')
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   apAging(@CurrentUser() u: AuthUser) {
-    return this.svc.apAging(u.tenantId);
+    return this.purchaseReports.apAging(u.tenantId);
   }
 
   /** Laporan selisih harga faktur vs PO + penanda untuk ditinjau (anti-fraud) */
   @Get('reports/price-variances')
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   priceVariances(@CurrentUser() u: AuthUser, @Query() q: PriceVarianceQueryDto) {
-    return this.svc.priceVarianceReport(u.tenantId, q.from, q.to);
+    return this.purchaseReports.priceVarianceReport(u.tenantId, q.from, q.to);
   }
 
   @Get('payments')
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
   payments(@CurrentUser() u: AuthUser) {
-    return this.svc.listPayments(u.tenantId);
+    return this.purchaseReports.listPayments(u.tenantId);
   }
 
   @Post('payments')

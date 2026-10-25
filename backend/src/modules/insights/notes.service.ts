@@ -17,6 +17,7 @@ import { AssetsService } from '../assets/assets.service';
 import { AGING_BUCKETS, openBalanceAging } from './aging';
 import { FiscalService } from './fiscal.service';
 import { FxService } from '../fx/fx.service';
+import { AssetReportsService } from '../assets/asset-reports.service';
 
 type Cell = string | number | null;
 export interface NoteTable {
@@ -51,6 +52,7 @@ export class NotesService {
     private readonly fiscal: FiscalService,
     private readonly settings: SettingsService,
     private readonly fx: FxService,
+    private readonly assetReports: AssetReportsService,
   ) {}
 
   async build(tenantId: string, year: number) {
@@ -63,7 +65,7 @@ export class NotesService {
       this.db.select().from(tenants).where(eq(tenants.id, tenantId)),
       this.settings.reporting(this.db, tenantId),
       this.statements.annualPackage(tenantId, year),
-      this.assets.rollForward(tenantId, year),
+      this.assetReports.rollForward(tenantId, year),
       this.assets.listCategories(tenantId),
       this.db.select().from(reportNotes).where(and(eq(reportNotes.tenantId, tenantId), eq(reportNotes.year, year))),
       this.fiscal.reconcile(tenantId, year).catch(() => null),
