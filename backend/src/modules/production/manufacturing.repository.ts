@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { warehouses, boms, bomLines, products, productionOrders, users } from '../../db/schema';
+import { warehouses, boms, bomLines, products, productionOrders, users, productionOrderLines } from '../../db/schema';
 import { and, eq, inArray, sql, gte, lte } from 'drizzle-orm';
 import { VarianceQueryDto } from './manufacturing.dto';
 
@@ -114,5 +114,18 @@ export class ManufacturingRepository {
       )
       .orderBy(sql`${productionOrders.completedDate} DESC, ${productionOrders.number} DESC`)
       .limit(300);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh ManufacturingService.variance */
+  listProductionOrderLinesWithProductsByOrderId(
+    db: DbOrTx,
+    ordersValues: NonNullable<(typeof productionOrderLines.$inferSelect)['orderId']>[],
+  ) {
+    return db
+      .select({ l: productionOrderLines, sku: products.sku, name: products.name })
+      .from(productionOrderLines)
+      .innerJoin(products, eq(products.id, productionOrderLines.productId))
+      .where(inArray(productionOrderLines.orderId, ordersValues));
   }
 }

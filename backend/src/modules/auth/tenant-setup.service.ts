@@ -3,8 +3,8 @@ import { BUSINESS_MODEL_BY_KEY, type BusinessModel } from '@sansu/shared';
 import { SettingsService } from '../../common/settings.service';
 import { AppsService } from '../../common/apps/apps.service';
 import { Tx } from '../../db/db';
-import { warehouses } from '../../db/schema';
 import { syncChartOfAccounts } from '../accounting/coa-sync';
+import { TenantSetupRepository } from './tenant-setup.repository';
 
 /** Menyiapkan perusahaan baru: bagan akun standar SAK EP, kategori aset tetap, gudang utama, aplikasi bawaan. */
 @Injectable()
@@ -12,13 +12,14 @@ export class TenantSetupService {
   constructor(
     private readonly apps: AppsService,
     private readonly settings: SettingsService,
+    private readonly repo: TenantSetupRepository,
   ) {}
 
   async provision(tx: Tx, tenantId: string, model: BusinessModel = 'DAGANG') {
     // Model disimpan lebih dulu: bagan akun menyesuaikan jenis usaha
     await this.settings.saveSection(tx, tenantId, 'business', { model: 'DAGANG' as BusinessModel }, { model });
     await syncChartOfAccounts(tx, tenantId, { apps: new Set<string>(BUSINESS_MODEL_BY_KEY[model].apps) });
-    await tx.insert(warehouses).values({ tenantId, code: 'GDG-01', name: model === 'RITEL' ? 'Toko Utama' : 'Gudang Utama' });
+    await this.repo.insertWarehouses(tx, tenantId, model);
     // Toko ritel: harga rak/kasir umumnya sudah termasuk PPN
     if (model === 'RITEL') await this.settings.saveTaxProfile(tx, tenantId, { posPricesIncludeVat: true });
     // Kafe/restoran: penjualan makanan & minuman dikenai pajak restoran daerah (PB1/PBJT, 10%), bukan PPN; tarif bisa diubah sesuai perda

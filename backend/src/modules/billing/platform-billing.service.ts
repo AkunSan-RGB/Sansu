@@ -169,7 +169,7 @@ export class PlatformBillingService {
       }
     }
     if (patch.trialEndsAt || patch.currentPeriodEnd) patch.reminders = {};
-    if (sub) await this.db.update(subscriptions).set(patch).where(eq(subscriptions.tenantId, tenantId));
+    if (sub) await this.repo.updateSubscriptions(this.db, patch, tenantId);
     else {
       const planId =
         dto.planId ??

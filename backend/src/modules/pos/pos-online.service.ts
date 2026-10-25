@@ -1,7 +1,7 @@
 import { BadRequestException, CanActivate, ExecutionContext, HttpException, HttpStatus, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { DEFAULT_PLATFORM_COMMISSIONS, ONLINE_CHANNEL_LABELS, ONLINE_CHANNELS, type OnlineChannel } from '@sansu/shared';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -13,15 +13,13 @@ import { toDocDate } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { onlineApiKeys, posOrders, posPlatformSettlements, warehouses } from '../../db/schema';
+import { onlineApiKeys, posPlatformSettlements } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { CommissionsDto, CreateApiKeyDto, CreateSettlementDto } from './pos-online.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { insertOne, patchById } from '../../db/owned';
 import { PosOnlineRepository } from './pos-online.repository';
-
-const hash = (k: string) => createHash('sha256').update(k).digest('hex');
 
 @Injectable()
 export class OnlineSettingsService {
@@ -75,10 +73,7 @@ export class OnlineKeysService {
     const wh = await this.refs.warehouse(this.db, user.tenantId, dto.warehouseId);
     if (!wh || !wh.isActive) throw new BadRequestException('Outlet tidak ditemukan atau nonaktif');
     const key = `snk_${randomBytes(24).toString('base64url')}`;
-    const [row] = await this.db
-      .insert(onlineApiKeys)
-      .values({ tenantId: user.tenantId, name: dto.name.trim(), keyHash: hash(key), keyPrefix: key.slice(0, 8), warehouseId: wh.id, createdById: user.sub })
-      .returning({ id: onlineApiKeys.id, name: onlineApiKeys.name, keyPrefix: onlineApiKeys.keyPrefix });
+    const [row] = await this.repo.insertOnlineApiKeys(this.db, user.tenantId, dto.name, key, wh.id, user.sub);
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'OnlineApiKey', entityId: row.id, data: { name: row.name, prefix: row.keyPrefix } });
     return { ...row, key, warning: 'Simpan kunci ini sekarang. Kunci tidak bisa ditampilkan lagi.' };
   }
@@ -98,13 +93,14 @@ export class OnlineKeyGuard implements CanActivate {
     @InjectDb() private readonly db: Db,
     private readonly subs: SubscriptionService,
     private readonly apps: AppsService,
+    private readonly repo: PosOnlineRepository,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const req = ctx.switchToHttp().getRequest<{ headers: Record<string, string | undefined>; user?: AuthUser & { onlineWarehouseId?: string } }>();
     const raw = req.headers['x-api-key'];
     if (!raw || typeof raw !== 'string' || raw.length < 20 || raw.length > 120) throw new UnauthorizedException('Kunci API tidak ada atau tidak valid');
-    const [k] = await this.db.select().from(onlineApiKeys).where(eq(onlineApiKeys.keyHash, hash(raw)));
+    const [k] = await this.repo.findOnlineApiKeysByKeyHash(this.db, raw);
     if (!k || k.revokedAt) throw new UnauthorizedException('Kunci API tidak ada atau tidak valid');
     if (!(await this.apps.isEnabled(k.tenantId, ['pos']))) throw new HttpException('Aplikasi Kasir belum diaktifkan di perusahaan ini', HttpStatus.FORBIDDEN);
     if ((await this.subs.state(k.tenantId)).readOnly) throw new HttpException('Langganan perusahaan tidak aktif', HttpStatus.PAYMENT_REQUIRED);

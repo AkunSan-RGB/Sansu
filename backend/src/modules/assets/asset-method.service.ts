@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { DEPRECIATION_METHOD_LABELS } from '@sansu/shared';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -81,16 +81,7 @@ export class AssetMethodService {
       if (existing)
         await patchById(tx, assetUsage, existing.id, { units: units.toFixed(4), note: dto.note ?? null, createdById: user.sub });
       else
-        await tx
-          .insert(assetUsage)
-          .values({
-            tenantId: user.tenantId,
-            assetId: id,
-            period: dto.period,
-            units: units.toFixed(4),
-            note: dto.note ?? null,
-            createdById: user.sub,
-          });
+        await this.queries.insertAssetUsage(tx, user.tenantId, id, dto, units, user.sub);
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,

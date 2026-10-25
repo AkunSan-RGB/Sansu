@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SequenceService } from '../../common/sequence/sequence.service';
@@ -7,7 +7,7 @@ import { addDays, toDocDate } from '../../common/utils/dates';
 import { D, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { customers, goodsSwapLines, goodsSwaps, invoiceLines, invoices, salesOrders } from '../../db/schema';
+import { goodsSwaps, invoices } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { inventoryLines, semiSet } from '../inventory/inventory-accounts';
@@ -66,12 +66,7 @@ export class SwapsService {
       }
       const number = await this.seq.next(tx, u.tenantId, 'GOODS_SWAP', date);
       const swap = await insertOne(tx, goodsSwaps, { tenantId: u.tenantId, number, date, customerId: inv.customerId, invoiceId: inv.id, warehouseId: order.warehouseId, reason: dto.reason, notes: dto.notes, createdById: u.sub });
-      await tx.insert(goodsSwapLines).values(
-        dto.lines.map((l) => {
-          const src = inv.lines.find((x) => x.id === l.invoiceLineId)!;
-          return { swapId: swap.id, invoiceLineId: src.id, productId: src.productId, uom: src.uom, uomFactor: src.uomFactor, qty: D(l.qty).toFixed(4), lotNo: l.lotNo?.trim() || null };
-        }),
-      );
+      await this.repo.insertGoodsSwapLines(tx, dto.lines, inv.lines, swap.id);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'GoodsSwap', entityId: swap.id, data: { number, invoice: inv.number, reason: dto.reason, lines: dto.lines.length } });
       return swap;
     });

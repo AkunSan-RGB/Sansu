@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { customers, goodsSwaps, invoices, goodsSwapLines, salesOrders, invoiceLines } from '../../db/schema';
 import { inArray, sql, eq } from 'drizzle-orm';
+import { D } from '../../common/utils/money';
+import type { SwapLineDto } from './swaps.dto';
 
 /** Akses data untuk Swaps: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -70,5 +72,24 @@ export class SwapsRepository {
     return db.execute<{ q: string }>(sql`
           SELECT COALESCE(SUM(sl.qty), 0)::text AS q FROM goods_swap_lines sl JOIN goods_swaps s ON s.id = sl.swap_id
           WHERE sl.invoice_line_id = ${invoiceLineId} AND s.status = 'APPROVED'`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh SwapsService.create */
+  insertGoodsSwapLines(db: DbOrTx, lines: SwapLineDto[], invLines: (typeof invoiceLines.$inferSelect)[], id: string) {
+    return db.insert(goodsSwapLines).values(
+      lines.map((l) => {
+        const src = invLines.find((x) => x.id === l.invoiceLineId)!;
+        return {
+          swapId: id,
+          invoiceLineId: src.id,
+          productId: src.productId,
+          uom: src.uom,
+          uomFactor: src.uomFactor,
+          qty: D(l.qty).toFixed(4),
+          lotNo: l.lotNo?.trim() || null,
+        };
+      }),
+    );
   }
 }

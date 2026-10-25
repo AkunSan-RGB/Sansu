@@ -10,6 +10,7 @@ import { ServiceBillingService } from './service-billing.service';
 import { TimeEntryDto, UpdateTimeEntryDto, ApproveDto, ReasonDto, RateDto, BillDto, TimerStartDto, TimerWhoDto } from './timesheets.dto';
 import { EntriesQuery, RangeQuery } from './timesheets.shared';
 import { TimesheetsRepository } from './timesheets.repository';
+import type { Entry } from './timesheets.repository';
 
 export const MAX_HOURS_PER_DAY = 16;
 
@@ -22,8 +23,6 @@ const PRIVILEGED = ['OWNER', 'ADMIN', 'FINANCE'];
 const num = (v: unknown) => Number(v ?? 0);
 
 const isPriv = (u: AuthUser) => PRIVILEGED.includes(u.role);
-
-type Entry = { id: string; employee_id: string; project_id: string | null; customer_id: string; work_date: string; hours: string; description: string; billable: boolean; rate: string | null; status: string; created_by_id: string; invoice_id: string | null };
 
 @Injectable()
 export class TimesheetService {
@@ -93,7 +92,7 @@ export class TimesheetService {
       if (already + hours.toNumber() > MAX_HOURS_PER_DAY) throw new BadRequestException(`Total jam karyawan pada ${date} akan menjadi ${already + hours.toNumber()} (batas ${MAX_HOURS_PER_DAY} jam per hari)`);
       const billable = dto.billable ?? true;
       const rate = billable ? await this.resolveRate(tx, u.tenantId, employeeId, projectId, date) : null;
-      const r = await tx.execute<{ id: string }>(sql`INSERT INTO time_entries (tenant_id, employee_id, project_id, customer_id, work_date, hours, description, billable, rate, created_by_id) VALUES (${u.tenantId}, ${employeeId}, ${projectId}, ${customerId}, ${date}, ${hours.toFixed(2)}, ${dto.description.trim()}, ${billable}, ${rate}, ${u.sub}) RETURNING id`);
+      const r = await this.repo.queryTimeEntryForCreate(tx, u.tenantId, employeeId, projectId, customerId, date, hours, dto.description, billable, rate, u.sub);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'TimeEntry', entityId: r.rows[0].id, data: { employeeId, customerId, projectId, date, hours: hours.toFixed(2), billable, rate } });
       return r.rows[0].id;
     });
@@ -101,7 +100,7 @@ export class TimesheetService {
   }
 
   private async lock(tx: Tx, u: AuthUser, id: string) {
-    const r = await tx.execute<Entry>(sql`SELECT * FROM time_entries WHERE id = ${id} AND tenant_id = ${u.tenantId} FOR UPDATE`);
+    const r = await this.repo.queryTimeEntryForLock(tx, id, u.tenantId);
     if (!r.rows.length) throw new NotFoundException('Catatan waktu tidak ditemukan');
     return r.rows[0];
   }
@@ -124,7 +123,7 @@ export class TimesheetService {
       if (already + hours.toNumber() > MAX_HOURS_PER_DAY) throw new BadRequestException(`Total jam pada ${date} melebihi ${MAX_HOURS_PER_DAY} jam`);
       const billable = dto.billable ?? e.billable;
       const rate = billable ? await this.resolveRate(tx, u.tenantId, e.employee_id, e.project_id, date) : null;
-      await tx.execute(sql`UPDATE time_entries SET work_date = ${date}, hours = ${hours.toFixed(2)}, description = ${dto.description?.trim() ?? e.description}, billable = ${billable}, rate = ${rate}, rate_note = NULL, status = 'DRAFT', decision_note = NULL WHERE id = ${id}`);
+      await this.repo.queryUpdate(tx, date, hours, dto, e, billable, rate, id);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'TimeEntry', entityId: id, data: { before: { date: e.work_date, hours: e.hours, billable: e.billable }, after: { date, hours: hours.toFixed(2), billable } } });
     });
     return this.get(u, id);
@@ -219,7 +218,7 @@ export class TimesheetService {
       const p = await this.repo.queryProjectForCreateRate(this.db, dto.projectId, u.tenantId);
       if (!p.rows.length) throw new BadRequestException('Proyek tidak ditemukan');
     }
-    const r = await this.db.execute<{ id: string }>(sql`INSERT INTO billing_rates (tenant_id, employee_id, project_id, rate, valid_from, note, created_by_id) VALUES (${u.tenantId}, ${dto.employeeId ?? null}, ${dto.projectId ?? null}, ${rate.toFixed(2)}, ${toDocDate(dto.validFrom)}, ${dto.note ?? null}, ${u.sub}) RETURNING id`);
+    const r = await this.repo.queryBillingRate(this.db, u.tenantId, dto, rate, u.sub);
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'BillingRate', entityId: r.rows[0].id, data: { employeeId: dto.employeeId, projectId: dto.projectId, rate: rate.toFixed(2), validFrom: dto.validFrom } });
     return { id: r.rows[0].id };
   }
@@ -233,7 +232,7 @@ export class TimesheetService {
   async bill(u: AuthUser, dto: BillDto) {
     const ids = [...new Set(dto.entryIds)];
     if (ids.length !== dto.entryIds.length) throw new BadRequestException('Catatan yang sama dipilih lebih dari sekali');
-    const rows = (await this.db.execute<Entry & { employee_name: string }>(sql`SELECT t.*, e.name AS employee_name FROM time_entries t JOIN employees e ON e.id = t.employee_id WHERE t.tenant_id = ${u.tenantId} AND t.id IN (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)})`)).rows;
+    const rows = (await this.repo.queryTimeEntryForBill2(this.db, u.tenantId, ids)).rows;
     if (rows.length !== ids.length) throw new BadRequestException('Ada catatan yang tidak ditemukan');
     for (const r of rows) {
       if (r.status !== 'APPROVED' || !r.billable || !r.rate) throw new BadRequestException(`Catatan ${r.work_date} (${r.employee_name}) belum disetujui, tidak dapat ditagih, atau sudah ditagih`);
@@ -347,7 +346,7 @@ export class TimesheetService {
   }
 
   async controls(tenantId: string) {
-    const q = async (text: ReturnType<typeof sql>) => (await this.db.execute(text)).rows;
+    const q = async (text: ReturnType<typeof sql>) => (await this.repo.queryControls(this.db, text)).rows;
     const today = todayJakarta();
     const submittedOld = await q(sql`SELECT t.id, e.name AS employee, t.work_date AS "workDate", t.hours FROM time_entries t JOIN employees e ON e.id = t.employee_id WHERE t.tenant_id = ${tenantId} AND t.status = 'SUBMITTED' AND t.submitted_at < now() - interval '3 days' ORDER BY t.submitted_at LIMIT 50`);
     const unbilledOld = await q(sql`SELECT c.name AS customer, COUNT(*)::int AS entries, SUM(t.hours) AS hours, SUM(t.hours * t.rate) AS amount, MIN(t.work_date) AS oldest FROM time_entries t JOIN customers c ON c.id = t.customer_id WHERE t.tenant_id = ${tenantId} AND t.status = 'APPROVED' AND t.billable AND t.decided_at < now() - interval '30 days' GROUP BY c.name ORDER BY MIN(t.work_date)`);

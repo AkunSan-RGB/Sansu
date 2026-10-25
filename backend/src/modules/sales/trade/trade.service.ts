@@ -1,5 +1,4 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { SequenceService } from '../../../common/sequence/sequence.service';
@@ -7,7 +6,7 @@ import { toDocDate, todayJakarta } from '../../../common/utils/dates';
 import { D, money } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, invoices, payments, principalClaimLines, principalClaims, suppliers, tradeAccruals, tradeAccrualSettlements, tradeTerms } from '../../../db/schema';
+import { invoices, payments, principalClaimLines, principalClaims, tradeAccruals, tradeTerms } from '../../../db/schema';
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { TermDto, PeriodQueryDto, SettleDto, GenerateClaimDto, DecideClaimDto, ReceiveClaimDto } from './trade.dto';
@@ -156,7 +155,7 @@ export class TradeService {
         settleJournalId = journal.id;
         journalNumber = journal.number;
       }
-      await tx.insert(tradeAccrualSettlements).values({ tenantId: u.tenantId, accrualId: a.id, date, amount: amount.toFixed(2), mode: dto.mode, journalId: settleJournalId });
+      await this.repo.insertTradeAccrualSettlements(tx, u.tenantId, a.id, date, amount, dto.mode, settleJournalId);
       const settled = D(a.settledAmount).plus(amount);
       await patchById(tx, tradeAccruals, id, { settledAmount: settled.toFixed(2), status: settled.gte(a.amount) ? 'SETTLED' : 'ACCRUED' });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'SETTLE', entity: 'TradeAccrual', entityId: id, data: { number: a.number, mode: dto.mode, amount: amount.toFixed(2), journal: journalNumber } });

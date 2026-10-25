@@ -7,7 +7,7 @@ import { SequenceService } from '../../common/sequence/sequence.service';
 import { toDocDate } from '../../common/utils/dates';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { purchaseRequestLines, purchaseRequests, suppliers, users, warehouses, type PurchaseRequestStatus } from '../../db/schema';
+import { purchaseRequests, type PurchaseRequestStatus } from '../../db/schema';
 import { buildLines } from '../master-data/products/line-builder';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { ConvertPurchaseRequestDto, CreatePurchaseRequestDto } from './purchase-requests.dto';
@@ -119,17 +119,7 @@ export class PurchaseRequestsService {
       const date = toDocDate(dto.date);
       const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_REQUEST', date);
       const [req] = await this.repo.insertPurchaseRequests(tx, user.tenantId, number, date, wh.id, dto, user.sub);
-      await tx.insert(purchaseRequestLines).values(
-        built.map((b, i) => ({
-          requestId: req.id,
-          productId: b.productId,
-          uom: b.uom,
-          uomFactor: b.uomFactor,
-          qty: b.qty,
-          supplierId: dto.lines[i].supplierId ?? null,
-          estPrice: dto.lines[i].estPrice ?? null,
-        })),
-      );
+      await this.repo.insertPurchaseRequestLines(tx, built, req.id, dto);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PurchaseRequest', entityId: req.id });
       if (dto.submit) await this.submitIn(tx, user, req.id);
       return req.id;

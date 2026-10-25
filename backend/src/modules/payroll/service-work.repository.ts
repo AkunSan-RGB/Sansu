@@ -7,6 +7,8 @@ import { UpdateRateDto, EntryQueryDto, DecideEntryDto } from './service-work.dto
 import { AuthUser } from '../../common/auth/auth-user';
 import { invoiceUsable } from './service-work.shared';
 
+export const MAX_HOURS_PER_MONTH = 260;
+
 /** Akses data untuk ServiceWork: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
 export class ServiceWorkRepository {
@@ -238,5 +240,14 @@ export class ServiceWorkRepository {
       WHERE w.tenant_id = ${tenantId} AND w.unit = 'PIECE' AND w.status IN ('PENDING','APPROVED')
       GROUP BY po.id, po.number, po.status, po.output_qty, po.planned_qty
       HAVING SUM(w.quantity) > (CASE WHEN po.status = 'COMPLETED' THEN po.output_qty ELSE po.planned_qty END)`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh ServiceWorkService.anomalies */
+  queryServiceWorkEntryForAnomalies6(db: DbOrTx, tenantId: string, from: string, to: string) {
+    return db.execute<{ employee_id: string; name: string; h: string }>(sql`
+      SELECT w.employee_id, e.name, SUM(w.quantity) AS h FROM service_work_entries w JOIN employees e ON e.id = w.employee_id
+      WHERE w.tenant_id = ${tenantId} AND w.unit = 'HOUR' AND w.status IN ('PENDING','APPROVED') AND w.work_date BETWEEN ${from} AND ${to}
+      GROUP BY w.employee_id, e.name HAVING SUM(w.quantity) > ${MAX_HOURS_PER_MONTH}`);
   }
 }

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
-import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import { ATTENDANCE_STATUSES, type AttendanceStatus } from '@sansu/shared';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -7,7 +7,7 @@ import { SettingsService } from '../../common/settings.service';
 import { addDays, DocDate, toDocDate } from '../../common/utils/dates';
 import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { attendances, employees, leaveRequests, projects } from '../../db/schema';
+import { employees, leaveRequests } from '../../db/schema';
 import { applyEmploymentRules, EmploymentService, type EmpShape } from './employment.service';
 import { type EmploymentType, isPerJob } from './employment.shared';
 import { LinkAccountDto, CreateEmployeeDto, UpdateEmployeeDto, SaveAttendanceDto, CreateLeaveDto, DecideLeaveDto } from './hr.dto';
@@ -201,10 +201,7 @@ export class HrService {
           overtimeHours: r.status === 'HADIR' ? (r.overtimeHours ?? '0') : '0',
           notes: r.notes,
         };
-        await tx
-          .insert(attendances)
-          .values(values)
-          .onConflictDoUpdate({ target: [attendances.employeeId, attendances.date], set: values });
+        await this.repo.insertAttendancesForSaveAttendance(tx, values);
       }
     });
     return this.attendanceDay(user.tenantId, date);

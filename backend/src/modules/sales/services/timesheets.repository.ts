@@ -1,9 +1,27 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../../db/db';
 import { sql } from 'drizzle-orm';
-import { ApproveDto, TimerStartDto } from './timesheets.dto';
+import { ApproveDto, TimerStartDto, UpdateTimeEntryDto, RateDto } from './timesheets.dto';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { EntriesQuery } from './timesheets.shared';
+import { toDocDate } from '../../../common/utils/dates';
+import type { Decimal } from 'decimal.js';
+import type { SQL } from 'drizzle-orm';
+
+export type Entry = {
+  id: string;
+  employee_id: string;
+  project_id: string | null;
+  customer_id: string;
+  work_date: string;
+  hours: string;
+  description: string;
+  billable: boolean;
+  rate: string | null;
+  status: string;
+  created_by_id: string;
+  invoice_id: string | null;
+};
 
 /** Akses data untuk Timesheets: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -202,5 +220,68 @@ export class TimesheetsRepository {
              COALESCE(SUM(t.hours * t.rate) FILTER (WHERE t.status = 'APPROVED' AND t.billable), 0) AS "approvedUnbilled"
       FROM employees e JOIN time_entries t ON t.employee_id = e.id AND t.work_date BETWEEN ${from} AND ${to}
       WHERE e.tenant_id = ${tenantId} GROUP BY e.id, e.name ORDER BY e.name`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh TimesheetService.create */
+  queryTimeEntryForCreate(
+    db: DbOrTx,
+    tenantId: string,
+    employeeId: string,
+    projectId: string | null,
+    customerId: string,
+    date: string,
+    hours: Decimal,
+    description: string,
+    billable: boolean,
+    rate: string | null,
+    sub: string,
+  ) {
+    return db.execute<{ id: string }>(
+      sql`INSERT INTO time_entries (tenant_id, employee_id, project_id, customer_id, work_date, hours, description, billable, rate, created_by_id) VALUES (${tenantId}, ${employeeId}, ${projectId}, ${customerId}, ${date}, ${hours.toFixed(2)}, ${description.trim()}, ${billable}, ${rate}, ${sub}) RETURNING id`,
+    );
+  }
+
+  /** Dipakai oleh TimesheetService.lock */
+  queryTimeEntryForLock(db: DbOrTx, id: string, tenantId: string) {
+    return db.execute<Entry>(sql`SELECT * FROM time_entries WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
+  }
+
+  /** Dipakai oleh TimesheetService.update */
+  queryUpdate(
+    db: DbOrTx,
+    date: string,
+    hours: Decimal,
+    dto: UpdateTimeEntryDto,
+    e: Entry,
+    billable: boolean,
+    rate: string | null,
+    id: string,
+  ) {
+    return db.execute(
+      sql`UPDATE time_entries SET work_date = ${date}, hours = ${hours.toFixed(2)}, description = ${dto.description?.trim() ?? e.description}, billable = ${billable}, rate = ${rate}, rate_note = NULL, status = 'DRAFT', decision_note = NULL WHERE id = ${id}`,
+    );
+  }
+
+  /** Dipakai oleh TimesheetService.createRate */
+  queryBillingRate(db: DbOrTx, tenantId: string, dto: RateDto, rate: Decimal, sub: string) {
+    return db.execute<{ id: string }>(
+      sql`INSERT INTO billing_rates (tenant_id, employee_id, project_id, rate, valid_from, note, created_by_id) VALUES (${tenantId}, ${dto.employeeId ?? null}, ${dto.projectId ?? null}, ${rate.toFixed(2)}, ${toDocDate(dto.validFrom)}, ${dto.note ?? null}, ${sub}) RETURNING id`,
+    );
+  }
+
+  /** Dipakai oleh TimesheetService.bill */
+  queryTimeEntryForBill2(db: DbOrTx, tenantId: string, ids: string[]) {
+    return db.execute<Entry & { employee_name: string }>(
+      sql`SELECT t.*, e.name AS employee_name FROM time_entries t JOIN employees e ON e.id = t.employee_id WHERE t.tenant_id = ${tenantId} AND t.id IN (${sql.join(
+        ids.map((i) => sql`${i}::uuid`),
+        sql`, `,
+      )})`,
+    );
+  }
+
+  /** Dipakai oleh TimesheetService.controls */
+  queryControls(db: DbOrTx, text: SQL<unknown>) {
+    return db.execute(text);
   }
 }

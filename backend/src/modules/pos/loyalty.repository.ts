@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { sql } from 'drizzle-orm';
 import { todayJakarta } from '../../common/utils/dates';
+import { expiryDate, type LoyaltySettings } from '@sansu/shared';
+import type { Decimal } from 'decimal.js';
+
+export type Lot = { id: string; remaining: number; value: string; points: number };
 
 /** Akses data untuk Loyalty: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -138,6 +142,129 @@ export class LoyaltyRepository {
   queryLoyaltyLedgerForSummary5(db: DbOrTx, tenantId: string) {
     return db.execute(
       sql`SELECT c.name AS customer, l.points, l.note, l.created_at AS "createdAt" FROM loyalty_ledger l JOIN customers c ON c.id = l.customer_id WHERE l.tenant_id = ${tenantId} AND l.kind = 'ADJUST' AND l.created_at > now() - interval '30 days' ORDER BY l.created_at DESC LIMIT 20`,
+    );
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh LoyaltyService.expireCustomerTx */
+  queryLoyaltyLedgerForExpireCustomerTx(db: DbOrTx, tenantId: string, customerId: string, today: string) {
+    return db.execute<Lot & { expires_on: string }>(
+      sql`SELECT id, remaining, value, points, expires_on FROM loyalty_ledger WHERE tenant_id = ${tenantId} AND customer_id = ${customerId} AND remaining > 0 AND expires_on IS NOT NULL AND expires_on <= ${today} ORDER BY expires_on FOR UPDATE`,
+    );
+  }
+
+  /** Dipakai oleh LoyaltyService.expireLots */
+  queryLoyaltyLedgerForExpireLots(
+    db: DbOrTx,
+    user: { tenantId: string; sub?: string },
+    customerId: string,
+    remaining: number,
+    v: Decimal,
+  ) {
+    return db.execute(
+      sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, note, created_by_id) VALUES (${user.tenantId}, ${customerId}, 'EXPIRE', ${-remaining}, ${v.negated().toFixed(2)}, 'Poin kedaluwarsa', ${user.sub ?? null})`,
+    );
+  }
+
+  /** Dipakai oleh LoyaltyService.earnTx */
+  queryLoyaltyLedgerForEarnTx(
+    db: DbOrTx,
+    p: {
+      tenantId: string;
+      customerId: string;
+      orderId: string;
+      points: number;
+      settings: LoyaltySettings;
+      userId?: string;
+    },
+    value: Decimal,
+  ) {
+    return db.execute(
+      sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, order_id, expires_on, remaining, created_by_id) VALUES (${p.tenantId}, ${p.customerId}, 'EARN', ${p.points}, ${value.toFixed(2)}, ${p.orderId}, ${expiryDate(todayJakarta(), p.settings)}, ${p.points}, ${p.userId ?? null})`,
+    );
+  }
+
+  /** Dipakai oleh LoyaltyService.redeemTx */
+  queryLoyaltyLedgerForRedeemTx(
+    db: DbOrTx,
+    tenantId: string,
+    customerId: string,
+    points: number,
+    liability: Decimal,
+    orderId: string,
+    sub: string,
+  ) {
+    return db.execute(
+      sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, order_id, created_by_id) VALUES (${tenantId}, ${customerId}, 'REDEEM', ${-points}, ${liability.negated().toFixed(2)}, ${orderId}, ${sub})`,
+    );
+  }
+
+  /** Dipakai oleh LoyaltyService.returnTx */
+  queryLoyaltyLedgerForReturnTx4(
+    db: DbOrTx,
+    tenantId: string,
+    customerId: string,
+    pts: number,
+    v: Decimal,
+    orderId: string,
+    sub: string,
+  ) {
+    return db.execute(
+      sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, order_id, note, created_by_id) VALUES (${tenantId}, ${customerId}, 'REVERSE', ${-pts}, ${v.negated().toFixed(2)}, ${orderId}, 'Retur transaksi', ${sub})`,
+    );
+  }
+
+  /** Dipakai oleh LoyaltyService.returnTx */
+  queryLoyaltyLedgerForReturnTx5(
+    db: DbOrTx,
+    tenantId: string,
+    customerId: string,
+    refundPts: number,
+    lotValue: Decimal,
+    orderId: string,
+    settings: LoyaltySettings,
+    sub: string,
+  ) {
+    return db.execute(
+      sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, order_id, expires_on, remaining, note, created_by_id) VALUES (${tenantId}, ${customerId}, 'REFUND', ${refundPts}, ${lotValue.toFixed(2)}, ${orderId}, ${expiryDate(todayJakarta(), settings)}, ${refundPts}, 'Poin dikembalikan (retur)', ${sub})`,
+    );
+  }
+
+  /** Dipakai oleh LoyaltyService.adjust */
+  queryLoyaltyLedgerForAdjust(
+    db: DbOrTx,
+    tenantId: string,
+    customerId: string,
+    points: number,
+    value: Decimal,
+    s: LoyaltySettings,
+    reason: string,
+    sub: string,
+  ) {
+    return db.execute(
+      sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, expires_on, remaining, note, created_by_id) VALUES (${tenantId}, ${customerId}, 'ADJUST', ${points}, ${value.toFixed(2)}, ${expiryDate(todayJakarta(), s)}, ${points}, ${reason}, ${sub})`,
+    );
+  }
+
+  /** Dipakai oleh LoyaltyService.adjust */
+  queryLoyaltyLedgerForAdjust2(
+    db: DbOrTx,
+    tenantId: string,
+    customerId: string,
+    points: number,
+    value: Decimal,
+    reason: string,
+    sub: string,
+  ) {
+    return db.execute(
+      sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, note, created_by_id) VALUES (${tenantId}, ${customerId}, 'ADJUST', ${points}, ${value.negated().toFixed(2)}, ${reason}, ${sub})`,
+    );
+  }
+
+  /** Dipakai oleh LoyaltyService.expireAll */
+  queryLoyaltyLedgerForExpireAll(db: DbOrTx, tenantId: string, today: string) {
+    return db.execute<Lot & { customer_id: string }>(
+      sql`SELECT id, remaining, value, points, customer_id FROM loyalty_ledger WHERE tenant_id = ${tenantId} AND remaining > 0 AND expires_on IS NOT NULL AND expires_on <= ${today} ORDER BY customer_id, expires_on FOR UPDATE`,
     );
   }
 }

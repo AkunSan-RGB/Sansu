@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { sql, and, eq, ne } from 'drizzle-orm';
 import { purchaseInvoices, suppliers } from '../../db/schema';
+import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 
 /** Akses data untuk Suppliers: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -41,5 +42,15 @@ export class SuppliersRepository {
       .set({ ...bank, bankChangedAt: new Date() })
       .where(eq(suppliers.id, supplierId))
       .returning();
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh SuppliersService.update */
+  updateSuppliersByIdForUpdate(
+    db: DbOrTx,
+    patch: PgUpdateSetSource<typeof suppliers>,
+    id: NonNullable<(typeof suppliers.$inferSelect)['id']>,
+  ) {
+    return db.update(suppliers).set(patch).where(eq(suppliers.id, id)).returning();
   }
 }

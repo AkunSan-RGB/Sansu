@@ -1,6 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { sql } from 'drizzle-orm';
+import { AuthUser } from '../../common/auth/auth-user';
+import { LotQueryDto } from './lots.dto';
+import type { Decimal } from 'decimal.js';
+
+export type Row = {
+  id: string;
+  product_id: string;
+  sku: string;
+  name: string;
+  base_uom: string;
+  warehouse_id: string;
+  warehouse_code: string;
+  lot_no: string | null;
+  expiry_date: string | null;
+  received_date: string;
+  qty_remaining: string;
+  avg_cost: string | null;
+};
 
 /** Akses data untuk Lots: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -102,5 +120,39 @@ export class LotsRepository {
       expiry_date: string | null;
     }>(sql`
       SELECT product_id, warehouse_id, qty_remaining, lot_no, expiry_date FROM stock_lots WHERE id = ${id} AND tenant_id = ${tenantId}`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh LotsService.list */
+  queryStockLotForList(db: DbOrTx, u: AuthUser, q: LotQueryDto, allowed: string[] | null) {
+    return db.execute<Row>(sql`
+      SELECT l.id, l.product_id, p.sku, p.name, p.base_uom, l.warehouse_id, w.code AS warehouse_code, l.lot_no, l.expiry_date,
+             l.received_date, l.qty_remaining, b.avg_cost
+      FROM stock_lots l
+      JOIN products p ON p.id = l.product_id
+      JOIN warehouses w ON w.id = l.warehouse_id
+      LEFT JOIN stock_balances b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
+      WHERE l.tenant_id = ${u.tenantId} AND l.qty_remaining > 0
+        ${q.warehouseId ? sql`AND l.warehouse_id = ${q.warehouseId}` : allowed ? sql`AND l.warehouse_id = ANY(${allowed}::uuid[])` : sql``}
+      ORDER BY l.expiry_date NULLS LAST, p.sku, l.id
+      LIMIT 1000`);
+  }
+
+  /** Dipakai oleh LotsService.rebuildTrace */
+  queryStockLotIssueForRebuildTrace(
+    db: DbOrTx,
+    tenantId: string,
+    id: string,
+    pid: string,
+    wid: string,
+    take: Decimal,
+    type: string,
+    ref_type: string,
+    ref_id: string,
+    date: string,
+  ) {
+    return db.execute(sql`
+              INSERT INTO stock_lot_issues (tenant_id, lot_id, product_id, warehouse_id, qty, move_type, ref_type, ref_id, date, is_estimate)
+              VALUES (${tenantId}, ${id}, ${pid}, ${wid}, ${take.toFixed(4)}, ${type}, ${ref_type}, ${ref_id}, ${date}, true)`);
   }
 }

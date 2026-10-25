@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
-import { accounts, assetCategories, assetUsage, fixedAssets, users } from '../../db/schema';
+import { accounts, assetCategories, assetUsage, fixedAssets, users, assetDepreciations } from '../../db/schema';
 import { UpdateAssetDto, VerifyDto } from './assets.dto';
+import { Dec } from '../../common/utils/money';
 
 type NewCategory = typeof assetCategories.$inferInsert;
 
@@ -10,6 +11,10 @@ type NewCategory = typeof assetCategories.$inferInsert;
  * Akses data aset tetap: satu-satunya tempat kueri sederhana per perusahaan (tenant) untuk kategori, aset, dan pemakaian.
  * Setiap metode menerima `db` (koneksi atau transaksi berjalan) agar tetap satu transaksi dengan pemanggil.
  */
+export type Asset = typeof fixedAssets.$inferSelect;
+
+export type Category = typeof assetCategories.$inferSelect;
+
 @Injectable()
 export class AssetRepository {
   async accountById(db: DbOrTx, tenantId: string, id: string) {
@@ -201,5 +206,27 @@ export class AssetRepository {
       .select({ id: users.id })
       .from(users)
       .where(and(eq(users.tenantId, tenantId), eq(users.role, 'OWNER'), eq(users.isActive, true)));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh AssetsService.run */
+  insertAssetDepreciations(
+    db: DbOrTx,
+    items: { cat: Category; asset: Asset; amount: Dec }[],
+    tenantId: string,
+    p: string,
+    id: string,
+  ) {
+    return db
+      .insert(assetDepreciations)
+      .values(
+        items.map((it) => ({
+          tenantId: tenantId,
+          assetId: it.asset.id,
+          period: p,
+          amount: it.amount.toFixed(2),
+          journalId: id,
+        })),
+      );
   }
 }

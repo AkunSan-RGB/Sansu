@@ -1,33 +1,29 @@
 import { BadRequestException, Injectable, Logger, OnModuleDestroy, OnModuleInit, NotFoundException } from '@nestjs/common';
-import { DEPRECIATION_METHOD_LABELS, type FiscalAssetGroup } from '@sansu/shared';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { TelegramService } from '../../common/telegram/telegram.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SettingsService } from '../../common/settings.service';
-import { addDays, assertNotFarFuture, diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
+import { assertNotFarFuture, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { assetCategories, assetDepreciations, assetUsage, fixedAssets, users } from '../../db/schema';
+import { assetCategories, assetDepreciations, fixedAssets } from '../../db/schema';
 import { frameworkOf } from '../accounting/coa-sync';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { AssetRepository } from './asset.repository';
-import { accumulatedThrough, depreciationFor, fiscalDepreciation, lastDay, monthIndex, periodOf, type MethodChange } from './depreciation';
-import { CategoryDto, UpdateCategoryDto, RegisterFromJournalDto, CreateAssetDto, UpdateAssetDto, VerifyDto, UsageDto, ChangeMethodDto, TransferAssetBranchDto, DisposeDto } from './assets.dto';
+import { accumulatedThrough, depreciationFor, lastDay, monthIndex, periodOf } from './depreciation';
+import { CategoryDto, UpdateCategoryDto, RegisterFromJournalDto, CreateAssetDto, UpdateAssetDto, VerifyDto } from './assets.dto';
 import { insertOne, patchById } from '../../db/owned';
+import type { Asset, Category } from './asset.repository';
 
 /** Pengaturan aset tetap per perusahaan (disimpan di settings.assets) */
 export const DEFAULT_ASSET_SETTINGS = { autoDepreciation: true };
 
 /** Pelepasan aset berharga perolehan ≥ ini oleh selain Pemilik diberitahukan ke Pemilik */
 export const ASSET_ALERT_VALUE = 5_000_000;
-
-type Asset = typeof fixedAssets.$inferSelect;
-
-type Category = typeof assetCategories.$inferSelect;
 
 @Injectable()
 export class AssetsService {
@@ -525,9 +521,7 @@ export class AssetsService {
           createdById: user.sub,
           lines,
         });
-        await tx.insert(assetDepreciations).values(
-          items.map((it) => ({ tenantId: user.tenantId, assetId: it.asset.id, period: p, amount: it.amount.toFixed(2), journalId: j.id })),
-        );
+        await this.repo.insertAssetDepreciations(tx, items, user.tenantId, p, j.id);
         journals.push({ period: p, number: j.number, amount: total.toFixed(2), assets: items.length });
       }
       return { journals };

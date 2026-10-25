@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../../db/db';
 import { users, salesTargets } from '../../../db/schema';
 import { and, eq, sql, inArray } from 'drizzle-orm';
+import { D } from '../../../common/utils/money';
+import type { TargetItemDto } from './sales-targets.dto';
 
 /** Akses data untuk SalesTargets: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -67,5 +69,22 @@ export class SalesTargetsRepository {
   /** Dipakai oleh SalesTargetsService.save */
   deleteSalesTargetsByPeriod(db: DbOrTx, tenantId: string, period: string) {
     return db.delete(salesTargets).where(and(eq(salesTargets.tenantId, tenantId), eq(salesTargets.period, period)));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh SalesTargetsService.save */
+  insertSalesTargets(db: DbOrTx, items: TargetItemDto[], tenantId: string, period: string) {
+    return db
+      .insert(salesTargets)
+      .values(
+        items.map((i) => ({
+          tenantId: tenantId,
+          userId: i.userId,
+          period: period,
+          targetAmount: D(i.targetAmount).toFixed(2),
+          commissionPct: D(i.commissionPct).toFixed(2),
+          minAchievementPct: D(i.minAchievementPct).toFixed(2),
+        })),
+      );
   }
 }

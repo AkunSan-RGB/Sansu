@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { effectivePipelines, pipelinesFor, stageOf, validateWorkflowOverrides, WORKFLOW_LINK_LABELS, type WorkflowLinkType, type WorkflowOverrides, type WorkflowPipeline, type WorkflowStage } from '@sansu/shared';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -9,15 +9,14 @@ import { SettingsService } from '../../common/settings.service';
 import { toDocDate, todayJakarta } from '../../common/utils/dates';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { customers, suppliers, workflowCases, workflowEvents, workflowLinks } from '../../db/schema';
+import { workflowCases, workflowLinks } from '../../db/schema';
 import { WorkflowSettingsDto, CaseQueryDto, CreateCaseDto, AddLinkDto, AdvanceDto, NoteDto } from './workflow.dto';
 import { findOwned, insertOne, lockOwned, patchById } from '../../db/owned';
 import { WorkflowRepository } from './workflow.repository';
+import type { Source } from './workflow.repository';
 
 /** Tabel dokumen sumber tiap jenis tautan (semua ber-tenant_id) */
 const col = (c: string) => (a: string) => `${a}.${c}::text`;
-
-type Source = { table: string; number: (a: string) => string; status: (a: string) => string; created: string };
 
 const src = (table: string, number = 'number', status: (a: string) => string = col('status'), created = 'created_at'): Source => ({ table, number: col(number), status, created });
 
@@ -144,7 +143,7 @@ export class WorkflowService {
     const out: LiveLink[] = [];
     for (const l of links) {
       const s = SOURCES[l.linkType as WorkflowLinkType];
-      const r = await db.execute<{ number: string; status: string }>(sql.raw(`SELECT ${s.number('t')} AS number, ${s.status('t')} AS status FROM "${s.table}" t WHERE t.tenant_id = '${tenantId}' AND t.id = '${l.docId}'`));
+      const r = await this.repo.queryLiveLinks(db, s, s.table, tenantId, l.docId);
       const row = r.rows[0];
       out.push({ id: l.id, type: l.linkType as WorkflowLinkType, docId: l.docId, number: row?.number ?? l.docNumber, status: row?.status ?? null, dead: !row || DEAD.has(row.status) });
     }
@@ -235,9 +234,7 @@ export class WorkflowService {
   /** Tahap alur sebuah dokumen (untuk lencana di halaman dokumen) */
   async byDoc(u: AuthUser, type: WorkflowLinkType, docId: string) {
     if (!SOURCES[type]) throw new BadRequestException('Jenis dokumen tidak dikenal');
-    const r = await this.db.execute<{ id: string; number: string; stage: string; status: string; pipeline: string }>(sql`
-      SELECT c.id, c.number, c.stage, c.status, c.pipeline FROM workflow_links l JOIN workflow_cases c ON c.id = l.case_id
-      WHERE l.tenant_id = ${u.tenantId} AND l.link_type = ${type} AND l.doc_id = ${docId} LIMIT 1`);
+    const r = await this.repo.queryWorkflowLink(this.db, u.tenantId, type, docId);
     const row = r.rows[0];
     if (!row) return null;
     const p = (await this.defs(u.tenantId)).find((x) => x.key === row.pipeline);
@@ -357,11 +354,11 @@ export class WorkflowService {
       if (!allows(u, [...new Set(p.stages.flatMap((s) => s.roles))])) throw new ForbiddenException('Peran Anda tidak terlibat di alur ini');
       if (!p.links.includes(dto.type)) throw new BadRequestException(`${WORKFLOW_LINK_LABELS[dto.type]} tidak dipakai di alur ini`);
       const s = SOURCES[dto.type];
-      const r = await tx.execute<{ number: string; status: string }>(sql.raw(`SELECT ${s.number('t')} AS number, ${s.status('t')} AS status FROM "${s.table}" t WHERE t.tenant_id = '${u.tenantId}' AND t.id = '${dto.docId}'`));
+      const r = await this.repo.queryLiveLinks(tx, s, s.table, u.tenantId, dto.docId);
       const doc = r.rows[0];
       if (!doc) throw new BadRequestException('Dokumen tidak ditemukan di perusahaan ini');
       if (DEAD.has(doc.status)) throw new BadRequestException('Dokumen yang dibatalkan tidak bisa ditautkan');
-      const used = await tx.execute(sql`SELECT 1 FROM workflow_links WHERE tenant_id = ${u.tenantId} AND link_type = ${dto.type} AND doc_id = ${dto.docId}`);
+      const used = await this.repo.queryWorkflowLinkForAddLink(tx, u.tenantId, dto.type, dto.docId);
       if (used.rows.length) throw new BadRequestException(`${WORKFLOW_LINK_LABELS[dto.type]} ${doc.number} sudah dipakai kasus lain`);
       await tx.insert(workflowLinks).values({ tenantId: u.tenantId, caseId: id, linkType: dto.type, docId: dto.docId, docNumber: doc.number, createdById: u.sub });
       await this.event(tx, u.tenantId, id, { kind: 'LINK', note: `${WORKFLOW_LINK_LABELS[dto.type]} ${doc.number}`, by: u.sub });
@@ -430,10 +427,10 @@ export class WorkflowService {
         for (const d of found.rows) {
           if (!d.id) continue;
           const s = SOURCES[f.to];
-          const r = await tx.execute<{ number: string; status: string }>(sql.raw(`SELECT ${s.number('t')} AS number, ${s.status('t')} AS status FROM "${s.table}" t WHERE t.tenant_id = '${c.tenantId}' AND t.id = '${d.id}'`));
+          const r = await this.repo.queryFollowLinksForFollowLinks(tx, s, s.table, c.tenantId, d.id);
           const doc = r.rows[0];
           if (!doc || DEAD.has(doc.status)) continue;
-          const ins = await tx.execute(sql`INSERT INTO workflow_links (tenant_id, case_id, link_type, doc_id, doc_number, created_by_id) VALUES (${c.tenantId}, ${c.id}, ${f.to}, ${d.id}, ${doc.number}, ${c.createdById}) ON CONFLICT DO NOTHING RETURNING id`);
+          const ins = await this.repo.queryWorkflowLinkForFollowLinks(tx, c.tenantId, c.id, f.to, d.id, doc.number, c.createdById);
           if (ins.rows.length) await this.event(tx, c.tenantId, c.id, { kind: 'LINK', note: `${WORKFLOW_LINK_LABELS[f.to]} ${doc.number} (otomatis)`, auto: true });
         }
       }
@@ -465,11 +462,7 @@ export class WorkflowService {
       const o = p.open!;
       const s = SOURCES[o.link];
       const subjectCol = o.subject === 'customer' ? 'd.customer_id' : o.subject === 'supplier' ? 'd.supplier_id' : 'NULL::uuid';
-      const docs = await this.db.execute<{ id: string; number: string; status: string; subject_id: string | null }>(sql.raw(`
-        SELECT d.id, ${s.number('d')} AS number, ${s.status('d')} AS status, ${subjectCol} AS subject_id FROM "${s.table}" d
-        WHERE d.tenant_id = '${tenantId}' AND (d."${s.created}" AT TIME ZONE 'Asia/Jakarta')::date >= '${since}' ${o.where ? `AND ${o.where}` : ''}
-          AND NOT EXISTS (SELECT 1 FROM workflow_links l WHERE l.tenant_id = d.tenant_id AND l.link_type = '${o.link}' AND l.doc_id = d.id)
-        ORDER BY d."${s.created}" LIMIT 50`));
+      const docs = await this.repo.queryDiscoverDocs(this.db, s, subjectCol, s.table, tenantId, s.created, since, o);
       for (const d of docs.rows.filter((x) => !DEAD.has(x.status))) {
         try {
           await this.db.transaction(async (tx) => {
@@ -563,7 +556,7 @@ export class WorkflowService {
     const cfg = await this.settings.section(this.db, tenantId, 'workflow', DEFAULT_SETTINGS);
     if (!cfg.enforce) return;
     const g = GATES[action];
-    let row = (await this.db.execute<{ case_id: string }>(sql`SELECT case_id FROM workflow_links WHERE tenant_id = ${tenantId} AND link_type = ${g.link} AND doc_id = ${docId} LIMIT 1`)).rows[0];
+    let row = (await this.repo.queryWorkflowLinkForGate(this.db, tenantId, g.link, docId)).rows[0];
     if (!row && g.viaPo) {
       row = (await this.repo.queryPurchaseInvoice(this.db, tenantId, docId)).rows[0];
     }

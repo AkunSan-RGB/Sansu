@@ -1,7 +1,21 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { sql } from 'drizzle-orm';
-import { AdvanceQueryDto } from './supplier-advances.dto';
+import { AdvanceQueryDto, CreateSupplierAdvanceDto } from './supplier-advances.dto';
+import type { Decimal } from 'decimal.js';
+
+export type AdvanceRow = {
+  id: string;
+  number: string;
+  date: string;
+  supplier_id: string;
+  purchase_order_id: string | null;
+  amount: string;
+  applied_amount: string;
+  refunded_amount: string;
+  status: string;
+  journal_id: string | null;
+};
 
 /** Akses data untuk SupplierAdvances: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -147,5 +161,90 @@ export class SupplierAdvancesRepository {
              COALESCE((SELECT SUM(i.total - i.paid_amount - i.returned_amount) FROM purchase_invoices i WHERE i.tenant_id = ${tenantId} AND i.supplier_id = a.supplier_id AND i.status <> 'PAID' AND i.currency = 'IDR'), 0)::text AS "openInvoices"
       FROM supplier_advances a JOIN suppliers s ON s.id = a.supplier_id LEFT JOIN purchase_orders po ON po.id = a.purchase_order_id
       WHERE a.tenant_id = ${tenantId} AND a.status = 'OPEN' ORDER BY a.date`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh SupplierAdvancesService.create */
+  querySupplierAdvanceForCreate(
+    db: DbOrTx,
+    tenantId: string,
+    number: string,
+    date: string,
+    id: string,
+    dto: CreateSupplierAdvanceDto,
+    method: string,
+    cashId: string,
+    amount: Decimal,
+    sub: string,
+  ) {
+    return db.execute<{ id: string }>(sql`
+        INSERT INTO supplier_advances (tenant_id, number, date, supplier_id, purchase_order_id, method, cash_account_id, amount, description, created_by_id)
+        VALUES (${tenantId}, ${number}, ${date}, ${id}, ${dto.purchaseOrderId ?? null}, ${method}, ${cashId}, ${amount.toFixed(2)}, ${dto.description?.trim() || null}, ${sub}) RETURNING id`);
+  }
+
+  /** Dipakai oleh SupplierAdvancesService.apply */
+  querySupplierAdvanceForApply2(db: DbOrTx, id: string, tenantId: string) {
+    return db.execute<AdvanceRow>(sql`SELECT * FROM supplier_advances WHERE id = ${id} AND tenant_id = ${tenantId}`);
+  }
+
+  /** Dipakai oleh SupplierAdvancesService.apply */
+  querySupplierAdvanceMovementForApply(
+    db: DbOrTx,
+    tenantId: string,
+    id: string,
+    number: string,
+    date: string,
+    amount: Decimal,
+    invId: string,
+    sub: string,
+  ) {
+    return db.execute<{ id: string }>(sql`
+        INSERT INTO supplier_advance_movements (tenant_id, advance_id, kind, number, date, amount, purchase_invoice_id, created_by_id)
+        VALUES (${tenantId}, ${id}, 'APPLY', ${number}, ${date}, ${amount.toFixed(2)}, ${invId}, ${sub}) RETURNING id`);
+  }
+
+  /** Dipakai oleh SupplierAdvancesService.apply */
+  queryApplyForApply(db: DbOrTx, paid: Decimal, invValues: string, invInvValues: string, invValues2: string) {
+    return db.execute(
+      sql`UPDATE purchase_invoices SET paid_amount = ${paid.toFixed(2)}, status = ${paid.plus(invValues).gte(invInvValues) ? 'PAID' : 'PARTIAL'}::invoice_status WHERE id = ${invValues2}`,
+    );
+  }
+
+  /** Dipakai oleh SupplierAdvancesService.apply */
+  queryApplyForApply2(db: DbOrTx, applied: Decimal, closed: boolean, id: string) {
+    return db.execute(
+      sql`UPDATE supplier_advances SET applied_amount = ${applied.toFixed(2)}, status = ${closed ? 'CLOSED' : 'OPEN'} WHERE id = ${id}`,
+    );
+  }
+
+  /** Dipakai oleh SupplierAdvancesService.refund */
+  querySupplierAdvanceForRefund(db: DbOrTx, id: string, tenantId: string) {
+    return db.execute<AdvanceRow & { cash_account_id: string; method: string }>(
+      sql`SELECT * FROM supplier_advances WHERE id = ${id} AND tenant_id = ${tenantId}`,
+    );
+  }
+
+  /** Dipakai oleh SupplierAdvancesService.refund */
+  querySupplierAdvanceMovementForRefund(
+    db: DbOrTx,
+    tenantId: string,
+    id: string,
+    number: string,
+    date: string,
+    amount: Decimal,
+    cashId: string,
+    note: string,
+    sub: string,
+  ) {
+    return db.execute<{ id: string }>(sql`
+        INSERT INTO supplier_advance_movements (tenant_id, advance_id, kind, number, date, amount, cash_account_id, note, created_by_id)
+        VALUES (${tenantId}, ${id}, 'REFUND', ${number}, ${date}, ${amount.toFixed(2)}, ${cashId}, ${note.trim()}, ${sub}) RETURNING id`);
+  }
+
+  /** Dipakai oleh SupplierAdvancesService.refund */
+  queryRefund(db: DbOrTx, refunded: Decimal, closed: boolean, id: string) {
+    return db.execute(
+      sql`UPDATE supplier_advances SET refunded_amount = ${refunded.toFixed(2)}, status = ${closed ? 'CLOSED' : 'OPEN'} WHERE id = ${id}`,
+    );
   }
 }

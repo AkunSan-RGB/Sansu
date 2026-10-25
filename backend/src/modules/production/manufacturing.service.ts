@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable } from '@nestjs/common';
-import { and, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { lte } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { SettingsService } from '../../common/settings.service';
@@ -8,7 +8,6 @@ import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { ProductionService } from './production.service';
-import { bomLines, boms, productionOrderLines, productionOrders, products, users, warehouses } from '../../db/schema';
 import { RequirementsDto, PlanDto, VarianceQueryDto } from './manufacturing.dto';
 import { ManufacturingRepository } from './manufacturing.repository';
 
@@ -183,11 +182,7 @@ export class ManufacturingService {
     const tol = q.tolerancePct ? Number(q.tolerancePct) : 3;
     const orders = await this.repo.listProductionOrdersWithBomsAndProductsByStatusAndCompletedDateAndNumber(this.db, tenantId, q);
     const lines = orders.length
-      ? await this.db
-          .select({ l: productionOrderLines, sku: products.sku, name: products.name })
-          .from(productionOrderLines)
-          .innerJoin(products, eq(products.id, productionOrderLines.productId))
-          .where(inArray(productionOrderLines.orderId, orders.map((x) => x.o.id)))
+      ? await this.repo.listProductionOrderLinesWithProductsByOrderId(this.db, orders.map((x) => x.o.id))
       : [];
     const byMaterial = new Map<string, { sku: string; name: string; planned: number; issued: number; value: number }>();
     const rows = orders.map(({ o, bom, sku, name, by }) => {

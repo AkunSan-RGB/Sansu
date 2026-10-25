@@ -3,6 +3,7 @@ import { DbOrTx } from '../../db/db';
 import { users, suppliers, purchaseRequests, purchaseRequestLines } from '../../db/schema';
 import { inArray, sql, and, eq } from 'drizzle-orm';
 import { CreatePurchaseRequestDto } from './purchase-requests.dto';
+import type { BuiltLine } from '../master-data/products/line-builder';
 
 /** Akses data untuk PurchaseRequests: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -126,5 +127,21 @@ export class PurchaseRequestsRepository {
   /** Dipakai oleh PurchaseRequestsService.lock */
   queryPurchaseRequest(db: DbOrTx, id: string, tenantId: string) {
     return db.execute(sql`SELECT id FROM purchase_requests WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh PurchaseRequestsService.create */
+  insertPurchaseRequestLines(db: DbOrTx, built: BuiltLine[], id: string, dto: CreatePurchaseRequestDto) {
+    return db.insert(purchaseRequestLines).values(
+      built.map((b, i) => ({
+        requestId: id,
+        productId: b.productId,
+        uom: b.uom,
+        uomFactor: b.uomFactor,
+        qty: b.qty,
+        supplierId: dto.lines[i].supplierId ?? null,
+        estPrice: dto.lines[i].estPrice ?? null,
+      })),
+    );
   }
 }

@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, or } from 'drizzle-orm';
 import { POS_PAYMENT_METHODS, type PosPaymentMethod } from '@sansu/shared';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -11,7 +11,7 @@ import { nowAt, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { customers, posOrderLines, posOrders, posPayments, posSessions, products, stockBalances, tenants, warehouses } from '../../db/schema';
+import { posOrders, posSessions, products } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
@@ -271,18 +271,7 @@ export class PosService {
         issued.push({ productId: l.productId, value: moved.value });
       }
       cogs = cogs.plus(lineValue);
-      await tx.insert(posOrderLines).values({
-        orderId: order.id,
-        productId: l.productId,
-        uom: l.uom,
-        uomFactor: l.uomFactor,
-        qty: l.qty,
-        price: l.price.toFixed(2),
-        discountPct: l.discountPct.toFixed(2),
-        lineTotal: l.lineTotal.toFixed(2),
-        unitCost: unitCost.toFixed(4),
-        fromRecipe: !!recipe,
-      });
+      await this.repo.insertPosOrderLines(tx, order.id, l.productId, l.uom, l.uomFactor, l.qty, l.price, l.discountPct, l.lineTotal, unitCost, recipe);
     }
     cogs = money(cogs);
 
@@ -308,7 +297,7 @@ export class PosService {
     const byMethod = new Map<PosPaymentMethod, Dec>();
     for (const p of payments) if (p.method !== 'CASH') byMethod.set(p.method, (byMethod.get(p.method) ?? ZERO).plus(money(p.amount)));
     if (cashNet.gt(0)) byMethod.set('CASH', cashNet);
-    await tx.insert(posPayments).values([...byMethod].map(([method, amount]) => ({ orderId: order.id, method, amount: amount.toFixed(2) })));
+    await this.repo.insertPosPayments(tx, byMethod, order.id);
 
     const journal = await this.posting.post(tx, {
       tenantId: user.tenantId,

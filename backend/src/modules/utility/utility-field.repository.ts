@@ -2,6 +2,16 @@ import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { sql, and, eq, isNull, desc } from 'drizzle-orm';
 import { utilityIngestKeys, utilityBills, utilityCounterReceipts, utilityRemittances } from '../../db/schema';
+import { createHash } from 'node:crypto';
+import { todayJakarta } from '../../common/utils/dates';
+
+export const hash = (k: string) => createHash('sha256').update(k).digest('hex');
+
+export const addMonths = () => {
+  const d = new Date(`${todayJakarta()}T00:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() - 3);
+  return d.toISOString().slice(0, 10);
+};
 
 /** Akses data untuk UtilityField: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -167,5 +177,35 @@ export class UtilityFieldRepository {
     return db.execute<{ photo: string | null }>(
       sql`SELECT photo FROM utility_readings WHERE id = ${id} AND tenant_id = ${tenantId}`,
     );
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh UtilityFieldService.createKey */
+  insertUtilityIngestKeys(db: DbOrTx, tenantId: string, name: string, key: string, sub: string) {
+    return db
+      .insert(utilityIngestKeys)
+      .values({
+        tenantId: tenantId,
+        name: name.trim(),
+        keyHash: hash(key),
+        keyPrefix: key.slice(0, 8),
+        createdById: sub,
+      })
+      .returning({ id: utilityIngestKeys.id, name: utilityIngestKeys.name, keyPrefix: utilityIngestKeys.keyPrefix });
+  }
+
+  /** Dipakai oleh UtilityFieldService.counterControls */
+  queryUtilityRemittanceForCounterControls2(db: DbOrTx, tenantId: string) {
+    return db.execute(
+      sql`SELECT number, date, difference, status FROM utility_remittances WHERE tenant_id = ${tenantId} AND difference <> 0 AND date >= ${addMonths()} ORDER BY date DESC LIMIT 50`,
+    );
+  }
+
+  /** Dipakai oleh UtilityIngestGuard.canActivate */
+  findUtilityIngestKeysByKeyHash(db: DbOrTx, raw: string) {
+    return db
+      .select()
+      .from(utilityIngestKeys)
+      .where(eq(utilityIngestKeys.keyHash, hash(raw)));
   }
 }

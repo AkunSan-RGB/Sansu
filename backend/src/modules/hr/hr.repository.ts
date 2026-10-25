@@ -130,4 +130,13 @@ export class HrRepository {
       .where(eq(leaveRequests.id, id))
       .returning();
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh HrService.saveAttendance */
+  insertAttendancesForSaveAttendance(db: DbOrTx, values: typeof attendances.$inferInsert) {
+    return db
+      .insert(attendances)
+      .values(values)
+      .onConflictDoUpdate({ target: [attendances.employeeId, attendances.date], set: values });
+  }
 }

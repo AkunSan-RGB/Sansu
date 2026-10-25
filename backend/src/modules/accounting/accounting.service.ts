@@ -10,23 +10,13 @@ import { D, Dec, DecValue, money, ZERO } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import type { DbOrTx } from '../../db/db';
-import { AccountType, accounts, assetCategories, journalEntries, journalLines, recurringJournals, scheduledReversals, tenants } from '../../db/schema';
+import { AccountType, accounts, journalEntries, tenants } from '../../db/schema';
 import { guessReportGroup, SYS } from './default-coa';
-import {
-  CloseYearDto,
-  CreateAccountDto,
-  CreateJournalDto,
-  CreateRecurringDto,
-  JournalQueryDto,
-  OpeningBalanceDto,
-  UpdateAccountDto,
-  UpdateRecurringDto,
-} from './dto/accounting.dto';
+import { CloseYearDto, CreateAccountDto, CreateJournalDto, JournalQueryDto, OpeningBalanceDto, UpdateAccountDto } from './dto/accounting.dto';
 import { BudgetService } from './budget.service';
 import { PostingService } from './posting.service';
 import { loadSourceDocument } from './source-document';
 import { resolveSourceRoutes } from './source-route';
-import { decryptField } from '../../common/utils/secret';
 import { AccountingRepository } from './accounting.repository';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { insertOne, patchById } from '../../db/owned';
@@ -153,10 +143,7 @@ export class AccountingService {
     });
     const routes = await resolveSourceRoutes(this.db, tenantId, rows);
     const sched = rows.length
-      ? await this.db
-          .select({ journalId: scheduledReversals.journalId, reverseOn: scheduledReversals.reverseOn })
-          .from(scheduledReversals)
-          .where(and(eq(scheduledReversals.tenantId, tenantId), eq(scheduledReversals.status, 'PENDING'), inArray(scheduledReversals.journalId, rows.map((r) => r.id))))
+      ? await this.repo.listScheduledReversalsByStatusAndJournalId(this.db, tenantId, rows.map((r) => r.id))
       : [];
     const schedBy = new Map(sched.map((x) => [x.journalId, x.reverseOn]));
     return rows.map((r, i) => ({ ...r, lines: branchIds?.length ? r.lines.filter((l) => l.branchId && branchIds.includes(l.branchId)) : r.lines, docRoute: routes[i], scheduledReversal: schedBy.get(r.id) ?? null }));
@@ -260,9 +247,7 @@ export class AccountingService {
       const lineIds = original.lines.map((l) => l.id);
       if (lineIds.length) {
         const idList = sql.join(lineIds.map((x) => sql`${x}`), sql`, `);
-        const matched = await tx.execute<{ n: number }>(sql`
-          SELECT (SELECT COUNT(*) FROM bank_statement_lines WHERE status = 'MATCHED' AND journal_line_id IN (${idList}))::int
-               + (SELECT COUNT(*) FROM bank_line_extra_matches WHERE journal_line_id IN (${idList}))::int AS n`);
+        const matched = await this.repo.queryReverseJournalForReverseJournal(tx, idList);
         if (matched.rows[0].n > 0) throw new BadRequestException('Jurnal ini sudah dicocokkan dengan mutasi bank. Batalkan pencocokannya di Rekonsiliasi Bank dulu, lalu balik jurnalnya');
       }
       let useDate: DocDate;
@@ -339,36 +324,8 @@ export class AccountingService {
    */
   async openingStatus(tenantId: string) {
     const isOpening = sql`(j.source_type = 'OPENING' OR (j.source_type = 'STOCK_ADJUSTMENT' AND j.description LIKE '%(OPENING)%'))`;
-    const rows = await this.db.execute<{ component: string; amount: string; accounts: number }>(sql`
-      SELECT CASE
-          WHEN a.system_key = 'OPENING_EQUITY' THEN 'balancing'
-          WHEN a.is_cash_account THEN 'cash'
-          WHEN a.system_key = 'AR' THEN 'receivables'
-          WHEN a.system_key = 'AP' THEN 'payables'
-          WHEN a.system_key IN ('INVENTORY', 'INVENTORY_SEMI') THEN 'inventory'
-          WHEN a.type = 'ASSET' THEN 'otherAssets'
-          WHEN a.type = 'LIABILITY' THEN 'liabilities'
-          WHEN a.type = 'EQUITY' THEN 'equity'
-          ELSE 'profitLoss' END AS component,
-        SUM(l.debit - l.credit)::text AS amount,
-        COUNT(DISTINCT a.id)::int AS accounts
-      FROM journal_lines l
-      JOIN journal_entries j ON j.id = l.journal_id
-      JOIN accounts a ON a.id = l.account_id
-      WHERE j.tenant_id = ${tenantId} AND ${isOpening} AND j.reversal_of_id IS NULL
-        AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = j.id)
-      GROUP BY 1`);
-    const meta = await this.db.execute<{ opening_date: string | null; first_tx: string | null; before_count: number; assets: number; assets_cost: string | null }>(sql`
-      SELECT
-        (SELECT MAX(j.date)::text FROM journal_entries j WHERE j.tenant_id = ${tenantId} AND ${isOpening}) AS opening_date,
-        (SELECT MIN(j.date)::text FROM journal_entries j WHERE j.tenant_id = ${tenantId} AND NOT ${isOpening}
-           AND j.source_type NOT IN ('CLOSING')) AS first_tx,
-        (SELECT COUNT(*)::int FROM journal_entries j WHERE j.tenant_id = ${tenantId} AND NOT ${isOpening}
-           AND j.source_type NOT IN ('CLOSING')
-           AND j.date <= (SELECT MAX(o.date) FROM journal_entries o WHERE o.tenant_id = ${tenantId}
-                           AND (o.source_type = 'OPENING' OR (o.source_type = 'STOCK_ADJUSTMENT' AND o.description LIKE '%(OPENING)%')))) AS before_count,
-        (SELECT COUNT(*)::int FROM fixed_assets f WHERE f.tenant_id = ${tenantId} AND f.opening_accumulated::numeric > 0) AS assets,
-        (SELECT SUM(f.cost)::text FROM fixed_assets f WHERE f.tenant_id = ${tenantId} AND f.opening_accumulated::numeric > 0) AS assets_cost`);
+    const rows = await this.repo.queryJournalLineForOpeningStatus(this.db, tenantId, isOpening);
+    const meta = await this.repo.queryOpeningStatus(this.db, tenantId, isOpening);
     const by = new Map(rows.rows.map((r) => [r.component, r]));
     const amt = (k: string) => D(by.get(k)?.amount ?? 0);
     const m = meta.rows[0];
@@ -538,19 +495,7 @@ export class AccountingService {
     const fromCond = from ? sql`AND j.date >= ${toDocDate(from)}` : sql``;
     const toCond = to ? sql`AND j.date <= ${toDocDate(to)}` : sql``;
     const closingCond = excludeClosing ? sql`AND j.source_type <> 'CLOSING'` : sql``;
-    const res = await db.execute<{ id: string; code: string; name: string; type: AccountType; debit: string; credit: string }>(sql`
-      SELECT a.id, a.code, a.name, a.type,
-             COALESCE(t.debit, 0) AS debit, COALESCE(t.credit, 0) AS credit
-      FROM accounts a
-      LEFT JOIN (
-        SELECT l.account_id, SUM(l.debit) AS debit, SUM(l.credit) AS credit
-        FROM journal_lines l
-        JOIN journal_entries j ON j.id = l.journal_id
-        WHERE j.tenant_id = ${tenantId} ${fromCond} ${toCond} ${closingCond} ${brCond}
-        GROUP BY l.account_id
-      ) t ON t.account_id = a.id
-      WHERE a.tenant_id = ${tenantId} AND a.is_postable = true
-      ORDER BY a.code`);
+    const res = await this.repo.queryAccount(db, tenantId, fromCond, toCond, closingCond, brCond);
 
     return res.rows.map((r) => {
       const debit = D(r.debit);

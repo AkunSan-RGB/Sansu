@@ -7,9 +7,11 @@ import {
   principalClaims,
   suppliers,
   principalClaimLines,
+  tradeAccrualSettlements,
 } from '../../../db/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { PeriodQueryDto } from './trade.dto';
+import type { Decimal } from 'decimal.js';
 
 /** Akses data untuk Trade: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -148,5 +150,28 @@ export class TradeRepository {
   /** Dipakai oleh TradeService.decideClaim */
   deletePrincipalClaimLinesByClaimId(db: DbOrTx, id: string) {
     return db.delete(principalClaimLines).where(eq(principalClaimLines.claimId, id));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh TradeService.settle */
+  insertTradeAccrualSettlements(
+    db: DbOrTx,
+    tenantId: string,
+    id: string,
+    date: string,
+    amount: Decimal,
+    mode: 'DEDUCT' | 'PAY',
+    settleJournalId: string,
+  ) {
+    return db
+      .insert(tradeAccrualSettlements)
+      .values({
+        tenantId: tenantId,
+        accrualId: id,
+        date: date,
+        amount: amount.toFixed(2),
+        mode: mode,
+        journalId: settleJournalId,
+      });
   }
 }

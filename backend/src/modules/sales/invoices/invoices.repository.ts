@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../../db/db';
-import { salesOrders, customers, invoiceLines } from '../../../db/schema';
-import { and, eq } from 'drizzle-orm';
+import { salesOrders, customers, invoiceLines, deliveryOrders } from '../../../db/schema';
+import { and, eq, inArray } from 'drizzle-orm';
 import { Dec } from '../../../common/utils/money';
 
 /** Akses data untuk Invoices: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
@@ -46,5 +46,11 @@ export class InvoicesRepository {
       lineTotal: lineTotal,
       unitCost: unitCost.toFixed(4),
     });
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh InvoicesService.createFromOrder */
+  updateDeliveryOrdersById(db: DbOrTx, id: string, ids: NonNullable<(typeof deliveryOrders.$inferSelect)['id']>[]) {
+    return db.update(deliveryOrders).set({ invoiceId: id }).where(inArray(deliveryOrders.id, ids));
   }
 }

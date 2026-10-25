@@ -7,10 +7,12 @@ import { allowedWarehouses, assertWarehouseAccess } from '../../common/auth/ware
 import { D, Dec, qty4 } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { addToBin, BIN_PICK_TIER, logBinMove, UNASSIGNED_CODE } from './bin-tracker';
+import { addToBin, logBinMove, UNASSIGNED_CODE } from './bin-tracker';
 import { CREATABLE_KINDS, BinStockQuery, PickPlanQuery } from './bins.shared';
 import { CreateBinsDto, ImportBinsDto, UpdateBinDto, MoveBinsDto } from './bins.dto';
 import { BinsRepository } from './bins.repository';
+import { HEAVY_MOVES, MAX_ROWS } from './bins.repository';
+export { HEAVY_MOVES } from './bins.repository';
 
 const CODE_RE = /^[A-Z0-9][A-Z0-9._/-]{0,29}$/;
 
@@ -20,10 +22,6 @@ const KIND_ALIAS: Record<string, (typeof CREATABLE_KINDS)[number]> = { STORAGE: 
 export const UNPLACED_DAYS = 7;
 
 export const DAMAGED_DAYS = 30;
-
-export const HEAVY_MOVES = 30;
-
-const MAX_ROWS = 500;
 
 @Injectable()
 export class BinsService {
@@ -170,21 +168,7 @@ export class BinsService {
     if (q.warehouseId) assertWarehouseAccess(u, q.warehouseId);
     const allowed = allowedWarehouses(u);
     const term = q.q?.trim();
-    const rows = await this.db.execute(sql`
-      SELECT s.bin_id AS "binId", b.code AS "binCode", b.zone, b.kind AS "binKind", s.warehouse_id AS "warehouseId", w.code AS "warehouseCode",
-             s.product_id AS "productId", p.sku, p.name, p.barcode, p.base_uom AS uom, s.lot_id AS "lotId", l.lot_no AS "lotNo", l.expiry_date AS "expiryDate", s.qty
-      FROM stock_bin_balances s
-      JOIN warehouse_bins b ON b.id = s.bin_id
-      JOIN warehouses w ON w.id = s.warehouse_id
-      JOIN products p ON p.id = s.product_id
-      LEFT JOIN stock_lots l ON l.id = s.lot_id
-      WHERE s.tenant_id = ${u.tenantId} AND s.qty > 0
-        ${q.warehouseId ? sql`AND s.warehouse_id = ${q.warehouseId}` : allowed ? sql`AND s.warehouse_id IN (${sql.join(allowed.map((a) => sql`${a}::uuid`), sql`, `)})` : sql``}
-        ${q.binId ? sql`AND s.bin_id = ${q.binId}` : sql``}
-        ${q.productId ? sql`AND s.product_id = ${q.productId}` : sql``}
-        ${term ? sql`AND (p.sku ILIKE ${'%' + term.replace(/[%_\\]/g, '\\$&') + '%'} OR p.name ILIKE ${'%' + term.replace(/[%_\\]/g, '\\$&') + '%'} OR p.barcode = ${term})` : sql``}
-      ORDER BY w.code, (b.kind = 'UNASSIGNED') DESC, b.code, p.sku, l.expiry_date NULLS LAST
-      LIMIT ${MAX_ROWS}`);
+    const rows = await this.repo.queryStockBinBalanceForStock(this.db, u, q, allowed, term);
     return { rows: rows.rows, truncated: rows.rows.length >= MAX_ROWS };
   }
 
@@ -241,10 +225,7 @@ export class BinsService {
           await this.repo.queryStockBalanceForMove2(tx, ln.productId, dto.warehouseId);
           locked.add(ln.productId);
         }
-        const src = (await tx.execute<{ id: string; qty: string }>(sql`
-          SELECT id, qty FROM stock_bin_balances
-          WHERE bin_id = ${ln.fromBinId} AND product_id = ${ln.productId} AND COALESCE(lot_id, '00000000-0000-0000-0000-000000000000'::uuid) = COALESCE(${ln.lotId ?? null}::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
-          FOR UPDATE`)).rows[0];
+        const src = (await this.repo.queryStockBinBalanceForMove2(tx, ln)).rows[0];
         const have = D(src?.qty ?? 0);
         if (!src || have.lt(qty)) {
           const [p] = (await this.repo.queryProduct(tx, ln.productId, u.tenantId)).rows;
@@ -327,7 +308,7 @@ export class BinsService {
       if (refs.length) out.push({ key, level, title: `${title} (${refs.length})`, detail, refs });
     };
     const wf = warehouseId ? sql`AND w.id = ${warehouseId}` : sql``;
-    const enabled = await this.db.execute<{ id: string; code: string }>(sql`SELECT id, code FROM warehouses w WHERE tenant_id = ${tenantId} AND bins_enabled ${wf}`);
+    const enabled = await this.repo.queryWarehouseForControls(this.db, tenantId, wf);
     if (!enabled.rows.length) return out;
     const age = (kinds: string[], days: number) => this.db.execute<{ wh: string; code: string; sku: string; qty: string; d: number }>(sql`
       SELECT w.code AS wh, b.code, p.sku, SUM(s.qty)::text AS qty, EXTRACT(DAY FROM now() - MIN(m.created_at))::int AS d
@@ -344,18 +325,9 @@ export class BinsService {
     add('BIN_UNPLACED_OLD', 'warning', `Barang belum ditata di rak > ${UNPLACED_DAYS} hari`, un.rows.map((r) => `${r.wh} · ${r.sku}: ${Number(r.qty)} (${r.d} hari)`), `Barang yang lama berada di ${UNASSIGNED_CODE} sulit dicari dan mudah hilang tanpa terasa. Tata ke rak atau pastikan barangnya ada.`);
     const dm = await age(['DAMAGED', 'QUARANTINE'], DAMAGED_DAYS);
     add('BIN_DAMAGED_OLD', 'warning', `Barang di rak rusak/karantina > ${DAMAGED_DAYS} hari`, dm.rows.map((r) => `${r.wh} · rak ${r.code} · ${r.sku}: ${Number(r.qty)} (${r.d} hari)`), 'Barang rusak yang menumpuk perlu diputuskan: retur ke pemasok, dibuang dengan penyesuaian stok, atau dikembalikan bila ternyata baik. Rak ini rawan dipakai menyembunyikan pencurian.');
-    const rep = await this.db.execute<{ wh: string; code: string; n: number }>(sql`
-      SELECT w.code AS wh, b.code, COUNT(DISTINCT c.id)::int AS n
-      FROM stock_counts c JOIN warehouse_bins b ON b.id = c.bin_id JOIN warehouses w ON w.id = c.warehouse_id
-      JOIN stock_count_lines l ON l.count_id = c.id AND l.difference IS NOT NULL AND l.difference <> 0
-      WHERE c.tenant_id = ${tenantId} AND c.status = 'POSTED' AND c.posted_at > now() - interval '90 days' ${wf}
-      GROUP BY w.code, b.code HAVING COUNT(DISTINCT c.id) >= 2 ORDER BY n DESC LIMIT 50`);
+    const rep = await this.repo.queryStockCount(this.db, tenantId, wf);
     add('BIN_COUNT_REPEAT', 'warning', 'Rak dengan selisih opname berulang (90 hari)', rep.rows.map((r) => `${r.wh} · rak ${r.code}: ${r.n} kali selisih`), 'Selisih berulang di rak yang sama menandakan kebocoran, salah taruh, atau salah catat yang belum diatasi. Selidiki rak ini.');
-    const heavy = await this.db.execute<{ name: string; n: number }>(sql`
-      SELECT COALESCE(u.name, 'Tidak diketahui') AS name, COUNT(*)::int AS n FROM bin_moves m LEFT JOIN users u ON u.id = m.created_by_id
-      JOIN warehouses w ON w.id = m.warehouse_id
-      WHERE m.tenant_id = ${tenantId} AND m.kind = 'MOVE' AND m.created_at > now() - interval '7 days' ${wf}
-      GROUP BY u.name HAVING COUNT(*) >= ${HEAVY_MOVES} ORDER BY n DESC LIMIT 20`);
+    const heavy = await this.repo.queryBinMoveForControls(this.db, tenantId, wf);
     add('BIN_MOVE_HEAVY', 'info', `Pindah rak sangat sering oleh satu orang (≥ ${HEAVY_MOVES} dalam 7 hari)`, heavy.rows.map((r) => `${r.name}: ${r.n} kali`), 'Pindah rak yang berlebihan bisa wajar saat penataan awal, tetapi juga cara menutupi barang yang hilang. Cocokkan dengan hasil opname rak.');
     const bad: string[] = [];
     for (const w of enabled.rows) {

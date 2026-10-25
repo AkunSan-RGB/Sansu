@@ -4,6 +4,7 @@ import { sql, eq, asc, desc } from 'drizzle-orm';
 import { DAY } from './billing.service';
 import { tenants, subscriptions, users, billingInvoices, plans } from '../../db/schema';
 import { PlanDto } from './billing.dto';
+import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 
 /** Akses data untuk PlatformBilling: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -155,5 +156,15 @@ export class PlatformBillingRepository {
   /** Dipakai oleh PlatformBillingService.updatePlan */
   updatePlansById(db: DbOrTx, dto: PlanDto, id: string) {
     return db.update(plans).set(dto).where(eq(plans.id, id)).returning();
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh PlatformBillingService.updateSubscription */
+  updateSubscriptions(
+    db: DbOrTx,
+    patch: PgUpdateSetSource<typeof subscriptions>,
+    tenantId: NonNullable<(typeof subscriptions.$inferSelect)['tenantId']>,
+  ) {
+    return db.update(subscriptions).set(patch).where(eq(subscriptions.tenantId, tenantId));
   }
 }

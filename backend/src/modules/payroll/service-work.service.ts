@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { WORK_LIMITS, WORK_UNIT_LABELS, WORK_UNITS_BY_MODEL, type WorkUnit } from '@sansu/shared';
-import { and, eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -9,18 +9,17 @@ import { addDays, todayJakarta } from '../../common/utils/dates';
 import { D, Dec, money } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { attendances, employees, productionOrders, projects, serviceRates, serviceWorkEntries } from '../../db/schema';
+import { productionOrders, serviceRates, serviceWorkEntries } from '../../db/schema';
 import { monthRange } from '../hr/hr.service';
 import { CreateRateDto, UpdateRateDto, EntryQueryDto, CreateEntryDto, DecideEntryDto, VoidEntryDto } from './service-work.dto';
-import { invoiceUsable } from './service-work.shared';
 import { findOwned, insertOne, lockOwned } from '../../db/owned';
 import { ServiceWorkRepository } from './service-work.repository';
+import { MAX_HOURS_PER_MONTH } from './service-work.repository';
+export { MAX_HOURS_PER_MONTH } from './service-work.repository';
 
 export const MAX_HOURS_PER_DAY = 16;
 
 export const MAX_BACKDATE_DAYS = 62;
-
-export const MAX_HOURS_PER_MONTH = 260;
 
 @Injectable()
 export class ServiceWorkService {
@@ -270,10 +269,7 @@ export class ServiceWorkService {
   async anomalies(u: AuthUser, period: string) {
     const { from, to } = monthRange(period);
     const out: { kind: string; severity: 'warn' | 'info'; message: string; employeeId?: string }[] = [];
-    const hours = await this.db.execute<{ employee_id: string; name: string; h: string }>(sql`
-      SELECT w.employee_id, e.name, SUM(w.quantity) AS h FROM service_work_entries w JOIN employees e ON e.id = w.employee_id
-      WHERE w.tenant_id = ${u.tenantId} AND w.unit = 'HOUR' AND w.status IN ('PENDING','APPROVED') AND w.work_date BETWEEN ${from} AND ${to}
-      GROUP BY w.employee_id, e.name HAVING SUM(w.quantity) > ${MAX_HOURS_PER_MONTH}`);
+    const hours = await this.repo.queryServiceWorkEntryForAnomalies6(this.db, u.tenantId, from, to);
     for (const r of hours.rows) out.push({ kind: 'JAM_BERLEBIH', severity: 'warn', employeeId: r.employee_id, message: `${r.name}: ${D(r.h).toFixed(1)} jam dalam sebulan (batas wajar ${MAX_HOURS_PER_MONTH})` });
     const stuck = await this.repo.queryServiceWorkEntryForAnomalies(this.db, u.tenantId, to);
     for (const r of stuck.rows) out.push({ kind: 'KOMISI_TERTAHAN', severity: 'warn', employeeId: r.employee_id, message: `Komisi ${r.name} dari faktur ${r.number ?? '-'} tertahan: faktur belum lunas, dibatalkan, atau diretur` });

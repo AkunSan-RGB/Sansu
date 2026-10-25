@@ -2,13 +2,13 @@ import { partyNameKey } from '../../common/utils/party-name';
 import { encryptField, maskField } from '../../common/utils/secret';
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuthUser } from '../../common/auth/auth-user';
-import { and, asc, eq, ilike, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, ilike, or } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { D } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { purchaseInvoices, suppliers } from '../../db/schema';
+import { suppliers } from '../../db/schema';
 import { CreateSupplierDto, UpdateSupplierDto } from './purchasing.dto';
 import { findOwned, insertOne } from '../../db/owned';
 import { SuppliersRepository } from './suppliers.repository';
@@ -107,7 +107,7 @@ export class SuppliersService {
     }
     const patch = { ...rest, code: dto.code?.trim().toUpperCase(), ...(bank && !pending ? { ...bank, bankChangedAt: new Date() } : {}) };
     const hasChange = Object.values(patch).some((v) => v !== undefined);
-    const [row] = hasChange ? await this.db.update(suppliers).set(patch).where(eq(suppliers.id, id)).returning() : [cur];
+    const [row] = hasChange ? await this.repo.updateSuppliersByIdForUpdate(this.db, patch, id) : [cur];
     if (dup) await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CONFIRM_DUPLICATE', entity: 'Supplier', entityId: id, data: { similarTo: dup.map((d) => d.code) } });
     if (bank && !pending) await this.bankChanged(u, row, cur, 'UPDATE_BANK');
     return pending ? { ...row, bankChangePending: true, approvalId: pending.id, message: 'Perubahan rekening dikirim ke Pemilik/Admin dan berlaku setelah disetujui.' } : row;

@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { AuditService } from '../../common/audit/audit.service';
@@ -7,12 +7,12 @@ import { SequenceService } from '../../common/sequence/sequence.service';
 import { toDocDate } from '../../common/utils/dates';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { purchaseOrderLines, purchaseOrders, suppliers, tenants, warehouses } from '../../db/schema';
+import { purchaseOrders, suppliers } from '../../db/schema';
 import { buildLines } from '../master-data/products/line-builder';
 import { taxProfileOf } from '../../common/settings.service';
 import { documentTotals } from '../sales/pricing';
 import { foreignTotals } from '../../common/utils/fx';
-import { D, money } from '../../common/utils/money';
+import { money } from '../../common/utils/money';
 import { FxService } from '../fx/fx.service';
 import { PriceAgreementsService } from './price-agreements.service';
 import { CreatePurchaseOrderDto, PurchaseOrderQueryDto } from './purchasing.dto';
@@ -123,19 +123,7 @@ export class PurchaseOrdersService {
           total: totals.total.toFixed(2),
         })
         .returning({ id: purchaseOrders.id });
-      await tx.insert(purchaseOrderLines).values(
-        lines.map((l, i) => ({
-          orderId: order.id,
-          priceForeign: priceForeign[i]?.toFixed(4) ?? null,
-          productId: l.productId,
-          uom: l.uom,
-          uomFactor: l.uomFactor,
-          qty: l.qty,
-          price: l.price.toFixed(2),
-          discountPct: l.discountPct.toFixed(2),
-          lineTotal: l.lineTotal.toFixed(2),
-        })),
-      );
+      await this.repo.insertPurchaseOrderLines(tx, lines, order.id, priceForeign);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PurchaseOrder', entityId: order.id });
       return order.id;
     }

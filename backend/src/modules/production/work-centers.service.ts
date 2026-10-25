@@ -22,8 +22,6 @@ const num = (v: unknown) => Number(v ?? 0);
 
 const dup = (e: unknown) => ['23505'].includes((e as { code?: string }).code ?? (e as { cause?: { code?: string } }).cause?.code ?? '');
 
-type Op = { id: string; order_id: string; sequence: number; name: string; work_center_id: string; planned_minutes: string; actual_minutes: string | null; status: string; started_at: Date | null; scheduled_start: Date | null; scheduled_end: Date | null; labor_cost: string; overhead_cost: string };
-
 @Injectable()
 export class WorkCenterService {
   constructor(
@@ -160,7 +158,7 @@ export class WorkCenterService {
   }
 
   private async lockOp(tx: Tx, tenantId: string, id: string) {
-    const r = await tx.execute<Op & { order_status: string }>(sql`SELECT o.*, p.status AS order_status FROM production_order_operations o JOIN production_orders p ON p.id = o.order_id WHERE o.id = ${id} AND o.tenant_id = ${tenantId} FOR UPDATE OF o`);
+    const r = await this.repo.queryProductionOrderOperationForLockOp(tx, id, tenantId);
     if (!r.rows.length) throw new NotFoundException('Operasi tidak ditemukan');
     return r.rows[0];
   }
@@ -250,7 +248,7 @@ export class WorkCenterService {
       const hours = D(minutes).div(60);
       const labor = money(hours.times(wc.labor_rate));
       const overhead = money(hours.times(wc.overhead_rate));
-      await tx.execute(sql`UPDATE production_order_operations SET status = 'DONE', actual_minutes = ${minutes}, finished_at = now(), labor_cost = ${labor.toFixed(2)}, overhead_cost = ${overhead.toFixed(2)}, note = ${dto.note ?? null}, operator_employee_id = ${dto.operatorEmployeeId ?? null}, finished_by_id = ${u.sub} WHERE id = ${opId}`);
+      await this.repo.queryFinishOp(tx, minutes, labor, overhead, dto, u.sub, opId);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'COMPLETE', entity: 'ProductionOperation', entityId: opId, data: { name: op.name, minutes, planned, labor: labor.toFixed(2), overhead: overhead.toFixed(2) } });
     });
     return { ok: true };
@@ -266,7 +264,7 @@ export class WorkCenterService {
       const hours = D(dto.actualMinutes).div(60);
       const labor = money(hours.times(wc.labor_rate));
       const overhead = money(hours.times(wc.overhead_rate));
-      await tx.execute(sql`UPDATE production_order_operations SET actual_minutes = ${dto.actualMinutes}, labor_cost = ${labor.toFixed(2)}, overhead_cost = ${overhead.toFixed(2)} WHERE id = ${opId}`);
+      await this.repo.queryCorrectOp(tx, dto.actualMinutes, labor, overhead, opId);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'ProductionOperation', entityId: opId, data: { before: op.actual_minutes, after: dto.actualMinutes, reason: dto.reason } });
     });
     return { ok: true };
@@ -291,7 +289,7 @@ export class WorkCenterService {
   }
 
   async controls(tenantId: string) {
-    const q = async (t: ReturnType<typeof sql>) => (await this.db.execute(t)).rows;
+    const q = async (t: ReturnType<typeof sql>) => (await this.repo.queryControls(this.db, t)).rows;
     // kapasitas harian: dari kalender shift bila ada (jumlah jam shift pada hari itu), selain itu kapasitas jam/hari
     const days = await q(sql`
       SELECT w.id AS wid, w.code, w.name, to_char((o.scheduled_start AT TIME ZONE 'Asia/Jakarta')::date, 'YYYY-MM-DD') AS day, ROUND(SUM(EXTRACT(EPOCH FROM (o.scheduled_end - o.scheduled_start)) / 3600)::numeric, 1) AS hours, w.capacity_hours AS capacity

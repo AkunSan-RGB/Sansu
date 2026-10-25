@@ -12,7 +12,10 @@ import {
   stockMinimums,
 } from '../../db/schema';
 import { CreateTransferDto, CreateCountDto } from './warehouse-ops.dto';
-import { type Dec } from '../../common/utils/money';
+import { type Dec, D } from '../../common/utils/money';
+import type { CountLineDto } from './warehouse-ops.dto';
+
+export const q4 = (v: string | number) => D(v).toFixed(4);
 
 /** Akses data transfer gudang. */
 @Injectable()
@@ -67,15 +70,13 @@ export class WarehouseRepository {
     unitCost: Dec,
     writedownUnit: Dec,
   ) {
-    return db
-      .insert(stockTransferLines)
-      .values({
-        transferId: id,
-        productId: productId,
-        qty: qty.toFixed(4),
-        unitCost: unitCost.toFixed(4),
-        writedownUnit: writedownUnit.toFixed(4),
-      });
+    return db.insert(stockTransferLines).values({
+      transferId: id,
+      productId: productId,
+      qty: qty.toFixed(4),
+      unitCost: unitCost.toFixed(4),
+      writedownUnit: writedownUnit.toFixed(4),
+    });
   }
 
   /** Dipakai oleh WarehouseOpsService.createTransfer */
@@ -240,5 +241,60 @@ export class WarehouseRepository {
     return db
       .delete(stockMinimums)
       .where(and(eq(stockMinimums.productId, productId), eq(stockMinimums.warehouseId, warehouseId)));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh WarehouseOpsService.createCount */
+  insertStockCountLines(
+    db: DbOrTx,
+    rows: { id: string; qty: string }[],
+    i: number,
+    id: `${string}-${string}-${string}-${string}-${string}`,
+  ) {
+    return db
+      .insert(stockCountLines)
+      .values(rows.slice(i, i + 1000).map((r) => ({ countId: id, productId: r.id, systemQty: q4(r.qty) })));
+  }
+
+  /** Dipakai oleh WarehouseOpsService.updateCount */
+  updateStockCountLinesByCountIdAndProductId(
+    db: DbOrTx,
+    l: CountLineDto,
+    id: NonNullable<(typeof stockCountLines.$inferSelect)['countId']>,
+  ) {
+    return db
+      .update(stockCountLines)
+      .set({ countedQty: l.countedQty === null ? null : q4(l.countedQty) })
+      .where(and(eq(stockCountLines.countId, id), eq(stockCountLines.productId, l.productId)));
+  }
+
+  /** Dipakai oleh WarehouseOpsService.postCountTx */
+  updateStockCountLinesByCountIdAndProductIdForPostCountTx(
+    db: DbOrTx,
+    qty: string,
+    diff: Dec,
+    id: NonNullable<(typeof stockCountLines.$inferSelect)['countId']>,
+    productId: NonNullable<(typeof stockCountLines.$inferSelect)['productId']>,
+  ) {
+    return db
+      .update(stockCountLines)
+      .set({ postedSystemQty: q4(qty), difference: diff.toFixed(4) })
+      .where(and(eq(stockCountLines.countId, id), eq(stockCountLines.productId, productId)));
+  }
+
+  /** Dipakai oleh WarehouseOpsService.saveMinimums */
+  insertStockMinimums(db: DbOrTx, tenantId: string, productId: string, warehouseId: string, minQty: string) {
+    return db
+      .insert(stockMinimums)
+      .values({
+        tenantId: tenantId,
+        productId: productId,
+        warehouseId: warehouseId,
+        minQty: q4(minQty),
+      })
+      .onConflictDoUpdate({
+        target: [stockMinimums.productId, stockMinimums.warehouseId],
+        set: { minQty: q4(minQty) },
+      });
   }
 }

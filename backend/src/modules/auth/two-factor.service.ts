@@ -1,6 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
-import { eq } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { newBackupCodes, newTotpSecret, normalizeBackupCode, otpauthUrl, verifyTotp } from '../../common/auth/totp';
 import { TwoFactorPolicy } from '../../common/auth/two-factor-policy';
@@ -12,6 +11,7 @@ import { users } from '../../db/schema';
 import { AuthService } from './auth.service';
 import { TwoFactorDisableDto } from './two-factor.dto';
 import { patchById } from '../../db/owned';
+import { TwoFactorRepository } from './two-factor.repository';
 
 @Injectable()
 export class TwoFactorService {
@@ -20,10 +20,11 @@ export class TwoFactorService {
     private readonly auth: AuthService,
     private readonly policy: TwoFactorPolicy,
     private readonly mail: MailService,
+    private readonly repo: TwoFactorRepository,
   ) {}
 
   private async user(id: string) {
-    const [u] = await this.db.select().from(users).where(eq(users.id, id));
+    const [u] = await this.repo.findUsersById(this.db, id);
     if (!u) throw new BadRequestException('Pengguna tidak ditemukan');
     return u;
   }

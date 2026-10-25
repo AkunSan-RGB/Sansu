@@ -21,8 +21,6 @@ const MAX_ATTEMPTS = 3;
 
 const MAX_ATTACHMENTS = 10;
 
-type Insp = { source_type: string; receipt_id: string | null; parent_id: string | null; attempt: number; qty_reworked: string; lot_no: string | null; expiry_date: string | null; sample_size: string | null; accept_defects: number | null; id: string; number: string; order_id: string | null; product_id: string; warehouse_id: string; release_warehouse_id: string; qty: string; unit_cost: string; status: string; qty_pass: string | null; qty_fail: string | null; qty_scrapped: string; completed_by_id: string | null; inspector_id: string | null };
-
 @Injectable()
 export class QcService {
   constructor(
@@ -75,7 +73,7 @@ export class QcService {
       const plan = (await this.repo.queryQcPlan(tx, u.tenantId, productId, dto)).rows[0];
       await this.repo.queryQcPlanParam(tx, plan.id);
       for (const [i, p] of dto.params.entries()) {
-        await tx.execute(sql`INSERT INTO qc_plan_params (tenant_id, plan_id, sequence, name, kind, min_value, max_value, unit, critical) VALUES (${u.tenantId}, ${plan.id}, ${i + 1}, ${p.name.trim()}, ${p.kind}, ${p.kind === 'NUMERIC' ? p.minValue ?? null : null}, ${p.kind === 'NUMERIC' ? p.maxValue ?? null : null}, ${p.unit ?? null}, ${p.critical ?? false})`);
+        await this.repo.queryQcPlanParamForSavePlan(tx, u, plan.id, i, p);
       }
       const require = dto.requireOnProduction ?? true;
       if (require && !(await this.quarantineWarehouse(tx, u.tenantId))) throw new BadRequestException('Siapkan gudang karantina dulu (Pengendalian mutu › Siapkan karantina)');
@@ -95,7 +93,7 @@ export class QcService {
       sampleSize = Math.min(Math.ceil(total), Math.min(plan.sample_max ?? Infinity, Math.max(plan.sample_min ?? 1, raw)));
     }
     const number = await this.seq.next(tx, u.tenantId, 'QC_INSPECTION', todayJakarta());
-    const id = (await tx.execute<{ id: string }>(sql`INSERT INTO qc_inspections (tenant_id, number, source_type, order_id, receipt_id, product_id, plan_id, warehouse_id, release_warehouse_id, qty, unit_cost, completed_by_id, lot_no, expiry_date, parent_id, attempt, sample_size, accept_defects) VALUES (${u.tenantId}, ${number}, ${p.sourceType}, ${p.orderId ?? null}, ${p.receiptId ?? null}, ${p.productId}, ${plan?.id ?? null}, ${p.warehouseId}, ${p.releaseWarehouseId}, ${p.qty}, ${p.unitCost}, ${u.sub}, ${p.lot?.lotNo ?? null}, ${p.lot?.expiryDate ?? null}, ${p.parentId ?? null}, ${p.attempt ?? 1}, ${sampleSize}, ${sampleSize != null ? plan!.accept_defects : null}) RETURNING id`)).rows[0].id;
+    const id = (await this.repo.queryQcInspection(tx, u, number, p.sourceType, p.orderId, p.receiptId, p.productId, plan, p.warehouseId, p.releaseWarehouseId, p.qty, p.unitCost, p.lot?.lotNo, p.lot?.expiryDate, p.parentId, p.attempt, sampleSize)).rows[0].id;
     if (p.parentId) await this.repo.queryQcInspectionResult(tx, id, p.parentId);
     else if (plan) await this.repo.queryQcInspectionResultForCreateTx(tx, id, plan.id);
     await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'QcInspection', entityId: id, data: { number, source: p.sourceType, qty: p.qty, attempt: p.attempt ?? 1, sampleSize } });
@@ -138,7 +136,7 @@ export class QcService {
   }
 
   private async lock(tx: Tx, tenantId: string, id: string) {
-    const r = await tx.execute<Insp>(sql`SELECT * FROM qc_inspections WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
+    const r = await this.repo.queryQcInspectionForLock(tx, id, tenantId);
     if (!r.rows.length) throw new NotFoundException('Inspeksi tidak ditemukan');
     return r.rows[0];
   }
@@ -176,7 +174,7 @@ export class QcService {
         if (!v) throw new BadRequestException(`Parameter "${r.name}" belum diisi`);
         const ok = this.judge(r, v);
         if (!ok) { anyFail = true; if (r.critical) criticalFail = true; }
-        await tx.execute(sql`UPDATE qc_inspection_results SET value = ${v.value ?? null}, passed = ${ok} WHERE id = ${r.id}`);
+        await this.repo.queryDecideForDecide(tx, v, ok, r.id);
       }
       for (const k of given.keys()) if (!rows.some((r) => r.id === k)) throw new BadRequestException('Ada parameter yang bukan bagian inspeksi ini');
       const total = D(i.qty);
@@ -192,12 +190,12 @@ export class QcService {
         await this.stock.move(tx, { tenantId: u.tenantId, productId: i.product_id, warehouseId: i.release_warehouse_id, type: 'TRANSFER_IN', qty: qtyPass, unitCost: out.unitCost, writedownUnit: out.writedownUnit, refType: 'QC_INSPECTION', refId: i.id, refNumber: i.number, date: todayJakarta(), skipAccessCheck: true });
         // nomor lot dan kedaluwarsa ikut ke gudang tujuan (pencatatan lot tidak ikut mutasi QC secara otomatis)
         if (i.lot_no || i.expiry_date) {
-          const lot = await tx.execute<{ id: string }>(sql`INSERT INTO stock_lots (tenant_id, product_id, warehouse_id, lot_no, expiry_date, received_date, qty_received, qty_remaining, source_type, source_ref) VALUES (${u.tenantId}, ${i.product_id}, ${i.release_warehouse_id}, ${i.lot_no}, ${i.expiry_date}, ${todayJakarta()}, ${qtyPass.toFixed(4)}, ${qtyPass.toFixed(4)}, 'QC_INSPECTION', ${i.id}) RETURNING id`);
+          const lot = await this.repo.queryStockLot(tx, u.tenantId, i.product_id, i.release_warehouse_id, i.lot_no, i.expiry_date, qtyPass, i.id);
           await relabelAsLot(tx, { tenantId: u.tenantId, warehouseId: i.release_warehouse_id, productId: i.product_id, lotId: lot.rows[0].id, qty: qtyPass });
         }
       }
       const status = qtyFail.isZero() ? 'PASSED' : qtyPass.isZero() ? 'FAILED' : 'PARTIAL';
-      await tx.execute(sql`UPDATE qc_inspections SET status = ${status}, qty_pass = ${qtyPass.toFixed(4)}, qty_fail = ${qtyFail.toFixed(4)}, inspector_id = ${u.sub}, decided_at = now(), note = ${dto.note ?? null} WHERE id = ${id}`);
+      await this.repo.queryDecideForDecide2(tx, status, qtyPass, qtyFail, u.sub, dto, id);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: status === 'PASSED' ? 'APPROVE' : 'REJECT', entity: 'QcInspection', entityId: id, data: { number: i.number, status, qtyPass: qtyPass.toString(), qtyFail: qtyFail.toString(), criticalFail, note: dto.note } });
     });
     return this.get(u.tenantId, id);
@@ -213,7 +211,7 @@ export class QcService {
       const q = qty4(dto.qty);
       if (q.gt(remaining)) throw new BadRequestException(`Sisa lot gagal di karantina (di luar yang sedang dikerjakan ulang) hanya ${remaining.toFixed(4)}`);
       const r = await this.inventory.adjust(u, { warehouseId: i.warehouse_id, date: todayJakarta(), reason: 'DAMAGED', notes: `Scrap QC ${i.number}: ${dto.reason}`, lines: [{ productId: i.product_id, qty: q.negated().toFixed(4) }] }, tx, { qc: true });
-      await tx.execute(sql`UPDATE qc_inspections SET qty_scrapped = qty_scrapped + ${q.toFixed(4)} WHERE id = ${id}`);
+      await this.repo.queryScrap(tx, q, id);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CANCEL', entity: 'QcInspection', entityId: id, data: { number: i.number, scrapped: q.toString(), reason: dto.reason, adjustment: r.number, value: r.valueOut } });
     });
     return this.get(u.tenantId, id);
@@ -228,7 +226,7 @@ export class QcService {
       const remaining = D(i.qty_fail ?? 0).minus(i.qty_scrapped).minus(i.qty_reworked);
       const q = qty4(dto.qty);
       if (q.gt(remaining)) throw new BadRequestException(`Sisa lot gagal di karantina hanya ${remaining.toFixed(4)}`);
-      await tx.execute(sql`UPDATE qc_inspections SET qty_reworked = qty_reworked + ${q.toFixed(4)} WHERE id = ${id}`);
+      await this.repo.queryRework(tx, q, id);
       const child = await this.createTx(tx, u, { sourceType: i.source_type as 'PRODUCTION' | 'RECEIPT', orderId: i.order_id, receiptId: i.receipt_id, productId: i.product_id, warehouseId: i.warehouse_id, releaseWarehouseId: i.release_warehouse_id, qty: q.toFixed(4), unitCost: i.unit_cost, lot: { lotNo: i.lot_no, expiryDate: i.expiry_date }, parentId: id, attempt: i.attempt + 1 });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'QcInspection', entityId: id, data: { number: i.number, rework: q.toString(), reason: dto.reason, next: child.number, attempt: i.attempt + 1 } });
       return child.id;
@@ -273,7 +271,7 @@ export class QcService {
   }
 
   async controls(tenantId: string) {
-    const q = async (t: ReturnType<typeof sql>) => (await this.db.execute(t)).rows;
+    const q = async (t: ReturnType<typeof sql>) => (await this.repo.queryControls(this.db, t)).rows;
     const pendingOld = await q(sql`SELECT i.number, pr.name AS product, i.qty, i.created_at AS "createdAt" FROM qc_inspections i JOIN products pr ON pr.id = i.product_id WHERE i.tenant_id = ${tenantId} AND i.status = 'PENDING' AND i.created_at < now() - interval '1 day' ORDER BY i.created_at LIMIT 50`);
     const held = await q(sql`SELECT i.number, pr.name AS product, (i.qty_fail - i.qty_scrapped - i.qty_reworked) AS qty, ROUND((i.qty_fail - i.qty_scrapped - i.qty_reworked) * i.unit_cost, 2) AS value, i.decided_at AS "decidedAt" FROM qc_inspections i JOIN products pr ON pr.id = i.product_id WHERE i.tenant_id = ${tenantId} AND i.status IN ('FAILED', 'PARTIAL') AND i.qty_fail > i.qty_scrapped + i.qty_reworked ORDER BY i.decided_at LIMIT 50`);
     const failRate = await q(sql`SELECT pr.name AS product, COUNT(*)::int AS inspections, SUM(i.qty) AS qty, SUM(i.qty_fail) AS failed, ROUND(SUM(i.qty_fail) / NULLIF(SUM(i.qty), 0) * 100, 1) AS "failPct" FROM qc_inspections i JOIN products pr ON pr.id = i.product_id WHERE i.tenant_id = ${tenantId} AND i.status <> 'PENDING' AND i.decided_at > now() - interval '90 days' GROUP BY pr.name HAVING SUM(i.qty_fail) > 0 ORDER BY 5 DESC LIMIT 20`);

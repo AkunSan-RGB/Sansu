@@ -12,16 +12,15 @@ import { addDays, assertNotFarFuture, toDocDate, todayJakarta } from '../../comm
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, branches, cashTransactionLines, cashTransactions, fixedAssets, journalEntries, projects } from '../../db/schema';
+import { accounts, branches, cashTransactions, fixedAssets, journalEntries } from '../../db/schema';
 import { BudgetService } from '../accounting/budget.service';
 import { PostingService } from '../accounting/posting.service';
 import { AssetsService } from '../assets/assets.service';
-import { CreateCashTxDto, CashLineDto, CashQueryDto, VoidCashDto, CashEvidenceDto } from './cash.dto';
+import { CreateCashTxDto, CashQueryDto, VoidCashDto, CashEvidenceDto } from './cash.dto';
 import { insertOne, patchById } from '../../db/owned';
 import { CashRepository } from './cash.repository';
-
-/** Kas yang sudah melewati penentuan sumber: setiap baris punya akun */
-export type ResolvedCashTx = Omit<CreateCashTxDto, 'lines'> & { lines?: (Omit<CashLineDto, 'accountId'> & { accountId: string; sourceKey?: string })[] };
+import type { ResolvedCashTx } from './cash.repository';
+export type { ResolvedCashTx } from './cash.repository';
 
 export const DEFAULT_CASH_SETTINGS = { evidenceFrom: 0, blockNegative: true, maxCashBalance: 0 };
 
@@ -123,7 +122,7 @@ export class CashService {
     if (keys.some((k) => k.needsRef) && !dto.reference?.trim()) {
       throw new BadRequestException(`Isi nomor bukti/referensi untuk ${keys.filter((k) => k.needsRef).map((k) => `"${k.label}"`).join(', ')} (mis. bukti setor, perjanjian pinjaman, nota)`);
     }
-    const found = await this.db.execute<{ id: string; code: string }>(sql`SELECT id, code FROM accounts WHERE tenant_id = ${user.tenantId} AND is_postable AND code IN (${sql.join(keys.map((k) => sql`${k.code}`), sql`, `)})`);
+    const found = await this.repo.queryAccountForResolveSources(this.db, user.tenantId, keys.map((k) => sql`${k.code}`));
     const byCode = new Map(found.rows.map((r) => [r.code, r.id]));
     const out = lines.map((l) => {
       if (!l.source) return l;
@@ -258,16 +257,7 @@ export class CashService {
           branchId: dto.branchId ?? cash.branchId ?? null,
         });
       if (lines.length && dto.type !== 'TRANSFER') {
-        await tx.insert(cashTransactionLines).values(
-          lines.map((l) => ({
-            transactionId: trx.id,
-            accountId: l.accountId as string,
-            amount: money(l.amount).toFixed(2),
-            memo: l.memo,
-            projectId: dto.type === 'OUT' ? l.projectId : undefined,
-            sourceKey: (l as { sourceKey?: string }).sourceKey,
-          })),
-        );
+        await this.repo.insertCashTransactionLines(tx, lines, trx.id, dto);
       }
 
       // Rekening kas/bank milik cabang: barisnya berlabel cabang rekening itu; selisih dengan cabang transaksi ditutup otomatis (antar cabang)
@@ -494,7 +484,7 @@ export class CashService {
 
     // Jurnal manual 60 hari terakhir: jalan pintas yang tidak lewat faktur/kas/stok — sering dipakai menutupi kecurangan
     const limit = pol.manualJournal > 0 ? pol.manualJournal : 10_000_000;
-    const jrows = async (q: ReturnType<typeof sql>) => (await this.db.execute<{ number: string; d: string; v: string }>(q)).rows;
+    const jrows = async (q: ReturnType<typeof sql>) => (await this.repo.queryControls(this.db, q)).rows;
     const fmtJ = (r: { number: string; d: string; v: string }) => `${r.number} (${r.d}) Rp${Math.round(Number(r.v)).toLocaleString('id-ID')}`;
     const big = await jrows(sql`
       SELECT j.number, j.date::text AS d, SUM(l.debit)::text AS v FROM journal_entries j JOIN journal_lines l ON l.journal_id = j.id

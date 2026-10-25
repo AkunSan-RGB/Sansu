@@ -13,6 +13,7 @@ import {
 import { inArray, eq, sql, and, ne, asc } from 'drizzle-orm';
 import { MarketplaceSettleDto } from './integrations.dto';
 import { Dec } from '../../common/utils/money';
+import type { SQL } from 'drizzle-orm';
 
 /** Akses data untuk Integrations: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -163,5 +164,15 @@ export class IntegrationsRepository {
       notes: `Pencairan ${channel} #${orderNo}`,
       journalId: journalId,
     });
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh IntegrationsService.coretaxDocs */
+  queryDepositApplication(db: DbOrTx, tenantId: string, rowsValues: SQL<unknown>[]) {
+    return db.execute<{ invoice_id: string; dpp: string; tax: string; numbers: string }>(sql`
+            SELECT a.invoice_id, SUM(a.dpp) AS dpp, SUM(a.tax_amount) AS tax, string_agg(DISTINCT d.number, ', ') AS numbers
+            FROM deposit_applications a JOIN customer_deposits d ON d.id = a.deposit_id
+            WHERE a.tenant_id = ${tenantId} AND d.tax_amount > 0 AND a.invoice_id IN (${sql.join(rowsValues, sql`, `)})
+            GROUP BY a.invoice_id`);
   }
 }

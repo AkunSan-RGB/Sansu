@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { sql } from 'drizzle-orm';
+import { Role } from '../../db/schema';
+
+export const DIGEST_ROLES: Role[] = ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'];
 
 /** Akses data untuk ReminderMailer: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -76,5 +79,15 @@ export class ReminderMailerRepository {
   /** Dipakai oleh ReminderMailer.schedulableTenants */
   queryTenantForSchedulableTenants(db: DbOrTx) {
     return db.execute<{ id: string }>(sql`SELECT id FROM tenants WHERE NOT (settings ? 'demo')`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh ReminderMailer.sendDigest */
+  queryUserForSendDigest(db: DbOrTx, tenantId: string) {
+    return db.execute<{ id: string; email: string; name: string; role: Role }>(sql`
+      SELECT id, email, name, role FROM users WHERE tenant_id = ${tenantId} AND is_active AND role IN (${sql.join(
+        DIGEST_ROLES.map((r) => sql`${r}::role`),
+        sql`, `,
+      )})`);
   }
 }

@@ -13,11 +13,8 @@ import { SettingsService } from '../../common/settings.service';
 import { todayJakarta } from '../../common/utils/dates';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { Role } from '../../db/schema';
 import { RemindersService, type ReminderItem, type ReminderSettings } from './reminders.service';
 import { ReminderMailerRepository } from './reminder-mailer.repository';
-
-const DIGEST_ROLES: Role[] = ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'];
 const DIGEST_HOUR_WIB = 7;
 const rp = (v: number | string) => `Rp${Math.round(Number(v)).toLocaleString('id-ID')}`;
 const LEVEL_MARK = { error: '‼', warning: '•', info: '·' } as const;
@@ -78,8 +75,7 @@ export class ReminderMailer {
     if (!this.mail.configured && process.env.NODE_ENV !== 'test') return { sent: 0, skipped: 'smtp' };
     const today = todayJakarta();
     const [t] = (await this.repo.queryTenant(this.db, tenantId)).rows;
-    const users = (await this.db.execute<{ id: string; email: string; name: string; role: Role }>(sql`
-      SELECT id, email, name, role FROM users WHERE tenant_id = ${tenantId} AND is_active AND role IN (${sql.join(DIGEST_ROLES.map((r) => sql`${r}::role`), sql`, `)})`)).rows;
+    const users = (await this.repo.queryUserForSendDigest(this.db, tenantId)).rows;
     let sent = 0;
     for (const u of users) {
       const view = await this.reminders.forUser({ tenantId, sub: u.id, role: u.role } as AuthUser);

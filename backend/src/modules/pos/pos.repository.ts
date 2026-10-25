@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { stockBalances, posSessions, tenants, customers, products } from '../../db/schema';
+import { stockBalances, posSessions, tenants, customers, products, posOrderLines, posPayments } from '../../db/schema';
 import { and, eq, sql } from 'drizzle-orm';
 import { nowAt } from '../../common/utils/dates';
 import { Dec } from '../../common/utils/money';
 import { type PosPaymentMethod } from '@sansu/shared';
+import type { RecipeComponent } from './recipe-issue';
 
 /** Akses data untuk Pos: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -105,5 +106,41 @@ export class PosRepository {
   /** Dipakai oleh PosService.lockSession */
   findPosSessionsById(db: DbOrTx, id: string) {
     return db.select().from(posSessions).where(eq(posSessions.id, id));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh PosService.createOrderTx */
+  insertPosOrderLines(
+    db: DbOrTx,
+    id: string,
+    productId: string,
+    uom: string,
+    uomFactor: string,
+    qty: string,
+    price: Dec,
+    discountPct: Dec,
+    lineTotal: Dec,
+    unitCost: Dec,
+    recipe: RecipeComponent[] | undefined,
+  ) {
+    return db.insert(posOrderLines).values({
+      orderId: id,
+      productId: productId,
+      uom: uom,
+      uomFactor: uomFactor,
+      qty: qty,
+      price: price.toFixed(2),
+      discountPct: discountPct.toFixed(2),
+      lineTotal: lineTotal.toFixed(2),
+      unitCost: unitCost.toFixed(4),
+      fromRecipe: !!recipe,
+    });
+  }
+
+  /** Dipakai oleh PosService.createOrderTx */
+  insertPosPayments(db: DbOrTx, byMethod: Map<'TRANSFER' | 'CASH' | 'QRIS' | 'DEBIT' | 'PLATFORM', Dec>, id: string) {
+    return db
+      .insert(posPayments)
+      .values([...byMethod].map(([method, amount]) => ({ orderId: id, method, amount: amount.toFixed(2) })));
   }
 }

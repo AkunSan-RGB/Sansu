@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import type { Bom, ProductionOrder, ProductionReport } from '@sansu/shared';
 import { WorkflowService } from '../workflow/workflow.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -10,7 +10,7 @@ import { addDays, toDocDate } from '../../common/utils/dates';
 import { D, Dec, money, qty4, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { bomLines, boms, productionOrderLines, productionOrders, products, warehouses } from '../../db/schema';
+import { boms, productionOrderLines, productionOrders } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { inventoryLines, semiSet } from '../inventory/inventory-accounts';
@@ -113,9 +113,7 @@ export class ProductionService {
       const [dup] = await this.repo.findBomsByCode(tx, user.tenantId, code);
       if (dup) throw new BadRequestException(`Kode resep ${code} sudah dipakai`);
       const [b] = await this.repo.insertBoms(tx, user.tenantId, code, dto.name, dto.productId, dto.outputQty, dto.laborCost, dto.overheadCost, dto.notes);
-      await tx
-        .insert(bomLines)
-        .values(dto.lines.map((l) => ({ bomId: b.id, productId: l.productId, qty: qty4(l.qty).toFixed(4) })));
+      await this.repo.insertBomLines(tx, dto.lines, b.id);
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,
@@ -145,9 +143,7 @@ export class ProductionService {
         });
       // Perintah produksi menyimpan salinan bahan sendiri, jadi resep aman diubah
       await this.repo.deleteBomLinesByBomId(tx, id);
-      await tx
-        .insert(bomLines)
-        .values(dto.lines.map((l) => ({ bomId: id, productId: l.productId, qty: qty4(l.qty).toFixed(4) })));
+      await this.repo.insertBomLines(tx, dto.lines, id);
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,

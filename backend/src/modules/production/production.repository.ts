@@ -3,6 +3,7 @@ import { DbOrTx } from '../../db/db';
 import { sql, eq, inArray, and, desc, or } from 'drizzle-orm';
 import { bomLines, products, boms, productionOrders, warehouses, productionOrderLines } from '../../db/schema';
 import { qty4, money, D, Dec } from '../../common/utils/money';
+import type { BomLineDto } from './production.dto';
 
 /** Akses data untuk Production: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -311,5 +312,13 @@ export class ProductionRepository {
       .select({ id: products.id, sku: products.sku, name: products.name, unit: products.baseUom })
       .from(products)
       .where(inArray(products.id, prodIds));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh ProductionService.createBom */
+  insertBomLines(db: DbOrTx, lines: BomLineDto[], id: string) {
+    return db
+      .insert(bomLines)
+      .values(lines.map((l) => ({ bomId: id, productId: l.productId, qty: qty4(l.qty).toFixed(4) })));
   }
 }

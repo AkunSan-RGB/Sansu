@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { WorkflowService } from '../workflow/workflow.service';
@@ -7,26 +7,12 @@ import { AuditService } from '../../common/audit/audit.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { SettingsService, taxProfileOf } from '../../common/settings.service';
 import { lineTotal, roundVat } from '../sales/pricing';
-import { addDays, assertNotFuture, diffDays, toDocDate, todayJakarta } from '../../common/utils/dates';
+import { addDays, toDocDate } from '../../common/utils/dates';
 import { D, Dec, money, qty4, ZERO } from '../../common/utils/money';
-import { settleForeign } from '../../common/utils/fx';
 import { FxService } from '../fx/fx.service';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import {
-  accounts,
-  goodsReceiptBillings,
-  goodsReceiptLines,
-  goodsReceipts,
-  purchaseInvoiceLines,
-  purchaseInvoices,
-  projects,
-  purchaseOrderLines,
-  purchaseOrders,
-  supplierPayments,
-  suppliers,
-  tenants,
-} from '../../db/schema';
+import { goodsReceiptLines, goodsReceipts, purchaseInvoiceLines, purchaseInvoices, purchaseOrderLines, purchaseOrders, supplierPayments } from '../../db/schema';
 import { AssetsService } from '../assets/assets.service';
 import { SYS } from '../accounting/default-coa';
 import { BudgetService } from '../accounting/budget.service';
@@ -35,7 +21,7 @@ import { StockService } from '../inventory/stock.service';
 import { QcService } from '../production/qc.service';
 import { GoodsReceiptsService, QTY_EPS } from './goods-receipts.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
-import { CreateBillDto, CreatePurchaseInvoiceDto, CreateSupplierPaymentDto, PurchaseInvoiceQueryDto } from './purchasing.dto';
+import { CreatePurchaseInvoiceDto, PurchaseInvoiceQueryDto } from './purchasing.dto';
 import { PurchaseInvoiceRepository } from './purchase-invoice.repository';
 import { insertOne, patchById } from '../../db/owned';
 
@@ -304,20 +290,7 @@ export class PurchaseInvoicesService {
       stockValue = stockValue.plus(moved.value);
       values.set(line.id, { unitCost, value: moved.value });
       if (toQc) qcItems.push({ productId: line.productId, qty: baseQty.toFixed(4), unitCost: unitCost.toFixed(4), lot: lotOf.get(line.id) });
-      await tx.insert(purchaseInvoiceLines).values({
-        invoiceId: invoice.id,
-        productId: line.productId,
-        uom: line.uom,
-        uomFactor: line.uomFactor,
-        qty: line.qty,
-        price: (over.get(line.id) ?? D(line.price)).toFixed(2),
-        priceForeign: pr.foreignPrice.get(line.id)?.toFixed(4) ?? null,
-        discountPct: line.discountPct,
-        lineTotal: dpp.toFixed(2),
-        unitCost: unitCost.toFixed(4),
-        priceVariance: dpp.minus(line.lineTotal).toFixed(2),
-        orderLineId: line.id,
-      });
+      await this.repo.insertPurchaseInvoiceLines(tx, invoice.id, line.productId, line.uom, line.uomFactor, line.qty, over, line.id, line.price, pr, line.discountPct, dpp, unitCost, line.lineTotal);
     }
     // Selisih pembulatan antara DPP (atau DPP+PPN bila non-PKP) dan nilai stok (biaya satuan 4 desimal) → Selisih Persediaan
     const rounding = money(costBase.minus(stockValue));

@@ -3,6 +3,7 @@ import { DbOrTx } from '../../../db/db';
 import { sql, eq } from 'drizzle-orm';
 import { productUoms } from '../../../db/schema';
 import { ProductUomDto } from './products.dto';
+import type { SQL } from 'drizzle-orm';
 
 /** Akses data untuk Products: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -73,5 +74,16 @@ export class ProductsRepository {
   /** Dipakai oleh ProductsService.update */
   deleteProductUomsByProductId(db: DbOrTx, id: string) {
     return db.delete(productUoms).where(eq(productUoms.productId, id));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh ProductsService.mergeCategories */
+  queryProductForMergeCategories(db: DbOrTx, cond: SQL<unknown>) {
+    return db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM products WHERE ${cond}`);
+  }
+
+  /** Dipakai oleh ProductsService.mergeCategories */
+  queryMergeCategories(db: DbOrTx, to: string | null, cond: SQL<unknown>) {
+    return db.execute<{ id: string }>(sql`UPDATE products SET category = ${to}::text WHERE ${cond} RETURNING id`);
   }
 }

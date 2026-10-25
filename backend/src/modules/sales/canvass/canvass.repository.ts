@@ -207,4 +207,18 @@ export class CanvassRepository {
       )
       .orderBy(desc(salesVisits.checkedInAt));
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh CanvassService.routes */
+  listSalesRouteStopsWithCustomersByRouteIdAndSeq(
+    db: DbOrTx,
+    rowsValues: NonNullable<(typeof salesRouteStops.$inferSelect)['routeId']>[],
+  ) {
+    return db
+      .select({ s: salesRouteStops, code: customers.code, name: customers.name })
+      .from(salesRouteStops)
+      .innerJoin(customers, eq(customers.id, salesRouteStops.customerId))
+      .where(inArray(salesRouteStops.routeId, rowsValues))
+      .orderBy(salesRouteStops.seq);
+  }
 }

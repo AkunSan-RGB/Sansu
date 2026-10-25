@@ -1,15 +1,15 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { BUSINESS_MODEL_BY_KEY, isProductionModel, type AppKey, type BusinessModel } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SettingsService } from '../../common/settings.service';
 import { Db } from '../../db/db';
-import { tenants } from '../../db/schema';
 import { InjectDb } from '../../db/db.module';
 import { syncChartOfAccounts } from '../accounting/coa-sync';
 import { BusinessModelDto } from './onboarding.dto';
+import { OnboardingRepository } from './onboarding.repository';
 
 export interface OnboardingStep {
   key: string;
@@ -38,18 +38,19 @@ export class OnboardingService {
     private readonly settings: SettingsService,
     private readonly apps: AppsService,
     private readonly audit: AuditService,
+    private readonly repo: OnboardingRepository,
   ) {}
 
   /** Perusahaan yang sudah punya transaksi atau dokumen tidak boleh berganti jenis usaha (data antar jenis usaha tidak boleh tercampur) */
   async hasTransactions(tenantId: string): Promise<boolean> {
     const checks = TRANSACTION_PROBES.map((t) => sql.raw(`SELECT 1 FROM "${t}" WHERE tenant_id = '${tenantId.replace(/'/g, '')}'`));
-    const r = await this.db.execute<{ x: number }>(sql`SELECT 1 AS x WHERE ${sql.join(checks.map((c) => sql`EXISTS (${c})`), sql` OR `)}`);
+    const r = await this.repo.queryHasTransactions(this.db, checks);
     return r.rows.length > 0;
   }
 
   /** Jenis usaha sudah pernah dipilih secara sadar (bukan nilai bawaan perusahaan lama) */
   private async chosen(tenantId: string): Promise<boolean> {
-    const [t] = await this.db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+    const [t] = await this.repo.findTenantsById(this.db, tenantId);
     return !!(t?.settings as { business?: { model?: string } } | null)?.business?.model;
   }
 
@@ -97,21 +98,7 @@ export class OnboardingService {
   }
 
   async status(u: AuthUser) {
-    const r = await this.db.execute<Record<string, boolean | number | string | null>>(sql`
-      SELECT
-        (t.npwp IS NOT NULL AND t.npwp <> '' AND t.address IS NOT NULL AND t.address <> '') AS company,
-        COALESCE(t.settings->'branding'->>'logo', '') <> '' AS logo,
-        COALESCE(t.settings->'entityProfile'->>'appliedAt', '') <> '' AS standard,
-        EXISTS (SELECT 1 FROM products p WHERE p.tenant_id = t.id) AS products,
-        EXISTS (SELECT 1 FROM customers c WHERE c.tenant_id = t.id) AS customers,
-        EXISTS (SELECT 1 FROM journal_entries j WHERE j.tenant_id = t.id
-                AND (j.source_type = 'OPENING' OR (j.source_type = 'STOCK_ADJUSTMENT' AND j.description LIKE '%(OPENING)%'))) AS opening,
-        (SELECT COUNT(*) FROM users x WHERE x.tenant_id = t.id AND x.is_active)::int AS users,
-        (EXISTS (SELECT 1 FROM invoices i WHERE i.tenant_id = t.id) OR EXISTS (SELECT 1 FROM pos_orders o WHERE o.tenant_id = t.id)) AS sale,
-        (EXISTS (SELECT 1 FROM production_orders po WHERE po.tenant_id = t.id AND po.status = 'COMPLETED')
-         OR EXISTS (SELECT 1 FROM pos_orders po2 JOIN pos_order_lines pl ON pl.order_id = po2.id WHERE po2.tenant_id = t.id AND pl.from_recipe)) AS production,
-        EXISTS (SELECT 1 FROM users x WHERE x.id = ${u.sub} AND x.totp_enabled_at IS NOT NULL) AS security
-      FROM tenants t WHERE t.id = ${u.tenantId}`);
+    const r = await this.repo.queryTenant(this.db, u.sub, u.tenantId);
     const s = r.rows[0] ?? {};
     const model = await this.settings.businessModel(this.db, u.tenantId);
     const productStep: Record<BusinessModel, [string, string]> = {

@@ -6,6 +6,8 @@ import { AuthUser } from '../../common/auth/auth-user';
 import { CaseQueryDto } from './workflow.dto';
 import { type WorkflowLinkType } from '@sansu/shared';
 
+export type Source = { table: string; number: (a: string) => string; status: (a: string) => string; created: string };
+
 /** Akses data untuk Workflow: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
 export class WorkflowRepository {
@@ -81,18 +83,16 @@ export class WorkflowRepository {
     caseId: string,
     e: { kind: string; from?: string; to?: string; note?: string; by?: string; auto?: boolean },
   ) {
-    return db
-      .insert(workflowEvents)
-      .values({
-        tenantId: tenantId,
-        caseId: caseId,
-        kind: e.kind,
-        fromStage: e.from ?? null,
-        toStage: e.to ?? null,
-        note: e.note ?? null,
-        byId: e.by ?? null,
-        auto: !!e.auto,
-      });
+    return db.insert(workflowEvents).values({
+      tenantId: tenantId,
+      caseId: caseId,
+      kind: e.kind,
+      fromStage: e.from ?? null,
+      toStage: e.to ?? null,
+      note: e.note ?? null,
+      byId: e.by ?? null,
+      auto: !!e.auto,
+    });
   }
 
   /** Dipakai oleh WorkflowService.create */
@@ -218,5 +218,80 @@ export class WorkflowRepository {
     return db.execute<{ id: string; owner: string | null }>(sql`
       SELECT t.id, (SELECT u.id FROM users u WHERE u.tenant_id = t.id AND u.role = 'OWNER' ORDER BY u.created_at LIMIT 1) AS owner
       FROM tenants t LIMIT 500`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh WorkflowService.liveLinks */
+  queryLiveLinks(db: DbOrTx, s: Source, table: string, tenantId: string, docId: string) {
+    return db.execute<{ number: string; status: string }>(
+      sql.raw(
+        `SELECT ${s.number('t')} AS number, ${s.status('t')} AS status FROM "${table}" t WHERE t.tenant_id = '${tenantId}' AND t.id = '${docId}'`,
+      ),
+    );
+  }
+
+  /** Dipakai oleh WorkflowService.byDoc */
+  queryWorkflowLink(db: DbOrTx, tenantId: string, type: string, docId: string) {
+    return db.execute<{ id: string; number: string; stage: string; status: string; pipeline: string }>(sql`
+      SELECT c.id, c.number, c.stage, c.status, c.pipeline FROM workflow_links l JOIN workflow_cases c ON c.id = l.case_id
+      WHERE l.tenant_id = ${tenantId} AND l.link_type = ${type} AND l.doc_id = ${docId} LIMIT 1`);
+  }
+
+  /** Dipakai oleh WorkflowService.addLink */
+  queryWorkflowLinkForAddLink(db: DbOrTx, tenantId: string, type: string, docId: string) {
+    return db.execute(
+      sql`SELECT 1 FROM workflow_links WHERE tenant_id = ${tenantId} AND link_type = ${type} AND doc_id = ${docId}`,
+    );
+  }
+
+  /** Dipakai oleh WorkflowService.followLinks */
+  queryFollowLinksForFollowLinks(db: DbOrTx, s: Source, table: string, tenantId: string, id: string) {
+    return db.execute<{ number: string; status: string }>(
+      sql.raw(
+        `SELECT ${s.number('t')} AS number, ${s.status('t')} AS status FROM "${table}" t WHERE t.tenant_id = '${tenantId}' AND t.id = '${id}'`,
+      ),
+    );
+  }
+
+  /** Dipakai oleh WorkflowService.followLinks */
+  queryWorkflowLinkForFollowLinks(
+    db: DbOrTx,
+    tenantId: string,
+    id: string,
+    to: string,
+    dId: string,
+    number: string,
+    createdById: string,
+  ) {
+    return db.execute(
+      sql`INSERT INTO workflow_links (tenant_id, case_id, link_type, doc_id, doc_number, created_by_id) VALUES (${tenantId}, ${id}, ${to}, ${dId}, ${number}, ${createdById}) ON CONFLICT DO NOTHING RETURNING id`,
+    );
+  }
+
+  /** Dipakai oleh WorkflowService.discoverDocs */
+  queryDiscoverDocs(
+    db: DbOrTx,
+    s: Source,
+    subjectCol: 'd.customer_id' | 'd.supplier_id' | 'NULL::uuid',
+    table: string,
+    tenantId: string,
+    created: string,
+    since: string,
+    o: { link: WorkflowLinkType; subject?: 'customer' | 'supplier'; label: string; where?: string },
+  ) {
+    return db.execute<{ id: string; number: string; status: string; subject_id: string | null }>(
+      sql.raw(`
+        SELECT d.id, ${s.number('d')} AS number, ${s.status('d')} AS status, ${subjectCol} AS subject_id FROM "${table}" d
+        WHERE d.tenant_id = '${tenantId}' AND (d."${created}" AT TIME ZONE 'Asia/Jakarta')::date >= '${since}' ${o.where ? `AND ${o.where}` : ''}
+          AND NOT EXISTS (SELECT 1 FROM workflow_links l WHERE l.tenant_id = d.tenant_id AND l.link_type = '${o.link}' AND l.doc_id = d.id)
+        ORDER BY d."${created}" LIMIT 50`),
+    );
+  }
+
+  /** Dipakai oleh WorkflowService.gate */
+  queryWorkflowLinkForGate(db: DbOrTx, tenantId: string, link: string, docId: string) {
+    return db.execute<{ case_id: string }>(
+      sql`SELECT case_id FROM workflow_links WHERE tenant_id = ${tenantId} AND link_type = ${link} AND doc_id = ${docId} LIMIT 1`,
+    );
   }
 }

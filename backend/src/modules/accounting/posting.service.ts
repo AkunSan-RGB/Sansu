@@ -1,11 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { PeriodService } from '../../common/period/period.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { DocDate } from '../../common/utils/dates';
 import { D, DecValue } from '../../common/utils/money';
 import { DbOrTx, Tx } from '../../db/db';
-import { accounts, journalEntries, journalLines } from '../../db/schema';
+import { accounts, journalEntries } from '../../db/schema';
 import { DEFAULT_COA, SystemKey } from './default-coa';
 import { JournalValidationError, normalizeJournalLines } from './journal-rules';
 import { ReferenceRepository } from '../../db/reference.repository';
@@ -105,20 +105,7 @@ export class PostingService {
         reference: input.reference,
         createdById: input.createdById,
       });
-    const lines = await tx
-      .insert(journalLines)
-      .values(
-        normalized.lines.map((l) => ({
-          journalId: entry.id,
-          accountId: l.accountId,
-          debit: l.debit.toFixed(2),
-          credit: l.credit.toFixed(2),
-          memo: l.memo,
-          projectId: l.projectId ?? null,
-          branchId: l.branchId === undefined ? entryBranch : l.branchId,
-        })),
-      )
-      .returning();
+    const lines = await this.repo.insertJournalLinesForPost(tx, normalized.lines, entry.id, entryBranch);
     return { ...entry, lines };
   }
 
@@ -179,7 +166,7 @@ export class PostingService {
         // dokumen stok lain (penyesuaian, transfer, produksi, penurunan nilai): gudang dari mutasi stok dokumen itu
         q = wh(sql`SELECT warehouse_id FROM stock_moves WHERE tenant_id = ${tenantId} AND ref_id = ${id} ORDER BY created_at LIMIT 1`);
     }
-    const r = await tx.execute<{ b: string | null }>(q);
+    const r = await this.repo.queryDeriveBranch(tx, q);
     return r.rows[0]?.b ?? null;
   }
 
@@ -269,10 +256,7 @@ export class PostingService {
     if (ids.length) conds.push(inArray(accounts.id, ids));
     if (!conds.length) throw new BadRequestException('Jurnal tanpa akun');
 
-    const found = await tx
-      .select({ id: accounts.id, systemKey: accounts.systemKey, isPostable: accounts.isPostable, code: accounts.code })
-      .from(accounts)
-      .where(and(eq(accounts.tenantId, tenantId), or(...conds)));
+    const found = await this.repo.listAccounts(tx, tenantId, conds);
     const byKey = new Map(found.filter((a) => a.systemKey).map((a) => [a.systemKey!, a]));
     const byId = new Map(found.map((a) => [a.id, a]));
 

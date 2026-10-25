@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, lte } from 'drizzle-orm';
 import { CRM_PROFILES, isValidLostReason, type LeadStatus, type QuotationStatus } from '@sansu/shared';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -9,7 +9,7 @@ import { addDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D } from '../../common/utils/money';
 import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { crmActivities, crmStages, customers, leads, quotationLines, quotations, tenants, warehouses } from '../../db/schema';
+import { crmActivities, crmStages, customers, leads, quotationLines, quotations } from '../../db/schema';
 import { buildLines } from '../master-data/products/line-builder';
 import { SalesOrdersService } from '../sales/orders/sales-orders.service';
 import { documentTotals, inclusiveDocument } from '../sales/pricing';
@@ -270,25 +270,7 @@ export class CrmService {
         : { lines: built.map((l) => ({ ...l, priceInclVat: null })), ...documentTotals(built, rate, taxProfileOf(tenant.settings).vatRounding) };
       const lines = totals.lines;
       const number = await this.seq.next(tx, user.tenantId, 'QUOTATION', date);
-      const [q] = await tx
-        .insert(quotations)
-        .values({
-          tenantId: user.tenantId,
-          number,
-          date,
-          validUntil: addDays(date, dto.validDays ?? 14),
-          customerId: dto.customerId,
-          leadId: dto.leadId,
-          warehouseId: dto.warehouseId,
-          notes: dto.notes,
-          terms: dto.terms,
-          subtotal: totals.subtotal.toFixed(2),
-          taxAmount: totals.taxAmount.toFixed(2),
-          total: totals.total.toFixed(2),
-          pricesIncludeVat: inclusive,
-          createdById: user.sub,
-        })
-        .returning({ id: quotations.id });
+      const [q] = await this.repo.insertQuotations(tx, user.tenantId, number, date, dto, totals.subtotal, totals.taxAmount, totals.total, inclusive, user.sub);
       await tx.insert(quotationLines).values(
         lines.map((l) => ({
           quotationId: q.id,

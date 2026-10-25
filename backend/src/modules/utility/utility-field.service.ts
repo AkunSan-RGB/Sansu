@@ -1,17 +1,17 @@
 import { BadRequestException, CanActivate, ExecutionContext, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { createHash, randomBytes } from 'node:crypto';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { randomBytes } from 'node:crypto';
+import { desc, eq } from 'drizzle-orm';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SubscriptionService } from '../../common/billing/subscription.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { StorageService } from '../../common/storage/storage.service';
-import { toDocDate, todayJakarta } from '../../common/utils/dates';
+import { toDocDate } from '../../common/utils/dates';
 import { D, money } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { utilityBills, utilityCounterReceipts, utilityIngestKeys, utilityRemittances } from '../../db/schema';
+import { utilityCounterReceipts, utilityIngestKeys, utilityRemittances } from '../../db/schema';
 import { PostingService } from '../accounting/posting.service';
 import { PaymentsService } from '../sales/payments/payments.service';
 import { ReadingDto } from './utility.dto';
@@ -20,8 +20,6 @@ import { MeterRowDto, IngestKeyDto, CounterPayDto, RemitDto, DecideDto } from '.
 import { PERIOD } from './utility-field.shared';
 import { insertOne, patchById } from '../../db/owned';
 import { UtilityFieldRepository } from './utility-field.repository';
-
-const hash = (k: string) => createHash('sha256').update(k).digest('hex');
 
 const errMsg = (e: unknown) => {
   const r = (e as { response?: { message?: string | string[] } }).response?.message;
@@ -87,10 +85,7 @@ export class UtilityFieldService {
   }
   async createKey(u: AuthUser, dto: IngestKeyDto) {
     const key = `sum_${randomBytes(24).toString('base64url')}`;
-    const [row] = await this.db
-      .insert(utilityIngestKeys)
-      .values({ tenantId: u.tenantId, name: dto.name.trim(), keyHash: hash(key), keyPrefix: key.slice(0, 8), createdById: u.sub })
-      .returning({ id: utilityIngestKeys.id, name: utilityIngestKeys.name, keyPrefix: utilityIngestKeys.keyPrefix });
+    const [row] = await this.repo.insertUtilityIngestKeys(this.db, u.tenantId, dto.name, key, u.sub);
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityIngestKey', entityId: row.id, data: { name: row.name, prefix: row.keyPrefix } });
     return { ...row, key, warning: 'Simpan kunci ini sekarang. Kunci tidak bisa ditampilkan lagi.' };
   }
@@ -197,7 +192,7 @@ export class UtilityFieldService {
     const outside = await this.repo.queryPayment(this.db, tenantId);
     const stale = await this.repo.queryUtilityCounterReceiptForCounterControls(this.db, tenantId);
     const pending = await this.repo.queryUtilityRemittanceForCounterControls(this.db, tenantId);
-    const mismatch = await this.db.execute(sql`SELECT number, date, difference, status FROM utility_remittances WHERE tenant_id = ${tenantId} AND difference <> 0 AND date >= ${addMonths()} ORDER BY date DESC LIMIT 50`);
+    const mismatch = await this.repo.queryUtilityRemittanceForCounterControls2(this.db, tenantId);
     return { receiptsWithoutRecord: outside.rows, unremittedOverOneDay: stale.rows, remittancesNotConfirmed: pending.rows, remittancesWithDifference: mismatch.rows };
   }
 
@@ -216,12 +211,6 @@ export class UtilityFieldService {
   }
 }
 
-const addMonths = () => {
-  const d = new Date(`${todayJakarta()}T00:00:00Z`);
-  d.setUTCMonth(d.getUTCMonth() - 3);
-  return d.toISOString().slice(0, 10);
-};
-
 /** Menyahkan kunci API (header X-Api-Key) menjadi pengguna sistem perusahaan itu */
 @Injectable()
 export class UtilityIngestGuard implements CanActivate {
@@ -229,12 +218,13 @@ export class UtilityIngestGuard implements CanActivate {
     @InjectDb() private readonly db: Db,
     private readonly subs: SubscriptionService,
     private readonly apps: AppsService,
+    private readonly repo: UtilityFieldRepository,
   ) {}
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const req = ctx.switchToHttp().getRequest<{ headers: Record<string, string | undefined>; user?: AuthUser }>();
     const raw = req.headers['x-api-key'];
     if (!raw || typeof raw !== 'string' || raw.length < 20 || raw.length > 120) throw new UnauthorizedException('Kunci API tidak ada atau tidak valid');
-    const [k] = await this.db.select().from(utilityIngestKeys).where(eq(utilityIngestKeys.keyHash, hash(raw)));
+    const [k] = await this.repo.findUtilityIngestKeysByKeyHash(this.db, raw);
     if (!k || k.revokedAt) throw new UnauthorizedException('Kunci API tidak ada atau tidak valid');
     if (!(await this.apps.isEnabled(k.tenantId, ['utility']))) throw new HttpException('Aplikasi Layanan Utilitas belum diaktifkan di perusahaan ini', HttpStatus.FORBIDDEN);
     if ((await this.subs.state(k.tenantId)).readOnly) throw new HttpException('Langganan perusahaan tidak aktif', HttpStatus.PAYMENT_REQUIRED);

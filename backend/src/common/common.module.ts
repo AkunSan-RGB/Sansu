@@ -15,11 +15,12 @@ import { TelegramService } from './telegram/telegram.service';
 import { TelegramRepository } from './telegram/telegram.repository';
 import { SubscriptionRepository } from './billing/subscription.repository';
 import { AppsRepository } from './apps/apps.repository';
+import { ApprovalsRepository } from './approvals/approvals.repository';
 
 @Global()
 @Module({
   controllers: [TelegramController],
-  providers: [AppsRepository, SubscriptionRepository, TelegramRepository, TelegramService, ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
+  providers: [ApprovalsRepository, AppsRepository, SubscriptionRepository, TelegramRepository, TelegramService, ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
   exports: [TelegramService, ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
 })
 export class CommonModule {}

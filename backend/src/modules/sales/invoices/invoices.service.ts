@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, desc, eq, ne } from 'drizzle-orm';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { AuditService } from '../../../common/audit/audit.service';
 import { SequenceService } from '../../../common/sequence/sequence.service';
@@ -7,7 +7,7 @@ import { addDays, diffDays, toDocDate, todayJakarta } from '../../../common/util
 import { D, Dec, money, ZERO } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, deliveryOrders, invoiceLines, invoices, payments, salesOrders } from '../../../db/schema';
+import { invoices, payments, salesOrders } from '../../../db/schema';
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { StockService } from '../../inventory/stock.service';
@@ -157,7 +157,7 @@ export class InvoicesService {
       });
 
       if (delivery) {
-        await tx.update(deliveryOrders).set({ invoiceId: invoice.id }).where(inArray(deliveryOrders.id, sent.map((d) => d.id)));
+        await this.repo.updateDeliveryOrdersById(tx, invoice.id, sent.map((d) => d.id));
       } else {
         const sj = await this.deliveries.recordWithInvoice(tx, user, { order, date, invoiceId: invoice.id, cogs, costs });
         await patchById(tx, invoices, invoice.id, { deliveryOrderId: sj.id });

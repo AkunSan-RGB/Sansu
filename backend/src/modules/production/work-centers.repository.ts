@@ -1,9 +1,27 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { sql } from 'drizzle-orm';
-import { WorkCenterDto } from './work-centers.dto';
+import { WorkCenterDto, FinishOpDto } from './work-centers.dto';
 import { AuthUser } from '../../common/auth/auth-user';
 import { RangeQuery } from './work-centers.shared';
+import type { Decimal } from 'decimal.js';
+import type { SQL } from 'drizzle-orm';
+
+export type Op = {
+  id: string;
+  order_id: string;
+  sequence: number;
+  name: string;
+  work_center_id: string;
+  planned_minutes: string;
+  actual_minutes: string | null;
+  status: string;
+  started_at: Date | null;
+  scheduled_start: Date | null;
+  scheduled_end: Date | null;
+  labor_cost: string;
+  overhead_cost: string;
+};
 
 /** Akses data untuk WorkCenters: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -261,5 +279,40 @@ export class WorkCentersRepository {
              COALESCE(SUM(o.labor_cost + o.overhead_cost) FILTER (WHERE o.status = 'DONE'), 0) AS cost
       FROM work_centers w LEFT JOIN production_order_operations o ON o.work_center_id = w.id AND o.finished_at >= ${from}::date::timestamptz AND o.finished_at < (${to}::date + 1)::timestamptz
       WHERE w.tenant_id = ${tenantId} GROUP BY w.id ORDER BY w.code`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh WorkCenterService.lockOp */
+  queryProductionOrderOperationForLockOp(db: DbOrTx, id: string, tenantId: string) {
+    return db.execute<Op & { order_status: string }>(
+      sql`SELECT o.*, p.status AS order_status FROM production_order_operations o JOIN production_orders p ON p.id = o.order_id WHERE o.id = ${id} AND o.tenant_id = ${tenantId} FOR UPDATE OF o`,
+    );
+  }
+
+  /** Dipakai oleh WorkCenterService.finishOp */
+  queryFinishOp(
+    db: DbOrTx,
+    minutes: number,
+    labor: Decimal,
+    overhead: Decimal,
+    dto: FinishOpDto,
+    sub: string,
+    opId: string,
+  ) {
+    return db.execute(
+      sql`UPDATE production_order_operations SET status = 'DONE', actual_minutes = ${minutes}, finished_at = now(), labor_cost = ${labor.toFixed(2)}, overhead_cost = ${overhead.toFixed(2)}, note = ${dto.note ?? null}, operator_employee_id = ${dto.operatorEmployeeId ?? null}, finished_by_id = ${sub} WHERE id = ${opId}`,
+    );
+  }
+
+  /** Dipakai oleh WorkCenterService.correctOp */
+  queryCorrectOp(db: DbOrTx, actualMinutes: number, labor: Decimal, overhead: Decimal, opId: string) {
+    return db.execute(
+      sql`UPDATE production_order_operations SET actual_minutes = ${actualMinutes}, labor_cost = ${labor.toFixed(2)}, overhead_cost = ${overhead.toFixed(2)} WHERE id = ${opId}`,
+    );
+  }
+
+  /** Dipakai oleh WorkCenterService.controls */
+  queryControls(db: DbOrTx, t: SQL<unknown>) {
+    return db.execute(t);
   }
 }

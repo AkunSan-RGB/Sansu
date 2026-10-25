@@ -1,9 +1,9 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { and, asc, eq, sql } from 'drizzle-orm';
 import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { plans, platformSettings, subscriptions, users, warehouses } from '../../db/schema';
+import { platformSettings, users, warehouses } from '../../db/schema';
 import { SubscriptionRepository } from './subscription.repository';
+import { DAY } from './subscription.repository';
 
 export type SubStatus = 'TRIAL' | 'ACTIVE' | 'OVERDUE' | 'EXPIRED' | 'SUSPENDED' | 'CANCELLED';
 export interface SubState {
@@ -59,8 +59,6 @@ export const DEFAULT_BILLING_SETTINGS: BillingSettings = {
   vatRate: 11,
 };
 
-const DAY = 86_400_000;
-
 /** Status langganan & batas paket per perusahaan */
 @Injectable()
 export class SubscriptionService {
@@ -98,10 +96,7 @@ export class SubscriptionService {
       await this.repo.listPlansByIsActiveAndSortOrder(tx),
     );
     if (!plan) return; // belum ada paket (mis. basis data lama) → tanpa batas
-    await tx
-      .insert(subscriptions)
-      .values({ tenantId, planId: plan.id, status: 'TRIAL', trialEndsAt: new Date(Date.now() + s.trialDays * DAY) })
-      .onConflictDoNothing();
+    await this.repo.insertSubscriptions(tx, tenantId, plan.id, s.trialDays);
   }
 
   /** Hitung status dari baris langganan */

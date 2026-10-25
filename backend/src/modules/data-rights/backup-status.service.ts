@@ -1,12 +1,11 @@
 import { Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, UnauthorizedException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { telegram } from '../../common/monitor/error-monitor';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { platformSettings } from '../../db/schema';
 import { BackupReportDto } from './backup-status.dto';
 import { BackupKind } from './backup-status.shared';
+import { BackupStatusRepository } from './backup-status.repository';
 
 export interface BackupEntry extends Omit<BackupReportDto, 'detail'> {
   at: string;
@@ -66,14 +65,15 @@ export class BackupStatusService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger('Backup');
   private timer?: NodeJS.Timeout;
   private lastAlertAt = 0;
-  constructor(@InjectDb() private readonly db: Db) {}
+  constructor(@InjectDb() private readonly db: Db,
+    private readonly repo: BackupStatusRepository) {}
 
   private async read<T>(key: string): Promise<T | null> {
-    const [r] = await this.db.select().from(platformSettings).where(eq(platformSettings.key, key));
+    const [r] = await this.repo.findPlatformSettingsByKey(this.db, key);
     return (r?.value as T) ?? null;
   }
   private async write(key: string, value: unknown) {
-    await this.db.insert(platformSettings).values({ key, value }).onConflictDoUpdate({ target: platformSettings.key, set: { value, updatedAt: new Date() } });
+    await this.repo.insertPlatformSettings(this.db, key, value);
   }
 
   /** Token laporan sah? (perbandingan waktu-tetap; nonaktif bila token belum diisi) */

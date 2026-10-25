@@ -1,7 +1,7 @@
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { inventoryLines, semiSet } from './inventory-accounts';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { AuditService } from '../../common/audit/audit.service';
@@ -14,15 +14,13 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { products, stockBalances, stockCountLines, stockCounts, stockMinimums, stockTransferLines, stockTransfers, users, warehouses } from '../../db/schema';
+import { stockCounts, stockTransferLines, stockTransfers } from '../../db/schema';
 import { InventoryService } from './inventory.service';
 import { StockService } from './stock.service';
 import { CreateTransferDto, ReceiveTransferDto, CancelTransferDto, CreateCountDto, UpdateCountDto, SaveMinimumsDto } from './warehouse-ops.dto';
 import { WarehouseRepository } from './warehouse.repository';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { patchById } from '../../db/owned';
-
-const q4 = (v: string | number) => D(v).toFixed(4);
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -383,9 +381,7 @@ export class WarehouseOpsService {
       const number = await this.seq.next(tx, u.tenantId, 'STOCK_COUNT', date);
       await this.repo.insertStockCounts(tx, id, u.tenantId, number, date, wh.id, dto, u.sub);
       for (let i = 0; i < rows.length; i += 1000) {
-        await tx
-          .insert(stockCountLines)
-          .values(rows.slice(i, i + 1000).map((r) => ({ countId: id, productId: r.id, systemQty: q4(r.qty) })));
+        await this.repo.insertStockCountLines(tx, rows, i, id);
       }
       return { id, number, lines: rows.length };
     });
@@ -410,10 +406,7 @@ export class WarehouseOpsService {
       for (const l of dto.lines) {
         if (l.countedQty !== null && D(l.countedQty).isNegative())
           throw new BadRequestException('Jumlah fisik tidak boleh negatif');
-        await tx
-          .update(stockCountLines)
-          .set({ countedQty: l.countedQty === null ? null : q4(l.countedQty) })
-          .where(and(eq(stockCountLines.countId, id), eq(stockCountLines.productId, l.productId)));
+        await this.repo.updateStockCountLinesByCountIdAndProductId(tx, l, id);
       }
       await patchById(tx, stockCounts, id, { countedById: u.sub });
       if (dto.notes !== undefined) await patchById(tx, stockCounts, id, { notes: dto.notes });
@@ -456,10 +449,7 @@ export class WarehouseOpsService {
       const adj: { productId: string; qty: string; unitCost?: string; lotId?: string; noLot?: boolean; binId?: string }[] = [];
       for (const l of lines) {
         const diff = D(l.countedQty!).minus(l.qty);
-        await tx
-          .update(stockCountLines)
-          .set({ postedSystemQty: q4(l.qty), difference: diff.toFixed(4) })
-          .where(and(eq(stockCountLines.countId, id), eq(stockCountLines.productId, l.productId)));
+        await this.repo.updateStockCountLinesByCountIdAndProductIdForPostCountTx(tx, l.qty, diff, id, l.productId);
         if (diff.isZero()) continue;
         if (!c.binId) {
           adj.push({ productId: l.productId, qty: diff.toFixed(4), unitCost: diff.isPositive() ? D(l.avgCost).toFixed(4) : undefined });
@@ -525,18 +515,7 @@ export class WarehouseOpsService {
         if (i.minQty === null || D(i.minQty).lte(0)) {
           await this.repo.deleteStockMinimumsByProductIdAndWarehouseId(tx, i.productId, dto.warehouseId);
         } else {
-          await tx
-            .insert(stockMinimums)
-            .values({
-              tenantId: u.tenantId,
-              productId: i.productId,
-              warehouseId: dto.warehouseId,
-              minQty: q4(i.minQty),
-            })
-            .onConflictDoUpdate({
-              target: [stockMinimums.productId, stockMinimums.warehouseId],
-              set: { minQty: q4(i.minQty) },
-            });
+          await this.repo.insertStockMinimums(tx, u.tenantId, i.productId, dto.warehouseId, i.minQty);
         }
       }
     });

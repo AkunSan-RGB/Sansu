@@ -3,6 +3,9 @@ import { DbOrTx } from '../../db/db';
 import { crmStages, leads, crmActivities, tenants, warehouses, quotations, customers } from '../../db/schema';
 import { eq, asc, and, sql, inArray } from 'drizzle-orm';
 import { CRM_PROFILES } from '@sansu/shared';
+import { addDays } from '../../common/utils/dates';
+import { CreateQuotationDto } from './crm.dto';
+import type { Decimal } from 'decimal.js';
 
 /** Akses data untuk Crm: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -146,5 +149,40 @@ export class CrmRepository {
       .select({ id: customers.id })
       .from(customers)
       .where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId)));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh CrmService.createQuotation */
+  insertQuotations(
+    db: DbOrTx,
+    tenantId: string,
+    number: string,
+    date: string,
+    dto: CreateQuotationDto,
+    subtotal: Decimal,
+    taxAmount: Decimal,
+    total: Decimal,
+    inclusive: boolean,
+    sub: string,
+  ) {
+    return db
+      .insert(quotations)
+      .values({
+        tenantId: tenantId,
+        number: number,
+        date: date,
+        validUntil: addDays(date, dto.validDays ?? 14),
+        customerId: dto.customerId,
+        leadId: dto.leadId,
+        warehouseId: dto.warehouseId,
+        notes: dto.notes,
+        terms: dto.terms,
+        subtotal: subtotal.toFixed(2),
+        taxAmount: taxAmount.toFixed(2),
+        total: total.toFixed(2),
+        pricesIncludeVat: inclusive,
+        createdById: sub,
+      })
+      .returning({ id: quotations.id });
   }
 }

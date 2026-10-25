@@ -10,7 +10,7 @@ import { and, eq, inArray, ne } from 'drizzle-orm';
 import { Db, DbOrTx } from '../../db/db';
 import { txScope } from '../../db/db-scope';
 import { InjectDb } from '../../db/db.module';
-import { approvalRequests, auditLogs, users, type Role } from '../../db/schema';
+import { approvalRequests, users, type Role } from '../../db/schema';
 import { appUrl, MailService } from '../mail/mail.service';
 import { signApprovalLink } from './approval-link';
 import { AuditService } from '../audit/audit.service';
@@ -18,8 +18,8 @@ import { AuthUser } from '../auth/auth-user';
 import { SettingsService } from '../settings.service';
 import { TelegramService } from '../telegram/telegram.service';
 import { insertOne } from '../../db/owned';
-
-export const APPROVER_ROLES: readonly Role[] = ['OWNER', 'ADMIN'];
+import { ApprovalsRepository, APPROVER_ROLES } from './approvals.repository';
+export { APPROVER_ROLES } from './approvals.repository';
 export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'SUPPLIER_ADVANCE' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS' | 'CUSTOMER_PAYMENT' | 'STOCK_COUNT' | 'AR_WRITE_OFF' | 'ASSET_METHOD' | 'BIN_MOVE';
 
 export interface ApprovalPolicy {
@@ -112,6 +112,7 @@ export class ApprovalsService {
     private readonly mail: MailService,
     private readonly telegram: TelegramService,
     @InjectDb() private readonly db: Db,
+    private readonly repo: ApprovalsRepository,
   ) {}
 
   /**
@@ -120,10 +121,7 @@ export class ApprovalsService {
    */
   async notifyApprovers(tenantId: string, p: { kind: 'AR' | 'PR'; id: string; requesterId?: string | null; title: string; lines: string[]; onlyIds?: string[] }) {
     try {
-      const to = await this.db
-        .select({ id: users.id, email: users.email })
-        .from(users)
-        .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, [...APPROVER_ROLES]), p.requesterId ? ne(users.id, p.requesterId) : undefined, p.onlyIds?.length ? inArray(users.id, p.onlyIds) : undefined));
+      const to = await this.repo.listUsersByIsActiveAndRoleAndId(this.db, tenantId, p);
       const hours = Math.min(72, Math.max(1, (await this.policy(this.db, tenantId)).telegramLinkHours || 72));
       for (const t of to) {
         const token = signApprovalLink({ k: p.kind, r: p.id, u: t.id });
@@ -159,10 +157,7 @@ export class ApprovalsService {
 
   private async deliverRoles(tenantId: string, p: { roles: readonly Role[]; excludeUserId?: string; title: string; lines?: string[]; path: string; info?: boolean }) {
     try {
-      const to = await this.db
-        .select({ id: users.id, email: users.email })
-        .from(users)
-        .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, [...p.roles]), p.excludeUserId ? ne(users.id, p.excludeUserId) : undefined));
+      const to = await this.repo.listUsersByIsActiveAndRoleAndIdForDeliverRoles(this.db, tenantId, p);
       const url = `${appUrl()}${p.path}`;
       await this.telegram.notifyUsers(to.map((t) => t.id), `${p.info ? 'ℹ️ Pemberitahuan' : '🔔 Menunggu tindakan Anda'}\n${p.title}\n${(p.lines ?? []).join('\n')}\n${url}`);
       if (!this.mail.configured) return;
@@ -223,10 +218,7 @@ export class ApprovalsService {
   async gateDocument(db: DbOrTx, user: AuthUser, p: { kind: ApprovalKind; refId: string; title: string; amount: number }) {
     const limit = await this.needs(db, user, p.kind, p.amount);
     if (limit === null) return;
-    const [existing] = await db
-      .select()
-      .from(approvalRequests)
-      .where(and(eq(approvalRequests.tenantId, user.tenantId), eq(approvalRequests.kind, p.kind), eq(approvalRequests.refId, p.refId), inArray(approvalRequests.status, ['PENDING', 'APPROVED'])));
+    const [existing] = await this.repo.findApprovalRequestsByKindAndRefIdAndStatus(db, user.tenantId, p.kind, p.refId);
     if (existing?.status === 'APPROVED') return;
     if (existing) throw this.required(existing.id, 'Permintaan persetujuan sudah dikirim dan masih menunggu keputusan pemilik atau admin.');
     const request = await this.create(db, user, { ...p, payload: null });
@@ -239,10 +231,7 @@ export class ApprovalsService {
    */
   async gateIf(db: DbOrTx, user: AuthUser, p: { kind: ApprovalKind; refId: string; title: string; amount: number }, triggered: boolean, why: string) {
     if (!triggered || this.isApprover(user.role)) return;
-    const [existing] = await db
-      .select()
-      .from(approvalRequests)
-      .where(and(eq(approvalRequests.tenantId, user.tenantId), eq(approvalRequests.kind, p.kind), eq(approvalRequests.refId, p.refId), inArray(approvalRequests.status, ['PENDING', 'APPROVED'])));
+    const [existing] = await this.repo.findApprovalRequestsByKindAndRefIdAndStatus(db, user.tenantId, p.kind, p.refId);
     if (existing?.status === 'APPROVED') return;
     if (existing) throw this.required(existing.id, 'Permintaan persetujuan sudah dikirim dan masih menunggu keputusan pemilik atau admin.');
     const request = await this.create(db, user, { ...p, payload: null });
@@ -252,11 +241,7 @@ export class ApprovalsService {
   /** Buat permintaan baru dan catat di jejak audit */
   /** Pembuat faktur penjualan (dari jejak audit); null bila tidak tercatat */
   async invoiceCreator(db: DbOrTx, tenantId: string, invoiceId: string): Promise<string | null> {
-    const [r] = await db
-      .select({ u: auditLogs.userId })
-      .from(auditLogs)
-      .where(and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.entity, 'Invoice'), eq(auditLogs.entityId, invoiceId), eq(auditLogs.action, 'CREATE')))
-      .limit(1);
+    const [r] = await this.repo.findAuditLogsByEntityAndEntityIdAndAction(db, tenantId, invoiceId);
     return r?.u ?? null;
   }
 

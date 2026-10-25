@@ -1,12 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { and, eq, inArray, sql } from 'drizzle-orm';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { todayJakarta } from '../../../common/utils/dates';
 import { D } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { salesTargets, users } from '../../../db/schema';
 import { SaveTargetsDto } from './sales-targets.dto';
 import { SalesTargetsRepository } from './sales-targets.repository';
 
@@ -93,9 +91,7 @@ export class SalesTargetsService {
     await this.db.transaction(async (tx) => {
       await this.repo.deleteSalesTargetsByPeriod(tx, u.tenantId, dto.period);
       if (dto.items.length) {
-        await tx.insert(salesTargets).values(
-          dto.items.map((i) => ({ tenantId: u.tenantId, userId: i.userId, period: dto.period, targetAmount: D(i.targetAmount).toFixed(2), commissionPct: D(i.commissionPct).toFixed(2), minAchievementPct: D(i.minAchievementPct).toFixed(2) })),
-        );
+        await this.repo.insertSalesTargets(tx, dto.items, u.tenantId, dto.period);
       }
       await this.audit.log(tx, {
         tenantId: u.tenantId,

@@ -1,5 +1,4 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { toDocDate, todayJakarta } from '../../../common/utils/dates';
@@ -11,8 +10,6 @@ import { RetainerDto, RetainerUpdateDto, RetainerBillDto } from './retainers.dto
 import { RetainersRepository } from './retainers.repository';
 
 const MAX_PERIODS = 36;
-
-type Ret = { id: string; customer_id: string; project_id: string | null; title: string; monthly_fee: string; with_vat: boolean | null; start_date: string; end_date: string | null; is_active: boolean };
 
 const monthOf = (d: string) => d.slice(0, 7);
 
@@ -35,7 +32,7 @@ export class RetainerService {
   ) {}
 
   async list(tenantId: string) {
-    const rows = (await this.db.execute<Ret & { customer_name: string; project_name: string | null }>(sql`SELECT r.*, c.name AS customer_name, p.name AS project_name FROM service_retainers r JOIN customers c ON c.id = r.customer_id LEFT JOIN projects p ON p.id = r.project_id WHERE r.tenant_id = ${tenantId} ORDER BY r.is_active DESC, c.name, r.title`)).rows;
+    const rows = (await this.repo.queryServiceRetainer(this.db, tenantId)).rows;
     const billed = (await this.repo.queryServiceRetainerInvoice(this.db, tenantId)).rows;
     const now = monthOf(todayJakarta());
     return rows.map((r) => {
@@ -60,26 +57,26 @@ export class RetainerService {
       if (!p) throw new BadRequestException('Proyek tidak ditemukan');
       if (p.customer_id !== dto.customerId) throw new BadRequestException('Proyek ini milik pelanggan lain');
     }
-    const r = await this.db.execute<{ id: string }>(sql`INSERT INTO service_retainers (tenant_id, customer_id, project_id, title, monthly_fee, with_vat, start_date, end_date, created_by_id) VALUES (${u.tenantId}, ${dto.customerId}, ${dto.projectId ?? null}, ${dto.title.trim()}, ${fee.toFixed(2)}, ${dto.withVat ?? null}, ${start}, ${end}, ${u.sub}) RETURNING id`);
+    const r = await this.repo.queryServiceRetainerForCreate(this.db, u.tenantId, dto, fee, start, end, u.sub);
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'ServiceRetainer', entityId: r.rows[0].id, data: dto });
     return { id: r.rows[0].id };
   }
 
   /** Perubahan biaya hanya berlaku untuk periode yang belum ditagih (yang sudah ditagih tidak berubah karena faktur sudah terbit) */
   async update(u: AuthUser, id: string, dto: RetainerUpdateDto) {
-    const cur = (await this.db.execute<Ret>(sql`SELECT * FROM service_retainers WHERE id = ${id} AND tenant_id = ${u.tenantId}`)).rows[0];
+    const cur = (await this.repo.queryServiceRetainerForUpdate(this.db, id, u.tenantId)).rows[0];
     if (!cur) throw new NotFoundException('Retainer tidak ditemukan');
     const fee = dto.monthlyFee !== undefined ? D(dto.monthlyFee) : null;
     if (fee && (!fee.isFinite() || fee.lte(0))) throw new BadRequestException('Biaya bulanan harus lebih dari 0');
     const end = dto.endDate ? toDocDate(dto.endDate) : undefined;
     if (end && end < String(cur.start_date)) throw new BadRequestException('Tanggal akhir sebelum tanggal mulai');
-    await this.db.execute(sql`UPDATE service_retainers SET monthly_fee = ${fee ? fee.toFixed(2) : cur.monthly_fee}, end_date = ${end ?? cur.end_date}, is_active = ${dto.isActive ?? cur.is_active} WHERE id = ${id}`);
+    await this.repo.queryUpdate(this.db, fee, cur.monthly_fee, end, cur.end_date, dto, cur.is_active, id);
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'ServiceRetainer', entityId: id, data: { reason: dto.reason, before: { fee: cur.monthly_fee, endDate: cur.end_date, isActive: cur.is_active }, after: { fee: fee?.toFixed(2), endDate: end, isActive: dto.isActive } } });
     return { id };
   }
 
   async bill(u: AuthUser, id: string, dto: RetainerBillDto) {
-    const r = (await this.db.execute<Ret>(sql`SELECT * FROM service_retainers WHERE id = ${id} AND tenant_id = ${u.tenantId}`)).rows[0];
+    const r = (await this.repo.queryServiceRetainerForUpdate(this.db, id, u.tenantId)).rows[0];
     if (!r) throw new NotFoundException('Retainer tidak ditemukan');
     if (!r.is_active) throw new BadRequestException('Retainer sudah dinonaktifkan');
     if (dto.period < monthOf(String(r.start_date))) throw new BadRequestException('Periode sebelum masa mulai retainer');

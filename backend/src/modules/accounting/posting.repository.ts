@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { sql, and, eq, inArray } from 'drizzle-orm';
+import { sql, and, eq, inArray, or } from 'drizzle-orm';
 import { journalLines, accounts } from '../../db/schema';
 import { SystemKey } from './default-coa';
+import type { NormalizedLine } from './journal-rules';
+import type { SQL } from 'drizzle-orm';
 
 /** Akses data untuk Posting: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -136,5 +138,37 @@ export class PostingRepository {
       systemKey: key,
       isCashAccount: !!cash,
     });
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh PostingService.post */
+  insertJournalLinesForPost(db: DbOrTx, lines: NormalizedLine[], id: string, entryBranch: string | null) {
+    return db
+      .insert(journalLines)
+      .values(
+        lines.map((l) => ({
+          journalId: id,
+          accountId: l.accountId,
+          debit: l.debit.toFixed(2),
+          credit: l.credit.toFixed(2),
+          memo: l.memo,
+          projectId: l.projectId ?? null,
+          branchId: l.branchId === undefined ? entryBranch : l.branchId,
+        })),
+      )
+      .returning();
+  }
+
+  /** Dipakai oleh PostingService.deriveBranch */
+  queryDeriveBranch(db: DbOrTx, q: SQL<unknown>) {
+    return db.execute<{ b: string | null }>(q);
+  }
+
+  /** Dipakai oleh PostingService.resolveAccounts */
+  listAccounts(db: DbOrTx, tenantId: NonNullable<(typeof accounts.$inferSelect)['tenantId']>, conds: SQL<unknown>[]) {
+    return db
+      .select({ id: accounts.id, systemKey: accounts.systemKey, isPostable: accounts.isPostable, code: accounts.code })
+      .from(accounts)
+      .where(and(eq(accounts.tenantId, tenantId), or(...conds)));
   }
 }

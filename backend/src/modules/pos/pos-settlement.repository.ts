@@ -3,6 +3,7 @@ import { DbOrTx } from '../../db/db';
 import { sql } from 'drizzle-orm';
 import { posCardSettlementItems, posCardSettlements } from '../../db/schema';
 import { money } from '../../common/utils/money';
+import type { Decimal } from 'decimal.js';
 
 /** Akses data untuk PosSettlement: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -81,16 +82,14 @@ export class PosSettlementRepository {
     tenantId: string,
     id: string,
   ) {
-    return db
-      .insert(posCardSettlementItems)
-      .values(
-        rows.map((r) => ({
-          tenantId: tenantId,
-          settlementId: id,
-          paymentId: r.id,
-          amount: money(r.amount).toFixed(2),
-        })),
-      );
+    return db.insert(posCardSettlementItems).values(
+      rows.map((r) => ({
+        tenantId: tenantId,
+        settlementId: id,
+        paymentId: r.id,
+        amount: money(r.amount).toFixed(2),
+      })),
+    );
   }
 
   /** Dipakai oleh CardSettlementService.create */
@@ -167,5 +166,21 @@ export class PosSettlementRepository {
       SELECT number, date, method, mdr_pct AS "contractPct", ROUND((gross - returns_total - received) / NULLIF(gross - returns_total, 0) * 100, 3) AS "effectivePct"
       FROM pos_card_settlements WHERE tenant_id = ${tenantId} AND status = 'POSTED' AND date >= (CURRENT_DATE - 60)
         AND (gross - returns_total - received) / NULLIF(gross - returns_total, 0) * 100 > mdr_pct + 0.5 ORDER BY date DESC LIMIT 30`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh CardSettlementService.create */
+  queryPosCardSettlementBank(
+    db: DbOrTx,
+    tenantId: string,
+    id: string,
+    bank: string,
+    gross: Decimal,
+    ret: Decimal,
+    received: Decimal,
+  ) {
+    return db.execute(
+      sql`INSERT INTO pos_card_settlement_banks (tenant_id, settlement_id, bank_account_id, gross, returns_total, received) VALUES (${tenantId}, ${id}, ${bank}, ${gross.toFixed(2)}, ${ret.toFixed(2)}, ${received.toFixed(2)})`,
+    );
   }
 }

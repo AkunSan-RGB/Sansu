@@ -2,6 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { onlineApiKeys, posOrders, posPlatformSettlements } from '../../db/schema';
 import { and, eq, isNull, sql, inArray } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
+
+export const hash = (k: string) => createHash('sha256').update(k).digest('hex');
 
 /** Akses data untuk PosOnline: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -73,5 +76,29 @@ export class PosOnlineRepository {
   /** Dipakai oleh PlatformSettlementsService.cancel */
   updatePosOrdersBySettlementId(db: DbOrTx, id: string) {
     return db.update(posOrders).set({ settlementId: null }).where(eq(posOrders.settlementId, id));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh OnlineKeysService.create */
+  insertOnlineApiKeys(db: DbOrTx, tenantId: string, name: string, key: string, id: string, sub: string) {
+    return db
+      .insert(onlineApiKeys)
+      .values({
+        tenantId: tenantId,
+        name: name.trim(),
+        keyHash: hash(key),
+        keyPrefix: key.slice(0, 8),
+        warehouseId: id,
+        createdById: sub,
+      })
+      .returning({ id: onlineApiKeys.id, name: onlineApiKeys.name, keyPrefix: onlineApiKeys.keyPrefix });
+  }
+
+  /** Dipakai oleh OnlineKeyGuard.canActivate */
+  findOnlineApiKeysByKeyHash(db: DbOrTx, raw: string) {
+    return db
+      .select()
+      .from(onlineApiKeys)
+      .where(eq(onlineApiKeys.keyHash, hash(raw)));
   }
 }

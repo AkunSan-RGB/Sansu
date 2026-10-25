@@ -10,7 +10,7 @@ import { toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D, money } from '../../common/utils/money';
 import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { posCardSettlementItems, posCardSettlements } from '../../db/schema';
+import { posCardSettlements } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { CardSettingsDto, SettleDto, CancelSettleDto } from './pos-settlement.dto';
@@ -123,7 +123,7 @@ export class CardSettlementService {
       const st = await insertOne(tx, posCardSettlements, { tenantId: u.tenantId, number, date, method: dto.method, bankAccountId: banks[0], gross: gross.toFixed(2), returnsTotal: retTotal.toFixed(2), mdrPct: String(pct), mdrExpected: mdr.toFixed(2), received: received.toFixed(2), difference: diff.toFixed(2), itemCount: ids.length, note: dto.note?.trim() || null, createdById: u.sub });
       await this.repo.insertPosCardSettlementItems(tx, rows, u.tenantId, st.id);
       for (const r of rets) await this.repo.queryPosCardSettlementReturnForCreate(tx, u.tenantId, st.id, r.id, r.total);
-      for (const d of detail) await tx.execute(sql`INSERT INTO pos_card_settlement_banks (tenant_id, settlement_id, bank_account_id, gross, returns_total, received) VALUES (${u.tenantId}, ${st.id}, ${d.bank}, ${d.gross.toFixed(2)}, ${d.ret.toFixed(2)}, ${d.received.toFixed(2)})`);
+      for (const d of detail) await this.repo.queryPosCardSettlementBank(tx, u.tenantId, st.id, d.bank, d.gross, d.ret, d.received);
       // Bank sudah didebit penuh saat penjualan dan dikredit saat retur; kurangi sebesar yang tidak sampai dari penjualan bersih (MDR + selisih) per rekening
       const extra = detail.reduce((a, d) => a.plus(d.gross.minus(d.ret).minus(d.received).minus(d.mdr)), D(0)); // > 0: potongan lebih besar dari hitungan kontrak
       const j = await this.posting.post(tx, {

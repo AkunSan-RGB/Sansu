@@ -12,10 +12,11 @@ import { StatementsService } from './statements.service';
 import { BudgetRepository } from './budget.repository';
 import { RecurringJournalsRepository } from './recurring-journals.repository';
 import { PostingRepository } from './posting.repository';
+import { StatementsRepository } from './statements.repository';
 
 @Module({
   controllers: [AccountingController, BudgetController],
-  providers: [PostingRepository, RecurringJournalsRepository, BudgetRepository, AccountingRepository, AccountingService, RecurringJournalsService, FinancialReportsService, PostingService, StatementsService, AdjustmentsService, BudgetService, BudgetScheduler],
+  providers: [StatementsRepository, PostingRepository, RecurringJournalsRepository, BudgetRepository, AccountingRepository, AccountingService, RecurringJournalsService, FinancialReportsService, PostingService, StatementsService, AdjustmentsService, BudgetService, BudgetScheduler],
   exports: [PostingService, AccountingService, RecurringJournalsService, FinancialReportsService, StatementsService, BudgetService],
 })
 export class AccountingModule {}

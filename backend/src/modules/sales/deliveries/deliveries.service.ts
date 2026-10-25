@@ -20,15 +20,14 @@ import { DocDate, toDocDate } from '../../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../../common/utils/money';
 import { Db, Tx } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, deliveryOrderLines, deliveryOrders, salesOrders } from '../../../db/schema';
+import { deliveryOrders, salesOrders } from '../../../db/schema';
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { StockService } from '../../inventory/stock.service';
 import { SalesOrdersService } from '../orders/sales-orders.service';
 import { insertOne, patchById } from '../../../db/owned';
 import { DeliveriesRepository } from './deliveries.repository';
-
-type OrderWithLines = Awaited<ReturnType<SalesOrdersService['lockOrder']>>;
+import type { OrderWithLines } from './deliveries.repository';
 
 @Injectable()
 export class DeliveriesService {
@@ -220,15 +219,7 @@ export class DeliveriesService {
         createdById: user.sub,
       });
     for (const line of p.order.lines) {
-      await tx.insert(deliveryOrderLines).values({
-        deliveryId: delivery.id,
-        orderLineId: line.id,
-        productId: line.productId,
-        uom: line.uom,
-        uomFactor: line.uomFactor,
-        qty: line.qty,
-        unitCost: (p.costs.get(line.id)?.unitCost ?? ZERO).toFixed(4),
-      });
+      await this.repo.insertDeliveryOrderLinesForRecordWithInvoice(tx, delivery.id, line.id, line.productId, line.uom, line.uomFactor, line.qty, p);
     }
     return delivery;
   }

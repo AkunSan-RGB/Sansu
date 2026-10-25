@@ -2,7 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../../db/db';
 import { customers, deliveryOrderLines } from '../../../db/schema';
 import { eq, sql } from 'drizzle-orm';
-import { Dec } from '../../../common/utils/money';
+import { Dec, ZERO } from '../../../common/utils/money';
+import { DocDate } from '../../../common/utils/dates';
+import { SalesOrdersService } from '../orders/sales-orders.service';
+
+export type OrderWithLines = Awaited<ReturnType<SalesOrdersService['lockOrder']>>;
 
 /** Akses data untuk Deliveries: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -58,5 +62,28 @@ export class DeliveriesRepository {
     return db.execute<{ sales_order_id: string | null }>(
       sql`SELECT sales_order_id FROM invoices WHERE id = ${invoiceId} AND tenant_id = ${tenantId}`,
     );
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh DeliveriesService.recordWithInvoice */
+  insertDeliveryOrderLinesForRecordWithInvoice(
+    db: DbOrTx,
+    id: string,
+    lineValues: string,
+    lineLineValues: string,
+    lineValues2: string,
+    lineValues3: string,
+    lineValues4: string,
+    p: { order: OrderWithLines; date: DocDate; invoiceId: string; cogs: Dec; costs: Map<string, { unitCost: Dec }> },
+  ) {
+    return db.insert(deliveryOrderLines).values({
+      deliveryId: id,
+      orderLineId: lineValues,
+      productId: lineLineValues,
+      uom: lineValues2,
+      uomFactor: lineValues3,
+      qty: lineValues4,
+      unitCost: (p.costs.get(lineValues)?.unitCost ?? ZERO).toFixed(4),
+    });
   }
 }

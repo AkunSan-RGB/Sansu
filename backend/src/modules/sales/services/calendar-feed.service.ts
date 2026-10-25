@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { AppsService } from '../../../common/apps/apps.service';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
@@ -9,8 +8,6 @@ import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
 import { FeedDto } from './calendar-feed.dto';
 import { CalendarFeedRepository } from './calendar-feed.repository';
-
-const hash = (k: string) => createHash('sha256').update(k).digest('hex');
 
 const PAST_DAYS = 30;
 
@@ -60,7 +57,7 @@ export class CalendarFeedService {
       if (!ok.rows.length) throw new BadRequestException('Sumber daya tidak ditemukan');
     }
     const token = `cal_${randomBytes(24).toString('base64url')}`;
-    const row = (await this.db.execute<{ id: string }>(sql`INSERT INTO scheduling_feeds (tenant_id, resource_id, name, token_hash, token_prefix, created_by_id) VALUES (${u.tenantId}, ${dto.resourceId ?? null}, ${dto.name.trim()}, ${hash(token)}, ${token.slice(0, 8)}, ${u.sub}) RETURNING id`)).rows[0];
+    const row = (await this.repo.querySchedulingFeedForCreate(this.db, u, dto, token)).rows[0];
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'SchedulingFeed', entityId: row.id, data: { name: dto.name, resourceId: dto.resourceId ?? null } });
     // token hanya tampil sekali; tautan lengkap dibentuk oleh klien dari alamat situs
     return { id: row.id, token, path: `/api/calendar/${token}.ics` };
@@ -77,7 +74,7 @@ export class CalendarFeedService {
   async render(rawToken: string) {
     const token = rawToken.replace(/\.ics$/i, '');
     if (!/^cal_[A-Za-z0-9_-]{20,80}$/.test(token)) throw new NotFoundException();
-    const f = (await this.db.execute<{ id: string; tenant_id: string; resource_id: string | null; name: string; revoked_at: Date | null; last_used_at: Date | null }>(sql`SELECT id, tenant_id, resource_id, name, revoked_at, last_used_at FROM scheduling_feeds WHERE token_hash = ${hash(token)}`)).rows[0];
+    const f = (await this.repo.querySchedulingFeedForRender(this.db, token)).rows[0];
     if (!f || f.revoked_at || !(await this.apps.isEnabled(f.tenant_id, ['sales']))) throw new NotFoundException();
     if (!f.last_used_at || Date.now() - new Date(f.last_used_at).getTime() > 5 * 60_000) await this.repo.queryRender(this.db, f.id);
     const from = addDays(todayJakarta(), -PAST_DAYS);

@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { haversineM } from '../sales/canvass/canvass.service';
 import { computeBill, DEFAULT_UTILITY_RULES, flagReading, isPeriod, lateFee, UTILITY_SERVICE_DEFAULTS, validateBlocks, validateRules, type TariffBlock, type UtilityRules } from '@sansu/shared';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
@@ -13,7 +13,7 @@ import { D } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { LOSS_WARN_PCT, ZONE_STATUS_LABEL, zoneLoss } from './zones';
 import { InjectDb } from '../../db/db.module';
-import { accounts, customers, utilityBills, utilityConnections, utilityLateFees, utilityReadings, utilityTariffs } from '../../db/schema';
+import { utilityBills, utilityConnections, utilityReadings, utilityTariffs } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { ServiceBillingService } from '../sales/services/service-billing.service';
 import { RulesDto, TariffDto, ConnectionDto, SuspendDto, ReasonDto, ZoneDto, ZoneSupplyDto, ReadingDto, VerifyDto, BillRunDto } from './utility.dto';
@@ -233,7 +233,7 @@ export class UtilityService {
       if (!z.rows[0]?.n) throw new BadRequestException('Zona belum punya sambungan terukur; isi zona pada sambungan lebih dulu');
       if ((z.rows[0].units ?? []).length > 1) throw new BadRequestException('Zona ini memuat layanan dengan satuan berbeda; pisahkan zona per layanan');
       const before = await this.repo.queryUtilityZoneSupply(tx, u.tenantId, zone, dto.period);
-      await tx.execute(sql`INSERT INTO utility_zone_supply (tenant_id, zone, period, supplied, note, entered_by_id) VALUES (${u.tenantId}, ${zone}, ${dto.period}, ${supplied.toFixed(3)}, ${dto.note?.trim() || null}, ${u.sub}) ON CONFLICT (tenant_id, zone, period) DO UPDATE SET supplied = EXCLUDED.supplied, note = EXCLUDED.note, entered_by_id = EXCLUDED.entered_by_id, updated_at = now()`);
+      await this.repo.queryUtilityZoneSupplyForSaveSupply(tx, u.tenantId, zone, dto, supplied, u.sub);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: before.rows.length ? 'UPDATE' : 'CREATE', entity: 'UtilityZoneSupply', entityId: `${zone}:${dto.period}`, data: { zone, period: dto.period, before: before.rows[0]?.supplied ?? null, after: supplied.toFixed(3), note: dto.note } });
       return { ok: true };
     });
@@ -402,7 +402,7 @@ export class UtilityService {
       // klaim periode lebih dulu: unik per sambungan + periode, sehingga tidak mungkin tertagih dua kali meski dijalankan bersamaan
       let claimId: string;
       try {
-        const [claim] = await this.db.insert(utilityBills).values({ tenantId: u.tenantId, connectionId: item.connectionId, period: dto.period, usage: item.usage === null ? null : String(item.usage), subtotal: item.subtotal.toFixed(2), lateFee: item.lateFeeTotal.toFixed(2), createdById: u.sub }).returning({ id: utilityBills.id });
+        const [claim] = await this.repo.insertUtilityBills(this.db, u, item.connectionId, dto.period, item.usage, item.subtotal.toFixed(2), item.lateFeeTotal.toFixed(2));
         claimId = claim.id;
       } catch (e) {
         if (isUnique(e)) { failed.push({ number: item.number, reason: 'Sudah ditagih / sedang diproses' }); continue; }
@@ -458,7 +458,7 @@ export class UtilityService {
   async controls(tenantId: string) {
     const period = todayJakarta().slice(0, 7);
     const prev2 = (() => { const [y, m] = period.split('-').map(Number); const d = new Date(Date.UTC(y, m - 3, 1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`; })();
-    const q = async (query: ReturnType<typeof sql>) => (await this.db.execute<Record<string, unknown>>(query)).rows;
+    const q = async (query: ReturnType<typeof sql>) => (await this.repo.queryControls(this.db, query)).rows;
     const noReading = await q(sql`
       SELECT c.number, cu.name AS customer, c.address, (SELECT MAX(r.period) FROM utility_readings r WHERE r.connection_id = c.id AND r.status <> 'REJECTED') AS "lastPeriod"
       FROM utility_connections c JOIN customers cu ON cu.id = c.customer_id JOIN utility_tariffs t ON t.id = c.tariff_id
@@ -495,7 +495,7 @@ export class UtilityService {
 
   async summary(tenantId: string) {
     const period = todayJakarta().slice(0, 7);
-    const one = async (query: ReturnType<typeof sql>) => Number((await this.db.execute<{ n: number }>(query)).rows[0]?.n ?? 0);
+    const one = async (query: ReturnType<typeof sql>) => Number((await this.repo.querySummary(this.db, query)).rows[0]?.n ?? 0);
     const [active, suspended, awaiting, ready, missing] = await Promise.all([
       one(sql`SELECT COUNT(*)::int AS n FROM utility_connections WHERE tenant_id = ${tenantId} AND status = 'ACTIVE'`),
       one(sql`SELECT COUNT(*)::int AS n FROM utility_connections WHERE tenant_id = ${tenantId} AND status = 'SUSPENDED'`),

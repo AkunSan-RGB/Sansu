@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { and, asc, between, desc, eq, gt, inArray, ne, sql } from 'drizzle-orm';
+import { and, asc, between, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SequenceService } from '../../common/sequence/sequence.service';
@@ -8,7 +8,7 @@ import { toDocDate } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { customerDeposits, customers, invoices, marketplaceOrders, payments, products, salesOrders, tenants, warehouses } from '../../db/schema';
+import { customerDeposits, customers, invoices, marketplaceOrders } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { InvoicesService } from '../sales/invoices/invoices.service';
@@ -93,14 +93,7 @@ export class IntegrationsService {
     // Uang muka ber-PPN yang sudah dipakai melunasi faktur
     const apps = rows.length
       ? (
-          await this.db.execute<{ invoice_id: string; dpp: string; tax: string; numbers: string }>(sql`
-            SELECT a.invoice_id, SUM(a.dpp) AS dpp, SUM(a.tax_amount) AS tax, string_agg(DISTINCT d.number, ', ') AS numbers
-            FROM deposit_applications a JOIN customer_deposits d ON d.id = a.deposit_id
-            WHERE a.tenant_id = ${tenantId} AND d.tax_amount > 0 AND a.invoice_id IN (${sql.join(
-              rows.map((r) => sql`${r.id}`),
-              sql`, `,
-            )})
-            GROUP BY a.invoice_id`)
+          await this.repo.queryDepositApplication(this.db, tenantId, rows.map((r) => sql`${r.id}`))
         ).rows
       : [];
     const deps = await this.db.query.customerDeposits.findMany({

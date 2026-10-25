@@ -84,16 +84,14 @@ export class StockRepository {
     qty: Dec,
     unitCost: Dec,
   ) {
-    return db
-      .insert(stockLayers)
-      .values({
-        tenantId: tenantId,
-        productId: productId,
-        warehouseId: warehouseId,
-        receivedDate: date,
-        qtyRemaining: qty.toFixed(4),
-        unitCost: unitCost.toFixed(4),
-      });
+    return db.insert(stockLayers).values({
+      tenantId: tenantId,
+      productId: productId,
+      warehouseId: warehouseId,
+      receivedDate: date,
+      qtyRemaining: qty.toFixed(4),
+      unitCost: unitCost.toFixed(4),
+    });
   }
 
   /** Dipakai oleh StockService.move */
@@ -241,5 +239,11 @@ export class StockRepository {
       refNumber: refNumber,
       date: date,
     });
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh StockService.move */
+  queryMoveForMove(db: DbOrTx, kept: Map<string, Dec>, id: string) {
+    return db.execute(sql`UPDATE stock_layers SET qty_remaining = ${kept.get(id)!.toFixed(4)} WHERE id = ${id}`);
   }
 }

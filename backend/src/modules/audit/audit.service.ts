@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
+import { eq, gte, lt, sql } from 'drizzle-orm';
 import { addDays } from '../../common/utils/dates';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { auditLogs, users } from '../../db/schema';
 import { Category, describe } from './audit.shared';
 import { AuditQueryDto } from './audit.dto';
+import { AuditRepository, pgArray } from './audit.repository';
 
 const CATEGORY_LABEL: Record<Category, string> = {
   sales: 'Penjualan',
@@ -56,9 +57,6 @@ const REF: Record<string, { table: string; expr: string; link?: string }> = {
   users: { table: 'users', expr: "name || ' (' || email || ')'" },
 };
 
-/** Larik Postgres sebagai satu parameter: {a,b,c} */
-const pgArray = (xs: string[]) => `{${xs.map((x) => `"${x.replace(/["\\]/g, '')}"`).join(',')}}`;
-
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** Kunci rujukan sebuah catatan: nama entitas, atau segmen rute API untuk catatan otomatis */
@@ -72,7 +70,8 @@ function refKey(entity: string, data: Record<string, unknown> | null): string | 
 
 @Injectable()
 export class AuditLogService {
-  constructor(@InjectDb() private readonly db: Db) {}
+  constructor(@InjectDb() private readonly db: Db,
+    private readonly repo: AuditRepository) {}
 
   async list(tenantId: string, q: AuditQueryDto) {
     const page = q.page ?? 1;
@@ -85,24 +84,7 @@ export class AuditLogService {
       q.q ? await this.searchCond(tenantId, q.q) : undefined,
     ];
     // kategori dihitung dari label → saring di memori pada jendela yang cukup besar
-    const raw = await this.db
-      .select({
-        id: auditLogs.id,
-        at: auditLogs.createdAt,
-        action: auditLogs.action,
-        entity: auditLogs.entity,
-        entityId: auditLogs.entityId,
-        data: auditLogs.data,
-        userId: auditLogs.userId,
-        userName: users.name,
-        userEmail: users.email,
-      })
-      .from(auditLogs)
-      .leftJoin(users, eq(users.id, auditLogs.userId))
-      .where(and(...conds))
-      .orderBy(desc(auditLogs.id))
-      .limit(q.category ? 5000 : size + 1)
-      .offset(q.category ? 0 : (page - 1) * size);
+    const raw = await this.repo.listAuditLogsWithUsersById(this.db, conds, q, size, page);
     let rows = raw.map((r) => {
       const d = describe(r.action, r.entity, r.data as Record<string, unknown> | null);
       return { ...r, ...d, categoryLabel: CATEGORY_LABEL[d.category] };
@@ -136,9 +118,7 @@ export class AuditLogService {
     const out = new Map<string, string>();
     for (const [table, ids] of byTable) {
       const expr = Object.values(REF).find((x) => x.table === table)!.expr;
-      const res = await this.db.execute<{ id: string; ref: string }>(
-        sql`SELECT id::text AS id, ${sql.raw(expr)} AS ref FROM ${sql.identifier(table)} WHERE tenant_id = ${tenantId} AND id = ANY(${pgArray([...ids])}::uuid[])`,
-      );
+      const res = await this.repo.queryResolveRefs(this.db, expr, table, tenantId, ids);
       for (const x of res.rows) out.set(`${table}|${x.id}`, x.ref);
     }
     return out;
@@ -150,9 +130,7 @@ export class AuditLogService {
     const tables = [...new Map(Object.values(REF).map((r) => [r.table, r.expr])).entries()];
     const ids: string[] = [];
     for (const [table, expr] of tables) {
-      const res = await this.db.execute<{ id: string }>(
-        sql`SELECT id::text AS id FROM ${sql.identifier(table)} WHERE tenant_id = ${tenantId} AND (${sql.raw(expr)}) ILIKE ${like} LIMIT 200`,
-      );
+      const res = await this.repo.querySearchCond(this.db, table, tenantId, expr, like);
       ids.push(...res.rows.map((x) => x.id));
     }
     return sql`(${auditLogs.data}::text ILIKE ${like} OR ${auditLogs.entityId} ILIKE ${like}${ids.length ? sql` OR ${auditLogs.entityId} = ANY(${pgArray(ids)}::text[])` : sql``})`;

@@ -11,8 +11,9 @@ import {
   goodsReceipts,
   goodsReceiptBillings,
   purchaseOrderLines,
+  purchaseInvoiceLines,
 } from '../../db/schema';
-import { Dec } from '../../common/utils/money';
+import { Dec, D } from '../../common/utils/money';
 
 /** Akses data faktur pembelian: pencarian satu baris per id, selalu memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -94,19 +95,17 @@ export class PurchaseInvoiceRepository {
     id: string,
     date: string,
   ) {
-    return db
-      .insert(goodsReceiptBillings)
-      .values(
-        billings.map((b) => ({
-          tenantId: tenantId,
-          receiptId: b.receiptId,
-          receiptLineId: b.receiptLineId,
-          invoiceId: id,
-          date: date,
-          qty: b.qty.toFixed(4),
-          value: b.value.toFixed(2),
-        })),
-      );
+    return db.insert(goodsReceiptBillings).values(
+      billings.map((b) => ({
+        tenantId: tenantId,
+        receiptId: b.receiptId,
+        receiptLineId: b.receiptLineId,
+        invoiceId: id,
+        date: date,
+        qty: b.qty.toFixed(4),
+        value: b.value.toFixed(2),
+      })),
+    );
   }
 
   /** Dipakai oleh PurchaseInvoicesService.billReceived */
@@ -127,5 +126,39 @@ export class PurchaseInvoiceRepository {
   /** Dipakai oleh PurchaseInvoicesService.isPkp */
   findTenantsByIdForIsPkp(db: DbOrTx, tenantId: string) {
     return db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh PurchaseInvoicesService.receiveAndBill */
+  insertPurchaseInvoiceLines(
+    db: DbOrTx,
+    id: string,
+    lineValues: string,
+    lineLineValues: string,
+    lineValues2: string,
+    lineValues3: string,
+    over: Map<string, Dec>,
+    lineValues4: string,
+    lineValues5: string,
+    pr: { rate: Dec; over: Map<string, Dec>; foreignPrice: Map<string, Dec>; given: Map<string, Dec> },
+    lineValues6: string,
+    dpp: Dec,
+    unitCost: Dec,
+    lineValues7: string,
+  ) {
+    return db.insert(purchaseInvoiceLines).values({
+      invoiceId: id,
+      productId: lineValues,
+      uom: lineLineValues,
+      uomFactor: lineValues2,
+      qty: lineValues3,
+      price: (over.get(lineValues4) ?? D(lineValues5)).toFixed(2),
+      priceForeign: pr.foreignPrice.get(lineValues4)?.toFixed(4) ?? null,
+      discountPct: lineValues6,
+      lineTotal: dpp.toFixed(2),
+      unitCost: unitCost.toFixed(4),
+      priceVariance: dpp.minus(lineValues7).toFixed(2),
+      orderLineId: lineValues4,
+    });
   }
 }

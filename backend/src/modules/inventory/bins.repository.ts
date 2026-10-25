@@ -6,6 +6,12 @@ import { CreateBinsDto, UpdateBinDto } from './bins.dto';
 import { AuthUser } from '../../common/auth/auth-user';
 import { BinStockQuery } from './bins.shared';
 import { Dec } from '../../common/utils/money';
+import type { BinMoveLineDto } from './bins.dto';
+import type { SQL } from 'drizzle-orm';
+
+export const HEAVY_MOVES = 30;
+
+export const MAX_ROWS = 500;
 
 /** Akses data untuk Bins: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -325,5 +331,74 @@ export class BinsRepository {
     return db.execute<{ products: number; qty: string }>(sql`
       SELECT COUNT(DISTINCT s.product_id)::int AS products, COALESCE(SUM(s.qty), 0) AS qty FROM stock_bin_balances s JOIN warehouse_bins b ON b.id = s.bin_id
       WHERE s.warehouse_id = ${warehouseId} AND b.kind = 'UNASSIGNED' AND s.qty > 0`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh BinsService.stock */
+  queryStockBinBalanceForStock(
+    db: DbOrTx,
+    u: AuthUser,
+    q: BinStockQuery,
+    allowed: string[] | null,
+    term: string | undefined,
+  ) {
+    return db.execute(sql`
+      SELECT s.bin_id AS "binId", b.code AS "binCode", b.zone, b.kind AS "binKind", s.warehouse_id AS "warehouseId", w.code AS "warehouseCode",
+             s.product_id AS "productId", p.sku, p.name, p.barcode, p.base_uom AS uom, s.lot_id AS "lotId", l.lot_no AS "lotNo", l.expiry_date AS "expiryDate", s.qty
+      FROM stock_bin_balances s
+      JOIN warehouse_bins b ON b.id = s.bin_id
+      JOIN warehouses w ON w.id = s.warehouse_id
+      JOIN products p ON p.id = s.product_id
+      LEFT JOIN stock_lots l ON l.id = s.lot_id
+      WHERE s.tenant_id = ${u.tenantId} AND s.qty > 0
+        ${
+          q.warehouseId
+            ? sql`AND s.warehouse_id = ${q.warehouseId}`
+            : allowed
+              ? sql`AND s.warehouse_id IN (${sql.join(
+                  allowed.map((a) => sql`${a}::uuid`),
+                  sql`, `,
+                )})`
+              : sql``
+        }
+        ${q.binId ? sql`AND s.bin_id = ${q.binId}` : sql``}
+        ${q.productId ? sql`AND s.product_id = ${q.productId}` : sql``}
+        ${term ? sql`AND (p.sku ILIKE ${'%' + term.replace(/[%_\\]/g, '\\$&') + '%'} OR p.name ILIKE ${'%' + term.replace(/[%_\\]/g, '\\$&') + '%'} OR p.barcode = ${term})` : sql``}
+      ORDER BY w.code, (b.kind = 'UNASSIGNED') DESC, b.code, p.sku, l.expiry_date NULLS LAST
+      LIMIT ${MAX_ROWS}`);
+  }
+
+  /** Dipakai oleh BinsService.move */
+  queryStockBinBalanceForMove2(db: DbOrTx, ln: BinMoveLineDto) {
+    return db.execute<{ id: string; qty: string }>(sql`
+          SELECT id, qty FROM stock_bin_balances
+          WHERE bin_id = ${ln.fromBinId} AND product_id = ${ln.productId} AND COALESCE(lot_id, '00000000-0000-0000-0000-000000000000'::uuid) = COALESCE(${ln.lotId ?? null}::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+          FOR UPDATE`);
+  }
+
+  /** Dipakai oleh BinsService.controls */
+  queryWarehouseForControls(db: DbOrTx, tenantId: string, wf: SQL<unknown>) {
+    return db.execute<{ id: string; code: string }>(
+      sql`SELECT id, code FROM warehouses w WHERE tenant_id = ${tenantId} AND bins_enabled ${wf}`,
+    );
+  }
+
+  /** Dipakai oleh BinsService.controls */
+  queryStockCount(db: DbOrTx, tenantId: string, wf: SQL<unknown>) {
+    return db.execute<{ wh: string; code: string; n: number }>(sql`
+      SELECT w.code AS wh, b.code, COUNT(DISTINCT c.id)::int AS n
+      FROM stock_counts c JOIN warehouse_bins b ON b.id = c.bin_id JOIN warehouses w ON w.id = c.warehouse_id
+      JOIN stock_count_lines l ON l.count_id = c.id AND l.difference IS NOT NULL AND l.difference <> 0
+      WHERE c.tenant_id = ${tenantId} AND c.status = 'POSTED' AND c.posted_at > now() - interval '90 days' ${wf}
+      GROUP BY w.code, b.code HAVING COUNT(DISTINCT c.id) >= 2 ORDER BY n DESC LIMIT 50`);
+  }
+
+  /** Dipakai oleh BinsService.controls */
+  queryBinMoveForControls(db: DbOrTx, tenantId: string, wf: SQL<unknown>) {
+    return db.execute<{ name: string; n: number }>(sql`
+      SELECT COALESCE(u.name, 'Tidak diketahui') AS name, COUNT(*)::int AS n FROM bin_moves m LEFT JOIN users u ON u.id = m.created_by_id
+      JOIN warehouses w ON w.id = m.warehouse_id
+      WHERE m.tenant_id = ${tenantId} AND m.kind = 'MOVE' AND m.created_at > now() - interval '7 days' ${wf}
+      GROUP BY u.name HAVING COUNT(*) >= ${HEAVY_MOVES} ORDER BY n DESC LIMIT 20`);
   }
 }

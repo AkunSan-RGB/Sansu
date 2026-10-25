@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { allowedWarehouses, assertWarehouseAccess } from '../../common/auth/warehouse-access';
 import { todayJakarta } from '../../common/utils/dates';
@@ -17,21 +16,6 @@ const SOON_DAYS = 7;
 const WARNING_DAYS = 30;
 
 export type LotStatus = 'EXPIRED' | 'SOON' | 'WARNING' | 'OK' | 'NO_EXPIRY';
-
-type Row = {
-  id: string;
-  product_id: string;
-  sku: string;
-  name: string;
-  base_uom: string;
-  warehouse_id: string;
-  warehouse_code: string;
-  lot_no: string | null;
-  expiry_date: string | null;
-  received_date: string;
-  qty_remaining: string;
-  avg_cost: string | null;
-};
 
 @Injectable()
 export class LotsService {
@@ -54,17 +38,7 @@ export class LotsService {
     if (q.warehouseId) assertWarehouseAccess(u, q.warehouseId);
     const allowed = allowedWarehouses(u);
     const today = todayJakarta();
-    const rows = await this.db.execute<Row>(sql`
-      SELECT l.id, l.product_id, p.sku, p.name, p.base_uom, l.warehouse_id, w.code AS warehouse_code, l.lot_no, l.expiry_date,
-             l.received_date, l.qty_remaining, b.avg_cost
-      FROM stock_lots l
-      JOIN products p ON p.id = l.product_id
-      JOIN warehouses w ON w.id = l.warehouse_id
-      LEFT JOIN stock_balances b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
-      WHERE l.tenant_id = ${u.tenantId} AND l.qty_remaining > 0
-        ${q.warehouseId ? sql`AND l.warehouse_id = ${q.warehouseId}` : allowed ? sql`AND l.warehouse_id = ANY(${allowed}::uuid[])` : sql``}
-      ORDER BY l.expiry_date NULLS LAST, p.sku, l.id
-      LIMIT 1000`);
+    const rows = await this.repo.queryStockLotForList(this.db, u, q, allowed);
     const items = rows.rows.map((r) => {
       const { status, daysLeft } = this.statusOf(r.expiry_date, today);
       return {
@@ -179,9 +153,7 @@ export class LotsService {
             if (need.lte(0)) break;
             if (l.left.lte(0) || l.received_date > m.date) continue;
             const take = l.left.lt(need) ? l.left : need;
-            await tx.execute(sql`
-              INSERT INTO stock_lot_issues (tenant_id, lot_id, product_id, warehouse_id, qty, move_type, ref_type, ref_id, date, is_estimate)
-              VALUES (${u.tenantId}, ${l.id}, ${pid}, ${wid}, ${take.toFixed(4)}, ${m.type}, ${m.ref_type}, ${m.ref_id}, ${m.date}, true)`);
+            await this.repo.queryStockLotIssueForRebuildTrace(tx, u.tenantId, l.id, pid, wid, take, m.type, m.ref_type, m.ref_id, m.date);
             l.left = l.left.minus(take);
             need = need.minus(take);
             rows++;

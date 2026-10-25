@@ -5,7 +5,7 @@ import { and, asc, eq, ilike, or, sql } from 'drizzle-orm';
 import { D } from '../../../common/utils/money';
 import { Db, DbOrTx } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { products, productUoms } from '../../../db/schema';
+import { products } from '../../../db/schema';
 import { canonicalCategory, categorySpellings, cleanCategory, isPlain } from './category';
 import { AddCategoryDto, CreateProductDto, MergeCategoriesDto, ProductUomDto, UpdateProductDto } from './products.dto';
 import { patchById } from '../../../db/owned';
@@ -168,10 +168,10 @@ export class ProductsService {
     const list = sql.join(from.map((f) => sql`${f}`), sql`, `);
     const cond = sql`tenant_id = ${tenantId} AND category IN (${list}) AND category IS DISTINCT FROM ${to}::text`;
     if (dto.dryRun) {
-      const c = await this.db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM products WHERE ${cond}`);
+      const c = await this.repo.queryProductForMergeCategories(this.db, cond);
       return { updated: c.rows[0].n, to, dryRun: true };
     }
-    const u = await this.db.execute<{ id: string }>(sql`UPDATE products SET category = ${to}::text WHERE ${cond} RETURNING id`);
+    const u = await this.repo.queryMergeCategories(this.db, to, cond);
     if (to) {
       const opts = await this.options(tenantId);
       if (!opts.categories.some((c) => c.value.toLowerCase() === to!.toLowerCase())) await this.addCategory(tenantId, { name: to });

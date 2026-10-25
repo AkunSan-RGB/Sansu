@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { tenants, purchaseOrders, suppliers } from '../../db/schema';
+import { tenants, purchaseOrders, suppliers, purchaseOrderLines } from '../../db/schema';
 import { eq, sql, and } from 'drizzle-orm';
+import type { BuiltLine } from '../master-data/products/line-builder';
+import type { Decimal } from 'decimal.js';
 
 /** Akses data untuk PurchaseOrders: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -70,5 +72,23 @@ export class PurchaseOrdersRepository {
   queryPurchaseOrder(db: DbOrTx, id: string, tenantId: string) {
     return db.execute(sql`
       SELECT id FROM purchase_orders WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh PurchaseOrdersService.createIn */
+  insertPurchaseOrderLines(db: DbOrTx, lines: BuiltLine[], id: string, priceForeign: (Decimal | null)[]) {
+    return db.insert(purchaseOrderLines).values(
+      lines.map((l, i) => ({
+        orderId: id,
+        priceForeign: priceForeign[i]?.toFixed(4) ?? null,
+        productId: l.productId,
+        uom: l.uom,
+        uomFactor: l.uomFactor,
+        qty: l.qty,
+        price: l.price.toFixed(2),
+        discountPct: l.discountPct.toFixed(2),
+        lineTotal: l.lineTotal.toFixed(2),
+      })),
+    );
   }
 }

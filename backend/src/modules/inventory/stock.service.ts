@@ -1,12 +1,12 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { auditContext } from '../../common/audit/audit-context';
 import { assertWarehouseAccess } from '../../common/auth/warehouse-access';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { PeriodService } from '../../common/period/period.service';
 import { assertNotFuture, DocDate } from '../../common/utils/dates';
 import { D, Dec, DecValue, money, qty4 } from '../../common/utils/money';
 import { Tx } from '../../db/db';
-import { products, StockMoveType, stockLayers, stockMoves, warehouses } from '../../db/schema';
+import { StockMoveType, stockMoves } from '../../db/schema';
 import { isInventoryMethod, type InventoryMethod } from '@sansu/shared';
 import { consumeLayers, movingAverage } from './costing';
 import { trackBins } from './bin-tracker';
@@ -156,7 +156,7 @@ export class StockService {
             const take = kept.get(l.id)!.lt(need) ? kept.get(l.id)! : need;
             kept.set(l.id, kept.get(l.id)!.minus(take));
             need = need.minus(take);
-            await tx.execute(sql`UPDATE stock_layers SET qty_remaining = ${kept.get(l.id)!.toFixed(4)} WHERE id = ${l.id}`);
+            await this.repo.queryMoveForMove(tx, kept, l.id);
           }
           await this.repo.queryStockLayerForMove(tx, m.productId, m.warehouseId);
           if (leftQty.gt(0)) newAvg = qty4(layers.reduce<Dec>((a, l) => a.plus(kept.get(l.id)!.times(l.unitCost)), D(0)).div(leftQty));

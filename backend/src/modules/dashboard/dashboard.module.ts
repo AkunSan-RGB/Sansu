@@ -5,6 +5,7 @@ import { DashboardInsightsController } from './dashboard-insights.controller';
 import { DashboardInsightsService } from './dashboard-insights.service';
 import { DashboardController } from './dashboard.controller';
 import { DashboardService } from './dashboard.service';
+import { DashboardRepository } from './dashboard.repository';
 
-@Module({ imports: [InsightsModule, TaxModule], controllers: [DashboardController, DashboardInsightsController], providers: [DashboardService, DashboardInsightsService] })
+@Module({ imports: [InsightsModule, TaxModule], controllers: [DashboardController, DashboardInsightsController], providers: [DashboardRepository, DashboardService, DashboardInsightsService] })
 export class DashboardModule {}

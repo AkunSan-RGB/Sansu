@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../../db/db';
 import { sql } from 'drizzle-orm';
+import { AuthUser } from '../../../common/auth/auth-user';
+import { FeedDto } from './calendar-feed.dto';
+import { createHash } from 'node:crypto';
+
+export const hash = (k: string) => createHash('sha256').update(k).digest('hex');
 
 /** Akses data untuk CalendarFeed: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -56,5 +61,27 @@ export class CalendarFeedRepository {
       WHERE b.tenant_id = ${f.tenant_id} AND b.status IN ('BOOKED', 'DONE') AND b.starts_at < (${to}::date + 1)::timestamptz AND b.ends_at > ${from}::date::timestamptz
         ${f.resource_id ? sql`AND b.resource_id = ${f.resource_id}` : sql``}
       ORDER BY b.starts_at LIMIT 2000`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh CalendarFeedService.create */
+  querySchedulingFeedForCreate(db: DbOrTx, u: AuthUser, dto: FeedDto, token: string) {
+    return db.execute<{ id: string }>(
+      sql`INSERT INTO scheduling_feeds (tenant_id, resource_id, name, token_hash, token_prefix, created_by_id) VALUES (${u.tenantId}, ${dto.resourceId ?? null}, ${dto.name.trim()}, ${hash(token)}, ${token.slice(0, 8)}, ${u.sub}) RETURNING id`,
+    );
+  }
+
+  /** Dipakai oleh CalendarFeedService.render */
+  querySchedulingFeedForRender(db: DbOrTx, token: string) {
+    return db.execute<{
+      id: string;
+      tenant_id: string;
+      resource_id: string | null;
+      name: string;
+      revoked_at: Date | null;
+      last_used_at: Date | null;
+    }>(
+      sql`SELECT id, tenant_id, resource_id, name, revoked_at, last_used_at FROM scheduling_feeds WHERE token_hash = ${hash(token)}`,
+    );
   }
 }

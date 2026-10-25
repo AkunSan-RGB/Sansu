@@ -13,7 +13,6 @@ import { addDays, DocDate, toDocDate, todayJakarta } from '../../common/utils/da
 import { D, Dec, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { tenants } from '../../db/schema';
 import {
   AccountMeta,
   ADJUSTING_SOURCES,
@@ -26,6 +25,7 @@ import {
   sumByAccount,
   unclosedEarnings,
 } from './ledger-data';
+import { StatementsRepository } from './statements.repository';
 
 const s2 = (d: Dec) => d.toFixed(2);
 
@@ -61,17 +61,18 @@ interface Range {
 
 @Injectable()
 export class StatementsService {
-  constructor(@InjectDb() private readonly db: Db) {}
+  constructor(@InjectDb() private readonly db: Db,
+    private readonly repo: StatementsRepository) {}
 
   async framework(tenantId: string): Promise<ReportingFramework> {
-    const [t] = await this.db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+    const [t] = await this.repo.findTenantsById(this.db, tenantId);
     const fw = (t?.settings as { reporting?: { framework?: string } })?.reporting?.framework;
     return asFramework(fw);
   }
 
   /** Jenis usaha perusahaan (Dagang bila belum pernah dipilih) — menentukan istilah di laporan */
   async businessModel(tenantId: string): Promise<BusinessModel> {
-    const [t] = await this.db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
+    const [t] = await this.repo.findTenantsById(this.db, tenantId);
     const m = (t?.settings as { business?: { model?: string } })?.business?.model ?? '';
     return (BUSINESS_MODEL_KEYS as readonly string[]).includes(m) ? (m as BusinessModel) : 'DAGANG';
   }
@@ -425,12 +426,7 @@ export class StatementsService {
     const scope = branchScope.getStore();
     const brL = scope ? (scope === 'NONE' ? sql`AND l.branch_id IS NULL` : sql`AND l.branch_id = ${scope}`) : sql``;
     const brL2 = scope ? (scope === 'NONE' ? sql`AND l2.branch_id IS NULL` : sql`AND l2.branch_id = ${scope}`) : sql``;
-    const res = await this.db.execute<{ journal_id: string; account_id: string; debit: string; credit: string }>(sql`
-      SELECT l.journal_id, l.account_id, l.debit, l.credit
-      FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-      WHERE j.tenant_id = ${tenantId} AND j.date BETWEEN ${r.from} AND ${r.to} AND j.source_type NOT IN ('CLOSING', 'OPENING') ${brL}
-        AND EXISTS (SELECT 1 FROM journal_lines l2 JOIN accounts a2 ON a2.id = l2.account_id
-                    WHERE l2.journal_id = j.id ${brL2} AND (a2.is_cash_account = true OR a2.report_group = 'CASH_EQUIVALENT'))`);
+    const res = await this.repo.queryJournalLine(this.db, tenantId, r.from, r.to, brL, brL2);
     const journals = new Map<string, typeof res.rows>();
     for (const row of res.rows) journals.set(row.journal_id, [...(journals.get(row.journal_id) ?? []), row]);
 

@@ -4,6 +4,29 @@ import { sql } from 'drizzle-orm';
 import { ResourceDto } from './scheduling.dto';
 import { BookingsQuery } from './scheduling.shared';
 
+export const OVERLOAD_HOURS = 10;
+
+export type Res = {
+  id: string;
+  name: string;
+  is_active: boolean;
+  employee_id: string | null;
+  work_start: number;
+  work_end: number;
+  work_days: string;
+};
+
+export type Booking = {
+  id: string;
+  resource_id: string;
+  title: string;
+  starts_at: Date;
+  ends_at: Date;
+  status: string;
+  customer_id: string | null;
+  project_id: string | null;
+};
+
 /** Akses data untuk Scheduling: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
 export class SchedulingRepository {
@@ -125,5 +148,57 @@ export class SchedulingRepository {
     return db.execute(
       sql`SELECT b.id, b.title, r.name AS resource, b.starts_at AS "startsAt" FROM resource_bookings b JOIN scheduling_resources r ON r.id = b.resource_id WHERE b.tenant_id = ${tenantId} AND b.status = 'BOOKED' AND b.off_hours AND b.ends_at > now() - interval '7 days' ORDER BY b.starts_at LIMIT 50`,
     );
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh SchedulingService.saveResource */
+  querySchedulingResourceForSaveResource(db: DbOrTx, id: string, tenantId: string) {
+    return db.execute<Res>(
+      sql`SELECT id, name, is_active, employee_id, work_start, work_end, work_days FROM scheduling_resources WHERE id = ${id} AND tenant_id = ${tenantId}`,
+    );
+  }
+
+  /** Dipakai oleh SchedulingService.lockResource */
+  querySchedulingResourceForLockResource(db: DbOrTx, id: string, tenantId: string) {
+    return db.execute<Res>(
+      sql`SELECT id, name, is_active, employee_id, work_start, work_end, work_days FROM scheduling_resources WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`,
+    );
+  }
+
+  /** Dipakai oleh SchedulingService.lockBooking */
+  queryResourceBookingForLockBooking(db: DbOrTx, id: string, tenantId: string) {
+    return db.execute<Booking>(
+      sql`SELECT * FROM resource_bookings WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`,
+    );
+  }
+
+  /** Dipakai oleh SchedulingService.toTimeEntry */
+  queryResourceBookingForToTimeEntry(db: DbOrTx, id: string, tenantId: string) {
+    return db.execute<Booking & { employee_id: string | null; kind: string; project_id: string | null }>(
+      sql`SELECT b.*, r.employee_id, r.kind FROM resource_bookings b JOIN scheduling_resources r ON r.id = b.resource_id WHERE b.id = ${id} AND b.tenant_id = ${tenantId}`,
+    );
+  }
+
+  /** Dipakai oleh SchedulingService.freeSlots */
+  querySchedulingResourceForFreeSlots(db: DbOrTx, resourceId: string, tenantId: string) {
+    return db.execute<Res>(
+      sql`SELECT id, name, is_active, employee_id, work_start, work_end, work_days FROM scheduling_resources WHERE id = ${resourceId} AND tenant_id = ${tenantId} AND is_active`,
+    );
+  }
+
+  /** Dipakai oleh SchedulingService.freeSlots */
+  queryLeaveRequestForFreeSlots(db: DbOrTx, tenantId: string, res: Res[], to: string, from: string) {
+    return db.execute<{ start_date: string; end_date: string }>(
+      sql`SELECT start_date, end_date FROM leave_requests WHERE tenant_id = ${tenantId} AND employee_id = ${res[0].employee_id} AND status = 'APPROVED' AND start_date <= ${to}::date AND end_date >= ${from}::date`,
+    );
+  }
+
+  /** Dipakai oleh SchedulingService.controls */
+  queryResourceBookingForControls3(db: DbOrTx, tenantId: string) {
+    return db.execute(sql`
+      SELECT r.name AS resource, to_char((b.starts_at AT TIME ZONE 'Asia/Jakarta')::date, 'YYYY-MM-DD') AS day, ROUND(SUM(EXTRACT(EPOCH FROM (b.ends_at - b.starts_at)) / 3600)::numeric, 1) AS hours
+      FROM resource_bookings b JOIN scheduling_resources r ON r.id = b.resource_id
+      WHERE b.tenant_id = ${tenantId} AND b.status = 'BOOKED' AND r.kind = 'PERSON' AND b.starts_at > now() - interval '7 days'
+      GROUP BY r.name, (b.starts_at AT TIME ZONE 'Asia/Jakarta')::date HAVING SUM(EXTRACT(EPOCH FROM (b.ends_at - b.starts_at)) / 3600) > ${OVERLOAD_HOURS} ORDER BY 2 LIMIT 50`);
   }
 }

@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { sql } from 'drizzle-orm';
-import { DEFAULT_LOYALTY, expiryDate, type LoyaltySettings, validateLoyalty } from '@sansu/shared';
+import { DEFAULT_LOYALTY, type LoyaltySettings, validateLoyalty } from '@sansu/shared';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SettingsService } from '../../common/settings.service';
@@ -13,12 +12,11 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { LoyaltySettingsDto, AdjustDto } from './loyalty.dto';
 import { LoyaltyRepository } from './loyalty.repository';
+import type { Lot } from './loyalty.repository';
 
 const SECTION = 'loyalty';
 
 const num = (v: unknown) => Number(v ?? 0);
-
-type Lot = { id: string; remaining: number; value: string; points: number };
 
 @Injectable()
 export class LoyaltyService {
@@ -98,7 +96,7 @@ export class LoyaltyService {
   /** Kedaluwarsakan lot milik satu pelanggan yang sudah lewat tanggalnya (dipakai saat tukar poin) */
   async expireCustomerTx(tx: Tx, user: { tenantId: string; sub?: string }, customerId: string) {
     const today = todayJakarta();
-    const due = (await tx.execute<Lot & { expires_on: string }>(sql`SELECT id, remaining, value, points, expires_on FROM loyalty_ledger WHERE tenant_id = ${user.tenantId} AND customer_id = ${customerId} AND remaining > 0 AND expires_on IS NOT NULL AND expires_on <= ${today} ORDER BY expires_on FOR UPDATE`)).rows;
+    const due = (await this.repo.queryLoyaltyLedgerForExpireCustomerTx(tx, user.tenantId, customerId, today)).rows;
     return this.expireLots(tx, user, customerId, due);
   }
 
@@ -107,7 +105,7 @@ export class LoyaltyService {
     let pts = 0;
     for (const lot of due) {
       const v = money(D(lot.value).times(lot.remaining).div(lot.points));
-      await tx.execute(sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, note, created_by_id) VALUES (${user.tenantId}, ${customerId}, 'EXPIRE', ${-lot.remaining}, ${v.negated().toFixed(2)}, 'Poin kedaluwarsa', ${user.sub ?? null})`);
+      await this.repo.queryLoyaltyLedgerForExpireLots(tx, user, customerId, lot.remaining, v);
       await this.repo.queryExpireLots(tx, lot.id);
       total = total.plus(v);
       pts += lot.remaining;
@@ -119,7 +117,7 @@ export class LoyaltyService {
   /** Beri poin dari transaksi (nilai kewajiban = poin × nilai 1 poin). Jurnal dicatat pemanggil bersama jurnal penjualan. */
   async earnTx(tx: Tx, p: { tenantId: string; customerId: string; orderId: string; points: number; settings: LoyaltySettings; userId?: string }) {
     const value = money(D(p.points).times(p.settings.pointValueRp));
-    await tx.execute(sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, order_id, expires_on, remaining, created_by_id) VALUES (${p.tenantId}, ${p.customerId}, 'EARN', ${p.points}, ${value.toFixed(2)}, ${p.orderId}, ${expiryDate(todayJakarta(), p.settings)}, ${p.points}, ${p.userId ?? null})`);
+    await this.repo.queryLoyaltyLedgerForEarnTx(tx, p, value);
     return value;
   }
 
@@ -139,7 +137,7 @@ export class LoyaltyService {
     if (p.points > maxPts) throw new BadRequestException(`Tukar poin maksimal ${s.maxRedeemPct}% dari total belanja (${maxPts} poin)`);
     const liability = await this.consume(tx, user.tenantId, p.customerId, p.points);
     const discount = money(D(p.points).times(s.pointValueRp));
-    await tx.execute(sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, order_id, created_by_id) VALUES (${user.tenantId}, ${p.customerId}, 'REDEEM', ${-p.points}, ${liability.negated().toFixed(2)}, ${p.orderId}, ${user.sub})`);
+    await this.repo.queryLoyaltyLedgerForRedeemTx(tx, user.tenantId, p.customerId, p.points, liability, p.orderId, user.sub);
     return { discount, liability };
   }
 
@@ -160,7 +158,7 @@ export class LoyaltyService {
         const lotLeft = (await this.repo.queryLoyaltyLedgerForReturnTx3(tx, p.orderId)).rows[0];
         const fromLot = Math.min(pts, lotLeft?.remaining ?? 0);
         if (fromLot > 0) await this.repo.queryReturnTx(tx, fromLot, lotLeft.id);
-        await tx.execute(sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, order_id, note, created_by_id) VALUES (${user.tenantId}, ${p.customerId}, 'REVERSE', ${-pts}, ${v.negated().toFixed(2)}, ${p.orderId}, 'Retur transaksi', ${user.sub})`);
+        await this.repo.queryLoyaltyLedgerForReturnTx4(tx, user.tenantId, p.customerId, pts, v, p.orderId, user.sub);
         reverseValue = v;
       }
     }
@@ -173,7 +171,7 @@ export class LoyaltyService {
       if (refundPts > 0) {
         refundValue = money(D(p.redeemedValue).times(refundPts).div(p.redeemed));
         const lotValue = money(D(refundPts).times(p.settings.pointValueRp));
-        await tx.execute(sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, order_id, expires_on, remaining, note, created_by_id) VALUES (${user.tenantId}, ${p.customerId}, 'REFUND', ${refundPts}, ${lotValue.toFixed(2)}, ${p.orderId}, ${expiryDate(todayJakarta(), p.settings)}, ${refundPts}, 'Poin dikembalikan (retur)', ${user.sub})`);
+        await this.repo.queryLoyaltyLedgerForReturnTx5(tx, user.tenantId, p.customerId, refundPts, lotValue, p.orderId, p.settings, user.sub);
       }
     }
     return { reverseValue, refundValue, refundPts, refundLotValue: money(D(refundPts).times(p.settings.pointValueRp)) };
@@ -187,13 +185,13 @@ export class LoyaltyService {
       await this.lockCustomer(tx, u.tenantId, dto.customerId);
       if (dto.points > 0) {
         const value = money(D(dto.points).times(s.pointValueRp));
-        await tx.execute(sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, expires_on, remaining, note, created_by_id) VALUES (${u.tenantId}, ${dto.customerId}, 'ADJUST', ${dto.points}, ${value.toFixed(2)}, ${expiryDate(todayJakarta(), s)}, ${dto.points}, ${dto.reason}, ${u.sub})`);
+        await this.repo.queryLoyaltyLedgerForAdjust(tx, u.tenantId, dto.customerId, dto.points, value, s, dto.reason, u.sub);
         await this.journal(tx, u, `Penyesuaian poin loyalitas (+${dto.points})`, dto.customerId, value.negated());
       } else {
         const bal = await this.balance(tx, u.tenantId, dto.customerId);
         if (-dto.points > bal) throw new BadRequestException(`Saldo poin ${bal}, tidak bisa dikurangi ${-dto.points}`);
         const value = await this.consume(tx, u.tenantId, dto.customerId, -dto.points);
-        await tx.execute(sql`INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, value, note, created_by_id) VALUES (${u.tenantId}, ${dto.customerId}, 'ADJUST', ${dto.points}, ${value.negated().toFixed(2)}, ${dto.reason}, ${u.sub})`);
+        await this.repo.queryLoyaltyLedgerForAdjust2(tx, u.tenantId, dto.customerId, dto.points, value, dto.reason, u.sub);
         await this.journal(tx, u, `Penyesuaian poin loyalitas (${dto.points})`, dto.customerId, value);
       }
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'LoyaltyAdjustment', entityId: dto.customerId, data: { points: dto.points, reason: dto.reason } });
@@ -205,7 +203,7 @@ export class LoyaltyService {
   async expireAll(u: AuthUser) {
     return this.db.transaction(async (tx) => {
       const today = todayJakarta();
-      const due = (await tx.execute<Lot & { customer_id: string }>(sql`SELECT id, remaining, value, points, customer_id FROM loyalty_ledger WHERE tenant_id = ${u.tenantId} AND remaining > 0 AND expires_on IS NOT NULL AND expires_on <= ${today} ORDER BY customer_id, expires_on FOR UPDATE`)).rows;
+      const due = (await this.repo.queryLoyaltyLedgerForExpireAll(tx, u.tenantId, today)).rows;
       const by = new Map<string, Lot[]>();
       for (const l of due) by.set(l.customer_id, [...(by.get(l.customer_id) ?? []), l]);
       let points = 0;

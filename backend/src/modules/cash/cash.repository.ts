@@ -1,8 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { sql, and, eq, inArray } from 'drizzle-orm';
-import { accounts, projects, cashTransactions } from '../../db/schema';
+import { accounts, projects, cashTransactions, cashTransactionLines } from '../../db/schema';
 import { addDays } from '../../common/utils/dates';
+import { money } from '../../common/utils/money';
+import { CashLineDto, CreateCashTxDto } from './cash.dto';
+import type { SQL } from 'drizzle-orm';
+
+/** Kas yang sudah melewati penentuan sumber: setiap baris punya akun */
+export type ResolvedCashTx = Omit<CreateCashTxDto, 'lines'> & {
+  lines?: (Omit<CashLineDto, 'accountId'> & { accountId: string; sourceKey?: string })[];
+};
 
 /** Akses data untuk Cash: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -197,5 +205,37 @@ export class CashRepository {
       JOIN journal_lines lc ON lc.journal_id = j.id AND lc.credit > 0 JOIN accounts ca ON ca.id = lc.account_id AND NOT ca.is_cash_account
       WHERE j.tenant_id = ${tenantId} AND j.source_type IN ('CASH_IN', 'BANK') AND j.date BETWEEN ${from} AND ${to}
       GROUP BY j.source_type, ca.code, ca.name, ca.type, ca.system_key`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh CashService.resolveSources */
+  queryAccountForResolveSources(db: DbOrTx, tenantId: string, keysValues: SQL<unknown>[]) {
+    return db.execute<{ id: string; code: string }>(
+      sql`SELECT id, code FROM accounts WHERE tenant_id = ${tenantId} AND is_postable AND code IN (${sql.join(keysValues, sql`, `)})`,
+    );
+  }
+
+  /** Dipakai oleh CashService.create */
+  insertCashTransactionLines(
+    db: DbOrTx,
+    lines: (Omit<CashLineDto, 'accountId'> & { accountId: string; sourceKey?: string })[],
+    id: string,
+    dto: ResolvedCashTx,
+  ) {
+    return db.insert(cashTransactionLines).values(
+      lines.map((l) => ({
+        transactionId: id,
+        accountId: l.accountId as string,
+        amount: money(l.amount).toFixed(2),
+        memo: l.memo,
+        projectId: dto.type === 'OUT' ? l.projectId : undefined,
+        sourceKey: (l as { sourceKey?: string }).sourceKey,
+      })),
+    );
+  }
+
+  /** Dipakai oleh CashService.controls */
+  queryControls(db: DbOrTx, q: SQL<unknown>) {
+    return db.execute<{ number: string; d: string; v: string }>(q);
   }
 }

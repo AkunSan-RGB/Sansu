@@ -10,6 +10,8 @@ import { TimesheetService } from './timesheets.service';
 import { ResourceDto, BookingDto, RecurringBookingDto, CancelDto, MoveDto } from './scheduling.dto';
 import { BookingsQuery, SlotQuery } from './scheduling.shared';
 import { SchedulingRepository } from './scheduling.repository';
+import { OVERLOAD_HOURS } from './scheduling.repository';
+import type { Res, Booking } from './scheduling.repository';
 
 const MAX_DAYS = 14;
 
@@ -17,13 +19,7 @@ const WORK_START = 8;
  // WIB (bawaan; dapat diatur per sumber daya)
 const WORK_END = 17;
 
-const OVERLOAD_HOURS = 10;
-
 const WIB = 7 * 3600_000;
-
-type Res = { id: string; name: string; is_active: boolean; employee_id: string | null; work_start: number; work_end: number; work_days: string };
-
-type Booking = { id: string; resource_id: string; title: string; starts_at: Date; ends_at: Date; status: string; customer_id: string | null; project_id: string | null };
 
 @Injectable()
 export class SchedulingService {
@@ -46,7 +42,7 @@ export class SchedulingService {
     if (dto.kind !== 'PERSON' && dto.employeeId) throw new BadRequestException('Karyawan hanya untuk sumber daya berjenis orang');
     // pada pembaruan, bagian yang tidak dikirim dipertahankan (mis. tombol aktif/nonaktif tidak mengubah jam kerja)
     let cur: Res | undefined;
-    if (id) cur = (await this.db.execute<Res>(sql`SELECT id, name, is_active, employee_id, work_start, work_end, work_days FROM scheduling_resources WHERE id = ${id} AND tenant_id = ${u.tenantId}`)).rows[0];
+    if (id) cur = (await this.repo.querySchedulingResourceForSaveResource(this.db, id, u.tenantId)).rows[0];
     const ws = dto.workStart ?? cur?.work_start ?? WORK_START;
     const we = dto.workEnd ?? cur?.work_end ?? WORK_END;
     if (ws >= we) throw new BadRequestException('Jam selesai kerja harus setelah jam mulai');
@@ -114,7 +110,7 @@ export class SchedulingService {
   }
 
   private async lockResource(tx: Tx, tenantId: string, id: string) {
-    const r = await tx.execute<Res>(sql`SELECT id, name, is_active, employee_id, work_start, work_end, work_days FROM scheduling_resources WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
+    const r = await this.repo.querySchedulingResourceForLockResource(tx, id, tenantId);
     if (!r.rows.length) throw new BadRequestException('Sumber daya tidak ditemukan');
     if (!r.rows[0].is_active) throw new BadRequestException('Sumber daya nonaktif');
     return r.rows[0];
@@ -194,7 +190,7 @@ export class SchedulingService {
   }
 
   private async lockBooking(tx: Tx, tenantId: string, id: string) {
-    const r = await tx.execute<Booking>(sql`SELECT * FROM resource_bookings WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
+    const r = await this.repo.queryResourceBookingForLockBooking(tx, id, tenantId);
     if (!r.rows.length) throw new NotFoundException('Pemesanan tidak ditemukan');
     return r.rows[0];
   }
@@ -239,7 +235,7 @@ export class SchedulingService {
 
   /** Ubah pemesanan sumber daya orang menjadi draf catatan waktu (jam = lama pemesanan) untuk ditagih */
   async toTimeEntry(u: AuthUser, id: string) {
-    const b = (await this.db.execute<Booking & { employee_id: string | null; kind: string; project_id: string | null }>(sql`SELECT b.*, r.employee_id, r.kind FROM resource_bookings b JOIN scheduling_resources r ON r.id = b.resource_id WHERE b.id = ${id} AND b.tenant_id = ${u.tenantId}`)).rows[0];
+    const b = (await this.repo.queryResourceBookingForToTimeEntry(this.db, id, u.tenantId)).rows[0];
     if (!b) throw new NotFoundException('Pemesanan tidak ditemukan');
     if (b.kind !== 'PERSON' || !b.employee_id) throw new BadRequestException('Hanya pemesanan sumber daya orang yang terhubung ke karyawan yang dapat dijadikan catatan waktu');
     if (!b.customer_id && !b.project_id) throw new BadRequestException('Pemesanan belum terkait pelanggan/proyek');
@@ -270,10 +266,10 @@ export class SchedulingService {
 
   /** Slot kosong pada jam dan hari kerja sumber daya (bawaan 08.00–17.00 WIB, Senin–Sabtu; hari cuti dilewati) yang cukup untuk `minutes`, per hari */
   async freeSlots(tenantId: string, q: SlotQuery) {
-    const res = (await this.db.execute<Res>(sql`SELECT id, name, is_active, employee_id, work_start, work_end, work_days FROM scheduling_resources WHERE id = ${q.resourceId} AND tenant_id = ${tenantId} AND is_active`)).rows;
+    const res = (await this.repo.querySchedulingResourceForFreeSlots(this.db, q.resourceId, tenantId)).rows;
     if (!res.length) throw new BadRequestException('Sumber daya tidak ditemukan atau nonaktif');
     const workDays = res[0].work_days.split(',').map(Number);
-    const leaves = res[0].employee_id ? (await this.db.execute<{ start_date: string; end_date: string }>(sql`SELECT start_date, end_date FROM leave_requests WHERE tenant_id = ${tenantId} AND employee_id = ${res[0].employee_id} AND status = 'APPROVED' AND start_date <= ${q.to}::date AND end_date >= ${q.from}::date`)).rows : [];
+    const leaves = res[0].employee_id ? (await this.repo.queryLeaveRequestForFreeSlots(this.db, tenantId, res, q.to, q.from)).rows : [];
     const days: string[] = [];
     for (let d = q.from; d <= q.to && days.length < 31; d = addDays(d, 1)) days.push(d);
     const winStart = new Date(`${q.from}T00:00:00+07:00`);
@@ -297,11 +293,7 @@ export class SchedulingService {
 
   /** Kontrol: orang terlalu padat, pemesanan lewat belum diselesaikan */
   async controls(tenantId: string) {
-    const overloaded = await this.db.execute(sql`
-      SELECT r.name AS resource, to_char((b.starts_at AT TIME ZONE 'Asia/Jakarta')::date, 'YYYY-MM-DD') AS day, ROUND(SUM(EXTRACT(EPOCH FROM (b.ends_at - b.starts_at)) / 3600)::numeric, 1) AS hours
-      FROM resource_bookings b JOIN scheduling_resources r ON r.id = b.resource_id
-      WHERE b.tenant_id = ${tenantId} AND b.status = 'BOOKED' AND r.kind = 'PERSON' AND b.starts_at > now() - interval '7 days'
-      GROUP BY r.name, (b.starts_at AT TIME ZONE 'Asia/Jakarta')::date HAVING SUM(EXTRACT(EPOCH FROM (b.ends_at - b.starts_at)) / 3600) > ${OVERLOAD_HOURS} ORDER BY 2 LIMIT 50`);
+    const overloaded = await this.repo.queryResourceBookingForControls3(this.db, tenantId);
     const stale = await this.repo.queryResourceBookingForControls(this.db, tenantId);
     const offHours = await this.repo.queryResourceBookingForControls2(this.db, tenantId);
     return { overloadedPeople: overloaded.rows, notCompleted: stale.rows, offHours: offHours.rows, overloadHours: OVERLOAD_HOURS };

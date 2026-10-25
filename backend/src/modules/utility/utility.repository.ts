@@ -2,9 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { sql, eq, and } from 'drizzle-orm';
 import { utilityTariffs, customers, accounts, utilityLateFees, utilityBills } from '../../db/schema';
-import { TariffDto } from './utility.dto';
+import { TariffDto, ZoneSupplyDto } from './utility.dto';
 import { type TariffBlock } from '@sansu/shared';
 import { todayJakarta } from '../../common/utils/dates';
+import { AuthUser } from '../../common/auth/auth-user';
+import type { Decimal } from 'decimal.js';
+import type { SQL } from 'drizzle-orm';
 
 /** Akses data untuk Utility: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -244,5 +247,54 @@ export class UtilityRepository {
       FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id JOIN utility_connections c ON c.id = b.connection_id JOIN customers cu ON cu.id = c.customer_id
       WHERE b.tenant_id = ${tenantId} AND i.status <> 'PAID' AND i.due_date < ${today}::date AND c.status <> 'DISCONNECTED'
       GROUP BY c.id, c.number, c.status, c.address, cu.name, cu.phone ORDER BY MAX(${today}::date - i.due_date) DESC LIMIT 500`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh UtilityService.saveSupply */
+  queryUtilityZoneSupplyForSaveSupply(
+    db: DbOrTx,
+    tenantId: string,
+    zone: string,
+    dto: ZoneSupplyDto,
+    supplied: Decimal,
+    sub: string,
+  ) {
+    return db.execute(
+      sql`INSERT INTO utility_zone_supply (tenant_id, zone, period, supplied, note, entered_by_id) VALUES (${tenantId}, ${zone}, ${dto.period}, ${supplied.toFixed(3)}, ${dto.note?.trim() || null}, ${sub}) ON CONFLICT (tenant_id, zone, period) DO UPDATE SET supplied = EXCLUDED.supplied, note = EXCLUDED.note, entered_by_id = EXCLUDED.entered_by_id, updated_at = now()`,
+    );
+  }
+
+  /** Dipakai oleh UtilityService.run */
+  insertUtilityBills(
+    db: DbOrTx,
+    u: AuthUser,
+    itemValues: string,
+    period: string,
+    itemItemValues: number | null,
+    itemValues2: string,
+    itemValues3: string,
+  ) {
+    return db
+      .insert(utilityBills)
+      .values({
+        tenantId: u.tenantId,
+        connectionId: itemValues,
+        period: period,
+        usage: itemItemValues === null ? null : String(itemItemValues),
+        subtotal: itemValues2,
+        lateFee: itemValues3,
+        createdById: u.sub,
+      })
+      .returning({ id: utilityBills.id });
+  }
+
+  /** Dipakai oleh UtilityService.controls */
+  queryControls(db: DbOrTx, query: SQL<unknown>) {
+    return db.execute<Record<string, unknown>>(query);
+  }
+
+  /** Dipakai oleh UtilityService.summary */
+  querySummary(db: DbOrTx, query: SQL<unknown>) {
+    return db.execute<{ n: number }>(query);
   }
 }

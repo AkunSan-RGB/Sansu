@@ -16,6 +16,18 @@ import { addDays } from '../../common/utils/dates';
 type LinePatch = Partial<typeof bankStatementLines.$inferInsert>;
 type RuleValues = Partial<typeof bankRules.$inferInsert>;
 
+export type BookLine = {
+  id: string;
+  journal_id: string;
+  date: string;
+  number: string;
+  description: string;
+  reference: string | null;
+  debit: string;
+  credit: string;
+  source_type: string;
+};
+
 /** Akses data rekening koran, mutasi, pencocokan, dan aturan bank. Setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
 export class BankRepository {
@@ -327,5 +339,29 @@ export class BankRepository {
       LEFT JOIN bank_statement_lines l ON l.statement_id = s.id
       WHERE a.tenant_id = ${tenantId} AND a.is_cash_account = true AND a.is_postable = true
       GROUP BY a.id ORDER BY a.code`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh BankService.get */
+  queryJournalLineForGet(db: DbOrTx, ids: string[]) {
+    return db.execute<BookLine>(sql`
+          SELECT l.id, j.id AS journal_id, j.date, j.number, j.description, j.reference, l.debit, l.credit, j.source_type
+          FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
+          WHERE l.id IN (${sql.join(
+            ids.map((x) => sql`${x}`),
+            sql`, `,
+          )})`);
+  }
+
+  /** Dipakai oleh BankService.openBookLines */
+  queryJournalLineForOpenBookLines(db: DbOrTx, tenantId: string, cashAccountId: string, from: string, to: string) {
+    return db.execute<BookLine>(sql`
+      SELECT l.id, j.id AS journal_id, j.date, j.number, j.description, j.reference, l.debit, l.credit, j.source_type
+      FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
+      WHERE j.tenant_id = ${tenantId} AND l.account_id = ${cashAccountId} AND j.source_type <> 'CLOSING'
+        AND j.date BETWEEN ${from} AND ${to}
+        AND NOT EXISTS (SELECT 1 FROM bank_statement_lines b WHERE b.journal_line_id = l.id)
+        AND NOT EXISTS (SELECT 1 FROM bank_line_extra_matches x WHERE x.journal_line_id = l.id)
+      ORDER BY j.date, j.number`);
   }
 }

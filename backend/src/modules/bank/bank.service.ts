@@ -10,18 +10,17 @@ import { addDays, diffDays, DocDate, toDocDate, todayJakarta } from '../../commo
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, bankReconciliations, bankStatementLines, bankStatements } from '../../db/schema';
+import { bankReconciliations, bankStatementLines, bankStatements } from '../../db/schema';
 import { PostingService } from '../accounting/posting.service';
 import { ImportStatementDto, MatchDto, MatchManyDto, CreateFromLineDto, BankRuleDto, SignReconciliationDto } from './bank.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { findOwned, insertOne } from '../../db/owned';
 import { BankRepository } from './bank.repository';
+import type { BookLine } from './bank.repository';
 
 const MATCH_BEFORE = 7;
 
 const MATCH_AFTER = 4;
-
-type BookLine = { id: string; journal_id: string; date: string; number: string; description: string; reference: string | null; debit: string; credit: string; source_type: string };
 
 const tokens = (s: string) =>
   new Set(
@@ -80,13 +79,7 @@ export class BankService {
     if (!st) throw new NotFoundException('Rekening koran tidak ditemukan');
     const ids = st.lines.map((l) => l.journalLineId).filter(Boolean) as string[];
     const book = ids.length
-      ? await this.db.execute<BookLine>(sql`
-          SELECT l.id, j.id AS journal_id, j.date, j.number, j.description, j.reference, l.debit, l.credit, j.source_type
-          FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-          WHERE l.id IN (${sql.join(
-            ids.map((x) => sql`${x}`),
-            sql`, `,
-          )})`)
+      ? await this.repo.queryJournalLineForGet(this.db, ids)
       : { rows: [] as BookLine[] };
     const byId = new Map(book.rows.map((b) => [b.id, b]));
     const extra = await this.repo.queryBankLineExtraMatche(this.db, tenantId, id);
@@ -167,14 +160,7 @@ export class BankService {
 
   /** Transaksi buku di rekening ini yang belum dicocokkan dengan mutasi bank mana pun */
   private async openBookLines(db: DbOrTx, tenantId: string, cashAccountId: string, from: DocDate, to: DocDate) {
-    const r = await db.execute<BookLine>(sql`
-      SELECT l.id, j.id AS journal_id, j.date, j.number, j.description, j.reference, l.debit, l.credit, j.source_type
-      FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-      WHERE j.tenant_id = ${tenantId} AND l.account_id = ${cashAccountId} AND j.source_type <> 'CLOSING'
-        AND j.date BETWEEN ${from} AND ${to}
-        AND NOT EXISTS (SELECT 1 FROM bank_statement_lines b WHERE b.journal_line_id = l.id)
-        AND NOT EXISTS (SELECT 1 FROM bank_line_extra_matches x WHERE x.journal_line_id = l.id)
-      ORDER BY j.date, j.number`);
+    const r = await this.repo.queryJournalLineForOpenBookLines(db, tenantId, cashAccountId, from, to);
     return r.rows;
   }
 

@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { DEFAULT_PLATFORM_COMMISSIONS, ONLINE_CHANNEL_LABELS, type OnlineChannel, type PosOrderType } from '@sansu/shared';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { allowedWarehouses, assertWarehouseAccess } from '../../common/auth/warehouse-access';
@@ -10,7 +10,7 @@ import { todayJakarta } from '../../common/utils/dates';
 import { D, Dec, qty4, ZERO } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, posSessions, posTabLines, posTables, posTabs, products, stockBalances, type PosTabLineStatus, warehouses } from '../../db/schema';
+import { posSessions, posTabLines, posTables, posTabs, type PosTabLineStatus } from '../../db/schema';
 import { CreatePosOrderDto } from './pos.dto';
 import { PosService } from './pos.service';
 import { componentNeeds, recipesFor } from './recipe-issue';
@@ -273,12 +273,9 @@ export class PosTabsService {
       else add(a.productId, a.qty);
     }
     if (!need.size) return;
-    const bal = await tx
-      .select({ productId: stockBalances.productId, qty: stockBalances.qty })
-      .from(stockBalances)
-      .where(and(eq(stockBalances.tenantId, tenantId), eq(stockBalances.warehouseId, warehouseId), inArray(stockBalances.productId, [...need.keys()])));
+    const bal = await this.repo.listStockBalancesByWarehouseIdAndProductId(tx, tenantId, warehouseId, need);
     const have = new Map(bal.map((b) => [b.productId, D(b.qty)]));
-    const names = await tx.select({ id: products.id, sku: products.sku, name: products.name }).from(products).where(inArray(products.id, [...need.keys()]));
+    const names = await this.repo.listProductsByIdForAssertAvailable2(tx, need);
     for (const [pid, q] of need) {
       const h = have.get(pid) ?? ZERO;
       if (h.lt(q)) {

@@ -8,6 +8,7 @@ import { accounts, invoices, journalLines, purchaseInvoices, salesOrders, stockB
 import { HealthService } from '../insights/health.service';
 import { TaxService, TAX_LABEL } from '../tax/tax.service';
 import { addDays } from '../../common/utils/dates';
+import { DashboardRepository } from './dashboard.repository';
 
 /** Bidang beranda yang boleh dilihat tiap peran (prinsip "perlu tahu"); selain itu dikirim null */
 const SALES_FIELDS = ['salesMonth', 'invoicesMonth', 'posOrdersMonth', 'arOutstanding', 'arOverdue', 'overdueCount', 'ordersPending', 'recentInvoices'] as const;
@@ -28,6 +29,7 @@ export class DashboardService {
     @InjectDb() private readonly db: Db,
     private readonly health: HealthService,
     private readonly tax: TaxService,
+    private readonly repo: DashboardRepository,
   ) {}
 
   /**
@@ -57,13 +59,7 @@ export class DashboardService {
     for (const c of h.checks.filter((x) => x.status === 'ERROR' || x.status === 'WARN')) {
       items.push({ key: `health-${c.key}`, level: c.status === 'ERROR' ? 'error' : 'warning', title: c.title, detail: c.message, link: c.link ?? '/health' });
     }
-    const [ap] = await this.db
-      .select({
-        v: sql<string>`COALESCE(SUM(${purchaseInvoices.total} - ${purchaseInvoices.paidAmount} - ${purchaseInvoices.returnedAmount}), 0)`,
-        n: count(),
-      })
-      .from(purchaseInvoices)
-      .where(and(eq(purchaseInvoices.tenantId, tenantId), ne(purchaseInvoices.status, 'PAID'), lte(purchaseInvoices.dueDate, addDays(today, 7))));
+    const [ap] = await this.repo.countPurchaseInvoicesByStatusAndDueDate(this.db, tenantId, today);
     if (ap.n)
       items.push({
         key: 'ap-due',
@@ -72,13 +68,7 @@ export class DashboardService {
         detail: `Total ${Number(ap.v).toLocaleString('id-ID', { maximumFractionDigits: 0 })} — siapkan dana pembayaran`,
         link: '/purchase-invoices',
       });
-    const low = await this.db.execute<{ n: number; wh: number }>(sql`
-      SELECT COUNT(*)::int AS n, COUNT(DISTINCT m.warehouse_id)::int AS wh
-      FROM stock_minimums m
-      JOIN products p ON p.id = m.product_id AND p.is_active
-      JOIN warehouses w ON w.id = m.warehouse_id AND w.is_active
-      LEFT JOIN stock_balances b ON b.product_id = m.product_id AND b.warehouse_id = m.warehouse_id
-      WHERE m.tenant_id = ${tenantId} AND COALESCE(b.qty, 0) < m.min_qty`);
+    const low = await this.repo.queryStockMinimum(this.db, tenantId);
     if (low.rows[0]?.n)
       items.push({
         key: 'low-stock',
@@ -147,18 +137,11 @@ export class DashboardService {
         .where(and(eq(accounts.tenantId, tenantId), eq(accounts.isCashAccount, true), cashBr)),
     ]);
 
-    const led = await this.db.execute<{ grp: string; v: string }>(sql`
-      SELECT a.report_group AS grp, COALESCE(SUM(jl.credit - jl.debit), 0) AS v
-      FROM journal_lines jl
-      JOIN journal_entries je ON je.id = jl.journal_id
-      JOIN accounts a ON a.id = jl.account_id
-      WHERE a.tenant_id = ${tenantId} AND je.date >= ${monthStart(today)} AND je.date <= ${today}
-        AND a.report_group IN ('SALES_REVENUE', 'SALES_DEDUCTION', 'COST_OF_SALES') ${ledBr}
-      GROUP BY a.report_group`);
+    const led = await this.repo.queryJournalLine(this.db, tenantId, today, ledBr);
     const grp = (g: string) => D(led.rows.find((r) => r.grp === g)?.v ?? 0);
     const salesMonth = grp('SALES_REVENUE').plus(grp('SALES_DEDUCTION'));
     const grossProfit = salesMonth.plus(grp('COST_OF_SALES')); // beban pokok bersaldo debit → negatif pada credit−debit
-    const posN = (await this.db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM pos_orders po WHERE po.tenant_id = ${tenantId} AND po.date >= ${monthStart(today)} AND po.date <= ${today} ${posBr}`)).rows[0]?.n ?? 0;
+    const posN = (await this.repo.queryPosOrder(this.db, tenantId, today, posBr)).rows[0]?.n ?? 0;
     return redactDashboard({
       salesMonth: salesMonth.toFixed(2),
       grossProfitMonth: grossProfit.toFixed(2),

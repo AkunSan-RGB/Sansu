@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { SequenceService } from '../../../common/sequence/sequence.service';
@@ -7,7 +7,7 @@ import { toDocDate, todayJakarta } from '../../../common/utils/dates';
 import { D } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { canvassCollections, customers, invoices, payments, salesRouteStops, salesRoutes, salesVisits, users, warehouses } from '../../../db/schema';
+import { canvassCollections, invoices, payments, salesRoutes, salesVisits, warehouses } from '../../../db/schema';
 import { SubscriptionService } from '../../../common/billing/subscription.service';
 import { WarehouseOpsService } from '../../inventory/warehouse-ops.service';
 import { InvoicesService } from '../invoices/invoices.service';
@@ -218,7 +218,7 @@ export class CanvassService {
 
   async routes(u: AuthUser) {
     const rows = await this.repo.listSalesRoutesWithUsersBySalespersonIdAndName(this.db, u);
-    const stops = rows.length ? await this.db.select({ s: salesRouteStops, code: customers.code, name: customers.name }).from(salesRouteStops).innerJoin(customers, eq(customers.id, salesRouteStops.customerId)).where(inArray(salesRouteStops.routeId, rows.map((r) => r.r.id))).orderBy(salesRouteStops.seq) : [];
+    const stops = rows.length ? await this.repo.listSalesRouteStopsWithCustomersByRouteIdAndSeq(this.db, rows.map((r) => r.r.id)) : [];
     return rows.map((r) => ({ ...r.r, salesName: r.sales, stops: stops.filter((s) => s.s.routeId === r.r.id).map((s) => ({ customerId: s.s.customerId, seq: s.s.seq, code: s.code, name: s.name })) }));
   }
 

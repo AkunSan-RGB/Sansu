@@ -1,7 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
-import { posTabLines, posTables, posTabs, products, accounts, type PosTabLineStatus } from '../../db/schema';
+import {
+  posTabLines,
+  posTables,
+  posTabs,
+  products,
+  accounts,
+  type PosTabLineStatus,
+  stockBalances,
+} from '../../db/schema';
 import { WarehouseQueryDto, UpdateTableDto, TabLineInputDto, CreateTabDto } from './pos-tabs.dto';
 import { qty4, Dec } from '../../common/utils/money';
 
@@ -122,16 +130,14 @@ export class PosTabRepository {
 
   /** Dipakai oleh PosTabsService.insertLines */
   insertPosTabLines(db: DbOrTx, lines: TabLineInputDto[], tabId: string) {
-    return db
-      .insert(posTabLines)
-      .values(
-        lines.map((l) => ({
-          tabId: tabId,
-          productId: l.productId,
-          qty: qty4(l.qty).toFixed(4),
-          notes: l.notes?.trim() || null,
-        })),
-      );
+    return db.insert(posTabLines).values(
+      lines.map((l) => ({
+        tabId: tabId,
+        productId: l.productId,
+        qty: qty4(l.qty).toFixed(4),
+        notes: l.notes?.trim() || null,
+      })),
+    );
   }
 
   /** Dipakai oleh PosTabsService.assertOnlineReady */
@@ -256,5 +262,33 @@ export class PosTabRepository {
       WHERE t.tenant_id = ${tenantId} AND t.status IN ('OPEN', 'PAID') AND l.status IN ('NEW', 'PREPARING', 'READY')
         ${q.warehouseId ? sql`AND t.warehouse_id = ${q.warehouseId}` : allowed ? sql`AND t.warehouse_id = ANY(${allowed}::uuid[])` : sql``}
       ORDER BY l.sent_at, l.id`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh PosTabsService.assertAvailable */
+  listStockBalancesByWarehouseIdAndProductId(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof stockBalances.$inferSelect)['tenantId']>,
+    warehouseId: NonNullable<(typeof stockBalances.$inferSelect)['warehouseId']>,
+    need: Map<string, Dec>,
+  ) {
+    return db
+      .select({ productId: stockBalances.productId, qty: stockBalances.qty })
+      .from(stockBalances)
+      .where(
+        and(
+          eq(stockBalances.tenantId, tenantId),
+          eq(stockBalances.warehouseId, warehouseId),
+          inArray(stockBalances.productId, [...need.keys()]),
+        ),
+      );
+  }
+
+  /** Dipakai oleh PosTabsService.assertAvailable */
+  listProductsByIdForAssertAvailable2(db: DbOrTx, need: Map<string, Dec>) {
+    return db
+      .select({ id: products.id, sku: products.sku, name: products.name })
+      .from(products)
+      .where(inArray(products.id, [...need.keys()]));
   }
 }

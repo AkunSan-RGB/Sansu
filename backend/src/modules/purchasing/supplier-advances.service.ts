@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -12,14 +11,13 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { CreateSupplierAdvanceDto, ApplySupplierAdvanceDto, RefundSupplierAdvanceDto, AdvanceQueryDto } from './supplier-advances.dto';
 import { SupplierAdvancesRepository } from './supplier-advances.repository';
+import type { AdvanceRow } from './supplier-advances.repository';
 
 /** Staf (selain Pemilik/Admin): DP di atas persen ini dari nilai PO butuh persetujuan */
 export const ADVANCE_STAFF_MAX_PO_PCT = 30;
 
 /** DP yang belum dipakai lebih lama dari ini muncul di kontrol */
 export const ADVANCE_STALE_DAYS = 60;
-
-type AdvanceRow = { id: string; number: string; date: string; supplier_id: string; purchase_order_id: string | null; amount: string; applied_amount: string; refunded_amount: string; status: string; journal_id: string | null };
 
 @Injectable()
 export class SupplierAdvancesService {
@@ -93,9 +91,7 @@ export class SupplierAdvancesService {
       const cash = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, method === 'CASH' ? 'CASH' : 'BANK');
       await this.posting.assertCashCovers(tx, user.tenantId, cash, amount);
       const number = await this.seq.next(tx, user.tenantId, 'SUPPLIER_ADVANCE', date);
-      const adv = (await tx.execute<{ id: string }>(sql`
-        INSERT INTO supplier_advances (tenant_id, number, date, supplier_id, purchase_order_id, method, cash_account_id, amount, description, created_by_id)
-        VALUES (${user.tenantId}, ${number}, ${date}, ${sup.id}, ${dto.purchaseOrderId ?? null}, ${method}, ${cash.id}, ${amount.toFixed(2)}, ${dto.description?.trim() || null}, ${user.sub}) RETURNING id`)).rows[0];
+      const adv = (await this.repo.querySupplierAdvanceForCreate(tx, user.tenantId, number, date, sup.id, dto, method, cash.id, amount, user.sub)).rows[0];
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
         date,
@@ -122,7 +118,7 @@ export class SupplierAdvancesService {
     assertNotFuture(date, 'Tanggal pemakaian');
     return this.db.transaction(async (tx) => {
       await this.repo.querySupplierAdvanceForApply(tx, id, user.tenantId);
-      const a = (await tx.execute<AdvanceRow>(sql`SELECT * FROM supplier_advances WHERE id = ${id} AND tenant_id = ${user.tenantId}`)).rows[0];
+      const a = (await this.repo.querySupplierAdvanceForApply2(tx, id, user.tenantId)).rows[0];
       if (!a) throw new NotFoundException('Uang muka tidak ditemukan');
       if (a.status !== 'OPEN') throw new BadRequestException(a.status === 'VOID' ? 'Uang muka ini sudah dibatalkan' : 'Uang muka ini sudah habis dipakai/dikembalikan');
       if (date < a.date) throw new BadRequestException('Tanggal pemakaian tidak boleh sebelum tanggal uang muka');
@@ -140,9 +136,7 @@ export class SupplierAdvancesService {
       if (amount.gt(outstanding)) throw new BadRequestException(`Melebihi sisa hutang faktur (${outstanding.toFixed(2)})`);
 
       const number = await this.seq.next(tx, user.tenantId, 'SUPPLIER_ADVANCE_MOVE', date);
-      const mv = (await tx.execute<{ id: string }>(sql`
-        INSERT INTO supplier_advance_movements (tenant_id, advance_id, kind, number, date, amount, purchase_invoice_id, created_by_id)
-        VALUES (${user.tenantId}, ${a.id}, 'APPLY', ${number}, ${date}, ${amount.toFixed(2)}, ${inv.id}, ${user.sub}) RETURNING id`)).rows[0];
+      const mv = (await this.repo.querySupplierAdvanceMovementForApply(tx, user.tenantId, a.id, number, date, amount, inv.id, user.sub)).rows[0];
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
         date,
@@ -157,10 +151,10 @@ export class SupplierAdvancesService {
       });
       await this.repo.queryApply(tx, journal.id, mv.id);
       const paid = D(inv.paid_amount).plus(amount);
-      await tx.execute(sql`UPDATE purchase_invoices SET paid_amount = ${paid.toFixed(2)}, status = ${paid.plus(inv.returned_amount).gte(inv.total) ? 'PAID' : 'PARTIAL'}::invoice_status WHERE id = ${inv.id}`);
+      await this.repo.queryApplyForApply(tx, paid, inv.returned_amount, inv.total, inv.id);
       const applied = D(a.applied_amount).plus(amount);
       const closed = D(a.amount).minus(applied).minus(a.refunded_amount).lte(0);
-      await tx.execute(sql`UPDATE supplier_advances SET applied_amount = ${applied.toFixed(2)}, status = ${closed ? 'CLOSED' : 'OPEN'} WHERE id = ${a.id}`);
+      await this.repo.queryApplyForApply2(tx, applied, closed, a.id);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'APPLY', entity: 'SupplierAdvance', entityId: a.id, data: { advance: a.number, invoice: inv.number, amount: amount.toFixed(2) } });
       return { id: a.id, movement: number, invoice: inv.number, applied: amount.toFixed(2), remaining: left.minus(amount).toFixed(2), journalNumber: journal.number };
     });
@@ -174,7 +168,7 @@ export class SupplierAdvancesService {
     assertNotFuture(date, 'Tanggal pengembalian');
     return this.db.transaction(async (tx) => {
       await this.repo.querySupplierAdvanceForApply(tx, id, user.tenantId);
-      const a = (await tx.execute<AdvanceRow & { cash_account_id: string; method: string }>(sql`SELECT * FROM supplier_advances WHERE id = ${id} AND tenant_id = ${user.tenantId}`)).rows[0];
+      const a = (await this.repo.querySupplierAdvanceForRefund(tx, id, user.tenantId)).rows[0];
       if (!a) throw new NotFoundException('Uang muka tidak ditemukan');
       if (a.status !== 'OPEN') throw new BadRequestException(a.status === 'VOID' ? 'Uang muka ini sudah dibatalkan' : 'Uang muka ini sudah habis dipakai/dikembalikan');
       if (date < a.date) throw new BadRequestException('Tanggal pengembalian tidak boleh sebelum tanggal uang muka');
@@ -182,9 +176,7 @@ export class SupplierAdvancesService {
       if (amount.gt(left)) throw new BadRequestException(`Melebihi sisa uang muka (${left.toFixed(2)})`);
       const cash = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId ?? a.cash_account_id, 'BANK');
       const number = await this.seq.next(tx, user.tenantId, 'SUPPLIER_ADVANCE_MOVE', date);
-      const mv = (await tx.execute<{ id: string }>(sql`
-        INSERT INTO supplier_advance_movements (tenant_id, advance_id, kind, number, date, amount, cash_account_id, note, created_by_id)
-        VALUES (${user.tenantId}, ${a.id}, 'REFUND', ${number}, ${date}, ${amount.toFixed(2)}, ${cash.id}, ${dto.note.trim()}, ${user.sub}) RETURNING id`)).rows[0];
+      const mv = (await this.repo.querySupplierAdvanceMovementForRefund(tx, user.tenantId, a.id, number, date, amount, cash.id, dto.note, user.sub)).rows[0];
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
         date,
@@ -200,7 +192,7 @@ export class SupplierAdvancesService {
       await this.repo.queryApply(tx, journal.id, mv.id);
       const refunded = D(a.refunded_amount).plus(amount);
       const closed = D(a.amount).minus(a.applied_amount).minus(refunded).lte(0);
-      await tx.execute(sql`UPDATE supplier_advances SET refunded_amount = ${refunded.toFixed(2)}, status = ${closed ? 'CLOSED' : 'OPEN'} WHERE id = ${a.id}`);
+      await this.repo.queryRefund(tx, refunded, closed, a.id);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'REFUND', entity: 'SupplierAdvance', entityId: a.id, data: { advance: a.number, amount: amount.toFixed(2), note: dto.note.trim() } });
       return { id: a.id, movement: number, refunded: amount.toFixed(2), remaining: left.minus(amount).toFixed(2), journalNumber: journal.number };
     });
@@ -210,7 +202,7 @@ export class SupplierAdvancesService {
   async void(user: AuthUser, id: string, reason: string) {
     return this.db.transaction(async (tx) => {
       await this.repo.querySupplierAdvanceForApply(tx, id, user.tenantId);
-      const a = (await tx.execute<AdvanceRow>(sql`SELECT * FROM supplier_advances WHERE id = ${id} AND tenant_id = ${user.tenantId}`)).rows[0];
+      const a = (await this.repo.querySupplierAdvanceForApply2(tx, id, user.tenantId)).rows[0];
       if (!a) throw new NotFoundException('Uang muka tidak ditemukan');
       if (a.status === 'VOID') throw new BadRequestException('Uang muka ini sudah dibatalkan');
       if (D(a.applied_amount).gt(0) || D(a.refunded_amount).gt(0)) throw new BadRequestException('Uang muka yang sudah dipakai atau dikembalikan tidak bisa dibatalkan');
