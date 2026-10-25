@@ -10,7 +10,7 @@ import { addDays, assertNotFarFuture, diffDays, toDocDate, todayJakarta } from '
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, assetCategories, assetDepreciations, assetUsage, fixedAssets, users } from '../../db/schema';
+import { assetCategories, assetDepreciations, assetUsage, fixedAssets, users } from '../../db/schema';
 import { frameworkOf } from '../accounting/coa-sync';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
