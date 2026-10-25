@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { sql, eq, asc, and, inArray } from 'drizzle-orm';
+import { sql, eq, asc, and, inArray, desc } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import {
   stockTransferLines,
@@ -12,6 +12,7 @@ import {
   warehouses,
   stockMinimums,
 } from '../../db/schema';
+import type { SQL } from 'drizzle-orm';
 
 /** Akses data untuk WarehouseQuery: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -175,5 +176,77 @@ export class WarehouseQueryRepository {
       )
       .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)))
       .orderBy(asc(products.sku));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh WarehouseQueryService.listCounts */
+  countStockCountsWithWarehousesByCreatedAt(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof stockCounts.$inferSelect)['tenantId']>,
+    inScope: SQL<unknown> | undefined,
+  ) {
+    return db
+      .select({
+        id: stockCounts.id,
+        number: stockCounts.number,
+        date: stockCounts.date,
+        status: stockCounts.status,
+        category: stockCounts.category,
+        notes: stockCounts.notes,
+        adjustmentNumber: stockCounts.adjustmentNumber,
+        warehouseId: stockCounts.warehouseId,
+        warehouseCode: warehouses.code,
+        warehouseName: warehouses.name,
+        binId: stockCounts.binId,
+        binCode: sql<string | null>`(SELECT b.code FROM warehouse_bins b WHERE b.id = ${stockCounts.binId})`,
+        lines: sql<number>`(SELECT COUNT(*) FROM stock_count_lines l WHERE l.count_id = ${stockCounts.id})::int`,
+        counted: sql<number>`(SELECT COUNT(*) FROM stock_count_lines l WHERE l.count_id = ${stockCounts.id} AND l.counted_qty IS NOT NULL)::int`,
+        createdAt: stockCounts.createdAt,
+      })
+      .from(stockCounts)
+      .innerJoin(warehouses, eq(warehouses.id, stockCounts.warehouseId))
+      .where(and(eq(stockCounts.tenantId, tenantId), inScope))
+      .orderBy(desc(stockCounts.createdAt))
+      .limit(300);
+  }
+
+  /** Dipakai oleh WarehouseQueryService.lowStock */
+  listStockMinimumsWithProductsAndWarehousesByMinQty(
+    db: DbOrTx,
+    tenantId: NonNullable<(typeof stockMinimums.$inferSelect)['tenantId']>,
+    inScope: SQL<unknown> | undefined,
+  ) {
+    return db
+      .select({
+        productId: products.id,
+        sku: products.sku,
+        name: products.name,
+        baseUom: products.baseUom,
+        warehouseId: warehouses.id,
+        warehouseCode: warehouses.code,
+        warehouseName: warehouses.name,
+        qty: sql<string>`COALESCE(${stockBalances.qty}, 0)`,
+        minQty: stockMinimums.minQty,
+      })
+      .from(stockMinimums)
+      .innerJoin(products, eq(products.id, stockMinimums.productId))
+      .innerJoin(warehouses, eq(warehouses.id, stockMinimums.warehouseId))
+      .leftJoin(
+        stockBalances,
+        and(
+          eq(stockBalances.productId, stockMinimums.productId),
+          eq(stockBalances.warehouseId, stockMinimums.warehouseId),
+        ),
+      )
+      .where(
+        and(
+          eq(stockMinimums.tenantId, tenantId),
+          eq(products.isActive, true),
+          eq(warehouses.isActive, true),
+          sql`COALESCE(${stockBalances.qty}, 0) < ${stockMinimums.minQty}`,
+          inScope,
+        ),
+      )
+      .orderBy(asc(warehouses.code), asc(products.sku));
   }
 }

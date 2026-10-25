@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { platformSettings, plans, subscriptions, users, warehouses } from '../../db/schema';
+import { plans, subscriptions, users, warehouses } from '../../db/schema';
 import { eq, asc, sql, and } from 'drizzle-orm';
 
 export const DAY = 86_400_000;
@@ -8,11 +8,6 @@ export const DAY = 86_400_000;
 /** Akses data untuk Subscription: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
 export class SubscriptionRepository {
-  /** Dipakai oleh SubscriptionService.settings */
-  findPlatformSettingsByKey(db: DbOrTx) {
-    return db.select().from(platformSettings).where(eq(platformSettings.key, 'billing'));
-  }
-
   /** Dipakai oleh SubscriptionService.startTrial */
   listPlansByCode(db: DbOrTx, trialPlanCode: string) {
     return db.select().from(plans).where(eq(plans.code, trialPlanCode));

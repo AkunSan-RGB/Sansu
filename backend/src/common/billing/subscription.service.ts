@@ -3,6 +3,7 @@ import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { platformSettings, users, warehouses } from '../../db/schema';
 import { SubscriptionRepository } from './subscription.repository';
+import { PlatformSettingsRepository } from '../platform-settings.repository';
 import { DAY } from './subscription.repository';
 
 export type SubStatus = 'TRIAL' | 'ACTIVE' | 'OVERDUE' | 'EXPIRED' | 'SUSPENDED' | 'CANCELLED';
@@ -66,19 +67,17 @@ export class SubscriptionService {
   private cache = new Map<string, { at: number; state: SubState }>();
 
   constructor(@InjectDb() private readonly db: Db,
-    private readonly repo: SubscriptionRepository) {}
+    private readonly repo: SubscriptionRepository,
+    private readonly platformSettings: PlatformSettingsRepository) {}
 
   async settings(db: DbOrTx = this.db): Promise<BillingSettings> {
-    const [r] = await this.repo.findPlatformSettingsByKey(db);
+    const r = await this.platformSettings.find(db, 'billing');
     return { ...DEFAULT_BILLING_SETTINGS, ...((r?.value as Partial<BillingSettings>) ?? {}) };
   }
 
   async saveSettings(patch: Partial<BillingSettings>) {
     const value = { ...(await this.settings()), ...patch };
-    await this.db
-      .insert(platformSettings)
-      .values({ key: 'billing', value })
-      .onConflictDoUpdate({ target: platformSettings.key, set: { value, updatedAt: new Date() } });
+    await this.platformSettings.upsert(this.db, 'billing', value);
     this.cache.clear();
     return value;
   }

@@ -4,11 +4,12 @@ import { AssetsModule } from '../assets/assets.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { ImportsController } from './imports.controller';
 import { ImportsService } from './imports.service';
+import { OpeningImportsService } from './opening-imports.service';
 import { ImportsRepository } from './imports.repository';
 
 @Module({
   imports: [InventoryModule, AccountingModule, AssetsModule],
   controllers: [ImportsController],
-  providers: [ImportsRepository, ImportsService],
+  providers: [ImportsRepository, ImportsService, OpeningImportsService],
 })
 export class ImportsModule {}

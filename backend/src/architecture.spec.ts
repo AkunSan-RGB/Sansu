@@ -95,7 +95,7 @@ describe('arsitektur', () => {
   });
 
   it('cast `as never` hanya di tempat yang diizinkan', () => {
-    const ALLOWED = /(^|\/)(db\/owned\.ts$|bootstrap\.ts$|modules\/imports\/imports\.service\.ts$)/;
+    const ALLOWED = /(^|\/)(db\/owned\.ts$|bootstrap\.ts$|modules\/imports\/imports\.repository\.ts$)/;
     const offenders = files.filter((f) => !ALLOWED.test(rel(f)) && /\bas never\b/.test(fs.readFileSync(f, 'utf8'))).map(rel);
     expect(offenders).toEqual([]);
   });

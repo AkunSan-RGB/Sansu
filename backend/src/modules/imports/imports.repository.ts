@@ -9,10 +9,18 @@ import {
   purchaseInvoices,
   accounts,
   assetCategories,
+  customers,
+  suppliers,
 } from '../../db/schema';
 import { eq, inArray, and, sql } from 'drizzle-orm';
 import { date } from './parse';
 import { Dec } from '../../common/utils/money';
+
+/** Pelanggan atau pemasok: impor data induk memakai logika yang sama untuk keduanya, tabelnya dipilih di sini */
+export type PartyKind = 'customers' | 'suppliers';
+const partyTable = (kind: PartyKind) => (kind === 'customers' ? customers : suppliers);
+type PartyInsert = typeof customers.$inferInsert & typeof suppliers.$inferInsert;
+type PartyPatch = Partial<typeof customers.$inferInsert>;
 
 /** Akses data untuk Imports: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -152,5 +160,38 @@ export class ImportsRepository {
   /** Dipakai oleh ImportsService.products */
   insertProducts(db: DbOrTx, rows: (typeof products.$inferInsert)[]) {
     return db.insert(products).values(rows).returning({ id: products.id, sku: products.sku });
+  }
+
+  /** Kode yang sudah dipakai pelanggan/pemasok perusahaan ini */
+  listPartyCodes(db: DbOrTx, tenantId: string, kind: PartyKind) {
+    const table = partyTable(kind);
+    return db.select({ id: table.id, code: table.code }).from(table).where(eq(table.tenantId, tenantId));
+  }
+
+  /** Kode, nama, dan tempo bayar pelanggan/pemasok (untuk impor saldo piutang/utang awal) */
+  listPartyTerms(db: DbOrTx, tenantId: string, kind: PartyKind) {
+    const table = partyTable(kind);
+    return db
+      .select({ id: table.id, code: table.code, name: table.name, term: table.paymentTermDays })
+      .from(table)
+      .where(eq(table.tenantId, tenantId));
+  }
+
+  async updateParty(db: DbOrTx, kind: PartyKind, tenantId: string, id: string, patch: PartyPatch) {
+    const table = partyTable(kind);
+    await db
+      .update(table)
+      .set(patch)
+      .where(and(eq(table.id, id), eq(table.tenantId, tenantId)));
+  }
+
+  async insertParties(db: DbOrTx, kind: PartyKind, rows: PartyInsert[]) {
+    // tabel dipilih saat jalan (pelanggan atau pemasok) sehingga tipe sisipnya tidak bisa dipersempit statis
+    await db.insert(partyTable(kind)).values(rows as never);
+  }
+
+  /** Ubah produk milik perusahaan ini (impor produk: pembaruan baris yang sudah ada) */
+  async updateProduct(db: DbOrTx, tenantId: string, id: string, patch: Partial<typeof products.$inferInsert>) {
+    await db.update(products).set(patch).where(and(eq(products.id, id), eq(products.tenantId, tenantId)));
   }
 }

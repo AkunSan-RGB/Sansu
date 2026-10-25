@@ -5,7 +5,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { BackupReportDto } from './backup-status.dto';
 import { BackupKind } from './backup-status.shared';
-import { BackupStatusRepository } from './backup-status.repository';
+import { PlatformSettingsRepository } from '../../common/platform-settings.repository';
 
 export interface BackupEntry extends Omit<BackupReportDto, 'detail'> {
   at: string;
@@ -65,15 +65,17 @@ export class BackupStatusService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger('Backup');
   private timer?: NodeJS.Timeout;
   private lastAlertAt = 0;
-  constructor(@InjectDb() private readonly db: Db,
-    private readonly repo: BackupStatusRepository) {}
+  constructor(
+    @InjectDb() private readonly db: Db,
+    private readonly platformSettings: PlatformSettingsRepository,
+  ) {}
 
   private async read<T>(key: string): Promise<T | null> {
-    const [r] = await this.repo.findPlatformSettingsByKey(this.db, key);
+    const r = await this.platformSettings.find(this.db, key);
     return (r?.value as T) ?? null;
   }
   private async write(key: string, value: unknown) {
-    await this.repo.insertPlatformSettings(this.db, key, value);
+    await this.platformSettings.upsert(this.db, key, value);
   }
 
   /** Token laporan sah? (perbandingan waktu-tetap; nonaktif bila token belum diisi) */

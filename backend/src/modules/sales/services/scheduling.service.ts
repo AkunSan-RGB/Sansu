@@ -1,5 +1,4 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
@@ -141,7 +140,8 @@ export class SchedulingService {
       if (clash.length) throw this.conflictError(clash);
       const leave = await this.leaveClash(tx, u.tenantId, res, s, e);
       if (leave.length) throw this.leaveError(res, leave);
-      const r = await tx.execute<{ id: string }>(sql`INSERT INTO resource_bookings (tenant_id, resource_id, project_id, customer_id, title, starts_at, ends_at, note, off_hours, created_by_id) VALUES (${u.tenantId}, ${dto.resourceId}, ${dto.projectId ?? null}, ${cust}, ${dto.title.trim()}, ${s.toISOString()}, ${e.toISOString()}, ${dto.note ?? null}, ${this.isOffHours(res, s, e)}, ${u.sub}) RETURNING id`);
+      const offHours = this.isOffHours(res, s, e);
+      const r = await this.repo.queryResourceBookingForBook(tx, u.tenantId, dto, cust, s, e, offHours, u.sub);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'ResourceBooking', entityId: r.rows[0].id, data: { resourceId: dto.resourceId, title: dto.title, startsAt: s, endsAt: e } });
       return r.rows[0].id;
     });
@@ -167,7 +167,8 @@ export class SchedulingService {
       if (problems.length) throw new ConflictException({ message: `${problems.length} dari ${occ.length} kejadian bentrok atau jatuh pada cuti; tidak ada yang dibuat`, occurrences: problems });
       const out: string[] = [];
       for (const o of occ) {
-        const r = await tx.execute<{ id: string }>(sql`INSERT INTO resource_bookings (tenant_id, resource_id, project_id, customer_id, title, starts_at, ends_at, note, series_id, off_hours, created_by_id) VALUES (${u.tenantId}, ${dto.resourceId}, ${dto.projectId ?? null}, ${cust}, ${dto.title.trim()}, ${o.s.toISOString()}, ${o.e.toISOString()}, ${dto.note ?? null}, ${seriesId}, ${this.isOffHours(res, o.s, o.e)}, ${u.sub}) RETURNING id`);
+        const offHours = this.isOffHours(res, o.s, o.e);
+        const r = await this.repo.queryResourceBookingForBookRecurring(tx, u.tenantId, dto, cust, o, seriesId, offHours, u.sub);
         out.push(r.rows[0].id);
       }
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'ResourceBookingSeries', entityId: seriesId, data: { resourceId: dto.resourceId, title: dto.title, repeat: dto.repeat, count: dto.count, firstStartsAt: first.s } });
@@ -206,7 +207,8 @@ export class SchedulingService {
       if (clash.length) throw this.conflictError(clash);
       const leave = await this.leaveClash(tx, u.tenantId, res, s, e);
       if (leave.length) throw this.leaveError(res, leave);
-      await tx.execute(sql`UPDATE resource_bookings SET resource_id = ${target}, starts_at = ${s.toISOString()}, ends_at = ${e.toISOString()}, off_hours = ${this.isOffHours(res, s, e)} WHERE id = ${id}`);
+      const offHours = this.isOffHours(res, s, e);
+      await this.repo.queryMove(tx, target, s, e, offHours, id);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'ResourceBooking', entityId: id, data: { before: { resourceId: b.resource_id, startsAt: b.starts_at, endsAt: b.ends_at }, after: { resourceId: target, startsAt: s, endsAt: e } } });
     });
     return this.get(u.tenantId, id);

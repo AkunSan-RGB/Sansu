@@ -7,11 +7,10 @@ import { BackupStatusService } from './backup-status.service';
 import { FieldEncryptionService } from './field-encryption';
 import { SecurityPostureService } from './security-posture';
 import { CompanyDataController, DataRightsAdminController, BackupReportController } from './data-rights.controller';
-import { BackupStatusRepository } from './backup-status.repository';
 
 @Module({
   controllers: [CompanyDataController, DataRightsAdminController, BackupReportController],
-  providers: [BackupStatusRepository, TenantExportService, DeletionService, ReauthService, SecurityPostureService, FieldEncryptionService, BackupStatusService, PlatformAdminGuard],
+  providers: [TenantExportService, DeletionService, ReauthService, SecurityPostureService, FieldEncryptionService, BackupStatusService, PlatformAdminGuard],
   exports: [SecurityPostureService],
 })
 export class DataRightsModule {}

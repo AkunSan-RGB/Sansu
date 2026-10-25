@@ -14,6 +14,7 @@ import { TelegramController } from './telegram/telegram.controller';
 import { TelegramService } from './telegram/telegram.service';
 import { TelegramRepository } from './telegram/telegram.repository';
 import { SubscriptionRepository } from './billing/subscription.repository';
+import { PlatformSettingsRepository } from './platform-settings.repository';
 import { AppsRepository } from './apps/apps.repository';
 import { ApprovalsRepository } from './approvals/approvals.repository';
 import { AuditRepository } from './audit/audit.repository';
@@ -23,7 +24,7 @@ import { PeriodRepository } from './period/period.repository';
 @Global()
 @Module({
   controllers: [TelegramController],
-  providers: [PeriodRepository, SettingsRepository, AuditRepository, ApprovalsRepository, AppsRepository, SubscriptionRepository, TelegramRepository, TelegramService, ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
-  exports: [TelegramService, ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
+  providers: [PlatformSettingsRepository, PeriodRepository, SettingsRepository, AuditRepository, ApprovalsRepository, AppsRepository, SubscriptionRepository, TelegramRepository, TelegramService, ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
+  exports: [PlatformSettingsRepository, TelegramService, ApprovalsService, SequenceService, AuditService, PeriodService, AppsService, AppGuard, SettingsService, MailService, SubscriptionService, TwoFactorPolicy, ErrorMonitor],
 })
 export class CommonModule {}

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../../db/db';
 import { sql } from 'drizzle-orm';
-import { ResourceDto } from './scheduling.dto';
+import { ResourceDto, BookingDto, RecurringBookingDto } from './scheduling.dto';
 import { BookingsQuery } from './scheduling.shared';
 
 export const OVERLOAD_HOURS = 10;
@@ -210,5 +210,45 @@ export class SchedulingRepository {
         sql`SELECT r.id, r.name, r.kind, r.employee_id AS "employeeId", e.name AS "employeeName", r.note, r.is_active AS "isActive", r.work_start AS "workStart", r.work_end AS "workEnd", r.work_days AS "workDays" FROM scheduling_resources r LEFT JOIN employees e ON e.id = r.employee_id WHERE r.tenant_id = ${tenantId} ORDER BY r.kind, r.name`,
       )
       .then((x) => x.rows);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh SchedulingService.book */
+  queryResourceBookingForBook(
+    db: DbOrTx,
+    tenantId: string,
+    dto: BookingDto,
+    cust: string | null,
+    s: Date,
+    e: Date,
+    offHours: boolean,
+    sub: string,
+  ) {
+    return db.execute<{ id: string }>(
+      sql`INSERT INTO resource_bookings (tenant_id, resource_id, project_id, customer_id, title, starts_at, ends_at, note, off_hours, created_by_id) VALUES (${tenantId}, ${dto.resourceId}, ${dto.projectId ?? null}, ${cust}, ${dto.title.trim()}, ${s.toISOString()}, ${e.toISOString()}, ${dto.note ?? null}, ${offHours}, ${sub}) RETURNING id`,
+    );
+  }
+
+  /** Dipakai oleh SchedulingService.bookRecurring */
+  queryResourceBookingForBookRecurring(
+    db: DbOrTx,
+    tenantId: string,
+    dto: RecurringBookingDto,
+    cust: string | null,
+    o: { s: Date; e: Date },
+    seriesId: `${string}-${string}-${string}-${string}-${string}`,
+    offHours: boolean,
+    sub: string,
+  ) {
+    return db.execute<{ id: string }>(
+      sql`INSERT INTO resource_bookings (tenant_id, resource_id, project_id, customer_id, title, starts_at, ends_at, note, series_id, off_hours, created_by_id) VALUES (${tenantId}, ${dto.resourceId}, ${dto.projectId ?? null}, ${cust}, ${dto.title.trim()}, ${o.s.toISOString()}, ${o.e.toISOString()}, ${dto.note ?? null}, ${seriesId}, ${offHours}, ${sub}) RETURNING id`,
+    );
+  }
+
+  /** Dipakai oleh SchedulingService.move */
+  queryMove(db: DbOrTx, target: string, s: Date, e: Date, offHours: boolean, id: string) {
+    return db.execute(
+      sql`UPDATE resource_bookings SET resource_id = ${target}, starts_at = ${s.toISOString()}, ends_at = ${e.toISOString()}, off_hours = ${offHours} WHERE id = ${id}`,
+    );
   }
 }
