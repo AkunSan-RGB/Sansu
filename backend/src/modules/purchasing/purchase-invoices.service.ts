@@ -37,7 +37,7 @@ import { GoodsReceiptsService, QTY_EPS } from './goods-receipts.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { CreateBillDto, CreatePurchaseInvoiceDto, CreateSupplierPaymentDto, PurchaseInvoiceQueryDto } from './purchasing.dto';
 import { PurchaseInvoiceRepository } from './purchase-invoice.repository';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 /** Satu aset per unit (maks. 50 unit per baris) agar penyusutan & pelepasannya bisa per barang */
 export const assetUnitCount = (qty: Dec) => (qty.isInteger() && qty.lte(50) ? qty.toNumber() : 1);
@@ -261,9 +261,7 @@ export class PurchaseInvoicesService {
     const costBase = capitalize ? total : subtotal;
     const factor = subtotal.gt(0) ? costBase.div(subtotal) : D(1);
     const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_INVOICE', date);
-    const [invoice] = await tx
-      .insert(purchaseInvoices)
-      .values({
+    const invoice = await insertOne(tx, purchaseInvoices, {
         tenantId: user.tenantId,
         number,
         supplierInvoiceNo: dto.supplierInvoiceNo.trim(),
@@ -278,8 +276,7 @@ export class PurchaseInvoicesService {
         priceVariance: subtotal.minus(order.subtotal).toFixed(2),
         vatCapitalized: capitalize,
         ...this.fxFields(order, { rate: pr.rate, tax: taxAmount, lineForeign: order.lines.reduce<Dec>((a, l) => a.plus(lineTotal({ qty: l.qty, price: pr.foreignPrice.get(l.id) ?? 0, discountPct: l.discountPct })), ZERO) }),
-      })
-      .returning();
+      });
 
     let stockValue: Dec = ZERO;
     const values = new Map<string, { unitCost: Dec; value: Dec }>();
@@ -441,9 +438,7 @@ export class PurchaseInvoicesService {
     const total = subtotal.plus(tax);
 
     const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_INVOICE', date);
-    const [invoice] = await tx
-      .insert(purchaseInvoices)
-      .values({
+    const invoice = await insertOne(tx, purchaseInvoices, {
         tenantId: user.tenantId,
         number,
         supplierInvoiceNo: dto.supplierInvoiceNo.trim(),
@@ -458,8 +453,7 @@ export class PurchaseInvoicesService {
         priceVariance: subtotal.minus(poSubtotal).toFixed(2),
         vatCapitalized: capitalized,
         ...this.fxFields(order, { rate: pr.rate, tax, lineForeign: invLines.reduce<Dec>((a, x) => a.plus(lineTotal({ qty: x.q, price: pr.foreignPrice.get(x.line.id) ?? 0, discountPct: x.line.discountPct })), ZERO) }),
-      })
-      .returning();
+      });
     if (billings.length) await tx.insert(goodsReceiptBillings).values(billings.map((b) => ({ tenantId: user.tenantId, receiptId: b.receiptId, receiptLineId: b.receiptLineId, invoiceId: invoice.id, date, qty: b.qty.toFixed(4), value: b.value.toFixed(2) })));
 
     // Biaya perolehan mengikuti harga faktur: selisih harga dibagi ke stok yang masih ada (persediaan) dan ke barang yang sudah terjual (HPP)

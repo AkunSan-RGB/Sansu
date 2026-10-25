@@ -12,7 +12,7 @@ import { billingInvoices, plans, subscriptions, tenants, users } from '../../db/
 import { activeGateway } from './gateways';
 import { UpdateSubscriptionDto, RejectDto, PlanDto } from './billing.dto';
 import { BillingService, DAY } from './billing.service';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 @Injectable()
 export class PlatformBillingService {
@@ -321,9 +321,7 @@ export class PlatformBillingService {
   async createPlan(dto: PlanDto) {
     if (!dto.code || !dto.name || !dto.priceMonthly || !dto.priceYearly)
       throw new BadRequestException('Kode, nama, harga bulanan & tahunan wajib diisi');
-    const [p] = await this.db
-      .insert(plans)
-      .values({
+    const p = await insertOne(this.db, plans, {
         code: dto.code,
         name: dto.name,
         description: dto.description ?? '',
@@ -333,8 +331,7 @@ export class PlatformBillingService {
         maxWarehouses: dto.maxWarehouses ?? null,
         isActive: dto.isActive ?? true,
         sortOrder: dto.sortOrder ?? 0,
-      })
-      .returning();
+      });
     return p;
   }
 

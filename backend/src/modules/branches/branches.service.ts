@@ -13,7 +13,7 @@ import { get as gets, loadAccounts, natural, unclosedEarnings, type Sum } from '
 import { SYS } from '../accounting/default-coa';
 import { CreateBranchDto, UpdateBranchDto } from './branches.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
-import { findOwned, patchById } from '../../db/owned';
+import { findOwned, insertOne, patchById } from '../../db/owned';
 
 const NONE = 'NONE';
 
@@ -52,7 +52,7 @@ export class BranchesService {
     const code = dto.code.trim().toUpperCase();
     const [dup] = await this.db.select({ id: branches.id }).from(branches).where(and(eq(branches.tenantId, user.tenantId), eq(branches.code, code)));
     if (dup) throw new BadRequestException(`Kode cabang ${code} sudah dipakai`);
-    const [row] = await this.db.insert(branches).values({ tenantId: user.tenantId, code, name: dto.name.trim(), address: dto.address }).returning();
+    const row = await insertOne(this.db, branches, { tenantId: user.tenantId, code, name: dto.name.trim(), address: dto.address });
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'Branch', entityId: row.id, data: { code } });
     return row;
   }

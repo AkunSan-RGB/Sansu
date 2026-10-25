@@ -25,7 +25,7 @@ import { QcService } from '../production/qc.service';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 export type LockedOrder = Awaited<ReturnType<PurchaseOrdersService['lock']>>;
 export interface ReceiveItem {
@@ -135,9 +135,7 @@ export class GoodsReceiptsService {
     const capitalize = D(order.taxAmount).gt(0) && !(await this.isPkp(tx, user.tenantId));
     const factor = capitalize && D(order.subtotal).gt(0) ? D(order.total).div(order.subtotal) : D(1);
     const number = await this.seq.next(tx, user.tenantId, 'GOODS_RECEIPT', date);
-    const [receipt] = await tx
-      .insert(goodsReceipts)
-      .values({
+    const receipt = await insertOne(tx, goodsReceipts, {
         tenantId: user.tenantId,
         number,
         date,
@@ -148,8 +146,7 @@ export class GoodsReceiptsService {
         vatCapitalized: capitalize,
         notes: o.notes,
         createdById: user.sub,
-      })
-      .returning();
+      });
 
     // Barang wajib QC masuk karantina dulu (bukan gudang tujuan) dan diinspeksi; lolos → dipindah ke gudang tujuan PO
     const quarantine = await this.qc.inboundQuarantine(tx, user.tenantId, [...new Set(items.map((i) => i.line.productId))]);
@@ -217,9 +214,7 @@ export class GoodsReceiptsService {
     const number = await this.seq.next(tx, user.tenantId, 'GOODS_RECEIPT', p.date);
     let total: Dec = ZERO;
     for (const v of p.values.values()) total = total.plus(v.value);
-    const [receipt] = await tx
-      .insert(goodsReceipts)
-      .values({
+    const receipt = await insertOne(tx, goodsReceipts, {
         tenantId: user.tenantId,
         number,
         date: p.date,
@@ -231,8 +226,7 @@ export class GoodsReceiptsService {
         autoInvoiceId: p.invoiceId,
         notes: 'Dibuat otomatis bersama faktur',
         createdById: user.sub,
-      })
-      .returning();
+      });
     for (const line of p.order.lines) {
       const v = p.values.get(line.id);
       await tx.insert(goodsReceiptLines).values({

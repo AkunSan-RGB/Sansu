@@ -19,7 +19,7 @@ import { generateShiftPremiums } from '../hr/shifts.service';
 import { assertServiceEntriesMatch, attachServiceEntries } from './service-work.shared';
 import { decryptField } from '../../common/utils/secret';
 import { CreateRunDto, UpdatePayslipDto, PayRunDto } from './payroll.dto';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 const MONEY_FIELDS = [
   'baseSalary',
@@ -106,7 +106,7 @@ export class PayrollService {
       if (exists) throw new BadRequestException(`Penggajian periode ${dto.period} sudah ada (${exists.number})`);
       const payDate = toDocDate(dto.payDate ?? to);
       const number = await this.seq.next(tx, user.tenantId, 'PAYROLL', payDate);
-      const [run] = await tx.insert(payrollRuns).values({ tenantId: user.tenantId, number, period: dto.period, payDate }).returning();
+      const run = await insertOne(tx, payrollRuns, { tenantId: user.tenantId, number, period: dto.period, payDate });
       await this.generate(tx, user.tenantId, run.id, dto.period);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PayrollRun', entityId: run.id });
       return run.id;

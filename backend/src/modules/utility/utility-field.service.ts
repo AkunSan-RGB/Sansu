@@ -18,7 +18,7 @@ import { ReadingDto } from './utility.dto';
 import { UtilityService } from './utility.service';
 import { MeterRowDto, IngestKeyDto, CounterPayDto, RemitDto, DecideDto } from './utility-field.dto';
 import { PERIOD } from './utility-field.shared';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 const hash = (k: string) => createHash('sha256').update(k).digest('hex');
 
@@ -129,10 +129,7 @@ export class UtilityFieldService {
     // pelunasan dan catatan penerimaan satu transaksi: tidak mungkin ada uang tercatat tanpa penerimaan loket
     const pay = await this.payments.create(u, { invoiceId: dto.invoiceId, amount: dto.amount, method, cashAccountId: dto.cashAccountId, notes: `Loket${dto.notes ? ` - ${dto.notes}` : ''}` }, {
       inTx: async (tx, p) => {
-        const [rc] = await tx
-          .insert(utilityCounterReceipts)
-          .values({ tenantId: u.tenantId, paymentId: p.id, invoiceId: dto.invoiceId, collectorId: u.sub, amount: money(dto.amount).toFixed(2), method })
-          .returning();
+        const rc = await insertOne(tx, utilityCounterReceipts, { tenantId: u.tenantId, paymentId: p.id, invoiceId: dto.invoiceId, collectorId: u.sub, amount: money(dto.amount).toFixed(2), method });
         receipt = rc;
         await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityCounterReceipt', entityId: rc.id, data: { payment: p.number, amount: dto.amount, method } });
       },
@@ -167,10 +164,7 @@ export class UtilityFieldService {
       const diff = counted.minus(expected);
       if (!diff.isZero() && (dto.note ?? '').trim().length < 5) throw new BadRequestException(`Ada selisih ${diff.toFixed(2)} antara hitungan fisik dan catatan sistem; tulis penjelasannya.`);
       const number = await this.seq.next(tx, u.tenantId, 'UTILITY_REMITTANCE', date);
-      const [rem] = await tx
-        .insert(utilityRemittances)
-        .values({ tenantId: u.tenantId, number, date, collectorId: u.sub, expected: expected.toFixed(2), counted: counted.toFixed(2), difference: diff.toFixed(2), receiptCount: rows.length, note: dto.note?.trim() || null })
-        .returning();
+      const rem = await insertOne(tx, utilityRemittances, { tenantId: u.tenantId, number, date, collectorId: u.sub, expected: expected.toFixed(2), counted: counted.toFixed(2), difference: diff.toFixed(2), receiptCount: rows.length, note: dto.note?.trim() || null });
       await tx.update(utilityCounterReceipts).set({ remittanceId: rem.id }).where(sql`${utilityCounterReceipts.id} IN (${sql.join(rows.map((r) => sql`${r.id}::uuid`), sql`, `)})`);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityRemittance', entityId: rem.id, data: { number, expected: rem.expected, counted: rem.counted, difference: rem.difference } });
     });

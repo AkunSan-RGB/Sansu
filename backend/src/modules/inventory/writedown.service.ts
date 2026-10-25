@@ -16,7 +16,7 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from './stock.service';
 import { CreateWritedownDto } from './writedown.dto';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 @Injectable()
 export class WritedownService {
@@ -202,9 +202,7 @@ export class WritedownService {
       if (byId.size !== ids.length) throw new BadRequestException('Ada barang yang tidak ditemukan');
 
       const number = await this.seq.next(tx, user.tenantId, reversal ? 'INVENTORY_WRITEUP' : 'INVENTORY_WRITEDOWN', date);
-      const [doc] = await tx
-        .insert(inventoryWritedowns)
-        .values({
+      const doc = await insertOne(tx, inventoryWritedowns, {
           tenantId: user.tenantId,
           number,
           kind,
@@ -212,8 +210,7 @@ export class WritedownService {
           warehouseId: wh.id,
           reason: dto.reason.trim(),
           createdById: user.sub,
-        })
-        .returning();
+        });
 
       let total: Dec = ZERO;
       const lines = [];

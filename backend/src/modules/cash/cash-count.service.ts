@@ -14,7 +14,7 @@ import { accounts, cashCounts, journalEntries, users } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { CashCountSettingsDto, CreateCashCountDto, UpdateCashCountDto } from './cash-count.dto';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 const DEFAULTS: CashCountSettings = { approvalThreshold: 50_000 };
 
@@ -168,9 +168,7 @@ export class CashCountService {
         throw new BadRequestException(`Tanggal harus sesudah opname terakhir (${last.number}, ${last.date})`);
       const book = await this.bookBalance(tx, u.tenantId, dto.accountId, date);
       const number = await this.seq.next(tx, u.tenantId, 'CASH_COUNT', date);
-      const [c] = await tx
-        .insert(cashCounts)
-        .values({
+      const c = await insertOne(tx, cashCounts, {
           tenantId: u.tenantId,
           number,
           date,
@@ -179,8 +177,7 @@ export class CashCountService {
           difference: book.negated().toFixed(2),
           custodianName: dto.custodianName ?? null,
           createdById: u.sub,
-        })
-        .returning();
+        });
       await this.audit.log(tx, {
         tenantId: u.tenantId,
         userId: u.sub,

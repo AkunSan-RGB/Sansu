@@ -18,7 +18,7 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { CommissionsDto, CreateApiKeyDto, CreateSettlementDto } from './pos-online.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 const hash = (k: string) => createHash('sha256').update(k).digest('hex');
 
@@ -161,10 +161,7 @@ export class PlatformSettlementsService {
       if (!diff.isZero() && (dto.notes?.trim().length ?? 0) < 5) throw new BadRequestException(`Dana yang masuk berbeda ${diff.abs().toFixed(0)} dari seharusnya (${expected.toFixed(0)}). Jelaskan alasannya pada catatan (minimal 5 karakter).`);
       const bank = await this.posting.resolveCashAccount(tx, user.tenantId, dto.bankAccountId, 'BANK');
       const number = await this.seq.next(tx, user.tenantId, 'PLATFORM_SETTLEMENT', date);
-      const [row] = await tx
-        .insert(posPlatformSettlements)
-        .values({ tenantId: user.tenantId, number, channel: dto.channel, date, bankAccountId: bank.id, orderCount: orders.length, expected: expected.toFixed(2), received: received.toFixed(2), difference: diff.toFixed(2), notes: dto.notes?.trim() || null, createdById: user.sub })
-        .returning();
+      const row = await insertOne(tx, posPlatformSettlements, { tenantId: user.tenantId, number, channel: dto.channel, date, bankAccountId: bank.id, orderCount: orders.length, expected: expected.toFixed(2), received: received.toFixed(2), difference: diff.toFixed(2), notes: dto.notes?.trim() || null, createdById: user.sub });
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
         date,

@@ -17,7 +17,7 @@ import { projectCostsSql } from './project-costs';
 import { ProjectProgressDto, CreateProjectDto, UpdateProjectDto } from './service-billing.dto';
 import { ServiceBillingService } from './service-billing.service';
 import { CustomerDepositsService } from './customer-deposits.service';
-import { patchById } from '../../../db/owned';
+import { insertOne, patchById } from '../../../db/owned';
 
 @Injectable()
 export class ServiceProjectsService {
@@ -156,9 +156,7 @@ export class ServiceProjectsService {
         acc?.account_id ?? (await this.billing.keyAccount(tx, user.tenantId, SYS.SERVICE_REVENUE));
 
       const number = await this.seq.next(tx, user.tenantId, 'PROJECT_PROGRESS', date);
-      const [row] = await tx
-        .insert(projectProgress)
-        .values({
+      const row = await insertOne(tx, projectProgress, {
           tenantId: user.tenantId,
           number,
           projectId,
@@ -172,8 +170,7 @@ export class ServiceProjectsService {
           revenueAccountId,
           notes: dto.notes,
           createdById: user.sub,
-        })
-        .returning();
+        });
       let journalNumber: string | null = null;
       if (!adjustment.isZero()) {
         const pos = (v: Dec) => (v.gt(0) ? v : ZERO);

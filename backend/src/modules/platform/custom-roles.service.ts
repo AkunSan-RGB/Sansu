@@ -7,7 +7,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { customRoles, Role, users } from '../../db/schema';
 import { RoleDto, UpdateRoleDto } from './custom-roles.dto';
-import { findOwned } from '../../db/owned';
+import { findOwned, insertOne } from '../../db/owned';
 
 /** Kunci di luar katalog: aksi akun sendiri dan panel pemilik layanan tidak boleh dicabut lewat peran khusus */
 const EXCLUDED = /^[A-Z]+ \/(auth|platform|platform-admin|billing)(\/|$)/;
@@ -85,7 +85,7 @@ export class CustomRolesService {
     const denied = this.validDenied(dto.baseRole, dto.denied);
     const [dup] = await this.db.select({ id: customRoles.id }).from(customRoles).where(and(eq(customRoles.tenantId, user.tenantId), sql`lower(${customRoles.name}) = lower(${name})`));
     if (dup) throw new BadRequestException('Sudah ada peran khusus dengan nama itu');
-    const [row] = await this.db.insert(customRoles).values({ tenantId: user.tenantId, name, baseRole: dto.baseRole, denied, createdById: user.sub }).returning();
+    const row = await insertOne(this.db, customRoles, { tenantId: user.tenantId, name, baseRole: dto.baseRole, denied, createdById: user.sub });
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'CustomRole', entityId: row.id, data: { name, baseRole: dto.baseRole, denied } });
     return row;
   }

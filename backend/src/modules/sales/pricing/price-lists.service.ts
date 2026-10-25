@@ -9,7 +9,7 @@ import { InjectDb } from '../../../db/db.module';
 import { customers, priceListItems, priceLists, products, promos, suppliers } from '../../../db/schema';
 import { BonusLine, PriceTier, PromoRule, quote } from './pricing-engine';
 import { PriceListDto, UpdatePriceListDto, PriceItemDto, PromoDto, QuoteDto } from './price-lists.dto';
-import { findOwned, patchById } from '../../../db/owned';
+import { findOwned, insertOne, patchById } from '../../../db/owned';
 
 type ProductWithUoms = { id: string; sku: string; name: string; baseUom: string; sellPrice: string; uoms: { uom: string; factor: string }[] };
 
@@ -102,7 +102,7 @@ export class PricingService {
   async createPriceList(user: AuthUser, dto: PriceListDto) {
     const name = dto.name.trim();
     try {
-      const [row] = await this.db.insert(priceLists).values({ tenantId: user.tenantId, name, description: dto.description?.trim() || null }).returning();
+      const row = await insertOne(this.db, priceLists, { tenantId: user.tenantId, name, description: dto.description?.trim() || null });
       await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PriceList', entityId: row.id, data: { name } });
       return row;
     } catch (e) {
@@ -200,7 +200,7 @@ export class PricingService {
 
   async createPromo(user: AuthUser, dto: PromoDto) {
     await this.validatePromo(user.tenantId, dto);
-    const [row] = await this.db.insert(promos).values({ tenantId: user.tenantId, ...this.promoValues(dto) }).returning();
+    const row = await insertOne(this.db, promos, { tenantId: user.tenantId, ...this.promoValues(dto) });
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'Promo', entityId: row.id, data: { name: row.name, kind: row.kind } });
     return row;
   }

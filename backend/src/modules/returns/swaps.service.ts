@@ -13,7 +13,7 @@ import { PostingService } from '../accounting/posting.service';
 import { inventoryLines, semiSet } from '../inventory/inventory-accounts';
 import { StockService } from '../inventory/stock.service';
 import { CreateSwapDto } from './swaps.dto';
-import { findOwned, lockOwned, patchById } from '../../db/owned';
+import { findOwned, insertOne, lockOwned, patchById } from '../../db/owned';
 
 const MAX_AGE_DAYS = 180;
 
@@ -65,10 +65,7 @@ export class SwapsService {
         if (q.gt(room)) throw new BadRequestException(`Jumlah tukar melebihi yang tersisa pada baris faktur (${room.toFixed(4).replace(/\.?0+$/, '')}) setelah retur dan tukar sebelumnya`);
       }
       const number = await this.seq.next(tx, u.tenantId, 'GOODS_SWAP', date);
-      const [swap] = await tx
-        .insert(goodsSwaps)
-        .values({ tenantId: u.tenantId, number, date, customerId: inv.customerId, invoiceId: inv.id, warehouseId: order.warehouseId, reason: dto.reason, notes: dto.notes, createdById: u.sub })
-        .returning();
+      const swap = await insertOne(tx, goodsSwaps, { tenantId: u.tenantId, number, date, customerId: inv.customerId, invoiceId: inv.id, warehouseId: order.warehouseId, reason: dto.reason, notes: dto.notes, createdById: u.sub });
       await tx.insert(goodsSwapLines).values(
         dto.lines.map((l) => {
           const src = inv.lines.find((x) => x.id === l.invoiceLineId)!;

@@ -12,7 +12,7 @@ import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { SalesTargetsService } from './sales-targets.service';
 import { PayCommissionDto, VoidCommissionDto } from './sales-commissions.dto';
-import { lockOwned, patchById } from '../../../db/owned';
+import { insertOne, lockOwned, patchById } from '../../../db/owned';
 
 const lastDay = (period: string) => {
   const [y, m] = period.split('-').map(Number);
@@ -52,10 +52,7 @@ export class SalesCommissionsService {
         const [paid] = dup ? [] : await tx.select({ id: salesCommissions.id }).from(salesCommissions).where(and(eq(salesCommissions.tenantId, u.tenantId), eq(salesCommissions.userId, r.userId), eq(salesCommissions.period, period), eq(salesCommissions.status, 'PAID')));
         if (dup || paid) continue; // sudah ditutup: tidak dobel
         const number = await this.seq.next(tx, u.tenantId, 'SALES_COMMISSION', date);
-        const [row] = await tx
-          .insert(salesCommissions)
-          .values({ tenantId: u.tenantId, number, userId: r.userId, period, netSales: r.net, targetAmount: r.target, commissionPct: r.commissionPct, amount: r.commission, accruedById: u.sub })
-          .returning();
+        const row = await insertOne(tx, salesCommissions, { tenantId: u.tenantId, number, userId: r.userId, period, netSales: r.net, targetAmount: r.target, commissionPct: r.commissionPct, amount: r.commission, accruedById: u.sub });
         const journal = await this.posting.post(tx, {
           tenantId: u.tenantId,
           date,

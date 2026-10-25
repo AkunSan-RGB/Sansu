@@ -14,7 +14,7 @@ import { accounts, bankReconciliations, bankStatementLines, bankStatements } fro
 import { PostingService } from '../accounting/posting.service';
 import { ImportStatementDto, MatchDto, MatchManyDto, CreateFromLineDto, BankRuleDto, SignReconciliationDto } from './bank.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
-import { findOwned } from '../../db/owned';
+import { findOwned, insertOne } from '../../db/owned';
 import { BankRepository } from './bank.repository';
 
 const MATCH_BEFORE = 7;
@@ -140,9 +140,7 @@ export class BankService {
       skipped = rows.length - fresh.length;
       if (!fresh.length) throw new BadRequestException(`Mutasi ${dates[0]} s/d ${dates[dates.length - 1]} untuk rekening ini sudah pernah diimpor`);
       const last = rows.filter((r) => r.balance != null).at(-1);
-      const [st] = await tx
-        .insert(bankStatements)
-        .values({
+      const st = await insertOne(tx, bankStatements, {
           tenantId: user.tenantId,
           cashAccountId: dto.cashAccountId,
           fileName: dto.fileName,
@@ -151,8 +149,7 @@ export class BankService {
           openingBalance: dto.openingBalance ? money(dto.openingBalance).toFixed(2) : null,
           closingBalance: dto.closingBalance ? money(dto.closingBalance).toFixed(2) : last?.balance ? money(last.balance).toFixed(2) : null,
           importedById: user.sub,
-        })
-        .returning();
+        });
       await tx.insert(bankStatementLines).values(
         fresh.map((r, i) => ({
           tenantId: user.tenantId,

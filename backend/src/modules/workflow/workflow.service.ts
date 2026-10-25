@@ -11,7 +11,7 @@ import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { customers, suppliers, workflowCases, workflowEvents, workflowLinks } from '../../db/schema';
 import { WorkflowSettingsDto, CaseQueryDto, CreateCaseDto, AddLinkDto, AdvanceDto, NoteDto } from './workflow.dto';
-import { findOwned, lockOwned, patchById } from '../../db/owned';
+import { findOwned, insertOne, lockOwned, patchById } from '../../db/owned';
 
 /** Tabel dokumen sumber tiap jenis tautan (semua ber-tenant_id) */
 const col = (c: string) => (a: string) => `${a}.${c}::text`;
@@ -339,10 +339,7 @@ export class WorkflowService {
 
   private async insertCase(tx: Tx, tenantId: string, actor: string, p: WorkflowPipeline, v: { title: string; customerId?: string | null; supplierId?: string | null; amount?: string; dueDate?: string; refKey?: string; auto?: boolean }) {
     const number = await this.seq.next(tx, tenantId, 'WORKFLOW_CASE', toDocDate(todayJakarta()));
-    const [c] = await tx
-      .insert(workflowCases)
-      .values({ tenantId, pipeline: p.key, number, title: v.title, stage: p.start, customerId: v.customerId ?? null, supplierId: v.supplierId ?? null, amount: v.amount ?? '0', dueDate: v.dueDate ?? null, createdById: actor, stageEnteredById: v.auto ? null : actor, refKey: v.refKey ?? null, autoOpened: !!v.auto })
-      .returning();
+    const c = await insertOne(tx, workflowCases, { tenantId, pipeline: p.key, number, title: v.title, stage: p.start, customerId: v.customerId ?? null, supplierId: v.supplierId ?? null, amount: v.amount ?? '0', dueDate: v.dueDate ?? null, createdById: actor, stageEnteredById: v.auto ? null : actor, refKey: v.refKey ?? null, autoOpened: !!v.auto });
     await this.event(tx, tenantId, c.id, { kind: 'CREATE', to: p.start, by: v.auto ? undefined : actor, auto: v.auto, note: v.auto ? 'Dibuka otomatis' : undefined });
     await this.audit.log(tx, { tenantId, userId: actor, action: 'CREATE', entity: 'WorkflowCase', entityId: c.id, data: { number, pipeline: p.key, auto: !!v.auto } });
     return c;

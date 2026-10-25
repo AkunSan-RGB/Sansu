@@ -18,7 +18,7 @@ import { projectCostsSql } from './project-costs';
 import { decryptField } from '../../../common/utils/secret';
 import { CreateServiceInvoiceDto, WithholdingSlipDto, ProjectProgressDto, CreateProjectDto, UpdateProjectDto, CreateDepositDto, ApplyDepositDto } from './service-billing.dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
-import { findOwned, patchById } from '../../../db/owned';
+import { findOwned, insertOne, patchById } from '../../../db/owned';
 
 export const outstandingOf = (i: { total: string; paidAmount: string; returnedAmount: string }) =>
   D(i.total).minus(i.paidAmount).minus(i.returnedAmount);
@@ -114,9 +114,7 @@ export class ServiceBillingService {
 
       const withholding = money(doc.subtotal.times(whRate).div(100));
       const number = await this.seq.next(tx, user.tenantId, 'INVOICE', date);
-      const [invoice] = await tx
-        .insert(invoices)
-        .values({
+      const invoice = await insertOne(tx, invoices, {
           tenantId: user.tenantId,
           number,
           kind: 'SERVICE',
@@ -135,8 +133,7 @@ export class ServiceBillingService {
           withholdingAmount: withholding.toFixed(2),
           // PPh yang dipotong pelanggan mengurangi piutang sejak faktur terbit
           paidAmount: withholding.toFixed(2),
-        })
-        .returning();
+        });
       await tx.insert(serviceInvoiceLines).values(
         doc.lines.map((l) => ({
           invoiceId: invoice.id,

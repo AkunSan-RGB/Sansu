@@ -17,7 +17,7 @@ import { BudgetService } from '../accounting/budget.service';
 import { PostingService } from '../accounting/posting.service';
 import { AssetsService } from '../assets/assets.service';
 import { CreateCashTxDto, CashLineDto, CashQueryDto, VoidCashDto, CashEvidenceDto } from './cash.dto';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 /** Kas yang sudah melewati penentuan sumber: setiap baris punya akun */
 export type ResolvedCashTx = Omit<CreateCashTxDto, 'lines'> & { lines?: (Omit<CashLineDto, 'accountId'> & { accountId: string; sourceKey?: string })[] };
@@ -250,9 +250,7 @@ export class CashService {
       }
 
       const number = await this.seq.next(tx, user.tenantId, PREFIX[dto.type], date);
-      const [trx] = await tx
-        .insert(cashTransactions)
-        .values({
+      const trx = await insertOne(tx, cashTransactions, {
           tenantId: user.tenantId,
           number,
           date,
@@ -264,8 +262,7 @@ export class CashService {
           reference: dto.reference,
           createdById: user.sub,
           branchId: dto.branchId ?? cash.branchId ?? null,
-        })
-        .returning();
+        });
       if (lines.length && dto.type !== 'TRANSFER') {
         await tx.insert(cashTransactionLines).values(
           lines.map((l) => ({

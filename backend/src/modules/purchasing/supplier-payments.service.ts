@@ -18,7 +18,7 @@ import { PostingService } from '../accounting/posting.service';
 import { CreateSupplierPaymentDto } from './purchasing.dto';
 import { PurchaseInvoiceRepository } from './purchase-invoice.repository';
 import { PurchaseInvoicesService } from './purchase-invoices.service';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 @Injectable()
 export class SupplierPaymentsService {
@@ -150,9 +150,7 @@ export class SupplierPaymentsService {
       const cash = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'BANK');
       await this.posting.assertCashCovers(tx, user.tenantId, cash, cashOut);
       const number = await this.seq.next(tx, user.tenantId, 'SUPPLIER_PAYMENT', date);
-      const [payment] = await tx
-        .insert(supplierPayments)
-        .values({
+      const payment = await insertOne(tx, supplierPayments, {
           tenantId: user.tenantId,
           number,
           date,
@@ -166,8 +164,7 @@ export class SupplierPaymentsService {
           fxGainLoss: diff.negated().toFixed(2),
           cashAccountId: cash.id,
           notes: dto.notes,
-        })
-        .returning();
+        });
 
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,

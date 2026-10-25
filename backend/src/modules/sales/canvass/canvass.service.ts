@@ -17,7 +17,7 @@ import { PostingService } from '../../accounting/posting.service';
 import { VanDto, VanMoveDto, CanvassSaleDto, CollectionDto, VerifyDto, RouteDto, VisitDto } from './canvass.dto';
 import { asDto } from '../../../common/utils/dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
-import { findOwned, lockOwned, patchById } from '../../../db/owned';
+import { findOwned, insertOne, lockOwned, patchById } from '../../../db/owned';
 
 /** Jarak maksimum kunjungan dari titik outlet sebelum ditandai mencurigakan */
 const FAR_METERS = 300;
@@ -62,7 +62,7 @@ export class CanvassService {
     if (exist) throw new BadRequestException(`${sp.name} sudah punya mobil`);
     await this.subs.assertCanAdd(u.tenantId, 'warehouses');
     const n = await this.db.execute<{ n: string }>(sql`SELECT COUNT(*)::text AS n FROM warehouses WHERE tenant_id = ${u.tenantId} AND kind = 'VAN'`);
-    const [row] = await this.db.insert(warehouses).values({ tenantId: u.tenantId, code: `VAN-${String(Number(n.rows[0].n) + 1).padStart(2, '0')}`, name: `Mobil ${sp.name}`, kind: 'VAN', vanUserId: sp.id }).returning();
+    const row = await insertOne(this.db, warehouses, { tenantId: u.tenantId, code: `VAN-${String(Number(n.rows[0].n) + 1).padStart(2, '0')}`, name: `Mobil ${sp.name}`, kind: 'VAN', vanUserId: sp.id });
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'Van', entityId: row.id, data: { code: row.code, sales: sp.name } });
     return row;
   }
@@ -150,7 +150,7 @@ export class CanvassService {
       const room = D(inv.total).minus(inv.paidAmount).minus(inv.returnedAmount).minus(pending.rows[0].s);
       if (amount.gt(room)) throw new BadRequestException(`Jumlah melebihi sisa tagihan yang belum disetor (${room.toFixed(2)})`);
       const number = await this.seq.next(tx, u.tenantId, 'CANVASS_REMITTANCE', date);
-      const [row] = await tx.insert(canvassCollections).values({ tenantId: u.tenantId, number, userId: collectorId, invoiceId: inv.id, customerId: inv.customerId, date, method: dto.method ?? 'CASH', amount: amount.toFixed(2), createdById: u.sub }).returning();
+      const row = await insertOne(tx, canvassCollections, { tenantId: u.tenantId, number, userId: collectorId, invoiceId: inv.id, customerId: inv.customerId, date, method: dto.method ?? 'CASH', amount: amount.toFixed(2), createdById: u.sub });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'CanvassCollection', entityId: row.id, data: { number, invoice: inv.number, amount: amount.toFixed(2) } });
       return row;
     });
@@ -195,7 +195,7 @@ export class CanvassService {
       const shortage = D(c.amount).minus(received);
       const cash = received.gt(0) ? await this.posting.resolveCashAccount(tx, u.tenantId, dto.cashAccountId, c.method === 'CASH' ? 'CASH' : 'BANK') : null;
       const number = await this.seq.next(tx, u.tenantId, 'PAYMENT', date);
-      const [pay] = await tx.insert(payments).values({ tenantId: u.tenantId, number, date, customerId: inv.customerId, invoiceId: inv.id, amount: D(c.amount).toFixed(2), method: c.method, cashAccountId: cash?.id ?? null, notes: `Setoran kanvas ${c.number}${shortage.gt(0) ? ` (kurang setor ${shortage.toFixed(2)})` : ''}` }).returning();
+      const pay = await insertOne(tx, payments, { tenantId: u.tenantId, number, date, customerId: inv.customerId, invoiceId: inv.id, amount: D(c.amount).toFixed(2), method: c.method, cashAccountId: cash?.id ?? null, notes: `Setoran kanvas ${c.number}${shortage.gt(0) ? ` (kurang setor ${shortage.toFixed(2)})` : ''}` });
       const journal = await this.posting.post(tx, {
         tenantId: u.tenantId,
         date,
@@ -255,7 +255,7 @@ export class CanvassService {
         await tx.delete(salesRouteStops).where(eq(salesRouteStops.routeId, id));
       } else {
         try {
-          const [row] = await tx.insert(salesRoutes).values({ tenantId: u.tenantId, name: dto.name.trim(), salespersonId: dto.salespersonId, weekday: dto.weekday ?? null }).returning();
+          const row = await insertOne(tx, salesRoutes, { tenantId: u.tenantId, name: dto.name.trim(), salespersonId: dto.salespersonId, weekday: dto.weekday ?? null });
           routeId = row.id;
         } catch (e) {
           if ((e as { code?: string; cause?: { code?: string } }).code === '23505' || (e as { cause?: { code?: string } }).cause?.code === '23505') throw new BadRequestException(`Rute "${dto.name}" sudah ada`);
@@ -275,10 +275,7 @@ export class CanvassService {
     let distance: number | null = null;
     if (dto.lat != null && dto.lng != null && cust.geoLat && cust.geoLng) distance = haversineM(dto.lat, dto.lng, Number(cust.geoLat), Number(cust.geoLng));
     try {
-      const [row] = await this.db
-        .insert(salesVisits)
-        .values({ tenantId: u.tenantId, userId: u.sub, customerId: cust.id, routeId: dto.routeId ?? null, date, lat: dto.lat?.toFixed(6), lng: dto.lng?.toFixed(6), distanceM: distance, result: dto.result, note: dto.note })
-        .returning();
+      const row = await insertOne(this.db, salesVisits, { tenantId: u.tenantId, userId: u.sub, customerId: cust.id, routeId: dto.routeId ?? null, date, lat: dto.lat?.toFixed(6), lng: dto.lng?.toFixed(6), distanceM: distance, result: dto.result, note: dto.note });
       return { ...row, farFromOutlet: distance !== null && distance > FAR_METERS };
     } catch (e) {
       if ((e as { code?: string; cause?: { code?: string } }).code === '23505' || (e as { cause?: { code?: string } }).cause?.code === '23505') throw new BadRequestException('Kunjungan ke outlet ini hari ini sudah dicatat');

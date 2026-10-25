@@ -16,7 +16,7 @@ import { PostingService } from '../accounting/posting.service';
 import { FiscalService } from '../insights/fiscal.service';
 import { decryptField } from '../../common/utils/secret';
 import { CreateTaxPaymentDto } from './tax.dto';
-import { findOwned, patchById } from '../../db/owned';
+import { findOwned, insertOne, patchById } from '../../db/owned';
 
 const LIABILITY_KEY: Partial<Record<TaxPaymentType, SystemKey>> = {
   PPH21: SYS.PPH21_PAYABLE,
@@ -309,9 +309,7 @@ export class TaxService {
       }
 
       const number = await this.seq.next(tx, user.tenantId, 'TAX_PAYMENT', date);
-      const [row] = await tx
-        .insert(taxPayments)
-        .values({
+      const row = await insertOne(tx, taxPayments, {
           tenantId: user.tenantId,
           number,
           type: dto.type,
@@ -324,8 +322,7 @@ export class TaxService {
           billingCode: dto.billingCode,
           ntpn: dto.ntpn,
           notes: dto.notes,
-        })
-        .returning();
+        });
       if (amount.gt(0)) await this.posting.assertCashCovers(tx, user.tenantId, bank, amount);
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,

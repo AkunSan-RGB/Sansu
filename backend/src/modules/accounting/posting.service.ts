@@ -9,7 +9,7 @@ import { accounts, journalEntries, journalLines } from '../../db/schema';
 import { DEFAULT_COA, SystemKey } from './default-coa';
 import { JournalValidationError, normalizeJournalLines } from './journal-rules';
 import { ReferenceRepository } from '../../db/reference.repository';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 export interface PostLine {
   /** Salah satu: id akun, atau kunci akun sistem (AR, SALES, ...) */
@@ -93,9 +93,7 @@ export class PostingService {
     }
 
     const number = await this.seq.next(tx, input.tenantId, 'JOURNAL', input.date);
-    const [entry] = await tx
-      .insert(journalEntries)
-      .values({
+    const entry = await insertOne(tx, journalEntries, {
         tenantId: input.tenantId,
         number,
         date: input.date,
@@ -104,8 +102,7 @@ export class PostingService {
         sourceId: input.sourceId,
         reference: input.reference,
         createdById: input.createdById,
-      })
-      .returning();
+      });
     const lines = await tx
       .insert(journalLines)
       .values(
@@ -202,9 +199,7 @@ export class PostingService {
     if (already) throw new BadRequestException(`Jurnal ini sudah dibalik oleh ${already.number}`);
 
     const number = await this.seq.next(tx, tenantId, 'JOURNAL', date);
-    const [entry] = await tx
-      .insert(journalEntries)
-      .values({
+    const entry = await insertOne(tx, journalEntries, {
         tenantId,
         number,
         date,
@@ -213,8 +208,7 @@ export class PostingService {
         sourceId: original.id,
         reversalOfId: original.id,
         createdById: userId,
-      })
-      .returning();
+      });
     const lines = await tx
       .insert(journalLines)
       .values(

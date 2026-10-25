@@ -5,6 +5,7 @@
  *  3. Arah dependensi: dto -> (tidak ke service/pengendali modul), service -> (tidak ke pengendali)
  *  4. Tidak ada siklus antar-modul (folder src/modules/*)
  *  5. Tidak ada berkas sumber lebih dari 700 baris (kecuali pembuat data demo)
+ *  6. Pelonggaran tipe `as never` hanya di tempat yang diizinkan (pembuat data demo, asDto, owned, bootstrap, impor)
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -91,5 +92,11 @@ describe('arsitektur', () => {
   it('tidak ada berkas sumber lebih dari 700 baris (kecuali pembuat data demo)', () => {
     const big = files.filter((f) => !/\/(demo)\//.test(f) && !/demo\.(seeds|extra|kit)\.ts$/.test(f) && fs.readFileSync(f, 'utf8').split('\n').length > 700).map(rel);
     expect(big).toEqual([]);
+  });
+
+  it('cast `as never` hanya di tempat yang diizinkan', () => {
+    const ALLOWED = /(^|\/)(demo\/|demo\.[a-z]+\.ts$|db\/demo\/|common\/utils\/dto\.ts$|db\/owned\.ts$|bootstrap\.ts$|modules\/imports\/imports\.service\.ts$)/;
+    const offenders = files.filter((f) => !ALLOWED.test(rel(f)) && /\bas never\b/.test(fs.readFileSync(f, 'utf8'))).map(rel);
+    expect(offenders).toEqual([]);
   });
 });

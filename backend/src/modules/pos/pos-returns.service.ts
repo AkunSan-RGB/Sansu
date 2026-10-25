@@ -15,7 +15,7 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
 import { CreatePosReturnDto } from './pos-returns.dto';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 const QTY_EPS = D('0.00005');
 
@@ -102,10 +102,7 @@ export class PosReturnsService {
       const drawerSession = method === 'CASH' && session.status === 'OPEN' ? session.id : null;
 
       const number = await this.seq.next(tx, user.tenantId, 'POS_RETURN', date);
-      const [ret] = await tx
-        .insert(posReturns)
-        .values({ tenantId: user.tenantId, number, date, orderId, sessionId: drawerSession, warehouseId: session.warehouseId, refundMethod: method, reason, subtotal: subtotal.toFixed(2), taxAmount: tax.toFixed(2), total: total.toFixed(2), cogsAmount: '0', createdById: user.sub })
-        .returning();
+      const ret = await insertOne(tx, posReturns, { tenantId: user.tenantId, number, date, orderId, sessionId: drawerSession, warehouseId: session.warehouseId, refundMethod: method, reason, subtotal: subtotal.toFixed(2), taxAmount: tax.toFixed(2), total: total.toFixed(2), cogsAmount: '0', createdById: user.sub });
 
       let cogs: Dec = ZERO;
       for (const p of picks) {

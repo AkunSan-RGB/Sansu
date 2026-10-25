@@ -40,7 +40,7 @@ import {
 } from './dto/auth.dto';
 import { LoginLimiter } from './login-limiter';
 import { TenantSetupService } from './tenant-setup.service';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 type UserRow = typeof users.$inferSelect;
 // hash bcrypt dari string acak — dipakai saat email tidak ditemukan
@@ -71,9 +71,7 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
     const user = await this.db.transaction(async (tx) => {
-      const [tenant] = await tx
-        .insert(tenants)
-        .values({
+      const tenant = await insertOne(tx, tenants, {
           name: dto.companyName,
           settings: {
             // Perusahaan BARU langsung terlindungi dari pemasok fiktif: pembayaran pertama ke supplier oleh staf menunggu persetujuan
@@ -81,14 +79,10 @@ export class AuthService {
             approvals: { firstSupplierPayment: true },
             ...(dto.acceptTerms ? { legal: { acceptedAt: new Date().toISOString(), version: LEGAL_VERSION, by: email } } : {}),
           },
-        })
-        .returning();
+        });
       await this.setup.provision(tx, tenant.id, dto.businessModel ?? 'DAGANG');
       await this.subs.startTrial(tx, tenant.id);
-      const [u] = await tx
-        .insert(users)
-        .values({ tenantId: tenant.id, email, name: dto.name, passwordHash, role: 'OWNER' })
-        .returning();
+      const u = await insertOne(tx, users, { tenantId: tenant.id, email, name: dto.name, passwordHash, role: 'OWNER' });
       return u;
     });
     await this.sendVerification(user, dto.companyName);
@@ -105,16 +99,10 @@ export class AuthService {
     const email = `demo-${randomUUID().slice(0, 12)}@demo.sansu.invalid`;
     const passwordHash = await bcrypt.hash(randomUUID(), 8);
     const user = await this.db.transaction(async (tx) => {
-      const [tenant] = await tx
-        .insert(tenants)
-        .values({ name: 'PT DEMO', settings: { demo: { model, createdAt: new Date().toISOString() } } })
-        .returning();
+      const tenant = await insertOne(tx, tenants, { name: 'PT DEMO', settings: { demo: { model, createdAt: new Date().toISOString() } } });
       await this.setup.provision(tx, tenant.id, model);
       await this.subs.startTrial(tx, tenant.id);
-      const [u] = await tx
-        .insert(users)
-        .values({ tenantId: tenant.id, email, name: 'Pengunjung Demo', passwordHash, role: 'OWNER', emailVerifiedAt: new Date() })
-        .returning();
+      const u = await insertOne(tx, users, { tenantId: tenant.id, email, name: 'Pengunjung Demo', passwordHash, role: 'OWNER', emailVerifiedAt: new Date() });
       return u;
     });
     return { user, session: await this.issue(user) };

@@ -27,7 +27,7 @@ import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
 import { lineTotal } from '../sales/pricing';
 import { CreateReturnDto } from './returns.dto';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 interface SourceLine {
   id: string;
@@ -177,9 +177,7 @@ export class ReturnsService {
       }
 
       const number = await this.seq.next(tx, user.tenantId, 'SALES_RETURN', date);
-      const [ret] = await tx
-        .insert(salesReturns)
-        .values({
+      const ret = await insertOne(tx, salesReturns, {
           tenantId: user.tenantId,
           number,
           date,
@@ -191,8 +189,7 @@ export class ReturnsService {
           taxAmount: tax.toFixed(2),
           total: total.toFixed(2),
           costAmount: '0',
-        })
-        .returning();
+        });
 
       let cost: Dec = ZERO;
       for (const l of lines) {
@@ -307,9 +304,7 @@ export class ReturnsService {
       }
 
       const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_RETURN', date);
-      const [ret] = await tx
-        .insert(purchaseReturns)
-        .values({
+      const ret = await insertOne(tx, purchaseReturns, {
           tenantId: user.tenantId,
           number,
           date,
@@ -320,8 +315,7 @@ export class ReturnsService {
           subtotal: subtotal.toFixed(2),
           taxAmount: tax.toFixed(2),
           total: total.toFixed(2),
-        })
-        .returning();
+        });
 
       let stockValue: Dec = ZERO;
       for (const l of lines) {

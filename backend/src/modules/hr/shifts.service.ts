@@ -9,7 +9,7 @@ import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { employees, serviceRates, shiftAssignments, shiftTemplates } from '../../db/schema';
 import { CreateTemplateDto, UpdateTemplateDto, AssignDto, RosterQueryDto } from './shifts.dto';
-import { findOwned } from '../../db/owned';
+import { findOwned, insertOne } from '../../db/owned';
 
 export const SHIFT_RULES = { maxPerDay: 2, minRestHours: 8, maxConsecutiveDays: 6, normalWeekHours: 40, maxWeekHours: 58, maxAheadDays: 90 } as const;
 
@@ -92,7 +92,7 @@ export class ShiftsService {
     await this.checkRate(u.tenantId, dto.premiumRateId);
     const [dup] = await this.db.select({ id: shiftTemplates.id }).from(shiftTemplates).where(and(eq(shiftTemplates.tenantId, u.tenantId), eq(shiftTemplates.name, dto.name.trim())));
     if (dup) throw new BadRequestException('Nama shift sudah dipakai');
-    const [row] = await this.db.insert(shiftTemplates).values({ tenantId: u.tenantId, name: dto.name.trim(), startTime: dto.startTime, endTime: dto.endTime, minStaff: dto.minStaff ?? 1, premiumRateId: dto.premiumRateId ?? null, createdById: u.sub }).returning();
+    const row = await insertOne(this.db, shiftTemplates, { tenantId: u.tenantId, name: dto.name.trim(), startTime: dto.startTime, endTime: dto.endTime, minStaff: dto.minStaff ?? 1, premiumRateId: dto.premiumRateId ?? null, createdById: u.sub });
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'ShiftTemplate', entityId: row.id, data: { name: row.name, start: row.startTime, end: row.endTime } });
     return row;
   }

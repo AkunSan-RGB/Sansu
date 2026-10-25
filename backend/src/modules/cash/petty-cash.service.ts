@@ -12,7 +12,7 @@ import { accounts, pettyCashFunds, pettyCashReplenishments, pettyCashVouchers } 
 import { CashService } from './cash.service';
 import { PettyFundDto, PettyFundTopUpDto, PettyVoucherDto, PettyVoidDto, PettyReplenishDto } from './petty-cash.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
-import { findOwned, patchById } from '../../db/owned';
+import { findOwned, insertOne, patchById } from '../../db/owned';
 
 type Fund = typeof pettyCashFunds.$inferSelect;
 
@@ -88,10 +88,7 @@ export class PettyCashService {
       await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'UPDATE', entity: 'PettyCashFund', entityId: f.id, data: { imprest: imprest.toFixed(2), custodian: f.custodianName } });
       return f;
     }
-    const [f] = await this.db
-      .insert(pettyCashFunds)
-      .values({ tenantId: user.tenantId, accountId: dto.accountId, fundingAccountId: dto.fundingAccountId, name: dto.name.trim(), custodianName: dto.custodianName.trim(), imprestAmount: imprest.toFixed(2), maxVoucher: max.toFixed(2) })
-      .returning();
+    const f = await insertOne(this.db, pettyCashFunds, { tenantId: user.tenantId, accountId: dto.accountId, fundingAccountId: dto.fundingAccountId, name: dto.name.trim(), custodianName: dto.custodianName.trim(), imprestAmount: imprest.toFixed(2), maxVoucher: max.toFixed(2) });
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PettyCashFund', entityId: f.id, data: { imprest: imprest.toFixed(2) } });
     return f;
   }
@@ -147,10 +144,7 @@ export class PettyCashService {
         { type: 'OUT', cashAccountId: f.accountId, date, description: `Kas kecil ${number}: ${dto.description.trim()} (${dto.payee.trim()})`, reference: receipt, lines: [{ accountId: acc.id, amount: amount.toFixed(2), memo: dto.description.trim() }] },
         { petty: true, approved: true, tx },
       );
-      const [v] = await tx
-        .insert(pettyCashVouchers)
-        .values({ tenantId: user.tenantId, fundId: f.id, number, date, payee: dto.payee.trim(), description: dto.description.trim(), expenseAccountId: acc.id, amount: amount.toFixed(2), receiptRef: receipt, cashTransactionId: t.id, createdById: user.sub })
-        .returning();
+      const v = await insertOne(tx, pettyCashVouchers, { tenantId: user.tenantId, fundId: f.id, number, date, payee: dto.payee.trim(), description: dto.description.trim(), expenseAccountId: acc.id, amount: amount.toFixed(2), receiptRef: receipt, cashTransactionId: t.id, createdById: user.sub });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PettyCashVoucher', entityId: v.id, data: { number, amount: amount.toFixed(2), receipt } });
       return v;
     });
@@ -210,7 +204,7 @@ export class PettyCashService {
       const date = toDocDate(dto.date ?? todayJakarta());
       const number = await this.seq.next(tx, user.tenantId, 'PETTY_REPLENISH', date);
       const t = await this.cash.create(user, { type: 'TRANSFER', cashAccountId: f.fundingAccountId, toCashAccountId: f.accountId, date, description: `Pengisian kembali kas kecil ${f.name} ${number}`, amount: total.toFixed(2), reference: number }, { petty: true, approved: true, tx });
-      const [r] = await tx.insert(pettyCashReplenishments).values({ tenantId: user.tenantId, fundId: f.id, number, date, total: total.toFixed(2), voucherCount: picked.length, cashTransactionId: t.id, requestedById: user.sub }).returning();
+      const r = await insertOne(tx, pettyCashReplenishments, { tenantId: user.tenantId, fundId: f.id, number, date, total: total.toFixed(2), voucherCount: picked.length, cashTransactionId: t.id, requestedById: user.sub });
       await tx.update(pettyCashVouchers).set({ status: 'REPLENISHED', replenishmentId: r.id }).where(inArray(pettyCashVouchers.id, picked.map((v) => v.id)));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'REPLENISH', entity: 'PettyCashFund', entityId: f.id, data: { number, total: total.toFixed(2), vouchers: picked.length } });
       return { number, total: total.toFixed(2), vouchers: picked.length };

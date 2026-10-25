@@ -25,7 +25,7 @@ import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { StockService } from '../../inventory/stock.service';
 import { SalesOrdersService } from '../orders/sales-orders.service';
-import { patchById } from '../../../db/owned';
+import { insertOne, patchById } from '../../../db/owned';
 
 type OrderWithLines = Awaited<ReturnType<SalesOrdersService['lockOrder']>>;
 
@@ -58,9 +58,7 @@ export class DeliveriesService {
       }
       const [customer] = await tx.select().from(customers).where(eq(customers.id, order.customerId));
       const number = await this.seq.next(tx, user.tenantId, 'DELIVERY', date);
-      const [delivery] = await tx
-        .insert(deliveryOrders)
-        .values({
+      const delivery = await insertOne(tx, deliveryOrders, {
           tenantId: user.tenantId,
           number,
           date,
@@ -69,8 +67,7 @@ export class DeliveriesService {
           warehouseId: order.warehouseId,
           notes: dto.notes,
           createdById: user.sub,
-        })
-        .returning();
+        });
 
       const remaining = await this.remainingQty(tx, order.id, order.lines);
       const ship = this.planShipment(order.lines, remaining, dto.lines);
@@ -220,9 +217,7 @@ export class DeliveriesService {
     p: { order: OrderWithLines; date: DocDate; invoiceId: string; cogs: Dec; costs: Map<string, { unitCost: Dec }> },
   ) {
     const number = await this.seq.next(tx, user.tenantId, 'DELIVERY', p.date);
-    const [delivery] = await tx
-      .insert(deliveryOrders)
-      .values({
+    const delivery = await insertOne(tx, deliveryOrders, {
         tenantId: user.tenantId,
         number,
         date: p.date,
@@ -233,8 +228,7 @@ export class DeliveriesService {
         invoiceId: p.invoiceId,
         notes: 'Dibuat otomatis bersama faktur',
         createdById: user.sub,
-      })
-      .returning();
+      });
     for (const line of p.order.lines) {
       await tx.insert(deliveryOrderLines).values({
         deliveryId: delivery.id,

@@ -11,7 +11,7 @@ import { InjectDb } from '../../db/db.module';
 import { billingInvoices, plans, subscriptions, tenants, users } from '../../db/schema';
 import { activeGateway, midtrans, xendit, type PaymentNotice } from './gateways';
 import { CreateBillingInvoiceDto, ProofDto, UpdateSubscriptionDto, RejectDto, PlanDto } from './billing.dto';
-import { findOwned, patchById } from '../../db/owned';
+import { findOwned, insertOne, patchById } from '../../db/owned';
 
 export const DAY = 86_400_000;
 
@@ -178,9 +178,7 @@ export class BillingService {
         .update(billingInvoices)
         .set({ status: 'CANCELLED' })
         .where(and(eq(billingInvoices.tenantId, u.tenantId), eq(billingInvoices.status, 'UNPAID')));
-      const [row] = await tx
-        .insert(billingInvoices)
-        .values({
+      const row = await insertOne(tx, billingInvoices, {
           tenantId: u.tenantId,
           number: await this.nextNumber(tx),
           planId: plan.id,
@@ -191,8 +189,7 @@ export class BillingService {
           amount,
           dueDate: new Date(Date.now() + 7 * DAY).toISOString().slice(0, 10),
           createdBy: opts.auto ? null : u.sub,
-        })
-        .returning();
+        });
       return row;
     });
     const st = await this.subs.state(u.tenantId, true);

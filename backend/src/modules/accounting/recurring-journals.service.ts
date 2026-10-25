@@ -11,7 +11,7 @@ import { CreateRecurringDto, UpdateRecurringDto } from './dto/accounting.dto';
 import { PostingService } from './posting.service';
 import { AccountingRepository } from './accounting.repository';
 import { AccountingService, nextOccurrence } from './accounting.service';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 @Injectable()
 export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
@@ -57,16 +57,13 @@ export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
       undefined,
       'Jurnal berulang',
     );
-    const [r] = await this.db
-      .insert(recurringJournals)
-      .values({
+    const r = await insertOne(this.db, recurringJournals, {
         ...dto,
         tenantId: user.tenantId,
         nextDate: toDocDate(dto.nextDate),
         endDate: dto.endDate ? toDocDate(dto.endDate) : null,
         isAdjustment: dto.isAdjustment ?? true,
-      })
-      .returning();
+      });
     return r;
   }
 

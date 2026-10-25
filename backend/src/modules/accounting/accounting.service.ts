@@ -29,7 +29,7 @@ import { resolveSourceRoutes } from './source-route';
 import { decryptField } from '../../common/utils/secret';
 import { AccountingRepository } from './accounting.repository';
 import { ReferenceRepository } from '../../db/reference.repository';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 interface BalanceRow {
   id: string;
@@ -95,7 +95,7 @@ export class AccountingService {
       throw new BadRequestException('Kelompok laporan tidak sesuai dengan tipe akun');
     }
     const reportGroup = dto.isCashAccount ? 'CASH_EQUIVALENT' : (dto.reportGroup ?? guessReportGroup(dto.code, dto.type));
-    const [row] = await this.db.insert(accounts).values({ ...dto, reportGroup, tenantId }).returning();
+    const row = await insertOne(this.db, accounts, { ...dto, reportGroup, tenantId });
     return row;
   }
 

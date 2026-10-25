@@ -8,6 +8,7 @@ import { stockBalances, warehouses } from '../../../db/schema';
 import { SubscriptionService } from '../../../common/billing/subscription.service';
 import { CreateWarehouseDto, UpdateWarehouseDto } from './warehouses.dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
+import { insertOne } from '../../../db/owned';
 
 @Injectable()
 export class WarehousesService {
@@ -28,10 +29,7 @@ export class WarehousesService {
 
   async create(tenantId: string, dto: CreateWarehouseDto) {
     await this.subs.assertCanAdd(tenantId, 'warehouses');
-    const [row] = await this.db
-      .insert(warehouses)
-      .values({ ...dto, code: dto.code.trim().toUpperCase(), tenantId })
-      .returning();
+    const row = await insertOne(this.db, warehouses, { ...dto, code: dto.code.trim().toUpperCase(), tenantId });
     return row;
   }
 

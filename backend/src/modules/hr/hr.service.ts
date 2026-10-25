@@ -12,7 +12,7 @@ import { applyEmploymentRules, EmploymentService, type EmpShape } from './employ
 import { type EmploymentType, isPerJob } from './employment.shared';
 import { LinkAccountDto, CreateEmployeeDto, UpdateEmployeeDto, SaveAttendanceDto, CreateLeaveDto, DecideLeaveDto } from './hr.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
-import { findOwned, lockOwned, patchById } from '../../db/owned';
+import { findOwned, insertOne, lockOwned, patchById } from '../../db/owned';
 
 const dow = (d: DocDate) => new Date(`${d}T00:00:00Z`).getUTCDay();
  // 0 = Minggu
@@ -121,9 +121,7 @@ export class HrService {
     const norm = applyEmploymentRules(model, this.shapeOf({ ...dto, joinDate }));
     const jasa = model === 'JASA';
     if (jasa) await this.employment.assertNoDuplicates(this.db, user.tenantId, null, dto);
-    const [e] = await this.db
-      .insert(employees)
-      .values({
+    const e = await insertOne(this.db, employees, {
         ...dto,
         tenantId: user.tenantId,
         code: dto.code.trim().toUpperCase(),
@@ -138,8 +136,7 @@ export class HrService {
         // usaha jasa: karyawan baru diverifikasi orang lain dulu (Pemilik langsung sah)
         verified: !jasa || user.role === 'OWNER',
         ...(!jasa || user.role === 'OWNER' ? { verifiedById: user.sub, verifiedAt: new Date() } : {}),
-      })
-      .returning();
+      });
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'Employee', entityId: e.id, data: { type: e.employmentType, verified: e.verified } });
     return e;
   }
@@ -287,10 +284,7 @@ export class HrService {
         ),
       );
     if (overlap) throw new BadRequestException('Sudah ada pengajuan cuti di tanggal yang sama');
-    const [l] = await this.db
-      .insert(leaveRequests)
-      .values({ tenantId: user.tenantId, employeeId: emp.id, type: dto.type, startDate: start, endDate: end, days, reason: dto.reason })
-      .returning();
+    const l = await insertOne(this.db, leaveRequests, { tenantId: user.tenantId, employeeId: emp.id, type: dto.type, startDate: start, endDate: end, days, reason: dto.reason });
     return l;
   }
 

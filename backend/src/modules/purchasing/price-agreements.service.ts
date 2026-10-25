@@ -9,6 +9,7 @@ import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { products, supplierPriceAgreements, suppliers } from '../../db/schema';
 import { CreateAgreementDto, DecideAgreementDto, ReasonDto, LookupDto } from './price-agreements.dto';
+import { insertOne } from '../../db/owned';
 
 export const MAX_CONTRACT_DAYS = 3 * 366;
 
@@ -56,7 +57,7 @@ export class PriceAgreementsService {
       SELECT 1 FROM supplier_price_agreements WHERE tenant_id = ${u.tenantId} AND supplier_id = ${dto.supplierId} AND product_id = ${dto.productId}
         AND status IN ('PENDING','ACTIVE') AND valid_from <= ${to} AND valid_to >= ${from} LIMIT 1`);
     if (clash.rows.length) throw new BadRequestException('Barang ini sudah punya kontrak (atau pengajuan) yang periodenya tumpang tindih dengan pemasok yang sama');
-    const [row] = await this.db.insert(supplierPriceAgreements).values({ tenantId: u.tenantId, supplierId: dto.supplierId, productId: dto.productId, price: price.toFixed(2), validFrom: from, validTo: to, note: dto.note ?? null, createdById: u.sub }).returning();
+    const row = await insertOne(this.db, supplierPriceAgreements, { tenantId: u.tenantId, supplierId: dto.supplierId, productId: dto.productId, price: price.toFixed(2), validFrom: from, validTo: to, note: dto.note ?? null, createdById: u.sub });
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'SupplierPriceAgreement', entityId: row.id, data: { price: row.price, from, to } });
     void this.approvals.notifyRoles(u.tenantId, { roles: ['FINANCE', 'ADMIN', 'OWNER'], excludeUserId: u.sub, title: `Kontrak harga pemasok menunggu persetujuan: Rp${Math.round(price.toNumber()).toLocaleString('id-ID')} per satuan`, lines: [`Berlaku ${from} s.d. ${to}`], path: '/price-agreements' });
     return row;

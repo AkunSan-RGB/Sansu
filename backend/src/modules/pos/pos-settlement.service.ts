@@ -14,6 +14,7 @@ import { posCardSettlementItems, posCardSettlements } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { CardSettingsDto, SettleDto, CancelSettleDto } from './pos-settlement.dto';
+import { insertOne } from '../../db/owned';
 
 const SECTION = 'cardSettlement';
 
@@ -138,10 +139,7 @@ export class CardSettlementService {
       if (detail.some((d) => !d.diff.isZero()) && (dto.note ?? '').trim().length < 5) throw new BadRequestException(`Uang diterima berbeda ${diff.toFixed(0)} dari hitungan MDR ${pct}% (seharusnya ${expectedNet.toFixed(0)}); tulis penjelasannya.`);
       if (maxAbsDiff.gt(s.toleranceRp) && u.role !== 'OWNER' && u.role !== 'ADMIN') throw new ForbiddenException(`Selisih di atas toleransi Rp${s.toleranceRp.toLocaleString('id-ID')} hanya boleh dicatat Admin/Pemilik`);
       const number = await this.seq.next(tx, u.tenantId, 'POS_CARD_SETTLEMENT', date);
-      const [st] = await tx
-        .insert(posCardSettlements)
-        .values({ tenantId: u.tenantId, number, date, method: dto.method, bankAccountId: banks[0], gross: gross.toFixed(2), returnsTotal: retTotal.toFixed(2), mdrPct: String(pct), mdrExpected: mdr.toFixed(2), received: received.toFixed(2), difference: diff.toFixed(2), itemCount: ids.length, note: dto.note?.trim() || null, createdById: u.sub })
-        .returning();
+      const st = await insertOne(tx, posCardSettlements, { tenantId: u.tenantId, number, date, method: dto.method, bankAccountId: banks[0], gross: gross.toFixed(2), returnsTotal: retTotal.toFixed(2), mdrPct: String(pct), mdrExpected: mdr.toFixed(2), received: received.toFixed(2), difference: diff.toFixed(2), itemCount: ids.length, note: dto.note?.trim() || null, createdById: u.sub });
       await tx.insert(posCardSettlementItems).values(rows.map((r) => ({ tenantId: u.tenantId, settlementId: st.id, paymentId: r.id, amount: money(r.amount).toFixed(2) })));
       for (const r of rets) await tx.execute(sql`INSERT INTO pos_card_settlement_returns (tenant_id, settlement_id, return_id, amount) VALUES (${u.tenantId}, ${st.id}, ${r.id}, ${money(r.total).toFixed(2)})`);
       for (const d of detail) await tx.execute(sql`INSERT INTO pos_card_settlement_banks (tenant_id, settlement_id, bank_account_id, gross, returns_total, received) VALUES (${u.tenantId}, ${st.id}, ${d.bank}, ${d.gross.toFixed(2)}, ${d.ret.toFixed(2)}, ${d.received.toFixed(2)})`);

@@ -17,6 +17,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../auth/auth-user';
 import { SettingsService } from '../settings.service';
 import { TelegramService } from '../telegram/telegram.service';
+import { insertOne } from '../../db/owned';
 
 export const APPROVER_ROLES: readonly Role[] = ['OWNER', 'ADMIN'];
 export type ApprovalKind = 'PURCHASE_ORDER' | 'MANUAL_JOURNAL' | 'PURCHASE_INVOICE_PRICE' | 'ASSET_DISPOSAL' | 'CASH_TX' | 'PETTY_REPLENISH' | 'STOCK_ADJUSTMENT' | 'SUPPLIER_PAYMENT' | 'SUPPLIER_ADVANCE' | 'BILL' | 'SUPPLIER_BANK' | 'SALES_ORDER' | 'SALES_RETURN' | 'CUSTOMER_TERMS' | 'CUSTOMER_PAYMENT' | 'STOCK_COUNT' | 'AR_WRITE_OFF' | 'ASSET_METHOD' | 'BIN_MOVE';
@@ -261,10 +262,7 @@ export class ApprovalsService {
 
   async create(db: DbOrTx, user: AuthUser, p: { kind: ApprovalKind; refId: string | null; title: string; amount: number; payload: Record<string, unknown> | null; approverId?: string }) {
     if (p.approverId && !(await this.eligibleApprovers(db, user.tenantId, user.sub)).some((a) => a.id === p.approverId)) throw new BadRequestException('Penyetuju yang dipilih tidak berwenang');
-    const [row] = await db
-      .insert(approvalRequests)
-      .values({ tenantId: user.tenantId, kind: p.kind, refId: p.refId, title: p.title, amount: p.amount.toFixed(2), payload: p.payload, requestedById: user.sub, assignedToId: p.approverId ?? null })
-      .returning();
+    const row = await insertOne(db, approvalRequests, { tenantId: user.tenantId, kind: p.kind, refId: p.refId, title: p.title, amount: p.amount.toFixed(2), payload: p.payload, requestedById: user.sub, assignedToId: p.approverId ?? null });
     await this.audit.log(db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'ApprovalRequest', entityId: row.id, data: { kind: p.kind, title: p.title, amount: p.amount } });
     void this.notifyApprovers(user.tenantId, { kind: 'AR', id: row.id, requesterId: user.sub, title: `${APPROVAL_KIND_LABELS[p.kind]}: ${p.title}`, lines: [`Nilai: Rp${Math.round(p.amount).toLocaleString('id-ID')}`], onlyIds: p.approverId ? [p.approverId] : undefined });
     return row;

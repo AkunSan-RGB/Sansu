@@ -14,7 +14,7 @@ import { buildLines } from '../master-data/products/line-builder';
 import { SalesOrdersService } from '../sales/orders/sales-orders.service';
 import { documentTotals, inclusiveDocument } from '../sales/pricing';
 import { StageDto, CreateLeadDto, UpdateLeadDto, MarkLeadDto, CreateActivityDto, DoneActivityDto, QuotationQueryDto, CreateQuotationDto } from './crm.dto';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 @Injectable()
 export class CrmService {
@@ -42,10 +42,7 @@ export class CrmService {
 
   async addStage(tenantId: string, dto: StageDto) {
     const all = await this.stages(tenantId);
-    const [s] = await this.db
-      .insert(crmStages)
-      .values({ tenantId, name: dto.name, probability: dto.probability ?? 50, sequence: (all.at(-1)?.sequence ?? 0) + 1 })
-      .returning();
+    const s = await insertOne(this.db, crmStages, { tenantId, name: dto.name, probability: dto.probability ?? 50, sequence: (all.at(-1)?.sequence ?? 0) + 1 });
     return s;
   }
 
@@ -127,17 +124,14 @@ export class CrmService {
     const stage = dto.stageId ? stages.find((s) => s.id === dto.stageId) : stages[0];
     if (!stage) throw new BadRequestException('Tahap tidak ditemukan');
     await this.assertCustomer(user.tenantId, dto.customerId);
-    const [l] = await this.db
-      .insert(leads)
-      .values({
+    const l = await insertOne(this.db, leads, {
         ...dto,
         tenantId: user.tenantId,
         stageId: stage.id,
         ownerId: dto.ownerId ?? user.sub,
         probability: dto.probability ?? stage.probability,
         expectedRevenue: dto.expectedRevenue ?? '0',
-      })
-      .returning();
+      });
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'Lead', entityId: l.id });
     return this.getLead(user.tenantId, l.id);
   }
@@ -168,15 +162,12 @@ export class CrmService {
         const name = lead.companyName || lead.contactName || lead.title;
         await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`customer-code:${user.tenantId}`}))`); // kode dari hitungan baris: serialkan agar tidak ganda
         const [{ n }] = (await tx.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM customers WHERE tenant_id = ${user.tenantId}`)).rows;
-        const [c] = await tx
-          .insert(customers)
-          .values({
+        const c = await insertOne(tx, customers, {
             tenantId: user.tenantId,
             code: `CUST-${String(n + 1).padStart(4, '0')}`,
             name,
             phone: lead.phone,
-          })
-          .returning();
+          });
         customerId = c.id;
       }
       await patchById(tx, leads, id, {
@@ -193,10 +184,7 @@ export class CrmService {
 
   async addActivity(user: AuthUser, dto: CreateActivityDto) {
     await this.getLead(user.tenantId, dto.leadId);
-    const [a] = await this.db
-      .insert(crmActivities)
-      .values({ ...dto, dueDate: toDocDate(dto.dueDate), tenantId: user.tenantId, userId: user.sub })
-      .returning();
+    const a = await insertOne(this.db, crmActivities, { ...dto, dueDate: toDocDate(dto.dueDate), tenantId: user.tenantId, userId: user.sub });
     return a;
   }
 

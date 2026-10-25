@@ -16,7 +16,7 @@ import { PostingService } from '../../accounting/posting.service';
 import { CreateDepositDto, ApplyDepositDto } from './service-billing.dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
 import { ServiceBillingService, outstandingOf } from './service-billing.service';
-import { findOwned, patchById } from '../../../db/owned';
+import { findOwned, insertOne, patchById } from '../../../db/owned';
 
 @Injectable()
 export class CustomerDepositsService {
@@ -129,9 +129,7 @@ export class CustomerDepositsService {
         method === 'CASH' ? 'CASH' : 'BANK',
       );
       const number = await this.seq.next(tx, user.tenantId, 'CUSTOMER_DEPOSIT', date);
-      const [d] = await tx
-        .insert(customerDeposits)
-        .values({
+      const d = await insertOne(tx, customerDeposits, {
           tenantId: user.tenantId,
           number,
           date,
@@ -144,8 +142,7 @@ export class CustomerDepositsService {
           taxAmount: tax.toFixed(2),
           description: dto.description,
           createdById: user.sub,
-        })
-        .returning();
+        });
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
         date,
@@ -220,9 +217,7 @@ export class CustomerDepositsService {
       const taxShare = amount.minus(dppShare);
 
       const number = await this.seq.next(tx, user.tenantId, 'DEPOSIT_APPLICATION', date);
-      const [app] = await tx
-        .insert(depositApplications)
-        .values({
+      const app = await insertOne(tx, depositApplications, {
           tenantId: user.tenantId,
           number,
           depositId: d.id,
@@ -231,8 +226,7 @@ export class CustomerDepositsService {
           amount: amount.toFixed(2),
           dpp: dppShare.toFixed(2),
           taxAmount: taxShare.toFixed(2),
-        })
-        .returning();
+        });
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
         date,

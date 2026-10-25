@@ -11,7 +11,7 @@ import { customers, invoices, payments, principalClaimLines, principalClaims, su
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { TermDto, PeriodQueryDto, SettleDto, GenerateClaimDto, DecideClaimDto, ReceiveClaimDto } from './trade.dto';
-import { findOwned, lockOwned, patchById } from '../../../db/owned';
+import { findOwned, insertOne, lockOwned, patchById } from '../../../db/owned';
 
 const lastDay = (p: string) => {
   const [y, m] = p.split('-').map(Number);
@@ -58,7 +58,7 @@ export class TradeService {
       await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'TradeTerm', entityId: id, data: { before: { value: cur.value, isActive: cur.isActive }, after: values } });
       return { id, ...values };
     }
-    const [row] = await this.db.insert(tradeTerms).values({ tenantId: u.tenantId, createdById: u.sub, ...values }).returning();
+    const row = await insertOne(this.db, tradeTerms, { tenantId: u.tenantId, createdById: u.sub, ...values });
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'TradeTerm', entityId: row.id, data: { name: row.name, kind: row.kind, value: row.value } });
     return row;
   }
@@ -94,7 +94,7 @@ export class TradeService {
         const amount = money(t.kind === 'PCT_SALES' ? base.gt(0) ? base.times(t.value).div(100) : 0 : t.value);
         if (amount.lte(0)) continue;
         const number = await this.seq.next(tx, u.tenantId, 'TRADE_ACCRUAL', date);
-        const [row] = await tx.insert(tradeAccruals).values({ tenantId: u.tenantId, number, termId: t.id, customerId: t.customerId, period, baseAmount: money(base.lt(0) ? 0 : base).toFixed(2), amount: amount.toFixed(2), accruedById: u.sub }).returning();
+        const row = await insertOne(tx, tradeAccruals, { tenantId: u.tenantId, number, termId: t.id, customerId: t.customerId, period, baseAmount: money(base.lt(0) ? 0 : base).toFixed(2), amount: amount.toFixed(2), accruedById: u.sub });
         const journal = await this.posting.post(tx, {
           tenantId: u.tenantId,
           date,
@@ -136,7 +136,7 @@ export class TradeService {
         const out = D(inv.total).minus(inv.paidAmount).minus(inv.returnedAmount);
         if (amount.gt(out)) throw new BadRequestException(`Potongan melebihi sisa tagihan faktur (${out.toFixed(2)})`);
         const number = await this.seq.next(tx, u.tenantId, 'TRADE_SETTLEMENT', date);
-        const [pay] = await tx.insert(payments).values({ tenantId: u.tenantId, number, date, customerId: inv.customerId, invoiceId: inv.id, amount: amount.toFixed(2), method: 'POTONGAN', notes: `Potongan rebate/trade promo ${a.number}` }).returning();
+        const pay = await insertOne(tx, payments, { tenantId: u.tenantId, number, date, customerId: inv.customerId, invoiceId: inv.id, amount: amount.toFixed(2), method: 'POTONGAN', notes: `Potongan rebate/trade promo ${a.number}` });
         const journal = await this.posting.post(tx, {
           tenantId: u.tenantId,
           date,
@@ -242,7 +242,7 @@ export class TradeService {
       const total = items.reduce((a, i) => a.plus(i.amount), D(0));
       if (!items.length || total.lte(0)) throw new BadRequestException('Tidak ada promo yang didanai prinsipal ini pada bulan tersebut (atau sudah diklaim)');
       const number = await this.seq.next(tx, u.tenantId, 'PRINCIPAL_CLAIM', toDocDate(to));
-      const [claim] = await tx.insert(principalClaims).values({ tenantId: u.tenantId, number, supplierId: sup.id, period: dto.period, claimedAmount: total.toFixed(2), createdById: u.sub }).returning();
+      const claim = await insertOne(tx, principalClaims, { tenantId: u.tenantId, number, supplierId: sup.id, period: dto.period, claimedAmount: total.toFixed(2), createdById: u.sub });
       await tx.insert(principalClaimLines).values(items.map((i) => ({ tenantId: u.tenantId, claimId: claim.id, orderLineId: i.orderLineId, promoId: i.promoId, kind: i.kind, invoiceNumber: i.invoiceNumber, description: i.description, baseValue: i.base.toFixed(2), fundedPct: i.pct, amount: i.amount.toFixed(2) })));
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'PrincipalClaim', entityId: claim.id, data: { number, supplier: sup.name, period: dto.period, lines: items.length, claimed: total.toFixed(2) } });
       return { ...claim, lineCount: items.length };

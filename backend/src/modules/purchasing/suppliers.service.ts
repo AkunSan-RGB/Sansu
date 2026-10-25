@@ -10,7 +10,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { purchaseInvoices, suppliers } from '../../db/schema';
 import { CreateSupplierDto, UpdateSupplierDto } from './purchasing.dto';
-import { findOwned } from '../../db/owned';
+import { findOwned, insertOne } from '../../db/owned';
 
 @Injectable()
 export class SuppliersService {
@@ -82,10 +82,7 @@ export class SuppliersService {
   async create(u: AuthUser, dto: CreateSupplierDto) {
     const dup = await this.assertNoLookalike(u, dto);
     const { confirmDuplicate: _c, ...rest } = dto;
-    const [row] = await this.db
-      .insert(suppliers)
-      .values({ ...rest, code: dto.code.trim().toUpperCase(), tenantId: u.tenantId, bankChangedAt: rest.bankAccountNo ? new Date() : null })
-      .returning();
+    const row = await insertOne(this.db, suppliers, { ...rest, code: dto.code.trim().toUpperCase(), tenantId: u.tenantId, bankChangedAt: rest.bankAccountNo ? new Date() : null });
     if (dup) await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CONFIRM_DUPLICATE', entity: 'Supplier', entityId: row.id, data: { similarTo: dup.map((d) => d.code) } });
     return row;
   }

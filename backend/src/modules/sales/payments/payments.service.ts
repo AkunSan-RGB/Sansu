@@ -14,7 +14,7 @@ import { customers, invoices, payments } from '../../../db/schema';
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { CreatePaymentDto } from '../sales.dto';
-import { findOwned, patchById } from '../../../db/owned';
+import { findOwned, insertOne, patchById } from '../../../db/owned';
 
 @Injectable()
 export class PaymentsService {
@@ -75,9 +75,7 @@ export class PaymentsService {
       const method = dto.method ?? 'CASH';
       const cashAccount = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, method === 'CASH' ? 'CASH' : 'BANK');
       const number = await this.seq.next(tx, user.tenantId, 'PAYMENT', date);
-      const [payment] = await tx
-        .insert(payments)
-        .values({
+      const payment = await insertOne(tx, payments, {
           tenantId: user.tenantId,
           number,
           date,
@@ -92,8 +90,7 @@ export class PaymentsService {
           method,
           cashAccountId: cashAccount.id,
           notes: dto.notes,
-        })
-        .returning();
+        });
 
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
@@ -161,7 +158,7 @@ export class PaymentsService {
         expenseId = e.id;
       }
       const number = await this.seq.next(tx, user.tenantId, 'PAYMENT', date);
-      const [payment] = await tx.insert(payments).values({ tenantId: user.tenantId, number, date, customerId: inv.customerId, invoiceId: inv.id, amount: amount.toFixed(2), method: 'WRITE_OFF', notes: `Hapus piutang: ${reason}` }).returning();
+      const payment = await insertOne(tx, payments, { tenantId: user.tenantId, number, date, customerId: inv.customerId, invoiceId: inv.id, amount: amount.toFixed(2), method: 'WRITE_OFF', notes: `Hapus piutang: ${reason}` });
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
         date,

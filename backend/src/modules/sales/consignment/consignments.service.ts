@@ -15,7 +15,7 @@ import { SalesOrdersService } from '../orders/sales-orders.service';
 import { ShipDto, ReportSoldDto, ReturnConsignDto } from './consignments.dto';
 import { asDto } from '../../../common/utils/dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
-import { findOwned, patchById } from '../../../db/owned';
+import { findOwned, insertOne, patchById } from '../../../db/owned';
 
 const STALE_DAYS = 45;
 
@@ -50,7 +50,7 @@ export class ConsignmentsService {
     if (w) return w;
     if (!create) throw new BadRequestException('Outlet ini belum memiliki stok konsinyasi');
     await this.subs.assertCanAdd(tenantId, 'warehouses');
-    const [row] = await this.db.insert(warehouses).values({ tenantId, code: `KSG-${customer.code}`.slice(0, 30), name: `Konsinyasi ${customer.name}`.slice(0, 120), kind: 'CONSIGNMENT', consigneeCustomerId: customer.id }).returning();
+    const row = await insertOne(this.db, warehouses, { tenantId, code: `KSG-${customer.code}`.slice(0, 30), name: `Konsinyasi ${customer.name}`.slice(0, 120), kind: 'CONSIGNMENT', consigneeCustomerId: customer.id });
     return row;
   }
 
@@ -135,10 +135,7 @@ export class ConsignmentsService {
   private async insertDoc(u: AuthUser, kind: 'SHIP' | 'REPORT' | 'RETURN', v: { customerId: string; warehouseId: string; date: string; transferId?: string; reference?: string; notes?: string; lines: { productId: string; uom: string; qty: string }[] }) {
     return this.db.transaction(async (tx) => {
       const number = await this.seq.next(tx, u.tenantId, 'CONSIGNMENT', v.date);
-      const [row] = await tx
-        .insert(consignmentDocs)
-        .values({ tenantId: u.tenantId, number, kind, date: v.date, customerId: v.customerId, warehouseId: v.warehouseId, reference: v.reference ?? null, status: kind === 'REPORT' ? 'REPORTED' : 'DONE', lines: v.lines, transferId: v.transferId, notes: v.notes, createdById: u.sub })
-        .returning();
+      const row = await insertOne(tx, consignmentDocs, { tenantId: u.tenantId, number, kind, date: v.date, customerId: v.customerId, warehouseId: v.warehouseId, reference: v.reference ?? null, status: kind === 'REPORT' ? 'REPORTED' : 'DONE', lines: v.lines, transferId: v.transferId, notes: v.notes, createdById: u.sub });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'ConsignmentDoc', entityId: row.id, data: { number, kind, reference: v.reference, lines: v.lines.length } });
       return row;
     });

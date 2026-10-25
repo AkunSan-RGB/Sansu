@@ -13,7 +13,7 @@ import { attendances, employees, productionOrders, projects, serviceRates, servi
 import { monthRange } from '../hr/hr.service';
 import { CreateRateDto, UpdateRateDto, EntryQueryDto, CreateEntryDto, DecideEntryDto, VoidEntryDto } from './service-work.dto';
 import { invoiceUsable } from './service-work.shared';
-import { findOwned, lockOwned } from '../../db/owned';
+import { findOwned, insertOne, lockOwned } from '../../db/owned';
 
 export const MAX_HOURS_PER_DAY = 16;
 
@@ -62,7 +62,7 @@ export class ServiceWorkService {
     this.checkRate(dto.unit, rate);
     const [dup] = await this.db.select({ id: serviceRates.id }).from(serviceRates).where(and(eq(serviceRates.tenantId, u.tenantId), eq(serviceRates.name, dto.name.trim())));
     if (dup) throw new BadRequestException('Nama tarif sudah dipakai');
-    const [row] = await this.db.insert(serviceRates).values({ tenantId: u.tenantId, name: dto.name.trim(), unit: dto.unit, rate: rate.toFixed(2), createdById: u.sub }).returning();
+    const row = await insertOne(this.db, serviceRates, { tenantId: u.tenantId, name: dto.name.trim(), unit: dto.unit, rate: rate.toFixed(2), createdById: u.sub });
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'ServiceRate', entityId: row.id, data: { name: row.name, unit: row.unit, rate: row.rate } });
     return row;
   }
@@ -216,9 +216,7 @@ export class ServiceWorkService {
           AND production_order_id IS NOT DISTINCT FROM ${productionOrderId}::uuid AND status IN ('PENDING','APPROVED') LIMIT 1`);
       if (dup.rows.length) throw new BadRequestException('Catatan yang sama persis sudah ada');
 
-      const [row] = await tx
-        .insert(serviceWorkEntries)
-        .values({
+      const row = await insertOne(tx, serviceWorkEntries, {
           tenantId: u.tenantId,
           employeeId: emp.id,
           rateId: rate.id,
@@ -233,8 +231,7 @@ export class ServiceWorkService {
           amount: amount.toFixed(2),
           description: dto.description ?? null,
           createdById: u.sub,
-        })
-        .returning();
+        });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'ServiceWorkEntry', entityId: row.id, data: { employee: emp.code, unit: row.unit, workDate, quantity: row.quantity, rate: row.rate, amount: row.amount, invoiceId } });
       void this.approvals.notifyRoles(u.tenantId, { roles: ['FINANCE', 'ADMIN', 'OWNER'], excludeUserId: u.sub, title: `Catatan upah kerja menunggu persetujuan: ${emp.code} · Rp${Math.round(amount.toNumber()).toLocaleString('id-ID')}`, lines: [`Dicatat oleh ${u.email ?? 'HR'} untuk tanggal ${workDate}`], path: '/payroll/jasa' });
       return row;

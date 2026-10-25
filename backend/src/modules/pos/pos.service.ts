@@ -23,7 +23,7 @@ import { buildLines } from '../master-data/products/line-builder';
 import { documentTotals, inclusiveTotals } from '../sales/pricing';
 import { PosProductQueryDto, OpenSessionDto, CreatePosOrderDto, CloseSessionDto } from './pos.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 @Injectable()
 export class PosService {
@@ -111,9 +111,7 @@ export class PosService {
       if (opening.isNegative()) throw new BadRequestException('Modal awal tidak boleh negatif');
       const today = todayJakarta();
       const number = await this.seq.next(tx, user.tenantId, 'POS_SESSION', today);
-      const [s] = await tx
-        .insert(posSessions)
-        .values({
+      const s = await insertOne(tx, posSessions, {
           tenantId: user.tenantId,
           number,
           userId: user.sub,
@@ -122,8 +120,7 @@ export class PosService {
           bankAccountId: bank.id,
           openingCash: opening.toFixed(2),
           openedAt: nowAt(8),
-        })
-        .returning();
+        });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'OPEN', entity: 'PosSession', entityId: s.id });
       return s;
     });
@@ -213,9 +210,7 @@ export class PosService {
     const cashNet = cashIn.minus(change);
 
     const number = await this.seq.next(tx, user.tenantId, 'POS_ORDER', date);
-    const [order] = await tx
-      .insert(posOrders)
-      .values({
+    const order = await insertOne(tx, posOrders, {
         tenantId: user.tenantId,
         sessionId: session.id,
         number,
@@ -234,8 +229,7 @@ export class PosService {
         platformFee: platformFee.toFixed(2),
         orderType: dto.orderType ?? null,
         tableLabel: dto.tableLabel?.trim() || null,
-      })
-      .returning();
+      });
 
     let cogs: Dec = ZERO;
     const issued: { productId: string; value: Dec }[] = [];

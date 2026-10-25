@@ -18,7 +18,7 @@ import { PostingService } from '../accounting/posting.service';
 import { CreateBillDto } from './purchasing.dto';
 import { PurchaseInvoiceRepository } from './purchase-invoice.repository';
 import { PurchaseInvoicesService, assetUnitCount } from './purchase-invoices.service';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 @Injectable()
 export class SupplierBillsService {
@@ -133,9 +133,7 @@ export class SupplierBillsService {
       }
 
       const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_INVOICE', date);
-      const [invoice] = await tx
-        .insert(purchaseInvoices)
-        .values({
+      const invoice = await insertOne(tx, purchaseInvoices, {
           tenantId: user.tenantId,
           number,
           kind: 'BILL',
@@ -153,8 +151,7 @@ export class SupplierBillsService {
           total: total.toFixed(2),
           vatCapitalized: capitalize,
           projectId: dto.projectId,
-        })
-        .returning();
+        });
 
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,

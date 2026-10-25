@@ -17,7 +17,7 @@ import { accounts, customers, utilityBills, utilityConnections, utilityLateFees,
 import { SYS } from '../accounting/default-coa';
 import { ServiceBillingService } from '../sales/services/service-billing.service';
 import { RulesDto, TariffDto, ConnectionDto, SuspendDto, ReasonDto, ZoneDto, ZoneSupplyDto, ReadingDto, VerifyDto, BillRunDto } from './utility.dto';
-import { findOwned, patchById } from '../../db/owned';
+import { findOwned, insertOne, patchById } from '../../db/owned';
 
 const SECTION = 'utility';
 
@@ -92,10 +92,7 @@ export class UtilityService {
   async createTariff(u: AuthUser, dto: TariffDto) {
     const n = this.normalizeTariff(dto);
     try {
-      const [row] = await this.db
-        .insert(utilityTariffs)
-        .values({ tenantId: u.tenantId, name: dto.name.trim(), serviceType: dto.serviceType, unit: n.unit, metered: n.metered, fixedFee: dto.fixedFee.toFixed(2), adminFee: dto.adminFee.toFixed(2), minUsage: String(dto.minUsage ?? 0), blocks: n.blocks, vatable: !!dto.vatable, createdById: u.sub })
-        .returning();
+      const row = await insertOne(this.db, utilityTariffs, { tenantId: u.tenantId, name: dto.name.trim(), serviceType: dto.serviceType, unit: n.unit, metered: n.metered, fixedFee: dto.fixedFee.toFixed(2), adminFee: dto.adminFee.toFixed(2), minUsage: String(dto.minUsage ?? 0), blocks: n.blocks, vatable: !!dto.vatable, createdById: u.sub });
       await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityTariff', entityId: row.id, data: { name: row.name, blocks: n.blocks, fixedFee: row.fixedFee } });
       return row;
     } catch (e) {
@@ -169,10 +166,7 @@ export class UtilityService {
           AND (lower(btrim(c.address)) = lower(btrim(${dto.address})) OR (${meterNo}::text IS NOT NULL AND c.meter_no = ${meterNo})) LIMIT 1`);
       if (dup.rows.length) throw new BadRequestException(`Alamat atau nomor meter ini sudah terdaftar pada sambungan ${(dup.rows[0] as { number: string }).number} (layanan sama)`);
       const number = await this.seq.next(tx, u.tenantId, 'UTILITY_CONNECTION', installed);
-      const [row] = await tx
-        .insert(utilityConnections)
-        .values({ tenantId: u.tenantId, number, customerId: dto.customerId, tariffId: dto.tariffId, meterNo, address: dto.address.trim(), zone: normZone(dto.zone), installedAt: installed, initialReading: initial.toString(), createdById: u.sub })
-        .returning();
+      const row = await insertOne(tx, utilityConnections, { tenantId: u.tenantId, number, customerId: dto.customerId, tariffId: dto.tariffId, meterNo, address: dto.address.trim(), zone: normZone(dto.zone), installedAt: installed, initialReading: initial.toString(), createdById: u.sub });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityConnection', entityId: row.id, data: { number, meterNo, tariff: t.name } });
       return row;
     });
@@ -331,10 +325,7 @@ export class UtilityService {
         if (cu?.lat && cu?.lng && haversineM(dto.lat, dto.lng, Number(cu.lat), Number(cu.lng)) > FAR_READING_M) flags.push('JAUH_DARI_LOKASI');
       }
       try {
-        const [row] = await tx
-          .insert(utilityReadings)
-          .values({ tenantId: u.tenantId, connectionId: c.id, period: dto.period, previous: prev.toString(), current: cur.toString(), usage: usage.toString(), meterReplaced: !!dto.meterReplaced, flags, note: dto.note?.trim() || null, enteredById: u.sub, source, lat: dto.lat != null ? String(dto.lat) : null, lng: dto.lng != null ? String(dto.lng) : null, photo: photoRef })
-          .returning();
+        const row = await insertOne(tx, utilityReadings, { tenantId: u.tenantId, connectionId: c.id, period: dto.period, previous: prev.toString(), current: cur.toString(), usage: usage.toString(), meterReplaced: !!dto.meterReplaced, flags, note: dto.note?.trim() || null, enteredById: u.sub, source, lat: dto.lat != null ? String(dto.lat) : null, lng: dto.lng != null ? String(dto.lng) : null, photo: photoRef });
         await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityReading', entityId: row.id, data: { connection: c.number, period: dto.period, usage: row.usage, flags } });
         return { row, flags };
       } catch (e) {

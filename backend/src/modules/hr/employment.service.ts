@@ -12,7 +12,7 @@ import { decryptField, encryptField } from '../../common/utils/secret';
 import { employeeChangeRequests, employees } from '../../db/schema';
 import { EmploymentType } from './employment.shared';
 import { ChangeQueryDto, DecideChangeDto, RejectChangeDto } from './employment.dto';
-import { findOwned, lockOwned, patchById } from '../../db/owned';
+import { findOwned, insertOne, lockOwned, patchById } from '../../db/owned';
 
 /** Kolom yang perubahannya oleh HR harus disetujui orang lain (usaha jasa) */
 export const SENSITIVE_FIELDS = [
@@ -151,7 +151,7 @@ export class EmploymentService {
     await this.assertNoDuplicates(this.db, user.tenantId, emp.id, { nik: merged.nik as string, npwp: merged.npwp as string, bankAccount: merged.bankAccount as string });
     const [pending] = await this.db.select({ id: employeeChangeRequests.id }).from(employeeChangeRequests).where(and(eq(employeeChangeRequests.employeeId, emp.id), eq(employeeChangeRequests.status, 'PENDING')));
     if (pending) throw new BadRequestException('Masih ada permintaan perubahan yang menunggu persetujuan untuk karyawan ini');
-    const [req] = await this.db.insert(employeeChangeRequests).values({ tenantId: user.tenantId, employeeId: emp.id, changes: sealChanges(changes), reason: reason ?? null, requestedById: user.sub }).returning();
+    const req = await insertOne(this.db, employeeChangeRequests, { tenantId: user.tenantId, employeeId: emp.id, changes: sealChanges(changes), reason: reason ?? null, requestedById: user.sub });
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'REQUEST', entity: 'EmployeeChange', entityId: req.id, data: { employee: emp.code, fields: Object.keys(changes) } });
     void this.approvals.notifyRoles(user.tenantId, { roles: ['FINANCE', 'ADMIN', 'OWNER'], excludeUserId: user.sub, title: `Perubahan data karyawan ${emp.code} menunggu persetujuan`, lines: [`Bidang: ${Object.keys(changes).join(', ')}`], path: '/employees/controls' });
     return { direct, request: { id: req.id, fields: Object.keys(changes) } };

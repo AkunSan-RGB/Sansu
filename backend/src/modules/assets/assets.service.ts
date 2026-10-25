@@ -17,7 +17,7 @@ import { PostingService } from '../accounting/posting.service';
 import { AssetRepository } from './asset.repository';
 import { accumulatedThrough, depreciationFor, fiscalDepreciation, lastDay, monthIndex, periodOf, type MethodChange } from './depreciation';
 import { CategoryDto, UpdateCategoryDto, RegisterFromJournalDto, CreateAssetDto, UpdateAssetDto, VerifyDto, UsageDto, ChangeMethodDto, TransferAssetBranchDto, DisposeDto } from './assets.dto';
-import { patchById } from '../../db/owned';
+import { insertOne, patchById } from '../../db/owned';
 
 /** Pengaturan aset tetap per perusahaan (disimpan di settings.assets) */
 export const DEFAULT_ASSET_SETTINGS = { autoDepreciation: true };
@@ -362,9 +362,7 @@ export class AssetsService {
       throw new BadRequestException('Metode unit produksi butuh total unit (kapasitas) aset. Isi total unit pada baris/form pendaftaran aset ini.');
     }
     const code = a.code?.trim().toUpperCase() || (await this.nextCode(tx, tenantId));
-    const [asset] = await tx
-      .insert(fixedAssets)
-      .values({
+    const asset = await insertOne(tx, fixedAssets, {
         tenantId,
         code,
         name: a.name,
@@ -383,8 +381,7 @@ export class AssetsService {
         acquisitionJournalId: a.acquisitionJournalId,
         purchaseInvoiceId: a.purchaseInvoiceId,
         branchId: a.branchId ?? null,
-      })
-      .returning();
+      });
     return asset;
   }
 

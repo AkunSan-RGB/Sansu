@@ -10,6 +10,7 @@ import { customers, invoices, priceLists } from '../../../db/schema';
 import { partyNameKey } from '../../../common/utils/party-name';
 import { CreateCustomerDto, UpdateCustomerDto } from './customers.dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
+import { insertOne } from '../../../db/owned';
 
 @Injectable()
 export class CustomersService {
@@ -54,10 +55,7 @@ export class CustomersService {
   async create(tenantId: string, dto: CreateCustomerDto) {
     await this.checkPriceList(tenantId, dto.priceListId);
     const { confirmDuplicate: _c, ...rest } = dto;
-    const [row] = await this.db
-      .insert(customers)
-      .values({ ...rest, geoLat: dto.geoLat?.toFixed(6), geoLng: dto.geoLng?.toFixed(6), code: dto.code.trim().toUpperCase(), tenantId })
-      .returning();
+    const row = await insertOne(this.db, customers, { ...rest, geoLat: dto.geoLat?.toFixed(6), geoLng: dto.geoLng?.toFixed(6), code: dto.code.trim().toUpperCase(), tenantId });
     return row;
   }
 

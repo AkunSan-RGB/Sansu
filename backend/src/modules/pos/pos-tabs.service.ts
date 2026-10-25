@@ -16,7 +16,7 @@ import { PosService } from './pos.service';
 import { componentNeeds, recipesFor } from './recipe-issue';
 import { WarehouseQueryDto, CreateTableDto, UpdateTableDto, TabQueryDto, TabLineInputDto, CreateTabDto, AddTabLinesDto, VoidTabLineDto, CancelTabDto, MoveTabDto, PayTabDto } from './pos-tabs.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
-import { findOwned, patchById } from '../../db/owned';
+import { findOwned, insertOne, patchById } from '../../db/owned';
 import { PosTabRepository } from './pos-tab.repository';
 
 const SUPERVISORS = ['OWNER', 'ADMIN', 'FINANCE'];
@@ -77,7 +77,7 @@ export class PosTabsService {
     const code = dto.code.trim().toUpperCase();
     const dup = await this.repo.tableCodeExists(this.db, wh.id, code);
     if (dup) throw new BadRequestException(`Kode meja ${code} sudah dipakai di outlet ini`);
-    const [row] = await this.db.insert(posTables).values({ tenantId: user.tenantId, warehouseId: wh.id, code, name: dto.name.trim(), seats: dto.seats ?? null }).returning();
+    const row = await insertOne(this.db, posTables, { tenantId: user.tenantId, warehouseId: wh.id, code, name: dto.name.trim(), seats: dto.seats ?? null });
     await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PosTable', entityId: row.id, data: { code, name: row.name } });
     return row;
   }

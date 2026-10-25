@@ -25,3 +25,9 @@ type IdTable = PgTable & { id: AnyColumn };
 export async function patchById<T extends IdTable>(db: DbOrTx, table: T, id: string, patch: PgUpdateSetSource<T>): Promise<void> {
   await db.update(table as IdTable).set(patch as never).where(eq(table.id, id));
 }
+
+/** Sisipkan satu baris dan kembalikan baris tersimpan (dengan nilai bawaan dari database) */
+export async function insertOne<T extends PgTable>(db: DbOrTx, table: T, values: T['$inferInsert']): Promise<T['$inferSelect']> {
+  const [row] = await db.insert(table).values(values).returning();
+  return row as T['$inferSelect'];
+}

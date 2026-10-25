@@ -14,7 +14,7 @@ import { StockService } from '../../inventory/stock.service';
 import { DeliveriesService } from '../deliveries/deliveries.service';
 import { SalesOrdersService } from '../orders/sales-orders.service';
 import { CreateInvoiceDto, InvoiceQueryDto } from '../sales.dto';
-import { patchById } from '../../../db/owned';
+import { insertOne, patchById } from '../../../db/owned';
 
 @Injectable()
 export class InvoicesService {
@@ -93,9 +93,7 @@ export class InvoicesService {
       const number = await this.seq.next(tx, user.tenantId, 'INVOICE', date);
 
       // Header dulu untuk mendapatkan id (referensi kartu stok)
-      const [invoice] = await tx
-        .insert(invoices)
-        .values({
+      const invoice = await insertOne(tx, invoices, {
           tenantId: user.tenantId,
           number,
           date,
@@ -109,8 +107,7 @@ export class InvoicesService {
           currency: order.currency,
           fxRate: order.fxRate,
           totalForeign: order.totalForeign,
-        })
-        .returning();
+        });
 
       let cogs: Dec = ZERO;
       const costs = new Map<string, { unitCost: Dec }>();
