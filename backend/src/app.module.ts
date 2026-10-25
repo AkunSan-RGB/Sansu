@@ -4,7 +4,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { TenantScopeInterceptor } from './common/db/tenant-scope.interceptor';
 import { AuditInterceptor } from './common/audit/audit.interceptor';
 import { ReadCacheInterceptor } from './common/read-cache.interceptor';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, type JwtSignOptions } from '@nestjs/jwt';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppGuard } from './common/apps/app.guard';
 import { JwtAuthGuard } from './common/auth/jwt-auth.guard';
@@ -67,7 +67,7 @@ import { DataRightsModule } from './modules/data-rights/data-rights.module';
       inject: [ConfigService],
       useFactory: (cfg: ConfigService) => ({
         secret: cfg.getOrThrow<string>('JWT_SECRET'),
-        signOptions: { expiresIn: (cfg.get<string>('JWT_EXPIRES_IN') ?? '12h') as never },
+        signOptions: { expiresIn: (cfg.get<string>('JWT_EXPIRES_IN') ?? '12h') as JwtSignOptions['expiresIn'] },
       }),
     }),
     // Pembatas laju per alamat IP (anti-spam & tebak sandi). Default longgar; endpoint sensitif lebih ketat.

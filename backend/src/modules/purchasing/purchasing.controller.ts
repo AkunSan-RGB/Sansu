@@ -91,7 +91,7 @@ export class PurchaseOrdersController {
   @Get(':id')
   @Roles('ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.get(u.tenantId, id).then((po) => this.svc.forViewer(u, po as never));
+    return this.svc.get(u.tenantId, id).then((po) => this.svc.forViewer(u, po));
   }
 
   /** Pembelian cepat atas penawaran supplier: buat + konfirmasi (+ terima barang bila sudah tiba) dalam satu langkah */

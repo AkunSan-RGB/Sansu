@@ -118,7 +118,7 @@ export class HrService {
     await this.assertBranch(user.tenantId, dto.branchId);
     const model = await this.settings.businessModel(this.db, user.tenantId);
     const joinDate = toDocDate(dto.joinDate);
-    const norm = applyEmploymentRules(model, this.shapeOf({ ...dto, joinDate } as never));
+    const norm = applyEmploymentRules(model, this.shapeOf({ ...dto, joinDate }));
     const jasa = model === 'JASA';
     if (jasa) await this.employment.assertNoDuplicates(this.db, user.tenantId, null, dto);
     const [e] = await this.db

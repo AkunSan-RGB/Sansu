@@ -21,7 +21,7 @@ describe('Laporan pendukung jasa & utilitas (e2e)', () => {
   const get = (t: string, u: string) => http.get(u).set(as(t));
   const post = (t: string, u: string, b: object = {}) => http.post(u).set(as(t)).send(b);
   const reg = async (name: string, businessModel: string) => (await http.post('/api/auth/register').send({ companyName: name, name: 'Pemilik', email: `lj-${businessModel}-${stamp}@uji.id`, password: 'rahasia123', businessModel }).expect(201)).body.accessToken as string;
-  const report = async (t: string, kind: string) => (await get(t, `/api/accounting/support/${kind}?from=${from}&to=${day}`).expect(200)).body as Rep;
+  const report = async (t: string, kind: string) => (await get(t, `/api/accounting/support/${kind}?from=${from}&to=${todayJakarta()}`).expect(200)).body as Rep;
   const rec = (r: Rep, key: string) => r.reconciliation.find((x) => x.key === key)!;
   const allOk = (r: Rep) => { for (const x of r.reconciliation) expect({ key: x.key, ok: x.ok, diff: x.diff }).toEqual({ key: x.key, ok: true, diff: 0 }); };
 

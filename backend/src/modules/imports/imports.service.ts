@@ -301,6 +301,7 @@ export class ImportsService {
         }
         // baru: sisipkan bertumpuk
         for (const chunk of chunks(writes.filter((x) => !x.id), 500)) {
+          // tabel dipilih saat jalan (pelanggan atau pemasok) sehingga tipe sisipnya tidak bisa dipersempit statis
           await tx.insert(table).values(chunk.map((w) => ({ ...strip(w), name: w.name!, tenantId: user.tenantId })) as never);
         }
       },

@@ -67,6 +67,12 @@ export class ApprovalRequestsService {
     return this.approvals.policy(this.db, user.tenantId);
   }
 
+  /** Isi permintaan persetujuan (jsonb) sebagai tipe yang diharapkan pemanggil; kosong = permintaan rusak */
+  private payloadOf<T>(req: { payload: Record<string, unknown> | null }): T {
+    if (!req.payload) throw new BadRequestException('Permintaan persetujuan tidak memuat isi');
+    return req.payload as T;
+  }
+
   async savePolicy(user: AuthUser, dto: PolicyDto) {
     const before = await this.approvals.policy(this.db, user.tenantId);
     const after = await this.approvals.savePolicy(this.db, user.tenantId, dto);
@@ -150,7 +156,7 @@ export class ApprovalRequestsService {
         resultRef = po.number;
       } else if (req.kind === 'PURCHASE_INVOICE_PRICE') {
         // faktur dicatat atas nama pemohon; penyetuju tercatat di permintaan dan faktur
-        const inv = await this.invoices.createFromOrder({ ...user, sub: req.requestedById }, req.payload as unknown as CreatePurchaseInvoiceDto, { approvalId: id });
+        const inv = await this.invoices.createFromOrder({ ...user, sub: req.requestedById }, this.payloadOf<CreatePurchaseInvoiceDto>(req), { approvalId: id });
         resultRef = inv.number;
       } else if (req.kind === 'SALES_ORDER') {
         const so = await this.salesOrders.confirm(user, req.refId!);
@@ -159,48 +165,48 @@ export class ApprovalRequestsService {
         const r = await this.warehouseOps.postCount(user, req.refId!, { approved: true });
         resultRef = (r as { adjustmentNumber?: string | null }).adjustmentNumber ?? undefined;
       } else if (req.kind === 'CUSTOMER_PAYMENT') {
-        const pay = await this.paymentsSvc.create({ ...user, sub: req.requestedById }, req.payload as never, { approved: true });
+        const pay = await this.paymentsSvc.create({ ...user, sub: req.requestedById }, this.payloadOf(req), { approved: true });
         resultRef = (pay as { number?: string }).number;
       } else if (req.kind === 'AR_WRITE_OFF') {
-        const w = await this.paymentsSvc.writeOff({ ...user, sub: req.requestedById }, req.payload as never, { approved: true });
+        const w = await this.paymentsSvc.writeOff({ ...user, sub: req.requestedById }, this.payloadOf(req), { approved: true });
         resultRef = (w as { number?: string }).number;
       } else if (req.kind === 'SALES_RETURN') {
         // retur dicatat atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
-        const r = await this.returnsSvc.createSales({ ...user, sub: req.requestedById }, req.payload as never, { approved: true });
+        const r = await this.returnsSvc.createSales({ ...user, sub: req.requestedById }, this.payloadOf(req), { approved: true });
         resultRef = (r as { number?: string }).number;
       } else if (req.kind === 'CUSTOMER_TERMS') {
-        const c = await this.customersSvc.applyTerms({ ...user, sub: req.requestedById }, req.payload as never);
+        const c = await this.customersSvc.applyTerms({ ...user, sub: req.requestedById }, this.payloadOf(req));
         resultRef = c.code;
       } else if (req.kind === 'SUPPLIER_BANK') {
         // rekening diubah atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
-        const sp = await this.suppliers.applyBankChange({ ...user, sub: req.requestedById }, req.payload as never);
+        const sp = await this.suppliers.applyBankChange({ ...user, sub: req.requestedById }, this.payloadOf(req));
         resultRef = sp.code;
       } else if (req.kind === 'CASH_TX') {
         // dicatat atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
-        const t = await this.cash.create({ ...user, sub: req.requestedById }, req.payload as unknown as CreateCashTxDto, { approved: true });
+        const t = await this.cash.create({ ...user, sub: req.requestedById }, this.payloadOf<CreateCashTxDto>(req), { approved: true });
         resultRef = t.number;
       } else if (req.kind === 'STOCK_ADJUSTMENT') {
-        const r = await this.inventory.adjust({ ...user, sub: req.requestedById }, req.payload as unknown as StockAdjustmentDto, undefined, { approved: true });
+        const r = await this.inventory.adjust({ ...user, sub: req.requestedById }, this.payloadOf<StockAdjustmentDto>(req), undefined, { approved: true });
         resultRef = r.number;
       } else if (req.kind === 'BILL') {
-        const b = await this.supplierBills.createBill({ ...user, sub: req.requestedById }, req.payload as unknown as CreateBillDto, { approved: true });
+        const b = await this.supplierBills.createBill({ ...user, sub: req.requestedById }, this.payloadOf<CreateBillDto>(req), { approved: true });
         resultRef = (b as { number?: string }).number;
       } else if (req.kind === 'SUPPLIER_PAYMENT') {
-        const r = await this.supplierPayments.pay({ ...user, sub: req.requestedById }, req.payload as unknown as CreateSupplierPaymentDto, { approved: true });
+        const r = await this.supplierPayments.pay({ ...user, sub: req.requestedById }, this.payloadOf<CreateSupplierPaymentDto>(req), { approved: true });
         resultRef = (r as { number?: string }).number;
       } else if (req.kind === 'BIN_MOVE') {
-        await this.bins.move({ ...user, sub: req.requestedById }, req.payload as unknown as MoveBinsDto, { approved: true });
+        await this.bins.move({ ...user, sub: req.requestedById }, this.payloadOf<MoveBinsDto>(req), { approved: true });
         resultRef = 'Stok dipindah antar rak';
       } else if (req.kind === 'SUPPLIER_ADVANCE') {
-        const r = await this.advances.create({ ...user, sub: req.requestedById }, req.payload as unknown as CreateSupplierAdvanceDto, { approved: true });
+        const r = await this.advances.create({ ...user, sub: req.requestedById }, this.payloadOf<CreateSupplierAdvanceDto>(req), { approved: true });
         resultRef = (r as { number?: string }).number;
       } else if (req.kind === 'PETTY_REPLENISH') {
         // dijalankan atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
-        const r = await this.petty.executeReplenish({ ...user, sub: req.requestedById }, req.payload as unknown as { fundId: string; date?: string; voucherIds: string[] });
+        const r = await this.petty.executeReplenish({ ...user, sub: req.requestedById }, this.payloadOf<{ fundId: string; date?: string; voucherIds: string[] }>(req));
         resultRef = r.number;
       } else if (req.kind === 'ASSET_METHOD') {
         // dijalankan atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
-        const pl = req.payload as unknown as ChangeMethodDto & { id?: string; categoryId?: string };
+        const pl = this.payloadOf<ChangeMethodDto & { id?: string; categoryId?: string }>(req);
         if (pl.categoryId) {
           const r = await this.assetMethod.changeCategoryMethod({ ...user, sub: req.requestedById }, pl.categoryId, pl, { approved: true });
           resultRef = `${r.changed.length} aset diubah`;
@@ -209,12 +215,12 @@ export class ApprovalRequestsService {
           resultRef = a.code;
         }
       } else if (req.kind === 'ASSET_DISPOSAL') {
-        const { id: assetId, ...dto } = req.payload as unknown as DisposeDto & { id: string };
+        const { id: assetId, ...dto } = this.payloadOf<DisposeDto & { id: string }>(req);
         const a = await this.assetDisposal.dispose({ ...user, sub: req.requestedById }, assetId, dto, { approved: true });
         resultRef = a.code;
       } else {
         // dicatat atas nama pemohon; penyetuju tercatat di permintaan dan jejak audit
-        const j = await this.accounting.createManualJournal({ ...user, sub: req.requestedById }, req.payload as unknown as CreateJournalDto, { approved: true });
+        const j = await this.accounting.createManualJournal({ ...user, sub: req.requestedById }, this.payloadOf<CreateJournalDto>(req), { approved: true });
         resultRef = j.number;
       }
       await patchById(this.db, approvalRequests, id, { resultRef });

@@ -43,7 +43,7 @@ export class ShoppingListService {
     const lines = g.lines.filter((l) => l.lastPrice != null && l.suggestedQty > 0).map((l) => ({ productId: l.productId, qty: String(l.suggestedQty), price: String(l.lastPrice) }));
     const skipped = g.lines.filter((l) => l.lastPrice == null).map((l) => l.sku);
     if (!lines.length) throw new BadRequestException('Belum ada harga beli sebelumnya untuk barang-barang ini; buat PO manual');
-    const po = await this.orders.create(u, { supplierId: dto.supplierId, warehouseId: dto.warehouseId, notes: 'Dibuat dari daftar belanja harian', lines } as never);
+    const po = await this.orders.create(u, { supplierId: dto.supplierId, warehouseId: dto.warehouseId, notes: 'Dibuat dari daftar belanja harian', lines });
     return { id: (po as { id: string }).id, number: (po as { number: string }).number, lines: lines.length, skipped };
   }
 

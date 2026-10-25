@@ -403,7 +403,7 @@ export class WorkflowService {
       // beri tahu peran yang kini harus bertindak (bukan pelaku yang baru memindahkan)
       const after = stageOf(p, c.stage);
       const next = (after?.next ?? []).filter((k) => k !== 'BATAL').map((k) => stageOf(p, k)!).flatMap((s) => s.roles);
-      if (c.status === 'ACTIVE' && next.length) void this.approvals.notifyRoles(u.tenantId, { roles: [...new Set(next)] as never, excludeUserId: u.sub, title: `${c.number} · ${c.title}: kini di tahap "${after!.label}"`, lines: ['Menunggu tindakan sesuai peran Anda'], path: '/workflow' });
+      if (c.status === 'ACTIVE' && next.length) void this.approvals.notifyRoles(u.tenantId, { roles: [...new Set(next)], excludeUserId: u.sub, title: `${c.number} · ${c.title}: kini di tahap "${after!.label}"`, lines: ['Menunggu tindakan sesuai peran Anda'], path: '/workflow' });
     });
     return this.get(u, id);
   }

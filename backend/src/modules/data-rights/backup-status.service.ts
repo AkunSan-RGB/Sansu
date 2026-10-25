@@ -73,7 +73,7 @@ export class BackupStatusService implements OnModuleInit, OnModuleDestroy {
     return (r?.value as T) ?? null;
   }
   private async write(key: string, value: unknown) {
-    await this.db.insert(platformSettings).values({ key, value: value as never }).onConflictDoUpdate({ target: platformSettings.key, set: { value: value as never, updatedAt: new Date() } });
+    await this.db.insert(platformSettings).values({ key, value }).onConflictDoUpdate({ target: platformSettings.key, set: { value, updatedAt: new Date() } });
   }
 
   /** Token laporan sah? (perbandingan waktu-tetap; nonaktif bila token belum diisi) */

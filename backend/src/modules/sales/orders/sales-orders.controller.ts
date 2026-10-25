@@ -22,7 +22,7 @@ export class SalesOrdersController {
   @Get(':id')
   @Roles('ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.get(u.tenantId, id).then((o) => this.svc.forViewer(u, o as never));
+    return this.svc.get(u.tenantId, id).then((o) => this.svc.forViewer(u, o));
   }
 
   @Post()
