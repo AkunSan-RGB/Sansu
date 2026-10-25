@@ -13,6 +13,7 @@ import { PostingService } from '../accounting/posting.service';
 import { inventoryLines, semiSet } from '../inventory/inventory-accounts';
 import { StockService } from '../inventory/stock.service';
 import { CreateSwapDto } from './swaps.dto';
+import { findOwned, lockOwned } from '../../db/owned';
 
 const MAX_AGE_DAYS = 180;
 
@@ -81,7 +82,7 @@ export class SwapsService {
 
   async approve(u: AuthUser, id: string) {
     return this.db.transaction(async (tx) => {
-      const [swap] = await tx.select().from(goodsSwaps).where(and(eq(goodsSwaps.id, id), eq(goodsSwaps.tenantId, u.tenantId))).for('update');
+      const swap = await lockOwned(tx, goodsSwaps, u.tenantId, id);
       if (!swap) throw new NotFoundException('Dokumen tukar-guling tidak ditemukan');
       if (swap.status !== 'PENDING') throw new BadRequestException('Dokumen ini sudah diputuskan');
       if (swap.createdById === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Tukar-guling disetujui oleh orang lain dari pembuatnya (pemisahan fungsi)');
@@ -130,7 +131,7 @@ export class SwapsService {
   }
 
   async reject(u: AuthUser, id: string, reason: string) {
-    const [swap] = await this.db.select().from(goodsSwaps).where(and(eq(goodsSwaps.id, id), eq(goodsSwaps.tenantId, u.tenantId)));
+    const swap = await findOwned(this.db, goodsSwaps, u.tenantId, id);
     if (!swap) throw new NotFoundException('Dokumen tukar-guling tidak ditemukan');
     if (swap.status !== 'PENDING') throw new BadRequestException('Dokumen ini sudah diputuskan');
     await this.db.update(goodsSwaps).set({ status: 'REJECTED', decidedById: u.sub, decidedAt: new Date(), rejectReason: reason }).where(eq(goodsSwaps.id, id));

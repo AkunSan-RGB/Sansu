@@ -11,6 +11,7 @@ import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { customers, suppliers, workflowCases, workflowEvents, workflowLinks } from '../../db/schema';
 import { WorkflowSettingsDto, CaseQueryDto, CreateCaseDto, AddLinkDto, AdvanceDto, NoteDto } from './workflow.dto';
+import { findOwned, lockOwned } from '../../db/owned';
 
 /** Tabel dokumen sumber tiap jenis tautan (semua ber-tenant_id) */
 const col = (c: string) => (a: string) => `${a}.${c}::text`;
@@ -187,7 +188,7 @@ export class WorkflowService {
 
   async get(u: AuthUser, id: string) {
     await this.refreshCase(u.tenantId, id);
-    const [c] = await this.db.select().from(workflowCases).where(and(eq(workflowCases.id, id), eq(workflowCases.tenantId, u.tenantId)));
+    const c = await findOwned(this.db, workflowCases, u.tenantId, id);
     if (!c) throw new NotFoundException('Kasus tidak ditemukan');
     const p = await this.pipelineOf(u.tenantId, c.pipeline);
     const links = await this.liveLinks(this.db, u.tenantId, id);
@@ -348,7 +349,7 @@ export class WorkflowService {
   }
 
   private async lock(tx: Tx, tenantId: string, id: string) {
-    const [c] = await tx.select().from(workflowCases).where(and(eq(workflowCases.id, id), eq(workflowCases.tenantId, tenantId))).for('update');
+    const c = await lockOwned(tx, workflowCases, tenantId, id);
     if (!c) throw new NotFoundException('Kasus tidak ditemukan');
     if (c.status !== 'ACTIVE') throw new BadRequestException(c.status === 'DONE' ? 'Kasus sudah selesai dan tidak bisa diubah' : 'Kasus sudah dibatalkan dan tidak bisa diubah');
     return c;
@@ -573,7 +574,7 @@ export class WorkflowService {
     const all = defs ?? (await this.defs(tenantId));
     let moved = 0;
     await this.db.transaction(async (tx) => {
-      const [c] = await tx.select().from(workflowCases).where(and(eq(workflowCases.id, id), eq(workflowCases.tenantId, tenantId))).for('update');
+      const c = await lockOwned(tx, workflowCases, tenantId, id);
       if (!c || c.status !== 'ACTIVE') return;
       const p = all.find((x) => x.key === c.pipeline);
       if (!p) return;
@@ -603,7 +604,7 @@ export class WorkflowService {
     }
     if (!row) return;
     await this.refreshCase(tenantId, row.case_id);
-    const [c] = await this.db.select().from(workflowCases).where(and(eq(workflowCases.id, row.case_id), eq(workflowCases.tenantId, tenantId)));
+    const c = await findOwned(this.db, workflowCases, tenantId, row.case_id);
     const p = c && (await this.defs(tenantId)).find((x) => x.key === c.pipeline);
     if (!c || !p) return;
     if (c.status === 'CANCELLED') throw new BadRequestException(`Alur kerja ${c.number} dibatalkan; ${g.what} ditolak. Periksa kasus di menu Alur kerja.`);

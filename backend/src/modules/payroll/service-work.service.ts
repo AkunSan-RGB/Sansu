@@ -13,6 +13,7 @@ import { attendances, employees, productionOrders, projects, serviceRates, servi
 import { monthRange } from '../hr/hr.service';
 import { CreateRateDto, UpdateRateDto, EntryQueryDto, CreateEntryDto, DecideEntryDto, VoidEntryDto } from './service-work.dto';
 import { invoiceUsable } from './service-work.shared';
+import { findOwned, lockOwned } from '../../db/owned';
 
 export const MAX_HOURS_PER_DAY = 16;
 
@@ -67,7 +68,7 @@ export class ServiceWorkService {
   }
 
   async updateRate(u: AuthUser, id: string, dto: UpdateRateDto) {
-    const [r] = await this.db.select().from(serviceRates).where(and(eq(serviceRates.id, id), eq(serviceRates.tenantId, u.tenantId)));
+    const r = await findOwned(this.db, serviceRates, u.tenantId, id);
     if (!r) throw new NotFoundException('Tarif tidak ditemukan');
     const rate = dto.rate !== undefined ? D(dto.rate) : D(r.rate);
     this.checkRate(r.unit, rate);
@@ -148,7 +149,7 @@ export class ServiceWorkService {
       if (emp.contractEnd && workDate > emp.contractEnd) throw new BadRequestException(`Kontrak pegawai berakhir ${emp.contractEnd}; perpanjang kontrak (dengan persetujuan) sebelum mencatat kerja sesudahnya`);
       if (emp.contractStart && workDate < emp.contractStart) throw new BadRequestException('Tanggal kerja sebelum kontrak dimulai');
 
-      const [rate] = await tx.select().from(serviceRates).where(and(eq(serviceRates.id, dto.rateId), eq(serviceRates.tenantId, u.tenantId)));
+      const rate = await findOwned(tx, serviceRates, u.tenantId, dto.rateId);
       if (!rate) throw new NotFoundException('Tarif tidak ditemukan');
       if (!rate.isActive) throw new BadRequestException('Tarif ini sudah tidak aktif');
       if (!(await this.unitsOf(u.tenantId, tx)).includes(rate.unit)) throw new BadRequestException('Satuan tarif ini tidak dipakai di jenis usaha Anda');
@@ -194,7 +195,7 @@ export class ServiceWorkService {
           if (quantity.gt(WORK_LIMITS.maxPieceQty)) throw new BadRequestException('Jumlah hasil terlalu besar untuk satu catatan');
           if (dto.productionOrderId) {
             // jumlah hasil yang dibayarkan per perintah produksi tidak boleh melebihi keluarannya (aktual bila selesai, rencana bila berjalan)
-            const [po] = await tx.select().from(productionOrders).where(and(eq(productionOrders.id, dto.productionOrderId), eq(productionOrders.tenantId, u.tenantId))).for('update');
+            const po = await lockOwned(tx, productionOrders, u.tenantId, dto.productionOrderId);
             if (!po) throw new BadRequestException('Perintah produksi tidak ditemukan');
             if (po.status !== 'IN_PROGRESS' && po.status !== 'COMPLETED') throw new BadRequestException('Perintah produksi harus sedang berjalan atau sudah selesai');
             const cap = D(po.status === 'COMPLETED' ? po.outputQty : po.plannedQty);
@@ -241,7 +242,7 @@ export class ServiceWorkService {
   }
 
   private async lockEntry(tx: Tx, tenantId: string, id: string) {
-    const [e] = await tx.select().from(serviceWorkEntries).where(and(eq(serviceWorkEntries.id, id), eq(serviceWorkEntries.tenantId, tenantId))).for('update');
+    const e = await lockOwned(tx, serviceWorkEntries, tenantId, id);
     if (!e) throw new NotFoundException('Catatan kerja tidak ditemukan');
     return e;
   }

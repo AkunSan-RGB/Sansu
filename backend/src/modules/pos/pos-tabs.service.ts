@@ -16,6 +16,7 @@ import { PosService } from './pos.service';
 import { componentNeeds, recipesFor } from './recipe-issue';
 import { WarehouseQueryDto, CreateTableDto, UpdateTableDto, TabQueryDto, TabLineInputDto, CreateTabDto, AddTabLinesDto, VoidTabLineDto, CancelTabDto, MoveTabDto, PayTabDto } from './pos-tabs.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
+import { findOwned } from '../../db/owned';
 
 const SUPERVISORS = ['OWNER', 'ADMIN', 'FINANCE'];
 
@@ -80,7 +81,7 @@ export class PosTabsService {
   }
 
   async updateTable(user: AuthUser, id: string, dto: UpdateTableDto) {
-    const [t] = await this.db.select().from(posTables).where(and(eq(posTables.id, id), eq(posTables.tenantId, user.tenantId)));
+    const t = await findOwned(this.db, posTables, user.tenantId, id);
     if (!t) throw new NotFoundException('Meja tidak ditemukan');
     assertWarehouseAccess(user, t.warehouseId);
     if (dto.isActive === false) {
@@ -208,7 +209,7 @@ export class PosTabsService {
     let label = dto.tableLabel?.trim() || null;
     if (online) label = `${ONLINE_CHANNEL_LABELS[dto.channel!]} ${dto.externalRef!.trim()}`;
     if (dto.tableId) {
-      const [t] = await tx.select().from(posTables).where(and(eq(posTables.id, dto.tableId), eq(posTables.tenantId, user.tenantId)));
+      const t = await findOwned(tx, posTables, user.tenantId, dto.tableId);
       if (!t || !t.isActive || t.warehouseId !== wh.id) throw new BadRequestException('Meja tidak ditemukan di outlet ini');
       label = t.name;
     } else if (orderType === 'DINE_IN' && !label) {
@@ -415,7 +416,7 @@ export class PosTabsService {
       let tableId: string | null = null;
       let label = dto.tableLabel?.trim() || null;
       if (dto.tableId) {
-        const [t] = await tx.select().from(posTables).where(and(eq(posTables.id, dto.tableId), eq(posTables.tenantId, user.tenantId)));
+        const t = await findOwned(tx, posTables, user.tenantId, dto.tableId);
         if (!t || !t.isActive || t.warehouseId !== tab.warehouseId) throw new BadRequestException('Meja tidak ditemukan di outlet ini');
         const [busy] = await tx.select({ n: posTabs.number }).from(posTabs).where(and(eq(posTabs.tableId, t.id), eq(posTabs.status, 'OPEN')));
         if (busy && busy.n !== tab.number) throw new BadRequestException(`Meja ${t.name} sedang dipakai pesanan ${busy.n}`);
@@ -434,7 +435,7 @@ export class PosTabsService {
   async pay(user: AuthUser, id: string, dto: PayTabDto) {
     const orderId = await this.db.transaction(async (tx) => {
       const tab = await this.lockTab(tx, user, id);
-      const [session] = await tx.select().from(posSessions).where(and(eq(posSessions.id, dto.sessionId), eq(posSessions.tenantId, user.tenantId)));
+      const session = await findOwned(tx, posSessions, user.tenantId, dto.sessionId);
       if (!session) throw new NotFoundException('Sesi kasir tidak ditemukan');
       if (session.warehouseId !== tab.warehouseId) throw new BadRequestException('Sesi kasir ini berada di outlet lain dari pesanan');
       const lines = await tx.select().from(posTabLines).where(eq(posTabLines.tabId, id));

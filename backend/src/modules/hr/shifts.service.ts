@@ -9,6 +9,7 @@ import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { employees, serviceRates, shiftAssignments, shiftTemplates } from '../../db/schema';
 import { CreateTemplateDto, UpdateTemplateDto, AssignDto, RosterQueryDto } from './shifts.dto';
+import { findOwned } from '../../db/owned';
 
 export const SHIFT_RULES = { maxPerDay: 2, minRestHours: 8, maxConsecutiveDays: 6, normalWeekHours: 40, maxWeekHours: 58, maxAheadDays: 90 } as const;
 
@@ -80,7 +81,7 @@ export class ShiftsService {
 
   private async checkRate(tenantId: string, rateId: string | null | undefined) {
     if (!rateId) return;
-    const [r] = await this.db.select().from(serviceRates).where(and(eq(serviceRates.id, rateId), eq(serviceRates.tenantId, tenantId)));
+    const r = await findOwned(this.db, serviceRates, tenantId, rateId);
     if (!r || r.unit !== 'SHIFT' || !r.isActive) throw new BadRequestException('Tarif premi harus kartu tarif aktif bersatuan "per shift" (diatur Keuangan di Upah)');
   }
 
@@ -98,7 +99,7 @@ export class ShiftsService {
 
   async updateTemplate(u: AuthUser, id: string, dto: UpdateTemplateDto) {
     await this.requireShiftModel(u.tenantId);
-    const [t] = await this.db.select().from(shiftTemplates).where(and(eq(shiftTemplates.id, id), eq(shiftTemplates.tenantId, u.tenantId)));
+    const t = await findOwned(this.db, shiftTemplates, u.tenantId, id);
     if (!t) throw new NotFoundException('Shift tidak ditemukan');
     if (dto.premiumRateId !== undefined) await this.checkRate(u.tenantId, dto.premiumRateId);
     const [row] = await this.db.update(shiftTemplates).set({ minStaff: dto.minStaff, premiumRateId: dto.premiumRateId, isActive: dto.isActive }).where(eq(shiftTemplates.id, id)).returning();
@@ -153,7 +154,7 @@ export class ShiftsService {
 
   async assign(u: AuthUser, dto: AssignDto) {
     await this.requireShiftModel(u.tenantId);
-    const [tpl] = await this.db.select().from(shiftTemplates).where(and(eq(shiftTemplates.id, dto.templateId), eq(shiftTemplates.tenantId, u.tenantId)));
+    const tpl = await findOwned(this.db, shiftTemplates, u.tenantId, dto.templateId);
     if (!tpl || !tpl.isActive) throw new BadRequestException('Shift tidak ditemukan / nonaktif');
     const results: { employeeId: string; date: string; ok: boolean; error?: string; warnings?: string[] }[] = [];
     for (const employeeId of dto.employeeIds) {
@@ -171,7 +172,7 @@ export class ShiftsService {
 
   async unassign(u: AuthUser, id: string) {
     await this.requireShiftModel(u.tenantId);
-    const [a] = await this.db.select().from(shiftAssignments).where(and(eq(shiftAssignments.id, id), eq(shiftAssignments.tenantId, u.tenantId)));
+    const a = await findOwned(this.db, shiftAssignments, u.tenantId, id);
     if (!a) throw new NotFoundException('Penugasan tidak ditemukan');
     if (a.workDate < todayJakarta()) throw new BadRequestException('Jadwal yang sudah lewat tidak bisa diubah');
     const used = await this.db.execute(sql`SELECT 1 FROM service_work_entries WHERE shift_assignment_id = ${id} AND status IN ('PENDING','APPROVED') LIMIT 1`);

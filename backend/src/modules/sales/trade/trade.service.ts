@@ -11,6 +11,7 @@ import { customers, invoices, payments, principalClaimLines, principalClaims, su
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { TermDto, PeriodQueryDto, SettleDto, GenerateClaimDto, DecideClaimDto, ReceiveClaimDto } from './trade.dto';
+import { findOwned, lockOwned } from '../../../db/owned';
 
 const lastDay = (p: string) => {
   const [y, m] = p.split('-').map(Number);
@@ -51,7 +52,7 @@ export class TradeService {
     await this.checkTerm(u.tenantId, d);
     const values = { customerId: d.customerId, name: d.name.trim(), kind: d.kind, value: D(d.value).toFixed(4), validFrom: d.validFrom ? toDocDate(d.validFrom) : null, validTo: d.validTo ? toDocDate(d.validTo) : null, isActive: d.isActive ?? true };
     if (id) {
-      const [cur] = await this.db.select().from(tradeTerms).where(and(eq(tradeTerms.id, id), eq(tradeTerms.tenantId, u.tenantId)));
+      const cur = await findOwned(this.db, tradeTerms, u.tenantId, id);
       if (!cur) throw new NotFoundException('Syarat dagang tidak ditemukan');
       await this.db.update(tradeTerms).set(values).where(eq(tradeTerms.id, id));
       await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'TradeTerm', entityId: id, data: { before: { value: cur.value, isActive: cur.isActive }, after: values } });
@@ -117,7 +118,7 @@ export class TradeService {
     if (amount.lte(0)) throw new BadRequestException('Jumlah harus lebih dari nol');
     const date = toDocDate(dto.date);
     return this.db.transaction(async (tx) => {
-      const [a] = await tx.select().from(tradeAccruals).where(and(eq(tradeAccruals.id, id), eq(tradeAccruals.tenantId, u.tenantId))).for('update');
+      const a = await lockOwned(tx, tradeAccruals, u.tenantId, id);
       if (!a) throw new NotFoundException('Utang rebate tidak ditemukan');
       if (a.status !== 'ACCRUED') throw new BadRequestException('Utang rebate ini sudah lunas atau dibatalkan');
       if (a.accruedById === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Pelunasan dilakukan oleh orang lain dari yang menjurnalkannya (pemisahan fungsi)');
@@ -128,7 +129,7 @@ export class TradeService {
       if (dto.mode === 'DEDUCT') {
         if (!dto.invoiceId) throw new BadRequestException('Pilih faktur yang dipotong');
         await tx.execute(sql`SELECT id FROM invoices WHERE id = ${dto.invoiceId} AND tenant_id = ${u.tenantId} FOR UPDATE`);
-        const [inv] = await tx.select().from(invoices).where(and(eq(invoices.id, dto.invoiceId), eq(invoices.tenantId, u.tenantId)));
+        const inv = await findOwned(tx, invoices, u.tenantId, dto.invoiceId);
         if (!inv) throw new NotFoundException('Faktur tidak ditemukan');
         if (inv.customerId !== a.customerId) throw new BadRequestException('Faktur harus milik outlet yang sama dengan rebate');
         if (inv.currency !== 'IDR') throw new BadRequestException('Potongan hanya untuk faktur Rupiah');
@@ -175,7 +176,7 @@ export class TradeService {
 
   async voidAccrual(u: AuthUser, id: string, reason: string) {
     return this.db.transaction(async (tx) => {
-      const [a] = await tx.select().from(tradeAccruals).where(and(eq(tradeAccruals.id, id), eq(tradeAccruals.tenantId, u.tenantId))).for('update');
+      const a = await lockOwned(tx, tradeAccruals, u.tenantId, id);
       if (!a) throw new NotFoundException('Utang rebate tidak ditemukan');
       if (a.status !== 'ACCRUED' || D(a.settledAmount).gt(0)) throw new BadRequestException('Hanya utang rebate yang belum dilunasi sama sekali yang dapat dibatalkan');
       await this.posting.reverse(tx, u.tenantId, a.accrualJournalId!, toDocDate(undefined), u.sub, true);
@@ -198,7 +199,7 @@ export class TradeService {
   }
 
   async claim(tenantId: string, id: string) {
-    const [c] = await this.db.select().from(principalClaims).where(and(eq(principalClaims.id, id), eq(principalClaims.tenantId, tenantId)));
+    const c = await findOwned(this.db, principalClaims, tenantId, id);
     if (!c) throw new NotFoundException('Klaim tidak ditemukan');
     const lines = await this.db.select().from(principalClaimLines).where(eq(principalClaimLines.claimId, id));
     return { ...c, lines };
@@ -249,7 +250,7 @@ export class TradeService {
   }
 
   private async lockClaim(tx: Parameters<Parameters<Db['transaction']>[0]>[0], tenantId: string, id: string) {
-    const [c] = await tx.select().from(principalClaims).where(and(eq(principalClaims.id, id), eq(principalClaims.tenantId, tenantId))).for('update');
+    const c = await lockOwned(tx, principalClaims, tenantId, id);
     if (!c) throw new NotFoundException('Klaim tidak ditemukan');
     return c;
   }

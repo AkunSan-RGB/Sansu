@@ -9,6 +9,7 @@ import { approvalRequests, users } from '../../db/schema';
 import { PurchaseRequestsService } from '../purchasing/purchase-requests.service';
 import { ApprovalRequestsService } from './approvals.service';
 import { LinkDecisionDto } from './approvals.dto';
+import { findOwned } from '../../db/owned';
 
 /** Persetujuan lewat tautan email pribadi (tanpa login): ringkasan dulu, keputusan saat tombol ditekan */
 @Injectable()
@@ -45,7 +46,7 @@ export class ApprovalLinksService {
         decisionNote: r.decisionNote,
       };
     }
-    const [r] = await this.db.select().from(approvalRequests).where(and(eq(approvalRequests.id, p.r), eq(approvalRequests.tenantId, user.tenantId)));
+    const r = await findOwned(this.db, approvalRequests, user.tenantId, p.r);
     if (!r) throw new NotFoundException('Permintaan persetujuan tidak ditemukan');
     const [by] = await this.db.select({ name: users.name }).from(users).where(eq(users.id, r.requestedById));
     return {

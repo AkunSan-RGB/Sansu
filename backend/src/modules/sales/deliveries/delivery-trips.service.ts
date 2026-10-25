@@ -10,6 +10,7 @@ import { InjectDb } from '../../../db/db.module';
 import { customers, deliveryOrders, deliveryTrips, deliveryTripStops, deliveryVehicles } from '../../../db/schema';
 import { haversineM } from '../canvass/canvass.service';
 import { TripQueryDto, CreateTripDto, AddStopsDto, ReorderDto, DepartDto, PositionDto, StopResultDto, CancelTripDto, VehicleDto } from './delivery-trips.dto';
+import { findOwned, lockOwned } from '../../../db/owned';
 
 /** Jarak antar dua titik (meter); bawaan garis lurus */
 export type DistFn = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => number;
@@ -81,7 +82,7 @@ export class DeliveryTripsService {
   ) {}
 
   private async trip(tenantId: string, id: string, db: DbOrTx = this.db) {
-    const [t] = await db.select().from(deliveryTrips).where(and(eq(deliveryTrips.id, id), eq(deliveryTrips.tenantId, tenantId)));
+    const t = await findOwned(db, deliveryTrips, tenantId, id);
     if (!t) throw new NotFoundException('Rute pengiriman tidak ditemukan');
     return t;
   }
@@ -192,7 +193,7 @@ export class DeliveryTripsService {
       let vehicle = dto.vehicle?.trim() || null;
       let driver = dto.driverName?.trim() || null;
       if (dto.vehicleId) {
-        const [v] = await tx.select().from(deliveryVehicles).where(and(eq(deliveryVehicles.id, dto.vehicleId), eq(deliveryVehicles.tenantId, u.tenantId)));
+        const v = await findOwned(tx, deliveryVehicles, u.tenantId, dto.vehicleId);
         if (!v) throw new BadRequestException('Kendaraan tidak ditemukan');
         if (!v.isActive) throw new BadRequestException(`Kendaraan ${v.plate} tidak aktif`);
         vehicle = v.plate;
@@ -212,7 +213,7 @@ export class DeliveryTripsService {
 
   async addStops(u: AuthUser, id: string, dto: AddStopsDto) {
     await this.db.transaction(async (tx) => {
-      const [t] = await tx.select().from(deliveryTrips).where(and(eq(deliveryTrips.id, id), eq(deliveryTrips.tenantId, u.tenantId))).for('update');
+      const t = await lockOwned(tx, deliveryTrips, u.tenantId, id);
       if (!t) throw new NotFoundException('Rute pengiriman tidak ditemukan');
       this.assertPlanned(t);
       await this.addStopsTx(tx as unknown as Db, u.tenantId, id, dto.deliveryIds);
@@ -224,7 +225,7 @@ export class DeliveryTripsService {
 
   async removeStop(u: AuthUser, id: string, stopId: string) {
     await this.db.transaction(async (tx) => {
-      const [t] = await tx.select().from(deliveryTrips).where(and(eq(deliveryTrips.id, id), eq(deliveryTrips.tenantId, u.tenantId))).for('update');
+      const t = await lockOwned(tx, deliveryTrips, u.tenantId, id);
       if (!t) throw new NotFoundException('Rute pengiriman tidak ditemukan');
       this.assertPlanned(t);
       const del = await tx.delete(deliveryTripStops).where(and(eq(deliveryTripStops.id, stopId), eq(deliveryTripStops.tripId, id))).returning({ id: deliveryTripStops.id });
@@ -243,7 +244,7 @@ export class DeliveryTripsService {
 
   async reorder(u: AuthUser, id: string, dto: ReorderDto) {
     await this.db.transaction(async (tx) => {
-      const [t] = await tx.select().from(deliveryTrips).where(and(eq(deliveryTrips.id, id), eq(deliveryTrips.tenantId, u.tenantId))).for('update');
+      const t = await lockOwned(tx, deliveryTrips, u.tenantId, id);
       if (!t) throw new NotFoundException('Rute pengiriman tidak ditemukan');
       this.assertPlanned(t);
       const cur = await tx.select({ id: deliveryTripStops.id }).from(deliveryTripStops).where(eq(deliveryTripStops.tripId, id));
@@ -292,7 +293,7 @@ export class DeliveryTripsService {
 
   async depart(u: AuthUser, id: string, dto: DepartDto = {}) {
     await this.db.transaction(async (tx) => {
-      const [t] = await tx.select().from(deliveryTrips).where(and(eq(deliveryTrips.id, id), eq(deliveryTrips.tenantId, u.tenantId))).for('update');
+      const t = await lockOwned(tx, deliveryTrips, u.tenantId, id);
       if (!t) throw new NotFoundException('Rute pengiriman tidak ditemukan');
       this.assertPlanned(t);
       const [{ n }] = await tx.select({ n: sql<number>`COUNT(*)::int` }).from(deliveryTripStops).where(eq(deliveryTripStops.tripId, id));
@@ -337,7 +338,7 @@ export class DeliveryTripsService {
     const photoRef = await this.storage.store(u.tenantId, 'bukti-kirim', dto.photo);
     const signatureRef = await this.storage.store(u.tenantId, 'tanda-tangan', dto.signature);
     await this.storage.guard([photoRef, signatureRef], () => this.db.transaction(async (tx) => {
-      const [t] = await tx.select().from(deliveryTrips).where(and(eq(deliveryTrips.id, id), eq(deliveryTrips.tenantId, u.tenantId))).for('update');
+      const t = await lockOwned(tx, deliveryTrips, u.tenantId, id);
       if (!t) throw new NotFoundException('Rute pengiriman tidak ditemukan');
       if (t.status !== 'ON_ROUTE') throw new BadRequestException('Hasil pengiriman hanya bisa dicatat saat rute sedang berjalan');
       const [s] = await tx.select().from(deliveryTripStops).where(and(eq(deliveryTripStops.id, stopId), eq(deliveryTripStops.tripId, id))).for('update');
@@ -375,7 +376,7 @@ export class DeliveryTripsService {
 
   async complete(u: AuthUser, id: string) {
     await this.db.transaction(async (tx) => {
-      const [t] = await tx.select().from(deliveryTrips).where(and(eq(deliveryTrips.id, id), eq(deliveryTrips.tenantId, u.tenantId))).for('update');
+      const t = await lockOwned(tx, deliveryTrips, u.tenantId, id);
       if (!t) throw new NotFoundException('Rute pengiriman tidak ditemukan');
       if (t.status !== 'ON_ROUTE') throw new BadRequestException('Hanya rute yang sedang berjalan yang bisa diselesaikan');
       const [{ n }] = await tx.select({ n: sql<number>`COUNT(*)::int` }).from(deliveryTripStops).where(and(eq(deliveryTripStops.tripId, id), eq(deliveryTripStops.status, 'PENDING')));
@@ -388,7 +389,7 @@ export class DeliveryTripsService {
 
   async cancel(u: AuthUser, id: string, dto: CancelTripDto) {
     await this.db.transaction(async (tx) => {
-      const [t] = await tx.select().from(deliveryTrips).where(and(eq(deliveryTrips.id, id), eq(deliveryTrips.tenantId, u.tenantId))).for('update');
+      const t = await lockOwned(tx, deliveryTrips, u.tenantId, id);
       if (!t) throw new NotFoundException('Rute pengiriman tidak ditemukan');
       this.assertPlanned(t);
       await tx.delete(deliveryTripStops).where(eq(deliveryTripStops.tripId, id));
@@ -442,7 +443,7 @@ export class DeliveryVehiclesService {
   }
 
   async update(u: AuthUser, id: string, dto: Partial<VehicleDto>) {
-    const [cur] = await this.db.select().from(deliveryVehicles).where(and(eq(deliveryVehicles.id, id), eq(deliveryVehicles.tenantId, u.tenantId)));
+    const cur = await findOwned(this.db, deliveryVehicles, u.tenantId, id);
     if (!cur) throw new NotFoundException('Kendaraan tidak ditemukan');
     const plate = dto.plate?.trim().toUpperCase();
     if (plate && plate.toLowerCase() !== cur.plate.toLowerCase()) {

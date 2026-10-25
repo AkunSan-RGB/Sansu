@@ -13,6 +13,7 @@ import { get as gets, loadAccounts, natural, unclosedEarnings, type Sum } from '
 import { SYS } from '../accounting/default-coa';
 import { CreateBranchDto, UpdateBranchDto } from './branches.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
+import { findOwned } from '../../db/owned';
 
 const NONE = 'NONE';
 
@@ -57,7 +58,7 @@ export class BranchesService {
   }
 
   async update(user: AuthUser, id: string, dto: UpdateBranchDto) {
-    const [b] = await this.db.select().from(branches).where(and(eq(branches.id, id), eq(branches.tenantId, user.tenantId)));
+    const b = await findOwned(this.db, branches, user.tenantId, id);
     if (!b) throw new NotFoundException('Cabang tidak ditemukan');
     if (dto.isActive === false && b.isActive) {
       const [n] = (await this.db.execute<{ n: number }>(sql`SELECT COUNT(*)::int AS n FROM warehouses WHERE branch_id = ${id} AND is_active`)).rows;
@@ -73,7 +74,7 @@ export class BranchesService {
     const w = await this.refs.warehouse(this.db, user.tenantId, warehouseId);
     if (!w) throw new NotFoundException('Gudang tidak ditemukan');
     if (branchId) {
-      const [b] = await this.db.select().from(branches).where(and(eq(branches.id, branchId), eq(branches.tenantId, user.tenantId)));
+      const b = await findOwned(this.db, branches, user.tenantId, branchId);
       if (!b || !b.isActive) throw new BadRequestException('Cabang tidak ditemukan atau nonaktif');
     }
     await this.db.update(warehouses).set({ branchId }).where(eq(warehouses.id, warehouseId));
@@ -97,7 +98,7 @@ export class BranchesService {
     const [a] = await this.db.select().from(accounts).where(and(eq(accounts.id, accountId), eq(accounts.tenantId, user.tenantId), eq(accounts.isCashAccount, true)));
     if (!a) throw new NotFoundException('Rekening kas/bank tidak ditemukan');
     if (branchId) {
-      const [b] = await this.db.select().from(branches).where(and(eq(branches.id, branchId), eq(branches.tenantId, user.tenantId)));
+      const b = await findOwned(this.db, branches, user.tenantId, branchId);
       if (!b || !b.isActive) throw new BadRequestException('Cabang tidak ditemukan atau nonaktif');
     }
     await this.db.update(accounts).set({ branchId }).where(eq(accounts.id, accountId));

@@ -12,6 +12,7 @@ import { accounts, pettyCashFunds, pettyCashReplenishments, pettyCashVouchers } 
 import { CashService } from './cash.service';
 import { PettyFundDto, PettyFundTopUpDto, PettyVoucherDto, PettyVoidDto, PettyReplenishDto } from './petty-cash.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
+import { findOwned } from '../../db/owned';
 
 type Fund = typeof pettyCashFunds.$inferSelect;
 
@@ -34,7 +35,7 @@ export class PettyCashService {
   }
 
   private async getFund(db: Db | Tx, tenantId: string, id: string): Promise<Fund> {
-    const [f] = await db.select().from(pettyCashFunds).where(and(eq(pettyCashFunds.id, id), eq(pettyCashFunds.tenantId, tenantId)));
+    const f = await findOwned(db, pettyCashFunds, tenantId, id);
     if (!f) throw new NotFoundException('Dana kas kecil tidak ditemukan');
     return f;
   }
@@ -158,7 +159,7 @@ export class PettyCashService {
   /** Batalkan bukti (belum diganti) — pemilik/admin; jurnal dibalik dan dana kembali */
   async voidVoucher(user: AuthUser, id: string, dto: PettyVoidDto) {
     return this.db.transaction(async (tx) => {
-      const [v] = await tx.select().from(pettyCashVouchers).where(and(eq(pettyCashVouchers.id, id), eq(pettyCashVouchers.tenantId, user.tenantId)));
+      const v = await findOwned(tx, pettyCashVouchers, user.tenantId, id);
       if (!v) throw new NotFoundException('Bukti tidak ditemukan');
       if (v.status !== 'OPEN') throw new BadRequestException(v.status === 'VOID' ? 'Bukti sudah dibatalkan' : 'Bukti sudah diganti lewat pengisian kembali dan tidak bisa dibatalkan');
       await this.cash.void(user, v.cashTransactionId!, { reason: dto.reason }, tx);

@@ -9,6 +9,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { products, stockBalances, stockCountLines, stockCounts, stockMinimums, stockTransferLines, stockTransfers, users, warehouses } from '../../db/schema';
 import { WarehouseOpsService, UUID } from './warehouse-ops.service';
+import { findOwned } from '../../db/owned';
 
 @Injectable()
 export class WarehouseQueryService {
@@ -45,10 +46,7 @@ export class WarehouseQueryService {
 
 
   async getTransfer(u: AuthUser, id: string) {
-    const [t] = await this.db
-      .select()
-      .from(stockTransfers)
-      .where(and(eq(stockTransfers.id, id), eq(stockTransfers.tenantId, u.tenantId)));
+    const t = await findOwned(this.db, stockTransfers, u.tenantId, id);
     if (!t) throw new NotFoundException('Transfer tidak ditemukan');
     const allowed = allowedWarehouses(u);
     if (allowed && !allowed.includes(t.fromWarehouseId) && !allowed.includes(t.toWarehouseId))

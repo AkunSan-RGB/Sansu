@@ -10,6 +10,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { purchaseInvoices, suppliers } from '../../db/schema';
 import { CreateSupplierDto, UpdateSupplierDto } from './purchasing.dto';
+import { findOwned } from '../../db/owned';
 
 @Injectable()
 export class SuppliersService {
@@ -41,10 +42,7 @@ export class SuppliersService {
   }
 
   async get(tenantId: string, id: string) {
-    const [s] = await this.db
-      .select()
-      .from(suppliers)
-      .where(and(eq(suppliers.id, id), eq(suppliers.tenantId, tenantId)));
+    const s = await findOwned(this.db, suppliers, tenantId, id);
     if (!s) throw new NotFoundException('Supplier tidak ditemukan');
     const [open] = await this.db
       .select({

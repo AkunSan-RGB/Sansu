@@ -12,6 +12,7 @@ import { branches, customRoles, tenants, users } from '../../db/schema';
 import { isDocDate } from '../../common/utils/dates';
 import { refreshChartRelevance } from '../accounting/coa-sync';
 import { UpdateUserDto, UpdateCompanyDto, BrandingDto, TermsSettingsDto, ReportingSettingsDto, PayrollSettingsDto } from './platform.dto';
+import { findOwned } from '../../db/owned';
 
 /** Kop surat & dokumen: logo, kontak, rekening pembayaran, catatan di faktur */
 export interface Branding {
@@ -42,10 +43,7 @@ export class PlatformService {
   }
 
   async updateUser(actor: AuthUser, id: string, dto: UpdateUserDto) {
-    const [target] = await this.db
-      .select()
-      .from(users)
-      .where(and(eq(users.id, id), eq(users.tenantId, actor.tenantId)));
+    const target = await findOwned(this.db, users, actor.tenantId, id);
     if (!target) throw new NotFoundException('Pengguna tidak ditemukan');
     if ((target.role === 'OWNER' || dto.role === 'OWNER') && actor.role !== 'OWNER') {
       throw new ForbiddenException('Hanya Pemilik yang bisa mengubah akun Pemilik');

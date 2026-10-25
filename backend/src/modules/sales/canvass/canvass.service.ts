@@ -17,6 +17,7 @@ import { PostingService } from '../../accounting/posting.service';
 import { VanDto, VanMoveDto, CanvassSaleDto, CollectionDto, VerifyDto, RouteDto, VisitDto } from './canvass.dto';
 import { asDto } from '../../../common/utils/dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
+import { findOwned, lockOwned } from '../../../db/owned';
 
 /** Jarak maksimum kunjungan dari titik outlet sebelum ditandai mencurigakan */
 const FAR_METERS = 300;
@@ -179,7 +180,7 @@ export class CanvassService {
     if (received.lt(0)) throw new BadRequestException('Jumlah diterima tidak valid');
     const date = toDocDate(dto.date);
     return this.db.transaction(async (tx) => {
-      const [c] = await tx.select().from(canvassCollections).where(and(eq(canvassCollections.id, id), eq(canvassCollections.tenantId, u.tenantId))).for('update');
+      const c = await lockOwned(tx, canvassCollections, u.tenantId, id);
       if (!c) throw new NotFoundException('Setoran tidak ditemukan');
       if (c.status !== 'PENDING') throw new BadRequestException('Setoran ini sudah diputuskan');
       // pemisahan fungsi: bukan sales yang menyetor dan bukan orang yang mencatat setoran itu (Pemilik dikecualikan)
@@ -218,7 +219,7 @@ export class CanvassService {
   }
 
   async rejectCollection(u: AuthUser, id: string, reason: string) {
-    const [c] = await this.db.select().from(canvassCollections).where(and(eq(canvassCollections.id, id), eq(canvassCollections.tenantId, u.tenantId)));
+    const c = await findOwned(this.db, canvassCollections, u.tenantId, id);
     if (!c) throw new NotFoundException('Setoran tidak ditemukan');
     if (c.status !== 'PENDING') throw new BadRequestException('Setoran ini sudah diputuskan');
     await this.db.update(canvassCollections).set({ status: 'REJECTED', verifiedById: u.sub, verifiedAt: new Date(), rejectReason: reason, receivedAmount: '0', shortage: c.amount }).where(eq(canvassCollections.id, id));
@@ -248,7 +249,7 @@ export class CanvassService {
     return this.db.transaction(async (tx) => {
       let routeId = id;
       if (id) {
-        const [cur] = await tx.select().from(salesRoutes).where(and(eq(salesRoutes.id, id), eq(salesRoutes.tenantId, u.tenantId)));
+        const cur = await findOwned(tx, salesRoutes, u.tenantId, id);
         if (!cur) throw new NotFoundException('Rute tidak ditemukan');
         await tx.update(salesRoutes).set({ name: dto.name.trim(), salespersonId: dto.salespersonId, weekday: dto.weekday ?? null, isActive: dto.isActive ?? true }).where(eq(salesRoutes.id, id));
         await tx.delete(salesRouteStops).where(eq(salesRouteStops.routeId, id));

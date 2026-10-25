@@ -18,6 +18,7 @@ import { projectCostsSql } from './project-costs';
 import { decryptField } from '../../../common/utils/secret';
 import { CreateServiceInvoiceDto, WithholdingSlipDto, ProjectProgressDto, CreateProjectDto, UpdateProjectDto, CreateDepositDto, ApplyDepositDto } from './service-billing.dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
+import { findOwned } from '../../../db/owned';
 
 export const outstandingOf = (i: { total: string; paidAmount: string; returnedAmount: string }) =>
   D(i.total).minus(i.paidAmount).minus(i.returnedAmount);
@@ -95,10 +96,7 @@ export class ServiceBillingService {
 
       // Proyek: tagihan tidak boleh melebihi nilai kontrak
       if (dto.projectId) {
-        const [p] = await tx
-          .select()
-          .from(projects)
-          .where(and(eq(projects.id, dto.projectId), eq(projects.tenantId, user.tenantId)));
+        const p = await findOwned(tx, projects, user.tenantId, dto.projectId);
         if (!p) throw new BadRequestException('Proyek tidak ditemukan');
         if (p.customerId !== customer.id) throw new BadRequestException('Proyek ini milik pelanggan lain');
         if (p.status !== 'ACTIVE') throw new BadRequestException('Proyek sudah selesai / dibatalkan');
@@ -194,10 +192,7 @@ export class ServiceBillingService {
   }
 
   async setSlip(user: AuthUser, id: string, dto: WithholdingSlipDto) {
-    const [inv] = await this.db
-      .select()
-      .from(invoices)
-      .where(and(eq(invoices.id, id), eq(invoices.tenantId, user.tenantId)));
+    const inv = await findOwned(this.db, invoices, user.tenantId, id);
     if (!inv) throw new NotFoundException('Faktur tidak ditemukan');
     if (!inv.withholdingType) throw new BadRequestException('Faktur ini tidak dipotong PPh oleh pelanggan');
     const slipDate = toDocDate(dto.slipDate);

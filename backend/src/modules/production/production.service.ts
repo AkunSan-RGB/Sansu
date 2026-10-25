@@ -19,6 +19,7 @@ import { WorkCenterService } from './work-centers.service';
 import { QcService } from './qc.service';
 import { SaveBomDto, CreateProductionDto, StartProductionDto, CompleteProductionDto, CancelProductionDto } from './production.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
+import { findOwned } from '../../db/owned';
 
 @Injectable()
 export class ProductionService {
@@ -172,10 +173,7 @@ export class ProductionService {
   }
 
   async updateBom(user: AuthUser, id: string, dto: SaveBomDto) {
-    const [b] = await this.db
-      .select()
-      .from(boms)
-      .where(and(eq(boms.id, id), eq(boms.tenantId, user.tenantId)));
+    const b = await findOwned(this.db, boms, user.tenantId, id);
     if (!b) throw new NotFoundException('Resep tidak ditemukan');
     await this.db.transaction(async (tx) => {
       await this.validateBom(tx, user.tenantId, dto);
@@ -298,10 +296,7 @@ export class ProductionService {
     if (batches.lte(0)) throw new BadRequestException('Jumlah batch harus > 0');
     assertWarehouseAccess(user, dto.warehouseId);
     {
-      const [b] = await tx
-        .select()
-        .from(boms)
-        .where(and(eq(boms.id, dto.bomId), eq(boms.tenantId, user.tenantId)));
+      const b = await findOwned(tx, boms, user.tenantId, dto.bomId);
       if (!b || !b.isActive) throw new BadRequestException('Resep tidak ditemukan / nonaktif');
       const wh = await this.refs.warehouse(tx, user.tenantId, dto.warehouseId);
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');

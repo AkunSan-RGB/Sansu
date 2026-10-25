@@ -14,6 +14,7 @@ import { customers, invoices, payments } from '../../../db/schema';
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { CreatePaymentDto } from '../sales.dto';
+import { findOwned } from '../../../db/owned';
 
 @Injectable()
 export class PaymentsService {
@@ -133,7 +134,7 @@ export class PaymentsService {
     const date = toDocDate(dto.date);
     const reason = dto.reason?.trim() ?? '';
     if (reason.length < 5) throw new BadRequestException('Isi alasan penghapusan piutang (minimal 5 huruf)');
-    const [pre] = await this.db.select().from(invoices).where(and(eq(invoices.id, dto.invoiceId), eq(invoices.tenantId, user.tenantId)));
+    const pre = await findOwned(this.db, invoices, user.tenantId, dto.invoiceId);
     if (!pre) throw new NotFoundException('Faktur tidak ditemukan');
     if (pre.currency !== 'IDR') throw new BadRequestException('Penghapusan piutang faktur valas belum didukung; lunasi/koreksi lewat retur atau jurnal.');
     if (user.role !== 'OWNER' && diffDays(pre.dueDate, todayJakarta()) < 90) throw new BadRequestException('Piutang baru bisa dihapus bila sudah lewat jatuh tempo minimal 90 hari.');

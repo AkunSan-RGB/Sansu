@@ -17,6 +17,7 @@ import { accounts, customers, utilityBills, utilityConnections, utilityLateFees,
 import { SYS } from '../accounting/default-coa';
 import { ServiceBillingService } from '../sales/services/service-billing.service';
 import { RulesDto, TariffDto, ConnectionDto, SuspendDto, ReasonDto, ZoneDto, ZoneSupplyDto, ReadingDto, VerifyDto, BillRunDto } from './utility.dto';
+import { findOwned } from '../../db/owned';
 
 const SECTION = 'utility';
 
@@ -104,7 +105,7 @@ export class UtilityService {
   }
 
   async updateTariff(u: AuthUser, id: string, dto: TariffDto) {
-    const [old] = await this.db.select().from(utilityTariffs).where(and(eq(utilityTariffs.id, id), eq(utilityTariffs.tenantId, u.tenantId)));
+    const old = await findOwned(this.db, utilityTariffs, u.tenantId, id);
     if (!old) throw new NotFoundException('Tarif tidak ditemukan');
     if (old.serviceType !== dto.serviceType) throw new BadRequestException('Jenis layanan tarif tidak bisa diubah — buat tarif baru');
     const n = this.normalizeTariff(dto);
@@ -153,7 +154,7 @@ export class UtilityService {
     return this.db.transaction(async (tx) => {
       const [cust] = await tx.select({ id: customers.id, isActive: customers.isActive }).from(customers).where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, u.tenantId)));
       if (!cust || !cust.isActive) throw new BadRequestException('Pelanggan tidak ditemukan / nonaktif');
-      const [t] = await tx.select().from(utilityTariffs).where(and(eq(utilityTariffs.id, dto.tariffId), eq(utilityTariffs.tenantId, u.tenantId)));
+      const t = await findOwned(tx, utilityTariffs, u.tenantId, dto.tariffId);
       if (!t || !t.isActive) throw new BadRequestException('Tarif tidak ditemukan / nonaktif');
       const meterNo = dto.meterNo?.trim() || null;
       if (t.metered && !meterNo) throw new BadRequestException('Nomor meter wajib untuk layanan terukur');

@@ -12,6 +12,7 @@ import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { SalesTargetsService } from './sales-targets.service';
 import { PayCommissionDto, VoidCommissionDto } from './sales-commissions.dto';
+import { lockOwned } from '../../../db/owned';
 
 const lastDay = (period: string) => {
   const [y, m] = period.split('-').map(Number);
@@ -76,7 +77,7 @@ export class SalesCommissionsService {
   async pay(u: AuthUser, id: string, dto: PayCommissionDto) {
     const date = toDocDate(dto.date);
     return this.db.transaction(async (tx) => {
-      const [c] = await tx.select().from(salesCommissions).where(and(eq(salesCommissions.id, id), eq(salesCommissions.tenantId, u.tenantId))).for('update');
+      const c = await lockOwned(tx, salesCommissions, u.tenantId, id);
       if (!c) throw new NotFoundException('Komisi tidak ditemukan');
       if (c.status !== 'ACCRUED') throw new BadRequestException(c.status === 'PAID' ? 'Komisi ini sudah dibayar' : 'Komisi ini sudah dibatalkan');
       // pemisahan fungsi: yang menutup komisi tidak membayarnya sendiri (Pemilik dikecualikan agar usaha kecil tetap bisa berjalan)
@@ -107,7 +108,7 @@ export class SalesCommissionsService {
 
   async voidIt(u: AuthUser, id: string, dto: VoidCommissionDto) {
     return this.db.transaction(async (tx) => {
-      const [c] = await tx.select().from(salesCommissions).where(and(eq(salesCommissions.id, id), eq(salesCommissions.tenantId, u.tenantId))).for('update');
+      const c = await lockOwned(tx, salesCommissions, u.tenantId, id);
       if (!c) throw new NotFoundException('Komisi tidak ditemukan');
       if (c.status !== 'ACCRUED') throw new BadRequestException('Hanya komisi yang belum dibayar yang dapat dibatalkan');
       const rev = await this.posting.reverse(tx, u.tenantId, c.accrualJournalId!, toDocDate(addDays(todayJakarta(), 0)), u.sub, true);

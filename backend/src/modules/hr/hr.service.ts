@@ -12,6 +12,7 @@ import { applyEmploymentRules, EmploymentService, type EmpShape } from './employ
 import { type EmploymentType, isPerJob } from './employment.shared';
 import { LinkAccountDto, CreateEmployeeDto, UpdateEmployeeDto, SaveAttendanceDto, CreateLeaveDto, DecideLeaveDto } from './hr.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
+import { findOwned, lockOwned } from '../../db/owned';
 
 const dow = (d: DocDate) => new Date(`${d}T00:00:00Z`).getUTCDay();
  // 0 = Minggu
@@ -67,7 +68,7 @@ export class HrService {
   async linkAccount(u: AuthUser, id: string, dto: LinkAccountDto) {
     const userId = dto.userId ?? null;
     return this.db.transaction(async (tx) => {
-      const [e] = await tx.select().from(employees).where(and(eq(employees.id, id), eq(employees.tenantId, u.tenantId))).for('update');
+      const e = await lockOwned(tx, employees, u.tenantId, id);
       if (!e) throw new NotFoundException('Karyawan tidak ditemukan');
       if (e.userId === userId) return { ok: true, userId };
       if (e.userId && (dto.reason?.trim().length ?? 0) < 5) throw new BadRequestException('Mengganti atau melepas hubungan akun wajib menyertakan alasan (minimal 5 huruf)');
@@ -296,10 +297,7 @@ export class HrService {
   /** Setujui → absensi hari kerja di rentang itu otomatis CUTI (atau ALPA untuk cuti tidak dibayar) */
   async decideLeave(user: AuthUser, id: string, dto: DecideLeaveDto) {
     return this.db.transaction(async (tx) => {
-      const [l] = await tx
-        .select()
-        .from(leaveRequests)
-        .where(and(eq(leaveRequests.id, id), eq(leaveRequests.tenantId, user.tenantId)));
+      const l = await findOwned(tx, leaveRequests, user.tenantId, id);
       if (!l) throw new NotFoundException('Pengajuan cuti tidak ditemukan');
       if (l.status !== 'PENDING') throw new BadRequestException('Pengajuan sudah diputuskan');
       if (dto.decision === 'APPROVED') {

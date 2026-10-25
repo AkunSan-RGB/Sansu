@@ -17,6 +17,7 @@ import { FxService } from '../fx/fx.service';
 import { PriceAgreementsService } from './price-agreements.service';
 import { CreatePurchaseOrderDto, PurchaseOrderQueryDto } from './purchasing.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
+import { findOwned } from '../../db/owned';
 
 /** Purchase order: DRAFT → CONFIRMED (dikirim ke supplier) → BILLED (barang & faktur diterima) */
 @Injectable()
@@ -85,10 +86,7 @@ export class PurchaseOrdersService {
     const date = toDocDate(dto.date);
     {
       const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
-      const [supplier] = await tx
-        .select()
-        .from(suppliers)
-        .where(and(eq(suppliers.id, dto.supplierId), eq(suppliers.tenantId, user.tenantId)));
+      const supplier = await findOwned(tx, suppliers, user.tenantId, dto.supplierId);
       if (!supplier || !supplier.isActive) throw new BadRequestException('Supplier tidak ditemukan / nonaktif');
       const wh = await this.refs.warehouse(tx, user.tenantId, dto.warehouseId);
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');

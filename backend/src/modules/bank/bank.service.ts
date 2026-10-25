@@ -14,6 +14,7 @@ import { accounts, bankLineExtraMatches, bankReconciliations, bankRules, bankSta
 import { PostingService } from '../accounting/posting.service';
 import { ImportStatementDto, MatchDto, MatchManyDto, CreateFromLineDto, BankRuleDto, SignReconciliationDto } from './bank.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
+import { findOwned } from '../../db/owned';
 
 const MATCH_BEFORE = 7;
 
@@ -196,7 +197,7 @@ export class BankService {
 
   private async autoMatchTx(tx: Tx, tenantId: string, statementId: string) {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`bank:${tenantId}`}))`);
-    const [st] = await tx.select().from(bankStatements).where(and(eq(bankStatements.id, statementId), eq(bankStatements.tenantId, tenantId)));
+    const st = await findOwned(tx, bankStatements, tenantId, statementId);
     if (!st) throw new NotFoundException('Rekening koran tidak ditemukan');
     const lines = await tx
       .select()
@@ -234,7 +235,7 @@ export class BankService {
 
   private async lockLine(tx: Tx, tenantId: string, id: string) {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`bank:${tenantId}`}))`);
-    const [l] = await tx.select().from(bankStatementLines).where(and(eq(bankStatementLines.id, id), eq(bankStatementLines.tenantId, tenantId)));
+    const l = await findOwned(tx, bankStatementLines, tenantId, id);
     if (!l) throw new NotFoundException('Mutasi tidak ditemukan');
     const [st] = await tx.select().from(bankStatements).where(eq(bankStatements.id, l.statementId));
     return { l, st };
@@ -242,7 +243,7 @@ export class BankService {
 
   /** Kandidat transaksi buku untuk dicocokkan manual (nilai sama didahulukan) */
   async candidates(tenantId: string, lineId: string) {
-    const [l] = await this.db.select().from(bankStatementLines).where(and(eq(bankStatementLines.id, lineId), eq(bankStatementLines.tenantId, tenantId)));
+    const l = await findOwned(this.db, bankStatementLines, tenantId, lineId);
     if (!l) throw new NotFoundException('Mutasi tidak ditemukan');
     const [st] = await this.db.select().from(bankStatements).where(eq(bankStatements.id, l.statementId));
     const rows = await this.openBookLines(this.db, tenantId, st.cashAccountId, addDays(l.date, -45), addDays(l.date, 15));
@@ -531,7 +532,7 @@ export class BankService {
     if (!['OWNER', 'ADMIN'].includes(user.role)) throw new ForbiddenException('Hanya Pemilik atau Admin yang boleh menghapus rekening koran');
     if (note.length < 5) throw new BadRequestException('Alasan penghapusan wajib diisi (minimal 5 karakter)');
     await this.db.transaction(async (tx) => {
-      const [st] = await tx.select().from(bankStatements).where(and(eq(bankStatements.id, id), eq(bankStatements.tenantId, user.tenantId)));
+      const st = await findOwned(tx, bankStatements, user.tenantId, id);
       if (!st) throw new NotFoundException('Rekening koran tidak ditemukan');
       // Jurnal yang dibuat dari mutasi tetap ada (transaksinya nyata); hanya pencocokannya yang dilepas
       await tx.delete(bankStatements).where(eq(bankStatements.id, id));

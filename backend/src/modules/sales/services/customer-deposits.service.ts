@@ -16,6 +16,7 @@ import { PostingService } from '../../accounting/posting.service';
 import { CreateDepositDto, ApplyDepositDto } from './service-billing.dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
 import { ServiceBillingService, outstandingOf } from './service-billing.service';
+import { findOwned } from '../../../db/owned';
 
 @Injectable()
 export class CustomerDepositsService {
@@ -113,10 +114,7 @@ export class CustomerDepositsService {
       const customer = await this.refs.customer(tx, user.tenantId, dto.customerId);
       if (!customer) throw new BadRequestException('Pelanggan tidak ditemukan');
       if (dto.projectId) {
-        const [p] = await tx
-          .select()
-          .from(projects)
-          .where(and(eq(projects.id, dto.projectId), eq(projects.tenantId, user.tenantId)));
+        const p = await findOwned(tx, projects, user.tenantId, dto.projectId);
         if (!p || p.customerId !== customer.id)
           throw new BadRequestException('Proyek tidak ditemukan untuk pelanggan ini');
       }

@@ -15,6 +15,7 @@ import { SalesOrdersService } from '../orders/sales-orders.service';
 import { ShipDto, ReportSoldDto, ReturnConsignDto } from './consignments.dto';
 import { asDto } from '../../../common/utils/dto';
 import { ReferenceRepository } from '../../../db/reference.repository';
+import { findOwned } from '../../../db/owned';
 
 const STALE_DAYS = 45;
 
@@ -174,7 +175,7 @@ export class ConsignmentsService {
   }
 
   async invoice(u: AuthUser, id: string) {
-    const [doc] = await this.db.select().from(consignmentDocs).where(and(eq(consignmentDocs.id, id), eq(consignmentDocs.tenantId, u.tenantId)));
+    const doc = await findOwned(this.db, consignmentDocs, u.tenantId, id);
     if (!doc || doc.kind !== 'REPORT') throw new NotFoundException('Laporan konsinyasi tidak ditemukan');
     if (doc.status !== 'REPORTED') throw new BadRequestException('Laporan ini sudah diputuskan');
     if (doc.createdById === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Laporan ditagih oleh orang lain dari pelapornya (pemisahan fungsi)');
@@ -217,7 +218,7 @@ export class ConsignmentsService {
   }
 
   async reject(u: AuthUser, id: string, reason: string) {
-    const [doc] = await this.db.select().from(consignmentDocs).where(and(eq(consignmentDocs.id, id), eq(consignmentDocs.tenantId, u.tenantId)));
+    const doc = await findOwned(this.db, consignmentDocs, u.tenantId, id);
     if (!doc || doc.kind !== 'REPORT') throw new NotFoundException('Laporan konsinyasi tidak ditemukan');
     if (doc.status !== 'REPORTED') throw new BadRequestException('Laporan ini sudah diputuskan');
     await this.db.update(consignmentDocs).set({ status: 'REJECTED', decidedById: u.sub, rejectReason: reason }).where(eq(consignmentDocs.id, id));

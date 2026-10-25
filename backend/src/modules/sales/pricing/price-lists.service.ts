@@ -9,6 +9,7 @@ import { InjectDb } from '../../../db/db.module';
 import { customers, priceListItems, priceLists, products, promos, suppliers } from '../../../db/schema';
 import { BonusLine, PriceTier, PromoRule, quote } from './pricing-engine';
 import { PriceListDto, UpdatePriceListDto, PriceItemDto, PromoDto, QuoteDto } from './price-lists.dto';
+import { findOwned } from '../../../db/owned';
 
 type ProductWithUoms = { id: string; sku: string; name: string; baseUom: string; sellPrice: string; uoms: { uom: string; factor: string }[] };
 
@@ -87,7 +88,7 @@ export class PricingService {
   }
 
   async getPriceList(tenantId: string, id: string) {
-    const [l] = await this.db.select().from(priceLists).where(and(eq(priceLists.id, id), eq(priceLists.tenantId, tenantId)));
+    const l = await findOwned(this.db, priceLists, tenantId, id);
     if (!l) throw new NotFoundException('Daftar harga tidak ditemukan');
     const items = await this.db
       .select({ productId: priceListItems.productId, sku: products.sku, name: products.name, baseUom: products.baseUom, sellPrice: products.sellPrice, minQty: priceListItems.minQty, price: priceListItems.price })
@@ -205,7 +206,7 @@ export class PricingService {
   }
 
   async updatePromo(user: AuthUser, id: string, dto: PromoDto) {
-    const [cur] = await this.db.select().from(promos).where(and(eq(promos.id, id), eq(promos.tenantId, user.tenantId)));
+    const cur = await findOwned(this.db, promos, user.tenantId, id);
     if (!cur) throw new NotFoundException('Promo tidak ditemukan');
     await this.validatePromo(user.tenantId, dto);
     const values = this.promoValues(dto);

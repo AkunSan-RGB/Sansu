@@ -16,6 +16,7 @@ import { PostingService } from '../accounting/posting.service';
 import { FiscalService } from '../insights/fiscal.service';
 import { decryptField } from '../../common/utils/secret';
 import { CreateTaxPaymentDto } from './tax.dto';
+import { findOwned } from '../../db/owned';
 
 const LIABILITY_KEY: Partial<Record<TaxPaymentType, SystemKey>> = {
   PPH21: SYS.PPH21_PAYABLE,
@@ -537,7 +538,7 @@ export class TaxService {
   /** Batalkan setoran yang salah input: jurnal dibalik, catatan setoran dihapus */
   async remove(user: AuthUser, id: string) {
     return this.db.transaction(async (tx) => {
-      const [row] = await tx.select().from(taxPayments).where(and(eq(taxPayments.id, id), eq(taxPayments.tenantId, user.tenantId)));
+      const row = await findOwned(tx, taxPayments, user.tenantId, id);
       if (!row) throw new NotFoundException('Setoran tidak ditemukan');
       const later = await tx
         .select({ n: taxPayments.number })

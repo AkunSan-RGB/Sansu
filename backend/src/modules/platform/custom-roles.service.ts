@@ -7,6 +7,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { customRoles, Role, users } from '../../db/schema';
 import { RoleDto, UpdateRoleDto } from './custom-roles.dto';
+import { findOwned } from '../../db/owned';
 
 /** Kunci di luar katalog: aksi akun sendiri dan panel pemilik layanan tidak boleh dicabut lewat peran khusus */
 const EXCLUDED = /^[A-Z]+ \/(auth|platform|platform-admin|billing)(\/|$)/;
@@ -90,7 +91,7 @@ export class CustomRolesService {
   }
 
   async update(user: AuthUser, id: string, dto: UpdateRoleDto) {
-    const [cur] = await this.db.select().from(customRoles).where(and(eq(customRoles.id, id), eq(customRoles.tenantId, user.tenantId)));
+    const cur = await findOwned(this.db, customRoles, user.tenantId, id);
     if (!cur) throw new NotFoundException('Peran khusus tidak ditemukan');
     const name = dto.name?.trim() ?? cur.name;
     if (name.length < 2) throw new BadRequestException('Nama minimal 2 huruf');
@@ -105,7 +106,7 @@ export class CustomRolesService {
   }
 
   async remove(user: AuthUser, id: string) {
-    const [cur] = await this.db.select().from(customRoles).where(and(eq(customRoles.id, id), eq(customRoles.tenantId, user.tenantId)));
+    const cur = await findOwned(this.db, customRoles, user.tenantId, id);
     if (!cur) throw new NotFoundException('Peran khusus tidak ditemukan');
     const [used] = await this.db.select({ n: sql<number>`COUNT(*)::int` }).from(users).where(eq(users.customRoleId, id));
     if (used.n) throw new BadRequestException(`Peran ini masih dipakai ${used.n} pengguna. Pindahkan pengguna ke peran lain dulu.`);

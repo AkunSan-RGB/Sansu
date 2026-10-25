@@ -34,6 +34,7 @@ import { SupplierPaymentsService } from '../purchasing/supplier-payments.service
 import { AssetDisposalService } from '../assets/asset-disposal.service';
 import { AssetMethodService } from '../assets/asset-method.service';
 import { SupplierBillsService } from '../purchasing/supplier-bills.service';
+import { findOwned } from '../../db/owned';
 
 @Injectable()
 export class ApprovalRequestsService {
@@ -104,7 +105,7 @@ export class ApprovalRequestsService {
   }
 
   private async load(user: AuthUser, id: string) {
-    const [r] = await this.db.select().from(approvalRequests).where(and(eq(approvalRequests.id, id), eq(approvalRequests.tenantId, user.tenantId)));
+    const r = await findOwned(this.db, approvalRequests, user.tenantId, id);
     if (!r) throw new NotFoundException('Permintaan persetujuan tidak ditemukan');
     return r;
   }

@@ -11,6 +11,7 @@ import { InjectDb } from '../../db/db.module';
 import { billingInvoices, plans, subscriptions, tenants, users } from '../../db/schema';
 import { activeGateway, midtrans, xendit, type PaymentNotice } from './gateways';
 import { CreateBillingInvoiceDto, ProofDto, UpdateSubscriptionDto, RejectDto, PlanDto } from './billing.dto';
+import { findOwned } from '../../db/owned';
 
 export const DAY = 86_400_000;
 
@@ -212,10 +213,7 @@ export class BillingService {
   }
 
   private async ownInvoice(tenantId: string, id: string) {
-    const [inv] = await this.db
-      .select()
-      .from(billingInvoices)
-      .where(and(eq(billingInvoices.id, id), eq(billingInvoices.tenantId, tenantId)));
+    const inv = await findOwned(this.db, billingInvoices, tenantId, id);
     if (!inv) throw new NotFoundException('Tagihan tidak ditemukan');
     return inv;
   }

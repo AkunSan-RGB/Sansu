@@ -12,6 +12,7 @@ import { IntegrationsService } from '../integrations.service';
 import { PROVIDERS, type NormalizedOrder, type ProviderContext, type ProviderKey, type Tokens } from './providers';
 import { KEYS } from './sync.shared';
 import { StartConnectionDto, UpdateConnectionDto } from './sync.dto';
+import { findOwned } from '../../../db/owned';
 
 const DAY = 86_400_000;
 
@@ -156,7 +157,7 @@ export class MarketplaceSyncService {
   }
 
   async syncNow(u: AuthUser, id: string) {
-    const [c] = await this.db.select().from(marketplaceConnections).where(and(eq(marketplaceConnections.id, id), eq(marketplaceConnections.tenantId, u.tenantId)));
+    const c = await findOwned(this.db, marketplaceConnections, u.tenantId, id);
     if (!c) throw new NotFoundException('Koneksi tidak ditemukan');
     return this.syncOne(c, true);
   }

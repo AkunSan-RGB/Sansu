@@ -12,6 +12,7 @@ import { decryptField, encryptField } from '../../common/utils/secret';
 import { employeeChangeRequests, employees } from '../../db/schema';
 import { EmploymentType } from './employment.shared';
 import { ChangeQueryDto, DecideChangeDto, RejectChangeDto } from './employment.dto';
+import { findOwned, lockOwned } from '../../db/owned';
 
 /** Kolom yang perubahannya oleh HR harus disetujui orang lain (usaha jasa) */
 export const SENSITIVE_FIELDS = [
@@ -176,7 +177,7 @@ export class EmploymentService {
 
   async approveChange(u: AuthUser, id: string, dto: DecideChangeDto) {
     return this.db.transaction(async (tx) => {
-      const [c] = await tx.select().from(employeeChangeRequests).where(and(eq(employeeChangeRequests.id, id), eq(employeeChangeRequests.tenantId, u.tenantId))).for('update');
+      const c = await lockOwned(tx, employeeChangeRequests, u.tenantId, id);
       if (!c) throw new NotFoundException('Permintaan tidak ditemukan');
       if (c.status !== 'PENDING') throw new BadRequestException('Permintaan ini sudah diputuskan');
       await this.assertCanDecide(tx, u, c.requestedById, c.employeeId);
@@ -206,7 +207,7 @@ export class EmploymentService {
 
   async rejectChange(u: AuthUser, id: string, dto: RejectChangeDto) {
     return this.db.transaction(async (tx) => {
-      const [c] = await tx.select().from(employeeChangeRequests).where(and(eq(employeeChangeRequests.id, id), eq(employeeChangeRequests.tenantId, u.tenantId))).for('update');
+      const c = await lockOwned(tx, employeeChangeRequests, u.tenantId, id);
       if (!c) throw new NotFoundException('Permintaan tidak ditemukan');
       if (c.status !== 'PENDING') throw new BadRequestException('Permintaan ini sudah diputuskan');
       await this.assertCanDecide(tx, u, c.requestedById, c.employeeId);
@@ -217,7 +218,7 @@ export class EmploymentService {
   }
 
   async cancelChange(u: AuthUser, id: string) {
-    const [c] = await this.db.select().from(employeeChangeRequests).where(and(eq(employeeChangeRequests.id, id), eq(employeeChangeRequests.tenantId, u.tenantId)));
+    const c = await findOwned(this.db, employeeChangeRequests, u.tenantId, id);
     if (!c) throw new NotFoundException('Permintaan tidak ditemukan');
     if (c.status !== 'PENDING') throw new BadRequestException('Permintaan ini sudah diputuskan');
     if (c.requestedById !== u.sub && u.role !== 'OWNER') throw new ForbiddenException('Hanya pengusul yang dapat menarik permintaan');
@@ -229,7 +230,7 @@ export class EmploymentService {
   /** Verifikasi karyawan baru oleh orang lain dari pembuatnya; sesudah itu baru ikut penggajian */
   async verify(u: AuthUser, employeeId: string) {
     return this.db.transaction(async (tx) => {
-      const [emp] = await tx.select().from(employees).where(and(eq(employees.id, employeeId), eq(employees.tenantId, u.tenantId))).for('update');
+      const emp = await lockOwned(tx, employees, u.tenantId, employeeId);
       if (!emp) throw new NotFoundException('Karyawan tidak ditemukan');
       if (emp.verified) throw new BadRequestException('Karyawan ini sudah diverifikasi');
       if (emp.userId && emp.userId === u.sub) throw new ForbiddenException('Anda tidak dapat memverifikasi data Anda sendiri');
