@@ -17,6 +17,7 @@ import { onlineApiKeys, posOrders, posPlatformSettlements, warehouses } from '..
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { CommissionsDto, CreateApiKeyDto, CreateSettlementDto } from './pos-online.dto';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 const hash = (k: string) => createHash('sha256').update(k).digest('hex');
 
@@ -54,6 +55,7 @@ export class OnlineKeysService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly audit: AuditService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   list(tenantId: string) {
@@ -67,7 +69,7 @@ export class OnlineKeysService {
   /** Kunci hanya ditampilkan sekali saat dibuat; yang tersimpan hanya hash-nya */
   async create(user: AuthUser, dto: CreateApiKeyDto) {
     assertWarehouseAccess(user, dto.warehouseId);
-    const [wh] = await this.db.select().from(warehouses).where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
+    const wh = await this.refs.warehouse(this.db, user.tenantId, dto.warehouseId);
     if (!wh || !wh.isActive) throw new BadRequestException('Outlet tidak ditemukan atau nonaktif');
     const key = `snk_${randomBytes(24).toString('base64url')}`;
     const [row] = await this.db

@@ -16,6 +16,7 @@ import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { VanDto, VanMoveDto, CanvassSaleDto, CollectionDto, VerifyDto, RouteDto, VisitDto } from './canvass.dto';
 import { asDto } from '../../../common/utils/dto';
+import { ReferenceRepository } from '../../../db/reference.repository';
 
 /** Jarak maksimum kunjungan dari titik outlet sebelum ditandai mencurigakan */
 const FAR_METERS = 300;
@@ -40,6 +41,7 @@ export class CanvassService {
     private readonly posting: PostingService,
     private readonly audit: AuditService,
     private readonly subs: SubscriptionService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   async vans(tenantId: string, role?: string) {
@@ -70,7 +72,7 @@ export class CanvassService {
     return w;
   }
   private async mainWh(tenantId: string, id: string) {
-    const [w] = await this.db.select().from(warehouses).where(and(eq(warehouses.id, id), eq(warehouses.tenantId, tenantId)));
+    const w = await this.refs.warehouse(this.db, tenantId, id);
     if (!w || w.kind !== 'MAIN') throw new BadRequestException('Pilih gudang biasa');
     return w;
   }
@@ -102,7 +104,7 @@ export class CanvassService {
       if (!dto.vanId) throw new BadRequestException('Pilih mobil');
       van = await this.van(u.tenantId, dto.vanId);
     }
-    const [cust] = await this.db.select().from(customers).where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, u.tenantId)));
+    const cust = await this.refs.customer(this.db, u.tenantId, dto.customerId);
     if (!cust || !cust.isActive) throw new BadRequestException('Pelanggan tidak ditemukan / nonaktif');
     const date = toDocDate(undefined);
     // harga & potongan tidak bisa diisi sales: server memakai daftar harga outlet dan promo yang berlaku
@@ -266,7 +268,7 @@ export class CanvassService {
   }
 
   async visit(u: AuthUser, dto: VisitDto) {
-    const [cust] = await this.db.select().from(customers).where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, u.tenantId)));
+    const cust = await this.refs.customer(this.db, u.tenantId, dto.customerId);
     if (!cust) throw new BadRequestException('Outlet tidak ditemukan');
     const date = todayJakarta();
     let distance: number | null = null;

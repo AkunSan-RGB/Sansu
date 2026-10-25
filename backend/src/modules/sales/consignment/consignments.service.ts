@@ -14,6 +14,7 @@ import { InvoicesService } from '../invoices/invoices.service';
 import { SalesOrdersService } from '../orders/sales-orders.service';
 import { ShipDto, ReportSoldDto, ReturnConsignDto } from './consignments.dto';
 import { asDto } from '../../../common/utils/dto';
+import { ReferenceRepository } from '../../../db/reference.repository';
 
 const STALE_DAYS = 45;
 
@@ -27,16 +28,17 @@ export class ConsignmentsService {
     private readonly invoices: InvoicesService,
     private readonly audit: AuditService,
     private readonly subs: SubscriptionService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   private async customer(tenantId: string, id: string) {
-    const [c] = await this.db.select().from(customers).where(and(eq(customers.id, id), eq(customers.tenantId, tenantId)));
+    const c = await this.refs.customer(this.db, tenantId, id);
     if (!c || !c.isActive) throw new BadRequestException('Pelanggan tidak ditemukan / nonaktif');
     return c;
   }
 
   private async mainWarehouse(tenantId: string, id: string) {
-    const [w] = await this.db.select().from(warehouses).where(and(eq(warehouses.id, id), eq(warehouses.tenantId, tenantId)));
+    const w = await this.refs.warehouse(this.db, tenantId, id);
     if (!w) throw new BadRequestException('Gudang tidak ditemukan');
     if (w.kind !== 'MAIN') throw new BadRequestException('Pilih gudang biasa (bukan gudang konsinyasi atau mobil)');
     return w;

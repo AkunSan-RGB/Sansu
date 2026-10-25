@@ -13,6 +13,7 @@ import { InjectDb } from '../../db/db.module';
 import { accounts, bankLineExtraMatches, bankReconciliations, bankRules, bankStatementLines, bankStatements, journalLines } from '../../db/schema';
 import { PostingService } from '../accounting/posting.service';
 import { ImportStatementDto, MatchDto, MatchManyDto, CreateFromLineDto, BankRuleDto, SignReconciliationDto } from './bank.dto';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 const MATCH_BEFORE = 7;
 
@@ -36,10 +37,11 @@ export class BankService {
     private readonly audit: AuditService,
     private readonly settings: SettingsService,
     private readonly approvals: ApprovalsService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   private async bankAccount(db: DbOrTx, tenantId: string, id: string) {
-    const [a] = await db.select().from(accounts).where(and(eq(accounts.id, id), eq(accounts.tenantId, tenantId)));
+    const a = await this.refs.account(db, tenantId, id);
     if (!a || !a.isCashAccount) throw new BadRequestException('Pilih akun kas / bank');
     return a;
   }
@@ -326,7 +328,7 @@ export class BankService {
   /** Mutasi yang belum ada di buku (biaya admin, bunga, transfer masuk tak dikenal) → jurnal langsung */
   /** Jurnal dari satu mutasi bank yang belum tercatat (dipakai manual dan oleh aturan otomatis) */
   private async postFromLine(tx: Tx, user: AuthUser, l: typeof bankStatementLines.$inferSelect, st: typeof bankStatements.$inferSelect, accountId: string, description: string | undefined, matchedBy: string) {
-    const [acc] = await tx.select().from(accounts).where(and(eq(accounts.id, accountId), eq(accounts.tenantId, user.tenantId)));
+    const acc = await this.refs.account(tx, user.tenantId, accountId);
     if (!acc || !acc.isPostable) throw new BadRequestException('Akun lawan tidak valid');
     if (acc.id === st.cashAccountId) throw new BadRequestException('Akun lawan tidak boleh rekening bank itu sendiri');
     const amt = D(l.amount);
@@ -396,7 +398,7 @@ export class BankService {
   }
 
   private async ruleAccount(tenantId: string, accountId: string) {
-    const [a] = await this.db.select().from(accounts).where(and(eq(accounts.id, accountId), eq(accounts.tenantId, tenantId)));
+    const a = await this.refs.account(this.db, tenantId, accountId);
     // hanya akun pendapatan / beban: aturan otomatis tidak boleh menyentuh piutang, hutang, persediaan, atau aset
     if (!a || !a.isPostable || !['REVENUE', 'EXPENSE'].includes(a.type) || a.isCashAccount) throw new BadRequestException('Aturan otomatis hanya boleh memakai akun pendapatan atau beban');
   }

@@ -27,6 +27,8 @@ import { PostingService } from './posting.service';
 import { loadSourceDocument } from './source-document';
 import { resolveSourceRoutes } from './source-route';
 import { decryptField } from '../../common/utils/secret';
+import { AccountingRepository } from './accounting.repository';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 interface BalanceRow {
   id: string;
@@ -73,6 +75,8 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
     private readonly budget: BudgetService,
+    private readonly repo: AccountingRepository,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   /** Jurnal berulang dijalankan otomatis setiap jam untuk semua perusahaan */
@@ -94,10 +98,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
 
   async createAccount(tenantId: string, dto: CreateAccountDto) {
     if (dto.parentId) {
-      const [parent] = await this.db
-        .select()
-        .from(accounts)
-        .where(and(eq(accounts.id, dto.parentId), eq(accounts.tenantId, tenantId)));
+      const parent = await this.refs.account(this.db, tenantId, dto.parentId);
       if (!parent) throw new BadRequestException('Akun induk tidak ditemukan');
       if (parent.type !== dto.type) throw new BadRequestException('Tipe akun harus sama dengan akun induk');
     }
@@ -111,7 +112,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
   }
 
   async updateAccount(tenantId: string, id: string, dto: UpdateAccountDto) {
-    const [acc] = await this.db.select().from(accounts).where(and(eq(accounts.id, id), eq(accounts.tenantId, tenantId)));
+    const acc = await this.repo.accountOfTenant(this.db, tenantId, id);
     if (!acc) throw new NotFoundException('Akun tidak ditemukan');
     if (dto.reportGroup && REPORT_GROUPS[dto.reportGroup].type !== acc.type) {
       throw new BadRequestException('Kelompok laporan tidak sesuai dengan tipe akun');
@@ -126,7 +127,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
 
   /** Hapus akun yang belum pernah dipakai */
   async deleteAccount(tenantId: string, id: string) {
-    const [acc] = await this.db.select().from(accounts).where(and(eq(accounts.id, id), eq(accounts.tenantId, tenantId)));
+    const acc = await this.repo.accountOfTenant(this.db, tenantId, id);
     if (!acc) throw new NotFoundException('Akun tidak ditemukan');
     if (acc.systemKey) throw new BadRequestException('Akun sistem tidak bisa dihapus');
     const [used] = await this.db.select({ id: journalLines.id }).from(journalLines).where(eq(journalLines.accountId, id)).limit(1);
@@ -525,7 +526,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
       try {
         for (let guard = 0; guard < 1000; guard++) {
           const more = await this.db.transaction(async (tx) => {
-            const [r] = await tx.select().from(recurringJournals).where(and(eq(recurringJournals.id, id), eq(recurringJournals.tenantId, tenantId))).for('update');
+            const r = await this.repo.recurringForUpdate(tx, tenantId, id);
             // proses lain mungkin sudah memajukannya
             if (!r || !r.isActive || r.nextDate > today) return false;
             name = r.name;
@@ -570,7 +571,7 @@ export class AccountingService implements OnModuleInit, OnModuleDestroy {
     for (const { id } of due) {
       try {
         await this.db.transaction(async (tx) => {
-          const [row] = await tx.select().from(scheduledReversals).where(eq(scheduledReversals.id, id)).for('update');
+          const row = await this.repo.scheduledReversalForUpdate(tx, id);
           if (!row || row.status !== 'PENDING') return;
           const orig = await tx.query.journalEntries.findFirst({ where: eq(journalEntries.id, row.journalId) });
           const already = await tx.query.journalEntries.findFirst({ where: eq(journalEntries.reversalOfId, row.journalId) });

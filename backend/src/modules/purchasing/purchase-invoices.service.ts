@@ -36,6 +36,7 @@ import { QcService } from '../production/qc.service';
 import { GoodsReceiptsService, QTY_EPS } from './goods-receipts.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { CreateBillDto, CreatePurchaseInvoiceDto, CreateSupplierPaymentDto, PurchaseInvoiceQueryDto } from './purchasing.dto';
+import { PurchaseInvoiceRepository } from './purchase-invoice.repository';
 
 /** Satu aset per unit (maks. 50 unit per baris) agar penyusutan & pelepasannya bisa per barang */
 const assetUnitCount = (qty: Dec) => (qty.isInteger() && qty.lte(50) ? qty.toNumber() : 1);
@@ -57,6 +58,7 @@ export class PurchaseInvoicesService {
     private readonly fx: FxService,
     private readonly budget: BudgetService,
     private readonly qc: QcService,
+    private readonly repo: PurchaseInvoiceRepository,
   ) {}
 
   list(tenantId: string, q: PurchaseInvoiceQueryDto) {
@@ -248,7 +250,7 @@ export class PurchaseInvoicesService {
 
   /** Jalur langsung faktur: barang diterima dan ditagih sekaligus (satu jurnal), seluruh pesanan */
   private async receiveAndBill(tx: Tx, user: AuthUser, order: Awaited<ReturnType<PurchaseOrdersService['lock']>>, dto: CreatePurchaseInvoiceDto, date: string) {
-    const [supplier] = await tx.select().from(suppliers).where(eq(suppliers.id, order.supplierId));
+    const supplier = await this.repo.supplierById(tx, order.supplierId);
     // Non-PKP: PPN masukan tidak bisa dikreditkan → menjadi bagian harga perolehan persediaan
     const capitalize = D(order.taxAmount).gt(0) && !(await this.isPkp(tx, user.tenantId));
     // Harga faktur (bila berbeda dari PO) menjadi biaya perolehan sejak awal; tanpa isian memakai harga PO
@@ -355,7 +357,7 @@ export class PurchaseInvoicesService {
    * | Cr Utang Usaha. Selisih pembulatan antara DPP dan nilai penerimaan masuk ke Selisih Persediaan.
    */
   private async billReceived(tx: Tx, user: AuthUser, order: Awaited<ReturnType<PurchaseOrdersService['lock']>>, dto: CreatePurchaseInvoiceDto, date: string) {
-    const [supplier] = await tx.select().from(suppliers).where(eq(suppliers.id, order.supplierId));
+    const supplier = await this.repo.supplierById(tx, order.supplierId);
     const picks = new Map<string, Dec>();
     if (dto.lines) {
       for (const p of dto.lines) {
@@ -547,7 +549,7 @@ export class PurchaseInvoicesService {
       { kind: 'BILL', title: `Tagihan ${dto.supplierInvoiceNo}`, payload: JSON.parse(JSON.stringify(dto)), approved: opts.approved, overrideReason: dto.budgetOverrideReason },
     );
     const result = await this.db.transaction(async (tx) => {
-      const [supplier] = await tx.select().from(suppliers).where(and(eq(suppliers.id, dto.supplierId), eq(suppliers.tenantId, user.tenantId)));
+      const supplier = await this.repo.supplierOfTenant(tx, user.tenantId, dto.supplierId);
       if (!supplier) throw new NotFoundException('Supplier tidak ditemukan');
       const [tenant] = await tx.select({ ppnRate: tenants.ppnRate, settings: tenants.settings }).from(tenants).where(eq(tenants.id, user.tenantId));
       const pkp = taxProfileOf(tenant.settings).pkp;
@@ -572,7 +574,7 @@ export class PurchaseInvoicesService {
           exempt = this.assets.isThresholdExempt(cat);
         } else {
           if (!l.accountId) throw new BadRequestException(`Pilih akun untuk "${l.description}"`);
-          const [acc] = await tx.select().from(accounts).where(and(eq(accounts.id, l.accountId), eq(accounts.tenantId, user.tenantId)));
+          const acc = await this.repo.accountOfTenant(tx, user.tenantId, l.accountId);
           if (!acc || !acc.isPostable) throw new BadRequestException(`Akun untuk "${l.description}" tidak valid`);
           if (acc.isCashAccount) throw new BadRequestException('Akun kas/bank tidak bisa dipakai di baris tagihan');
           debitAccountId = acc.id;
@@ -761,8 +763,8 @@ export class PurchaseInvoicesService {
       const locked = await tx.execute(sql`
         SELECT id FROM purchase_invoices WHERE id = ${dto.purchaseInvoiceId} AND tenant_id = ${user.tenantId} FOR UPDATE`);
       if (!locked.rows.length) throw new NotFoundException('Faktur pembelian tidak ditemukan');
-      const [inv] = await tx.select().from(purchaseInvoices).where(eq(purchaseInvoices.id, dto.purchaseInvoiceId));
-      const [supplier] = await tx.select().from(suppliers).where(eq(suppliers.id, inv.supplierId));
+      const inv = await this.repo.invoiceById(tx, dto.purchaseInvoiceId);
+      const supplier = await this.repo.supplierById(tx, inv.supplierId);
 
       const outstanding = D(inv.total).minus(inv.paidAmount).minus(inv.returnedAmount);
       const foreign = inv.currency !== 'IDR';
@@ -836,7 +838,7 @@ export class PurchaseInvoicesService {
       // urutan kunci sama dengan pay(): faktur dulu, lalu pembayaran
       await tx.execute(sql`SELECT id FROM purchase_invoices WHERE id = ${p0.invoiceId} AND tenant_id = ${user.tenantId} FOR UPDATE`);
       await tx.execute(sql`SELECT id FROM supplier_payments WHERE id = ${id} AND tenant_id = ${user.tenantId} FOR UPDATE`);
-      const [p] = await tx.select().from(supplierPayments).where(eq(supplierPayments.id, id));
+      const p = await this.repo.paymentById(tx, id);
       if (p.status === 'VOID') throw new BadRequestException('Pembayaran ini sudah dibatalkan');
       if (!p.journalId) throw new BadRequestException('Pembayaran belum punya jurnal');
       const matched = await tx.execute<{ n: number }>(sql`
@@ -846,7 +848,7 @@ export class PurchaseInvoicesService {
              + (SELECT COUNT(*) FROM bank_line_extra_matches x WHERE x.journal_line_id IN (SELECT id FROM journal_lines WHERE journal_id = ${p.journalId}))::int AS n`);
       if (matched.rows[0].n > 0) throw new BadRequestException('Pembayaran ini sudah dicocokkan dengan mutasi bank. Batalkan pencocokannya di Rekonsiliasi Bank dulu');
       const rev = await this.posting.reverse(tx, user.tenantId, p.journalId, todayJakarta(), user.sub, true);
-      const [inv] = await tx.select().from(purchaseInvoices).where(eq(purchaseInvoices.id, p.purchaseInvoiceId));
+      const inv = await this.repo.invoiceById(tx, p.purchaseInvoiceId);
       const paid = D(inv.paidAmount).minus(p.amount);
       const foreign = inv.currency !== 'IDR';
       await tx

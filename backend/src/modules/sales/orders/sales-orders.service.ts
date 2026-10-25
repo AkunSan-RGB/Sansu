@@ -16,6 +16,7 @@ import { documentTotals, inclusiveDocument, lineTotal } from '../pricing';
 import { PricingService } from '../pricing/price-lists.service';
 import { CreateSalesOrderDto, SalesOrderLineDto, SalesOrderQueryDto } from '../sales.dto';
 import { CreditService } from './credit.service';
+import { ReferenceRepository } from '../../../db/reference.repository';
 
 @Injectable()
 export class SalesOrdersService {
@@ -27,6 +28,7 @@ export class SalesOrdersService {
     private readonly fx: FxService,
     private readonly pricing: PricingService,
     private readonly approvals: ApprovalsService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   list(tenantId: string, q: SalesOrderQueryDto) {
@@ -65,10 +67,7 @@ export class SalesOrdersService {
     const date = toDocDate(dto.date);
     const id = await this.db.transaction(async (tx) => {
       const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
-      const [customer] = await tx
-        .select()
-        .from(customers)
-        .where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, user.tenantId)));
+      const customer = await this.refs.customer(tx, user.tenantId, dto.customerId);
       if (!customer || !customer.isActive) throw new BadRequestException('Pelanggan tidak ditemukan / nonaktif');
       const poNo = dto.customerPoNo?.trim() || null;
       if (customer.requirePo && !poNo && !opts.consignment) throw new BadRequestException(`${customer.name} mewajibkan nomor PO outlet pada setiap pesanan`);
@@ -76,10 +75,7 @@ export class SalesOrdersService {
         const [dup] = await tx.select({ number: salesOrders.number }).from(salesOrders).where(and(eq(salesOrders.tenantId, user.tenantId), eq(salesOrders.customerId, customer.id), eq(salesOrders.customerPoNo, poNo), sql`${salesOrders.status} <> 'CANCELLED'`));
         if (dup) throw new BadRequestException(`Nomor PO ${poNo} sudah dipakai pada pesanan ${dup.number} (satu PO tidak boleh ditagih dua kali)`);
       }
-      const [wh] = await tx
-        .select()
-        .from(warehouses)
-        .where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
+      const wh = await this.refs.warehouse(tx, user.tenantId, dto.warehouseId);
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
       // Gudang titipan hanya dipakai lewat alur konsinyasi (laporan outlet → ditagih); gudang mobil hanya oleh sales pemiliknya atau Admin
       if (wh.kind === 'CONSIGNMENT' && !opts.consignment) throw new BadRequestException(`${wh.name} adalah gudang konsinyasi: jual lewat Penjualan › Konsinyasi (laporan penjualan outlet)`);

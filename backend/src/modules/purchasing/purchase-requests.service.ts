@@ -11,6 +11,7 @@ import { purchaseRequestLines, purchaseRequests, suppliers, users, warehouses, t
 import { buildLines } from '../master-data/products/line-builder';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { ConvertPurchaseRequestDto, CreatePurchaseRequestDto } from './purchase-requests.dto';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 const rp = (v: number) => `Rp${Math.round(v).toLocaleString('id-ID')}`;
 
@@ -28,6 +29,7 @@ export class PurchaseRequestsService {
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
     private readonly orders: PurchaseOrdersService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   private async names(db: DbOrTx, ids: (string | null)[]) {
@@ -105,7 +107,7 @@ export class PurchaseRequestsService {
 
   async create(user: AuthUser, dto: CreatePurchaseRequestDto) {
     const id = await this.db.transaction(async (tx) => {
-      const [wh] = await tx.select().from(warehouses).where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
+      const wh = await this.refs.warehouse(tx, user.tenantId, dto.warehouseId);
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
       if (wh.kind !== 'MAIN') throw new BadRequestException('Gudang konsinyasi/mobil hanya dipakai lewat menu Konsinyasi / Kanvas');
       const supIds = [...new Set(dto.lines.map((l) => l.supplierId).filter((x): x is string => !!x))];

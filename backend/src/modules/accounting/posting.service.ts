@@ -8,6 +8,7 @@ import { DbOrTx, Tx } from '../../db/db';
 import { accounts, journalEntries, journalLines } from '../../db/schema';
 import { DEFAULT_COA, SystemKey } from './default-coa';
 import { JournalValidationError, normalizeJournalLines } from './journal-rules';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 export interface PostLine {
   /** Salah satu: id akun, atau kunci akun sistem (AR, SALES, ...) */
@@ -46,6 +47,7 @@ export class PostingService {
   constructor(
     private readonly seq: SequenceService,
     private readonly period: PeriodService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   async post(tx: Tx, input: PostJournalInput) {
@@ -254,10 +256,7 @@ export class PostingService {
    */
   async resolveCashAccount(db: DbOrTx, tenantId: string, accountId: string | undefined, fallback: 'CASH' | 'BANK') {
     if (accountId) {
-      const [acc] = await db
-        .select()
-        .from(accounts)
-        .where(and(eq(accounts.id, accountId), eq(accounts.tenantId, tenantId)));
+      const acc = await this.refs.account(db, tenantId, accountId);
       if (!acc || !acc.isCashAccount || !acc.isPostable) throw new BadRequestException('Akun kas/bank tidak valid');
       return acc;
     }

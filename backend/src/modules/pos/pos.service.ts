@@ -22,6 +22,7 @@ import { earnPoints } from '@sansu/shared';
 import { buildLines } from '../master-data/products/line-builder';
 import { documentTotals, inclusiveTotals } from '../sales/pricing';
 import { PosProductQueryDto, OpenSessionDto, CreatePosOrderDto, CloseSessionDto } from './pos.dto';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 @Injectable()
 export class PosService {
@@ -33,6 +34,7 @@ export class PosService {
     private readonly audit: AuditService,
     private readonly loyalty: LoyaltyService,
     private readonly approvals: ApprovalsService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   /** Produk untuk layar kasir: harga, satuan, barcode, dan stok di gudang sesi */
@@ -97,10 +99,7 @@ export class PosService {
         .from(posSessions)
         .where(and(eq(posSessions.userId, user.sub), eq(posSessions.status, 'OPEN')));
       if (existing) throw new BadRequestException(`Anda masih punya sesi kasir terbuka (${existing.number})`);
-      const [wh] = await tx
-        .select()
-        .from(warehouses)
-        .where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
+      const wh = await this.refs.warehouse(tx, user.tenantId, dto.warehouseId);
       if (!wh) throw new BadRequestException('Gudang / toko tidak ditemukan');
       if (wh.kind !== 'MAIN') throw new BadRequestException('Gudang konsinyasi/mobil hanya dipakai lewat menu Konsinyasi / Kanvas');
       // kasir yang dibatasi ke toko tertentu tidak bisa membuka sesi di toko lain

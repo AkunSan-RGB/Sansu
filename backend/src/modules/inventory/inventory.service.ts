@@ -16,6 +16,7 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { StockAdjustmentDto, StockQueryDto } from './dto/inventory.dto';
 import { StockService } from './stock.service';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 @Injectable()
 export class InventoryService {
@@ -26,6 +27,7 @@ export class InventoryService {
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   async balances(tenantId: string, q: StockQueryDto, u?: AuthUser) {
@@ -80,10 +82,7 @@ export class InventoryService {
     const date = toDocDate(dto.date);
     let gate: { limit: number; total: number; costHigh?: number } | null = null;
     const run = async (tx: Tx) => {
-      const [wh] = await tx
-        .select()
-        .from(warehouses)
-        .where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
+      const wh = await this.refs.warehouse(tx, user.tenantId, dto.warehouseId);
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
       if (wh.kind !== 'MAIN' && !opts.special) throw new BadRequestException('Gudang konsinyasi/mobil hanya dipakai lewat menu Konsinyasi / Kanvas; koreksi stoknya lewat stock opname gudang itu');
 

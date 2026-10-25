@@ -14,6 +14,7 @@ import { PostingService } from '../accounting/posting.service';
 import { InvoicesService } from '../sales/invoices/invoices.service';
 import { SalesOrdersService } from '../sales/orders/sales-orders.service';
 import { IntegrationSettingsDto, MarketplaceImportDto, MarketplaceSettleDto } from './integrations.dto';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 export interface IntegrationSettings {
   /** Kode satuan Coretax per satuan barang, mis. { PCS: 'UM.00xx' } */
@@ -51,6 +52,7 @@ export class IntegrationsService {
     private readonly posting: PostingService,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   getSettings(tenantId: string) {
@@ -329,7 +331,7 @@ export class IntegrationsService {
     const conf = await this.getSettings(tenantId);
     const id = conf.marketplaceCustomers[channel];
     if (id) {
-      const [c] = await this.db.select().from(customers).where(and(eq(customers.id, id), eq(customers.tenantId, tenantId)));
+      const c = await this.refs.customer(this.db, tenantId, id);
       if (c) return c;
     }
     const code = `MP-${channel.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20)}`;
@@ -352,7 +354,7 @@ export class IntegrationsService {
    */
   async importMarketplace(user: AuthUser, dto: MarketplaceImportDto) {
     const channel = dto.channel.trim();
-    const [wh] = await this.db.select().from(warehouses).where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
+    const wh = await this.refs.warehouse(this.db, user.tenantId, dto.warehouseId);
     if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
     const customer = await this.channelCustomer(user.tenantId, channel);
     const [tenant] = await this.db.select({ ppnRate: tenants.ppnRate }).from(tenants).where(eq(tenants.id, user.tenantId));

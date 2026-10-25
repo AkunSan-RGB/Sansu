@@ -11,6 +11,7 @@ import { attendances, employees, leaveRequests, projects } from '../../db/schema
 import { applyEmploymentRules, EmploymentService, type EmpShape } from './employment.service';
 import { type EmploymentType, isPerJob } from './employment.shared';
 import { LinkAccountDto, CreateEmployeeDto, UpdateEmployeeDto, SaveAttendanceDto, CreateLeaveDto, DecideLeaveDto } from './hr.dto';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 const dow = (d: DocDate) => new Date(`${d}T00:00:00Z`).getUTCDay();
  // 0 = Minggu
@@ -35,6 +36,7 @@ export class HrService {
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
     private readonly employment: EmploymentService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   listEmployees(tenantId: string, activeOnly = false) {
@@ -46,7 +48,7 @@ export class HrService {
   }
 
   async getEmployee(tenantId: string, id: string, db: DbOrTx = this.db) {
-    const [e] = await db.select().from(employees).where(and(eq(employees.id, id), eq(employees.tenantId, tenantId)));
+    const e = await this.refs.employee(db, tenantId, id);
     if (!e) throw new NotFoundException('Karyawan tidak ditemukan');
     return { ...e, leave: await this.leaveBalance(tenantId, e.id, e.annualLeave, db) };
   }

@@ -12,6 +12,7 @@ import { accounts, branches, warehouses } from '../../db/schema';
 import { get as gets, loadAccounts, natural, unclosedEarnings, type Sum } from '../accounting/ledger-data';
 import { SYS } from '../accounting/default-coa';
 import { CreateBranchDto, UpdateBranchDto } from './branches.dto';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 const NONE = 'NONE';
 
@@ -36,6 +37,7 @@ export class BranchesService {
     @InjectDb() private readonly db: Db,
     private readonly audit: AuditService,
     private readonly settings: SettingsService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   async list(tenantId: string) {
@@ -68,7 +70,7 @@ export class BranchesService {
 
   /** Gudang/toko milik cabang: transaksi berikutnya di gudang ini berlabel cabang itu. Riwayat tidak diubah (jurnal tidak bisa diubah). */
   async assignWarehouse(user: AuthUser, warehouseId: string, branchId: string | null) {
-    const [w] = await this.db.select().from(warehouses).where(and(eq(warehouses.id, warehouseId), eq(warehouses.tenantId, user.tenantId)));
+    const w = await this.refs.warehouse(this.db, user.tenantId, warehouseId);
     if (!w) throw new NotFoundException('Gudang tidak ditemukan');
     if (branchId) {
       const [b] = await this.db.select().from(branches).where(and(eq(branches.id, branchId), eq(branches.tenantId, user.tenantId)));

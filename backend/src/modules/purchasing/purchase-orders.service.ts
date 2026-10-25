@@ -16,6 +16,7 @@ import { D, money } from '../../common/utils/money';
 import { FxService } from '../fx/fx.service';
 import { PriceAgreementsService } from './price-agreements.service';
 import { CreatePurchaseOrderDto, PurchaseOrderQueryDto } from './purchasing.dto';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 /** Purchase order: DRAFT → CONFIRMED (dikirim ke supplier) → BILLED (barang & faktur diterima) */
 @Injectable()
@@ -27,6 +28,7 @@ export class PurchaseOrdersService {
     private readonly approvals: ApprovalsService,
     private readonly fx: FxService,
     private readonly agreements: PriceAgreementsService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   /** Status penerimaan dan penagihan turunan dari baris pesanan: NONE / PARTIAL / FULL */
@@ -88,10 +90,7 @@ export class PurchaseOrdersService {
         .from(suppliers)
         .where(and(eq(suppliers.id, dto.supplierId), eq(suppliers.tenantId, user.tenantId)));
       if (!supplier || !supplier.isActive) throw new BadRequestException('Supplier tidak ditemukan / nonaktif');
-      const [wh] = await tx
-        .select()
-        .from(warehouses)
-        .where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
+      const wh = await this.refs.warehouse(tx, user.tenantId, dto.warehouseId);
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
       if (wh.kind !== 'MAIN') throw new BadRequestException('Gudang konsinyasi/mobil hanya dipakai lewat menu Konsinyasi / Kanvas');
 

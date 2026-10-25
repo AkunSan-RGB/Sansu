@@ -7,12 +7,14 @@ import { InjectDb } from '../../../db/db.module';
 import { stockBalances, warehouses } from '../../../db/schema';
 import { SubscriptionService } from '../../../common/billing/subscription.service';
 import { CreateWarehouseDto, UpdateWarehouseDto } from './warehouses.dto';
+import { ReferenceRepository } from '../../../db/reference.repository';
 
 @Injectable()
 export class WarehousesService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly subs: SubscriptionService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   list(tenantId: string, u?: AuthUser) {
@@ -34,7 +36,7 @@ export class WarehousesService {
   }
 
   async update(tenantId: string, id: string, dto: UpdateWarehouseDto) {
-    const [w] = await this.db.select().from(warehouses).where(and(eq(warehouses.id, id), eq(warehouses.tenantId, tenantId)));
+    const w = await this.refs.warehouse(this.db, tenantId, id);
     if (!w) throw new NotFoundException('Gudang tidak ditemukan');
     if (dto.isActive === false && w.isActive) {
       const [s] = await this.db

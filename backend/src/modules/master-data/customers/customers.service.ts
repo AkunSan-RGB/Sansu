@@ -9,6 +9,7 @@ import { InjectDb } from '../../../db/db.module';
 import { customers, invoices, priceLists } from '../../../db/schema';
 import { partyNameKey } from '../../../common/utils/party-name';
 import { CreateCustomerDto, UpdateCustomerDto } from './customers.dto';
+import { ReferenceRepository } from '../../../db/reference.repository';
 
 @Injectable()
 export class CustomersService {
@@ -16,6 +17,7 @@ export class CustomersService {
     @InjectDb() private readonly db: Db,
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   list(tenantId: string, q?: string) {
@@ -33,10 +35,7 @@ export class CustomersService {
   }
 
   async get(tenantId: string, id: string) {
-    const [c] = await this.db
-      .select()
-      .from(customers)
-      .where(and(eq(customers.id, id), eq(customers.tenantId, tenantId)));
+    const c = await this.refs.customer(this.db, tenantId, id);
     if (!c) throw new NotFoundException('Pelanggan tidak ditemukan');
     const [open] = await this.db
       .select({ outstanding: sql<string>`COALESCE(SUM(${invoices.total} - ${invoices.paidAmount} - ${invoices.returnedAmount}), 0)` })

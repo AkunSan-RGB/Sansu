@@ -18,6 +18,8 @@ import { products, stockBalances, stockCountLines, stockCounts, stockMinimums, s
 import { InventoryService } from './inventory.service';
 import { StockService } from './stock.service';
 import { CreateTransferDto, ReceiveTransferDto, CancelTransferDto, CreateCountDto, UpdateCountDto, SaveMinimumsDto } from './warehouse-ops.dto';
+import { WarehouseRepository } from './warehouse.repository';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 const q4 = (v: string | number) => D(v).toFixed(4);
 
@@ -33,13 +35,12 @@ export class WarehouseOpsService {
     private readonly audit: AuditService,
     private readonly posting: PostingService,
     private readonly approvals: ApprovalsService,
+    private readonly repo: WarehouseRepository,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   async warehouse(db: Db | Tx, tenantId: string, id: string) {
-    const [w] = await db
-      .select()
-      .from(warehouses)
-      .where(and(eq(warehouses.id, id), eq(warehouses.tenantId, tenantId)));
+    const w = await this.refs.warehouse(db, tenantId, id);
     if (!w) throw new BadRequestException('Gudang tidak ditemukan');
     return w;
   }
@@ -204,7 +205,7 @@ export class WarehouseOpsService {
       sql`SELECT id FROM stock_transfers WHERE id = ${id} AND tenant_id = ${u.tenantId} FOR UPDATE`,
     );
     if (!r.rows.length) throw new NotFoundException('Transfer tidak ditemukan');
-    const [t] = await tx.select().from(stockTransfers).where(eq(stockTransfers.id, id));
+    const t = await this.repo.transferById(tx, id);
     if (t.status !== 'IN_TRANSIT')
       throw new BadRequestException(
         t.status === 'RECEIVED' ? 'Barang transfer ini sudah diterima' : 'Transfer ini sudah dibatalkan',

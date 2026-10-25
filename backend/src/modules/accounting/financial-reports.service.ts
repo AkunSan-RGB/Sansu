@@ -9,12 +9,14 @@ import { AccountType, accounts } from '../../db/schema';
 import { resolveSourceRoutes } from './source-route';
 import { decryptField } from '../../common/utils/secret';
 import { AccountingService, LEDGER_ROW_LIMIT, normal, CashCategory } from './accounting.service';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 @Injectable()
 export class FinancialReportsService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly accounting: AccountingService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
 
@@ -67,10 +69,7 @@ export class FinancialReportsService {
   /** Buku besar satu akun: saldo awal, mutasi, saldo berjalan. */
   async ledger(tenantId: string, accountId: string, from?: string, to?: string, rowLimit = LEDGER_ROW_LIMIT, branchId?: string) {
     const brCond = branchId ? (branchId === 'NONE' ? sql`AND l.branch_id IS NULL` : sql`AND l.branch_id = ${branchId}`) : sql``;
-    const [acc] = await this.db
-      .select()
-      .from(accounts)
-      .where(and(eq(accounts.id, accountId), eq(accounts.tenantId, tenantId)));
+    const acc = await this.refs.account(this.db, tenantId, accountId);
     if (!acc) throw new NotFoundException('Akun tidak ditemukan');
 
     const fromDate = from ? toDocDate(from) : undefined;

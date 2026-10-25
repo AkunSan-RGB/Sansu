@@ -17,6 +17,7 @@ import { documentTotals, inclusiveDocument } from '../pricing';
 import { projectCostsSql } from './project-costs';
 import { decryptField } from '../../../common/utils/secret';
 import { CreateServiceInvoiceDto, WithholdingSlipDto, ProjectProgressDto, CreateProjectDto, UpdateProjectDto, CreateDepositDto, ApplyDepositDto } from './service-billing.dto';
+import { ReferenceRepository } from '../../../db/reference.repository';
 
 const outstandingOf = (i: { total: string; paidAmount: string; returnedAmount: string }) =>
   D(i.total).minus(i.paidAmount).minus(i.returnedAmount);
@@ -28,6 +29,7 @@ export class ServiceBillingService {
     private readonly seq: SequenceService,
     private readonly posting: PostingService,
     private readonly audit: AuditService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   private async keyAccount(tx: Tx | Db, tenantId: string, key: string) {
@@ -46,10 +48,7 @@ export class ServiceBillingService {
     const date = toDocDate(dto.date);
     const result = await this.db.transaction(async (tx) => {
       const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
-      const [customer] = await tx
-        .select()
-        .from(customers)
-        .where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, user.tenantId)));
+      const customer = await this.refs.customer(tx, user.tenantId, dto.customerId);
       if (!customer || !customer.isActive) throw new BadRequestException('Pelanggan tidak ditemukan / nonaktif');
 
       // PPh dipotong pelanggan
@@ -623,10 +622,7 @@ export class ServiceBillingService {
     if (amount.lte(0)) throw new BadRequestException('Jumlah uang muka harus > 0');
     return this.db.transaction(async (tx) => {
       const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, user.tenantId));
-      const [customer] = await tx
-        .select()
-        .from(customers)
-        .where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, user.tenantId)));
+      const customer = await this.refs.customer(tx, user.tenantId, dto.customerId);
       if (!customer) throw new BadRequestException('Pelanggan tidak ditemukan');
       if (dto.projectId) {
         const [p] = await tx

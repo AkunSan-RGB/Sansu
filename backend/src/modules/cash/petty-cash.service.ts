@@ -11,6 +11,7 @@ import { InjectDb } from '../../db/db.module';
 import { accounts, pettyCashFunds, pettyCashReplenishments, pettyCashVouchers } from '../../db/schema';
 import { CashService } from './cash.service';
 import { PettyFundDto, PettyFundTopUpDto, PettyVoucherDto, PettyVoidDto, PettyReplenishDto } from './petty-cash.dto';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 type Fund = typeof pettyCashFunds.$inferSelect;
 
@@ -24,6 +25,7 @@ export class PettyCashService {
     private readonly approvals: ApprovalsService,
     private readonly audit: AuditService,
     private readonly seq: SequenceService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   private async balanceOf(db: Db | Tx, accountId: string): Promise<Dec> {
@@ -130,7 +132,7 @@ export class PettyCashService {
       if (amount.gt(f.maxVoucher)) throw new BadRequestException(`Melebihi batas per bukti kas kecil (Rp${D(f.maxVoucher).toNumber().toLocaleString('id-ID')}). Pengeluaran sebesar itu dicatat lewat Kas keluar dengan persetujuan`);
       if (date > todayJakarta()) throw new BadRequestException('Tanggal bukti tidak boleh di masa depan');
       if (date < addDays(todayJakarta(), -30)) throw new BadRequestException('Bukti lebih dari 30 hari tidak diterima di kas kecil');
-      const [acc] = await tx.select().from(accounts).where(and(eq(accounts.id, dto.expenseAccountId), eq(accounts.tenantId, user.tenantId)));
+      const acc = await this.refs.account(tx, user.tenantId, dto.expenseAccountId);
       if (!acc || !acc.isPostable) throw new BadRequestException('Akun beban tidak valid');
       if (acc.type !== 'EXPENSE') throw new BadRequestException('Kas kecil hanya untuk biaya operasional. Prive, pinjaman karyawan, dan pembelian aset tidak boleh lewat kas kecil');
       const receipt = dto.receiptRef.trim();

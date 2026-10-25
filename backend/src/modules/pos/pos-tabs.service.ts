@@ -15,6 +15,7 @@ import { CreatePosOrderDto } from './pos.dto';
 import { PosService } from './pos.service';
 import { componentNeeds, recipesFor } from './recipe-issue';
 import { WarehouseQueryDto, CreateTableDto, UpdateTableDto, TabQueryDto, TabLineInputDto, CreateTabDto, AddTabLinesDto, VoidTabLineDto, CancelTabDto, MoveTabDto, PayTabDto } from './pos-tabs.dto';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 const SUPERVISORS = ['OWNER', 'ADMIN', 'FINANCE'];
 
@@ -32,6 +33,7 @@ export class PosTabsService {
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
     private readonly settings: SettingsService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   // ================= Meja =================
@@ -67,7 +69,7 @@ export class PosTabsService {
 
   async createTable(user: AuthUser, dto: CreateTableDto) {
     assertWarehouseAccess(user, dto.warehouseId);
-    const [wh] = await this.db.select().from(warehouses).where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
+    const wh = await this.refs.warehouse(this.db, user.tenantId, dto.warehouseId);
     if (!wh) throw new BadRequestException('Outlet tidak ditemukan');
     const code = dto.code.trim().toUpperCase();
     const [dup] = await this.db.select({ id: posTables.id }).from(posTables).where(and(eq(posTables.warehouseId, wh.id), eq(posTables.code, code)));
@@ -191,7 +193,7 @@ export class PosTabsService {
 
   /** Buat pesanan terbuka di dalam transaksi pemanggil; mengembalikan id */
   private async createTx(tx: Tx, user: AuthUser, dto: CreateTabDto): Promise<string> {
-    const [wh] = await tx.select().from(warehouses).where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
+    const wh = await this.refs.warehouse(tx, user.tenantId, dto.warehouseId);
     if (!wh || !wh.isActive) throw new BadRequestException('Outlet tidak ditemukan atau nonaktif');
     assertWarehouseAccess(user, wh.id);
     const online = !!dto.channel;

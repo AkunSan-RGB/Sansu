@@ -18,6 +18,7 @@ import { StockService } from '../inventory/stock.service';
 import { WorkCenterService } from './work-centers.service';
 import { QcService } from './qc.service';
 import { SaveBomDto, CreateProductionDto, StartProductionDto, CompleteProductionDto, CancelProductionDto } from './production.dto';
+import { ReferenceRepository } from '../../db/reference.repository';
 
 @Injectable()
 export class ProductionService {
@@ -30,6 +31,7 @@ export class ProductionService {
     private readonly workflow: WorkflowService,
     private readonly workCenters: WorkCenterService,
     private readonly qc: QcService,
+    private readonly refs: ReferenceRepository,
   ) {}
 
   /** Biaya rata-rata per satuan dasar seluruh gudang (untuk taksiran harga pokok resep) */
@@ -301,10 +303,7 @@ export class ProductionService {
         .from(boms)
         .where(and(eq(boms.id, dto.bomId), eq(boms.tenantId, user.tenantId)));
       if (!b || !b.isActive) throw new BadRequestException('Resep tidak ditemukan / nonaktif');
-      const [wh] = await tx
-        .select()
-        .from(warehouses)
-        .where(and(eq(warehouses.id, dto.warehouseId), eq(warehouses.tenantId, user.tenantId)));
+      const wh = await this.refs.warehouse(tx, user.tenantId, dto.warehouseId);
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
       const ls = await tx.select().from(bomLines).where(eq(bomLines.bomId, b.id));
       const number = await this.seq.next(tx, user.tenantId, 'PRODUCTION_ORDER', date);
