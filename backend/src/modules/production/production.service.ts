@@ -20,6 +20,7 @@ import { QcService } from './qc.service';
 import { SaveBomDto, CreateProductionDto, StartProductionDto, CompleteProductionDto, CancelProductionDto } from './production.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { findOwned, patchById } from '../../db/owned';
+import { ProductionRepository } from './production.repository';
 
 @Injectable()
 export class ProductionService {
@@ -33,20 +34,14 @@ export class ProductionService {
     private readonly workCenters: WorkCenterService,
     private readonly qc: QcService,
     private readonly refs: ReferenceRepository,
+    private readonly repo: ProductionRepository,
   ) {}
 
   /** Biaya rata-rata per satuan dasar seluruh gudang (untuk taksiran harga pokok resep) */
   private async avgCosts(db: DbOrTx, tenantId: string, ids: string[]) {
     if (!ids.length) return new Map<string, Dec>();
     const rows = (
-      await db.execute<{ product_id: string; c: string | null }>(sql`
-        SELECT product_id, SUM(qty * avg_cost) / NULLIF(SUM(qty), 0) AS c
-        FROM stock_balances WHERE tenant_id = ${tenantId} AND qty > 0
-          AND product_id IN (${sql.join(
-            ids.map((i) => sql`${i}`),
-            sql`, `,
-          )})
-        GROUP BY product_id`)
+      await this.repo.queryStockBalance(db, tenantId, ids)
     ).rows;
     return new Map(rows.map((r) => [r.product_id, D(r.c ?? 0)]));
   }
@@ -59,28 +54,8 @@ export class ProductionService {
       orderBy: [desc(boms.isActive), asc(boms.code)],
     });
     if (!rows.length) return [];
-    const lines = await this.db
-      .select({
-        id: bomLines.id,
-        bomId: bomLines.bomId,
-        productId: bomLines.productId,
-        qty: bomLines.qty,
-        sku: products.sku,
-        name: products.name,
-        unit: products.baseUom,
-      })
-      .from(bomLines)
-      .innerJoin(products, eq(products.id, bomLines.productId))
-      .where(
-        inArray(
-          bomLines.bomId,
-          rows.map((r) => r.id),
-        ),
-      );
-    const outs = await this.db
-      .select({ id: products.id, sku: products.sku, name: products.name, unit: products.baseUom })
-      .from(products)
-      .where(inArray(products.id, [...new Set(rows.map((r) => r.productId))]));
+    const lines = await this.repo.listBomLinesWithProductsByBomId(this.db, rows);
+    const outs = await this.repo.listProductsById(this.db, rows);
     const costs = await this.avgCosts(this.db, tenantId, [...new Set(lines.map((l) => l.productId))]);
     return rows.map((b) => {
       const ls = lines.filter((l) => l.bomId === b.id);
@@ -126,10 +101,7 @@ export class ProductionService {
     if (dto.lines.some((l) => D(l.qty).lte(0))) throw new BadRequestException('Kebutuhan bahan harus > 0');
     if (D(dto.laborCost ?? 0).isNegative() || D(dto.overheadCost ?? 0).isNegative())
       throw new BadRequestException('Biaya tidak boleh negatif');
-    const found = await tx
-      .select({ id: products.id, sku: products.sku })
-      .from(products)
-      .where(and(eq(products.tenantId, tenantId), inArray(products.id, ids)));
+    const found = await this.repo.listProductsByIdForValidateBom(tx, tenantId, ids);
     if (found.length !== new Set(ids).size) throw new BadRequestException('Ada produk yang tidak ditemukan');
     return found.find((p) => p.id === dto.productId)!;
   }
@@ -138,24 +110,9 @@ export class ProductionService {
     const id = await this.db.transaction(async (tx) => {
       const out = await this.validateBom(tx, user.tenantId, dto);
       const code = (dto.code?.trim() || `BOM-${out.sku}`).toUpperCase();
-      const [dup] = await tx
-        .select({ id: boms.id })
-        .from(boms)
-        .where(and(eq(boms.tenantId, user.tenantId), eq(boms.code, code)));
+      const [dup] = await this.repo.findBomsByCode(tx, user.tenantId, code);
       if (dup) throw new BadRequestException(`Kode resep ${code} sudah dipakai`);
-      const [b] = await tx
-        .insert(boms)
-        .values({
-          tenantId: user.tenantId,
-          code,
-          name: dto.name.trim(),
-          productId: dto.productId,
-          outputQty: qty4(dto.outputQty).toFixed(4),
-          laborCost: money(dto.laborCost ?? 0).toFixed(2),
-          overheadCost: money(dto.overheadCost ?? 0).toFixed(2),
-          notes: dto.notes,
-        })
-        .returning({ id: boms.id });
+      const [b] = await this.repo.insertBoms(tx, user.tenantId, code, dto.name, dto.productId, dto.outputQty, dto.laborCost, dto.overheadCost, dto.notes);
       await tx
         .insert(bomLines)
         .values(dto.lines.map((l) => ({ bomId: b.id, productId: l.productId, qty: qty4(l.qty).toFixed(4) })));
@@ -187,7 +144,7 @@ export class ProductionService {
           isActive: dto.isActive ?? b.isActive,
         });
       // Perintah produksi menyimpan salinan bahan sendiri, jadi resep aman diubah
-      await tx.delete(bomLines).where(eq(bomLines.bomId, id));
+      await this.repo.deleteBomLinesByBomId(tx, id);
       await tx
         .insert(bomLines)
         .values(dto.lines.map((l) => ({ bomId: id, productId: l.productId, qty: qty4(l.qty).toFixed(4) })));
@@ -205,37 +162,12 @@ export class ProductionService {
   // ================= Perintah produksi =================
 
   async listOrders(tenantId: string, id?: string): Promise<ProductionOrder[]> {
-    const rows = await this.db
-      .select({
-        o: productionOrders,
-        bomCode: boms.code,
-        bomName: boms.name,
-        sku: products.sku,
-        name: products.name,
-        unit: products.baseUom,
-        warehouseName: warehouses.name,
-      })
-      .from(productionOrders)
-      .innerJoin(boms, eq(boms.id, productionOrders.bomId))
-      .innerJoin(products, eq(products.id, productionOrders.productId))
-      .innerJoin(warehouses, eq(warehouses.id, productionOrders.warehouseId))
-      .where(and(eq(productionOrders.tenantId, tenantId), id ? eq(productionOrders.id, id) : undefined))
-      .orderBy(desc(productionOrders.date), desc(productionOrders.number))
-      .limit(500);
+    const rows = await this.repo.listProductionOrdersWithBomsAndProductsByIdAndDateAndNumber(this.db, tenantId, id);
     if (!rows.length) return [];
     const relIds = [...new Set(rows.flatMap((r) => [r.o.id, r.o.parentOrderId]).filter((x): x is string => !!x))];
-    const rel = (await this.db.select({ id: productionOrders.id, number: productionOrders.number, parentOrderId: productionOrders.parentOrderId }).from(productionOrders).where(and(eq(productionOrders.tenantId, tenantId), or(inArray(productionOrders.id, relIds), inArray(productionOrders.parentOrderId, relIds)))));
+    const rel = (await this.repo.listProductionOrdersByIdAndParentOrderId(this.db, tenantId, relIds));
     const numberOf = new Map(rel.map((x) => [x.id, x.number]));
-    const lines = await this.db
-      .select({ l: productionOrderLines, sku: products.sku, name: products.name, unit: products.baseUom })
-      .from(productionOrderLines)
-      .innerJoin(products, eq(products.id, productionOrderLines.productId))
-      .where(
-        inArray(
-          productionOrderLines.orderId,
-          rows.map((r) => r.o.id),
-        ),
-      );
+    const lines = await this.repo.listProductionOrderLinesWithProductsByOrderId(this.db, rows);
     return rows.map(({ o, ...r }) => ({
       id: o.id,
       number: o.number,
@@ -297,34 +229,10 @@ export class ProductionService {
       if (!b || !b.isActive) throw new BadRequestException('Resep tidak ditemukan / nonaktif');
       const wh = await this.refs.warehouse(tx, user.tenantId, dto.warehouseId);
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
-      const ls = await tx.select().from(bomLines).where(eq(bomLines.bomId, b.id));
+      const ls = await this.repo.listBomLinesByBomId(tx, b.id);
       const number = await this.seq.next(tx, user.tenantId, 'PRODUCTION_ORDER', date);
-      const [o] = await tx
-        .insert(productionOrders)
-        .values({
-          tenantId: user.tenantId,
-          number,
-          date,
-          bomId: b.id,
-          productId: b.productId,
-          warehouseId: wh.id,
-          batches: batches.toFixed(4),
-          plannedQty: qty4(D(b.outputQty).times(batches)).toFixed(4),
-          notes: dto.notes,
-          createdById: user.sub,
-          parentOrderId: extra.parentOrderId ?? null,
-          planNo: extra.planNo ?? null,
-        })
-        .returning({ id: productionOrders.id });
-      await tx
-        .insert(productionOrderLines)
-        .values(
-          ls.map((l) => ({
-            orderId: o.id,
-            productId: l.productId,
-            plannedQty: qty4(D(l.qty).times(batches)).toFixed(4),
-          })),
-        );
+      const [o] = await this.repo.insertProductionOrders(tx, user.tenantId, number, date, b.id, b.productId, wh.id, batches, b.outputQty, dto.notes, user.sub, extra.parentOrderId, extra.planNo);
+      await this.repo.insertProductionOrderLines(tx, ls, o.id, batches);
       await this.workCenters.copyToOrder(tx, user.tenantId, b.id, o.id, batches.toNumber());
       await this.audit.log(tx, {
         tenantId: user.tenantId,
@@ -339,11 +247,9 @@ export class ProductionService {
   }
 
   private async lock(tx: Tx, tenantId: string, id: string) {
-    const r = await tx.execute(
-      sql`SELECT id FROM production_orders WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`,
-    );
+    const r = await this.repo.queryProductionOrder(tx, id, tenantId);
     if (!r.rows.length) throw new NotFoundException('Perintah produksi tidak ditemukan');
-    const [o] = await tx.select().from(productionOrders).where(eq(productionOrders.id, id));
+    const [o] = await this.repo.findProductionOrdersById(tx, id);
     return o;
   }
 
@@ -356,9 +262,9 @@ export class ProductionService {
       if (o.status !== 'DRAFT') throw new BadRequestException('Produksi sudah dimulai / selesai / batal');
       if (date < o.date) throw new BadRequestException('Tanggal mulai tidak boleh sebelum tanggal perintah');
       // perintah berjenjang: barang setengah jadi harus selesai dulu
-      const open = await tx.select({ number: productionOrders.number }).from(productionOrders).where(and(eq(productionOrders.parentOrderId, id), inArray(productionOrders.status, ['DRAFT', 'IN_PROGRESS'])));
+      const open = await this.repo.listProductionOrdersByParentOrderIdAndStatus(tx, id);
       if (open.length) throw new BadRequestException(`Selesaikan dulu perintah barang setengah jadi: ${open.map((x) => x.number).join(', ')}`);
-      const ls = await tx.select().from(productionOrderLines).where(eq(productionOrderLines.orderId, id));
+      const ls = await this.repo.listProductionOrderLinesByOrderId(tx, id);
       const override = new Map((dto.lines ?? []).map((l) => [l.productId, qty4(l.qty)]));
       for (const k of override.keys())
         if (!ls.some((l) => l.productId === k))
@@ -425,7 +331,7 @@ export class ProductionService {
         throw new BadRequestException(
           'Hasil produksi harus > 0. Bila gagal total, batalkan produksi atau catat sebagai kerugian.',
         );
-      const [b] = await tx.select().from(boms).where(eq(boms.id, o.bomId));
+      const [b] = await this.repo.findBomsById(tx, o.bomId);
       // resep beroperasi: biaya konversi = jumlah biaya operasi (jam aktual × tarif pusat kerja), tidak boleh diketik
       const ops = await this.workCenters.orderConversionCost(tx, user.tenantId, id);
       if (ops && (dto.laborCost !== undefined || dto.overheadCost !== undefined)) throw new BadRequestException('Biaya upah dan overhead dihitung dari operasi pusat kerja; koreksi lewat operasinya (Admin)');
@@ -436,7 +342,7 @@ export class ProductionService {
       const total = material.plus(labor).plus(overhead);
       const unitCost = qty4(total.div(out));
       // Barang dengan umur simpan: hasil produksi menjadi lot dengan tanggal kedaluwarsa = tanggal selesai + umur simpan
-      const [prod] = await tx.select({ shelf: products.shelfLifeDays, qc: products.qcRequired }).from(products).where(eq(products.id, o.productId));
+      const [prod] = await this.repo.findProductsById(tx, o.productId);
       // produk wajib QC: hasil masuk gudang karantina dulu, bukan gudang tujuan
       const quarantineId = prod?.qc ? await this.qc.quarantineWarehouse(tx, user.tenantId) : null;
       if (prod?.qc && !quarantineId) throw new BadRequestException('Produk ini wajib QC tetapi gudang karantina belum disiapkan (Pengendalian mutu › Siapkan karantina)');
@@ -506,7 +412,7 @@ export class ProductionService {
       if (o.status === 'IN_PROGRESS') {
         if (date < (o.startedDate ?? o.date))
           throw new BadRequestException('Tanggal batal tidak boleh sebelum tanggal mulai');
-        const ls = await tx.select().from(productionOrderLines).where(eq(productionOrderLines.orderId, id));
+        const ls = await this.repo.listProductionOrderLinesByOrderId(tx, id);
         let back: Dec = ZERO;
         const returned: { productId: string; value: Dec }[] = [];
         for (const l of ls.filter((x) => D(x.issuedQty).gt(0))) {
@@ -563,11 +469,7 @@ export class ProductionService {
     const to = period.length === 4 ? `${period}-12-31` : addDays(`${addDays(`${period}-01`, 32).slice(0, 7)}-01`, -1);
     const bal = async (key: string, upTo: string, since?: string) => {
       const [r] = (
-        await this.db.execute<{ v: string }>(sql`
-          SELECT COALESCE(SUM(l.debit - l.credit), 0) AS v
-          FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
-          WHERE j.tenant_id = ${tenantId} AND a.system_key = ${key} AND j.date <= ${upTo} ${since ? sql`AND j.date >= ${since}` : sql``}
-            AND j.source_type <> 'CLOSING'`)
+        await this.repo.queryJournalLine(this.db, tenantId, key, upTo, since)
       ).rows;
       return D(r.v);
     };
@@ -575,21 +477,9 @@ export class ProductionService {
     const wipEnd = await bal(SYS.WIP, to);
     // bahan masuk produksi bersih: dikeluarkan dalam periode − dikembalikan karena batal dalam periode
     const [m] = (
-      await this.db.execute<{ issued: string; returned: string }>(sql`
-        SELECT COALESCE(SUM(material_cost) FILTER (WHERE started_date BETWEEN ${from} AND ${to}), 0) AS issued,
-               COALESCE(SUM(material_cost) FILTER (WHERE status = 'CANCELLED' AND started_date IS NOT NULL AND cancelled_date BETWEEN ${from} AND ${to}), 0) AS returned
-        FROM production_orders WHERE tenant_id = ${tenantId}`)
+      await this.repo.queryProductionOrderForReport(this.db, from, to, tenantId)
     ).rows;
-    const done = await this.db
-      .select()
-      .from(productionOrders)
-      .where(
-        and(
-          eq(productionOrders.tenantId, tenantId),
-          eq(productionOrders.status, 'COMPLETED'),
-          sql`${productionOrders.completedDate} BETWEEN ${from} AND ${to}`,
-        ),
-      );
+    const done = await this.repo.listProductionOrdersByStatusAndCompletedDate(this.db, tenantId, from, to);
     const sum = (f: 'laborCost' | 'overheadCost' | 'totalCost' | 'materialCost') =>
       done.reduce<Dec>((a, o) => a.plus(o[f]), ZERO);
     const laborApplied = sum('laborCost');
@@ -599,10 +489,7 @@ export class ProductionService {
     const overheadActual = await bal(SYS.FACTORY_OVERHEAD, to, from);
     const prodIds = [...new Set(done.map((o) => o.productId))];
     const prods = prodIds.length
-      ? await this.db
-          .select({ id: products.id, sku: products.sku, name: products.name, unit: products.baseUom })
-          .from(products)
-          .where(inArray(products.id, prodIds))
+      ? await this.repo.listProductsByIdForReport(this.db, prodIds)
       : [];
     const byProduct = prods
       .map((p) => {
