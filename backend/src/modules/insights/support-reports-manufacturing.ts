@@ -1,13 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { todayJakarta } from '../../common/utils/dates';
-import { SupportQueries } from './support-queries';
+import { SupportQueriesRepository } from './support-queries.repository';
 import { Cell, num, CAP, L, R, sum } from './support-shared';
 
 @Injectable()
 export class ManufacturingSupportReports {
-  constructor(private readonly queries: SupportQueries) {}
-
+  constructor(private readonly queries: SupportQueriesRepository) {}
 
   // ------------------------------------------------------------------ FMCG
   async fmcg(tenantId: string, from: string, to: string) {
@@ -399,7 +398,6 @@ export class ManufacturingSupportReports {
       ],
     };
   }
-
 
   // ------------------------------------------------------------------ Manufaktur
   async mfg(tenantId: string, from: string, to: string) {

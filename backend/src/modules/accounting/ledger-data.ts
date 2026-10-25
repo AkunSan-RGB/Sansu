@@ -4,12 +4,13 @@ import { AsyncLocalStorage } from 'node:async_hooks';
  * Semua angka Decimal; tanda "natural" mengikuti tipe akun (aset & beban = debit − kredit).
  */
 import { DEFAULT_REPORT_GROUP, REPORT_GROUPS, type ReportGroup } from '@sansu/shared';
-import { eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { addDays, DocDate } from '../../common/utils/dates';
 import { D, Dec, ZERO } from '../../common/utils/money';
 import { DbOrTx } from '../../db/db';
-import { AccountType, accounts } from '../../db/schema';
+import { AccountType } from '../../db/schema';
 import { guessReportGroup } from './default-coa';
+import { listAccountsByCode, queryJournalLine } from './ledger-data.repository';
 
 export interface AccountMeta {
   id: string;
@@ -33,13 +34,15 @@ export interface Sum {
 export const ADJUSTING_SOURCES = ['ADJUSTMENT', 'DEPRECIATION', 'INCOME_TAX'];
 
 export const DEBIT_NORMAL: AccountType[] = ['ASSET', 'EXPENSE'];
-export const natural = (type: AccountType, s: Sum) => (DEBIT_NORMAL.includes(type) ? s.debit.minus(s.credit) : s.credit.minus(s.debit));
+export const natural = (type: AccountType, s: Sum) =>
+  DEBIT_NORMAL.includes(type) ? s.debit.minus(s.credit) : s.credit.minus(s.debit);
 export const ZERO_SUM: Sum = { debit: ZERO, credit: ZERO };
 
 export async function loadAccounts(db: DbOrTx, tenantId: string): Promise<AccountMeta[]> {
-  const rows = await db.select().from(accounts).where(eq(accounts.tenantId, tenantId)).orderBy(accounts.code);
+  const rows = await listAccountsByCode(db, tenantId);
   return rows.map((a) => {
-    let group = (a.reportGroup as ReportGroup | null) ?? (a.isCashAccount ? 'CASH_EQUIVALENT' : guessReportGroup(a.code, a.type));
+    let group =
+      (a.reportGroup as ReportGroup | null) ?? (a.isCashAccount ? 'CASH_EQUIVALENT' : guessReportGroup(a.code, a.type));
     if (!REPORT_GROUPS[group] || REPORT_GROUPS[group].type !== a.type) group = DEFAULT_REPORT_GROUP[a.type];
     if (a.isCashAccount) group = 'CASH_EQUIVALENT';
     return {
@@ -113,16 +116,24 @@ async function sumByAccountRaw(db: DbOrTx, tenantId: string, f: SumFilter): Prom
   const src = f.reversalInheritsSource
     ? sql`(CASE WHEN j.source_type = 'REVERSAL' THEN COALESCE((SELECT o.source_type FROM journal_entries o WHERE o.id = j.reversal_of_id), 'REVERSAL') ELSE j.source_type END)`
     : sql`j.source_type`;
-  if (f.excludeSources?.length) conds.push(sql`${src} NOT IN (${sql.join(f.excludeSources.map((s) => sql`${s}`), sql`, `)})`);
-  if (f.onlySources?.length) conds.push(sql`${src} IN (${sql.join(f.onlySources.map((s) => sql`${s}`), sql`, `)})`);
+  if (f.excludeSources?.length)
+    conds.push(
+      sql`${src} NOT IN (${sql.join(
+        f.excludeSources.map((s) => sql`${s}`),
+        sql`, `,
+      )})`,
+    );
+  if (f.onlySources?.length)
+    conds.push(
+      sql`${src} IN (${sql.join(
+        f.onlySources.map((s) => sql`${s}`),
+        sql`, `,
+      )})`,
+    );
   if (f.branchId) conds.push(f.branchId === 'NONE' ? sql`l.branch_id IS NULL` : sql`l.branch_id = ${f.branchId}`);
   if (f.openingLike === 'exclude') conds.push(sql`NOT ${openingLike(tenantId)}`);
   if (f.openingLike === 'only') conds.push(openingLike(tenantId));
-  const res = await db.execute<{ account_id: string; debit: string; credit: string }>(sql`
-    SELECT l.account_id, SUM(l.debit) AS debit, SUM(l.credit) AS credit
-    FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-    WHERE ${sql.join(conds, sql` AND `)}
-    GROUP BY l.account_id`);
+  const res = await queryJournalLine(db, conds);
   return new Map(res.rows.map((r) => [r.account_id, { debit: D(r.debit), credit: D(r.credit) }]));
 }
 

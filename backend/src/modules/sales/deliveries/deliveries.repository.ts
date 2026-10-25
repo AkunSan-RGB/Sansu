@@ -4,9 +4,9 @@ import { customers, deliveryOrderLines } from '../../../db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { Dec, ZERO } from '../../../common/utils/money';
 import { DocDate } from '../../../common/utils/dates';
-import { SalesOrdersService } from '../orders/sales-orders.service';
+import type { OrderWithLines } from '../orders/sales-orders.repository';
 
-export type OrderWithLines = Awaited<ReturnType<SalesOrdersService['lockOrder']>>;
+export type { OrderWithLines };
 
 /** Akses data untuk Deliveries: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()

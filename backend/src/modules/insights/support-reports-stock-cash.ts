@@ -1,13 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { todayJakarta } from '../../common/utils/dates';
-import { SupportQueries } from './support-queries';
+import { SupportQueriesRepository } from './support-queries.repository';
 import { L, R, num, sum, type Cell, type SupportSection } from './support-shared';
 
 @Injectable()
 export class StockCashSupportReports {
-  constructor(private readonly queries: SupportQueries) {}
-
+  constructor(private readonly queries: SupportQueriesRepository) {}
 
   // ------------------------------------------------------------------ Persediaan
   async inventory(tenantId: string, from: string, to: string) {
@@ -128,7 +127,6 @@ export class StockCashSupportReports {
       ],
     };
   }
-
 
   // ------------------------------------------------------------------ Kas & bank
   async cash(tenantId: string, from: string, to: string) {
@@ -277,7 +275,6 @@ export class StockCashSupportReports {
       ],
     };
   }
-
 
   // ------------------------------------------------------------------ Akun lainnya
   async other(tenantId: string, from: string, to: string) {

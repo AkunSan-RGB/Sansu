@@ -7,9 +7,19 @@
  */
 import { BadRequestException } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
-import { D, Dec, qty4 } from '../../common/utils/money';
+import { D, Dec } from '../../common/utils/money';
 import { Tx } from '../../db/db';
 import { StockMoveType } from '../../db/schema';
+import {
+  queryStockLot,
+  queryStockLotTransit,
+  queryStockLotForTrackLots,
+  queryTrackLots,
+  queryStockLotForDeplete,
+  queryDeplete,
+  queryStockLotIssue,
+  queryStockLotTransitForDeplete,
+} from './stock-lots.repository';
 
 export interface LotInput {
   lotNo?: string | null;
@@ -49,15 +59,20 @@ const RECEIVING: StockMoveType[] = ['PURCHASE', 'ADJUSTMENT_IN', 'PRODUCTION_OUT
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Validasi lot masukan; kembalikan lot bersih atau null bila kosong */
-export function cleanLot(lot: LotInput | undefined, receivedDate: string): { lotNo: string | null; expiryDate: string | null } | null {
+export function cleanLot(
+  lot: LotInput | undefined,
+  receivedDate: string,
+): { lotNo: string | null; expiryDate: string | null } | null {
   if (!lot) return null;
   const lotNo = lot.lotNo?.trim() || null;
   const expiryDate = lot.expiryDate?.trim() || null;
   if (!lotNo && !expiryDate) return null;
   if (lotNo && lotNo.length > 40) throw new BadRequestException('Nomor lot maksimal 40 karakter');
   if (expiryDate) {
-    if (!ISO.test(expiryDate) || Number.isNaN(Date.parse(`${expiryDate}T00:00:00Z`))) throw new BadRequestException('Tanggal kedaluwarsa tidak valid (format TTTT-BB-HH)');
-    if (expiryDate < receivedDate) throw new BadRequestException(`Barang sudah kedaluwarsa saat diterima (kedaluwarsa ${expiryDate})`);
+    if (!ISO.test(expiryDate) || Number.isNaN(Date.parse(`${expiryDate}T00:00:00Z`)))
+      throw new BadRequestException('Tanggal kedaluwarsa tidak valid (format TTTT-BB-HH)');
+    if (expiryDate < receivedDate)
+      throw new BadRequestException(`Barang sudah kedaluwarsa saat diterima (kedaluwarsa ${expiryDate})`);
   }
   return { lotNo, expiryDate };
 }
@@ -69,27 +84,42 @@ export async function trackLots(tx: Tx, m: LotMove): Promise<LotDelta[]> {
     if (RECEIVING.includes(m.type)) {
       const lot = cleanLot(m.lot, m.date);
       if (lot) {
-        const ins = await tx.execute<{ id: string }>(sql`
-          INSERT INTO stock_lots (tenant_id, product_id, warehouse_id, lot_no, expiry_date, received_date, qty_received, qty_remaining, source_type, source_ref)
-          VALUES (${m.tenantId}, ${m.productId}, ${m.warehouseId}, ${lot.lotNo}, ${lot.expiryDate}, ${m.date}, ${q.toFixed(4)}, ${q.toFixed(4)}, ${m.refType}, ${m.refId}) RETURNING id`);
+        const ins = await queryStockLot(
+          tx,
+          m.tenantId,
+          m.productId,
+          m.warehouseId,
+          lot.lotNo,
+          lot.expiryDate,
+          m.date,
+          q,
+          m.refType,
+          m.refId,
+        );
         deltas.push({ lotId: ins.rows[0].id, qty: q });
       }
     } else if (m.type === 'TRANSFER_IN' && m.refType === 'STOCK_TRANSFER') {
       // lot yang dikirim ikut pindah (juga saat kiriman dibatalkan dan kembali ke gudang asal)
-      const pieces = await tx.execute<{ id: string; lot_no: string | null; expiry_date: string | null; received_date: string; qty_left: string }>(sql`
-        SELECT id, lot_no, expiry_date, received_date, qty_left FROM stock_lot_transit
-        WHERE ref_id = ${m.refId} AND product_id = ${m.productId} AND qty_left > 0
-        ORDER BY expiry_date NULLS LAST, id FOR UPDATE`);
+      const pieces = await queryStockLotTransit(tx, m.refId, m.productId);
       let need = q;
       for (const p of pieces.rows) {
         if (need.lte(0)) break;
         const left = D(p.qty_left);
         const take = left.lt(need) ? left : need;
-        const ins = await tx.execute<{ id: string }>(sql`
-          INSERT INTO stock_lots (tenant_id, product_id, warehouse_id, lot_no, expiry_date, received_date, qty_received, qty_remaining, source_type, source_ref)
-          VALUES (${m.tenantId}, ${m.productId}, ${m.warehouseId}, ${p.lot_no}, ${p.expiry_date}, ${p.received_date}, ${take.toFixed(4)}, ${take.toFixed(4)}, ${m.refType}, ${m.refId}) RETURNING id`);
+        const ins = await queryStockLotForTrackLots(
+          tx,
+          m.tenantId,
+          m.productId,
+          m.warehouseId,
+          p.lot_no,
+          p.expiry_date,
+          p.received_date,
+          take,
+          m.refType,
+          m.refId,
+        );
         deltas.push({ lotId: ins.rows[0].id, qty: take });
-        await tx.execute(sql`UPDATE stock_lot_transit SET qty_left = ${qty4(left.minus(take)).toFixed(4)} WHERE id = ${p.id}`);
+        await queryTrackLots(tx, left, take, p.id);
         need = need.minus(take);
       }
     }
@@ -107,33 +137,58 @@ export async function trackLots(tx: Tx, m: LotMove): Promise<LotDelta[]> {
     return deltas;
   }
   if (!DEPLETING.includes(m.type) || m.noLot) return deltas;
-  const exclude = m.excludeLotNos?.length ? sql`AND (lot_no IS NULL OR lot_no NOT IN (${sql.join(m.excludeLotNos.map((n) => sql`${n}`), sql`, `)}))` : sql``;
+  const exclude = m.excludeLotNos?.length
+    ? sql`AND (lot_no IS NULL OR lot_no NOT IN (${sql.join(
+        m.excludeLotNos.map((n) => sql`${n}`),
+        sql`, `,
+      )}))`
+    : sql``;
   await deplete(tx, m, out, exclude, m.type === 'TRANSFER_OUT', deltas);
   return deltas;
 }
 
-async function deplete(tx: Tx, m: LotMove, out: Dec, extra: ReturnType<typeof sql>, toTransit: boolean, deltas: LotDelta[]) {
-  const lots = await tx.execute<{ id: string; lot_no: string | null; expiry_date: string | null; received_date: string; qty_remaining: string }>(sql`
-    SELECT id, lot_no, expiry_date, received_date, qty_remaining FROM stock_lots
-    WHERE product_id = ${m.productId} AND warehouse_id = ${m.warehouseId} AND qty_remaining > 0 ${extra}
-    ORDER BY expiry_date NULLS LAST, received_date, id FOR UPDATE`);
+async function deplete(
+  tx: Tx,
+  m: LotMove,
+  out: Dec,
+  extra: ReturnType<typeof sql>,
+  toTransit: boolean,
+  deltas: LotDelta[],
+) {
+  const lots = await queryStockLotForDeplete(tx, m.productId, m.warehouseId, extra);
   let need = out;
   for (const l of lots.rows) {
     if (need.lte(0)) break;
     const have = D(l.qty_remaining);
     const take = have.lt(need) ? have : need;
-    await tx.execute(sql`UPDATE stock_lots SET qty_remaining = ${qty4(have.minus(take)).toFixed(4)} WHERE id = ${l.id}`);
+    await queryDeplete(tx, have, take, l.id);
     deltas.push({ lotId: l.id, qty: take.negated() });
     // jejak keluar per lot (dasar penelusuran penarikan produk); pembatalan penerimaan bukan pengeluaran ke pihak lain
     if (m.refType !== 'GOODS_RECEIPT_CANCEL') {
-      await tx.execute(sql`
-        INSERT INTO stock_lot_issues (tenant_id, lot_id, product_id, warehouse_id, qty, move_type, ref_type, ref_id, date)
-        VALUES (${m.tenantId}, ${l.id}, ${m.productId}, ${m.warehouseId}, ${take.toFixed(4)}, ${m.type}, ${m.refType}, ${m.refId}, ${m.date})`);
+      await queryStockLotIssue(
+        tx,
+        m.tenantId,
+        l.id,
+        m.productId,
+        m.warehouseId,
+        take,
+        m.type,
+        m.refType,
+        m.refId,
+        m.date,
+      );
     }
     if (toTransit) {
-      await tx.execute(sql`
-        INSERT INTO stock_lot_transit (tenant_id, ref_id, product_id, lot_no, expiry_date, received_date, qty_left)
-        VALUES (${m.tenantId}, ${m.refId}, ${m.productId}, ${l.lot_no}, ${l.expiry_date}, ${l.received_date}, ${take.toFixed(4)})`);
+      await queryStockLotTransitForDeplete(
+        tx,
+        m.tenantId,
+        m.refId,
+        m.productId,
+        l.lot_no,
+        l.expiry_date,
+        l.received_date,
+        take,
+      );
     }
     need = need.minus(take);
   }

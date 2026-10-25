@@ -1,4 +1,12 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { withRlsBypass } from '../../db/db-scope';
 import { AuthUser } from '../../common/auth/auth-user';
 import { platformAdminEmails } from '../../common/auth/platform-admin';
@@ -12,8 +20,9 @@ import { activeGateway, midtrans, xendit, type PaymentNotice } from './gateways'
 import { CreateBillingInvoiceDto, ProofDto } from './billing.dto';
 import { findOwned, insertOne, patchById } from '../../db/owned';
 import { BillingRepository } from './billing.repository';
+import { DAY } from './billing.shared';
 
-export const DAY = 86_400_000;
+export { DAY };
 
 const rupiah = (n: number | string) => `Rp${Math.round(Number(n)).toLocaleString('id-ID')}`;
 
@@ -82,9 +91,7 @@ export class BillingService {
     const now = new Date();
     const prefix = `SNS/${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/`;
     // nomor tagihan berurut GLOBAL lintas perusahaan: hitung tanpa penyaringan perusahaan (pengecualian RLS yang disengaja)
-    const [r] = await withRlsBypass(tx, () =>
-      this.repo.countBillingInvoicesByNumber(tx, prefix),
-    );
+    const [r] = await withRlsBypass(tx, () => this.repo.countBillingInvoicesByNumber(tx, prefix));
     return `${prefix}${String(r.n + 1).padStart(4, '0')}`;
   }
 
@@ -114,7 +121,10 @@ export class BillingService {
 
   /** Buat tagihan untuk paket & siklus pilihan (tagihan lama yang belum dibayar dibatalkan) */
   async createInvoice(u: AuthUser, dto: CreateBillingInvoiceDto, opts: { auto?: boolean } = {}) {
-    if (!(await this.subs.settings()).enabled) throw new BadRequestException('Langganan belum diaktifkan (masih tahap uji). Tidak ada tagihan yang perlu dibayar.');
+    if (!(await this.subs.settings()).enabled)
+      throw new BadRequestException(
+        'Langganan belum diaktifkan (masih tahap uji). Tidak ada tagihan yang perlu dibayar.',
+      );
     const [plan] = await this.repo.findPlansByIdAndIsActive(this.db, dto.planId);
     if (!plan) throw new BadRequestException('Paket tidak ditemukan');
     const usage = await this.subs.usage(u.tenantId);
@@ -136,17 +146,17 @@ export class BillingService {
     const inv = await this.db.transaction(async (tx) => {
       await this.repo.updateBillingInvoicesByStatus(tx, u.tenantId);
       const row = await insertOne(tx, billingInvoices, {
-          tenantId: u.tenantId,
-          number: await this.nextNumber(tx),
-          planId: plan.id,
-          cycle: dto.cycle,
-          subtotal: subtotal.toFixed(2),
-          vatRate: vatRate.toFixed(2),
-          vatAmount: vatAmount.toFixed(2),
-          amount,
-          dueDate: new Date(Date.now() + 7 * DAY).toISOString().slice(0, 10),
-          createdBy: opts.auto ? null : u.sub,
-        });
+        tenantId: u.tenantId,
+        number: await this.nextNumber(tx),
+        planId: plan.id,
+        cycle: dto.cycle,
+        subtotal: subtotal.toFixed(2),
+        vatRate: vatRate.toFixed(2),
+        vatAmount: vatAmount.toFixed(2),
+        amount,
+        dueDate: new Date(Date.now() + 7 * DAY).toISOString().slice(0, 10),
+        createdBy: opts.auto ? null : u.sub,
+      });
       return row;
     });
     const st = await this.subs.state(u.tenantId, true);
@@ -200,7 +210,13 @@ export class BillingService {
     const inv = await this.ownInvoice(u.tenantId, id);
     if (inv.status !== 'UNPAID' && inv.status !== 'WAITING')
       throw new BadRequestException('Tagihan ini sudah tidak menunggu pembayaran');
-    await patchById(this.db, billingInvoices, inv.id, { status: 'WAITING', method: 'MANUAL', proof: dto.proof, proofNote: dto.note ?? null, rejectReason: null });
+    await patchById(this.db, billingInvoices, inv.id, {
+      status: 'WAITING',
+      method: 'MANUAL',
+      proof: dto.proof,
+      proofNote: dto.note ?? null,
+      rejectReason: null,
+    });
     const [t] = await this.repo.findTenantsById(this.db, u.tenantId);
     for (const to of platformAdminEmails()) {
       await this.mail.send({
@@ -241,13 +257,13 @@ export class BillingService {
       if (sub?.status === 'TRIAL' && sub.trialEndsAt && sub.trialEndsAt > now) start = sub.trialEndsAt;
       const end = addMonths(start, inv.cycle === 'YEARLY' ? 12 : 1);
       await patchById(tx, billingInvoices, inv.id, {
-          status: 'PAID',
-          paidAt: now,
-          confirmedBy: by,
-          gatewayRef: ref ?? inv.gatewayRef,
-          periodStart: start,
-          periodEnd: end,
-        });
+        status: 'PAID',
+        paidAt: now,
+        confirmedBy: by,
+        gatewayRef: ref ?? inv.gatewayRef,
+        periodStart: start,
+        periodEnd: end,
+      });
       const values = {
         planId: inv.planId,
         status: 'ACTIVE' as const,
@@ -297,8 +313,7 @@ export class BillingService {
       }
       return this.markPaid(inv.id, 'gateway', n.ref);
     }
-    if (n.failed && inv.status === 'UNPAID')
-      await patchById(this.db, billingInvoices, inv.id, { gatewayUrl: null });
+    if (n.failed && inv.status === 'UNPAID') await patchById(this.db, billingInvoices, inv.id, { gatewayUrl: null });
     return { ok: true };
   }
 

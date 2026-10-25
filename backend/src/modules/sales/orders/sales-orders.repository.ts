@@ -4,6 +4,9 @@ import { sql, eq, and, inArray } from 'drizzle-orm';
 import { tenants, salesOrders, users, promos, stockBalances, salesOrderLines, customers } from '../../../db/schema';
 
 /** Akses data untuk SalesOrders: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
+/** Pesanan penjualan beserta barisnya (hasil kunci baris di service). */
+export type OrderWithLines = typeof salesOrders.$inferSelect & { lines: (typeof salesOrderLines.$inferSelect)[] };
+
 @Injectable()
 export class SalesOrdersRepository {
   /** Dipakai oleh SalesOrdersService.get */

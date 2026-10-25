@@ -5,9 +5,15 @@ import { serviceRates, employees, projects, attendances, serviceWorkEntries } fr
 import { Dec } from '../../common/utils/money';
 import { UpdateRateDto, EntryQueryDto, DecideEntryDto } from './service-work.dto';
 import { AuthUser } from '../../common/auth/auth-user';
-import { invoiceUsable } from './service-work.shared';
 
 export const MAX_HOURS_PER_MONTH = 260;
+
+/** Faktur jasa yang boleh dikomisikan: lunas, tidak dibatalkan (jurnal tidak dibalik), tanpa retur */
+export const employeeOk = sql`EXISTS (SELECT 1 FROM employees em WHERE em.id = w.employee_id AND em.verified
+  AND (em.contract_end IS NULL OR em.contract_end >= w.work_date) AND (em.resign_date IS NULL OR em.resign_date >= w.work_date))`;
+
+export const invoiceUsable = sql`i.kind = 'SERVICE' AND i.status = 'PAID' AND i.returned_amount = 0 AND i.is_opening = false
+  AND i.journal_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM journal_entries rv WHERE rv.reversal_of_id = i.journal_id)`;
 
 /** Akses data untuk ServiceWork: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -260,4 +266,87 @@ export class ServiceWorkRepository {
       .where(eq(serviceRates.tenantId, tenantId))
       .orderBy(serviceRates.unit, serviceRates.name);
   }
+}
+
+// ---- kueri yang dipindah dari berkas pemanggil ----
+/** Dipakai oleh service-work.shared.attachServiceEntries */
+export function queryServiceWorkEntry(
+  db: DbOrTx,
+  tenantId: string,
+  runId: string,
+  to: string,
+  onlyEmployeeId: string | undefined,
+) {
+  return db.execute(
+    sql`SELECT id FROM service_work_entries WHERE tenant_id = ${tenantId} AND (run_id = ${runId} OR (run_id IS NULL AND status = 'APPROVED' AND work_date <= ${to})) ${onlyEmployeeId ? sql`AND employee_id = ${onlyEmployeeId}` : sql``} FOR UPDATE`,
+  );
+}
+
+/** Dipakai oleh service-work.shared.attachServiceEntries */
+export function queryServiceWorkEntryForAttachServiceEntries(
+  db: DbOrTx,
+  tenantId: string,
+  runId: string,
+  onlyEmployeeId: string | undefined,
+  keepEmployeeIds: Set<string> | null,
+) {
+  return db.execute(sql`
+    UPDATE service_work_entries w SET run_id = NULL
+    WHERE w.tenant_id = ${tenantId} AND w.run_id = ${runId} ${onlyEmployeeId ? sql`AND w.employee_id = ${onlyEmployeeId}` : sql``}
+      AND (w.status <> 'APPROVED' OR NOT ${employeeOk}
+        ${
+          keepEmployeeIds
+            ? sql`OR w.employee_id NOT IN (${
+                keepEmployeeIds.size
+                  ? sql.join(
+                      [...keepEmployeeIds].map((x) => sql`${x}::uuid`),
+                      sql`, `,
+                    )
+                  : sql`NULL::uuid`
+              })`
+            : sql``
+        }
+        OR (w.unit = 'PERCENT' AND NOT EXISTS (SELECT 1 FROM invoices i WHERE i.id = w.invoice_id AND ${invoiceUsable})))`);
+}
+
+/** Dipakai oleh service-work.shared.attachServiceEntries */
+export function queryServiceWorkEntryForAttachServiceEntries2(
+  db: DbOrTx,
+  runId: string,
+  tenantId: string,
+  to: string,
+  onlyEmployeeId: string | undefined,
+  keepEmployeeIds: Set<string> | null,
+) {
+  return db.execute(sql`
+    UPDATE service_work_entries w SET run_id = ${runId}
+    WHERE w.tenant_id = ${tenantId} AND w.run_id IS NULL AND w.status = 'APPROVED' AND w.work_date <= ${to}
+      ${onlyEmployeeId ? sql`AND w.employee_id = ${onlyEmployeeId}` : sql``}
+      ${
+        keepEmployeeIds
+          ? sql`AND w.employee_id IN (${
+              keepEmployeeIds.size
+                ? sql.join(
+                    [...keepEmployeeIds].map((x) => sql`${x}::uuid`),
+                    sql`, `,
+                  )
+                : sql`NULL::uuid`
+            })`
+          : sql``
+      }
+      AND ${employeeOk}
+      AND (w.unit <> 'PERCENT' OR EXISTS (SELECT 1 FROM invoices i WHERE i.id = w.invoice_id AND ${invoiceUsable}))`);
+}
+
+/** Dipakai oleh service-work.shared.attachServiceEntries */
+export function queryServiceWorkEntryForAttachServiceEntries3(db: DbOrTx, tenantId: string, runId: string) {
+  return db.execute<{ employee_id: string; total: string }>(sql`
+    SELECT employee_id, SUM(amount) AS total FROM service_work_entries WHERE tenant_id = ${tenantId} AND run_id = ${runId} AND status = 'APPROVED' GROUP BY employee_id`);
+}
+
+/** Dipakai oleh service-work.shared.assertServiceEntriesMatch */
+export function queryServiceWorkEntryForAssertServiceEntriesMatch(db: DbOrTx, tenantId: string, runId: string) {
+  return db.execute<{ employee_id: string; total: string; bad: number }>(sql`
+    SELECT employee_id, SUM(amount) AS total, COUNT(*) FILTER (WHERE status <> 'APPROVED')::int AS bad
+    FROM service_work_entries WHERE tenant_id = ${tenantId} AND run_id = ${runId} GROUP BY employee_id`);
 }

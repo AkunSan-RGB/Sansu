@@ -5,7 +5,7 @@ import { InjectDb } from '../../db/db.module';
 import { Reconciliation, num, TOLERANCE } from './support-shared';
 
 @Injectable()
-export class SupportQueries {
+export class SupportQueriesRepository {
   constructor(@InjectDb() private readonly db: Db) {}
 
   async rows<T extends Record<string, unknown>>(q: ReturnType<typeof sql>) {

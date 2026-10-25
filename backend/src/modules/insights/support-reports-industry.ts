@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { todayJakarta } from '../../common/utils/dates';
-import { SupportQueries } from './support-queries';
+import { SupportQueriesRepository } from './support-queries.repository';
 import { Cell, num, CAP, L, R, sum, withRest } from './support-shared';
 
 @Injectable()
 export class IndustrySupportReports {
-  constructor(private readonly queries: SupportQueries) {}
+  constructor(private readonly queries: SupportQueriesRepository) {}
 
   // ------------------------------------------------------------------ Kasir (Ritel & F&B)
   async pos(tenantId: string, from: string, to: string) {

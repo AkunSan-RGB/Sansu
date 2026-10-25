@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { sql, eq, asc, desc } from 'drizzle-orm';
-import { DAY } from './billing.service';
+import { DAY } from './billing.shared';
 import { tenants, subscriptions, users, billingInvoices, plans } from '../../db/schema';
 import { PlanDto } from './billing.dto';
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';

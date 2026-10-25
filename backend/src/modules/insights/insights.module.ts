@@ -6,7 +6,7 @@ import { FiscalService } from './fiscal.service';
 import { HealthService } from './health.service';
 import { AppendixService } from './appendix.service';
 import { SupportReportsService } from './support-reports';
-import { SupportQueries } from './support-queries';
+import { SupportQueriesRepository } from './support-queries.repository';
 import { IndustrySupportReports } from './support-reports-industry';
 import { ManufacturingSupportReports } from './support-reports-manufacturing';
 import { ServiceSupportReports } from './support-reports-service';
@@ -24,7 +24,25 @@ import { AppendixRepository } from './appendix.repository';
 @Module({
   imports: [AccountingModule, AssetsModule, FxModule],
   controllers: [InsightsController, SupportInsightsSettingsController],
-  providers: [AppendixRepository, HealthRepository, NotesRepository, FiscalRepository, HealthService, FiscalService, NotesService, AppendixService, SupportQueries, TradeSupportReports, StockCashSupportReports, IndustrySupportReports, ManufacturingSupportReports, ServiceSupportReports, SupportReportsService, EntityProfileService, ThresholdsService],
+  providers: [
+    AppendixRepository,
+    HealthRepository,
+    NotesRepository,
+    FiscalRepository,
+    HealthService,
+    FiscalService,
+    NotesService,
+    AppendixService,
+    SupportQueriesRepository,
+    TradeSupportReports,
+    StockCashSupportReports,
+    IndustrySupportReports,
+    ManufacturingSupportReports,
+    ServiceSupportReports,
+    SupportReportsService,
+    EntityProfileService,
+    ThresholdsService,
+  ],
   exports: [FiscalService, HealthService, EntityProfileService, ThresholdsService],
 })
 export class InsightsModule {}

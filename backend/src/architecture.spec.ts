@@ -5,7 +5,7 @@
  *  3. Arah dependensi: dto -> (tidak ke service/pengendali modul), service -> (tidak ke pengendali)
  *  4. Tidak ada siklus antar-modul (folder src/modules/*)
  *  5. Tidak ada berkas sumber lebih dari 700 baris (kecuali pembuat data demo)
- *  7. Service tidak menulis kueri database sendiri (select/insert/update/delete/execute): semuanya lewat repositori (`*.repository.ts`)
+ *  7. Kueri database (select/insert/update/delete/execute) hanya di repositori `*.repository.ts`; pengecualian: lapisan db, data demo, dan infrastruktur (hak data pengguna, pemantau galat, interceptor, guard)
  *  6. Pelonggaran tipe `as never` hanya di tempat yang diizinkan (pembantu generik owned, bootstrap, impor dinamis)
  */
 import * as fs from 'node:fs';
@@ -23,10 +23,28 @@ const files: string[] = [];
 })(SRC);
 
 const rel = (f: string) => path.relative(SRC, f).split(path.sep).join('/');
-const layerOf = (f: string) => (/\.controller\.ts$/.test(f) ? 'controller' : /\.dto\.ts$/.test(f) ? 'dto' : /\.service\.ts$/.test(f) ? 'service' : /\.module\.ts$/.test(f) ? 'module' : null);
-const parsed = new Map(files.map((f) => [f, ts.createSourceFile(f, fs.readFileSync(f, 'utf8'), ts.ScriptTarget.Latest, true)]));
-const decoratorsOf = (n: ts.Node) => (ts.canHaveDecorators(n) ? ts.getDecorators(n) ?? [] : []).map((d) => (ts.isCallExpression(d.expression) ? d.expression.expression.getText() : d.expression.getText()));
-const importsOf = (f: string) => parsed.get(f)!.statements.filter(ts.isImportDeclaration).map((s) => ({ spec: (s.moduleSpecifier as ts.StringLiteral).text, typeOnly: !!s.importClause?.isTypeOnly }));
+const layerOf = (f: string) =>
+  /\.controller\.ts$/.test(f)
+    ? 'controller'
+    : /\.dto\.ts$/.test(f)
+      ? 'dto'
+      : /\.service\.ts$/.test(f)
+        ? 'service'
+        : /\.module\.ts$/.test(f)
+          ? 'module'
+          : null;
+const parsed = new Map(
+  files.map((f) => [f, ts.createSourceFile(f, fs.readFileSync(f, 'utf8'), ts.ScriptTarget.Latest, true)]),
+);
+const decoratorsOf = (n: ts.Node) =>
+  (ts.canHaveDecorators(n) ? (ts.getDecorators(n) ?? []) : []).map((d) =>
+    ts.isCallExpression(d.expression) ? d.expression.expression.getText() : d.expression.getText(),
+  );
+const importsOf = (f: string) =>
+  parsed
+    .get(f)!
+    .statements.filter(ts.isImportDeclaration)
+    .map((s) => ({ spec: (s.moduleSpecifier as ts.StringLiteral).text, typeOnly: !!s.importClause?.isTypeOnly }));
 
 describe('arsitektur', () => {
   it('berkas NAMA.dto/service/controller/module berisi hanya perannya', () => {
@@ -37,10 +55,17 @@ describe('arsitektur', () => {
       for (const s of parsed.get(f)!.statements) {
         if (!ts.isClassDeclaration(s)) continue;
         const d = decoratorsOf(s);
-        const has = { controller: d.includes('Controller'), module: d.includes('Module'), service: d.includes('Injectable') };
-        if (layer === 'controller' && (has.module || has.service)) bad.push(`${rel(f)}: ${s.name?.text} bukan pengendali`);
-        if (layer === 'module' && (has.controller || has.service)) bad.push(`${rel(f)}: ${s.name?.text} tidak boleh ada di berkas modul`);
-        if (layer === 'dto' && (has.controller || has.module || has.service)) bad.push(`${rel(f)}: ${s.name?.text} tidak boleh ada di berkas dto`);
+        const has = {
+          controller: d.includes('Controller'),
+          module: d.includes('Module'),
+          service: d.includes('Injectable'),
+        };
+        if (layer === 'controller' && (has.module || has.service))
+          bad.push(`${rel(f)}: ${s.name?.text} bukan pengendali`);
+        if (layer === 'module' && (has.controller || has.service))
+          bad.push(`${rel(f)}: ${s.name?.text} tidak boleh ada di berkas modul`);
+        if (layer === 'dto' && (has.controller || has.module || has.service))
+          bad.push(`${rel(f)}: ${s.name?.text} tidak boleh ada di berkas dto`);
       }
     }
     expect(bad).toEqual([]);
@@ -48,7 +73,10 @@ describe('arsitektur', () => {
 
   it('pengendali tidak mengimpor ORM/skema/koneksi database', () => {
     const bad: string[] = [];
-    for (const f of files.filter((x) => layerOf(x) === 'controller')) for (const { spec } of importsOf(f)) if (/^drizzle-orm/.test(spec) || /db\/schema/.test(spec) || /db\/db\.module/.test(spec)) bad.push(`${rel(f)} -> ${spec}`);
+    for (const f of files.filter((x) => layerOf(x) === 'controller'))
+      for (const { spec } of importsOf(f))
+        if (/^drizzle-orm/.test(spec) || /db\/schema/.test(spec) || /db\/db\.module/.test(spec))
+          bad.push(`${rel(f)} -> ${spec}`);
     expect(bad).toEqual([]);
   });
 
@@ -61,7 +89,13 @@ describe('arsitektur', () => {
         if (!spec.startsWith('.')) continue;
         const t = layerOf(path.resolve(path.dirname(f), spec) + '.ts');
         if (layer === 'service' && t === 'controller') bad.push(`${rel(f)} -> ${spec}`);
-        if (layer === 'dto' && (t === 'service' || t === 'controller') && !typeOnly && !/\/common\//.test(path.resolve(path.dirname(f), spec).split(path.sep).join('/'))) bad.push(`${rel(f)} -> ${spec}`);
+        if (
+          layer === 'dto' &&
+          (t === 'service' || t === 'controller') &&
+          !typeOnly &&
+          !/\/common\//.test(path.resolve(path.dirname(f), spec).split(path.sep).join('/'))
+        )
+          bad.push(`${rel(f)} -> ${spec}`);
       }
     }
     expect(bad).toEqual([]);
@@ -91,29 +125,56 @@ describe('arsitektur', () => {
   });
 
   it('tidak ada berkas sumber lebih dari 700 baris (kecuali pembuat data demo)', () => {
-    const big = files.filter((f) => !/\/(demo)\//.test(f) && !/demo\.(seeds|extra|kit)\.ts$/.test(f) && fs.readFileSync(f, 'utf8').split('\n').length > 700).map(rel);
+    const big = files
+      .filter(
+        (f) =>
+          !/\/(demo)\//.test(f) &&
+          !/demo\.(seeds|extra|kit)\.ts$/.test(f) &&
+          fs.readFileSync(f, 'utf8').split('\n').length > 700,
+      )
+      .map(rel);
     expect(big).toEqual([]);
   });
 
   it('cast `as never` hanya di tempat yang diizinkan', () => {
     const ALLOWED = /(^|\/)(db\/owned\.ts$|bootstrap\.ts$|modules\/imports\/imports\.repository\.ts$)/;
-    const offenders = files.filter((f) => !ALLOWED.test(rel(f)) && /\bas never\b/.test(fs.readFileSync(f, 'utf8'))).map(rel);
+    const offenders = files
+      .filter((f) => !ALLOWED.test(rel(f)) && /\bas never\b/.test(fs.readFileSync(f, 'utf8')))
+      .map(rel);
     expect(offenders).toEqual([]);
   });
 
-  it('service tidak menulis kueri database sendiri (lewat repositori)', () => {
+  it('kueri database hanya di repositori (dan infrastruktur yang diizinkan)', () => {
     const QUERY = new Set(['select', 'selectDistinct', 'insert', 'update', 'delete', 'execute']);
     const DB_RECEIVER = /^(this\.db|this\.\w*db|tx|db|trx)$/i;
+    // Diizinkan: repositori, lapisan db, pembuat data demo, serta infrastruktur lintas-tabel/lintas-permintaan
+    // (hak data pengguna: ekspor/hapus/enkripsi/postur keamanan; pemantau galat; interceptor dan guard).
+    const ALLOWED =
+      /(\.repository\.ts$|^db\/|\/demo\/|(^|\/)demo\.[a-z]+\.ts$|^modules\/data-rights\/|^common\/monitor\/|\.interceptor\.ts$|\.guard\.ts$)/;
     const offenders: string[] = [];
-    for (const f of files.filter((x) => /\.service\.ts$/.test(x))) {
+    for (const f of files.filter((x) => !ALLOWED.test(rel(x)))) {
       const sf = parsed.get(f)!;
       (function walk(n: ts.Node) {
-        if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && QUERY.has(n.expression.name.text)) {
+        if (
+          ts.isCallExpression(n) &&
+          ts.isPropertyAccessExpression(n.expression) &&
+          QUERY.has(n.expression.name.text)
+        ) {
           const recv = n.expression.expression.getText().replace(/\s+/g, '');
-          if (DB_RECEIVER.test(recv)) offenders.push(`${rel(f)}:${sf.getLineAndCharacterOfPosition(n.getStart()).line + 1}`);
+          if (DB_RECEIVER.test(recv))
+            offenders.push(`${rel(f)}:${sf.getLineAndCharacterOfPosition(n.getStart()).line + 1}`);
         }
         ts.forEachChild(n, walk);
       })(sf);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('repositori tidak bergantung pada service atau pengendali (arah dependensi ke bawah)', () => {
+    const offenders: string[] = [];
+    for (const f of files.filter((x) => /\.repository\.ts$/.test(x))) {
+      for (const imp of importsOf(f))
+        if (/\.(service|controller)$/.test(imp.spec) && !imp.typeOnly) offenders.push(`${rel(f)} -> ${imp.spec}`);
     }
     expect(offenders).toEqual([]);
   });

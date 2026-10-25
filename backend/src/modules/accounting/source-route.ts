@@ -1,10 +1,6 @@
-/**
- * Dokumen asal sebuah jurnal: alamat halaman di aplikasi untuk membuka dokumen (faktur, surat jalan, dst.) yang melahirkan
- * jurnal itu. Dipakai buku besar, daftar jurnal, dan laporan agar setiap angka bisa ditelusuri ke sumbernya.
- */
-import { inArray, sql } from 'drizzle-orm';
 import { Db } from '../../db/db';
 import { DOCUMENT_VIEW_TYPES } from './source-document';
+import { queryPayment } from './source-route.repository';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -15,13 +11,19 @@ const LIST_ROUTE: Record<string, string> = {
 };
 
 /** Alamat halaman dokumen asal untuk setiap pasangan (jenis sumber, id sumber); null bila tidak ada dokumen (mis. jurnal manual) */
-export async function resolveSourceRoutes(db: Db, tenantId: string, items: { id: string; sourceType: string; sourceId: string | null }[]): Promise<(string | null)[]> {
-  const paymentIds = [...new Set(items.filter((i) => i.sourceType === 'PAYMENT' && i.sourceId && UUID.test(i.sourceId)).map((i) => i.sourceId!))];
+export async function resolveSourceRoutes(
+  db: Db,
+  tenantId: string,
+  items: { id: string; sourceType: string; sourceId: string | null }[],
+): Promise<(string | null)[]> {
+  const paymentIds = [
+    ...new Set(
+      items.filter((i) => i.sourceType === 'PAYMENT' && i.sourceId && UUID.test(i.sourceId)).map((i) => i.sourceId!),
+    ),
+  ];
   const invoiceOf = new Map<string, string>();
   if (paymentIds.length) {
-    const r = await db.execute<{ id: string; invoice_id: string }>(
-      sql`SELECT id, invoice_id FROM payments WHERE tenant_id = ${tenantId} AND id IN (${sql.join(paymentIds.map((p) => sql`${p}`), sql`, `)})`,
-    );
+    const r = await queryPayment(db, tenantId, paymentIds);
     for (const row of r.rows) invoiceOf.set(row.id, row.invoice_id);
   }
   return items.map((i) => {
@@ -43,7 +45,8 @@ export async function resolveSourceRoutes(db: Db, tenantId: string, items: { id:
         return id ? `/fixed-assets?asset=${id}` : null;
       default:
         // dokumen tanpa halaman sendiri dibuka di halaman rincian dokumen (berdasarkan jurnalnya)
-        if (DOCUMENT_VIEW_TYPES.has(i.sourceType) && (id || i.sourceType === 'DEPRECIATION')) return `/documents/${i.id}`;
+        if (DOCUMENT_VIEW_TYPES.has(i.sourceType) && (id || i.sourceType === 'DEPRECIATION'))
+          return `/documents/${i.id}`;
         return LIST_ROUTE[i.sourceType] ?? null;
     }
   });

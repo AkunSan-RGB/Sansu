@@ -1,12 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
-import { SupportQueries } from './support-queries';
+import { SupportQueriesRepository } from './support-queries.repository';
 import { CAP, L, R, num, sum, withRest, type Cell } from './support-shared';
 
 @Injectable()
 export class TradeSupportReports {
-  constructor(private readonly queries: SupportQueries) {}
-
+  constructor(private readonly queries: SupportQueriesRepository) {}
 
   // ------------------------------------------------------------------ Penjualan
   async sales(tenantId: string, from: string, to: string) {
@@ -361,7 +360,6 @@ export class TradeSupportReports {
       ],
     };
   }
-
 
   // ------------------------------------------------------------------ Pembelian
   async purchases(tenantId: string, from: string, to: string) {
