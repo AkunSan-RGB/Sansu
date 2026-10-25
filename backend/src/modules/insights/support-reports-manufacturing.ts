@@ -3,7 +3,6 @@ import { sql } from 'drizzle-orm';
 import { todayJakarta } from '../../common/utils/dates';
 import { SupportQueries } from './support-queries';
 import { Cell, num, CAP, L, R, sum } from './support-shared';
-import {  } from './support-reports-industry';
 
 @Injectable()
 export class ManufacturingSupportReports {
