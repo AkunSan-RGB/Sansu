@@ -144,3 +144,13 @@ Akses data: kueri sederhana (cari satu baris per id dan perusahaan) dipusatkan d
 - Pemberitahuan latar belakang (`notifyRoles`) berjalan di luar lingkup transaksi pemanggil.
 
 Aturan yang dijaga `backend/src/architecture.spec.ts` (8 aturan): satu berkas satu peran; controller tanpa ORM; arah dependensi ke bawah; tanpa siklus antar-modul; berkas maksimal 700 baris (kecuali pembuat data demo); `as never` hanya di `db/owned.ts`, `bootstrap.ts`, dan `modules/imports/imports.repository.ts`; kueri database hanya di repositori; repositori tidak mengimpor service atau controller. Pengecualian kueri langsung hanya untuk infrastruktur: `db/`, pembuat data demo, `modules/data-rights/`, `common/monitor/`, interceptor, dan guard. Pembantu `asDto` sudah dihapus: tipe masukan service dibuat sesuai bentuk sebenarnya, sehingga kode demo dan tes memanggil service tanpa pelonggaran tipe.
+
+## Rincian & perhitungan akun (`modules/account-schedules`)
+Menu khusus yang menampilkan, untuk setiap akun di laporan keuangan (neraca dan laba rugi), rincian, perhitungan, dan metodenya, lalu mencocokkan saldo akhirnya dengan angka akun itu **di laporan keuangan** (dibaca dari `StatementsService`, bukan dari buku besar).
+- **Kontrak**: antarmuka `AccountSchedule` (`supports(akun)`, `build(konteks)`). Tiap jenis akun satu kelas (`schedules/`): aset tetap (perolehan, akumulasi, beban penyusutan), piutang dan utang per pihak, persediaan per produk, kas/bank, pajak, ekuitas, laba belum ditutup, pendapatan, HPP, beban, dan `GenericSchedule`.
+- **Tabel bertipe**: setiap jadwal mendefinisikan kolom dan barisnya sendiri (`ScheduleTable`); halaman hanya menggambarnya, tanpa kondisi per akun. Mutasi per bulan (saldo awal, penambahan, pengurangan, saldo akhir; akun laba rugi: jumlah bulan dan akumulasi) selalu ada sebagai pembanding buku besar.
+- **Akun baru otomatis**: `ScheduleRegistry` memilih jadwal pertama yang `supports` akun; `GenericSchedule` menerima semua akun sehingga akun baru langsung punya mutasi bulanan dan ditandai "metode perlu ditentukan". Menambah jenis jadwal baru = satu kelas baru + satu baris di registri.
+- **Selisih tidak disembunyikan**: bila rincian (daftar aset, faktur, kartu stok) berbeda dari buku besar, selisihnya tampil sebagai baris "penyesuaian lain" atau temuan, dan status akun menjadi "tidak cocok" bila saldo rincian berbeda dari laporan.
+- Menu Aset tetap lama dilebur ke halaman ini (tab "Kelola aset tetap"); `/fixed-assets` dialihkan.
+- Tes: `test/rincian-akun.e2e-spec.ts` (semua jenis usaha, rantai saldo bulanan, akun baru, aset dengan penyusutan dan pelepasan).
+
