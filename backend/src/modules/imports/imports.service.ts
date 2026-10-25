@@ -1,7 +1,7 @@
 import { INTERNAL_BARCODE_PREFIX, isValidBarcode } from '@sansu/shared';
 import { categorySpellings, cleanCategory } from '../master-data/products/category';
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -9,7 +9,7 @@ import { addDays, toDocDate } from '../../common/utils/dates';
 import { Dec, ZERO } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, customers, invoices, productUoms, products, purchaseInvoices, stockBalances, assetCategories, suppliers, warehouses } from '../../db/schema';
+import { customers, products, suppliers } from '../../db/schema';
 import { frameworkOf } from '../accounting/coa-sync';
 import { AssetsService } from '../assets/assets.service';
 import { AccountingService } from '../accounting/accounting.service';
@@ -220,10 +220,7 @@ export class ImportsService {
         const creates = writes.filter((w) => !w.id);
         const idBySku = new Map<string, string>();
         for (const chunk of chunks(creates, 500)) {
-          const ins = await tx
-            .insert(products)
-            .values(chunk.map((w) => ({ tenantId: user.tenantId, sku: w.sku, name: w.name!, category: w.category, baseUom: w.baseUom ?? 'PCS', sellPrice: w.sellPrice ?? '0', barcode: w.barcode ?? null, barcodeSource: w.barcode ? ('MANUFACTURER' as const) : null })))
-            .returning({ id: products.id, sku: products.sku });
+          const ins = await this.repo.insertProducts(tx, chunk.map((w) => ({ tenantId: user.tenantId, sku: w.sku, name: w.name!, category: w.category, baseUom: w.baseUom ?? 'PCS', sellPrice: w.sellPrice ?? '0', barcode: w.barcode ?? null, barcodeSource: w.barcode ? ('MANUFACTURER' as const) : null })));
           for (const r of ins) idBySku.set(r.sku, r.id);
         }
         for (const w of writes.filter((x) => x.id)) {

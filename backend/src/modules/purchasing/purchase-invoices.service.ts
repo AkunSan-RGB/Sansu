@@ -12,7 +12,7 @@ import { D, Dec, money, qty4, ZERO } from '../../common/utils/money';
 import { FxService } from '../fx/fx.service';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { goodsReceiptLines, goodsReceipts, purchaseInvoiceLines, purchaseInvoices, purchaseOrderLines, purchaseOrders, supplierPayments } from '../../db/schema';
+import { goodsReceiptLines, goodsReceipts, purchaseInvoices, purchaseOrderLines, purchaseOrders, supplierPayments } from '../../db/schema';
 import { AssetsService } from '../assets/assets.service';
 import { SYS } from '../accounting/default-coa';
 import { BudgetService } from '../accounting/budget.service';
@@ -438,20 +438,7 @@ export class PurchaseInvoicesService {
     // sisa (pembulatan / stok tak cukup menampung) masuk Selisih Persediaan agar jurnal seimbang
     const rounding = money(subtotal.plus(capitalized ? tax : 0).minus(grni).minus(toInventory).minus(toCogs));
     for (const [i, x] of invLines.entries()) {
-      await tx.insert(purchaseInvoiceLines).values({
-        invoiceId: invoice.id,
-        productId: x.line.productId,
-        uom: x.line.uom,
-        uomFactor: x.line.uomFactor,
-        qty: x.q.toFixed(4),
-        price: (over.get(x.line.id) ?? D(x.line.price)).toFixed(2),
-        priceForeign: pr.foreignPrice.get(x.line.id)?.toFixed(4) ?? null,
-        discountPct: x.line.discountPct,
-        lineTotal: x.dpp.toFixed(2),
-        unitCost: qty4(x.value.plus(variances[i].times(capFactor)).div(x.baseQty)).toFixed(4),
-        priceVariance: variances[i].toFixed(2),
-        orderLineId: x.line.id,
-      });
+      await this.repo.insertPurchaseInvoiceLinesForBillReceived(tx, { invoiceId: invoice.id, productId: x.line.productId, uom: x.line.uom, uomFactor: x.line.uomFactor, qty: x.q.toFixed(4), price: (over.get(x.line.id) ?? D(x.line.price)).toFixed(2), priceForeign: pr.foreignPrice.get(x.line.id)?.toFixed(4) ?? null, discountPct: x.line.discountPct, lineTotal: x.dpp.toFixed(2), unitCost: qty4(x.value.plus(variances[i].times(capFactor)).div(x.baseQty)).toFixed(4), priceVariance: variances[i].toFixed(2), orderLineId: x.line.id, });
       await patchById(tx, purchaseOrderLines, x.line.id, { billedQty: sql`${purchaseOrderLines.billedQty} + ${x.q.toFixed(4)}`, billedAmount: sql`${purchaseOrderLines.billedAmount} + ${x.poDpp.toFixed(2)}` });
     }
     const journal = await this.posting.post(tx, {

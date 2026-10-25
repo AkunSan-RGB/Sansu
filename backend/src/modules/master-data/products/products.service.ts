@@ -231,22 +231,7 @@ export class ProductsService {
     if (dto.madeToOrder && dto.inventoryKind === 'SEMI') throw new BadRequestException('Barang setengah jadi tidak bisa menjadi menu yang dijual di kasir');
     if (dto.inventoryKind === 'SEMI') await this.assertSemiAllowed(tenantId);
     const id = await this.db.transaction(async (tx) => {
-      const [p] = await tx
-        .insert(products)
-        .values({
-          tenantId,
-          sku: dto.sku.trim().toUpperCase(),
-          name: dto.name.trim(),
-          category: await canonicalCategory(tx, tenantId, dto.category),
-          baseUom,
-          sellPrice: dto.sellPrice,
-          ...(await this.resolveBarcode(tx, tenantId, dto.barcode)),
-          inventoryKind: dto.inventoryKind ?? 'GOODS',
-          madeToOrder: dto.madeToOrder ?? false,
-          shelfLifeDays: dto.shelfLifeDays ?? null,
-          weightKg: dto.weightKg ?? null,
-        })
-        .returning({ id: products.id });
+      const [p] = await this.repo.insertProducts(tx, { tenantId, sku: dto.sku.trim().toUpperCase(), name: dto.name.trim(), category: await canonicalCategory(tx, tenantId, dto.category), baseUom, sellPrice: dto.sellPrice, ...(await this.resolveBarcode(tx, tenantId, dto.barcode)), inventoryKind: dto.inventoryKind ?? 'GOODS', madeToOrder: dto.madeToOrder ?? false, shelfLifeDays: dto.shelfLifeDays ?? null, weightKg: dto.weightKg ?? null, });
       if (dto.uoms?.length) {
         await this.repo.insertProductUoms(tx, dto.uoms, p.id);
       }

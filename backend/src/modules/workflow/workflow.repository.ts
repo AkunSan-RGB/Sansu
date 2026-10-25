@@ -294,4 +294,10 @@ export class WorkflowRepository {
       sql`SELECT case_id FROM workflow_links WHERE tenant_id = ${tenantId} AND link_type = ${link} AND doc_id = ${docId} LIMIT 1`,
     );
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh WorkflowService.addLink */
+  insertWorkflowLinks(db: DbOrTx, values: typeof workflowLinks.$inferInsert) {
+    return db.insert(workflowLinks).values(values);
+  }
 }

@@ -91,4 +91,10 @@ export class PurchaseOrdersRepository {
       })),
     );
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh PurchaseOrdersService.createIn */
+  insertPurchaseOrders(db: DbOrTx, values: typeof purchaseOrders.$inferInsert) {
+    return db.insert(purchaseOrders).values(values).returning({ id: purchaseOrders.id });
+  }
 }

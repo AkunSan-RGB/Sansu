@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SequenceService } from '../../common/sequence/sequence.service';
@@ -8,7 +8,7 @@ import { toDocDate } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { attendances, employees, payrollRuns, payslips, tenants } from '../../db/schema';
+import { employees, payrollRuns, payslips } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { monthRange, workDaysBetween } from '../hr/hr.service';
@@ -378,7 +378,7 @@ export class PayrollService {
       );
       const row = { ...toRow(calc), projectId: e.projectId ?? null };
       if (prev) await patchById(tx, payslips, prev.id, row);
-      else await tx.insert(payslips).values({ ...row, runId, employeeId: e.id });
+      else await this.repo.insertPayslips(tx, { ...row, runId, employeeId: e.id });
     }
   }
 

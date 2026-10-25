@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
-import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SettingsService, taxProfileOf } from '../../common/settings.service';
@@ -8,7 +8,7 @@ import { SubscriptionService } from '../../common/billing/subscription.service';
 import { normalizeWarehouseIds } from '../../common/auth/warehouse-ids';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { branches, customRoles, tenants, users } from '../../db/schema';
+import { tenants, users } from '../../db/schema';
 import { isDocDate } from '../../common/utils/dates';
 import { refreshChartRelevance } from '../accounting/coa-sync';
 import { UpdateUserDto, UpdateCompanyDto, BrandingDto, TermsSettingsDto, ReportingSettingsDto, PayrollSettingsDto } from './platform.dto';
@@ -82,9 +82,7 @@ export class PlatformService {
     }
     const customRoleChanged = customRoleId !== undefined && customRoleId !== target.customRoleId;
     if (dto.isActive === true && !target.isActive) await this.subs.assertCanAdd(actor.tenantId, 'users');
-    const [u] = await this.db
-      .update(users)
-      .set({
+    const [u] = await this.repo.updateUsersByIdAndNameAndEmail(this.db, {
         name: dto.name,
         role: dto.role,
         customRoleId,
@@ -100,18 +98,7 @@ export class PlatformService {
           dto.password || dto.resetTwoFactor || dto.isActive === false || customRoleChanged || (dto.role && dto.role !== target.role)
             ? sql`${users.tokenVersion} + 1`
             : undefined,
-      })
-      .where(eq(users.id, id))
-      .returning({
-        id: users.id,
-        name: users.name,
-        email: users.email,
-        role: users.role,
-        isActive: users.isActive,
-        warehouseIds: users.warehouseIds,
-        branchIds: users.branchIds,
-        totpEnabledAt: users.totpEnabledAt,
-      });
+      }, id);
     await this.audit.log(this.db, {
       tenantId: actor.tenantId,
       userId: actor.sub,

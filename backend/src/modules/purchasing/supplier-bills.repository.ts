@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { tenants, projects, accounts } from '../../db/schema';
+import { tenants, projects, accounts, purchaseInvoiceLines } from '../../db/schema';
 import { eq, and } from 'drizzle-orm';
 import { SYS } from '../accounting/default-coa';
 
@@ -29,5 +29,11 @@ export class SupplierBillsRepository {
       .select({ id: accounts.id })
       .from(accounts)
       .where(and(eq(accounts.tenantId, tenantId), eq(accounts.systemKey, SYS.SMALL_ASSET_EXPENSE)));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh SupplierBillsService.createBill */
+  insertPurchaseInvoiceLines(db: DbOrTx, values: typeof purchaseInvoiceLines.$inferInsert) {
+    return db.insert(purchaseInvoiceLines).values(values);
   }
 }

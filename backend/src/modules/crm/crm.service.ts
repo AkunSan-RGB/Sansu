@@ -9,7 +9,7 @@ import { addDays, toDocDate, todayJakarta } from '../../common/utils/dates';
 import { D } from '../../common/utils/money';
 import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { crmActivities, crmStages, customers, leads, quotationLines, quotations } from '../../db/schema';
+import { crmActivities, crmStages, customers, leads, quotations } from '../../db/schema';
 import { buildLines } from '../master-data/products/line-builder';
 import { SalesOrdersService } from '../sales/orders/sales-orders.service';
 import { documentTotals, inclusiveDocument } from '../sales/pricing';
@@ -271,19 +271,7 @@ export class CrmService {
       const lines = totals.lines;
       const number = await this.seq.next(tx, user.tenantId, 'QUOTATION', date);
       const [q] = await this.repo.insertQuotations(tx, user.tenantId, number, date, dto, totals.subtotal, totals.taxAmount, totals.total, inclusive, user.sub);
-      await tx.insert(quotationLines).values(
-        lines.map((l) => ({
-          quotationId: q.id,
-          productId: l.productId,
-          uom: l.uom,
-          uomFactor: l.uomFactor,
-          qty: l.qty,
-          price: l.price.toFixed(2),
-          discountPct: l.discountPct.toFixed(2),
-          lineTotal: l.lineTotal.toFixed(2),
-          priceInclVat: l.priceInclVat ? l.priceInclVat.toFixed(2) : null,
-        })),
-      );
+      await this.repo.insertQuotationLines(tx, lines.map((l) => ({ quotationId: q.id, productId: l.productId, uom: l.uom, uomFactor: l.uomFactor, qty: l.qty, price: l.price.toFixed(2), discountPct: l.discountPct.toFixed(2), lineTotal: l.lineTotal.toFixed(2), priceInclVat: l.priceInclVat ? l.priceInclVat.toFixed(2) : null, })));
       // Tautkan prospek ke pelanggan yang diberi penawaran
       if (dto.leadId) {
         await this.repo.updateLeadsByIdAndCustomerId(tx, dto.customerId, dto.leadId);

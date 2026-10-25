@@ -1,8 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
 import { DocDate } from '../utils/dates';
 import { DbOrTx } from '../../db/db';
-import { tenants } from '../../db/schema';
+import { PeriodRepository } from './period.repository';
 
 /**
  * Tutup buku: transaksi bertanggal pada/sebelum `tenants.locked_until` ditolak.
@@ -10,8 +9,10 @@ import { tenants } from '../../db/schema';
  */
 @Injectable()
 export class PeriodService {
+  constructor(private readonly repo: PeriodRepository) {}
+
   async lockedUntil(db: DbOrTx, tenantId: string): Promise<string | null> {
-    const [t] = await db.select({ lockedUntil: tenants.lockedUntil }).from(tenants).where(eq(tenants.id, tenantId));
+    const [t] = await this.repo.findTenantsById(db, tenantId);
     return t?.lockedUntil ?? null;
   }
 

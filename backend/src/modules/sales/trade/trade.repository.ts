@@ -163,15 +163,19 @@ export class TradeRepository {
     mode: 'DEDUCT' | 'PAY',
     settleJournalId: string,
   ) {
-    return db
-      .insert(tradeAccrualSettlements)
-      .values({
-        tenantId: tenantId,
-        accrualId: id,
-        date: date,
-        amount: amount.toFixed(2),
-        mode: mode,
-        journalId: settleJournalId,
-      });
+    return db.insert(tradeAccrualSettlements).values({
+      tenantId: tenantId,
+      accrualId: id,
+      date: date,
+      amount: amount.toFixed(2),
+      mode: mode,
+      journalId: settleJournalId,
+    });
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh TradeService.generateClaim */
+  insertPrincipalClaimLines(db: DbOrTx, rows: (typeof principalClaimLines.$inferInsert)[]) {
+    return db.insert(principalClaimLines).values(rows);
   }
 }

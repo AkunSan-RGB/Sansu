@@ -1,6 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { crmStages, leads, crmActivities, tenants, warehouses, quotations, customers } from '../../db/schema';
+import {
+  crmStages,
+  leads,
+  crmActivities,
+  tenants,
+  warehouses,
+  quotations,
+  customers,
+  quotationLines,
+} from '../../db/schema';
 import { eq, asc, and, sql, inArray } from 'drizzle-orm';
 import { CRM_PROFILES } from '@sansu/shared';
 import { addDays } from '../../common/utils/dates';
@@ -184,5 +193,11 @@ export class CrmRepository {
         createdById: sub,
       })
       .returning({ id: quotations.id });
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh CrmService.createQuotation */
+  insertQuotationLines(db: DbOrTx, rows: (typeof quotationLines.$inferInsert)[]) {
+    return db.insert(quotationLines).values(rows);
   }
 }

@@ -1,5 +1,4 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
 import { ApprovalsService } from '../../../common/approvals/approvals.service';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
@@ -52,11 +51,7 @@ export class CustomersService {
     await this.get(tenantId, id);
     await this.checkPriceList(tenantId, dto.priceListId);
     const { confirmDuplicate: _c, ...rest } = dto;
-    const [row] = await this.db
-      .update(customers)
-      .set({ ...rest, geoLat: dto.geoLat?.toFixed(6), geoLng: dto.geoLng?.toFixed(6), code: dto.code?.trim().toUpperCase() })
-      .where(eq(customers.id, id))
-      .returning();
+    const [row] = await this.repo.updateCustomersById(this.db, { ...rest, geoLat: dto.geoLat?.toFixed(6), geoLng: dto.geoLng?.toFixed(6), code: dto.code?.trim().toUpperCase() }, id);
     return row;
   }
 

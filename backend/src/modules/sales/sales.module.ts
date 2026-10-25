@@ -57,11 +57,12 @@ import { TradeRepository } from './trade/trade.repository';
 import { PaymentsRepository } from './payments/payments.repository';
 import { ConsignmentsRepository } from './consignment/consignments.repository';
 import { PriceListsRepository } from './pricing/price-lists.repository';
+import { CreditRepository } from './orders/credit.repository';
 
 @Module({
   imports: [AccountingModule, InventoryModule, FxModule],
   controllers: [SalesControlsController, SalesOrdersController, DeliveriesController, InvoicesController, PaymentsController, ServiceBillingController, PricingController, SalesTargetsController, SalesCommissionsController, ConsignmentsController, CanvassController, DeliveryTripsController, DeliveryVehiclesController, TradeController, TimesheetController, SchedulingController, CalendarFeedController, CalendarPublicController, RetainerController],
-  providers: [PriceListsRepository, ConsignmentsRepository, PaymentsRepository, TradeRepository, CanvassRepository, SalesCommissionsRepository, SalesTargetsRepository, SalesOrdersRepository, InvoicesRepository, DeliveriesRepository, ServiceProjectsRepository, RetainersRepository, SchedulingRepository, ServiceBillingRepository, CalendarFeedRepository, TimesheetsRepository, CustomerDepositsRepository, DeliveryTripRepository, RoutingService, DeliveryVehiclesService, DeliveryTripsService, SalesControlsService, TradeService, CanvassService, ConsignmentsService, PricingService, SalesTargetsService, SalesCommissionsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService, CustomerDepositsService, ServiceProjectsService, TimesheetService, SchedulingService, CalendarFeedService, RetainerService],
+  providers: [CreditRepository, PriceListsRepository, ConsignmentsRepository, PaymentsRepository, TradeRepository, CanvassRepository, SalesCommissionsRepository, SalesTargetsRepository, SalesOrdersRepository, InvoicesRepository, DeliveriesRepository, ServiceProjectsRepository, RetainersRepository, SchedulingRepository, ServiceBillingRepository, CalendarFeedRepository, TimesheetsRepository, CustomerDepositsRepository, DeliveryTripRepository, RoutingService, DeliveryVehiclesService, DeliveryTripsService, SalesControlsService, TradeService, CanvassService, ConsignmentsService, PricingService, SalesTargetsService, SalesCommissionsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService, CustomerDepositsService, ServiceProjectsService, TimesheetService, SchedulingService, CalendarFeedService, RetainerService],
   exports: [SalesOrdersService, InvoicesService, PricingService, ServiceBillingService, PaymentsService],
 })
 export class SalesModule {}

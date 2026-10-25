@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../../db/db';
 import { sql, and, eq, ne, or, ilike, asc } from 'drizzle-orm';
 import { invoices, priceLists, customers } from '../../../db/schema';
+import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 
 /** Akses data untuk Customers: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -50,5 +51,15 @@ export class CustomersRepository {
       )
       .orderBy(asc(customers.code))
       .limit(500);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh CustomersService.update */
+  updateCustomersById(
+    db: DbOrTx,
+    patch: PgUpdateSetSource<typeof customers>,
+    id: NonNullable<(typeof customers.$inferSelect)['id']>,
+  ) {
+    return db.update(customers).set(patch).where(eq(customers.id, id)).returning();
   }
 }

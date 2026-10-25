@@ -104,25 +104,7 @@ export class PurchaseOrdersService {
       if (fxDoc) lines.forEach((l, i) => ((l.price = money(l.price.times(rate))), (l.lineTotal = fxDoc.lineIdr[i])));
       const totals = fxDoc ? { subtotal: fxDoc.subtotalIdr, taxAmount: fxDoc.taxIdr, total: fxDoc.totalIdr } : documentTotals(lines, tenant.ppnRate, taxProfileOf(tenant.settings).vatRounding);
       const number = await this.seq.next(tx, user.tenantId, 'PURCHASE_ORDER', date);
-      const [order] = await tx
-        .insert(purchaseOrders)
-        .values({
-          tenantId: user.tenantId,
-          number,
-          date,
-          supplierId: supplier.id,
-          warehouseId: wh.id,
-          notes: dto.notes,
-          priceEstimate: dto.priceEstimate ?? false,
-          currency,
-          fxRate: rate.toFixed(6),
-          totalForeign: fxDoc ? fxDoc.totalForeign.toFixed(2) : null,
-          createdById: user.sub,
-          subtotal: totals.subtotal.toFixed(2),
-          taxAmount: totals.taxAmount.toFixed(2),
-          total: totals.total.toFixed(2),
-        })
-        .returning({ id: purchaseOrders.id });
+      const [order] = await this.repo.insertPurchaseOrders(tx, { tenantId: user.tenantId, number, date, supplierId: supplier.id, warehouseId: wh.id, notes: dto.notes, priceEstimate: dto.priceEstimate ?? false, currency, fxRate: rate.toFixed(6), totalForeign: fxDoc ? fxDoc.totalForeign.toFixed(2) : null, createdById: user.sub, subtotal: totals.subtotal.toFixed(2), taxAmount: totals.taxAmount.toFixed(2), total: totals.total.toFixed(2), });
       await this.repo.insertPurchaseOrderLines(tx, lines, order.id, priceForeign);
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'PurchaseOrder', entityId: order.id });
       return order.id;

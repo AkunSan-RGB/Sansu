@@ -175,7 +175,7 @@ export class PlatformBillingService {
         dto.planId ??
         (await this.repo.findPlans(this.db))[0]?.id;
       if (!planId) throw new BadRequestException('Belum ada paket');
-      await this.db.insert(subscriptions).values({ tenantId, planId, status: dto.status ?? 'ACTIVE', ...patch });
+      await this.repo.insertSubscriptions(this.db, { tenantId, planId, status: dto.status ?? 'ACTIVE', ...patch });
     }
     await this.audit.log(this.db, {
       tenantId,

@@ -3,6 +3,7 @@ import { DbOrTx } from '../../db/db';
 import { users, authTokens, tenants, customRoles, budgets, branches } from '../../db/schema';
 import { eq, and, isNull, gt, sql, inArray, asc } from 'drizzle-orm';
 import { sha256 } from '../../common/utils/secret';
+import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 
 /** Akses data untuk Auth: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -149,5 +150,39 @@ export class AuthRepository {
       .leftJoin(customRoles, eq(customRoles.id, users.customRoleId))
       .where(eq(users.tenantId, tenantId))
       .orderBy(asc(users.name));
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh AuthService.changePassword */
+  updateUsersById(
+    db: DbOrTx,
+    patch: PgUpdateSetSource<typeof users>,
+    sub: NonNullable<(typeof users.$inferSelect)['id']>,
+  ) {
+    return db.update(users).set(patch).where(eq(users.id, sub)).returning();
+  }
+
+  /** Dipakai oleh AuthService.resetPassword */
+  updateUsersByIdAndIsActive(
+    db: DbOrTx,
+    patch: PgUpdateSetSource<typeof users>,
+    userId: NonNullable<(typeof users.$inferSelect)['id']>,
+  ) {
+    return db
+      .update(users)
+      .set(patch)
+      .where(and(eq(users.id, userId), eq(users.isActive, true)))
+      .returning();
+  }
+
+  /** Dipakai oleh AuthService.createUser */
+  insertUsers(db: DbOrTx, values: typeof users.$inferInsert) {
+    return (
+      db
+        .insert(users)
+        // dibuat & dijamin oleh admin perusahaan → dianggap terverifikasi
+        .values(values)
+        .returning({ id: users.id, name: users.name, email: users.email, role: users.role })
+    );
   }
 }

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { ApprovalsService } from '../../../common/approvals/approvals.service';
 import { AuditService } from '../../../common/audit/audit.service';
@@ -9,7 +9,7 @@ import { toDocDate } from '../../../common/utils/dates';
 import { D, money } from '../../../common/utils/money';
 import { Db, DbOrTx, Tx } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { customers, products, promos, salesOrderLines, salesOrders, stockBalances, tenants, users, warehouses } from '../../../db/schema';
+import { products, salesOrders } from '../../../db/schema';
 import { foreignTotals } from '../../../common/utils/fx';
 import { FxService } from '../../fx/fx.service';
 import { documentTotals, inclusiveDocument, lineTotal } from '../pricing';
@@ -167,45 +167,8 @@ export class SalesOrdersService {
         : { lines: lines.map((l) => ({ ...l, priceInclVat: null })), ...documentTotals(lines, rate, taxProfileOf(tenant.settings).vatRounding) };
       const totals = doc;
       const number = await this.seq.next(tx, user.tenantId, 'SALES_ORDER', date);
-      const [order] = await tx
-        .insert(salesOrders)
-        .values({
-          tenantId: user.tenantId,
-          number,
-          date,
-          customerId: customer.id,
-          warehouseId: wh.id,
-          notes: dto.notes,
-          createdById: user.sub,
-          salespersonId,
-          customerPoNo: poNo,
-          subtotal: totals.subtotal.toFixed(2),
-          taxAmount: totals.taxAmount.toFixed(2),
-          total: totals.total.toFixed(2),
-          pricesIncludeVat: inclusive,
-          currency,
-          fxRate: fxRate.toFixed(6),
-          totalForeign: fxDoc ? fxDoc.totalForeign.toFixed(2) : null,
-        })
-        .returning({ id: salesOrders.id });
-      await tx.insert(salesOrderLines).values(
-        doc.lines.map((l) => ({
-          orderId: order.id,
-          productId: l.productId,
-          uom: l.uom,
-          uomFactor: l.uomFactor,
-          qty: l.qty,
-          price: l.price.toFixed(2),
-          discountPct: l.discountPct.toFixed(2),
-          lineTotal: l.lineTotal.toFixed(2),
-          priceInclVat: l.priceInclVat ? l.priceInclVat.toFixed(2) : null,
-          priceForeign: l.priceForeign ? l.priceForeign.toFixed(4) : null,
-          promoId: l.promoId ?? null,
-          isBonus: l.isBonus ?? false,
-          promoFundedSupplierId: l.fundedSupplierId ?? null,
-          promoFundedPct: l.fundedPct ?? '0',
-        })),
-      );
+      const [order] = await this.repo.insertSalesOrders(tx, { tenantId: user.tenantId, number, date, customerId: customer.id, warehouseId: wh.id, notes: dto.notes, createdById: user.sub, salespersonId, customerPoNo: poNo, subtotal: totals.subtotal.toFixed(2), taxAmount: totals.taxAmount.toFixed(2), total: totals.total.toFixed(2), pricesIncludeVat: inclusive, currency, fxRate: fxRate.toFixed(6), totalForeign: fxDoc ? fxDoc.totalForeign.toFixed(2) : null, });
+      await this.repo.insertSalesOrderLines(tx, doc.lines.map((l) => ({ orderId: order.id, productId: l.productId, uom: l.uom, uomFactor: l.uomFactor, qty: l.qty, price: l.price.toFixed(2), discountPct: l.discountPct.toFixed(2), lineTotal: l.lineTotal.toFixed(2), priceInclVat: l.priceInclVat ? l.priceInclVat.toFixed(2) : null, priceForeign: l.priceForeign ? l.priceForeign.toFixed(4) : null, promoId: l.promoId ?? null, isBonus: l.isBonus ?? false, promoFundedSupplierId: l.fundedSupplierId ?? null, promoFundedPct: l.fundedPct ?? '0', })));
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'SalesOrder', entityId: order.id });
       return order.id;
     }).catch((e) => {

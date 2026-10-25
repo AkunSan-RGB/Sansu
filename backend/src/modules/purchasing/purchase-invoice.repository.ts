@@ -161,4 +161,10 @@ export class PurchaseInvoiceRepository {
       orderLineId: lineValues4,
     });
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh PurchaseInvoicesService.billReceived */
+  insertPurchaseInvoiceLinesForBillReceived(db: DbOrTx, values: typeof purchaseInvoiceLines.$inferInsert) {
+    return db.insert(purchaseInvoiceLines).values(values);
+  }
 }

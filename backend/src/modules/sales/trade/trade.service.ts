@@ -6,7 +6,7 @@ import { toDocDate, todayJakarta } from '../../../common/utils/dates';
 import { D, money } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
-import { invoices, payments, principalClaimLines, principalClaims, tradeAccruals, tradeTerms } from '../../../db/schema';
+import { invoices, payments, principalClaims, tradeAccruals, tradeTerms } from '../../../db/schema';
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { TermDto, PeriodQueryDto, SettleDto, GenerateClaimDto, DecideClaimDto, ReceiveClaimDto } from './trade.dto';
@@ -216,7 +216,7 @@ export class TradeService {
       if (!items.length || total.lte(0)) throw new BadRequestException('Tidak ada promo yang didanai prinsipal ini pada bulan tersebut (atau sudah diklaim)');
       const number = await this.seq.next(tx, u.tenantId, 'PRINCIPAL_CLAIM', toDocDate(to));
       const claim = await insertOne(tx, principalClaims, { tenantId: u.tenantId, number, supplierId: sup.id, period: dto.period, claimedAmount: total.toFixed(2), createdById: u.sub });
-      await tx.insert(principalClaimLines).values(items.map((i) => ({ tenantId: u.tenantId, claimId: claim.id, orderLineId: i.orderLineId, promoId: i.promoId, kind: i.kind, invoiceNumber: i.invoiceNumber, description: i.description, baseValue: i.base.toFixed(2), fundedPct: i.pct, amount: i.amount.toFixed(2) })));
+      await this.repo.insertPrincipalClaimLines(tx, items.map((i) => ({ tenantId: u.tenantId, claimId: claim.id, orderLineId: i.orderLineId, promoId: i.promoId, kind: i.kind, invoiceNumber: i.invoiceNumber, description: i.description, baseValue: i.base.toFixed(2), fundedPct: i.pct, amount: i.amount.toFixed(2) })));
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'PrincipalClaim', entityId: claim.id, data: { number, supplier: sup.name, period: dto.period, lines: items.length, claimed: total.toFixed(2) } });
       return { ...claim, lineCount: items.length };
     });

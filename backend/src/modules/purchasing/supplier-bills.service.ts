@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { AuditService } from '../../common/audit/audit.service';
 import { SequenceService } from '../../common/sequence/sequence.service';
@@ -10,7 +9,7 @@ import { addDays, toDocDate } from '../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { accounts, purchaseInvoiceLines, purchaseInvoices, projects, tenants } from '../../db/schema';
+import { purchaseInvoices } from '../../db/schema';
 import { AssetsService } from '../assets/assets.service';
 import { SYS } from '../accounting/default-coa';
 import { BudgetService } from '../accounting/budget.service';
@@ -199,20 +198,7 @@ export class SupplierBillsService {
             assetId ??= asset.id;
           }
         }
-        await tx.insert(purchaseInvoiceLines).values({
-          invoiceId: invoice.id,
-          lineType: l.dto.type,
-          accountId: l.dto.type === 'EXPENSE' ? l.debitAccountId : expensed[idx] ? smallAssetAccountId : null,
-          assetCategoryId: l.dto.assetCategoryId,
-          assetId,
-          description: l.dto.description,
-          uom: 'UNIT',
-          uomFactor: '1',
-          qty: l.qty.toFixed(4),
-          price: money(l.dto.price).toFixed(2),
-          lineTotal: l.total.toFixed(2),
-          unitCost: '0',
-        });
+        await this.queries.insertPurchaseInvoiceLines(tx, { invoiceId: invoice.id, lineType: l.dto.type, accountId: l.dto.type === 'EXPENSE' ? l.debitAccountId : expensed[idx] ? smallAssetAccountId : null, assetCategoryId: l.dto.assetCategoryId, assetId, description: l.dto.description, uom: 'UNIT', uomFactor: '1', qty: l.qty.toFixed(4), price: money(l.dto.price).toFixed(2), lineTotal: l.total.toFixed(2), unitCost: '0', });
       }
       await patchById(tx, purchaseInvoices, invoice.id, { journalId: journal.id });
       await this.audit.log(tx, {

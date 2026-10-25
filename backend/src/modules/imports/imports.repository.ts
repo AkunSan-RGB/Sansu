@@ -147,4 +147,10 @@ export class ImportsRepository {
   listAssetCategories(db: DbOrTx, tenantId: string) {
     return db.select().from(assetCategories).where(eq(assetCategories.tenantId, tenantId));
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh ImportsService.products */
+  insertProducts(db: DbOrTx, rows: (typeof products.$inferInsert)[]) {
+    return db.insert(products).values(rows).returning({ id: products.id, sku: products.sku });
+  }
 }

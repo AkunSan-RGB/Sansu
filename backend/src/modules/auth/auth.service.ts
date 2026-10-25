@@ -11,7 +11,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { type BusinessModel, taxFeatures } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -200,11 +200,7 @@ export class AuthService {
       throw new BadRequestException('Kata sandi lama salah');
     }
     if (dto.currentPassword === dto.newPassword) throw new BadRequestException('Kata sandi baru harus berbeda');
-    const [updated] = await this.db
-      .update(users)
-      .set({ passwordHash: await bcrypt.hash(dto.newPassword, 10), tokenVersion: sql`${users.tokenVersion} + 1` })
-      .where(eq(users.id, u.sub))
-      .returning();
+    const [updated] = await this.repo.updateUsersById(this.db, { passwordHash: await bcrypt.hash(dto.newPassword, 10), tokenVersion: sql`${users.tokenVersion} + 1` }, u.sub);
     return this.issue(updated);
   }
 
@@ -309,16 +305,12 @@ export class AuthService {
 
   async resetPassword(dto: ResetPasswordDto) {
     const t = await this.consumeToken(dto.token, 'RESET');
-    const [user] = await this.db
-      .update(users)
-      .set({
+    const [user] = await this.repo.updateUsersByIdAndIsActive(this.db, {
         passwordHash: await bcrypt.hash(dto.password, 10),
         tokenVersion: sql`${users.tokenVersion} + 1`,
         // membuka tautan dari kotak masuk = email terbukti milik pengguna
         emailVerifiedAt: sql`COALESCE(${users.emailVerifiedAt}, now())`,
-      })
-      .where(and(eq(users.id, t.userId), eq(users.isActive, true)))
-      .returning();
+      }, t.userId);
     if (!user) throw new BadRequestException('Akun tidak aktif. Hubungi admin perusahaan Anda.');
     this.limiter.success(user.email);
     await this.mail.send({
@@ -415,10 +407,7 @@ export class AuthService {
     const email = dto.email.toLowerCase();
     await this.assertEmailFree(email);
     await this.subs.assertCanAdd(actor.tenantId, 'users');
-    const [user] = await this.db
-      .insert(users)
-      // dibuat & dijamin oleh admin perusahaan → dianggap terverifikasi
-      .values({
+    const [user] = await this.repo.insertUsers(this.db, {
         tenantId: actor.tenantId,
         email,
         name: dto.name,
@@ -428,8 +417,7 @@ export class AuthService {
         emailVerifiedAt: new Date(),
         warehouseIds: (await normalizeWarehouseIds(this.db, actor.tenantId, dto.warehouseIds)) ?? null,
         branchIds: await this.normalizeBranchIds(actor.tenantId, dto.branchIds),
-      })
-      .returning({ id: users.id, name: users.name, email: users.email, role: users.role });
+      });
     return user;
   }
 

@@ -6,7 +6,7 @@ import { PeriodService } from '../../common/period/period.service';
 import { assertNotFuture, DocDate } from '../../common/utils/dates';
 import { D, Dec, DecValue, money, qty4 } from '../../common/utils/money';
 import { Tx } from '../../db/db';
-import { StockMoveType, stockMoves } from '../../db/schema';
+import { StockMoveType } from '../../db/schema';
 import { isInventoryMethod, type InventoryMethod } from '@sansu/shared';
 import { consumeLayers, movingAverage } from './costing';
 import { trackBins } from './bin-tracker';
@@ -189,20 +189,7 @@ export class StockService {
     }
     await this.repo.queryStockBalanceForMove2(tx, balanceAfter, newAvg, newWu, m.productId, m.warehouseId);
 
-    await tx.insert(stockMoves).values({
-      tenantId: m.tenantId,
-      productId: m.productId,
-      warehouseId: m.warehouseId,
-      type: m.type,
-      qty: qty.toFixed(4),
-      unitCost: unitCost.toFixed(4),
-      balanceAfter: balanceAfter.toFixed(4),
-      writedownValue: wdValue.toFixed(2),
-      refType: m.refType,
-      refId: m.refId,
-      refNumber: m.refNumber,
-      date: m.date,
-    });
+    await this.repo.insertStockMovesForMove(tx, { tenantId: m.tenantId, productId: m.productId, warehouseId: m.warehouseId, type: m.type, qty: qty.toFixed(4), unitCost: unitCost.toFixed(4), balanceAfter: balanceAfter.toFixed(4), writedownValue: wdValue.toFixed(2), refType: m.refType, refId: m.refId, refNumber: m.refNumber, date: m.date, });
 
     const lotDeltas = await trackLots(tx, {
       tenantId: m.tenantId,

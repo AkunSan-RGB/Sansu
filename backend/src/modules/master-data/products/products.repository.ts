@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../../db/db';
 import { sql, eq } from 'drizzle-orm';
-import { productUoms } from '../../../db/schema';
+import { productUoms, products } from '../../../db/schema';
 import { ProductUomDto } from './products.dto';
 import type { SQL } from 'drizzle-orm';
 
@@ -85,5 +85,11 @@ export class ProductsRepository {
   /** Dipakai oleh ProductsService.mergeCategories */
   queryMergeCategories(db: DbOrTx, to: string | null, cond: SQL<unknown>) {
     return db.execute<{ id: string }>(sql`UPDATE products SET category = ${to}::text WHERE ${cond} RETURNING id`);
+  }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh ProductsService.create */
+  insertProducts(db: DbOrTx, values: typeof products.$inferInsert) {
+    return db.insert(products).values(values).returning({ id: products.id });
   }
 }

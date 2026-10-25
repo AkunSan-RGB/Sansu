@@ -9,7 +9,7 @@ import { SettingsService } from '../../common/settings.service';
 import { toDocDate, todayJakarta } from '../../common/utils/dates';
 import { Db, DbOrTx, Tx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
-import { workflowCases, workflowLinks } from '../../db/schema';
+import { workflowCases } from '../../db/schema';
 import { WorkflowSettingsDto, CaseQueryDto, CreateCaseDto, AddLinkDto, AdvanceDto, NoteDto } from './workflow.dto';
 import { findOwned, insertOne, lockOwned, patchById } from '../../db/owned';
 import { WorkflowRepository } from './workflow.repository';
@@ -360,7 +360,7 @@ export class WorkflowService {
       if (DEAD.has(doc.status)) throw new BadRequestException('Dokumen yang dibatalkan tidak bisa ditautkan');
       const used = await this.repo.queryWorkflowLinkForAddLink(tx, u.tenantId, dto.type, dto.docId);
       if (used.rows.length) throw new BadRequestException(`${WORKFLOW_LINK_LABELS[dto.type]} ${doc.number} sudah dipakai kasus lain`);
-      await tx.insert(workflowLinks).values({ tenantId: u.tenantId, caseId: id, linkType: dto.type, docId: dto.docId, docNumber: doc.number, createdById: u.sub });
+      await this.repo.insertWorkflowLinks(tx, { tenantId: u.tenantId, caseId: id, linkType: dto.type, docId: dto.docId, docNumber: doc.number, createdById: u.sub });
       await this.event(tx, u.tenantId, id, { kind: 'LINK', note: `${WORKFLOW_LINK_LABELS[dto.type]} ${doc.number}`, by: u.sub });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'LINK', entity: 'WorkflowCase', entityId: id, data: { type: dto.type, doc: doc.number } });
       await this.autoAdvance(tx, c, p);
@@ -467,7 +467,7 @@ export class WorkflowService {
         try {
           await this.db.transaction(async (tx) => {
             const c = await this.insertCase(tx, tenantId, actor, p, { title: `${o.label} ${d.number}`, customerId: o.subject === 'customer' ? d.subject_id : null, supplierId: o.subject === 'supplier' ? d.subject_id : null, auto: true });
-            await tx.insert(workflowLinks).values({ tenantId, caseId: c.id, linkType: o.link, docId: d.id, docNumber: d.number, createdById: actor });
+            await this.repo.insertWorkflowLinks(tx, { tenantId, caseId: c.id, linkType: o.link, docId: d.id, docNumber: d.number, createdById: actor });
             await this.event(tx, tenantId, c.id, { kind: 'LINK', note: `${WORKFLOW_LINK_LABELS[o.link]} ${d.number} (otomatis)`, auto: true });
             await this.autoAdvance(tx, c, p);
           });

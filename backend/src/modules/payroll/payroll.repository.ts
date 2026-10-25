@@ -165,4 +165,10 @@ export class PayrollRepository {
   findPayrollRunsById(db: DbOrTx, id: string) {
     return db.select().from(payrollRuns).where(eq(payrollRuns.id, id));
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh PayrollService.generate */
+  insertPayslips(db: DbOrTx, values: typeof payslips.$inferInsert) {
+    return db.insert(payslips).values(values);
+  }
 }

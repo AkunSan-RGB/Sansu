@@ -202,4 +202,10 @@ export class PlatformBillingRepository {
   listPlans(db: DbOrTx) {
     return db.select().from(plans).orderBy(asc(plans.sortOrder), asc(plans.priceMonthly));
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh PlatformBillingService.updateSubscription */
+  insertSubscriptions(db: DbOrTx, values: typeof subscriptions.$inferInsert) {
+    return db.insert(subscriptions).values(values);
+  }
 }

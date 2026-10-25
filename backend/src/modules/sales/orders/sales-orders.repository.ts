@@ -93,4 +93,15 @@ export class SalesOrdersRepository {
     return db.execute(sql`
       SELECT id FROM sales_orders WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh SalesOrdersService.create */
+  insertSalesOrders(db: DbOrTx, values: typeof salesOrders.$inferInsert) {
+    return db.insert(salesOrders).values(values).returning({ id: salesOrders.id });
+  }
+
+  /** Dipakai oleh SalesOrdersService.create */
+  insertSalesOrderLines(db: DbOrTx, rows: (typeof salesOrderLines.$inferInsert)[]) {
+    return db.insert(salesOrderLines).values(rows);
+  }
 }

@@ -246,4 +246,10 @@ export class StockRepository {
   queryMoveForMove(db: DbOrTx, kept: Map<string, Dec>, id: string) {
     return db.execute(sql`UPDATE stock_layers SET qty_remaining = ${kept.get(id)!.toFixed(4)} WHERE id = ${id}`);
   }
+
+  // ---- kueri yang dipindah dari service ----
+  /** Dipakai oleh StockService.move */
+  insertStockMovesForMove(db: DbOrTx, values: typeof stockMoves.$inferInsert) {
+    return db.insert(stockMoves).values(values);
+  }
 }
