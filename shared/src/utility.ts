@@ -125,8 +125,10 @@ export interface UtilityRules {
   spikeMinUsage: number;
   /** Tagihan jatuh tempo sekian hari setelah terbit */
   dueDays: number;
+  /** Penerimaan loket hanya non-tunai (transfer, QRIS, virtual account, EDC); setoran kas loket tidak dipakai */
+  cashless: boolean;
 }
-export const DEFAULT_UTILITY_RULES: UtilityRules = { graceDays: 7, lateFeePct: 2, lateFeeCapPct: 10, suspendAfterDays: 30, spikeFactor: 3, spikeMinUsage: 5, dueDays: 20 };
+export const DEFAULT_UTILITY_RULES: UtilityRules = { graceDays: 7, lateFeePct: 2, lateFeeCapPct: 10, suspendAfterDays: 30, spikeFactor: 3, spikeMinUsage: 5, dueDays: 20, cashless: true };
 
 export function validateRules(r: UtilityRules): string[] {
   const out: string[] = [];
@@ -171,3 +173,38 @@ export function flagReading(usage: number, history: number[], r: UtilityRules, m
 
 /** Periode bulanan 'YYYY-MM' */
 export const isPeriod = (s: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
+
+/** Kanal penerimaan non-tunai di loket (semuanya masuk rekening bank; tidak ada uang tunai di loket) */
+export const COUNTER_CHANNELS = ['TRANSFER', 'QRIS', 'VA', 'EDC', 'EWALLET'] as const;
+export type CounterChannel = (typeof COUNTER_CHANNELS)[number];
+export const COUNTER_CHANNEL_LABELS: Record<CounterChannel, string> = {
+  TRANSFER: 'Transfer bank',
+  QRIS: 'QRIS',
+  VA: 'Virtual account',
+  EDC: 'Kartu debit/kredit (EDC)',
+  EWALLET: 'Dompet digital',
+};
+
+/** Pendapatan air (pemakaian dan abonemen) dipisahkan dari pendapatan non-air (administrasi, sambung, denda, material, dan lain-lain) */
+export const AIR_REVENUE_KEYS = ['UTILITY_USAGE_REVENUE', 'UTILITY_FIXED_REVENUE'] as const;
+export const NON_AIR_REVENUE_KEYS = ['UTILITY_ADMIN_REVENUE', 'UTILITY_CONNECTION_REVENUE', 'UTILITY_RECONNECT_REVENUE', 'UTILITY_MATERIAL_REVENUE', 'UTILITY_LATE_FEE_REVENUE', 'UTILITY_OTHER_REVENUE'] as const;
+export const NON_AIR_CHARGE_KEYS = ['UTILITY_ADMIN_REVENUE', 'UTILITY_CONNECTION_REVENUE', 'UTILITY_RECONNECT_REVENUE', 'UTILITY_MATERIAL_REVENUE', 'UTILITY_OTHER_REVENUE'] as const;
+export type NonAirChargeKey = (typeof NON_AIR_CHARGE_KEYS)[number];
+export const REVENUE_KEY_LABELS: Record<string, string> = {
+  UTILITY_USAGE_REVENUE: 'Penjualan air (pemakaian)',
+  UTILITY_FIXED_REVENUE: 'Abonemen air',
+  UTILITY_ADMIN_REVENUE: 'Biaya administrasi',
+  UTILITY_CONNECTION_REVENUE: 'Biaya sambung baru',
+  UTILITY_RECONNECT_REVENUE: 'Sambung kembali & penyegelan',
+  UTILITY_MATERIAL_REVENUE: 'Penggantian meter & material',
+  UTILITY_LATE_FEE_REVENUE: 'Denda keterlambatan',
+  UTILITY_OTHER_REVENUE: 'Non-air lainnya',
+};
+/** Layanan non-air bawaan untuk katalog perusahaan baru (harga dapat diubah) */
+export const DEFAULT_NON_AIR_CHARGES: { name: string; price: number; revenueKey: NonAirChargeKey }[] = [
+  { name: 'Biaya sambung baru', price: 1_500_000, revenueKey: 'UTILITY_CONNECTION_REVENUE' },
+  { name: 'Sambung kembali setelah pemutusan', price: 150_000, revenueKey: 'UTILITY_RECONNECT_REVENUE' },
+  { name: 'Penggantian meter air', price: 350_000, revenueKey: 'UTILITY_MATERIAL_REVENUE' },
+  { name: 'Biaya administrasi pendaftaran', price: 50_000, revenueKey: 'UTILITY_ADMIN_REVENUE' },
+  { name: 'Layanan non-air lainnya', price: 0, revenueKey: 'UTILITY_OTHER_REVENUE' },
+];

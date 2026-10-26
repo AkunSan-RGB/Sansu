@@ -294,7 +294,7 @@ export class PostingService {
    * Perusahaan lama mungkin belum punya akun sistem yang ditambahkan di versi baru
    * (mis. Retur Penjualan). Buat otomatis dari bagan akun standar saat pertama dibutuhkan.
    */
-  private async ensureSystemAccounts(tx: Tx, tenantId: string, keys: SystemKey[]) {
+  async ensureSystemAccounts(tx: DbOrTx, tenantId: string, keys: SystemKey[]) {
     const existing = await this.repo.listAccountsBySystemKey(tx, tenantId, keys);
     const have = new Set(existing.map((e) => e.systemKey));
     for (const key of keys.filter((k) => !have.has(k))) {

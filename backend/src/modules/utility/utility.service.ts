@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { haversineM } from '../sales/canvass/canvass.service';
-import { computeBill, DEFAULT_UTILITY_RULES, flagReading, isPeriod, lateFee, UTILITY_SERVICE_DEFAULTS, validateBlocks, validateRules, type TariffBlock, type UtilityRules } from '@sansu/shared';
+import { AIR_REVENUE_KEYS, NON_AIR_REVENUE_KEYS, computeBill, DEFAULT_UTILITY_RULES, flagReading, isPeriod, lateFee, UTILITY_SERVICE_DEFAULTS, validateBlocks, validateRules, type TariffBlock, type UtilityRules } from '@sansu/shared';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -14,7 +14,8 @@ import { Db } from '../../db/db';
 import { LOSS_WARN_PCT, ZONE_STATUS_LABEL, zoneLoss } from './zones';
 import { InjectDb } from '../../db/db.module';
 import { utilityBills, utilityConnections, utilityReadings, utilityTariffs } from '../../db/schema';
-import { SYS } from '../accounting/default-coa';
+import { PostingService } from '../accounting/posting.service';
+import { SYS, type SystemKey } from '../accounting/default-coa';
 import { ServiceBillingService } from '../sales/services/service-billing.service';
 import { RulesDto, TariffDto, ConnectionDto, SuspendDto, ReasonDto, ZoneDto, ZoneSupplyDto, ReadingDto, VerifyDto, BillRunDto } from './utility.dto';
 import { findOwned, insertOne, patchById } from '../../db/owned';
@@ -58,6 +59,7 @@ export class UtilityService {
     private readonly approvals: ApprovalsService,
     private readonly billing: ServiceBillingService,
     private readonly storage: StorageService,
+    private readonly posting: PostingService,
     private readonly repo: UtilityRepository,
   ) {}
 
@@ -65,10 +67,11 @@ export class UtilityService {
     return this.settings.section(this.db, tenantId, SECTION, DEFAULT_UTILITY_RULES);
   }
   async saveRules(u: AuthUser, dto: RulesDto) {
-    const problems = validateRules(dto);
-    if (problems.length) throw new BadRequestException(problems.join(' '));
     const before = await this.rules(u.tenantId);
-    const saved = await this.settings.saveSection(this.db, u.tenantId, SECTION, DEFAULT_UTILITY_RULES, dto);
+    const next: UtilityRules = { ...before, ...(Object.fromEntries(Object.entries(dto).filter(([, v]) => v !== undefined)) as Partial<UtilityRules>) };
+    const problems = validateRules(next);
+    if (problems.length) throw new BadRequestException(problems.join(' '));
+    const saved = await this.settings.saveSection(this.db, u.tenantId, SECTION, DEFAULT_UTILITY_RULES, next);
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'UtilityRules', entityId: u.tenantId, data: { before, after: saved } });
     return saved;
   }
@@ -381,6 +384,8 @@ export class UtilityService {
   }
 
   private async key(tenantId: string, systemKey: string) {
+    // perusahaan lama belum punya akun pendapatan non-air yang baru: dibuat otomatis dari bagan akun standar
+    await this.posting.ensureSystemAccounts(this.db, tenantId, [systemKey as SystemKey]);
     const [a] = await this.repo.findAccountsBySystemKey(this.db, tenantId, systemKey);
     if (!a) throw new BadRequestException(`Akun ${systemKey} belum tersedia — pastikan jenis usaha perusahaan adalah Utilitas lalu muat ulang aplikasi`);
     return a.id;
@@ -392,7 +397,7 @@ export class UtilityService {
     const acct = {
       FIXED: await this.key(u.tenantId, SYS.UTILITY_FIXED_REVENUE),
       USAGE: await this.key(u.tenantId, SYS.UTILITY_USAGE_REVENUE),
-      ADMIN: await this.key(u.tenantId, SYS.UTILITY_FIXED_REVENUE),
+      ADMIN: await this.key(u.tenantId, SYS.UTILITY_ADMIN_REVENUE),
       LATE_FEE: await this.key(u.tenantId, SYS.UTILITY_LATE_FEE_REVENUE),
     } as const;
     const today = todayJakarta();
@@ -505,6 +510,19 @@ export class UtilityService {
         AND NOT EXISTS (SELECT 1 FROM utility_readings r WHERE r.connection_id = c.id AND r.period = ${period} AND r.status <> 'REJECTED')`),
     ]);
     const od = await this.overdue(tenantId);
-    return { period, active, suspended, awaitingVerification: awaiting, readyToBill: ready, missingReadings: missing, overdueCount: od.length, overdueTotal: od.reduce((s, x) => s + num(x.outstanding), 0), suggestSuspend: od.filter((x) => x.suggestSuspend).length };
+    const today = todayJakarta();
+    const monthStart = `${period}-01`;
+    const rev = async (keys: readonly string[]) =>
+      one(sql`SELECT COALESCE(SUM(l.credit - l.debit), 0)::numeric(18,2) AS n FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
+        WHERE j.tenant_id = ${tenantId} AND j.date BETWEEN ${monthStart} AND ${today} AND a.system_key IN (${sql.join(keys.map((k) => sql`${k}`), sql`, `)})`);
+    const [revenueAir, revenueNonAir, counters, receiptsToday, unconfirmedDays] = await Promise.all([
+      rev(AIR_REVENUE_KEYS),
+      rev(NON_AIR_REVENUE_KEYS),
+      one(sql`SELECT COUNT(*)::int AS n FROM utility_counters WHERE tenant_id = ${tenantId} AND is_active`),
+      one(sql`SELECT COALESCE(SUM(amount), 0)::numeric(18,2) AS n FROM utility_counter_receipts WHERE tenant_id = ${tenantId} AND received_at::date = ${today}`),
+      one(sql`SELECT COUNT(*)::int AS n FROM (SELECT DISTINCT r.counter_id, r.received_at::date AS d FROM utility_counter_receipts r WHERE r.tenant_id = ${tenantId} AND r.counter_id IS NOT NULL AND r.received_at::date < ${today}) x
+        WHERE NOT EXISTS (SELECT 1 FROM utility_counter_closings cl WHERE cl.tenant_id = ${tenantId} AND cl.counter_id = x.counter_id AND cl.date = x.d)`),
+    ]);
+    return { revenueAir, revenueNonAir, counters, receiptsToday, unconfirmedDays, period, active, suspended, awaitingVerification: awaiting, readyToBill: ready, missingReadings: missing, overdueCount: od.length, overdueTotal: od.reduce((s, x) => s + num(x.outstanding), 0), suggestSuspend: od.filter((x) => x.suggestSuspend).length };
   }
 }
