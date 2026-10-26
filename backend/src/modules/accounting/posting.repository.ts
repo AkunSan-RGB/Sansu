@@ -44,6 +44,7 @@ export class PostingRepository {
           accountId: l.accountId,
           debit: l.credit,
           credit: l.debit,
+          foreignAmount: l.foreignAmount,
           memo: l.memo,
           projectId: l.projectId,
           branchId: l.branchId,
@@ -151,6 +152,7 @@ export class PostingRepository {
           accountId: l.accountId,
           debit: l.debit.toFixed(2),
           credit: l.credit.toFixed(2),
+          foreignAmount: l.foreignAmount ? l.foreignAmount.toFixed(2) : null,
           memo: l.memo,
           projectId: l.projectId ?? null,
           branchId: l.branchId === undefined ? entryBranch : l.branchId,
@@ -167,7 +169,7 @@ export class PostingRepository {
   /** Dipakai oleh PostingService.resolveAccounts */
   listAccounts(db: DbOrTx, tenantId: NonNullable<(typeof accounts.$inferSelect)['tenantId']>, conds: SQL<unknown>[]) {
     return db
-      .select({ id: accounts.id, systemKey: accounts.systemKey, isPostable: accounts.isPostable, code: accounts.code })
+      .select({ id: accounts.id, systemKey: accounts.systemKey, isPostable: accounts.isPostable, code: accounts.code, name: accounts.name, currency: accounts.currency })
       .from(accounts)
       .where(and(eq(accounts.tenantId, tenantId), or(...conds)));
   }

@@ -21,6 +21,9 @@ export const cashTransactions = pgTable(
     /** Hanya TRANSFER: rekening tujuan */
     toCashAccountId: uuid('to_cash_account_id').references(() => accounts.id),
     amount: money('amount').notNull(),
+    /** Transaksi valas: mata uang rekening valas dan jumlahnya (amount = nilai Rupiah) */
+    currency: text('currency'),
+    amountForeign: money('amount_foreign'),
     description: text('description').notNull(),
     reference: text('reference'),
     journalId: uuid('journal_id'),

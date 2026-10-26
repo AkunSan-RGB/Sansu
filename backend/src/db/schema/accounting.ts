@@ -35,6 +35,8 @@ export const accounts = pgTable(
     systemKey: text('system_key'),
     /** Akun kas / rekening bank (muncul di modul Kas & Bank) */
     isCashAccount: boolean('is_cash_account').notNull().default(false),
+    /** Mata uang rekening kas/bank: IDR (bawaan) atau kode valas; akun valas menyimpan jumlah valas di tiap baris jurnalnya */
+    currency: text('currency').notNull().default('IDR'),
     /** Kelompok penyajian laporan keuangan SAK EP (lihat REPORT_GROUPS di @sansu/shared) */
     reportGroup: text('report_group'),
     /** Perlakuan fiskal untuk rekonsiliasi PPh Badan */
@@ -84,6 +86,8 @@ export const journalLines = pgTable(
       .references(() => accounts.id),
     debit: money('debit').notNull().default('0'),
     credit: money('credit').notNull().default('0'),
+    /** Jumlah dalam valas (selalu positif; arahnya mengikuti sisi debit/kredit) — hanya untuk akun bermata uang asing */
+    foreignAmount: money('foreign_amount'),
     memo: text('memo'),
     /** Jurnal umum: biaya/pendapatan untuk proyek tertentu (usaha jasa) */
     projectId: uuid('project_id'),

@@ -14,6 +14,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { purchaseInvoices, supplierPayments } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
+import { ForeignCashService } from '../accounting/foreign-cash.service';
 import { PostingService } from '../accounting/posting.service';
 import { CreateSupplierPaymentDto } from './purchasing.dto';
 import { PurchaseInvoiceRepository } from './purchase-invoice.repository';
@@ -31,6 +32,7 @@ export class SupplierPaymentsService {
     private readonly approvals: ApprovalsService,
     private readonly workflow: WorkflowService,
     private readonly fx: FxService,
+    private readonly foreignCash: ForeignCashService,
     private readonly repo: PurchaseInvoiceRepository,
     private readonly invoices: PurchaseInvoicesService,
     private readonly queries: SupplierPaymentsRepository,
@@ -128,7 +130,14 @@ export class SupplierPaymentsService {
           `Pembayaran ${amount.toFixed(2)}${cur} melebihi sisa hutang ${outstandingForeign.toFixed(2)}${cur}`,
         );
       }
-      const payRate = foreign ? (await this.fx.resolve(tx, user.tenantId, inv.currency, date, dto.fxRate)).rate : D(1);
+      const cash = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'BANK', true);
+      // bayar dari rekening valas: hanya untuk faktur semata uang sama; Rupiah yang keluar = biaya rata-rata tertimbang saldo, bukan kurs hari bayar
+      const fromForeignAccount = cash.currency !== 'IDR';
+      if (fromForeignAccount && cash.currency !== inv.currency) {
+        throw new BadRequestException(`${cash.name} adalah rekening ${cash.currency}; faktur ini ${foreign ? inv.currency : 'Rupiah'}. Pilih rekening ${foreign ? inv.currency : 'Rupiah'}.`);
+      }
+      const costOut = fromForeignAccount ? await this.foreignCash.costOut(tx, user.tenantId, cash, amount) : null;
+      const payRate = costOut ? (costOut.isZero() ? D(0) : costOut.div(amount)) : foreign ? (await this.fx.resolve(tx, user.tenantId, inv.currency, date, dto.fxRate)).rate : D(1);
       const settle = foreign
         ? settleForeign({
             amountForeign: amount,
@@ -139,10 +148,9 @@ export class SupplierPaymentsService {
           })
         : null;
       const carrying = settle ? settle.carrying : amount;
-      const cashOut = settle ? settle.cash : amount;
-      const diff = settle ? settle.diff : D(0);
-      const cash = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'BANK');
-      await this.posting.assertCashCovers(tx, user.tenantId, cash, cashOut);
+      const cashOut = costOut ?? (settle ? settle.cash : amount);
+      const diff = settle ? cashOut.minus(carrying) : D(0);
+      if (!fromForeignAccount) await this.posting.assertCashCovers(tx, user.tenantId, cash, cashOut);
       const number = await this.seq.next(tx, user.tenantId, 'SUPPLIER_PAYMENT', date);
       const payment = await insertOne(tx, supplierPayments, {
           tenantId: user.tenantId,
@@ -176,6 +184,7 @@ export class SupplierPaymentsService {
           {
             accountId: cash.id,
             credit: cashOut,
+            foreignAmount: fromForeignAccount ? amount : undefined,
             memo: foreign ? `${amount.toFixed(2)} ${inv.currency} @ ${payRate.toFixed(2)}` : undefined,
           },
           // bayar lebih banyak Rupiah dari nilai hutang tercatat = rugi kurs terealisasi; lebih sedikit = laba

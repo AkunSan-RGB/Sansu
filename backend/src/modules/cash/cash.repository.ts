@@ -25,9 +25,11 @@ export type ResolvedCashTx = Omit<CreateCashTxDto, 'lines'> & {
 export class CashRepository {
   /** Dipakai oleh CashService.accounts */
   queryAccount(db: DbOrTx, tenantId: string) {
-    return db.execute<{ id: string; code: string; name: string; balance: string }>(sql`
-      SELECT a.id, a.code, a.name,
-             COALESCE((SELECT SUM(l.debit - l.credit) FROM journal_lines l WHERE l.account_id = a.id), 0) AS balance
+    return db.execute<{ id: string; code: string; name: string; currency: string; balance: string; balance_foreign: string | null }>(sql`
+      SELECT a.id, a.code, a.name, a.currency,
+             COALESCE((SELECT SUM(l.debit - l.credit) FROM journal_lines l WHERE l.account_id = a.id), 0) AS balance,
+             CASE WHEN a.currency = 'IDR' THEN NULL
+                  ELSE COALESCE((SELECT SUM(CASE WHEN l.debit > 0 THEN l.foreign_amount ELSE -l.foreign_amount END) FROM journal_lines l WHERE l.account_id = a.id), 0)::text END AS balance_foreign
       FROM accounts a
       WHERE a.tenant_id = ${tenantId} AND a.is_cash_account = true AND a.is_postable = true
       ORDER BY a.code`);
