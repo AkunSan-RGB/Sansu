@@ -6,7 +6,7 @@ import { GROUP_ORDER, type Group, type Item, MENU, menuFor, type Sub } from './m
 const MODELS = BUSINESS_MODELS.map((m) => m.key) as BusinessModel[];
 const flat = (g: Group): Item[] => (g.children ?? []).flatMap((c: Sub) => ('section' in c ? c.items : [c]));
 const forModel = (m: BusinessModel, g: Group) => flat(g).filter((i) => (!i.models || i.models.includes(m)) && !i.hideFor?.includes(m));
-const groups = (m: BusinessModel) => menuFor(m).filter((g) => !g.models || g.models.includes(m));
+const groups = (m: BusinessModel) => menuFor(m).filter((g) => (!g.models || g.models.includes(m)) && !g.hideFor?.includes(m));
 
 describe('menu: susunan bertahap per jenis usaha', () => {
   it('Cek kesehatan mandiri tepat di bawah Dashboard, bukan anak menu Akuntansi', () => {
@@ -116,5 +116,28 @@ describe('istilah: Sales Order dan Purchase Order sesuai jenis usaha', () => {
       expect(localize('Purchase Order', m)).toBe(po[m]);
       expect(localize('Buat Purchase Order manual', m)).not.toContain('Purchase Order');
     }
+  });
+});
+
+describe('menu: Layanan air khusus Utilitas', () => {
+  const keys = (m: BusinessModel) => groups(m).map((g) => g.key);
+  it('Utilitas memakai satu grup "Layanan air" di urutan pertama; grup lama, CRM, Penjualan, dan Kasir disembunyikan', () => {
+    const k = keys('UTILITAS');
+    expect(k.indexOf('water')).toBe(Math.min(...['water', 'purchase', 'inventory'].map((x) => k.indexOf(x)).filter((i) => i >= 0)));
+    for (const hidden of ['utility', 'crm', 'sales', 'pos']) expect(k).not.toContain(hidden);
+  });
+  it('jenis usaha lain tidak berubah: tidak ada "Layanan air", grup Layanan utilitas lama tetap', () => {
+    for (const m of MODELS.filter((x) => x !== 'UTILITAS')) {
+      expect(keys(m)).not.toContain('water');
+      expect(keys(m)).toContain('utility');
+    }
+  });
+  it('Layanan air memuat alur: pelanggan → meter → tagihan air/non-air → loket → rekap → tunggakan → laporan', () => {
+    const water = MENU.find((g) => g.key === 'water')!;
+    const ks = flat(water).map((i) => i.key);
+    for (const k of ['/customers', '/utility/sambungan', '/utility/meter', '/utility/tagihan', '/utility/non-air', '/utility/loket', '/utility/rekap', '/utility/lokasi', '/invoices', '/utility/tunggakan', '/laporan/utility']) expect(ks).toContain(k);
+    expect(ks.indexOf('/utility/meter')).toBeLessThan(ks.indexOf('/utility/tagihan'));
+    expect(ks.indexOf('/utility/loket')).toBeLessThan(ks.indexOf('/utility/rekap'));
+    expect(new Set(ks).size).toBe(ks.length);
   });
 });

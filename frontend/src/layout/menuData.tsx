@@ -14,6 +14,8 @@ export type Group = {
   app?: AppKey;
   /** Hanya tampil untuk model bisnis tertentu (mis. Produksi) */
   models?: BusinessModel[];
+  /** Disembunyikan untuk model bisnis tertentu (menunya digantikan grup khusus) */
+  hideFor?: BusinessModel[];
   admin?: boolean;
   label: string;
   icon: React.ReactNode;
@@ -47,6 +49,7 @@ export const MENU: Group[] = [
     part: 'Penjualan',
     key: 'crm',
     app: 'crm',
+    hideFor: ['UTILITAS'],
     label: 'CRM',
     icon: APP_ICONS.crm,
     children: [
@@ -54,10 +57,59 @@ export const MENU: Group[] = [
       { key: '/quotations', label: 'Penawaran harga' },
     ],
   },
+  // ---------- Layanan air (khusus perusahaan Utilitas: air bersih) ----------
+  {
+    part: 'Penjualan',
+    key: 'water',
+    app: 'utility',
+    models: ['UTILITAS'],
+    label: 'Layanan air',
+    icon: APP_ICONS.utility,
+    children: [
+      { key: '/utility/ringkasan', label: 'Ringkasan' },
+      {
+        section: SEC.prep,
+        items: [
+          { key: '/customers', label: 'Pelanggan' },
+          { key: '/utility/sambungan', label: 'Sambungan & meter' },
+          { key: '/utility/tarif', label: 'Tarif air & aturan' },
+          { key: '/utility/non-air', label: 'Layanan non-air', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/utility/lokasi', label: 'Daftar loket', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+        ],
+      },
+      {
+        section: 'Meter & tagihan',
+        items: [
+          { key: '/utility/meter', label: 'Catat & verifikasi meter' },
+          { key: '/utility/lapangan', label: 'Petugas lapangan', roles: ['OWNER', 'ADMIN', 'WAREHOUSE'] },
+          { key: '/utility/impor', label: 'Impor & alat meter', roles: ['OWNER', 'ADMIN', 'WAREHOUSE'] },
+          { key: '/utility/tagihan', label: 'Tagihan air bulanan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+        ],
+      },
+      {
+        section: 'Penerimaan',
+        items: [
+          { key: '/utility/loket', label: 'Terima pembayaran (loket)', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'CASHIER'] },
+          { key: '/utility/rekap', label: 'Rekap harian loket', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/invoices', label: 'Faktur & piutang', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/utility/tunggakan', label: 'Tunggakan & pemutusan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+        ],
+      },
+      {
+        section: SEC.rep,
+        items: [
+          { key: '/laporan/utility', label: 'Laporan layanan air', roles: REPORT_ROLES },
+          { key: '/utility/zona', label: 'Kehilangan air per zona', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/utility/kontrol', label: 'Kontrol kebocoran', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+        ],
+      },
+    ],
+  },
   {
     part: 'Penjualan',
     key: 'utility',
     app: 'utility',
+    hideFor: ['UTILITAS'],
     label: 'Layanan utilitas',
     icon: APP_ICONS.utility,
     children: [
@@ -90,6 +142,7 @@ export const MENU: Group[] = [
     part: 'Penjualan',
     key: 'sales',
     app: 'sales',
+    hideFor: ['UTILITAS'],
     label: t('Penjualan'),
     icon: APP_ICONS.sales,
     children: [
@@ -137,6 +190,7 @@ export const MENU: Group[] = [
     part: 'Penjualan',
     key: 'pos',
     app: 'pos',
+    hideFor: ['UTILITAS'],
     label: 'Kasir (POS)',
     icon: APP_ICONS.pos,
     children: [
@@ -429,7 +483,7 @@ export const GROUP_ORDER: Record<BusinessModel, string[]> = {
   FNB: ['utility', 'pos', 'purchase', 'inventory', 'production', 'sales', 'crm'],
   MANUFAKTUR: ['utility', 'purchase', 'inventory', 'production', 'crm', 'sales', 'pos'],
   JASA: ['utility', 'crm', 'sales', 'pos', 'purchase', 'inventory', 'production'],
-  UTILITAS: ['utility', 'crm', 'sales', 'pos', 'purchase', 'inventory', 'production'],
+  UTILITAS: ['water', 'utility', 'crm', 'sales', 'pos', 'purchase', 'inventory', 'production'],
 };
 /** Susun ulang MENU menurut alur utama jenis usaha; kunci yang tak terdaftar tetap di tempat bagian usaha */
 export function menuFor(model: BusinessModel, menu: Group[] = MENU): Group[] {

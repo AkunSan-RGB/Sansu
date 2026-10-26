@@ -105,6 +105,7 @@ export default function AppLayout() {
   const visible = ordered.filter(
     (g) =>
       (!g.models || g.models.includes(me.businessModel)) &&
+      !g.hideFor?.includes(me.businessModel) &&
       (g.core ? me.role === 'OWNER' || !!g.roles?.includes(me.role) : g.admin ? isAdmin : g.app ? can(g.app) : (can('accounting') || can('sales')) && (g.key !== '/dashboard' || dashboardRole)),
   );
   const L = (text: string) => localize(text, me.businessModel);

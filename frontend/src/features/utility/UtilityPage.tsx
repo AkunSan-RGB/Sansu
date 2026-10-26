@@ -11,7 +11,9 @@ import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import PageHeader from '@/layout/PageHeader';
 import { fmtMoney, fmtQty } from '@/lib/format';
-import { CounterTab, FieldTab, ImportTab } from './UtilityFieldTabs';
+import { FieldTab, ImportTab } from './UtilityFieldTabs';
+import { ChargesTab } from './utility/ChargesTab';
+import { CounterPayTab, CounterRecapTab, CountersAdminTab } from './utility/CounterPages';
 import { ConnectionsTab } from './utility/ConnectionsTab';
 import { ReadingsTab } from './utility/ReadingsTab';
 import { BillingTab } from './utility/BillingTab';
@@ -24,13 +26,30 @@ const COL: Record<string, string> = { number: 'Sambungan', customer: 'Pelanggan'
 
 const ZONE_STATUS: Record<string, { label: string; color: string }> = { NO_SUPPLY: { label: 'Pasokan belum diisi', color: 'default' }, INCOMPLETE: { label: 'Belum lengkap', color: 'gold' }, HIGH: { label: 'Kehilangan tinggi', color: 'red' }, OK: { label: 'Wajar', color: 'green' }, NEGATIVE: { label: 'Pemakaian melebihi pasokan', color: 'volcano' } };
 
-interface Summary { period: string; active: number; suspended: number; awaitingVerification: number; readyToBill: number; missingReadings: number; overdueCount: number; overdueTotal: number; suggestSuspend: number }
+interface Summary { period: string; active: number; suspended: number; awaitingVerification: number; readyToBill: number; missingReadings: number; overdueCount: number; overdueTotal: number; suggestSuspend: number; revenueAir: number; revenueNonAir: number; receiptsToday: number; counters: number; unconfirmedDays: number }
 
 interface ZoneRow { zone: string; period: string; unit: string | null; mixedUnits: boolean; connections: number; supplied: number | null; usage: number; loss: number | null; lossPct: number | null; unverified: number; missing: number; note: string | null; status: string }
 
 interface Overdue { id: string; number: string; status: UtilityConnectionStatus; address: string; customerName: string; phone: string | null; outstanding: string; daysLate: number; bills: number; suggestSuspend: boolean }
 
 interface Control { key: string; title: string; severity: string; items: Record<string, unknown>[] }
+
+const WATER_TITLES: Record<string, string> = {
+  ringkasan: 'Ringkasan layanan air',
+  sambungan: 'Pelanggan & sambungan',
+  meter: 'Catat & verifikasi meter',
+  lapangan: 'Petugas lapangan',
+  impor: 'Impor & alat meter',
+  tagihan: 'Tagihan air bulanan',
+  'non-air': 'Layanan non-air',
+  loket: 'Terima pembayaran (loket)',
+  rekap: 'Rekap harian loket',
+  lokasi: 'Daftar loket',
+  tunggakan: 'Tunggakan & pemutusan',
+  zona: 'Kehilangan air per zona',
+  tarif: 'Tarif air & aturan',
+  kontrol: 'Kontrol kebocoran pendapatan',
+};
 
 export default function UtilityPage() {
   const { tab = 'ringkasan' } = useParams();
@@ -39,33 +58,74 @@ export default function UtilityPage() {
   const can = useCan();
   const fin = !!me && ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'].includes(me.role);
   const summary = useQuery({ queryKey: ['utility', 'summary'], queryFn: () => get<Summary>('/utility/summary'), refetchInterval: 60_000 });
+  const go = (t: string) => navigate(`/utility/${t}`);
   const tabs = [
-    { key: 'ringkasan', label: 'Ringkasan', children: <Overview s={summary.data} go={(t) => navigate(`/utility/${t}`)} /> },
+    { key: 'ringkasan', label: 'Ringkasan', children: <Overview s={summary.data} go={go} /> },
     { key: 'sambungan', label: 'Sambungan', children: <ConnectionsTab /> },
     ...(can('POST', '/utility/field/readings') ? [{ key: 'lapangan', label: 'Petugas lapangan', children: <FieldTab /> }] : []),
     ...(can('POST', '/utility/readings/import') || can('POST', '/utility/ingest-keys') ? [{ key: 'impor', label: 'Impor & alat meter', children: <ImportTab /> }] : []),
-    ...(can('POST', '/utility/counter/pay') || can('POST', '/utility/counter/remit') ? [{ key: 'loket', label: 'Loket', children: <CounterTab /> }] : []),
+    ...(can('POST', '/utility/counter/pay') || can('POST', '/utility/counter/remit') ? [{ key: 'loket', label: 'Loket', children: <CounterPayTab /> }] : []),
+    ...(fin ? [{ key: 'rekap', label: 'Rekap loket', children: <CounterRecapTab /> }, { key: 'lokasi', label: 'Daftar loket', children: <CountersAdminTab /> }] : []),
     ...(fin ? [{ key: 'zona', label: 'Zona & kehilangan', children: <ZonesTab /> }] : []),
     { key: 'meter', label: `Catat meter${summary.data?.awaitingVerification ? ` (${summary.data.awaitingVerification})` : ''}`, children: <ReadingsTab /> },
-    ...(fin ? [{ key: 'tagihan', label: 'Tagihan bulanan', children: <BillingTab /> }, { key: 'tunggakan', label: `Tunggakan${summary.data?.overdueCount ? ` (${summary.data.overdueCount})` : ''}`, children: <OverdueTab /> }] : []),
+    ...(fin ? [{ key: 'tagihan', label: 'Tagihan bulanan', children: <BillingTab /> }, { key: 'non-air', label: 'Layanan non-air', children: <ChargesTab /> }, { key: 'tunggakan', label: `Tunggakan${summary.data?.overdueCount ? ` (${summary.data.overdueCount})` : ''}`, children: <OverdueTab /> }] : []),
     { key: 'tarif', label: 'Tarif & aturan', children: <TariffsTab /> },
     ...(fin ? [{ key: 'kontrol', label: 'Kontrol', children: <ControlsTab /> }] : []),
   ];
+  const active = tabs.find((t) => t.key === tab) ?? tabs[0];
+  // Perusahaan Utilitas: tiap menu membuka satu halaman fokus (tanpa deretan tab); jenis usaha lain tetap memakai tab seperti semula
+  if (me?.businessModel === 'UTILITAS') {
+    return (
+      <>
+        <PageHeader title={WATER_TITLES[active.key] ?? 'Layanan air'} />
+        {active.children}
+      </>
+    );
+  }
   return (
     <>
       <PageHeader title="Layanan utilitas" />
-      <Tabs activeKey={tabs.some((t) => t.key === tab) ? tab : 'ringkasan'} onChange={(k) => navigate(`/utility/${k}`)} items={tabs} destroyOnHidden />
+      <Tabs activeKey={active.key} onChange={go} items={tabs} destroyOnHidden />
     </>
   );
 }
 
 function Overview({ s, go }: { s?: Summary; go: (tab: string) => void }) {
+  const { me } = useAuth();
   if (!s) return null;
-  const Card1 = ({ title, value, tab, warn }: { title: string; value: number | string; tab: string; warn?: boolean }) => (
-    <Col xs={12} md={8} lg={6}><Card size="small" hoverable onClick={() => go(tab)}><Statistic title={title} value={value} valueStyle={warn ? { color: '#d97706' } : undefined} /></Card></Col>
+  const water = me?.businessModel === 'UTILITAS';
+  const Card1 = ({ title, value, tab, warn, hint }: { title: string; value: number | string; tab: string; warn?: boolean; hint?: string }) => (
+    <Col xs={12} md={8} lg={6}><Card size="small" hoverable onClick={() => go(tab)}><Statistic title={title} value={value} valueStyle={warn ? { color: '#d97706' } : undefined} />{hint && <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{hint}</div>}</Card></Col>
   );
+  const todo = [
+    s.missingReadings > 0 && { text: `${s.missingReadings} sambungan belum dicatat meternya bulan ${s.period}`, tab: 'meter', action: 'Catat meter' },
+    s.awaitingVerification > 0 && { text: `${s.awaitingVerification} catatan meter menunggu verifikasi`, tab: 'meter', action: 'Verifikasi' },
+    s.readyToBill > 0 && { text: `${s.readyToBill} catatan terverifikasi siap ditagih`, tab: 'tagihan', action: 'Terbitkan tagihan' },
+    s.unconfirmedDays > 0 && { text: `${s.unconfirmedDays} rekap harian loket belum dicek Keuangan`, tab: 'rekap', action: 'Cek rekap' },
+    s.suggestSuspend > 0 && { text: `${s.suggestSuspend} sambungan diusulkan diputus sementara karena menunggak`, tab: 'tunggakan', action: 'Tinjau' },
+  ].filter(Boolean) as { text: string; tab: string; action: string }[];
+  const total = s.revenueAir + s.revenueNonAir;
   return (
     <>
+      {water && (
+        <Card size="small" title={`Perlu tindakan${todo.length ? ` (${todo.length})` : ''}`} style={{ marginBottom: 16 }}>
+          {todo.length ? (
+            <Space direction="vertical" style={{ width: '100%' }}>
+              {todo.map((t) => (
+                <div key={t.tab + t.text} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}><span>{t.text}</span><Button size="small" type="link" onClick={() => go(t.tab)}>{t.action} ›</Button></div>
+              ))}
+            </Space>
+          ) : <Typography.Text type="success">Semua pekerjaan bulan ini sudah beres.</Typography.Text>}
+        </Card>
+      )}
+      {water && (
+        <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+          <Card1 title={`Pendapatan air (${s.period})`} value={fmtMoney(s.revenueAir)} tab="tagihan" hint={total ? `${Math.round(((s.revenueAir) / total) * 100)}% dari total pendapatan` : 'Pemakaian + abonemen'} />
+          <Card1 title={`Pendapatan non-air (${s.period})`} value={fmtMoney(s.revenueNonAir)} tab="non-air" hint="Sambung baru, administrasi, denda, dll." />
+          <Card1 title="Diterima di loket hari ini" value={fmtMoney(s.receiptsToday)} tab="rekap" hint={`${s.counters} loket aktif`} />
+          <Card1 title="Rekap belum dicek" value={s.unconfirmedDays} tab="rekap" warn={s.unconfirmedDays > 0} hint="Hari lampau, per loket" />
+        </Row>
+      )}
       <Row gutter={[12, 12]}>
         <Card1 title="Sambungan aktif" value={s.active} tab="sambungan" />
         <Card1 title="Diputus sementara" value={s.suspended} tab="sambungan" />
@@ -76,7 +136,10 @@ function Overview({ s, go }: { s?: Summary; go: (tab: string) => void }) {
         <Card1 title="Pelanggan menunggak" value={s.overdueCount} tab="tunggakan" />
         <Card1 title="Usulan pemutusan" value={s.suggestSuspend} tab="tunggakan" warn={s.suggestSuspend > 0} />
       </Row>
-      <Alert style={{ marginTop: 16 }} type="info" showIcon message="Alur bulanan" description="1) Petugas mencatat meter  →  2) Orang lain memverifikasi (angka janggal ditandai)  →  3) Keuangan menerbitkan tagihan (faktur otomatis, denda ikut dihitung)  →  4) Pembayaran lewat Penjualan › Faktur  →  5) Tunggakan melewati batas diusulkan putus dan disambung kembali oleh orang lain setelah lunas." />
+      <Alert style={{ marginTop: 16 }} type="info" showIcon message="Alur bulanan"
+        description={water
+          ? '1) Petugas mencatat meter  →  2) Orang lain memverifikasi (angka janggal ditandai)  →  3) Keuangan menerbitkan tagihan air (denda ikut dihitung); layanan non-air ditagih sesekali  →  4) Pelanggan membayar di loket secara non-tunai  →  5) Keuangan mengecek rekap harian tiap loket dengan mutasi bank  →  6) Tunggakan melewati batas diusulkan putus dan disambung kembali oleh orang lain setelah lunas.'
+          : '1) Petugas mencatat meter  →  2) Orang lain memverifikasi (angka janggal ditandai)  →  3) Keuangan menerbitkan tagihan (faktur otomatis, denda ikut dihitung)  →  4) Pembayaran lewat Penjualan › Faktur  →  5) Tunggakan melewati batas diusulkan putus dan disambung kembali oleh orang lain setelah lunas.'} />
     </>
   );
 }

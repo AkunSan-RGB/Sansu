@@ -63,8 +63,10 @@ export class UtilityService {
     private readonly repo: UtilityRepository,
   ) {}
 
-  rules(tenantId: string): Promise<UtilityRules> {
-    return this.settings.section(this.db, tenantId, SECTION, DEFAULT_UTILITY_RULES);
+  /** Loket non-tunai menjadi bawaan hanya untuk perusahaan Utilitas; jenis usaha lain yang memakai layanan ini tidak berubah */
+  async rules(tenantId: string): Promise<UtilityRules> {
+    const model = await this.settings.businessModel(this.db, tenantId);
+    return this.settings.section(this.db, tenantId, SECTION, { ...DEFAULT_UTILITY_RULES, cashless: model === 'UTILITAS' });
   }
   async saveRules(u: AuthUser, dto: RulesDto) {
     const before = await this.rules(u.tenantId);
