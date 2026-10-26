@@ -32,7 +32,6 @@ const KINDS: { key: SupportReport['kind']; label: string; hint: string; models?:
 
 /** Tab kontrak dan aset tetap: angka tahunan, bukan rentang tanggal, dan tidak memakai laporan bidang di atas */
 const SCHEDULE_TABS: { key: ScheduleSection; label: string; hint: string }[] = [
-  { key: 'kontrak', label: 'Kontrak & pinjaman', hint: 'Daftar pinjaman, sewa pembiayaan, dan biaya dibayar di muka; jadwal pokok, bunga, dan amortisasinya dibandingkan dengan buku besar.' },
   { key: 'aset', label: 'Aset tetap', hint: 'Daftar aset, penyusutan bulanan, dan kategori aset.' },
 ];
 
