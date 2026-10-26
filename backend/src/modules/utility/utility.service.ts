@@ -393,7 +393,8 @@ export class UtilityService {
     return a.id;
   }
 
-  async run(u: AuthUser, dto: BillRunDto) {
+  /** `asOf`: hanya untuk data contoh (faktur bertanggal mundur); permintaan biasa memakai hari ini */
+  async run(u: AuthUser, dto: BillRunDto, asOf?: string) {
     const rules = await this.rules(u.tenantId);
     const plan = await this.plan(u.tenantId, dto.period);
     const acct = {
@@ -402,7 +403,7 @@ export class UtilityService {
       ADMIN: await this.key(u.tenantId, SYS.UTILITY_ADMIN_REVENUE),
       LATE_FEE: await this.key(u.tenantId, SYS.UTILITY_LATE_FEE_REVENUE),
     } as const;
-    const today = todayJakarta();
+    const today = asOf ?? todayJakarta();
     const billed: { number: string; invoice: string; total: number }[] = [];
     const failed: { number: string; reason: string }[] = [];
     for (const item of plan.ready) {

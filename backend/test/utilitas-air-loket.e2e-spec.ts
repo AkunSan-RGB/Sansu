@@ -20,6 +20,7 @@ describe('Utilitas air: loket & layanan non-air (e2e)', () => {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
   let owner: string; let fin: string; let fin2: string; let customer: string; let tariff: string;
   let connId: string;
+  let cs: string;
   const post = (url: string, body: object = {}, t = owner) => http.post(url).set(as(t)).send(body);
   const put = (url: string, body: object = {}, t = owner) => http.put(url).set(as(t)).send(body);
   const get = (url: string, t = owner) => http.get(url).set(as(t));
@@ -103,6 +104,54 @@ describe('Utilitas air: loket & layanan non-air (e2e)', () => {
     expect(rep.sections.find((x: { key: string }) => x.key === 'util-counters').tables[0].rows.length).toBe(2);
     const s = (await get('/api/utility/summary', fin).expect(200)).body;
     expect(Number(s.revenueAir)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('peran: kasir loket menerima pembayaran (air dan non-air) tapi tidak melihat rekap/ringkasan; pelayanan pelanggan menagih layanan non-air; Akuntan boleh mengonfirmasi', async () => {
+    const mk = async (role: string, n: string) => {
+      await post('/api/users', { name: n, email: `air-${n}-${stamp}@uji.id`, password: 'rahasia12345', role }).expect(201);
+      return (await http.post('/api/auth/login').send({ email: `air-${n}-${stamp}@uji.id`, password: 'rahasia12345' }).expect(200)).body.accessToken as string;
+    };
+    const kasir = await mk('CASHIER', 'kasir');
+    cs = await mk('SALES', 'pelayanan');
+    const akuntan = await mk('ACCOUNTANT', 'akuntan');
+    // tagihan non-air oleh pelayanan pelanggan
+    const list = (await get('/api/utility/charges', cs).expect(200)).body as { id: string; revenueKey: string }[];
+    const admin = list.find((c) => c.revenueKey === 'UTILITY_ADMIN_REVENUE')!;
+    const inv = (await post('/api/utility/charges/issue', { chargeId: admin.id, customerId: customer }, cs).expect(201)).body;
+    expect((await post('/api/utility/billing/run', { period: month(3) }, cs)).status).toBe(403);
+    // kasir: daftar tagihan terbuka tanpa kata kunci memuat air dan non-air
+    const open = (await get('/api/utility/counter/search?q=', kasir).expect(200)).body as { invoiceId: string; kind: string }[];
+    expect(open.some((h) => h.kind === 'NON_AIR' && h.invoiceId === inv.invoiceId)).toBe(true);
+    expect(open.some((h) => h.kind === 'AIR')).toBe(true);
+    const r = (await post('/api/utility/counter/pay', { invoiceId: inv.invoiceId, amount: inv.amount, counterId: l2, channel: 'EWALLET' }, kasir).expect(201)).body;
+    expect(r.channel).toBe('EWALLET');
+    expect((await get('/api/utility/counter/recent', kasir).expect(200)).body).toHaveLength(1);
+    expect((await get('/api/utility/summary', kasir)).status).toBe(403);
+    expect((await get(`/api/utility/counter/recap?from=${today}&to=${today}`, kasir)).status).toBe(403);
+    expect((await post('/api/utility/counter/close-day', { counterId: l2, date: today }, kasir)).status).toBe(403);
+    expect((await get('/api/utility/rules', kasir).expect(200)).body.cashless).toBe(true);
+    // faktur bukan air/non-air ditolak
+    const other = (await post('/api/utility/counter/pay', { invoiceId: '00000000-0000-4000-8000-000000000000', amount: '1000', counterId: l2 }, kasir));
+    expect(other.status).toBe(400);
+    // Akuntan boleh mengonfirmasi rekap loket yang penerimanya kasir
+    await post('/api/utility/counter/close-day', { counterId: l2, date: today }, akuntan).expect(201);
+  });
+
+  it('laporan layanan non-air: ringkasan per jenis, daftar tagihan, umur piutang, penerimaan, dan pencocokan buku besar tanpa selisih', async () => {
+    const rep = (await get(`/api/dept-reports/utility-nonair?from=${month(4)}-01&to=${today}`, fin).expect(200)).body;
+    expect(rep.title).toBe('Laporan layanan non-air');
+    const keys = rep.sections.map((x: { key: string }) => x.key);
+    expect(keys).toEqual(expect.arrayContaining(['ringkasan', 'bulanan', 'layanan', 'faktur', 'pelanggan', 'umur', 'penerimaan', 'denda', 'pencocokan']));
+    const sec = (k: string) => rep.sections.find((x: { key: string }) => x.key === k);
+    expect(sec('faktur').rows.length).toBeGreaterThanOrEqual(2);
+    expect(sec('penerimaan').rows.some((r: { counter: string }) => r.counter === 'Loket Pasar')).toBe(true);
+    const rec = sec('pencocokan').rows;
+    expect(Number(rec[2].amount)).toBe(0);
+    expect(Number(rec[0].amount)).toBeGreaterThan(0);
+    const nonAir = rep.kpis.find((k: { label: string }) => k.label.startsWith('Pendapatan non-air'));
+    expect(Number(nonAir.value)).toBeGreaterThan(0);
+    // hanya dapat dibuka peran keuangan
+    expect((await get('/api/dept-reports/utility-nonair', cs)).status).toBe(403);
   });
 
   it('mode tunai dapat diaktifkan kembali oleh Admin saja', async () => {

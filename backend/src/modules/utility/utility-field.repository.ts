@@ -1,3 +1,4 @@
+import { NON_AIR_CHARGE_KEYS } from '@sansu/shared';
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { sql, and, eq, isNull, desc } from 'drizzle-orm';
@@ -49,17 +50,44 @@ export class UtilityFieldRepository {
   }
 
   /** Dipakai oleh UtilityFieldService.counterSearch */
+  /** Tagihan air bulanan dan tagihan layanan non-air yang masih bisa dibayar di loket */
   queryUtilityBill(db: DbOrTx, tenantId: string, like: string) {
     return db.execute(sql`
-      SELECT i.id AS "invoiceId", i.number AS "invoiceNumber", c.number AS "connectionNumber", cu.name AS "customerName", c.address, b.period,
-             (i.total - i.paid_amount - i.returned_amount) AS outstanding, i.due_date AS "dueDate"
-      FROM utility_bills b
-      JOIN invoices i ON i.id = b.invoice_id
-      JOIN utility_connections c ON c.id = b.connection_id
-      JOIN customers cu ON cu.id = c.customer_id
-      WHERE b.tenant_id = ${tenantId} AND i.status IN ('UNPAID','PARTIAL') AND i.total - i.paid_amount - i.returned_amount > 0
-        AND (c.number ILIKE ${like} OR cu.name ILIKE ${like} OR i.number ILIKE ${like} OR c.meter_no ILIKE ${like})
-      ORDER BY i.due_date LIMIT 50`);
+      SELECT * FROM (
+        SELECT i.id AS "invoiceId", i.number AS "invoiceNumber", c.number AS "connectionNumber", cu.name AS "customerName", c.address, b.period, 'AIR' AS kind,
+               (i.total - i.paid_amount - i.returned_amount) AS outstanding, i.due_date AS "dueDate"
+        FROM utility_bills b
+        JOIN invoices i ON i.id = b.invoice_id
+        JOIN utility_connections c ON c.id = b.connection_id
+        JOIN customers cu ON cu.id = c.customer_id
+        WHERE b.tenant_id = ${tenantId} AND i.status IN ('UNPAID','PARTIAL') AND i.total - i.paid_amount - i.returned_amount > 0
+          AND (c.number ILIKE ${like} OR cu.name ILIKE ${like} OR i.number ILIKE ${like} OR c.meter_no ILIKE ${like})
+        UNION ALL
+        SELECT i.id, i.number, '-', cu.name, COALESCE(cu.address, '-'), COALESCE(i.description, 'Layanan non-air'), 'NON_AIR',
+               (i.total - i.paid_amount - i.returned_amount), i.due_date
+        FROM invoices i JOIN customers cu ON cu.id = i.customer_id
+        WHERE ${this.chargeInvoice(tenantId)} AND i.status IN ('UNPAID','PARTIAL') AND i.total - i.paid_amount - i.returned_amount > 0
+          AND (cu.name ILIKE ${like} OR i.number ILIKE ${like})
+      ) x ORDER BY x."dueDate" LIMIT 50`);
+  }
+
+  recentReceipts(db: DbOrTx, tenantId: string, collectorId: string) {
+    return db.execute(sql`
+      SELECT r.id, to_char(r.received_at AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM-DD HH24:MI') AS at, c.name AS counter, COALESCE(r.channel, r.method) AS channel, r.amount::text AS amount,
+             i.number AS invoice, cu.name AS customer
+      FROM utility_counter_receipts r JOIN invoices i ON i.id = r.invoice_id JOIN customers cu ON cu.id = i.customer_id LEFT JOIN utility_counters c ON c.id = r.counter_id
+      WHERE r.tenant_id = ${tenantId} AND r.collector_id = ${collectorId} ORDER BY r.received_at DESC LIMIT 15`);
+  }
+
+  /** Faktur layanan non-air: barisnya masuk akun pendapatan non-air dan bukan tagihan meter bulanan */
+  private chargeInvoice(tenantId: string) {
+    return sql`i.tenant_id = ${tenantId} AND NOT EXISTS (SELECT 1 FROM utility_bills ub WHERE ub.invoice_id = i.id)
+      AND EXISTS (SELECT 1 FROM service_invoice_lines sl JOIN accounts sa ON sa.id = sl.account_id WHERE sl.invoice_id = i.id AND sa.system_key IN (${sql.join(NON_AIR_CHARGE_KEYS.map((k) => sql`${k}`), sql`, `)}))`;
+  }
+
+  async isChargeInvoice(db: DbOrTx, tenantId: string, invoiceId: string) {
+    const r = await db.execute(sql`SELECT 1 FROM invoices i WHERE i.id = ${invoiceId} AND ${this.chargeInvoice(tenantId)}`);
+    return r.rows.length > 0;
   }
 
   /** Dipakai oleh UtilityFieldService.counterPay */

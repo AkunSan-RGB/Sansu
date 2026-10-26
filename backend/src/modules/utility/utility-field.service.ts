@@ -95,8 +95,8 @@ export class UtilityFieldService {
 
   /** Tagihan utilitas yang masih bisa dibayar di loket, dicari lewat nomor sambungan/nama/nomor faktur */
   async counterSearch(tenantId: string, q: string) {
-    const like = `%${q.trim()}%`;
-    if (q.trim().length < 2) return [];
+    // tanpa kata kunci: tampilkan tagihan terbuka yang paling lama jatuh temponya
+    const like = q.trim().length < 2 ? '%' : `%${q.trim()}%`;
     const r = await this.repo.queryUtilityBill(this.db, tenantId, like);
     return r.rows;
   }
@@ -105,9 +105,10 @@ export class UtilityFieldService {
    * Terima pembayaran di loket: pelunasan biasa + catatan penerimaan milik petugas dan loketnya. Dalam mode non-tunai (bawaan) hanya
    * pembayaran non-tunai yang diterima; uang masuk langsung ke rekening bank loket sehingga tidak ada kas loket yang harus disetor.
    */
-  async counterPay(u: AuthUser, dto: CounterPayDto) {
+  /** `asOf` hanya dipakai pembuat data contoh untuk mencatat penerimaan bertanggal mundur; permintaan biasa memakai waktu sekarang */
+  async counterPay(u: AuthUser, dto: CounterPayDto, asOf?: string) {
     const [bill] = await this.repo.findUtilityBillsByInvoiceId(this.db, dto.invoiceId, u.tenantId);
-    if (!bill) throw new BadRequestException('Faktur ini bukan tagihan utilitas');
+    if (!bill && !(await this.repo.isChargeInvoice(this.db, u.tenantId, dto.invoiceId))) throw new BadRequestException('Faktur ini bukan tagihan air atau layanan non-air');
     const rules = await this.util.rules(u.tenantId);
     const method = dto.method ?? (rules.cashless ? 'TRANSFER' : 'CASH');
     if (rules.cashless && method === 'CASH') throw new BadRequestException('Loket hanya menerima pembayaran non-tunai (transfer, QRIS, virtual account, EDC, dompet digital). Mode ini dapat diubah di Tarif & aturan.');
@@ -118,15 +119,20 @@ export class UtilityFieldService {
     const channel = method === 'CASH' ? null : (dto.channel ?? 'TRANSFER');
     let receipt: { id: string; amount: string } | undefined;
     // pelunasan dan catatan penerimaan satu transaksi: tidak mungkin ada uang tercatat tanpa penerimaan loket
-    const pay = await this.payments.create(u, { invoiceId: dto.invoiceId, amount: dto.amount, method, cashAccountId: dto.cashAccountId ?? counter?.bankAccountId ?? undefined, notes: `Loket${counter ? ` ${counter.code}` : ''}${dto.notes ? ` - ${dto.notes}` : ''}` }, {
+    const pay = await this.payments.create(u, { invoiceId: dto.invoiceId, amount: dto.amount, method, cashAccountId: dto.cashAccountId ?? counter?.bankAccountId ?? undefined, date: asOf, notes: `Loket${counter ? ` ${counter.code}` : ''}${dto.notes ? ` - ${dto.notes}` : ''}` }, {
       inTx: async (tx, p) => {
-        const rc = await insertOne(tx, utilityCounterReceipts, { tenantId: u.tenantId, paymentId: p.id, invoiceId: dto.invoiceId, collectorId: u.sub, amount: money(dto.amount).toFixed(2), method, counterId: counter?.id ?? null, channel });
+        const rc = await insertOne(tx, utilityCounterReceipts, { tenantId: u.tenantId, paymentId: p.id, invoiceId: dto.invoiceId, collectorId: u.sub, amount: money(dto.amount).toFixed(2), method, counterId: counter?.id ?? null, channel, ...(asOf ? { receivedAt: new Date(`${asOf}T04:30:00Z`) } : {}) });
         receipt = rc;
         await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityCounterReceipt', entityId: rc.id, data: { payment: p.number, amount: dto.amount, method, channel, counter: counter?.code } });
       },
     });
     const rc = receipt!;
     return { receiptId: rc.id, paymentNumber: pay.number, amount: rc.amount, method, channel, counter: counter?.name ?? null };
+  }
+
+  /** Penerimaan terakhir petugas ini (semua loket), terbaru dulu */
+  async recentReceipts(u: AuthUser) {
+    return (await this.repo.recentReceipts(this.db, u.tenantId, u.sub)).rows;
   }
 
   /** Penerimaan loket petugas ini yang belum disetor */

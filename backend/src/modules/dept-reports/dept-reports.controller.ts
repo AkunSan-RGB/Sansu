@@ -23,5 +23,6 @@ export class DeptReportsController {
   @RequireApp('inventory') @Get('mfg') mfg(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'mfg', q); }
   @RequireApp('sales') @Get('jasa') jasa(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'jasa', q); }
   @RequireApp('utility') @Get('utility') utility(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'utility', q); }
+  @RequireApp('utility') @Get('utility-nonair') utilityNonAir(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'utility-nonair', q); }
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT', 'HR') @RequireApp('hr') @Get('hr') hr(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'hr', q); }
 }

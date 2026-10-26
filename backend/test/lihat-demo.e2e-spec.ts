@@ -97,8 +97,8 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(s('RITEL'), 'production_orders')).toBe(0);
     expect(await count(s('DAGANG'), 'pos_orders')).toBe(0);
     // Utilitas: sambungan, tarif bertingkat, catat meter terverifikasi, dan tagihan bulanan lewat faktur
-    expect(await count(s('UTILITAS'), 'utility_tariffs')).toBe(3);
-    expect(await count(s('UTILITAS'), 'utility_connections')).toBe(8);
+    expect(await count(s('UTILITAS'), 'utility_tariffs')).toBe(4);
+    expect(await count(s('UTILITAS'), 'utility_connections')).toBe(24);
     expect(await count(s('UTILITAS'), 'utility_readings')).toBeGreaterThan(10);
     expect(await count(s('UTILITAS'), 'utility_bills')).toBeGreaterThan(10);
     expect(await count(s('UTILITAS'), 'pos_orders')).toBe(0);

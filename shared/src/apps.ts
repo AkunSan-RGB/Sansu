@@ -44,7 +44,7 @@ export const APPS: AppInfo[] = [
     description: 'Sambungan pelanggan, tarif bertingkat, catat meter, tagihan bulanan, denda, dan penyambungan kembali',
     color: '#0891B2',
     depends: ['sales'],
-    roles: ['FINANCE', 'ACCOUNTANT', 'WAREHOUSE', 'SALES'],
+    roles: ['FINANCE', 'ACCOUNTANT', 'WAREHOUSE', 'SALES', 'CASHIER'],
     home: '/utility',
   },
   {

@@ -15,7 +15,7 @@ export class UtilityController {
   constructor(private readonly svc: UtilityService) {}
 
   @Get('summary') summary(@CurrentUser() u: AuthUser) { return this.svc.summary(u.tenantId); }
-  @Get('rules') rules(@CurrentUser() u: AuthUser) { return this.svc.rules(u.tenantId); }
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE', 'SALES', 'CASHIER') @Get('rules') rules(@CurrentUser() u: AuthUser) { return this.svc.rules(u.tenantId); }
   @Roles('ADMIN') @Put('rules') saveRules(@CurrentUser() u: AuthUser, @Body() dto: RulesDto) { return this.svc.saveRules(u, dto); }
 
   @Get('tariffs') tariffs(@CurrentUser() u: AuthUser) { return this.svc.tariffs(u.tenantId); }
@@ -24,7 +24,7 @@ export class UtilityController {
 
   @Get('connections') connections(@CurrentUser() u: AuthUser, @Query('status') status?: string, @Query('search') search?: string) { return this.svc.connections(u.tenantId, { status, search }); }
   @Get('connections/:id') connection(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) { return this.svc.connection(u.tenantId, id); }
-  @Roles('ADMIN', 'FINANCE') @Post('connections') createConnection(@CurrentUser() u: AuthUser, @Body() dto: ConnectionDto) { return this.svc.createConnection(u, dto); }
+  @Roles('ADMIN', 'FINANCE', 'SALES') @Post('connections') createConnection(@CurrentUser() u: AuthUser, @Body() dto: ConnectionDto) { return this.svc.createConnection(u, dto); }
   @Roles('ADMIN', 'FINANCE') @Post('connections/:id/suspend') suspend(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: SuspendDto) { return this.svc.suspend(u, id, dto); }
   @Roles('ADMIN', 'FINANCE') @Post('connections/:id/reconnect') reconnect(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto) { return this.svc.reconnect(u, id, dto); }
   @Roles('ADMIN') @Post('connections/:id/disconnect') disconnect(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto) { return this.svc.disconnect(u, id, dto); }

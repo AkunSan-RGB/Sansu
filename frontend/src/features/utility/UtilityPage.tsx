@@ -18,7 +18,7 @@ import { ConnectionsTab } from './utility/ConnectionsTab';
 import { ReadingsTab } from './utility/ReadingsTab';
 import { BillingTab } from './utility/BillingTab';
 import { TariffsTab } from './utility/TariffsTab';
-import { STATUS_COLOR, thisMonth } from './utility/shared';
+import { STATUS_COLOR } from './utility/shared';
 
 const SEV: Record<string, string> = { high: 'red', medium: 'orange' };
 
@@ -68,7 +68,8 @@ export default function UtilityPage() {
     ...(fin ? [{ key: 'rekap', label: 'Rekap loket', children: <CounterRecapTab /> }, { key: 'lokasi', label: 'Daftar loket', children: <CountersAdminTab /> }] : []),
     ...(fin ? [{ key: 'zona', label: 'Zona & kehilangan', children: <ZonesTab /> }] : []),
     { key: 'meter', label: `Catat meter${summary.data?.awaitingVerification ? ` (${summary.data.awaitingVerification})` : ''}`, children: <ReadingsTab /> },
-    ...(fin ? [{ key: 'tagihan', label: 'Tagihan bulanan', children: <BillingTab /> }, { key: 'non-air', label: 'Layanan non-air', children: <ChargesTab /> }, { key: 'tunggakan', label: `Tunggakan${summary.data?.overdueCount ? ` (${summary.data.overdueCount})` : ''}`, children: <OverdueTab /> }] : []),
+    ...(can('POST', '/utility/charges/issue') || fin ? [{ key: 'non-air', label: 'Layanan non-air', children: <ChargesTab /> }] : []),
+    ...(fin ? [{ key: 'tagihan', label: 'Tagihan bulanan', children: <BillingTab /> }, { key: 'tunggakan', label: `Tunggakan${summary.data?.overdueCount ? ` (${summary.data.overdueCount})` : ''}`, children: <OverdueTab /> }] : []),
     { key: 'tarif', label: 'Tarif & aturan', children: <TariffsTab /> },
     ...(fin ? [{ key: 'kontrol', label: 'Kontrol', children: <ControlsTab /> }] : []),
   ];
@@ -120,9 +121,9 @@ function Overview({ s, go }: { s?: Summary; go: (tab: string) => void }) {
       )}
       {water && (
         <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
-          <Card1 title={`Pendapatan air (${s.period})`} value={fmtMoney(s.revenueAir)} tab="tagihan" hint={total ? `${Math.round(((s.revenueAir) / total) * 100)}% dari total pendapatan` : 'Pemakaian + abonemen'} />
-          <Card1 title={`Pendapatan non-air (${s.period})`} value={fmtMoney(s.revenueNonAir)} tab="non-air" hint="Sambung baru, administrasi, denda, dll." />
-          <Card1 title="Diterima di loket hari ini" value={fmtMoney(s.receiptsToday)} tab="rekap" hint={`${s.counters} loket aktif`} />
+          <Card1 title={`Pendapatan air (${s.period})`} value={fmtMoney(Math.round(s.revenueAir))} tab="tagihan" hint={total ? `${Math.round(((s.revenueAir) / total) * 100)}% dari total pendapatan` : 'Pemakaian + abonemen'} />
+          <Card1 title={`Pendapatan non-air (${s.period})`} value={fmtMoney(Math.round(s.revenueNonAir))} tab="non-air" hint="Sambung baru, administrasi, denda, dll." />
+          <Card1 title="Diterima di loket hari ini" value={fmtMoney(Math.round(s.receiptsToday))} tab="rekap" hint={`${s.counters} loket aktif`} />
           <Card1 title="Rekap belum dicek" value={s.unconfirmedDays} tab="rekap" warn={s.unconfirmedDays > 0} hint="Hari lampau, per loket" />
         </Row>
       )}
@@ -132,15 +133,51 @@ function Overview({ s, go }: { s?: Summary; go: (tab: string) => void }) {
         <Card1 title={`Belum dicatat (${s.period})`} value={s.missingReadings} tab="meter" warn={s.missingReadings > 0} />
         <Card1 title="Menunggu verifikasi" value={s.awaitingVerification} tab="meter" warn={s.awaitingVerification > 0} />
         <Card1 title="Siap ditagih" value={s.readyToBill} tab="tagihan" />
-        <Card1 title="Tunggakan lewat jatuh tempo" value={fmtMoney(s.overdueTotal)} tab="tunggakan" warn={s.overdueTotal > 0} />
+        <Card1 title="Tunggakan lewat jatuh tempo" value={fmtMoney(Math.round(s.overdueTotal))} tab="tunggakan" warn={s.overdueTotal > 0} />
         <Card1 title="Pelanggan menunggak" value={s.overdueCount} tab="tunggakan" />
         <Card1 title="Usulan pemutusan" value={s.suggestSuspend} tab="tunggakan" warn={s.suggestSuspend > 0} />
       </Row>
-      <Alert style={{ marginTop: 16 }} type="info" showIcon message="Alur bulanan"
-        description={water
-          ? '1) Petugas mencatat meter  →  2) Orang lain memverifikasi (angka janggal ditandai)  →  3) Keuangan menerbitkan tagihan air (denda ikut dihitung); layanan non-air ditagih sesekali  →  4) Pelanggan membayar di loket secara non-tunai  →  5) Keuangan mengecek rekap harian tiap loket dengan mutasi bank  →  6) Tunggakan melewati batas diusulkan putus dan disambung kembali oleh orang lain setelah lunas.'
-          : '1) Petugas mencatat meter  →  2) Orang lain memverifikasi (angka janggal ditandai)  →  3) Keuangan menerbitkan tagihan (faktur otomatis, denda ikut dihitung)  →  4) Pembayaran lewat Penjualan › Faktur  →  5) Tunggakan melewati batas diusulkan putus dan disambung kembali oleh orang lain setelah lunas.'} />
+      {water ? <WorkflowGuide /> : (
+        <Alert style={{ marginTop: 16 }} type="info" showIcon message="Alur bulanan"
+          description="1) Petugas mencatat meter  →  2) Orang lain memverifikasi (angka janggal ditandai)  →  3) Keuangan menerbitkan tagihan (faktur otomatis, denda ikut dihitung)  →  4) Pembayaran lewat Penjualan › Faktur  →  5) Tunggakan melewati batas diusulkan putus dan disambung kembali oleh orang lain setelah lunas." />
+      )}
     </>
+  );
+}
+
+interface FlowStep { title: string; who: string; roles: string[]; text: string; links: [string, string][] }
+const FLOW: FlowStep[] = [
+  { title: 'Siapkan data induk', who: 'Admin / Keuangan', roles: ['OWNER', 'ADMIN', 'FINANCE'], text: 'Sekali di awal, lalu bila ada perubahan: tarif air, pelanggan dan sambungannya, daftar loket, harga layanan non-air.', links: [['Tarif air', '/utility/tarif'], ['Sambungan', '/utility/sambungan'], ['Daftar loket', '/utility/lokasi'], ['Layanan non-air', '/utility/non-air']] },
+  { title: 'Catat meter', who: 'Petugas lapangan', roles: ['OWNER', 'ADMIN', 'WAREHOUSE'], text: 'Tiap bulan, angka meter setiap sambungan dicatat: langsung di lokasi (dengan GPS dan foto), diimpor dari Excel, atau dikirim alat meter.', links: [['Catat meter', '/utility/meter'], ['Mode lapangan', '/utility/lapangan'], ['Impor & alat meter', '/utility/impor']] },
+  { title: 'Verifikasi meter', who: 'Keuangan atau Admin (bukan yang mencatat)', roles: ['OWNER', 'ADMIN', 'FINANCE'], text: 'Angka yang janggal (melonjak, nol, meter diganti) ditandai dan wajib diberi catatan pemeriksa.', links: [['Verifikasi meter', '/utility/meter']] },
+  { title: 'Terbitkan tagihan air', who: 'Keuangan', roles: ['OWNER', 'ADMIN', 'FINANCE'], text: 'Satu tagihan per sambungan per bulan dari meter yang sudah diverifikasi; denda tunggakan ikut dihitung.', links: [['Tagihan air bulanan', '/utility/tagihan']] },
+  { title: 'Terima pembayaran di loket', who: 'Kasir loket (non-tunai)', roles: ['OWNER', 'ADMIN', 'FINANCE', 'CASHIER'], text: 'Pelanggan membayar lewat transfer, QRIS, virtual account, EDC, atau dompet digital; uang langsung masuk rekening, tanpa uang tunai.', links: [['Terima pembayaran', '/utility/loket']] },
+  { title: 'Cek rekap harian loket', who: 'Keuangan (bukan kasir penerima)', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], text: 'Rekap tiap loket per hari dicocokkan dengan mutasi bank, lalu dikonfirmasi atau ditandai selisih.', links: [['Rekap harian loket', '/utility/rekap']] },
+  { title: 'Tagih layanan non-air', who: 'Pelayanan pelanggan (sewaktu-waktu)', roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES'], text: 'Sambung baru, sambung kembali, ganti meter, administrasi. Tagihannya dibayar di loket yang sama.', links: [['Layanan non-air', '/utility/non-air']] },
+  { title: 'Tangani tunggakan', who: 'Keuangan / Admin', roles: ['OWNER', 'ADMIN', 'FINANCE'], text: 'Pelanggan yang menunggak, denda, dan usulan pemutusan sementara; sambung kembali setelah lunas oleh orang lain.', links: [['Tunggakan & pemutusan', '/utility/tunggakan']] },
+  { title: 'Pantau laporan dan kontrol', who: 'Pemilik / Akuntan', roles: ['OWNER', 'ADMIN', 'ACCOUNTANT'], text: 'Pendapatan air dan non-air terpisah, kehilangan air per zona, dan temuan kebocoran pendapatan.', links: [['Laporan layanan air', '/laporan/utility'], ['Laporan non-air', '/laporan/utility-nonair'], ['Kehilangan air', '/utility/zona'], ['Kontrol', '/utility/kontrol']] },
+];
+
+/** Alur kerja bernomor: siapa mengerjakan apa dan menu mana yang dipakai; langkah milik peran yang sedang masuk ditandai */
+function WorkflowGuide() {
+  const { me } = useAuth();
+  const navigate = useNavigate();
+  const mine = (st: FlowStep) => !!me && st.roles.includes(me.role) && me.role !== 'OWNER';
+  return (
+    <Card size="small" style={{ marginTop: 16 }} title="Alur kerja layanan air — siapa mengerjakan apa" extra={me?.role !== 'OWNER' && <Tag color="blue">Langkah Anda ditandai</Tag>}>
+      <Space direction="vertical" size={10} style={{ width: '100%' }}>
+        {FLOW.map((st, i) => (
+          <div key={st.title} style={{ display: 'flex', gap: 12, padding: 8, borderRadius: 8, background: mine(st) ? 'rgba(22,119,255,0.08)' : undefined }}>
+            <div style={{ width: 28, height: 28, borderRadius: 14, background: mine(st) ? '#1677ff' : '#94a3b8', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontWeight: 600 }}>{i + 1}</div>
+            <div style={{ flex: 1 }}>
+              <div><b>{st.title}</b> <Tag style={{ marginLeft: 4 }}>{st.who}</Tag></div>
+              <div style={{ color: '#64748b', fontSize: 13 }}>{st.text}</div>
+              <Space wrap size={4} style={{ marginTop: 4 }}>{st.links.map(([label, to]) => <Button key={to + label} size="small" onClick={() => navigate(to)}>{label}</Button>)}</Space>
+            </div>
+          </div>
+        ))}
+      </Space>
+    </Card>
   );
 }
 
@@ -197,7 +234,7 @@ function ControlsTab() {
 // ---------- Zona & kehilangan ----------
 function ZonesTab() {
   const can = useCan();
-  const [period, setPeriod] = useState(thisMonth());
+  const [period, setPeriod] = useState(dayjs().subtract(1, 'month').format('YYYY-MM'));
   const { data, isLoading } = useQuery({ queryKey: ['utility', 'zones', period], queryFn: () => get<{ period: string; warnPct: number; rows: ZoneRow[] }>(`/utility/zones?period=${period}`) });
   const [row, setRow] = useState<ZoneRow | null>(null);
   const [f] = Form.useForm<{ supplied: number; note?: string }>();

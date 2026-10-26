@@ -66,21 +66,21 @@ export const MENU: Group[] = [
     label: 'Layanan air',
     icon: APP_ICONS.utility,
     children: [
-      { key: '/utility/ringkasan', label: 'Ringkasan' },
+      { key: '/utility/ringkasan', label: 'Ringkasan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'WAREHOUSE'] },
       {
         section: SEC.prep,
         items: [
-          { key: '/customers', label: 'Pelanggan' },
-          { key: '/utility/sambungan', label: 'Sambungan & meter' },
-          { key: '/utility/tarif', label: 'Tarif air & aturan' },
-          { key: '/utility/non-air', label: 'Layanan non-air', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/customers', label: 'Pelanggan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
+          { key: '/utility/sambungan', label: 'Sambungan & meter', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'WAREHOUSE'] },
+          { key: '/utility/tarif', label: 'Tarif air & aturan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/utility/non-air', label: 'Layanan non-air', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
           { key: '/utility/lokasi', label: 'Daftar loket', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
         ],
       },
       {
         section: 'Meter & tagihan',
         items: [
-          { key: '/utility/meter', label: 'Catat & verifikasi meter' },
+          { key: '/utility/meter', label: 'Catat & verifikasi meter', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE'] },
           { key: '/utility/lapangan', label: 'Petugas lapangan', roles: ['OWNER', 'ADMIN', 'WAREHOUSE'] },
           { key: '/utility/impor', label: 'Impor & alat meter', roles: ['OWNER', 'ADMIN', 'WAREHOUSE'] },
           { key: '/utility/tagihan', label: 'Tagihan air bulanan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
@@ -89,7 +89,7 @@ export const MENU: Group[] = [
       {
         section: 'Penerimaan',
         items: [
-          { key: '/utility/loket', label: 'Terima pembayaran (loket)', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'CASHIER'] },
+          { key: '/utility/loket', label: 'Terima pembayaran (loket)', roles: ['OWNER', 'ADMIN', 'FINANCE', 'CASHIER'] },
           { key: '/utility/rekap', label: 'Rekap harian loket', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/invoices', label: 'Faktur & piutang', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/utility/tunggakan', label: 'Tunggakan & pemutusan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
@@ -99,6 +99,7 @@ export const MENU: Group[] = [
         section: SEC.rep,
         items: [
           { key: '/laporan/utility', label: 'Laporan layanan air', roles: REPORT_ROLES },
+          { key: '/laporan/utility-nonair', label: 'Laporan layanan non-air', roles: REPORT_ROLES },
           { key: '/utility/zona', label: 'Kehilangan air per zona', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/utility/kontrol', label: 'Kontrol kebocoran', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
         ],

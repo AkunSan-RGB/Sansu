@@ -13,7 +13,7 @@ import { CounterTab } from '../UtilityFieldTabs';
 const KEY = ['utility'];
 
 export interface Counter { id: string; code: string; name: string; location: string | null; bankAccountId: string | null; bankName?: string | null; isActive: boolean }
-interface Hit { invoiceId: string; invoiceNumber: string; connectionNumber: string; customerName: string; address: string; period: string; outstanding: string; dueDate: string }
+interface Hit { kind?: 'AIR' | 'NON_AIR'; invoiceId: string; invoiceNumber: string; connectionNumber: string; customerName: string; address: string; period: string; outstanding: string; dueDate: string }
 interface RecapCell { counterId: string | null; code: string; name: string; count: number; total: string; channels: Record<string, { label: string; count: number; total: string }>; closing: { status: string; note: string | null; decidedAt: string } | null }
 interface Recap { from: string; to: string; total: string; count: number; days: { date: string; total: string; count: number; counters: RecapCell[] }[] }
 interface DayRow { id: string; time: string; counter: string | null; channelLabel: string; amount: string; invoice: string; customer: string; connection: string | null; collector: string | null; payment: string }
@@ -35,7 +35,8 @@ export function CounterPayTab() {
   const [paying, setPaying] = useState<Hit | null>(null);
   const [form] = Form.useForm<{ amount: number; counterId?: string; channel: CounterChannel; cashAccountId?: string; notes?: string }>();
   const active = (counters.data ?? []).filter((c) => c.isActive);
-  const hits = useQuery({ queryKey: [...KEY, 'counter-search', term], queryFn: () => get<Hit[]>(`/utility/counter/search?q=${encodeURIComponent(term)}`), enabled: term.trim().length >= 2 && can('POST', '/utility/counter/pay') });
+  const hits = useQuery({ queryKey: [...KEY, 'counter-search', term], queryFn: () => get<Hit[]>(`/utility/counter/search?q=${encodeURIComponent(term)}`), enabled: can('POST', '/utility/counter/pay') });
+  const recent = useQuery({ queryKey: [...KEY, 'counter-recent'], queryFn: () => get<{ id: string; at: string; counter: string | null; channel: string; amount: string; invoice: string; customer: string }[]>('/utility/counter/recent') });
   const pay = useAction(
     (v: { amount: number; counterId?: string; channel: CounterChannel; cashAccountId?: string; notes?: string }) =>
       post('/utility/counter/pay', { invoiceId: paying!.invoiceId, amount: String(v.amount), method: 'TRANSFER', channel: v.channel, counterId: v.counterId, cashAccountId: v.cashAccountId, notes: v.notes }),
@@ -48,23 +49,34 @@ export function CounterPayTab() {
       <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Loket hanya menerima pembayaran non-tunai"
         description="Uang pelanggan langsung masuk rekening perusahaan lewat transfer, QRIS, virtual account, kartu EDC, atau dompet digital. Tidak ada uang tunai yang dipegang kasir dan tidak ada setoran kas. Keuangan mencocokkan rekap harian tiap loket dengan mutasi bank di menu Rekap harian loket." />
       {!active.length && <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="Belum ada loket" description="Tambahkan loket (lokasi penerimaan) di menu Daftar loket sebelum menerima pembayaran." />}
-      <Card title="Terima pembayaran">
-        <Input.Search placeholder="Cari nomor sambungan, nama pelanggan, atau nomor faktur" enterButton="Cari" value={q} onChange={(e) => setQ(e.target.value)} onSearch={setTerm} style={{ maxWidth: 520, marginBottom: 12 }} allowClear />
+      <Card title={term.trim().length >= 2 ? `Hasil pencarian “${term.trim()}”` : 'Tagihan menunggu pembayaran (jatuh tempo terlama di atas)'}>
+        <Input.Search placeholder="Cari nomor sambungan, nama pelanggan, atau nomor tagihan" enterButton="Cari" value={q} onChange={(e) => setQ(e.target.value)} onSearch={setTerm} style={{ maxWidth: 520, marginBottom: 12 }} allowClear />
         <ResponsiveTable<Hit>
           rowKey="invoiceId"
           size="small"
           loading={hits.isFetching}
-          dataSource={term.trim().length >= 2 ? hits.data : []}
-          pagination={false}
-          locale={{ emptyText: term ? 'Tidak ada tagihan terbuka yang cocok' : 'Cari pelanggan untuk menerima pembayaran' }}
+          dataSource={hits.data}
+          pagination={{ pageSize: 10, hideOnSinglePage: true }}
+          locale={{ emptyText: term ? 'Tidak ada tagihan terbuka yang cocok' : 'Tidak ada tagihan yang menunggu pembayaran' }}
           columns={[
-            { title: 'Pelanggan', render: (_: unknown, h: Hit) => <div>{h.customerName}<div style={{ fontSize: 12, color: '#64748b' }}>{h.connectionNumber} · {h.address}</div></div> },
-            { title: 'Faktur', render: (_: unknown, h: Hit) => `${h.invoiceNumber} (${h.period})` },
+            { title: 'Pelanggan', render: (_: unknown, h: Hit) => <div>{h.customerName}<div style={{ fontSize: 12, color: '#64748b' }}>{h.kind === 'NON_AIR' ? h.address : `${h.connectionNumber} · ${h.address}`}</div></div> },
+            { title: 'Tagihan', render: (_: unknown, h: Hit) => <div>{h.invoiceNumber}<div style={{ fontSize: 12 }}>{h.kind === 'NON_AIR' ? <Tag color="purple">Layanan non-air</Tag> : <Tag color="blue">Air {h.period}</Tag>}</div></div> },
             { title: 'Jatuh tempo', render: (_: unknown, h: Hit) => fmtDate(h.dueDate) },
             { title: 'Sisa tagihan', align: 'right' as const, render: (_: unknown, h: Hit) => fmtMoney(h.outstanding) },
             { render: (_: unknown, h: Hit) => <Button size="small" type="primary" disabled={!active.length} onClick={() => { setPaying(h); form.setFieldsValue({ amount: Number(h.outstanding), counterId: active.length === 1 ? active[0].id : undefined, channel: 'TRANSFER', cashAccountId: undefined, notes: undefined }); }}>Terima</Button> },
           ]}
         />
+      </Card>
+      <Card size="small" title="Penerimaan terakhir saya" style={{ marginTop: 16 }}>
+        <ResponsiveTable<{ id: string; at: string; counter: string | null; channel: string; amount: string; invoice: string; customer: string }>
+          rowKey="id" size="small" loading={recent.isLoading} dataSource={recent.data} pagination={false} locale={{ emptyText: 'Belum ada penerimaan' }}
+          columns={[
+            { title: 'Waktu', dataIndex: 'at' },
+            { title: 'Loket', render: (_: unknown, r) => r.counter ?? '-' },
+            { title: 'Pelanggan', render: (_: unknown, r) => <div>{r.customer}<div style={{ fontSize: 12, color: '#64748b' }}>{r.invoice}</div></div> },
+            { title: 'Kanal', render: (_: unknown, r) => COUNTER_CHANNEL_LABELS[r.channel as CounterChannel] ?? r.channel },
+            { title: 'Jumlah', align: 'right' as const, render: (_: unknown, r) => fmtMoney(r.amount) },
+          ]} />
       </Card>
       <Modal title={paying ? `Terima pembayaran — ${paying.customerName}` : ''} open={!!paying} onCancel={() => setPaying(null)} onOk={() => form.submit()} confirmLoading={pay.isPending} okText="Terima pembayaran" destroyOnHidden>
         {paying && <Typography.Paragraph type="secondary">{paying.invoiceNumber} · sisa {fmtMoney(paying.outstanding)}</Typography.Paragraph>}

@@ -6,7 +6,7 @@ import {
   SafetyOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { ROLE_LABELS } from '@sansu/shared';
+import { roleLabelFor } from '@sansu/shared';
 import { App, Button, Dropdown, Form, Grid, Input, Modal, Tag } from 'antd';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -90,7 +90,7 @@ export default function AccountMenu() {
             <>
               {me.name}{' '}
               <Tag color="volcano" style={{ marginInline: 6 }}>
-                {me.roleLabel ?? ROLE_LABELS[me.role]}
+                {me.roleLabel ?? roleLabelFor(me.role, me.businessModel)}
               </Tag>
             </>
           )}
