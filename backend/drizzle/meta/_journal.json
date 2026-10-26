@@ -771,6 +771,13 @@
       "when": 1797791886484,
       "tag": "0109_hapus_rincian_akun",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1797878286484,
+      "tag": "0110_loket_non_tunai_layanan_non_air",
+      "breakpoints": true
     }
   ]
 }

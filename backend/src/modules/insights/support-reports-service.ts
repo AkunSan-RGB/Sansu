@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { SupportQueriesRepository } from './support-queries.repository';
 import { Cell, num, CAP, L, R, sum } from './support-shared';
+import { AIR_REVENUE_KEYS, NON_AIR_REVENUE_KEYS, REVENUE_KEY_LABELS } from '@sansu/shared';
 
 @Injectable()
 export class ServiceSupportReports {
@@ -393,6 +394,33 @@ export class ServiceSupportReports {
       ['Faktur penjualan lain', num(arOpen[0].other)],
     ];
 
+    const revAcc = await this.queries.rows<{ key: string; name: string; amt: string }>(sql`
+      SELECT a.system_key AS key, a.name, COALESCE(SUM(l.credit - l.debit), 0)::text AS amt
+      FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id JOIN accounts a ON a.id = l.account_id
+      WHERE j.tenant_id = ${tenantId} AND j.date BETWEEN ${from} AND ${to}
+        AND a.system_key IN (${sql.join([...AIR_REVENUE_KEYS, ...NON_AIR_REVENUE_KEYS].map((k) => sql`${k}`), sql`, `)})
+      GROUP BY a.system_key, a.name`);
+    const revByKey = new Map(revAcc.map((r) => [r.key, r]));
+    const revGroup = (keys: readonly string[]): Cell[][] =>
+      keys.map((k) => [REVENUE_KEY_LABELS[k] ?? k, num(revByKey.get(k)?.amt ?? '0')]);
+    const airRows = revGroup(AIR_REVENUE_KEYS);
+    const nonAirRows = revGroup(NON_AIR_REVENUE_KEYS);
+    const counterRows = await this.queries.rows<{ day: string; counter: string; n: number; total: string; status: string | null }>(sql`
+      SELECT r.received_at::date::text AS day, COALESCE(c.name, 'Tanpa loket (data lama)') AS counter, COUNT(*)::int AS n, SUM(r.amount)::text AS total,
+        MAX(cl.status) AS status
+      FROM utility_counter_receipts r
+      LEFT JOIN utility_counters c ON c.id = r.counter_id
+      LEFT JOIN utility_counter_closings cl ON cl.counter_id = r.counter_id AND cl.date = r.received_at::date
+      WHERE r.tenant_id = ${tenantId} AND r.received_at::date BETWEEN ${from} AND ${to}
+      GROUP BY 1, 2 ORDER BY 1, 2 LIMIT ${CAP}`);
+    const counterTable: Cell[][] = counterRows.map((r) => [
+      r.day,
+      r.counter,
+      r.n,
+      num(r.total),
+      r.status === 'CONFIRMED' ? 'Dikonfirmasi' : r.status === 'DISPUTED' ? 'Ditolak' : 'Belum dikonfirmasi',
+    ]);
+
     return {
       title: 'Laporan Pendukung Utilitas',
       summary:
@@ -516,6 +544,35 @@ export class ServiceSupportReports {
               align: [L, R, R, R],
               rows: connRows,
               total: connRows.length ? ['Jumlah', sum(connRows, 1), sum(connRows, 2), sum(connRows, 3)] : undefined,
+            },
+          ],
+        },
+        {
+          key: 'util-revenue-split',
+          number: 'U6',
+          title: 'Pendapatan air dan non-air',
+          paragraphs: ['Pendapatan penjualan air dipisahkan dari pendapatan layanan non-air menurut akun di buku besar.'],
+          tables: [
+            { columns: ['Pendapatan air', 'Jumlah'], align: [L, R], rows: airRows, total: ['Jumlah air', sum(airRows, 1)] },
+            {
+              columns: ['Pendapatan non-air', 'Jumlah'],
+              align: [L, R],
+              rows: nonAirRows,
+              total: ['Jumlah non-air', sum(nonAirRows, 1)],
+            },
+          ],
+        },
+        {
+          key: 'util-counters',
+          number: 'U7',
+          title: 'Penerimaan per loket per hari',
+          paragraphs: ['Rekap penerimaan loket kasir per hari beserta status konfirmasi rekap oleh Keuangan.'],
+          tables: [
+            {
+              columns: ['Tanggal', 'Loket', 'Transaksi', 'Penerimaan', 'Status'],
+              align: [L, L, R, R, L],
+              rows: counterTable,
+              total: counterTable.length ? ['Jumlah', null, sum(counterTable, 2), sum(counterTable, 3), null] : undefined,
             },
           ],
         },

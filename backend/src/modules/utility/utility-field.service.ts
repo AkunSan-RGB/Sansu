@@ -19,6 +19,7 @@ import { MeterRowDto, IngestKeyDto, CounterPayDto, RemitDto, DecideDto } from '.
 import { PERIOD } from './utility-field.shared';
 import { insertOne, patchById } from '../../db/owned';
 import { UtilityFieldRepository } from './utility-field.repository';
+import { UtilityCountersRepository } from './utility-counters.repository';
 
 const errMsg = (e: unknown) => {
   const r = (e as { response?: { message?: string | string[] } }).response?.message;
@@ -36,6 +37,7 @@ export class UtilityFieldService {
     private readonly posting: PostingService,
     private readonly storage: StorageService,
     private readonly repo: UtilityFieldRepository,
+    private readonly counters: UtilityCountersRepository,
   ) {}
 
   /** Cari sambungan menurut nomor (kunci unik per perusahaan) */
@@ -99,22 +101,32 @@ export class UtilityFieldService {
     return r.rows;
   }
 
-  /** Terima pembayaran tunai di loket: pelunasan biasa + catatan penerimaan milik petugas */
+  /**
+   * Terima pembayaran di loket: pelunasan biasa + catatan penerimaan milik petugas dan loketnya. Dalam mode non-tunai (bawaan) hanya
+   * pembayaran non-tunai yang diterima; uang masuk langsung ke rekening bank loket sehingga tidak ada kas loket yang harus disetor.
+   */
   async counterPay(u: AuthUser, dto: CounterPayDto) {
     const [bill] = await this.repo.findUtilityBillsByInvoiceId(this.db, dto.invoiceId, u.tenantId);
     if (!bill) throw new BadRequestException('Faktur ini bukan tagihan utilitas');
-    const method = dto.method ?? 'CASH';
+    const rules = await this.util.rules(u.tenantId);
+    const method = dto.method ?? (rules.cashless ? 'TRANSFER' : 'CASH');
+    if (rules.cashless && method === 'CASH') throw new BadRequestException('Loket hanya menerima pembayaran non-tunai (transfer, QRIS, virtual account, EDC, dompet digital). Mode ini dapat diubah di Tarif & aturan.');
+    const active = (await this.counters.list(this.db, u.tenantId)).filter((c) => c.isActive);
+    const counter = dto.counterId ? active.find((c) => c.id === dto.counterId) : undefined;
+    if (dto.counterId && !counter) throw new BadRequestException('Loket tidak ditemukan atau nonaktif');
+    if (!counter && active.length) throw new BadRequestException('Pilih loket penerima pembayaran');
+    const channel = method === 'CASH' ? null : (dto.channel ?? 'TRANSFER');
     let receipt: { id: string; amount: string } | undefined;
     // pelunasan dan catatan penerimaan satu transaksi: tidak mungkin ada uang tercatat tanpa penerimaan loket
-    const pay = await this.payments.create(u, { invoiceId: dto.invoiceId, amount: dto.amount, method, cashAccountId: dto.cashAccountId, notes: `Loket${dto.notes ? ` - ${dto.notes}` : ''}` }, {
+    const pay = await this.payments.create(u, { invoiceId: dto.invoiceId, amount: dto.amount, method, cashAccountId: dto.cashAccountId ?? counter?.bankAccountId ?? undefined, notes: `Loket${counter ? ` ${counter.code}` : ''}${dto.notes ? ` - ${dto.notes}` : ''}` }, {
       inTx: async (tx, p) => {
-        const rc = await insertOne(tx, utilityCounterReceipts, { tenantId: u.tenantId, paymentId: p.id, invoiceId: dto.invoiceId, collectorId: u.sub, amount: money(dto.amount).toFixed(2), method });
+        const rc = await insertOne(tx, utilityCounterReceipts, { tenantId: u.tenantId, paymentId: p.id, invoiceId: dto.invoiceId, collectorId: u.sub, amount: money(dto.amount).toFixed(2), method, counterId: counter?.id ?? null, channel });
         receipt = rc;
-        await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityCounterReceipt', entityId: rc.id, data: { payment: p.number, amount: dto.amount, method } });
+        await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityCounterReceipt', entityId: rc.id, data: { payment: p.number, amount: dto.amount, method, channel, counter: counter?.code } });
       },
     });
     const rc = receipt!;
-    return { receiptId: rc.id, paymentNumber: pay.number, amount: rc.amount, method };
+    return { receiptId: rc.id, paymentNumber: pay.number, amount: rc.amount, method, channel, counter: counter?.name ?? null };
   }
 
   /** Penerimaan loket petugas ini yang belum disetor */
@@ -125,6 +137,7 @@ export class UtilityFieldService {
 
   /** Setor semua penerimaan terbuka milik petugas; selisih dengan hitungan fisik wajib dijelaskan */
   async remit(u: AuthUser, dto: RemitDto) {
+    if ((await this.util.rules(u.tenantId)).cashless) throw new BadRequestException('Mode non-tunai aktif: loket tidak memegang uang tunai sehingga tidak ada setoran kas');
     const date = toDocDate(undefined);
     const counted = money(dto.counted);
     if (counted.lt(0)) throw new BadRequestException('Jumlah setoran tidak valid');

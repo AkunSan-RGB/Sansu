@@ -167,6 +167,59 @@ export const utilityRemittances = pgTable(
   (t) => [uniqueIndex('utility_remittances_number_uq').on(t.tenantId, t.number)],
 );
 
+/** Loket penerimaan pembayaran (beberapa lokasi): nama, lokasi, dan rekening bank penerima untuk pembayaran non-tunai */
+export const utilityCounters = pgTable(
+  'utility_counters',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    location: text('location'),
+    bankAccountId: uuid('bank_account_id').references(() => accounts.id),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('utility_counters_code_uq').on(t.tenantId, t.code)],
+);
+
+/** Konfirmasi rekap harian satu loket oleh orang yang bukan penerimanya (dicocokkan dengan mutasi bank) */
+export const utilityCounterClosings = pgTable(
+  'utility_counter_closings',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    counterId: uuid('counter_id')
+      .notNull()
+      .references(() => utilityCounters.id),
+    date: date('date').notNull(),
+    receiptCount: integer('receipt_count').notNull(),
+    total: money('total').notNull(),
+    status: text('status').$type<'CONFIRMED' | 'DISPUTED'>().notNull().default('CONFIRMED'),
+    decidedById: uuid('decided_by_id').notNull(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }).notNull().defaultNow(),
+    note: text('note'),
+  },
+  (t) => [uniqueIndex('utility_counter_closings_day_uq').on(t.counterId, t.date)],
+);
+
+/** Katalog layanan non-air yang ditagihkan ke pelanggan (sambung baru, sambung kembali, penggantian meter, dan seterusnya) */
+export const utilityCharges = pgTable(
+  'utility_charges',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    name: text('name').notNull(),
+    defaultPrice: money('default_price').notNull().default('0'),
+    /** Kunci akun pendapatan non-air (UTILITY_ADMIN_REVENUE, UTILITY_CONNECTION_REVENUE, ...) */
+    revenueKey: text('revenue_key').notNull(),
+    vatable: boolean('vatable').notNull().default(false),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('utility_charges_name_uq').on(t.tenantId, t.name)],
+);
+
 /** Pembayaran tagihan utilitas yang diterima di loket (menunggu disetor) */
 export const utilityCounterReceipts = pgTable(
   'utility_counter_receipts',
@@ -183,6 +236,9 @@ export const utilityCounterReceipts = pgTable(
     amount: money('amount').notNull(),
     /** CASH ikut setoran harian; TRANSFER/QRIS langsung masuk bank sehingga tidak disetor */
     method: text('method').$type<'CASH' | 'TRANSFER'>().notNull().default('CASH'),
+    /** Loket tempat pembayaran diterima (kosong = data lama) dan kanal non-tunai: TRANSFER, QRIS, VA, EDC, EWALLET */
+    counterId: uuid('counter_id').references(() => utilityCounters.id),
+    channel: text('channel'),
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
     remittanceId: uuid('remittance_id').references(() => utilityRemittances.id),
   },

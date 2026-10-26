@@ -44,6 +44,8 @@ describe('Utilitas lapangan (e2e)', () => {
     fin2 = await mk('FINANCE', 'fin2');
     field = await mk('WAREHOUSE', 'lapangan');
     acct = await mk('ACCOUNTANT', 'akuntan');
+    // alur tunai + setoran harian lama tetap bisa dipakai bila perusahaan mematikan mode non-tunai
+    const rr = await http.put('/api/utility/rules').set(as(owner)).send({ cashless: false }); if (rr.status !== 200) throw new Error(JSON.stringify(rr.body));
     // pelanggan dengan koordinat (Jakarta)
     customer = (await post('/api/customers', { code: 'PLG1', name: 'Budi', paymentTermDays: 20, geoLat: -6.2, geoLng: 106.816666 }).expect(201)).body.id;
     tariff = (await post('/api/utility/tariffs', { name: 'Air RT', serviceType: 'AIR', fixedFee: 10000, adminFee: 0, blocks: [{ upTo: null, price: 3000 }] }, fin).expect(201)).body.id;

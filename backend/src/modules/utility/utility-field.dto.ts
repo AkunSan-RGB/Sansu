@@ -1,3 +1,4 @@
+import { COUNTER_CHANNELS, type CounterChannel } from '@sansu/shared';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsNumberString, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength, ValidateNested } from 'class-validator';
@@ -20,6 +21,8 @@ export class IngestKeyDto {
 
 export class CounterPayDto {
   @ApiProperty() @IsUUID() invoiceId: string;
+  @ApiPropertyOptional({ description: 'Loket penerima (wajib bila perusahaan sudah membuat loket)' }) @IsOptional() @IsUUID() counterId?: string;
+  @ApiPropertyOptional({ enum: COUNTER_CHANNELS, description: 'Kanal non-tunai: TRANSFER, QRIS, VA, EDC, EWALLET' }) @IsOptional() @IsIn(COUNTER_CHANNELS) channel?: CounterChannel;
   @ApiPropertyOptional({ enum: ['CASH', 'TRANSFER'], default: 'CASH', description: 'TRANSFER = transfer/QRIS yang masuk rekening bank; tidak ikut setoran tunai' }) @IsOptional() @IsIn(['CASH', 'TRANSFER']) method?: 'CASH' | 'TRANSFER';
   @ApiPropertyOptional({ description: 'Rekening bank penerima (non-tunai); kosong = Bank utama' }) @IsOptional() @IsUUID() cashAccountId?: string;
   @ApiProperty({ example: '132090' }) @IsNumberString() amount: string;

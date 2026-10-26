@@ -55,6 +55,7 @@ export function TariffsTab() {
           <Col xs={12} md={6}><Form.Item name="suspendAfterDays" label="Usulan putus setelah (hari)"><InputNumber min={14} max={180} style={{ width: '100%' }} /></Form.Item></Col>
           <Col xs={12} md={6}><Form.Item name="spikeFactor" label="Tandai lonjakan (× rata-rata)"><InputNumber min={1.5} max={10} step={0.5} style={{ width: '100%' }} /></Form.Item></Col>
           <Col xs={12} md={6}><Form.Item name="spikeMinUsage" label="Abaikan lonjakan di bawah"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="cashless" label="Loket hanya menerima non-tunai" valuePropName="checked" extra="Aktif: pembayaran loket lewat transfer, QRIS, virtual account, EDC, atau dompet digital; tidak ada uang tunai dan tidak ada setoran kas. Matikan hanya bila loket memang memegang uang tunai."><Switch /></Form.Item></Col>
         </Row>
         {can('PUT', '/utility/rules') && <Button type="primary" htmlType="submit" loading={saveRules.isPending}>Simpan aturan</Button>}
         <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>Besaran denda dan batas pemutusan harus sesuai ketentuan penyedia/regulator Anda dan perjanjian dengan pelanggan.</Typography.Paragraph>

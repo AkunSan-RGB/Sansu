@@ -71,11 +71,12 @@ export class BillRunDto {
 }
 
 export class RulesDto {
-  @ApiProperty() @IsNumber() graceDays: number;
-  @ApiProperty() @IsNumber() lateFeePct: number;
-  @ApiProperty() @IsNumber() lateFeeCapPct: number;
-  @ApiProperty() @IsNumber() suspendAfterDays: number;
-  @ApiProperty() @IsNumber() spikeFactor: number;
-  @ApiProperty() @IsNumber() spikeMinUsage: number;
-  @ApiProperty() @IsNumber() dueDays: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() graceDays?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() lateFeePct?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() lateFeeCapPct?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() suspendAfterDays?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() spikeFactor?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() spikeMinUsage?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() dueDays?: number;
+  @ApiPropertyOptional({ description: 'Penerimaan loket hanya non-tunai (setoran kas tidak dipakai)' }) @IsOptional() @IsBoolean() cashless?: boolean;
 }

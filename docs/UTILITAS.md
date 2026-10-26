@@ -24,6 +24,16 @@ Contoh: air bersih (PDAM/pengelola air kawasan), listrik komunitas, internet RT-
 5. **Tagihan bulanan**: Keuangan melihat pratinjau lalu menerbitkan. Setiap sambungan menjadi satu faktur jasa di Penjualan (piutang, pembayaran, jurnal, PPN mengikuti alur biasa). Denda keterlambatan dari tagihan lama ikut di tagihan baru.
 6. **Tunggakan**: daftar sambungan lewat jatuh tempo; yang melewati batas diusulkan putus sementara. Sambung kembali oleh orang lain setelah lunas.
 
+## Layanan air (khusus jenis usaha Utilitas)
+
+Perusahaan Utilitas (penyedia air bersih) memakai satu grup sidebar **Layanan air**; jenis usaha lain tetap dengan menu **Layanan utilitas** lama dan perilakunya tidak berubah. CRM, Penjualan, dan Kasir (POS) disembunyikan untuk Utilitas; Pelanggan dan Faktur & piutang pindah ke grup Layanan air. Tiap menu membuka satu halaman fokus (bukan deretan tab).
+
+- **Pendapatan air vs non-air**: penjualan air = pemakaian + abonemen (tagihan bulanan). Layanan non-air (sambung baru, sambung kembali, ganti meter/material, administrasi, lain-lain) punya katalog harga sendiri dan ditagih sesekali lewat *Layanan non-air*; tiap jenis dicatat di akun pendapatan tersendiri (4-23xx) sehingga laba rugi menunjukkan keduanya terpisah. Laporan layanan air memuat bagian U6 (pendapatan air dan non-air per akun) dan U7 (penerimaan per loket per hari).
+- **Loket**: perusahaan dapat memiliki beberapa loket (kode, lokasi, rekening bank). Tiap penerimaan dicatat atas nama loket dan kanalnya (transfer, QRIS, virtual account, EDC, dompet digital).
+- **Non-tunai**: bawaan untuk perusahaan Utilitas (aturan `cashless`, dapat dimatikan Admin di Tarif air & aturan). Bila aktif, pembayaran tunai di loket ditolak dan tidak ada setoran kas. Keuangan mencocokkan **rekap harian per loket** dengan mutasi bank lalu mengonfirmasi atau menandai selisih (wajib catatan). Konfirmasi harus dilakukan orang lain dari penerima pembayaran (Pemilik dikecualikan), satu kali per loket per hari.
+- **Ringkasan**: daftar "Perlu tindakan", pendapatan air vs non-air bulan ini, penerimaan loket hari ini, dan rekap yang belum dicek.
+- Migrasi 0110: tabel `utility_counters`, `utility_counter_closings`, `utility_charges`; kolom `counter_id` dan `channel` pada penerimaan loket.
+
 ## Pencegahan kecurangan
 
 - Pencatat meter ≠ pemverifikasi (Pemilik dikecualikan, dan terlihat di kontrol "Dicatat dan diverifikasi orang yang sama").
