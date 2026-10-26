@@ -6,12 +6,12 @@ import { post } from '@/api/client';
 import { useAction, useCashAccounts } from '@/api/queries';
 import type { BankStatement } from '@/api/types';
 import { type ColumnMap, findHeader, type Grid, guessColumns, readGrid, toLines } from '@/lib/bankParse';
-import { fmtDate, fmtMoney } from '@/lib/format';
-import { KEYS, signed } from './shared';
+import { fmtDate } from '@/lib/format';
+import { bankMoney, KEYS, signed } from './shared';
 
 /** Impor file mutasi: pilih file → kolom ditebak otomatis → periksa → simpan */
 export function ImportModal({ open, onClose, cashAccountId, onDone }: { open: boolean; onClose: () => void; cashAccountId?: string; onDone: (id: string) => void }) {
-  const cash = useCashAccounts();
+  const cash = useCashAccounts('all');
   const [account, setAccount] = useState<string | undefined>(cashAccountId);
   const [file, setFile] = useState<File | null>(null);
   const [grid, setGrid] = useState<Grid>([]);
@@ -70,7 +70,7 @@ export function ImportModal({ open, onClose, cashAccountId, onDone }: { open: bo
           value={account}
           onChange={setAccount}
           style={{ width: 280 }}
-          options={cash.data?.map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` }))}
+          options={cash.data?.map((a) => ({ value: a.id, label: `${a.code} · ${a.name}${a.currency === 'IDR' ? '' : ` (${a.currency})`}` }))}
         />
         <InputNumber value={year} onChange={(v) => v && setYear(v)} prefix="Tahun" min={2000} max={2100} style={{ width: 150 }} />
       </Space>
@@ -106,10 +106,10 @@ export function ImportModal({ open, onClose, cashAccountId, onDone }: { open: bo
               />
             </Col>
             <Col span={8}>
-              <Statistic title="Uang masuk" value={totalIn} formatter={(v) => fmtMoney(Number(v))} valueStyle={{ color: '#389e0d' }} />
+              <Statistic title="Uang masuk" value={totalIn} formatter={(v) => bankMoney(Number(v))} valueStyle={{ color: '#389e0d' }} />
             </Col>
             <Col span={8}>
-              <Statistic title="Uang keluar" value={-totalOut} formatter={(v) => fmtMoney(Number(v))} valueStyle={{ color: '#cf1322' }} />
+              <Statistic title="Uang keluar" value={-totalOut} formatter={(v) => bankMoney(Number(v))} valueStyle={{ color: '#cf1322' }} />
             </Col>
           </Row>
           <Table
@@ -121,7 +121,7 @@ export function ImportModal({ open, onClose, cashAccountId, onDone }: { open: bo
               { title: 'Tanggal', dataIndex: 'date', render: fmtDate, width: 110 },
               { title: 'Keterangan', dataIndex: 'description', ellipsis: true },
               { title: 'Mutasi', dataIndex: 'amount', align: 'right', render: signed },
-              { title: 'Saldo', dataIndex: 'balance', align: 'right', render: (v) => (v ? fmtMoney(v) : '') },
+              { title: 'Saldo', dataIndex: 'balance', align: 'right', render: (v) => (v ? bankMoney(v) : '') },
             ]}
             footer={() => (parsed.lines.length > 8 ? `… dan ${parsed.lines.length - 8} mutasi lainnya` : null)}
           />

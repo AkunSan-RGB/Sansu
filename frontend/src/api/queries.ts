@@ -19,7 +19,13 @@ export const useCustomers = () => useQuery({ queryKey: ['customers'], queryFn: (
 export const useSuppliers = () => useQuery({ queryKey: ['suppliers'], queryFn: () => get<Supplier[]>('/suppliers') });
 export const useAccounts = () => useQuery({ queryKey: ['accounts'], enabled: useHasRole(['ADMIN', 'FINANCE', 'ACCOUNTANT']), queryFn: () => get<Account[]>('/accounting/accounts') });
 /** Akun kas & bank beserta saldonya */
-export const useCashAccounts = () => useQuery({ queryKey: ['cash-accounts'], queryFn: () => get<CashAccount[]>('/cash/accounts') });
+export const useCashAccounts = (scope: 'idr' | 'all' | 'foreign' = 'idr') =>
+  useQuery({
+    queryKey: ['cash-accounts'],
+    queryFn: () => get<CashAccount[]>('/cash/accounts'),
+    // pemilih bawaan hanya menawarkan rekening Rupiah: alur lain belum mengenal valas dan akan menolaknya
+    select: (rows) => (scope === 'all' ? rows : rows.filter((a) => (scope === 'foreign' ? a.currency !== 'IDR' : a.currency === 'IDR'))),
+  });
 
 /** Query key yang terdampak setiap kali ada posting jurnal */
 export const LEDGER_KEYS = ['journals', 'reports', 'dashboard', 'cash-accounts', 'cash-tx', 'ledger', 'statements', 'notes', 'health', 'fiscal', 'assets', 'tax-thresholds', 'doc-chain', 'deliveries'];

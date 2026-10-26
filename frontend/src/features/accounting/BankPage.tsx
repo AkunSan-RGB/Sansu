@@ -10,8 +10,8 @@ import { useAuth } from '@/auth/AuthContext';
 import { useAction, useCashAccounts } from '@/api/queries';
 import type { BankStatementSummary } from '@/api/types';
 import PageHeader from '@/layout/PageHeader';
-import { fmtDate, fmtMoney } from '@/lib/format';
-import { KEYS } from './bank/shared';
+import { fmtDate } from '@/lib/format';
+import { bankMoney, KEYS, setBankCurrency } from './bank/shared';
 import { ReconciliationTab } from './bank/ReconciliationTab';
 import { RulesTab } from './bank/RulesTab';
 import { ImportModal } from './bank/ImportModal';
@@ -43,7 +43,7 @@ function SignoffTab({ cashAccountId }: { cashAccountId?: string }) {
         columns={[
           { title: 'Bulan', dataIndex: 'period' },
           { title: 'Status', render: (_, r: { period: string }) => (done.has(r.period) ? <Tag color="green">Disahkan</Tag> : <Tag>Belum</Tag>) },
-          { title: 'Saldo buku', render: (_, r: { period: string }) => (done.has(r.period) ? fmtMoney(done.get(r.period)!.bookBalance) : '-'), align: 'right' },
+          { title: 'Saldo buku', render: (_, r: { period: string }) => (done.has(r.period) ? bankMoney(done.get(r.period)!.bookBalance) : '-'), align: 'right' },
           { title: 'Disahkan', render: (_, r: { period: string }) => (done.has(r.period) ? fmtDate(done.get(r.period)!.signedAt) : '-') },
           { render: (_, r: { period: string }) => (done.has(r.period) || !canSign ? null : <Button size="small" onClick={() => sign.mutate(r.period)} loading={sign.isPending}>Sahkan</Button>) },
         ]}
@@ -53,10 +53,11 @@ function SignoffTab({ cashAccountId }: { cashAccountId?: string }) {
 }
 
 export default function BankPage() {
-  const cash = useCashAccounts();
+  const cash = useCashAccounts('all');
   const [params, setParams] = useSearchParams();
   const banks = cash.data ?? [];
   const accountId = params.get('account') ?? banks.find((b) => /bank/i.test(b.name))?.id ?? banks[0]?.id;
+  setBankCurrency(banks.find((b) => b.id === accountId)?.currency);
   const [importing, setImporting] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [tab, setTab] = useState('statements');
@@ -82,7 +83,7 @@ export default function BankPage() {
               value={accountId}
               onChange={(e) => setParams({ account: e.target.value }, { replace: true })}
               optionType="button"
-              options={banks.map((b) => ({ value: b.id, label: b.name }))}
+              options={banks.map((b) => ({ value: b.id, label: b.currency === 'IDR' ? b.name : `${b.name} (${b.currency})` }))}
             />
             {canHandleMoney(me?.role) && (
               <Button type="primary" icon={<UploadOutlined />} onClick={() => setImporting(true)}>
@@ -128,7 +129,7 @@ export default function BankPage() {
                         </Tag>
                       ),
                     },
-                    { title: 'Saldo akhir bank', dataIndex: 'closing_balance', align: 'right', render: (v) => (v ? fmtMoney(v) : '-') },
+                    { title: 'Saldo akhir bank', dataIndex: 'closing_balance', align: 'right', render: (v) => (v ? bankMoney(v) : '-') },
                     {
                       render: (_, r) => (
                         <span onClick={(e) => e.stopPropagation()}>

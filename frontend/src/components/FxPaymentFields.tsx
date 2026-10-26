@@ -2,6 +2,7 @@ import { Alert, Form, InputNumber } from 'antd';
 import type { FormInstance } from 'antd';
 import { useEffect } from 'react';
 import { get } from '@/api/client';
+import { useCashAccounts } from '@/api/queries';
 import { fmtCurrency, fmtMoney, fmtRate } from '@/lib/format';
 
 /**
@@ -27,6 +28,9 @@ export default function FxPaymentFields({
   const amount: number = Form.useWatch('amount', form) ?? 0;
   const rate: number = Form.useWatch('fxRate', form) ?? 0;
   const date: string | undefined = Form.useWatch('date', form);
+  const accountId: string | undefined = Form.useWatch('cashAccountId', form);
+  const accounts = useCashAccounts('all').data;
+  const foreignAccount = !!accountId && accounts?.find((a) => a.id === accountId)?.currency === currency;
 
   useEffect(() => {
     let cancelled = false;
@@ -44,6 +48,10 @@ export default function FxPaymentFields({
   const diff = cash - carrying;
   const gain = receivable ? diff > 0 : diff < 0;
 
+  // pembayaran utang dari rekening valas: Rupiah yang keluar = biaya rata-rata saldo rekening (bukan kurs yang diketik)
+  if (foreignAccount && !receivable) {
+    return <Alert type="info" showIcon style={{ marginBottom: 12 }} message={`Dibayar dari rekening ${currency}: Rupiah yang keluar mengikuti biaya rata-rata saldo rekening; selisih terhadap nilai utang (kurs faktur ${fmtRate(invoiceRate)}) dicatat sebagai laba/rugi kurs terealisasi.`} />;
+  }
   return (
     <>
       <Form.Item name="fxRate" label={`Kurs hari pembayaran (Rp per 1 ${currency})`} rules={[{ required: true, message: 'Isi kurs' }]}>

@@ -16,7 +16,7 @@ import PageHeader from '@/layout/PageHeader';
 import CashTabs from './CashTabs';
 import ExportButtons from '@/components/ExportButtons';
 import ResponsiveTable from '@/components/ResponsiveTable';
-import { fmtDate, fmtMoney, today } from '@/lib/format';
+import { fmtCurrency, fmtDate, fmtMoney, today } from '@/lib/format';
 import { cashListSheet } from '@/lib/xlsx/reports';
 
 interface CounterAccount {
@@ -511,6 +511,7 @@ export default function CashPage() {
               render: (v: string, t: CashTransaction) => (
                 <Typography.Text strong delete={t.status === 'VOID'} type={t.status === 'VOID' ? 'secondary' : t.type === 'OUT' ? 'danger' : t.type === 'IN' ? 'success' : undefined}>
                   {fmtMoney(v)}
+                  {t.currency && t.amountForeign && <div style={{ fontSize: 12, fontWeight: 400 }}>{fmtCurrency(t.amountForeign, t.currency)}</div>}
                 </Typography.Text>
               ),
             },

@@ -1,16 +1,15 @@
 import { DeleteOutlined } from '@ant-design/icons';
 import { canBookkeep, canViewFinancials, currencyName, FOREIGN_CURRENCIES, type ExchangeRate } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Table, Tabs, type TabsProps, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { del, get, post, put, qs } from '@/api/client';
 import { LEDGER_KEYS, useAction } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
-import PageHeader from '@/layout/PageHeader';
 import { fmtCurrency, fmtDate, fmtMoney, fmtRate, today } from '@/lib/format';
 
 interface ExposureRow {
-  kind: 'AR' | 'AP';
+  kind: 'AR' | 'AP' | 'BANK';
   id: string;
   number: string;
   party: string;
@@ -25,14 +24,15 @@ interface ExposureRow {
 interface Exposure {
   asOf: string;
   rows: ExposureRow[];
-  byCurrency: { currency: string; rate: string | null; receivable: string; payable: string; net: string; unrealized: string }[];
+  byCurrency: { currency: string; rate: string | null; receivable: string; payable: string; bank: string; net: string; unrealized: string }[];
   unrealized: string;
   missingRates: string[];
 }
 
 const gainTag = (v: string | null) => (v == null ? '-' : Number(v) === 0 ? fmtMoney(0) : <span style={{ color: Number(v) > 0 ? '#15803d' : '#b91c1c' }}>{Number(v) > 0 ? '+' : '−'}{fmtMoney(Math.abs(Number(v)))}</span>);
 
-export default function FxPage() {
+/** Kurs harian dan posisi/penilaian ulang valas; `lead` = tab tambahan di depan (rekening valas) */
+export default function FxPanel({ lead = [] }: { lead?: NonNullable<TabsProps['items']> }) {
   const { me } = useAuth();
   const canEdit = canViewFinancials(me?.role);
   const canRevalue = canBookkeep(me?.role);
@@ -53,9 +53,9 @@ export default function FxPage() {
 
   return (
     <>
-      <PageHeader title="Mata uang asing" />
       <Tabs
         items={[
+          ...lead,
           {
             key: 'rates',
             label: 'Kurs',
@@ -115,7 +115,7 @@ export default function FxPage() {
                         {canRevalue && (
                         <Popconfirm
                           title="Catat penilaian ulang?"
-                          description={`Piutang dan utang valas dinilai pada kurs penutup per ${fmtDate(asOf)}; jurnal dibalik otomatis esok harinya.`}
+                          description={`Piutang, utang, dan saldo bank valas dinilai pada kurs penutup per ${fmtDate(asOf)}; jurnal dibalik otomatis esok harinya.`}
                           onConfirm={() => revalue.mutate(undefined)}
                           disabled={!exposure.data?.rows.length || !!exposure.data?.missingRates.length}
                         >
@@ -130,7 +130,7 @@ export default function FxPage() {
                         showIcon
                         style={{ marginBottom: 12 }}
                         message="Penilaian ulang akhir periode (PSAK 10 / IAS 21)"
-                        description="Saldo piutang dan utang valas dinilai pada kurs penutup. Selisihnya dicatat sebagai laba/rugi kurs belum terealisasi di akun terpisah (Penyesuaian Kurs Piutang/Utang Valas), lalu dibalik otomatis keesokan harinya. Selisih terealisasi dihitung saat pelunasan dari nilai tercatat awal, jadi tidak ada penghitungan ganda."
+                        description="Saldo piutang, utang, dan rekening bank valas dinilai pada kurs penutup. Selisihnya dicatat sebagai laba/rugi kurs belum terealisasi di akun terpisah (Penyesuaian Kurs Piutang/Utang/Kas & Bank Valas), lalu dibalik otomatis keesokan harinya. Selisih terealisasi dihitung saat pelunasan dari nilai tercatat awal, jadi tidak ada penghitungan ganda."
                       />
                       {!!exposure.data?.missingRates.length && (
                         <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={`Kurs ${exposure.data.missingRates.join(', ')} belum ada pada atau sebelum ${fmtDate(asOf)}. Isi di tab Kurs.`} />
@@ -147,13 +147,14 @@ export default function FxPage() {
                           { title: 'Kurs', dataIndex: 'rate', align: 'right', render: (v: string | null) => (v ? fmtRate(v) : '-') },
                           { title: 'Piutang', dataIndex: 'receivable', align: 'right', render: (v: string, r) => fmtCurrency(v, r.currency) },
                           { title: 'Utang', dataIndex: 'payable', align: 'right', render: (v: string, r) => fmtCurrency(v, r.currency) },
+                          { title: 'Saldo bank', dataIndex: 'bank', align: 'right', render: (v: string, r) => fmtCurrency(v, r.currency) },
                           { title: 'Posisi bersih', dataIndex: 'net', align: 'right', render: (v: string, r) => fmtCurrency(v, r.currency) },
                           { title: 'Selisih belum terealisasi', dataIndex: 'unrealized', align: 'right', render: gainTag },
                         ]}
                         summary={() =>
                           exposure.data?.byCurrency.length ? (
                             <Table.Summary.Row>
-                              <Table.Summary.Cell index={0} colSpan={5}>
+                              <Table.Summary.Cell index={0} colSpan={6}>
                                 <strong>Total laba (rugi) kurs belum terealisasi</strong>
                               </Table.Summary.Cell>
                               <Table.Summary.Cell index={1} align="right">
@@ -171,11 +172,11 @@ export default function FxPage() {
                         dataSource={exposure.data?.rows}
                         scroll={{ x: 900 }}
                         columns={[
-                          { title: 'Jenis', dataIndex: 'kind', render: (k: string) => <Tag color={k === 'AR' ? 'blue' : 'orange'}>{k === 'AR' ? 'Piutang' : 'Utang'}</Tag> },
-                          { title: 'Faktur', dataIndex: 'number' },
+                          { title: 'Jenis', dataIndex: 'kind', render: (k: string) => <Tag color={k === 'AR' ? 'blue' : k === 'AP' ? 'orange' : 'green'}>{k === 'AR' ? 'Piutang' : k === 'AP' ? 'Utang' : 'Bank'}</Tag> },
+                          { title: 'Faktur / rekening', dataIndex: 'number' },
                           { title: 'Pihak', dataIndex: 'party' },
                           { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-                          { title: 'Sisa (valas)', dataIndex: 'outstandingForeign', align: 'right', render: (v: string, r) => fmtCurrency(v, r.currency) },
+                          { title: 'Sisa / saldo (valas)', dataIndex: 'outstandingForeign', align: 'right', render: (v: string, r) => fmtCurrency(v, r.currency) },
                           { title: 'Nilai tercatat', dataIndex: 'carrying', align: 'right', render: fmtMoney },
                           { title: 'Nilai pada kurs penutup', dataIndex: 'valueAtRate', align: 'right', render: (v: string | null) => (v ? fmtMoney(v) : '-') },
                           { title: 'Selisih', dataIndex: 'unrealized', align: 'right', render: gainTag },

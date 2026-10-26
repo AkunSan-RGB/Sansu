@@ -62,7 +62,7 @@ import PageHeader from './layout/PageHeader';
 import IntegrationsPage from './features/accounting/IntegrationsPage';
 import FixedAssetsRedirect from './features/accounting/schedules/FixedAssetsRedirect';
 import HealthPage from './features/accounting/HealthPage';
-import FxPage from './features/accounting/FxPage';
+import ForeignCashPage from './features/cash/ForeignCashPage';
 import CustomersPage from './features/customers/CustomersPage';
 import DashboardPage from './features/dashboard/DashboardPage';
 import InventoryPage from './features/inventory/InventoryPage';
@@ -160,6 +160,7 @@ export default function App() {
         <Route path="tasks" element={<TasksPage />} />
         <Route path="laporan/:dept" element={<DeptReportPage />} />
         <Route path="workflow" element={<Navigate to="/tasks?tab=proses" replace />} />
+        <Route path="fx" element={<Navigate to="/cash/foreign" replace />} />
         <Route path="documents/:id" element={<DocumentViewPage />} />
         <Route element={<AppGate app="crm" />}>
           <Route path="crm" element={<LeadsPipelinePage />} />
@@ -257,6 +258,7 @@ export default function App() {
           <Route path="cash" element={<CashPage />} />
           <Route path="petty-cash" element={<PettyCashPage />} />
           <Route path="cash/counts" element={<CashCountsPage />} />
+          <Route path="cash/foreign" element={<ForeignCashPage />} />
         </Route>
         <Route element={<AppGate app="accounting" />}>
           <Route path="journals" element={<JournalsPage />} />
@@ -266,7 +268,6 @@ export default function App() {
           <Route path="closing" element={<ClosingPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="adjustments" element={<AdjustmentsPage />} />
-          <Route path="fx" element={<FxPage />} />
           <Route path="trial-balance" element={<TrialBalancePage />} />
           <Route path="worksheet" element={<WorksheetPage />} />
           <Route path="vat" element={<VatPage />} />

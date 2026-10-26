@@ -331,7 +331,7 @@ export default function PurchaseInvoicesPage() {
             <FxPaymentFields form={form} currency={paying.currency!} invoiceRate={Number(paying.fxRate)} outstandingForeign={apOutstandingForeign(paying)} outstandingIdr={apOutstanding(paying)} receivable={false} />
           )}
           <Form.Item name="cashAccountId" label="Dibayar dari" extra="Kosongkan untuk memakai rekening bank utama">
-            <CashAccountSelect allowClear />
+            <CashAccountSelect allowClear currency={paying?.currency ?? undefined} />
           </Form.Item>
           <Form.Item name="date" label="Tanggal">
             <Input type="date" />

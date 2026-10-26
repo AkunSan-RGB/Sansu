@@ -7,8 +7,8 @@ import { canHandleMoney, CASH_IN_SOURCES } from '@sansu/shared';
 import { useAuth } from '@/auth/AuthContext';
 import { useAccounts, useAction } from '@/api/queries';
 import type { BankCandidate, BankLineStatus, BankStatement, BankStatementLine } from '@/api/types';
-import { fmtDate, fmtMoney } from '@/lib/format';
-import { KEYS, signed } from './shared';
+import { fmtDate } from '@/lib/format';
+import { bankMoney, KEYS, signed } from './shared';
 
 const STATUS: Record<BankLineStatus, { color: string; label: string }> = {
   UNMATCHED: { color: 'orange', label: 'Belum cocok' },
@@ -77,8 +77,8 @@ export function StatementDrawer({ id, onClose }: { id: string | null; onClose: (
               </Button>
             )}
             <Typography.Text type="secondary">
-              Masuk {fmtMoney(d.summary.totalIn)} · keluar {fmtMoney(-Number(d.summary.totalOut))}
-              {d.closingBalance && ` · saldo akhir bank ${fmtMoney(d.closingBalance)}`}
+              Masuk {bankMoney(d.summary.totalIn)} · keluar {bankMoney(-Number(d.summary.totalOut))}
+              {d.closingBalance && ` · saldo akhir bank ${bankMoney(d.closingBalance)}`}
             </Typography.Text>
           </Space>
           <Table
