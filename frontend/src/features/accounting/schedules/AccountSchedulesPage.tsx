@@ -13,6 +13,7 @@ import PageHeader from '@/layout/PageHeader';
 import { fmtMoney } from '@/lib/format';
 import FixedAssetsManager from '../fixed-assets/FixedAssetsManager';
 import ScheduleDetail from './ScheduleDetail';
+import ContractsTab from './ContractsTab';
 import SnapshotsTab from './SnapshotsTab';
 
 const KIND_LABEL: Record<string, string> = {
@@ -44,7 +45,7 @@ export default function AccountSchedulesPage() {
   const thisYear = new Date().getFullYear();
   const year = Number(params.get('year')) || thisYear;
   const account = params.get('account');
-  const tab = params.get('manage') ? 'assets' : params.get('view') === 'snapshots' ? 'snapshots' : 'accounts';
+  const tab = params.get('manage') ? 'assets' : params.get('view') === 'snapshots' ? 'snapshots' : params.get('view') === 'contracts' ? 'contracts' : 'accounts';
   const [filter, setFilter] = useState<Filter>('ALL');
   const detailRef = useRef<HTMLDivElement>(null);
   // rincian dibuka di bawah daftar yang panjang: gulirkan ke sana agar langsung terlihat
@@ -138,9 +139,10 @@ export default function AccountSchedulesPage() {
       />
       <Tabs
         activeKey={tab}
-        onChange={(k) => set({ manage: k === 'assets' ? '1' : null, view: k === 'snapshots' ? 'snapshots' : null })}
+        onChange={(k) => set({ manage: k === 'assets' ? '1' : null, view: k === 'snapshots' || k === 'contracts' ? k : null })}
         items={[
           { key: 'accounts', label: 'Rincian per akun', children: accounts },
+          { key: 'contracts', label: 'Kontrak & pinjaman', children: <ContractsTab year={year} /> },
           { key: 'snapshots', label: 'Laporan dibekukan', children: <SnapshotsTab year={year} /> },
           { key: 'assets', label: 'Kelola aset tetap', children: <FixedAssetsManager /> },
         ]}

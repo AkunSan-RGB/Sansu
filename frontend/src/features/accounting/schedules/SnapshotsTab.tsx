@@ -1,15 +1,16 @@
 import { SafetyCertificateOutlined } from '@ant-design/icons';
 import { canBookkeep } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Descriptions, Empty, Form, Input, Modal, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Descriptions, Empty, Form, Input, Modal, Select, Space, Table, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { get, post, qs } from '@/api/client';
 import { useAction } from '@/api/queries';
-import type { SnapshotCompare, SnapshotListItem } from '@/api/types';
+import type { ScheduleResult, SnapshotCompare, SnapshotListItem } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import QueryState from '@/components/QueryState';
 import { fmtDate, fmtMoney } from '@/lib/format';
+import { ScheduleView } from './ScheduleDetail';
 
 const TOTAL_LABEL = { assets: 'Total aset', liabilities: 'Total liabilitas', equity: 'Total ekuitas', netIncome: 'Laba (rugi) bersih' } as const;
 const delta = (v: string) => (Number(v) === 0 ? <Tag color="green">Tetap</Tag> : <Tag color="red">{fmtMoney(v)}</Tag>);
@@ -22,6 +23,7 @@ export default function SnapshotsTab({ year }: { year: number }) {
   const { me } = useAuth();
   const [version, setVersion] = useState<number | undefined>();
   const [open, setOpen] = useState(false);
+  const [frozenId, setFrozenId] = useState<string | null>(null);
   const [form] = Form.useForm<{ note?: string }>();
   const list = useQuery({ queryKey: ['account-schedules', 'snapshots', year], queryFn: () => get<SnapshotListItem[]>(`/account-schedules/snapshots${qs({ year: String(year) })}`) });
   const has = (list.data?.length ?? 0) > 0;
@@ -29,6 +31,11 @@ export default function SnapshotsTab({ year }: { year: number }) {
     queryKey: ['account-schedules', 'snapshots', 'compare', year, version, list.data?.length],
     queryFn: () => get<SnapshotCompare>(`/account-schedules/snapshots/compare${qs({ year: String(year), version: version ? String(version) : undefined })}`),
     enabled: has,
+  });
+  const frozen = useQuery({
+    queryKey: ['account-schedules', 'snapshots', 'detail', year, version, frozenId],
+    enabled: !!frozenId,
+    queryFn: () => get<ScheduleResult & { snapshot: { version: number; signedAt: string; signedByName: string } }>(`/account-schedules/snapshots/detail${qs({ year: String(year), accountId: frozenId ?? undefined, version: version ? String(version) : undefined })}`),
   });
   const freeze = useAction((v: { note?: string }) => post('/account-schedules/snapshots', { year, note: v.note }), {
     success: `Laporan ${year} dibekukan`,
@@ -101,6 +108,18 @@ export default function SnapshotsTab({ year }: { year: number }) {
                   { title: 'Selisih', dataIndex: 'delta', align: 'right', render: delta },
                 ]}
               />
+              <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}>
+                <Typography.Text strong>Buka rincian akun sebagaimana dibekukan</Typography.Text>
+                <Select
+                  showSearch
+                  allowClear
+                  placeholder="Pilih akun untuk melihat rincian, perhitungan, dan metodenya saat ditandatangani"
+                  style={{ width: '100%', maxWidth: 560 }}
+                  optionFilterProp="label"
+                  options={c.frozenAccounts.map((a) => ({ value: a.accountId, label: `${a.code} ${a.name}`.trim() }))}
+                  onChange={(v?: string) => setFrozenId(v ?? null)}
+                />
+              </Space>
               {c.accounts.length > 0 && (
                 <>
                   <Typography.Title level={5}>Akun yang berubah ({c.accounts.length} dari {c.accountsCompared})</Typography.Title>
@@ -116,6 +135,7 @@ export default function SnapshotsTab({ year }: { year: number }) {
                       { title: 'Dibekukan', dataIndex: 'frozen', align: 'right', render: fmtMoney },
                       { title: 'Sekarang', dataIndex: 'current', align: 'right', render: fmtMoney },
                       { title: 'Selisih', dataIndex: 'delta', align: 'right', render: delta },
+                      { title: 'Rincian', dataIndex: 'detailChanged', render: (v: boolean, r: { accountId: string }) => (v ? <a onClick={() => setFrozenId(r.accountId)}><Tag color="orange">Berubah · lihat yang dibekukan</Tag></a> : <Tag>Sama</Tag>) },
                     ]}
                   />
                 </>
@@ -143,6 +163,11 @@ export default function SnapshotsTab({ year }: { year: number }) {
           )}
         </QueryState>
       )}
+      <Modal title="Rincian saat dibekukan" open={!!frozenId} width={1000} footer={null} onCancel={() => setFrozenId(null)}>
+        <QueryState q={frozen}>
+          {(d) => <ScheduleView d={d} company={me?.tenantName} frozenNote={`Versi ${d.snapshot.version}, dibekukan ${fmtDate(d.snapshot.signedAt)} oleh ${d.snapshot.signedByName}. Angka di bawah adalah rincian yang ditandatangani, bukan pembukuan terkini.`} />}
+        </QueryState>
+      </Modal>
       <Modal title={`Bekukan laporan keuangan ${year}`} open={open} onCancel={() => setOpen(false)} onOk={() => form.submit()} okText="Bekukan" confirmLoading={freeze.isPending}>
         <Typography.Paragraph type="secondary">Angka laporan {year} saat ini disimpan dan tidak dapat diubah atau dihapus. Membekukan lagi membuat versi baru.</Typography.Paragraph>
         <Form form={form} layout="vertical" onFinish={(v) => freeze.mutate(v)}>

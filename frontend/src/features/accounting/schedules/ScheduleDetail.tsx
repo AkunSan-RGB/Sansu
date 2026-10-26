@@ -8,16 +8,20 @@ import { fmtMoney } from '@/lib/format';
 import { scheduleSheet } from '@/lib/xlsx/reports';
 import ScheduleTableView from './ScheduleTableView';
 
-/** Rincian satu akun: tab Rincian & perhitungan, Metode, dan Temuan; saldo akhir dibandingkan dengan laporan keuangan */
+/** Rincian satu akun terkini (diambil dari server) */
 export default function ScheduleDetail({ accountId, year, company, extra }: { accountId: string; year: number; company?: string; extra?: React.ReactNode }) {
   const q = useQuery({
     queryKey: ['account-schedules', 'detail', accountId, year],
     queryFn: () => get<ScheduleResult>(`/account-schedules/${accountId}${qs({ year: String(year) })}`),
   });
+  return <QueryState q={q}>{(d) => <ScheduleView d={d} company={company} extra={extra} />}</QueryState>;
+}
+
+/** Tampilan rincian satu akun: tab Rincian & perhitungan dan Metode; saldo akhir dibandingkan dengan laporan keuangan. Dipakai juga untuk rincian yang dibekukan. */
+export function ScheduleView({ d, company, extra, frozenNote }: { d: ScheduleResult; company?: string; extra?: React.ReactNode; frozenNote?: string }) {
   return (
-    <QueryState q={q}>
-      {(d) => (
         <>
+          {frozenNote && <Alert type="info" showIcon message={frozenNote} style={{ marginBottom: 12 }} />}
           <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }} wrap>
             <Typography.Title level={4} style={{ margin: 0 }}>
               {d.account.code} {d.account.name}
@@ -73,7 +77,5 @@ export default function ScheduleDetail({ accountId, year, company, extra }: { ac
             ]}
           />
         </>
-      )}
-    </QueryState>
   );
 }
