@@ -37,6 +37,7 @@ import { PosOnlineModule } from './modules/pos/pos-online.module';
 import { CrmModule } from './modules/crm/crm.module';
 import { HrModule } from './modules/hr/hr.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
+import { AccountSchedulesModule } from './modules/account-schedules/account-schedules.module';
 import { AssetsModule } from './modules/assets/assets.module';
 import { InsightsModule } from './modules/insights/insights.module';
 import { DeptReportsModule } from './modules/dept-reports/dept-reports.module';
@@ -102,6 +103,7 @@ import { DataRightsModule } from './modules/data-rights/data-rights.module';
     PayrollModule,
     AutoBookkeepingModule,
     AssetsModule,
+    AccountSchedulesModule,
     InsightsModule,
     DeptReportsModule,
     OnboardingModule,

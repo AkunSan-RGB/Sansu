@@ -171,6 +171,24 @@ export const reportNotes = pgTable(
   (t) => [primaryKey({ columns: [t.tenantId, t.year, t.key] })],
 );
 
+/** Snapshot laporan keuangan yang dibekukan saat ditandatangani (tidak dapat diubah/dihapus; versi baru = rekaman baru) */
+export const reportSnapshots = pgTable(
+  'report_snapshots',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    year: integer('year').notNull(),
+    version: integer('version').notNull(),
+    signedById: uuid('signed_by_id').notNull(),
+    signedByName: text('signed_by_name').notNull(),
+    signedAt: timestamp('signed_at', { withTimezone: true }).notNull().defaultNow(),
+    note: text('note'),
+    contentHash: text('content_hash').notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+  },
+  (t) => [uniqueIndex('report_snapshots_version_uq').on(t.tenantId, t.year, t.version)],
+);
+
 export const journalEntriesRelations = relations(journalEntries, ({ many }) => ({ lines: many(journalLines) }));
 
 export const journalLinesRelations = relations(journalLines, ({ one }) => ({

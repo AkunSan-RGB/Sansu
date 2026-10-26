@@ -60,7 +60,8 @@ import TaxRecapPage from './features/accounting/TaxRecapPage';
 import { BpjsReport } from './features/accounting/tax-recap/BpjsReport';
 import PageHeader from './layout/PageHeader';
 import IntegrationsPage from './features/accounting/IntegrationsPage';
-import FixedAssetsPage from './features/accounting/FixedAssetsPage';
+import AccountSchedulesPage from './features/accounting/schedules/AccountSchedulesPage';
+import FixedAssetsRedirect from './features/accounting/schedules/FixedAssetsRedirect';
 import HealthPage from './features/accounting/HealthPage';
 import FxPage from './features/accounting/FxPage';
 import CustomersPage from './features/customers/CustomersPage';
@@ -271,7 +272,8 @@ export default function App() {
           <Route path="worksheet" element={<WorksheetPage />} />
           <Route path="vat" element={<VatPage />} />
           <Route path="health" element={<HealthPage />} />
-          <Route path="fixed-assets" element={<FixedAssetsPage />} />
+          <Route path="account-schedules" element={<AccountSchedulesPage />} />
+          <Route path="fixed-assets" element={<FixedAssetsRedirect />} />
           <Route path="fiscal" element={<FiscalPage />} />
           <Route path="bank" element={<BankPage />} />
           <Route path="tax" element={<TaxPage />} />
