@@ -272,7 +272,7 @@ export default function App() {
           <Route path="worksheet" element={<WorksheetPage />} />
           <Route path="vat" element={<VatPage />} />
           <Route path="health" element={<HealthPage />} />
-          <Route path="account-schedules" element={<FixedAssetsRedirect kind="rincian" />} />
+          <Route path="account-schedules" element={<FixedAssetsRedirect kind="kontrak" />} />
           <Route path="fixed-assets" element={<FixedAssetsRedirect />} />
           <Route path="fiscal" element={<FiscalPage />} />
           <Route path="bank" element={<BankPage />} />

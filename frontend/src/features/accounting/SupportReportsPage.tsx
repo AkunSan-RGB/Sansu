@@ -30,12 +30,10 @@ const KINDS: { key: SupportReport['kind']; label: string; hint: string; models?:
   { key: 'other', label: 'Akun lainnya', hint: 'Aset lain, liabilitas, ekuitas, pendapatan/beban lain, dan saldo pajak.' },
 ];
 
-/** Tab rincian dan perhitungan per akun: angka tahunan, bukan rentang tanggal, dan tidak memakai laporan bidang di atas */
+/** Tab kontrak dan aset tetap: angka tahunan, bukan rentang tanggal, dan tidak memakai laporan bidang di atas */
 const SCHEDULE_TABS: { key: ScheduleSection; label: string; hint: string }[] = [
-  { key: 'rincian', label: 'Rincian per akun', hint: 'Rincian, perhitungan, dan metode setiap akun di laporan keuangan, dicocokkan dengan saldo akhirnya. Klik akun untuk membukanya.' },
   { key: 'kontrak', label: 'Kontrak & pinjaman', hint: 'Daftar pinjaman, sewa pembiayaan, dan biaya dibayar di muka; jadwal pokok, bunga, dan amortisasinya dibandingkan dengan buku besar.' },
-  { key: 'beku', label: 'Laporan dibekukan', hint: 'Angka laporan yang sudah ditandatangani disimpan tak bisa diubah, lalu dibandingkan dengan pembukuan sesudahnya.' },
-  { key: 'aset', label: 'Aset tetap', hint: 'Daftar aset, penyusutan bulanan, dan kategori aset. Rincian perhitungannya ada di tab Rincian per akun.' },
+  { key: 'aset', label: 'Aset tetap', hint: 'Daftar aset, penyusutan bulanan, dan kategori aset.' },
 ];
 
 /** Paragraf rata kiri-kanan; pemenggalan kata otomatis (bahasa Indonesia) menjaga jarak antarkata tetap rapat di layar sempit */
