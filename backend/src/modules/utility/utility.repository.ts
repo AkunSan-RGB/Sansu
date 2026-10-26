@@ -9,9 +9,15 @@ import { AuthUser } from '../../common/auth/auth-user';
 import type { Decimal } from 'decimal.js';
 import type { SQL } from 'drizzle-orm';
 
+
 /** Akses data untuk Utility: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
 export class UtilityRepository {
+  async connectionsWithInstallment(db: DbOrTx, tenantId: string) {
+    const r = await db.execute<{ connection_id: string }>(sql`SELECT DISTINCT connection_id FROM utility_installment_plans WHERE tenant_id = ${tenantId} AND status = 'AKTIF' AND connection_id IS NOT NULL`);
+    return new Set(r.rows.map((x) => x.connection_id));
+  }
+
   /** Dipakai oleh UtilityService.tariffs */
   queryUtilityTariff(db: DbOrTx, tenantId: string) {
     return db.execute<Record<string, unknown>>(sql`

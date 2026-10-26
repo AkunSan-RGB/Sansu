@@ -1,9 +1,18 @@
 import { Module } from '@nestjs/common';
 import { AccountingModule } from '../accounting/accounting.module';
 import { SalesModule } from '../sales/sales.module';
+import { DepositsController } from './deposits.controller';
+import { DepositsRepository } from './deposits.repository';
+import { DepositsService } from './deposits.service';
+import { InstallmentsController } from './installments.controller';
+import { InstallmentsRepository } from './installments.repository';
+import { InstallmentsService } from './installments.service';
 import { MasterDataModule } from '../master-data/master-data.module';
 import { UtilityFieldModule } from '../utility/utility-field.module';
 import { UtilityModule } from '../utility/utility.module';
+import { AdjustmentsController } from './adjustments.controller';
+import { AdjustmentsRepository } from './adjustments.repository';
+import { AdjustmentsService } from './adjustments.service';
 import { ApplicationsController } from './applications.controller';
 import { ApplicationsRepository } from './applications.repository';
 import { ApplicationsService } from './applications.service';
@@ -22,7 +31,7 @@ import { StaffService } from './staff.service';
 
 @Module({
   imports: [UtilityModule, UtilityFieldModule, MasterDataModule, SalesModule, AccountingModule],
-  controllers: [StaffController, ComplaintsController, NetworkAssetsController, ApplicationsController, ChangesController],
-  providers: [StaffRepository, StaffService, ComplaintsRepository, ComplaintsService, NetworkAssetsRepository, NetworkAssetsService, ApplicationsRepository, ApplicationsService, ChangesRepository, ChangesService],
+  controllers: [StaffController, ComplaintsController, NetworkAssetsController, ApplicationsController, ChangesController, AdjustmentsController, DepositsController, InstallmentsController],
+  providers: [StaffRepository, StaffService, ComplaintsRepository, ComplaintsService, NetworkAssetsRepository, NetworkAssetsService, ApplicationsRepository, ApplicationsService, ChangesRepository, ChangesService, AdjustmentsRepository, AdjustmentsService, DepositsRepository, DepositsService, InstallmentsRepository, InstallmentsService],
 })
 export class UtilityOpsModule {}

@@ -178,6 +178,7 @@ export class UtilityService {
       const c = await this.lockConnection(tx, u.tenantId, id);
       if (c.status !== 'ACTIVE') throw new BadRequestException('Hanya sambungan aktif yang bisa diputus sementara');
       if (!dto.onRequest) {
+        if ((await this.repo.connectionsWithInstallment(tx, u.tenantId)).has(id)) throw new BadRequestException('Pelanggan ini punya rencana angsuran tunggakan yang berjalan; pemutusan ditahan selama angsuran dipenuhi');
         const od = await this.overdueOf(tx, u.tenantId, id);
         if (od.daysLate <= rules.suspendAfterDays) throw new BadRequestException(`Pemutusan hanya untuk tunggakan lebih dari ${rules.suspendAfterDays} hari setelah jatuh tempo (saat ini ${od.daysLate} hari). Pilih "atas permintaan pelanggan" bila pelanggan yang meminta.`);
       }
@@ -460,7 +461,8 @@ export class UtilityService {
     const rules = await this.rules(tenantId);
     const today = todayJakarta();
     const r = await this.repo.queryUtilityBillForOverdue(this.db, today, tenantId);
-    return r.rows.map((x) => ({ ...x, outstanding: x.outstanding as string, suggestSuspend: x.status === 'ACTIVE' && Number(x.daysLate) > rules.suspendAfterDays }));
+    const planned = await this.repo.connectionsWithInstallment(this.db, tenantId);
+    return r.rows.map((x) => ({ ...x, outstanding: x.outstanding as string, installmentPlan: planned.has((x as { id?: string }).id ?? ''), suggestSuspend: x.status === 'ACTIVE' && Number(x.daysLate) > rules.suspendAfterDays && !planned.has((x as { id?: string }).id ?? '') }));
   }
 
   async controls(tenantId: string) {
