@@ -764,6 +764,13 @@
       "when": 1797705486484,
       "tag": "0108_rekening_valas",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1797791886484,
+      "tag": "0109_hapus_rincian_akun",
+      "breakpoints": true
     }
   ]
 }
