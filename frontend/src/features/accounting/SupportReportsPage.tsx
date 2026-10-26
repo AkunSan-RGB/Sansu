@@ -1,11 +1,12 @@
 import { CheckCircleFilled, ExclamationCircleFilled } from '@ant-design/icons';
 import { canViewFinancials, type SupportConclusion, type SupportReport } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
+import { ToolOutlined } from '@ant-design/icons';
 import { Alert, Button, Card, Col, Input, Row, Select, Space, Tabs, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { get } from '@/api/client';
+import { get, qs } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import ExportButtons from '@/components/ExportButtons';
 import QueryState from '@/components/QueryState';
@@ -13,6 +14,7 @@ import PageHeader from '@/layout/PageHeader';
 import { conclusionGroups } from '@/lib/conclusionText';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { supportSheet } from '@/lib/xlsx/reports';
+import ScheduleDetail from './schedules/ScheduleDetail';
 import SchedulesPanel, { type ScheduleSection } from './schedules/SchedulesPanel';
 import { NoteTableView } from './statements/NotesView';
 
@@ -27,13 +29,22 @@ const KINDS: { key: SupportReport['kind']; label: string; hint: string; models?:
   { key: 'mfg', label: 'Produksi', models: ['MANUFAKTUR'], hint: 'Hasil dan biaya per perintah, pemakaian bahan dibanding resep, barang dalam proses, dan biaya konversi.' },
   { key: 'jasa', label: 'Jasa & proyek', models: ['JASA'], hint: 'Proyek, termin, kemajuan pekerjaan, dan uang muka pelanggan.' },
   { key: 'utility', label: 'Utilitas', models: ['UTILITAS'], hint: 'Pencatatan meter, tagihan, denda, tunggakan, dan sambungan.' },
-  { key: 'other', label: 'Akun lainnya', hint: 'Aset lain, liabilitas, ekuitas, pendapatan/beban lain, dan saldo pajak.' },
 ];
 
 /** Tab kontrak dan aset tetap: angka tahunan, bukan rentang tanggal, dan tidak memakai laporan bidang di atas */
 const SCHEDULE_TABS: { key: ScheduleSection; label: string; hint: string }[] = [
   { key: 'aset', label: 'Aset tetap', hint: 'Daftar aset, penyusutan bulanan, dan kategori aset.' },
 ];
+
+interface AccountTabItem {
+  accountId: string;
+  code: string;
+  name: string;
+  type: string;
+  part: 'BS' | 'PL';
+  reportGroup: string;
+  hasActivity: boolean;
+}
 
 /** Paragraf rata kiri-kanan; pemenggalan kata otomatis (bahasa Indonesia) menjaga jarak antarkata tetap rapat di layar sempit */
 const JUSTIFY = { textAlign: 'justify', hyphens: 'auto' } as const;
@@ -70,10 +81,21 @@ export default function SupportReportsPage() {
   const [params, setParams] = useSearchParams();
   const { me } = useAuth();
   const kinds = KINDS.filter((k) => !k.models || (me && k.models.includes(me.businessModel)));
-  const scheduleTabs = canViewFinancials(me?.role) ? SCHEDULE_TABS : [];
-  const section = scheduleTabs.find((t) => t.key === params.get('kind'));
+  const canSchedules = canViewFinancials(me?.role);
+  const scheduleTabs = canSchedules ? SCHEDULE_TABS : [];
   const thisYear = new Date().getFullYear();
   const year = Number(params.get('year')) || thisYear;
+  // satu tab per akun (neraca lalu laba rugi) menurut bagan akun jenis usaha ini; isi tab dibangun saat dibuka
+  const accountTabs = useQuery({
+    queryKey: ['account-schedules', 'tabs', year],
+    queryFn: () => get<{ items: AccountTabItem[] }>(`/account-schedules/tabs${qs({ year: String(year) })}`),
+    enabled: canSchedules,
+  });
+  const kindParam = params.get('kind') ?? '';
+  const accountId = kindParam.startsWith('a:') ? kindParam.slice(2) : null;
+  const accountItem = accountId ? accountTabs.data?.items.find((i) => i.accountId === accountId) : undefined;
+  const section = scheduleTabs.find((t) => t.key === kindParam);
+  const onScheduleTab = !!section || !!accountId;
   const kind = (kinds.find((k) => k.key === params.get('kind'))?.key ?? 'sales') as SupportReport['kind'];
   const [from, setFrom] = useState(dayjs().startOf('month').format('YYYY-MM-DD'));
   const [to, setTo] = useState(dayjs().format('YYYY-MM-DD'));
@@ -81,7 +103,7 @@ export default function SupportReportsPage() {
   const q = useQuery({
     queryKey: ['support-report', kind, from, to],
     queryFn: () => get<SupportReport>(`/accounting/support/${kind}?from=${from}&to=${to}`),
-    enabled: !section && !!from && !!to && from <= to,
+    enabled: !onScheduleTab && !!from && !!to && from <= to,
   });
   const sheets = useMemo(() => (q.data ? supportSheet(q.data, fw.data?.framework ?? 'SAK_EP', me?.tenantName) : []), [q.data, fw.data, me?.tenantName]);
   const preset = (label: string, f: string, t: string) => (
@@ -97,7 +119,7 @@ export default function SupportReportsPage() {
       <PageHeader
         title="Laporan pendukung"
         extra={
-          section ? (
+          onScheduleTab ? (
             <Select
               className="no-print"
               value={year}
@@ -121,22 +143,61 @@ export default function SupportReportsPage() {
         }
       />
       <Card className="print-area">
+        {!!accountTabs.data?.items.length && (
+          <Select
+            className="no-print"
+            showSearch
+            allowClear
+            placeholder="Cari akun (kode atau nama) untuk membuka tab akunnya"
+            optionFilterProp="label"
+            style={{ width: '100%', maxWidth: 460, marginBottom: 8 }}
+            value={accountId ?? undefined}
+            options={accountTabs.data.items.map((i) => ({ value: i.accountId, label: `${i.code ? `${i.code} · ` : ''}${i.name} (${i.part === 'PL' ? 'Laba rugi' : 'Neraca'})` }))}
+            onChange={(id) => {
+              const n = new URLSearchParams();
+              n.set('kind', id ? `a:${id}` : 'sales');
+              if (params.get('year')) n.set('year', params.get('year')!);
+              setParams(n, { replace: true });
+            }}
+          />
+        )}
         <Tabs
-          activeKey={section?.key ?? kind}
+          activeKey={accountId ? `a:${accountId}` : (section?.key ?? kind)}
           onChange={(k) => {
             const n = new URLSearchParams();
             n.set('kind', k);
-            if (scheduleTabs.some((t) => t.key === k) && params.get('year')) n.set('year', params.get('year')!);
+            if ((scheduleTabs.some((t) => t.key === k) || k.startsWith('a:')) && params.get('year')) n.set('year', params.get('year')!);
             setParams(n, { replace: true });
           }}
           className="no-print"
-          items={[...kinds.map((k) => ({ key: k.key as string, label: k.label })), ...scheduleTabs.map((t) => ({ key: t.key as string, label: t.label }))]}
+          items={[
+            ...kinds.map((k) => ({ key: k.key as string, label: k.label })),
+            ...scheduleTabs.map((t) => ({ key: t.key as string, label: t.label })),
+            ...(accountTabs.data?.items ?? []).map((i) => ({ key: `a:${i.accountId}`, label: `${i.code ? `${i.code} ` : ''}${i.name}` })),
+          ]}
         />
         <Typography.Paragraph type="secondary" className="no-print" style={JUSTIFY}>
-          {section ? section.hint : `${kinds.find((k) => k.key === kind)?.hint} Angka dihitung ulang dari pembukuan setiap dibuka.`}
+          {accountId
+            ? `${accountItem?.part === 'PL' ? 'Laba rugi' : 'Neraca'}: rincian, daftar, dan perhitungan khusus akun ini. Saldo akhirnya dicocokkan dengan angka akun ini di laporan keuangan tahun ${year}.`
+            : section ? section.hint : `${kinds.find((k) => k.key === kind)?.hint} Angka dihitung ulang dari pembukuan setiap dibuka.`}
         </Typography.Paragraph>
         {section && <SchedulesPanel section={section.key} year={year} />}
-        {!section && (<>
+        {accountId && (
+          <ScheduleDetail
+            key={`${accountId}-${year}`}
+            accountId={accountId}
+            year={year}
+            company={me?.tenantName}
+            extra={(d) =>
+              d.kind.startsWith('FIXED_ASSET') || d.kind === 'DEPRECIATION_EXPENSE' ? (
+                <Button icon={<ToolOutlined />} onClick={() => setParams(new URLSearchParams({ kind: 'aset' }), { replace: true })}>
+                  Kelola aset tetap
+                </Button>
+              ) : undefined
+            }
+          />
+        )}
+        {!onScheduleTab && (<>
         <Space wrap size={[8, 8]} className="no-print" style={{ marginBottom: 16 }}>
           <Typography.Text type="secondary">Periode:</Typography.Text>
           {preset('Bulan ini', now.startOf('month').format('YYYY-MM-DD'), now.format('YYYY-MM-DD'))}

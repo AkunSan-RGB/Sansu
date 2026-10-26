@@ -77,18 +77,4 @@ describe('Laporan pendukung jasa & utilitas (e2e)', () => {
     expect(r.sections.find((s) => s.key === 'util-ar')!.tables[0].rows).toEqual([['Tagihan utilitas', 44_500], ['Faktur penjualan lain', 0]]);
     expect(r.sections.find((s) => s.key === 'util-connections')!.tables[0].rows[0]).toEqual(['Air', 1, 0, 0]);
   });
-
-  it('akun lainnya: piutang lain dipisahkan dari aset lain dan dari piutang usaha', async () => {
-    const t = await reg('PT Piutang Lain', 'DAGANG');
-    const emp = ((await get(t, '/api/accounting/accounts').expect(200)).body as { id: string; code: string }[]);
-    const kas = emp.find((a) => a.code === '1-1100')!.id;
-    const kasbon = emp.find((a) => a.code === '1-1600')!.id;
-    const modal = emp.find((a) => a.code === '3-1000')!.id;
-    await post(t, '/api/accounting/journals', { date: day, description: 'Modal', lines: [{ accountId: kas, debit: '5000000' }, { accountId: modal, credit: '5000000' }] }).expect(201);
-    await post(t, '/api/accounting/journals', { date: day, description: 'Kasbon', lines: [{ accountId: kasbon, debit: '1000000' }, { accountId: kas, credit: '1000000' }] }).expect(201);
-    const r = await report(t, 'other');
-    const sec = (k: string) => r.sections.find((s) => s.key === k)!.tables[0].rows.map((x) => x[0]);
-    expect(sec('other-receivables')).toContain('1-1600');
-    expect(sec('other-assets')).not.toContain('1-1600');
-  });
 });

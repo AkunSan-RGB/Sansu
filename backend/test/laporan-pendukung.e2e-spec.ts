@@ -81,10 +81,7 @@ describe('Laporan pendukung (e2e)', () => {
     expect(r.sections.find((s) => s.key === 'cash-sources')!.tables[0].rows.length).toBeGreaterThan(0);
   });
 
-  it('akun lainnya: neraca saldo seimbang; tanggal tidak sah ditolak; peran Gudang tidak boleh', async () => {
-    const r = await report('other');
-    expect(r.reconciliation[0].ok).toBe(true);
-    expect(r.sections.some((s) => s.key === 'other-equity' && s.tables[0].rows.length > 0)).toBe(true);
+  it('jenis tidak dikenal dan tanggal tidak sah ditolak; peran Gudang tidak boleh', async () => {
     await get(`/api/accounting/support/ngawur`).expect(400);
     await get(`/api/accounting/support/sales?from=${day}&to=${addDays(day, -5)}`).expect(400);
     void wh2;

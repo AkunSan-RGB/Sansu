@@ -241,18 +241,6 @@ function cash(b: Builder) {
   }
 }
 
-function other(b: Builder) {
-  for (const [key, label, bad] of [['other-assets', 'aset', 'bersaldo kredit'], ['other-receivables', 'piutang lain', 'bersaldo kredit'], ['other-liabilities', 'liabilitas', 'bersaldo debit']] as const) {
-    const neg = b.rows(key).filter((r) => n(r[5]) < -0.5);
-    if (neg.length) b.add('warning', `${neg.length} akun ${label} ${bad}`, `${names(neg, 1)}: saldo tidak sesuai sifat akun.`, 'Periksa jurnal pada akun itu; mungkin salah akun atau pembalikan yang tidak lengkap.');
-  }
-  const eq = b.rows('other-equity');
-  const eqTotal = sumCol(eq, 5);
-  if (eq.length && eqTotal < 0) b.add('warning', `Ekuitas negatif ${rp(Math.abs(eqTotal))}`, 'Jumlah saldo akun ekuitas defisit.', 'Perusahaan menanggung kerugian melebihi modalnya; tinjau struktur permodalan.');
-  const rec = b.rows('other-receivables');
-  if (rec.length) b.add('info', `Piutang lain-lain ${rp(sumCol(rec, 5))}`, `${rec.length} akun: ${names(rec, 1)}.`, 'Piutang non-faktur tidak punya penagihan otomatis; pastikan ada jadwal penyelesaian (kasbon, klaim, titipan).');
-}
-
 function pos(b: Builder) {
   const sess = b.rows('pos-session');
   const closed = sess.filter((r) => r[9] !== null);
@@ -382,7 +370,7 @@ function utility(b: Builder) {
 export function conclude(kind: SupportKind, report: ReportLike, thresholds: InsightThresholds = DEFAULT_THRESHOLDS): SupportConclusion {
   const b = new Builder(report, thresholds);
   reconciliation(b, report.reconciliation);
-  const body: Record<SupportKind, (b: Builder) => void> = { sales, purchases, inventory, cash, other, pos, fnb, fmcg, mfg, jasa, utility };
+  const body: Record<SupportKind, (b: Builder) => void> = { sales, purchases, inventory, cash, pos, fnb, fmcg, mfg, jasa, utility };
   body[kind](b);
   const findings = [...b.findings].sort((a, c) => ORDER[c.level] - ORDER[a.level]);
   const status = findings.reduce<FindingLevel>((a, f) => (ORDER[f.level] > ORDER[a] ? f.level : a), 'ok');
