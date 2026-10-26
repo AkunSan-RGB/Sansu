@@ -45,6 +45,8 @@ export interface ScheduleCatalog {
   assetCostIds: Set<string>;
   assetAccumulatedIds: Set<string>;
   assetExpenseIds: Set<string>;
+  /** Akun kas yang berupa rekening bank (akun bank bawaan atau yang sudah punya rekening koran) */
+  bankAccountIds: Set<string>;
 }
 
 export interface ScheduleContext {

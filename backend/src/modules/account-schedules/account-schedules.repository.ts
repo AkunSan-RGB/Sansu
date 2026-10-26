@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
-import { assetCategories, fixedAssets } from '../../db/schema';
+import { assetCategories, fixedAssets, recurringJournals } from '../../db/schema';
 
 /** Pihak lawan usaha: tabel dokumen dan tabel pendukungnya (faktur, pembayaran, retur) untuk jadwal piutang dan utang */
 export interface PartySpec {
@@ -64,6 +64,38 @@ export class AccountSchedulesRepository {
       JOIN journal_entries j ON j.id = l.journal_id
       JOIN accounts a ON a.id = l.account_id
       WHERE j.tenant_id = ${tenantId} AND j.date <= ${date} AND a.type IN ('REVENUE', 'EXPENSE')`);
+  }
+
+  /** Akun kas yang sudah pernah mengimpor rekening koran */
+  bankStatementAccountIds(db: DbOrTx, tenantId: string) {
+    return db.execute<{ id: string }>(sql`SELECT DISTINCT cash_account_id AS id FROM bank_statements WHERE tenant_id = ${tenantId}`);
+  }
+
+  /** Baris jurnal satu akun dalam rentang tanggal (dasar rincian per jurnal untuk akun tanpa daftar sendiri) */
+  journalLinesOfAccount(db: DbOrTx, tenantId: string, accountId: string, from: string, to: string) {
+    return db.execute<{ journal_id: string; number: string; date: string; description: string; source_type: string; debit: string; credit: string }>(sql`
+      SELECT j.id AS journal_id, j.number, j.date::text AS date, COALESCE(NULLIF(l.memo, ''), j.description) AS description, j.source_type,
+             l.debit::text AS debit, l.credit::text AS credit
+      FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
+      WHERE j.tenant_id = ${tenantId} AND l.account_id = ${accountId} AND j.date BETWEEN ${from} AND ${to}
+      ORDER BY j.date, j.number LIMIT 2000`);
+  }
+
+  /** Jurnal berulang aktif (amortisasi/akrual terjadwal) */
+  activeRecurringJournals(db: DbOrTx, tenantId: string) {
+    return db.select().from(recurringJournals).where(and(eq(recurringJournals.tenantId, tenantId), eq(recurringJournals.isActive, true)));
+  }
+
+  /** Jurnal balik terjadwal yang masih menunggu dan menyentuh akun ini */
+  pendingReversalsOnAccount(db: DbOrTx, tenantId: string, accountId: string) {
+    return db.execute<{ reverse_on: string; number: string; date: string; description: string; debit: string; credit: string }>(sql`
+      SELECT sr.reverse_on::text AS reverse_on, j.number, j.date::text AS date, j.description,
+             COALESCE(SUM(l.debit), 0)::text AS debit, COALESCE(SUM(l.credit), 0)::text AS credit
+      FROM scheduled_reversals sr
+      JOIN journal_entries j ON j.id = sr.journal_id
+      JOIN journal_lines l ON l.journal_id = j.id AND l.account_id = ${accountId}
+      WHERE sr.tenant_id = ${tenantId} AND sr.status = 'PENDING'
+      GROUP BY sr.reverse_on, j.number, j.date, j.description ORDER BY sr.reverse_on`);
   }
 
   listAssetsWithCategory(db: DbOrTx, tenantId: string) {

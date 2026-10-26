@@ -68,10 +68,11 @@ export class AccountSchedulesService {
   private async snapshot(tenantId: string, year: number): Promise<Snapshot> {
     const from = `${year}-01-01`;
     const to = `${year}-12-31`;
-    const [accounts, rows, categories] = await Promise.all([
+    const [accounts, rows, categories, banks] = await Promise.all([
       loadAccounts(this.db, tenantId),
       this.repo.movementsByAccountMonth(this.db, tenantId, from, to).then((r) => r.rows),
       this.repo.listAssetCategories(this.db, tenantId),
+      this.repo.bankStatementAccountIds(this.db, tenantId).then((r) => r.rows.map((x) => x.id)),
     ]);
     const moves = new Map<string, AccountMovement>();
     for (const r of rows) {
@@ -89,6 +90,7 @@ export class AccountSchedulesService {
       assetCostIds: new Set(categories.map((c) => c.assetAccountId)),
       assetAccumulatedIds: new Set(categories.flatMap((c) => (c.accumulatedAccountId ? [c.accumulatedAccountId] : []))),
       assetExpenseIds: new Set(categories.flatMap((c) => (c.expenseAccountId ? [c.expenseAccountId] : []))),
+      bankAccountIds: new Set([...banks, ...accounts.filter((a) => a.systemKey === 'BANK').map((a) => a.id)]),
     };
     const reported = await this.reportedBalances.forYear(tenantId, year, (id) => typeById.get(id));
     return { year, from, to, accounts, catalog, reported, movementOf: (id) => moves.get(id) ?? emptyMovement() };

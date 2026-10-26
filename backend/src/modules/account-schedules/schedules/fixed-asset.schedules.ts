@@ -123,7 +123,7 @@ export class FixedAssetCostSchedule extends FixedAssetSchedule {
       tOpen = tOpen.plus(open); tAdd = tAdd.plus(add); tSub = tSub.plus(sub); tClose = tClose.plus(close);
       rows.push({
         cells: { code: a.code, name: a.name, category: category.name, acquired: a.acquisitionDate, disposed: a.disposalDate, opening: money(open), add: money(add), sub: money(sub), closing: money(close) },
-        link: a.acquisitionJournalId ? `/journals?id=${a.acquisitionJournalId}` : undefined,
+        link: `/account-schedules?manage=1&asset=${a.id}`,
       });
     }
     const perAsset: ScheduleTable = {
