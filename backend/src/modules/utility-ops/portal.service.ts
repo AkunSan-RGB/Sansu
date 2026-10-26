@@ -12,6 +12,7 @@ import { ComplaintsRepository } from './complaints.repository';
 import { PortalComplaintDto } from './portal.dto';
 import { PortalRepository } from './portal.repository';
 import { StaffRepository } from './staff.repository';
+import { VaService } from './va.service';
 
 export interface PortalScope { tenantId: string; connectionId: string; tokenId: string }
 
@@ -41,6 +42,7 @@ export class PortalService {
     private readonly staff: StaffRepository,
     private readonly seq: SequenceService,
     private readonly audit: AuditService,
+    private readonly va: VaService,
   ) {}
 
   // ---- sisi petugas ----
@@ -69,8 +71,9 @@ export class PortalService {
       this.repo.openBills(this.db, s.tenantId, s.connectionId), this.repo.usage(this.db, s.tenantId, s.connectionId), this.repo.counters(this.db, s.tenantId), this.repo.complaints(this.db, s.tenantId, s.connectionId),
     ]);
     await this.repo.touch(this.db, s.tokenId);
+    const va = await this.va.numberOf(s.tenantId, s.connectionId).catch(() => null);
     const outstanding = (bills as { outstanding: string }[]).reduce((a, b) => a + Number(b.outstanding), 0);
-    return { connection: { number: c.number, address: c.address, status: c.status, customer: c.customer, tariff: c.tariff, meterNo: c.meter_no, zone: c.zone }, company: { name: c.company, address: c.company_address }, outstanding, bills, usage, counters, complaints };
+    return { connection: { number: c.number, address: c.address, status: c.status, customer: c.customer, tariff: c.tariff, meterNo: c.meter_no, zone: c.zone }, company: { name: c.company, address: c.company_address }, outstanding, bills, usage, counters, complaints, va: va?.vaNumber ? { number: va.vaNumber, bankName: va.bankName } : null };
   }
   async complain(s: PortalScope, dto: PortalComplaintDto) {
     // batas wajar agar tautan yang bocor tidak dipakai membanjiri tiket

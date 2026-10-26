@@ -1,7 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Col, DatePicker, Popconfirm, Row, Space, Statistic, Table, Tag, Typography } from 'antd';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Alert, Button, Col, DatePicker, Popconfirm, Progress, Row, Space, Statistic, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { get, post } from '@/api/client';
 import { useAction } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
@@ -15,30 +15,42 @@ interface Preview {
   totals: { count: number; subtotal: number; lateFee: number };
 }
 
-interface RunResult { period: string; billedCount: number; billedTotal: number; billed: { number: string; invoice: string; total: number }[]; failed: { number: string; reason: string }[]; held: { number: string; reason: string }[] }
+interface Job { id: string; period: string; status: 'BERJALAN' | 'SELESAI' | 'GAGAL' | 'TERHENTI'; total: number; done: number; failed: number; billed_total: string; held: number; error: string | null; started_by: string | null; started_at: string; finished_at: string | null }
 
 // ---------- Tagihan bulanan ----------
 export function BillingTab() {
   const can = useCan();
   const [period, setPeriod] = useState(dayjs().subtract(1, 'month').format('YYYY-MM'));
   const preview = useQuery({ queryKey: ['utility', 'preview', period], queryFn: () => get<Preview>(`/utility/billing/preview?period=${period}`) });
-  const [result, setResult] = useState<RunResult | null>(null);
-  const run = useAction(() => post<RunResult>('/utility/billing/run', { period }), { success: 'Penagihan selesai', invalidate: ['utility', 'invoices'], onSuccess: (r) => setResult(r as RunResult) });
+  const qc = useQueryClient();
+  // pekerjaan penagihan berjalan di server; kemajuannya dibaca tiap 2 detik dan tetap terlihat walau halaman dimuat ulang
+  const jobs = useQuery({ queryKey: ['utility', 'billing-jobs'], queryFn: () => get<Job[]>('/utility/billing/jobs'), refetchInterval: (q) => ((q.state.data ?? []).some((j) => j.status === 'BERJALAN') ? 2000 : false) });
+  const job = (jobs.data ?? []).find((j) => j.period === period) ?? undefined;
+  const running = (jobs.data ?? []).find((j) => j.status === 'BERJALAN');
+  useEffect(() => {
+    if (!running && jobs.data?.length) { qc.invalidateQueries({ queryKey: ['utility'] }); qc.invalidateQueries({ queryKey: ['invoices'] }); }
+  }, [running?.id, jobs.data?.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const run = useAction(() => post<Job>('/utility/billing/jobs', { period }), { success: 'Penagihan dimulai di server', invalidate: ['utility'], onSuccess: () => jobs.refetch() });
   const p = preview.data;
   return (
     <>
       <Space wrap style={{ marginBottom: 12 }}>
         <span>Periode</span>
-        <DatePicker picker="month" allowClear={false} value={dayjs(period + '-01')} onChange={(d) => { if (d) { setPeriod(d.format('YYYY-MM')); setResult(null); } }} disabledDate={(d) => d.isAfter(dayjs(), 'month')} />
-        {can('POST', '/utility/billing/run') && (
-          <Popconfirm title={`Terbitkan ${p?.totals.count ?? 0} tagihan periode ${period}?`} description="Faktur dibuat otomatis dan tidak bisa diterbitkan dua kali untuk periode yang sama." onConfirm={() => run.mutate(undefined)} disabled={!p?.totals.count}>
-            <Button type="primary" disabled={!p?.totals.count} loading={run.isPending}>Terbitkan tagihan</Button>
+        <DatePicker picker="month" allowClear={false} value={dayjs(period + '-01')} onChange={(d) => { if (d) setPeriod(d.format('YYYY-MM')); }} disabledDate={(d) => d.isAfter(dayjs(), 'month')} />
+        {can('POST', '/utility/billing/jobs') && (
+          <Popconfirm title={`Terbitkan ${p?.totals.count ?? 0} tagihan periode ${period}?`} description="Berjalan di server (bisa beberapa menit untuk ribuan sambungan). Faktur tidak bisa diterbitkan dua kali untuk periode yang sama." onConfirm={() => run.mutate(undefined)} disabled={!p?.totals.count || !!running}>
+            <Button type="primary" disabled={!p?.totals.count || !!running} loading={run.isPending}>Terbitkan tagihan</Button>
           </Popconfirm>
         )}
       </Space>
-      {result && (
-        <Alert style={{ marginBottom: 12 }} type={result.failed.length ? 'warning' : 'success'} showIcon message={`${result.billedCount} tagihan diterbitkan, total ${fmtMoney(result.billedTotal)}`}
-          description={result.failed.length ? <div>Gagal: {result.failed.map((f) => `${f.number} (${f.reason})`).join('; ')}</div> : undefined} />
+      {running && (
+        <Alert style={{ marginBottom: 12 }} type="info" showIcon message={`Menerbitkan tagihan periode ${running.period}…`}
+          description={<><Progress percent={running.total ? Math.round((running.done / running.total) * 100) : 0} status="active" /><div>{running.done.toLocaleString('id-ID')} dari {running.total.toLocaleString('id-ID')} sambungan{running.failed ? ` · ${running.failed} gagal` : ''}. Halaman ini boleh ditutup; penagihan terus berjalan di server.</div></>} />
+      )}
+      {!running && job && (
+        <Alert style={{ marginBottom: 12 }} type={job.status === 'SELESAI' ? (job.failed ? 'warning' : 'success') : 'error'} showIcon
+          message={job.status === 'SELESAI' ? `${(job.done - job.failed).toLocaleString('id-ID')} tagihan diterbitkan, total ${fmtMoney(job.billed_total)}` : job.status === 'TERHENTI' ? 'Penagihan terhenti di tengah jalan' : 'Penagihan gagal'}
+          description={job.status === 'SELESAI' ? (job.failed ? `${job.failed} sambungan gagal ditagih; periksa di daftar Tertahan lalu terbitkan lagi.` : undefined) : `${job.error ?? ''} Terbitkan lagi: sambungan yang sudah ditagih dilewati.`} />
       )}
       {p && (
         <Row gutter={12} style={{ marginBottom: 12 }}>

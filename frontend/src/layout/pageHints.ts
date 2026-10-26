@@ -139,6 +139,8 @@ export const PAGE_HINTS: Record<string, string> = {
   '/utility/produksi': 'Produksi dan distribusi air harian per sumber, dibandingkan dengan air ditagih untuk menghitung air tak berekening (NRW).',
   '/utility/kualitas': 'Hasil uji kualitas air dibandingkan baku mutu (pH, kekeruhan, sisa klor, coliform, TDS).',
   '/laporan/utility-kinerja': 'Efisiensi penagihan, umur piutang per golongan, kinerja rute dan kolektor, penanganan pengaduan, air tak berekening, dan kualitas air.',
+  '/utility/va': 'Pembayaran dari bank lewat nomor virtual account tiap sambungan: tagihan tertua lunas otomatis; kelebihan dan nomor tak dikenal ditahan untuk diputuskan Keuangan.',
+  '/utility/antrean': 'Pesan WhatsApp/SMS otomatis ke pelanggan lewat penyedia pesan perusahaan: antrean, percobaan ulang, dan riwayat pengiriman.',
   '/utility/zona': 'Langkah 9 · Selisih air yang masuk tiap zona dengan pemakaian pelanggan: petunjuk kebocoran atau sambungan liar.',
   '/utility/kontrol': 'Langkah 9 · Temuan kebocoran pendapatan: sambungan tak tercatat, pemakaian nol berulang, dan angka janggal.',
   '/help': 'Panduan penggunaan SANSU, dari langkah pertama sampai laporan.',

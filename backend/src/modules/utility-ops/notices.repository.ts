@@ -14,7 +14,7 @@ export class NoticesRepository {
    * Sambungan yang layak menerima surat: satu baris per sambungan dengan tagihan air yang masih terbuka.
    * `mode` menyaring tagihan: REKENING = tagihan satu periode, PENGINGAT = jatuh tempo dalam 3 hari, TUNGGAKAN = sudah lewat jatuh tempo.
    */
-  candidates(db: DbOrTx, tenantId: string, today: string, mode: 'REKENING' | 'PENGINGAT' | 'TUNGGAKAN', period: string | null) {
+  candidates(db: DbOrTx, tenantId: string, today: string, mode: 'REKENING' | 'PENGINGAT' | 'TUNGGAKAN', period: string | null, limit = 1000) {
     const cond =
       mode === 'REKENING' ? sql`b.period = ${period}`
       : mode === 'PENGINGAT' ? sql`i.due_date >= ${today}::date AND i.due_date <= ${today}::date + 3`
@@ -27,7 +27,7 @@ export class NoticesRepository {
       FROM invoices i JOIN utility_bills b ON b.invoice_id = i.id JOIN utility_connections c ON c.id = b.connection_id JOIN customers cu ON cu.id = c.customer_id
       LEFT JOIN LATERAL (SELECT sent_at, kind FROM utility_notices n WHERE n.connection_id = c.id ORDER BY n.sent_at DESC LIMIT 1) ln ON true
       WHERE i.tenant_id = ${tenantId} AND i.total - i.paid_amount - i.returned_amount > 0.5 AND ${cond}
-      GROUP BY c.id, cu.name, cu.phone, cu.email, ln.sent_at, ln.kind ORDER BY c.number LIMIT 1000`);
+      GROUP BY c.id, cu.name, cu.phone, cu.email, ln.sent_at, ln.kind ORDER BY c.number LIMIT ${limit}`);
   }
   tenantName(db: DbOrTx, tenantId: string) { return firstOf<{ name: string; address: string | null }>(db, sql`SELECT name, address FROM tenants WHERE id = ${tenantId}`); }
   /** Sambungan yang memang milik perusahaan ini (menolak id sembarang pada pencatatan massal) */

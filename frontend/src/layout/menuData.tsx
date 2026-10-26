@@ -95,11 +95,13 @@ export const MENU: Group[] = [
         section: 'Penerimaan & penagihan',
         items: [
           { key: '/utility/loket', label: 'Terima pembayaran (loket)', roles: ['OWNER', 'ADMIN', 'FINANCE', 'CASHIER'] },
+          { key: '/utility/va', label: 'Pembayaran virtual account', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/utility/rekap', label: 'Rekap harian loket', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/utility/lokasi', label: 'Daftar loket', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/invoices', label: 'Faktur & piutang', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/utility/tunggakan', label: 'Tunggakan & pemutusan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/utility/cetak', label: 'Cetak & kirim tagihan/SP', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
+          { key: '/utility/antrean', label: 'Antrean pesan otomatis', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
           { key: '/utility/penagihan', label: 'Penagihan lapangan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE'] },
           { key: '/utility/angsuran', label: 'Angsuran tunggakan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
           { key: '/utility/jaminan', label: 'Deposit / jaminan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },

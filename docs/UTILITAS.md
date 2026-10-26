@@ -83,3 +83,7 @@ Peran: Pelayanan pelanggan (Sales) mengajukan permohonan/mutasi/koreksi/angsuran
 - Faktur diterbitkan bertanggal hari penagihan (bukan akhir periode); koreksi tagihan lewat menu Koreksi tagihan (nota kredit berjurnal).
 - Penagihan berjalan per sambungan; bila server berhenti di tengah proses, sambungan itu ditandai *tertahan* dan tidak ditagih ulang otomatis (perlu diperiksa Admin).
 - Belum diuji di browser/HP dan belum dipakai pelanggan nyata.
+
+## Skala dan pilot
+
+Tagih berlatar, impor massal, virtual account, dan antrean pesan: lihat [UTILITAS-SKALA-DAN-PILOT.md](UTILITAS-SKALA-DAN-PILOT.md) (hasil uji beban, batas yang diketahui, rencana pilot).

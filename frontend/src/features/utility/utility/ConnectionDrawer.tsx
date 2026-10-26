@@ -11,6 +11,7 @@ export function ConnectionDrawer({ id, onClose }: { id: string | null; onClose: 
     queryFn: () => get<Connection & { readings: Reading[]; bills: { id: string; period: string; usage: string | null; total: string; paidAmount: string; invoiceNumber: string | null; status: string | null; dueDate: string | null; lateFee: string }[] }>(`/utility/connections/${id}`),
     enabled: !!id,
   });
+  const va = useQuery({ queryKey: ['utility', 'va', 'conn', id], queryFn: () => get<{ vaNumber: string | null; bankName: string }>(`/utility/va/connection/${id}`), enabled: !!id, retry: false });
   return (
     <Drawer open={!!id} onClose={onClose} width={Math.min(720, window.innerWidth)} title={data ? `Sambungan ${data.number}` : 'Sambungan'}>
       {!data ? null : (
@@ -19,6 +20,7 @@ export function ConnectionDrawer({ id, onClose }: { id: string | null; onClose: 
             <Descriptions.Item label="Pelanggan">{data.customerName}</Descriptions.Item>
             <Descriptions.Item label="Alamat">{data.address}</Descriptions.Item>
             <Descriptions.Item label="Layanan">{data.tariffName}{data.meterNo ? ` · meter ${data.meterNo}` : ''}</Descriptions.Item>
+            {va.data?.vaNumber && <Descriptions.Item label="Nomor virtual account">{va.data.vaNumber}{va.data.bankName ? ` (${va.data.bankName})` : ''}</Descriptions.Item>}
             <Descriptions.Item label="Dipasang">{fmtDate(data.installedAt)}</Descriptions.Item>
             <Descriptions.Item label="Status"><Tag color={STATUS_COLOR[data.status]}>{UTILITY_CONNECTION_LABELS[data.status]}</Tag>{data.statusNote}</Descriptions.Item>
           </Descriptions>
