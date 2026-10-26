@@ -82,6 +82,7 @@ import ShoppingListPage from './features/purchasing/ShoppingListPage';
 import TasksPage from './features/tasks/TasksPage';
 import PriceAgreementsPage from './features/purchasing/PriceAgreementsPage';
 import UtilityPage from './features/utility/UtilityPage';
+import PortalPage from './features/utility/PortalPage';
 import BranchesPage from './features/accounting/BranchesPage';
 import KitchenPage from './features/pos/KitchenPage';
 import OnlineOrdersPage from './features/pos/OnlineOrdersPage';
@@ -140,6 +141,7 @@ export default function App() {
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/approve/:token" element={<ApproveLinkPage />} />
+      <Route path="/portal/air/:token" element={<PortalPage />} />
       <Route
         path="/pos"
         element={

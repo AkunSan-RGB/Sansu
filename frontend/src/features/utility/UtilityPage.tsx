@@ -19,6 +19,19 @@ import { ReadingsTab } from './utility/ReadingsTab';
 import { BillingTab } from './utility/BillingTab';
 import { TariffsTab } from './utility/TariffsTab';
 import { STATUS_COLOR } from './utility/shared';
+import { AdjustmentsTab } from './ops/AdjustmentsTab';
+import { ApplicationsTab } from './ops/ApplicationsTab';
+import { ChangesTab } from './ops/ChangesTab';
+import { CollectionTab } from './ops/CollectionTab';
+import { ComplaintsTab } from './ops/ComplaintsTab';
+import { DepositsTab } from './ops/DepositsTab';
+import { InstallmentsTab } from './ops/InstallmentsTab';
+import { MetersTab } from './ops/MetersTab';
+import { NetworkAssetsTab, WorkOrdersTab } from './ops/NetworkTabs';
+import { NoticesTab } from './ops/NoticesTab';
+import { PortalTab } from './ops/PortalTab';
+import { ProductionTab, QualityTab } from './ops/ProductionTabs';
+import { RoutesTab } from './ops/RoutesTab';
 
 const SEV: Record<string, string> = { high: 'red', medium: 'orange' };
 
@@ -49,6 +62,21 @@ const WATER_TITLES: Record<string, string> = {
   zona: 'Kehilangan air per zona',
   tarif: 'Tarif air & aturan',
   kontrol: 'Kontrol kebocoran pendapatan',
+  permohonan: 'Permohonan sambungan baru',
+  mutasi: 'Balik nama, ganti golongan, tutup sambungan',
+  pengaduan: 'Pengaduan & gangguan',
+  portal: 'Portal pelanggan',
+  rute: 'Rute baca & tagih',
+  koreksi: 'Koreksi tagihan & pemutihan denda',
+  cetak: 'Cetak & kirim tagihan / surat peringatan',
+  penagihan: 'Penagihan lapangan',
+  angsuran: 'Angsuran tunggakan',
+  jaminan: 'Deposit / jaminan sambungan',
+  inventaris: 'Inventaris & tera ulang meter',
+  aset: 'Aset jaringan',
+  'perintah-kerja': 'Perintah kerja',
+  produksi: 'Produksi air & air tak berekening',
+  kualitas: 'Kualitas air',
 };
 
 export default function UtilityPage() {
@@ -70,6 +98,23 @@ export default function UtilityPage() {
     { key: 'meter', label: `Catat meter${summary.data?.awaitingVerification ? ` (${summary.data.awaitingVerification})` : ''}`, children: <ReadingsTab /> },
     ...(can('POST', '/utility/charges/issue') || fin ? [{ key: 'non-air', label: 'Layanan non-air', children: <ChargesTab /> }] : []),
     ...(fin ? [{ key: 'tagihan', label: 'Tagihan bulanan', children: <BillingTab /> }, { key: 'tunggakan', label: `Tunggakan${summary.data?.overdueCount ? ` (${summary.data.overdueCount})` : ''}`, children: <OverdueTab /> }] : []),
+    ...(me?.businessModel === 'UTILITAS' ? [
+      { key: 'permohonan', label: 'Permohonan baru', children: <ApplicationsTab /> },
+      { key: 'mutasi', label: 'Perubahan sambungan', children: <ChangesTab /> },
+      { key: 'pengaduan', label: 'Pengaduan', children: <ComplaintsTab /> },
+      { key: 'portal', label: 'Portal pelanggan', children: <PortalTab /> },
+      { key: 'rute', label: 'Rute', children: <RoutesTab /> },
+      { key: 'koreksi', label: 'Koreksi tagihan', children: <AdjustmentsTab /> },
+      { key: 'cetak', label: 'Cetak & kirim', children: <NoticesTab /> },
+      { key: 'penagihan', label: 'Penagihan lapangan', children: <CollectionTab /> },
+      { key: 'angsuran', label: 'Angsuran', children: <InstallmentsTab /> },
+      { key: 'jaminan', label: 'Jaminan', children: <DepositsTab /> },
+      { key: 'inventaris', label: 'Inventaris meter', children: <MetersTab /> },
+      { key: 'aset', label: 'Aset jaringan', children: <NetworkAssetsTab /> },
+      { key: 'perintah-kerja', label: 'Perintah kerja', children: <WorkOrdersTab /> },
+      { key: 'produksi', label: 'Produksi air', children: <ProductionTab /> },
+      { key: 'kualitas', label: 'Kualitas air', children: <QualityTab /> },
+    ] : []),
     { key: 'tarif', label: 'Tarif & aturan', children: <TariffsTab /> },
     ...(fin ? [{ key: 'kontrol', label: 'Kontrol', children: <ControlsTab /> }] : []),
   ];

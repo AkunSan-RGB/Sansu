@@ -115,7 +115,7 @@ describe('Layanan air: penagihan, surat, portal, produksi (e2e)', () => {
     expect(view.outstanding).toBeGreaterThan(0);
     expect(view.usage).toHaveLength(1);
     expect(JSON.stringify(view)).not.toContain('Warga 2');
-    expect((await http.get('/api/portal/utility/tidak-ada-token-sama-sekali').expect(401)).status).toBe(401);
+    expect((await http.get('/api/portal/utility/tidak-ada-token-sama-sekali').expect(404)).status).toBe(404);
     for (let i = 0; i < 3; i++) await http.post(`/api/portal/utility/${link.token}/complaints`).send({ category: 'PIPA_BOCOR', description: `Pipa bocor depan rumah ${i}` }).expect(201);
     expect((await http.post(`/api/portal/utility/${link.token}/complaints`).send({ category: 'PIPA_BOCOR', description: 'Bocor lagi di sini' })).status).toBe(400);
     const tickets = (await get('/api/utility/complaints', sales).expect(200)).body as { channel: string; priority: string }[];
@@ -123,9 +123,9 @@ describe('Layanan air: penagihan, surat, portal, produksi (e2e)', () => {
     expect(tickets[0].priority).toBe('TINGGI');
     const newLink = (await post(`/api/utility/portal/${conns[0]}`, {}, sales).expect(201)).body; // putar ulang token
     expect(newLink.token).not.toBe(link.token);
-    await http.get(`/api/portal/utility/${link.token}`).expect(401);
+    await http.get(`/api/portal/utility/${link.token}`).expect(404);
     await post(`/api/utility/portal/${conns[0]}/revoke`, {}, sales).expect(201);
-    await http.get(`/api/portal/utility/${newLink.token}`).expect(401);
+    await http.get(`/api/portal/utility/${newLink.token}`).expect(404);
   });
 
   it('produksi & NRW: validasi, upsert harian, neraca air bulanan; kualitas air terhadap baku mutu', async () => {

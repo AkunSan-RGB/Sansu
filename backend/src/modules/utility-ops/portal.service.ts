@@ -1,4 +1,4 @@
-import { BadRequestException, CanActivate, ExecutionContext, HttpException, HttpStatus, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, CanActivate, ExecutionContext, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { COMPLAINT_CATEGORY_LABELS, complaintDueAt } from '@sansu/shared';
 import { randomBytes } from 'node:crypto';
 import { AppsService } from '../../common/apps/apps.service';
@@ -22,9 +22,9 @@ export class UtilityPortalGuard implements CanActivate {
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const req = ctx.switchToHttp().getRequest<{ params: { token?: string }; portal?: PortalScope }>();
     const token = req.params.token ?? '';
-    if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) throw new UnauthorizedException('Tautan tidak valid');
+    if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) throw new NotFoundException('Tautan tidak valid');
     const t = await this.repo.byToken(this.db, token);
-    if (!t) throw new UnauthorizedException('Tautan tidak valid atau sudah dicabut');
+    if (!t) throw new NotFoundException('Tautan tidak valid atau sudah dicabut');
     if (!(await this.apps.isEnabled(t.tenant_id, ['utility']))) throw new HttpException('Layanan belum aktif', HttpStatus.FORBIDDEN);
     req.portal = { tenantId: t.tenant_id, connectionId: t.connection_id, tokenId: t.id };
     return true;

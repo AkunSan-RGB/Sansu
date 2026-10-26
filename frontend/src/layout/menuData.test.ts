@@ -44,7 +44,7 @@ describe('menu: susunan bertahap per jenis usaha', () => {
     expect(reportKeys('MANUFAKTUR')).toEqual(['/laporan/cash', '/laporan/hr', '/laporan/inventory', '/laporan/mfg', '/laporan/purchases', '/laporan/sales']);
     expect(reportKeys('FMCG')).toEqual(['/laporan/cash', '/laporan/fmcg', '/laporan/hr', '/laporan/inventory', '/laporan/purchases', '/laporan/sales']);
     expect(reportKeys('DAGANG')).toEqual(['/laporan/cash', '/laporan/hr', '/laporan/inventory', '/laporan/purchases', '/laporan/sales']);
-    expect(reportKeys('UTILITAS')).toEqual(['/laporan/cash', '/laporan/hr', '/laporan/inventory', '/laporan/purchases', '/laporan/utility', '/laporan/utility-nonair']);
+    expect(reportKeys('UTILITAS')).toEqual(['/laporan/cash', '/laporan/hr', '/laporan/inventory', '/laporan/purchases', '/laporan/utility', '/laporan/utility-kinerja', '/laporan/utility-nonair']);
   });
 
   it('di dalam tiap bagian, judul kecil berurutan Persiapan → Proses → Laporan & kontrol', () => {
@@ -145,8 +145,8 @@ describe('menu: Layanan air khusus Utilitas', () => {
     const water = MENU.find((g) => g.key === 'water')!;
     const visible = (role: string) => flat(water).filter((i) => !i.roles || i.roles.includes(role)).map((i) => i.key);
     expect(visible('CASHIER')).toEqual(['/utility/loket']);
-    expect(visible('WAREHOUSE')).toEqual(['/utility/ringkasan', '/utility/sambungan', '/utility/meter', '/utility/lapangan', '/utility/impor']);
-    expect(visible('SALES')).toEqual(['/utility/ringkasan', '/customers', '/utility/sambungan', '/utility/non-air']);
+    expect(visible('WAREHOUSE')).toEqual(['/utility/ringkasan', '/utility/permohonan', '/utility/sambungan', '/utility/pengaduan', '/utility/rute', '/utility/meter', '/utility/lapangan', '/utility/impor', '/utility/penagihan', '/utility/inventaris', '/utility/aset', '/utility/perintah-kerja', '/utility/produksi', '/utility/kualitas']);
+    expect(visible('SALES')).toEqual(['/utility/ringkasan', '/customers', '/utility/permohonan', '/utility/sambungan', '/utility/mutasi', '/utility/pengaduan', '/utility/portal', '/utility/rute', '/utility/non-air', '/utility/koreksi', '/utility/cetak', '/utility/angsuran', '/utility/jaminan', '/utility/aset', '/utility/perintah-kerja']);
     expect(visible('FINANCE')).toEqual(expect.arrayContaining(['/utility/rekap', '/utility/tagihan', '/utility/lokasi', '/laporan/utility-nonair']));
     expect(visible('ACCOUNTANT')).not.toContain('/utility/loket');
   });
