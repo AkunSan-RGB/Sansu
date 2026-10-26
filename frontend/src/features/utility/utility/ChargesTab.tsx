@@ -7,7 +7,7 @@ import { get, post, put } from '@/api/client';
 import { useAction, useCustomers } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
-import { fmtMoney } from '@/lib/format';
+import { fmtDate, fmtMoney } from '@/lib/format';
 import { Connection } from './shared';
 
 interface Charge { id: string; name: string; defaultPrice: string; revenueKey: string; revenueLabel: string; vatable: boolean; isActive: boolean }
@@ -18,6 +18,7 @@ export function ChargesTab() {
   const can = useCan();
   const navigate = useNavigate();
   const charges = useQuery({ queryKey: ['utility', 'charges'], queryFn: () => get<Charge[]>('/utility/charges') });
+  const recent = useQuery({ queryKey: ['utility', 'charges', 'recent'], queryFn: () => get<{ id: string; number: string; date: string; customer: string; service: string; total: string; paid: string; open: string; status: string }[]>('/utility/charges/recent') });
   const customers = useCustomers();
   const conns = useQuery({ queryKey: ['utility', 'connections'], queryFn: () => get<Connection[]>('/utility/connections') });
   const [editing, setEditing] = useState<Charge | 'new' | null>(null);
@@ -56,6 +57,19 @@ export function ChargesTab() {
           },
         ]}
       />
+      <Typography.Title level={5} style={{ marginTop: 24 }}>Tagihan layanan non-air terbaru</Typography.Title>
+      <ResponsiveTable<{ id: string; number: string; date: string; customer: string; service: string; total: string; paid: string; open: string; status: string }>
+        rowKey="id" size="small" loading={recent.isLoading} dataSource={recent.data} pagination={{ pageSize: 10, hideOnSinglePage: true }} locale={{ emptyText: 'Belum ada tagihan layanan non-air' }}
+        columns={[
+          { title: 'Tanggal', render: (_: unknown, r) => fmtDate(r.date) },
+          { title: 'Tagihan', dataIndex: 'number' },
+          { title: 'Pelanggan', dataIndex: 'customer' },
+          { title: 'Layanan', dataIndex: 'service', ellipsis: true },
+          { title: 'Total', align: 'right' as const, render: (_: unknown, r) => fmtMoney(r.total) },
+          { title: 'Sisa', align: 'right' as const, render: (_: unknown, r) => fmtMoney(r.open) },
+          { title: 'Status', render: (_: unknown, r) => (Number(r.open) <= 0.5 ? <Tag color="green">Lunas</Tag> : Number(r.paid) > 0 ? <Tag color="gold">Sebagian</Tag> : <Tag color="orange">Belum dibayar</Tag>) },
+          { render: (_: unknown, r) => Number(r.open) > 0.5 && <Button size="small" onClick={() => navigate('/utility/loket')}>Terima di loket</Button> },
+        ]} />
       <Modal title={editing === 'new' ? 'Tambah layanan non-air' : 'Ubah layanan'} open={!!editing} onCancel={() => setEditing(null)} onOk={() => cf.submit()} confirmLoading={save.isPending} okText="Simpan" destroyOnHidden>
         <Form form={cf} layout="vertical" onFinish={(v) => save.mutate(v)}>
           <Form.Item name="name" label="Nama layanan" rules={[{ required: true, min: 3 }]}><Input maxLength={120} placeholder="mis. Sambung kembali setelah pemutusan" /></Form.Item>

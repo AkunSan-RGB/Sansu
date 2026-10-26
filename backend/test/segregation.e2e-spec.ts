@@ -146,7 +146,7 @@ describe('Pemisahan fungsi (e2e)', () => {
     it('Kasir dan SDM tidak menulis di luar bidangnya', () => {
       const misc = [/^\/api\/auth\//, /^\/api\/reminders\//, /^\/api\/approvals\/:id\/(cancel|assign)$/];
       const writes = (role: Role) => matrix.filter((r) => r.method !== 'GET' && !r.public && allowed(r).has(role) && !misc.some((m) => m.test(r.path)) && !/^\/api\/(platform|billing|platform-admin)/.test(r.path));
-      expect(writes('CASHIER').filter((r) => !r.path.startsWith('/api/pos') && !r.path.startsWith('/api/workflow/cases')).map((r) => `${r.method} ${r.path}`)).toEqual([]);
+      expect(writes('CASHIER').filter((r) => !r.path.startsWith('/api/pos') && !r.path.startsWith('/api/workflow/cases') && !/^\/api\/utility\/counter\/(pay|remit)$/.test(r.path)).map((r) => `${r.method} ${r.path}`)).toEqual([]);
       expect(writes('HR').filter((r) => !/^\/api\/(hr|shifts|payroll|settings\/payroll)/.test(r.path)).map((r) => `${r.method} ${r.path}`)).toEqual([]);
     });
 

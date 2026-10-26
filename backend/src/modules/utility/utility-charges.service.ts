@@ -38,6 +38,10 @@ export class UtilityChargesService {
     return rows.map((r) => ({ ...r, revenueLabel: REVENUE_KEY_LABELS[r.revenueKey] ?? r.revenueKey }));
   }
 
+  async recent(tenantId: string) {
+    return (await this.repo.recentInvoices(this.db, tenantId)).rows;
+  }
+
   async save(u: AuthUser, dto: ChargeDto, id?: string) {
     const price = money(dto.defaultPrice);
     if (price.isNegative()) throw new BadRequestException('Harga tidak boleh negatif');
@@ -54,7 +58,7 @@ export class UtilityChargesService {
   }
 
   /** Terbitkan tagihan layanan non-air untuk satu pelanggan: faktur biasa dengan baris di akun pendapatan non-air layanan itu */
-  async issue(u: AuthUser, dto: IssueChargeDto) {
+  async issue(u: AuthUser, dto: IssueChargeDto, asOf?: string) {
     const [charge] = await this.repo.byId(this.db, u.tenantId, dto.chargeId);
     if (!charge || !charge.isActive) throw new BadRequestException('Layanan tidak ditemukan atau nonaktif');
     const qty = D(dto.qty ?? 1);
@@ -64,7 +68,7 @@ export class UtilityChargesService {
     const [acct] = await this.repo.accountByKey(this.db, u.tenantId, charge.revenueKey);
     if (!acct) throw new BadRequestException('Akun pendapatan layanan ini belum tersedia');
     const rules = await this.util.rules(u.tenantId);
-    const today = todayJakarta();
+    const today = asOf ?? todayJakarta();
     const conn = dto.connectionId ? await this.util.connection(u.tenantId, dto.connectionId) : null;
     const invoice = await this.billing.createInvoice(u, {
       customerId: dto.customerId,

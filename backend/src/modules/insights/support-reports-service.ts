@@ -406,12 +406,12 @@ export class ServiceSupportReports {
     const airRows = revGroup(AIR_REVENUE_KEYS);
     const nonAirRows = revGroup(NON_AIR_REVENUE_KEYS);
     const counterRows = await this.queries.rows<{ day: string; counter: string; n: number; total: string; status: string | null }>(sql`
-      SELECT r.received_at::date::text AS day, COALESCE(c.name, 'Tanpa loket (data lama)') AS counter, COUNT(*)::int AS n, SUM(r.amount)::text AS total,
+      SELECT (r.received_at AT TIME ZONE 'Asia/Jakarta')::date::text AS day, COALESCE(c.name, 'Tanpa loket (data lama)') AS counter, COUNT(*)::int AS n, SUM(r.amount)::text AS total,
         MAX(cl.status) AS status
       FROM utility_counter_receipts r
       LEFT JOIN utility_counters c ON c.id = r.counter_id
-      LEFT JOIN utility_counter_closings cl ON cl.counter_id = r.counter_id AND cl.date = r.received_at::date
-      WHERE r.tenant_id = ${tenantId} AND r.received_at::date BETWEEN ${from} AND ${to}
+      LEFT JOIN utility_counter_closings cl ON cl.counter_id = r.counter_id AND cl.date = (r.received_at AT TIME ZONE 'Asia/Jakarta')::date
+      WHERE r.tenant_id = ${tenantId} AND (r.received_at AT TIME ZONE 'Asia/Jakarta')::date BETWEEN ${from} AND ${to}
       GROUP BY 1, 2 ORDER BY 1, 2 LIMIT ${CAP}`);
     const counterTable: Cell[][] = counterRows.map((r) => [
       r.day,

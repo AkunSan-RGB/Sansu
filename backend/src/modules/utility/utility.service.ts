@@ -393,7 +393,8 @@ export class UtilityService {
     return a.id;
   }
 
-  async run(u: AuthUser, dto: BillRunDto) {
+  /** `asOf`: hanya untuk data contoh (faktur bertanggal mundur); permintaan biasa memakai hari ini */
+  async run(u: AuthUser, dto: BillRunDto, asOf?: string) {
     const rules = await this.rules(u.tenantId);
     const plan = await this.plan(u.tenantId, dto.period);
     const acct = {
@@ -402,7 +403,7 @@ export class UtilityService {
       ADMIN: await this.key(u.tenantId, SYS.UTILITY_ADMIN_REVENUE),
       LATE_FEE: await this.key(u.tenantId, SYS.UTILITY_LATE_FEE_REVENUE),
     } as const;
-    const today = todayJakarta();
+    const today = asOf ?? todayJakarta();
     const billed: { number: string; invoice: string; total: number }[] = [];
     const failed: { number: string; reason: string }[] = [];
     for (const item of plan.ready) {
@@ -521,8 +522,8 @@ export class UtilityService {
       rev(AIR_REVENUE_KEYS),
       rev(NON_AIR_REVENUE_KEYS),
       one(sql`SELECT COUNT(*)::int AS n FROM utility_counters WHERE tenant_id = ${tenantId} AND is_active`),
-      one(sql`SELECT COALESCE(SUM(amount), 0)::numeric(18,2) AS n FROM utility_counter_receipts WHERE tenant_id = ${tenantId} AND received_at::date = ${today}`),
-      one(sql`SELECT COUNT(*)::int AS n FROM (SELECT DISTINCT r.counter_id, r.received_at::date AS d FROM utility_counter_receipts r WHERE r.tenant_id = ${tenantId} AND r.counter_id IS NOT NULL AND r.received_at::date < ${today}) x
+      one(sql`SELECT COALESCE(SUM(amount), 0)::numeric(18,2) AS n FROM utility_counter_receipts WHERE tenant_id = ${tenantId} AND (received_at AT TIME ZONE 'Asia/Jakarta')::date = ${today}`),
+      one(sql`SELECT COUNT(*)::int AS n FROM (SELECT DISTINCT r.counter_id, (r.received_at AT TIME ZONE 'Asia/Jakarta')::date AS d FROM utility_counter_receipts r WHERE r.tenant_id = ${tenantId} AND r.counter_id IS NOT NULL AND (r.received_at AT TIME ZONE 'Asia/Jakarta')::date < ${today}) x
         WHERE NOT EXISTS (SELECT 1 FROM utility_counter_closings cl WHERE cl.tenant_id = ${tenantId} AND cl.counter_id = x.counter_id AND cl.date = x.d)`),
     ]);
     return { revenueAir, revenueNonAir, counters, receiptsToday, unconfirmedDays, period, active, suspended, awaitingVerification: awaiting, readyToBill: ready, missingReadings: missing, overdueCount: od.length, overdueTotal: od.reduce((s, x) => s + num(x.outstanding), 0), suggestSuspend: od.filter((x) => x.suggestSuspend).length };

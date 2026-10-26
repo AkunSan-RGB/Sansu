@@ -27,10 +27,11 @@ export class UtilityFieldController {
   @Roles('ADMIN') @Post('ingest-keys') createKey(@CurrentUser() u: AuthUser, @Body() dto: IngestKeyDto) { return this.svc.createKey(u, dto); }
   @Roles('ADMIN') @Post('ingest-keys/:id/revoke') revokeKey(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) { return this.svc.revokeKey(u, id); }
 
-  @Roles('ADMIN', 'FINANCE') @Get('counter/search') search(@CurrentUser() u: AuthUser, @Query('q') q: string) { return this.svc.counterSearch(u.tenantId, q ?? ''); }
-  @Roles('ADMIN', 'FINANCE') @Post('counter/pay') pay(@CurrentUser() u: AuthUser, @Body() dto: CounterPayDto) { return this.svc.counterPay(u, dto); }
-  @Roles('ADMIN', 'FINANCE') @Get('counter/open') open(@CurrentUser() u: AuthUser) { return this.svc.openReceipts(u); }
-  @Roles('ADMIN', 'FINANCE') @Post('counter/remit') remit(@CurrentUser() u: AuthUser, @Body() dto: RemitDto) { return this.svc.remit(u, dto); }
+  @Roles('ADMIN', 'FINANCE', 'CASHIER') @Get('counter/search') search(@CurrentUser() u: AuthUser, @Query('q') q: string) { return this.svc.counterSearch(u.tenantId, q ?? ''); }
+  @Roles('ADMIN', 'FINANCE', 'CASHIER') @Post('counter/pay') pay(@CurrentUser() u: AuthUser, @Body() dto: CounterPayDto) { return this.svc.counterPay(u, dto); }
+  @Roles('ADMIN', 'FINANCE', 'CASHIER') @Get('counter/recent') recent(@CurrentUser() u: AuthUser) { return this.svc.recentReceipts(u); }
+  @Roles('ADMIN', 'FINANCE', 'CASHIER') @Get('counter/open') open(@CurrentUser() u: AuthUser) { return this.svc.openReceipts(u); }
+  @Roles('ADMIN', 'FINANCE', 'CASHIER') @Post('counter/remit') remit(@CurrentUser() u: AuthUser, @Body() dto: RemitDto) { return this.svc.remit(u, dto); }
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT') @Get('counter/remittances') remittances(@CurrentUser() u: AuthUser) { return this.svc.remittances(u.tenantId); }
   @Roles('ADMIN', 'FINANCE') @Post('counter/remittances/:id/decide') decide(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: DecideDto) { return this.svc.decide(u, id, dto); }
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT') @Get('counter/controls') controls(@CurrentUser() u: AuthUser) { return this.svc.counterControls(u.tenantId); }

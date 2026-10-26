@@ -1,5 +1,5 @@
 import { PlusOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import { APPS, canUseApp, type CustomRole, ROLE_LABELS, type Role, ROLES, toOptions } from '@sansu/shared';
+import { APPS, canUseApp, type CustomRole, ROLE_LABELS, roleLabelFor, type Role, ROLES, toOptions } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, App, Button, Form, Input, Modal, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd';
 import { useState } from 'react';
@@ -145,7 +145,7 @@ export default function UsersPage() {
             dataIndex: 'role',
             render: (r: Role, u: UserRow) => (
               <>
-                <Tag color={r === 'OWNER' ? 'gold' : 'volcano'}>{ROLE_LABELS[r]}</Tag>
+                <Tag color={r === 'OWNER' ? 'gold' : 'volcano'}>{roleLabelFor(r, me?.businessModel)}</Tag>
                 {u.customRoleName && <Tag color="purple">{u.customRoleName}</Tag>}
               </>
             ),
@@ -224,7 +224,7 @@ export default function UsersPage() {
             <Input.Password autoComplete="new-password" />
           </Form.Item>
           <Form.Item name="role" label="Peran" rules={[{ required: true }]} extra={role && ROLE_HELP[role]}>
-            <Select options={toOptions(ROLE_LABELS).filter((o) => roles.includes(o.value))} />
+            <Select options={toOptions(ROLE_LABELS).filter((o) => roles.includes(o.value)).map((o) => ({ ...o, label: roleLabelFor(o.value as Role, me?.businessModel) }))} />
           </Form.Item>
           {me?.role === 'OWNER' && role && role !== 'OWNER' && (customRoles.data ?? []).some((c) => c.baseRole === role) && (
             <Form.Item name="customRoleId" label="Peran khusus (opsional)" extra="Membatasi hak peran ini. Kosong = peran bawaan penuh.">
