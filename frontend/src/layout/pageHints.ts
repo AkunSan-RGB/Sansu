@@ -78,7 +78,6 @@ export const PAGE_HINTS: Record<string, string> = {
   '/opening-balance': 'Saldo awal akun saat mulai memakai SANSU.',
   '/journals': 'Jurnal umum: semua pencatatan debit dan kredit, otomatis maupun manual.',
   '/adjustments': 'Jurnal penyesuaian akhir periode, seperti beban dibayar dimuka.',
-  '/account-schedules': 'Rincian, perhitungan, dan metode setiap akun di laporan keuangan, dicocokkan dengan saldo akhirnya. Aset tetap dikelola di tab sebelahnya.',
   '/fx': 'Kurs mata uang asing dan selisih kurs.',
   '/ledger': 'Buku besar: rincian pergerakan setiap akun.',
   '/trial-balance': 'Neraca saldo: total debit dan kredit tiap akun harus seimbang.',

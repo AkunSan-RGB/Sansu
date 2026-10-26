@@ -60,7 +60,6 @@ import TaxRecapPage from './features/accounting/TaxRecapPage';
 import { BpjsReport } from './features/accounting/tax-recap/BpjsReport';
 import PageHeader from './layout/PageHeader';
 import IntegrationsPage from './features/accounting/IntegrationsPage';
-import AccountSchedulesPage from './features/accounting/schedules/AccountSchedulesPage';
 import FixedAssetsRedirect from './features/accounting/schedules/FixedAssetsRedirect';
 import HealthPage from './features/accounting/HealthPage';
 import FxPage from './features/accounting/FxPage';
@@ -272,7 +271,7 @@ export default function App() {
           <Route path="worksheet" element={<WorksheetPage />} />
           <Route path="vat" element={<VatPage />} />
           <Route path="health" element={<HealthPage />} />
-          <Route path="account-schedules" element={<AccountSchedulesPage />} />
+          <Route path="account-schedules" element={<FixedAssetsRedirect kind="rincian" />} />
           <Route path="fixed-assets" element={<FixedAssetsRedirect />} />
           <Route path="fiscal" element={<FiscalPage />} />
           <Route path="bank" element={<BankPage />} />

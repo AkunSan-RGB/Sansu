@@ -10,6 +10,8 @@ export interface ScheduleColumn {
 export interface ScheduleRow {
   cells: Record<string, string | number | null>;
   link?: string;
+  /** Baris tanpa isi (mis. bulan tanpa mutasi): disembunyikan secara bawaan */
+  muted?: boolean;
 }
 export interface ScheduleTable {
   key: string;

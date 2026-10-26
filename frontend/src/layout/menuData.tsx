@@ -332,7 +332,6 @@ export const MENU: Group[] = [
           { key: '/worksheet', label: 'Neraca lajur' },
           { key: '/reports', label: 'Laporan keuangan' },
           { key: '/support-reports', label: 'Laporan pendukung' },
-          { key: '/account-schedules', label: 'Rincian & perhitungan akun', roles: REPORT_ROLES },
           { key: '/accounting-controls', label: 'Kontrol pembukuan & pajak', roles: REPORT_ROLES },
         ],
       },
