@@ -1,10 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { DbOrTx } from '../../../db/db';
-import { InjectDb } from '../../../db/db.module';
-import { AccountSchedulesRepository } from '../account-schedules.repository';
-import type { ScheduleContext, ScheduleTable } from '../account-schedule.types';
-import type { MovementLabels } from '../account-schedule.support';
-import { sourceTables } from './source-breakdown';
 import type { AccountMeta } from '../../accounting/ledger-data';
 import { MovementSchedule, sideLabels, type MovementProfile } from './movement.schedule';
 
@@ -13,17 +7,6 @@ const TAX_KEYS = ['VAT_IN', 'VAT_OUT', 'PPH21_PAYABLE', 'PPH23_PAYABLE', 'PPH4_2
 @Injectable()
 export class CashSchedule extends MovementSchedule {
   readonly kind = 'CASH';
-
-  constructor(
-    @InjectDb() private readonly db: DbOrTx,
-    private readonly repo: AccountSchedulesRepository,
-  ) {
-    super();
-  }
-
-  protected extraTables(cx: ScheduleContext, labels: MovementLabels): Promise<ScheduleTable[]> {
-    return sourceTables(this.db, this.repo, cx, labels);
-  }
   supports(a: AccountMeta) {
     return a.isCashAccount;
   }
@@ -43,17 +26,6 @@ export class CashSchedule extends MovementSchedule {
 @Injectable()
 export class TaxSchedule extends MovementSchedule {
   readonly kind = 'TAX';
-
-  constructor(
-    @InjectDb() private readonly db: DbOrTx,
-    private readonly repo: AccountSchedulesRepository,
-  ) {
-    super();
-  }
-
-  protected extraTables(cx: ScheduleContext, labels: MovementLabels): Promise<ScheduleTable[]> {
-    return sourceTables(this.db, this.repo, cx, labels);
-  }
   supports(a: AccountMeta) {
     return !!a.systemKey && TAX_KEYS.includes(a.systemKey);
   }
@@ -73,17 +45,6 @@ export class TaxSchedule extends MovementSchedule {
 @Injectable()
 export class RevenueSchedule extends MovementSchedule {
   readonly kind = 'REVENUE';
-
-  constructor(
-    @InjectDb() private readonly db: DbOrTx,
-    private readonly repo: AccountSchedulesRepository,
-  ) {
-    super();
-  }
-
-  protected extraTables(cx: ScheduleContext, labels: MovementLabels): Promise<ScheduleTable[]> {
-    return sourceTables(this.db, this.repo, cx, labels);
-  }
   supports(a: AccountMeta) {
     return a.type === 'REVENUE';
   }
@@ -103,17 +64,6 @@ export class RevenueSchedule extends MovementSchedule {
 @Injectable()
 export class CostOfSalesSchedule extends MovementSchedule {
   readonly kind = 'COST_OF_SALES';
-
-  constructor(
-    @InjectDb() private readonly db: DbOrTx,
-    private readonly repo: AccountSchedulesRepository,
-  ) {
-    super();
-  }
-
-  protected extraTables(cx: ScheduleContext, labels: MovementLabels): Promise<ScheduleTable[]> {
-    return sourceTables(this.db, this.repo, cx, labels);
-  }
   supports(a: AccountMeta) {
     return a.type === 'EXPENSE' && a.reportGroup === 'COST_OF_SALES';
   }
@@ -132,17 +82,6 @@ export class CostOfSalesSchedule extends MovementSchedule {
 @Injectable()
 export class ExpenseSchedule extends MovementSchedule {
   readonly kind = 'EXPENSE';
-
-  constructor(
-    @InjectDb() private readonly db: DbOrTx,
-    private readonly repo: AccountSchedulesRepository,
-  ) {
-    super();
-  }
-
-  protected extraTables(cx: ScheduleContext, labels: MovementLabels): Promise<ScheduleTable[]> {
-    return sourceTables(this.db, this.repo, cx, labels);
-  }
   supports(a: AccountMeta) {
     return a.type === 'EXPENSE';
   }

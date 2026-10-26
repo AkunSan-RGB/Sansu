@@ -5,7 +5,8 @@ import { InjectDb } from '../../../db/db.module';
 import type { AccountMeta } from '../../accounting/ledger-data';
 import { AccountSchedulesRepository, AP_SPEC, AR_SPEC, type PartySpec } from '../account-schedules.repository';
 import { col, money, movementTable, openingOf } from '../account-schedule.support';
-import type { AccountSchedule, ScheduleBody, ScheduleContext, ScheduleMethod, ScheduleRow } from '../account-schedule.types';
+import { agingDate } from './aging';
+import type { AccountSchedule, ScheduleBody, ScheduleContext, ScheduleMethod, ScheduleRow, ScheduleTable } from '../account-schedule.types';
 
 interface PartyLabels {
   title: string;
@@ -15,6 +16,10 @@ interface PartyLabels {
   method: ScheduleMethod;
   systemKey: string;
 }
+
+/** Umur per faktur terbuka dan rekap umur per pihak; jatuh tempo dihitung terhadap akhir tahun laporan (atau hari ini bila tahun berjalan) */
+const BUCKETS = ['Belum jatuh tempo', '1–30 hari', '31–60 hari', '61–90 hari', 'Lebih dari 90 hari'];
+const bucketOf = (days: number) => (days <= 0 ? 0 : days <= 30 ? 1 : days <= 60 ? 2 : days <= 90 ? 3 : 4);
 
 /**
  * Jadwal piutang/utang usaha per pihak lawan: saldo awal, penambahan (faktur), pengurangan (pembayaran, retur), saldo akhir.
@@ -26,12 +31,52 @@ abstract class PartySchedule implements AccountSchedule {
   protected abstract labels: PartyLabels;
 
   constructor(
-    @InjectDb() private readonly db: DbOrTx,
-    private readonly repo: AccountSchedulesRepository,
+    @InjectDb() protected readonly db: DbOrTx,
+    protected readonly repo: AccountSchedulesRepository,
   ) {}
 
   supports(a: AccountMeta) {
     return a.systemKey === this.labels.systemKey;
+  }
+
+
+  /** Umur faktur terbuka: rekap per pihak dan daftar per faktur; temuan bila jumlahnya berbeda dari buku besar */
+  protected async agingTables(cx: ScheduleContext, glClosing: Dec, findings: string[]): Promise<ScheduleTable[]> {
+  const asOf = agingDate(cx.to);
+  const open = (await this.repo.openDocuments(this.db, cx.tenantId, this.spec, cx.to)).rows.filter((r) => D(r.outstanding).abs().gte(0.005));
+  if (!open.length) return [];
+  const days = (due: string) => Math.round((Date.parse(`${asOf}T00:00:00Z`) - Date.parse(`${due}T00:00:00Z`)) / 86_400_000);
+  const byParty = new Map<string, Dec[]>();
+  const docRows: ScheduleRow[] = open.map((r) => {
+    const d = days(r.due_date);
+    const out = D(r.outstanding);
+    const k = `${r.party_code} ${r.party}`;
+    const b = byParty.get(k) ?? BUCKETS.map(() => ZERO);
+    b[bucketOf(d)] = b[bucketOf(d)].plus(out);
+    byParty.set(k, b);
+    return { cells: { number: r.number, party: `${r.party_code} ${r.party}`, date: r.date, due: r.due_date, total: money(D(r.total)), outstanding: money(out), late: Math.max(d, 0), bucket: BUCKETS[bucketOf(d)] } };
+  });
+  const sum = open.reduce((s, r) => s.plus(r.outstanding), ZERO);
+  const totals = BUCKETS.map((_, i) => [...byParty.values()].reduce((s, b) => s.plus(b[i]), ZERO));
+  if (sum.minus(glClosing).abs().gte(0.5)) findings.push(`Sisa faktur terbuka (${money(sum)}) berbeda dari saldo buku besar (${money(glClosing)}); selisih berasal dari uang muka, PPh dipotong, atau jurnal manual.`);
+  return [
+    {
+      key: 'aging-by-party',
+      title: `Umur ${this.labels.title.toLowerCase()} per ${this.labels.party.toLowerCase()}`,
+      note: `Per ${asOf}, menurut tanggal jatuh tempo faktur yang belum lunas.`,
+      columns: [col('party', this.labels.party, 'text'), ...BUCKETS.map((b, i) => col(`b${i}`, b)), col('total', 'Jumlah')],
+      rows: [...byParty.entries()].map(([name, b]) => ({ cells: { party: name, ...Object.fromEntries(b.map((v, i) => [`b${i}`, money(v)])), total: money(b.reduce((s, v) => s.plus(v), ZERO)) } })),
+      total: { party: 'Jumlah', ...Object.fromEntries(totals.map((v, i) => [`b${i}`, money(v)])), total: money(sum) },
+    },
+    {
+      key: 'open-documents',
+      title: `Daftar faktur belum lunas`,
+      note: 'Sisa = total faktur − pembayaran − retur sampai akhir periode.',
+      columns: [col('number', 'No. faktur', 'text'), col('party', this.labels.party, 'text'), col('date', 'Tanggal', 'date'), col('due', 'Jatuh tempo', 'date'), col('total', 'Total faktur'), col('outstanding', 'Sisa'), col('late', 'Terlambat (hari)', 'qty'), col('bucket', 'Umur', 'text')],
+      rows: docRows,
+      total: { number: 'Jumlah sisa', outstanding: money(sum) },
+    },
+  ];
   }
 
   async build(cx: ScheduleContext): Promise<ScheduleBody> {
@@ -65,7 +110,8 @@ abstract class PartySchedule implements AccountSchedule {
     if (other.abs().gte(0.005)) {
       findings.push(`Saldo akhir menurut dokumen (${money(tClose)}) berbeda dari buku besar (${money(gl.closing)}): ${money(other)} berasal dari penyesuaian di luar faktur/pembayaran/retur. Tinjau jurnal manual dan PPh/uang muka.`);
     }
-    return { title: L.title, method: L.method, tables: [detail, gl.table], closing: gl.closing, findings };
+    const aging = await this.agingTables(cx, gl.closing, findings);
+    return { title: L.title, method: L.method, tables: [detail, ...aging, gl.table], closing: gl.closing, findings };
   }
 }
 

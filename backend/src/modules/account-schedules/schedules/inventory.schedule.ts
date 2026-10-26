@@ -45,6 +45,15 @@ export class InventorySchedule implements AccountSchedule {
     if (other.abs().gte(0.5)) {
       findings.push(`Nilai kartu stok (${money(t.v1)}) berbeda dari saldo akun persediaan di buku besar (${money(peerClosing)}): selisih ${money(other)}. Biasanya dari persediaan awal lewat jurnal, jurnal manual ke akun persediaan, atau pembulatan biaya.`);
     }
+    const wh = (await this.repo.stockByWarehouse(this.db, cx.tenantId, cx.to)).rows;
+    const whTable = {
+      key: 'inventory-warehouse',
+      title: 'Persediaan per gudang',
+      note: 'Jumlah dan nilai persediaan per gudang pada akhir periode.',
+      columns: [col('code', 'Gudang', 'text'), col('name', 'Nama', 'text'), col('products', 'Jenis produk', 'qty'), col('qty', 'Jumlah', 'qty'), col('value', 'Nilai')],
+      rows: wh.map((x) => ({ cells: { code: x.code, name: x.name, products: x.products, qty: D(x.qty).toFixed(4), value: money(D(x.value)) } })),
+      total: { code: 'Jumlah', value: money(wh.reduce((s, x) => s.plus(x.value), ZERO)) },
+    };
     const qtyTable = {
       key: 'inventory-qty',
       title: 'Kartu persediaan per produk: jumlah',
@@ -67,7 +76,7 @@ export class InventorySchedule implements AccountSchedule {
         basis: 'Persediaan dinilai pada biaya perolehan atau nilai realisasi neto, mana yang lebih rendah, dengan biaya rata-rata tertimbang.',
         formulas: ['Saldo akhir = saldo awal + masuk − keluar', 'Biaya rata-rata baru = (nilai persediaan lama + nilai penerimaan) ÷ (jumlah lama + jumlah diterima)', 'Penurunan nilai dibukukan bila nilai realisasi neto lebih rendah dari biaya'],
       },
-      tables: [qtyTable, valTable, gl.table],
+      tables: [qtyTable, valTable, whTable, gl.table],
       closing: gl.closing,
       findings,
     };
