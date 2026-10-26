@@ -46,6 +46,9 @@ import { ServiceBillingService } from '../sales/services/service-billing.service
 import { CustomerDepositsService } from '../sales/services/customer-deposits.service';
 import { ServiceProjectsService } from '../sales/services/service-projects.service';
 import { PricingService } from '../sales/pricing/price-lists.service';
+import { UtilityChargesService } from '../utility/utility-charges.service';
+import { UtilityCountersService } from '../utility/utility-counters.service';
+import { UtilityFieldService } from '../utility/utility-field.service';
 import { UtilityService } from '../utility/utility.service';
 
 /** Alat bantu bersama untuk semua data contoh: semua transaksi lewat service aplikasi (bukan insert mentah) agar jurnal & laporan konsisten */
@@ -98,6 +101,9 @@ export interface Demo {
     writedown: WritedownService;
     cashCount: CashCountService;
     utility: UtilityService;
+    utilityCounters: UtilityCountersService;
+    utilityCharges: UtilityChargesService;
+    utilityField: UtilityFieldService;
     canvass: CanvassService;
   };
   acc: (code: string) => string;
@@ -215,6 +221,9 @@ export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: 
       writedown: get(WritedownService),
       cashCount: get(CashCountService),
       utility: get(UtilityService),
+      utilityCounters: get(UtilityCountersService),
+      utilityCharges: get(UtilityChargesService),
+      utilityField: get(UtilityFieldService),
       canvass: get(CanvassService),
     },
     acc: (code) => acc.get(code)!,

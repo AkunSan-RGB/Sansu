@@ -1,5 +1,6 @@
 import { type BusinessModel } from '@sansu/shared';
 import { tradeTerms } from '../../db/schema';
+import { airCounters } from './demo.air';
 import * as X from './demo.extra';
 import { addCustomers, addSuppliers, Demo, expense, openingBalance, payBill, payroll, posDay, purchase, receive, sell } from './demo.kit';
 
@@ -845,6 +846,7 @@ async function seedUtilitas(c: Demo) {
     if (billIt) await c.step(`tagih ${period}`, () => c.svc.utility.run(T, { period }));
   }
   await c.step('tagih bulan ini (yang sudah terverifikasi)', () => c.svc.utility.run(T, { period: month(0) }));
+  await airCounters(c, cu);
   await c.step('beli pipa dan meter', () => purchase(c, sup.get('SUP-PIPA')!, 20, [{ productId: ids.get('UT-PIPA-PVC')!, qty: 200, price: 29000 }, { productId: ids.get('UT-METER-AIR')!, qty: 40, price: 215000 }], { pay: true, invoiceNo: 'PNA/1025/044' }));
   await c.step('beli kabel fiber', () => purchase(c, sup.get('SUP-FO')!, 9, [{ productId: ids.get('UT-KABEL-FO')!, qty: 4, price: 880000 }], { invoiceNo: 'FTM-1190' }));
   await expense(c, 54, 'bank', '6-3000', 'Sewa kantor dan gudang bahan', 3_500_000, 'SEWA-UTL');

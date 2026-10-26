@@ -281,6 +281,26 @@ export const HELP_ARTICLES: HelpArticle[] = [
     link: { label: 'Buka Layanan utilitas', to: '/utility' },
   },
   {
+    id: 'air-loket-non-tunai',
+    category: 'Penjualan',
+    title: 'Layanan air: pendapatan air vs non-air, loket, dan rekap harian',
+    summary: 'Untuk perusahaan air bersih: tagihan air bulanan dipisah dari layanan non-air, pembayaran diterima di beberapa loket secara non-tunai, dan Keuangan mengecek rekap harian tiap loket.',
+    paths: ['/utility/non-air', '/utility/loket', '/utility/rekap', '/utility/lokasi'],
+    steps: [
+      'Layanan air › Daftar loket › Tambah loket: satu loket untuk tiap lokasi penerimaan (kantor pusat, pasar, kecamatan). Isi rekening bank bila loket punya rekening sendiri.',
+      'Layanan non-air: sambung baru, sambung kembali, ganti meter, administrasi, dan sejenisnya. Atur harga bawaan, lalu tekan Tagih untuk menerbitkan faktur ke pelanggan. Pendapatannya masuk akun non-air tersendiri, terpisah dari penjualan air.',
+      'Terima pembayaran (loket): cari pelanggan atau nomor faktur, pilih loket dan kanal (transfer, QRIS, virtual account, EDC, dompet digital), lalu terima. Tidak ada uang tunai dan tidak ada setoran kas.',
+      'Rekap harian loket: tiap baris = satu loket pada satu hari. Keuangan yang bukan penerima pembayaran mencocokkan jumlahnya dengan mutasi bank, lalu Konfirmasi atau tandai Selisih dengan alasan.',
+      'Laporan layanan air: bagian "Pendapatan air dan non-air" dan "Penerimaan per loket per hari" cocok dengan buku besar.',
+    ],
+    tips: [
+      'Mode non-tunai dapat dimatikan Admin di Tarif air & aturan bila loket memang memegang uang tunai; setoran harian lama akan tersedia kembali.',
+      'Rekap yang sudah dikonfirmasi tidak bisa dikonfirmasi ulang; selisih wajib diberi catatan.',
+    ],
+    keywords: 'air pdam loket kasir non tunai qris transfer rekap harian non air sambung baru sambung kembali administrasi pendapatan',
+    link: { label: 'Buka Layanan air', to: '/utility/ringkasan' },
+  },
+  {
     id: 'fmcg-harga-promo',
     category: 'Penjualan',
     title: 'FMCG: daftar harga per segmen, promo, dan bonus barang',
