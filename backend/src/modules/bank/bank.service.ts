@@ -274,6 +274,10 @@ export class BankService {
     const acc = await this.refs.account(tx, user.tenantId, accountId);
     if (!acc || !acc.isPostable) throw new BadRequestException('Akun lawan tidak valid');
     if (acc.id === st.cashAccountId) throw new BadRequestException('Akun lawan tidak boleh rekening bank itu sendiri');
+    const bank = await this.refs.account(tx, user.tenantId, st.cashAccountId);
+    if (bank && bank.currency !== 'IDR') {
+      throw new BadRequestException(`${bank.name} adalah rekening ${bank.currency}. Catat transaksinya di Kas & Bank › Transaksi valas (kursnya perlu ditentukan), lalu cocokkan dengan mutasi ini.`);
+    }
     const amt = D(l.amount);
     const abs = amt.abs();
     const j = await this.posting.post(tx, {
@@ -389,6 +393,9 @@ export class BankService {
     if (!rules.length) return 0;
     const st = await this.repo.statementById(tx, statementId);
     const accs = new Map((await this.repo.accountsByIds(tx, user.tenantId, rules.map((r) => r.accountId))).map((a) => [a.id, a]));
+    // rekening valas tidak dijurnal otomatis dari aturan (butuh kurs); mutasinya dicocokkan dengan transaksi valas
+    const bankAcc = await this.refs.account(tx, user.tenantId, st.cashAccountId);
+    if (bankAcc && bankAcc.currency !== 'IDR') return 0;
     const lines = await this.repo.unmatchedLines(tx, statementId);
     let n = 0;
     for (const l of lines) {

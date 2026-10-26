@@ -45,6 +45,7 @@ export class JournalLineDto {
   @ApiProperty() @IsUUID() accountId: string;
   @ApiPropertyOptional({ example: '150000' }) @IsOptional() @IsNumberString() debit?: string;
   @ApiPropertyOptional({ example: '0' }) @IsOptional() @IsNumberString() credit?: string;
+  @ApiPropertyOptional({ example: '100', description: 'Rekening kas/bank valas: jumlah dalam valas (wajib untuk akun valas, dilarang untuk akun Rupiah)' }) @IsOptional() @IsNumberString() foreignAmount?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() memo?: string;
   @ApiPropertyOptional({ description: 'Proyek (biaya langsung proyek, usaha jasa)' }) @IsOptional() @IsUUID() projectId?: string;
 }

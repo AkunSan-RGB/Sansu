@@ -17,7 +17,7 @@ export class CashSchedule extends MovementSchedule {
       method: {
         basis: 'Saldo buku dari seluruh jurnal yang memakai akun kas/bank ini.',
         formulas: ['Saldo akhir = saldo awal + penerimaan − pengeluaran', 'Saldo koran = saldo buku ± selisih waktu (cek yang belum cair, setoran dalam perjalanan)'],
-        policies: ['Kas/bank yang tidak dibatasi penggunaannya diperlakukan sebagai kas dan setara kas.', 'Cocokkan saldo akhir dengan rekening koran lewat menu Bank.'],
+        policies: ['Kas/bank yang tidak dibatasi penggunaannya diperlakukan sebagai kas dan setara kas.', 'Cocokkan saldo akhir dengan rekening koran lewat menu Bank.', 'Rekening valas ditampilkan dalam Rupiah (biaya tercatat rata-rata tertimbang); saldo dalam valas ada di Kas & Bank › Rekening.'],
       },
     };
   }
