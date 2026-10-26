@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { D, Dec, ZERO } from '../../../common/utils/money';
 import { DbOrTx } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
+import type { AccountMeta } from '../../accounting/ledger-data';
 import { AccountSchedulesRepository } from '../account-schedules.repository';
 import { col, MONTH_NAMES, money, netOf, openingOf } from '../account-schedule.support';
 import type { ScheduleContext, ScheduleRow } from '../account-schedule.types';
@@ -242,5 +243,69 @@ export class LeaseSchedule extends JournalItemSchedule {
 
   protected extras(cx: ScheduleContext, _lines: JournalLine[], closing: Dec): Promise<Extras> {
     return this.contracts.build(cx, 'LEASE', closing);
+  }
+}
+
+/** Ekuitas: setoran modal, pengambilan pemilik/dividen, dan penutupan laba rugi, dicantumkan per jurnal */
+@Injectable()
+export class EquitySchedule extends JournalItemSchedule {
+  readonly kind = 'EQUITY';
+  protected profile: JournalItemProfile = {
+    title: 'Ekuitas',
+    groups: [],
+    increases: 'credit',
+    addTitle: 'Penambahan ekuitas (saldo awal dan penambahan tahun ini)',
+    subTitle: 'Pengurangan ekuitas tahun ini',
+    addLabel: 'Penambahan (kredit)',
+    subLabel: 'Pengurangan (debit)',
+    method: {
+      basis: 'Perubahan akun ekuitas menurut jurnal: setoran modal, pengambilan pemilik/dividen, dan penutupan laba rugi.',
+      formulas: ['Saldo akhir = saldo awal + setoran modal/laba ditutup − pengambilan/dividen/rugi ditutup'],
+      policies: ['Laba (rugi) tahun berjalan yang belum ditutup disajikan terpisah di laporan posisi keuangan (lihat baris "Laba (rugi) belum ditutup").'],
+    },
+  };
+
+  constructor(@InjectDb() db: DbOrTx, repo: AccountSchedulesRepository) {
+    super(db, repo);
+  }
+
+  supports(a: AccountMeta) {
+    return a.type === 'EQUITY';
+  }
+}
+
+/** Cadangan: akun yang belum punya jadwal khusus mendapat daftar transaksi per jurnal dan mutasi bulanan, ditandai agar metodenya ditentukan */
+@Injectable()
+export class GenericSchedule extends JournalItemSchedule {
+  readonly kind = 'GENERIC';
+  protected readonly needsDefinition = true;
+  protected profile: JournalItemProfile = {
+    title: 'Daftar transaksi akun',
+    groups: [],
+    increases: 'debit',
+    addTitle: 'Penambahan (saldo awal dan transaksi tahun ini)',
+    subTitle: 'Pengurangan tahun ini',
+    addLabel: 'Debit',
+    subLabel: 'Kredit',
+    method: {
+      basis: 'Transaksi akun menurut jurnal buku besar. Akun ini belum punya jadwal rincian khusus (daftar per pihak/item dan perhitungannya).',
+      formulas: ['Saldo akhir = saldo awal + penambahan − pengurangan'],
+      policies: ['Tentukan jenis rincian dan metode perhitungan akun ini bersama akuntan sebelum diserahkan ke auditor.'],
+    },
+  };
+
+  constructor(@InjectDb() db: DbOrTx, repo: AccountSchedulesRepository) {
+    super(db, repo);
+  }
+
+  supports() {
+    return true;
+  }
+
+  protected profileFor(a: AccountMeta): JournalItemProfile {
+    const debitNormal = a.type === 'ASSET' || a.type === 'EXPENSE';
+    return debitNormal
+      ? { ...this.profile, increases: 'debit', addLabel: 'Penambahan (debit)', subLabel: 'Pengurangan (kredit)' }
+      : { ...this.profile, increases: 'credit', addLabel: 'Penambahan (kredit)', subLabel: 'Pengurangan (debit)' };
   }
 }

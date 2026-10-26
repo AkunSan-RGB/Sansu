@@ -44,6 +44,12 @@ export interface Extras {
 export abstract class JournalItemSchedule implements AccountSchedule {
   abstract readonly kind: string;
   protected abstract profile: JournalItemProfile;
+  /** Jadwal cadangan menandai akun agar metodenya ditentukan */
+  protected readonly needsDefinition: boolean = false;
+  /** Profil per akun; bawaan satu profil untuk semua akun yang ditangani kelas ini */
+  protected profileFor(_a: AccountMeta): JournalItemProfile {
+    return this.profile;
+  }
 
   constructor(
     protected readonly db: DbOrTx,
@@ -60,7 +66,7 @@ export abstract class JournalItemSchedule implements AccountSchedule {
   }
 
   async build(cx: ScheduleContext): Promise<ScheduleBody> {
-    const p = this.profile;
+    const p = this.profileFor(cx.account);
     const gl = movementTable(cx.account, cx.movement, cx.year, { add: p.addLabel, sub: p.subLabel }, 'Mutasi per bulan');
     const lines = (await this.repo.journalLinesOfAccount(this.db, cx.tenantId, cx.account.id, cx.from, cx.to)).rows;
     const side = (l: JournalLine, which: 'add' | 'sub') => D((p.increases === 'debit') === (which === 'add') ? l.debit : l.credit);
@@ -84,6 +90,9 @@ export abstract class JournalItemSchedule implements AccountSchedule {
     };
     const subTable: ScheduleTable = { key: 'journal-reductions', title: p.subTitle, columns: cols, rows: subs, total: { description: 'Jumlah pengurangan', amount: money(sum(subs)) } };
     const ex = await this.extras(cx, lines, gl.closing);
-    return { title: p.title, method: p.method, tables: [addTable, subTable, ...ex.tables, gl.table], closing: gl.closing, findings: ex.findings };
+    // Tabel menyesuaikan isi akun: akun tanpa saldo awal dan tanpa transaksi hanya menampilkan mutasi bulanannya (kosong); tabel pengurangan hanya bila ada
+    const empty = lines.length === 0 && opening.isZero();
+    const tables = empty ? [...ex.tables, gl.table] : [addTable, ...(subs.length ? [subTable] : []), ...ex.tables, gl.table];
+    return { title: p.title, method: p.method, tables, closing: gl.closing, findings: ex.findings, needsDefinition: this.needsDefinition };
   }
 }

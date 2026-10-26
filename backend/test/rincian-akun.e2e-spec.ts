@@ -152,4 +152,35 @@ describe('Rincian & perhitungan akun (e2e)', () => {
       }
     }
   });
+
+  it('akun yang tampil sesuai jenis usaha: bawaan hanya akun bersaldo/bermutasi; akun kosong hanya yang relevan; tabel menyesuaikan isi akun', async () => {
+    const year = new Date().getUTCFullYear();
+    const dagang = (await http.post('/api/demo/start').send({ businessModel: 'DAGANG' }).expect(200)).body.accessToken as string;
+    const fnb = (await http.post('/api/demo/start').send({ businessModel: 'FNB' }).expect(200)).body.accessToken as string;
+    const list = async (t: string, empty: boolean) => ((await get(t, `/api/account-schedules?year=${year}${empty ? '&includeEmpty=1' : ''}`).expect(200)).body as { items: Item[] }).items;
+    const dBase = await list(dagang, false);
+    const dAll = await list(dagang, true);
+    const fAll = await list(fnb, true);
+    expect(dAll.length).toBeGreaterThan(dBase.length);
+    // bawaan: tidak ada akun yang benar-benar kosong
+    expect(dBase.filter((i) => Number(i.reported) === 0 && Number(i.computed) === 0 && i.findings === 0 && !i.needsDefinition && i.kind === 'GENERIC')).toEqual([]);
+    // akun khusus F&B (pajak restoran daerah) tidak muncul di usaha dagang walau mode "tampilkan yang kosong", tetapi muncul untuk F&B
+    expect(dAll.some((i) => i.code === '2-1210')).toBe(false);
+    expect(fAll.some((i) => i.code === '2-1210')).toBe(true);
+    // akun kosong: hanya mutasi bulanan yang seluruh barisnya ditandai kosong
+    const empty = dAll.find((i) => !dBase.some((b) => b.accountId === i.accountId))!;
+    const ed = (await get(dagang, `/api/account-schedules/${empty.accountId}?year=${year}`).expect(200)).body as { tables: { key: string; rows: { muted?: boolean }[] }[] };
+    expect(ed.tables.map((t) => t.key)).toEqual(['ledger-monthly']);
+    expect(ed.tables[0].rows.every((r) => r.muted)).toBe(true);
+    // akun bertransaksi tanpa jadwal khusus: daftar transaksi per jurnal, bukan hanya angka bulanan
+    const generic = dBase.find((i) => i.kind === 'GENERIC' && Number(i.reported) !== 0);
+    if (generic) {
+      const gd = (await get(dagang, `/api/account-schedules/${generic.accountId}?year=${year}`).expect(200)).body as { tables: { key: string }[] };
+      expect(gd.tables.map((t) => t.key)).toContain('journal-additions');
+    }
+    // ekuitas memakai daftar transaksi per jurnal
+    const eq = dBase.find((i) => i.kind === 'EQUITY');
+    if (eq) expect(((await get(dagang, `/api/account-schedules/${eq.accountId}?year=${year}`).expect(200)).body as { tables: { key: string }[] }).tables.map((t) => t.key)).toContain('journal-additions');
+  }, 180_000);
 });
+

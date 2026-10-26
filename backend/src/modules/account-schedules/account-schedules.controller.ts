@@ -24,8 +24,8 @@ export class AccountSchedulesController {
 
   @Get()
   @ApiOperation({ summary: 'Daftar akun di laporan keuangan beserta status kecocokan rincian dengan saldo akhir di laporan' })
-  overview(@CurrentUser() u: AuthUser, @Query('year') year?: string) {
-    return this.service.overview(u.tenantId, yearOf(year));
+  overview(@CurrentUser() u: AuthUser, @Query('year') year?: string, @Query('includeEmpty') includeEmpty?: string) {
+    return this.service.overview(u.tenantId, yearOf(year), includeEmpty === '1' || includeEmpty === 'true');
   }
 
   @Get('snapshots')

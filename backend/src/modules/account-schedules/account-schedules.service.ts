@@ -138,20 +138,22 @@ export class AccountSchedulesService {
   }
 
   /** Akun yang punya angka: saldo di laporan, saldo menurut buku, atau mutasi tahun ini */
-  private active(s: Snapshot, a: AccountMeta) {
+  private active(s: Snapshot, a: AccountMeta, includeEmpty: boolean) {
     const r = s.reported.byAccount.get(a.id);
     if (r && !r.isZero()) return true;
     // akun dengan kontrak terdaftar selalu ditampilkan: kontrak tanpa pembukuan adalah temuan
     const k = s.catalog.contractAccountIds;
     if (k.LOAN.has(a.id) || k.LEASE.has(a.id) || k.PREPAID.has(a.id)) return true;
     const m = s.movementOf(a.id);
+    // akun yang aktif di bagan akun (relevan untuk jenis usaha ini) boleh ditampilkan walau masih kosong; akun yang dinonaktifkan karena tidak relevan tidak
+    if (includeEmpty && a.isActive !== false) return true;
     return !m.openingDebit.isZero() || !m.openingCredit.isZero() || m.months.some((x) => !x.debit.isZero() || !x.credit.isZero());
   }
 
   /** Seluruh rincian akun untuk satu tahun dari satu pengambilan data (dasar daftar ringkasan dan pembekuan laporan) */
-  async allResults(tenantId: string, year: number): Promise<ScheduleResult[]> {
+  async allResults(tenantId: string, year: number, includeEmpty = false): Promise<ScheduleResult[]> {
     const s = await this.snapshot(tenantId, year);
-    const candidates = [...s.accounts.filter((a) => a.isPostable && this.active(s, a)), ...(s.reported.unclosedEarnings.isZero() ? [] : [UNCLOSED_META])];
+    const candidates = [...s.accounts.filter((a) => a.isPostable && this.active(s, a, includeEmpty)), ...(s.reported.unclosedEarnings.isZero() ? [] : [UNCLOSED_META])];
     const out: ScheduleResult[] = [];
     for (const account of candidates) {
       const { schedule, body, reported } = await this.run(tenantId, s, account);
@@ -160,8 +162,8 @@ export class AccountSchedulesService {
     return out;
   }
 
-  async overview(tenantId: string, year: number) {
-    const results = await this.allResults(tenantId, year);
+  async overview(tenantId: string, year: number, includeEmpty = false) {
+    const results = await this.allResults(tenantId, year, includeEmpty);
     const items: ScheduleOverviewItem[] = results.map((r) => ({
       accountId: r.account.id,
       code: r.account.code,

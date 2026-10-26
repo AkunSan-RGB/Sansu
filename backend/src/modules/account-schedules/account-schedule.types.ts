@@ -14,6 +14,8 @@ export interface ScheduleRow {
   cells: Record<string, Cell>;
   /** Rute halaman tempat baris ini ditelusuri ke buku besar atau dokumen asal */
   link?: string;
+  /** Baris tanpa isi (mis. bulan tanpa mutasi): tampilan menyembunyikannya secara bawaan */
+  muted?: boolean;
 }
 
 export interface ScheduleTable {
