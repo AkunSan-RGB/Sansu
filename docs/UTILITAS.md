@@ -39,6 +39,31 @@ Perusahaan Utilitas (penyedia air bersih) memakai satu grup sidebar **Layanan ai
 - Data demo air: 24 pelanggan di 3 zona, 4 tarif, meter 4 bulan dari sumber campuran (manual, lapangan, impor, alat meter), 3 loket dengan penerimaan non-tunai bertanggal mundur oleh 3 kasir, rekap yang sudah dikonfirmasi Keuangan (satu ditandai selisih, dua hari terakhir sengaja dibiarkan), tunggakan dengan satu sambungan diputus, 16 tagihan layanan non-air, dan pasokan zona (zona Griya Asri sengaja bocor tinggi).
 - Migrasi 0110: tabel `utility_counters`, `utility_counter_closings`, `utility_charges`; kolom `counter_id` dan `channel` pada penerimaan loket.
 
+### Layanan air lanjutan (migrasi 0111)
+
+Semua menu di bawah hanya muncul untuk jenis usaha Utilitas dan memakai modul `utility-ops` (tiap fitur punya dto/repository/service/controller; semua kueri di repositori). Dokumen bernomor lewat `SequenceService` (PGD pengaduan, PKJ perintah kerja, PSB permohonan, KRK koreksi, JMN jaminan, ANG angsuran).
+
+| Menu | Aturan utama |
+| --- | --- |
+| Permohonan sambungan baru | permohonan → survei → tagihan biaya sambung (faktur non-air, pelanggan dibuat bila belum ada) → dibayar → pemasangan → aktif (membuat sambungan sungguhan). Pengaktif ≠ pemasang. |
+| Pengaduan & gangguan | SLA jam per kategori (separuhnya untuk prioritas tinggi), status BARU → DITUGASKAN → DIKERJAKAN → SELESAI → DITUTUP; penutup ≠ pelaksana; petugas lapangan hanya tiketnya sendiri; pelanggan dapat mengadu lewat portal (maks. 3 tiket belum tuntas). |
+| Aset jaringan, perintah kerja | perintah kerja terhubung ke pengaduan (mengubah status pengaduan otomatis) dan memperbarui kondisi aset; biaya upah + bahan dicatat saat selesai. |
+| Balik nama, ganti golongan, pindah alamat, tutup permanen | diajukan pelayanan, disetujui orang lain; balik nama/tutup butuh tanpa tunggakan; ganti golongan hanya antar tarif berjenis meter sama. |
+| Koreksi tagihan & pemutihan denda | maker-checker; ≥ Rp500.000 wajib Admin/Pemilik; menyetujui = nota kredit (retur tanpa barang) + jurnal pendapatan terbalik; pemutihan ≤ denda pada tagihan; invarian: saldo piutang buku besar = jumlah sisa faktur. |
+| Deposit / jaminan | akun 2-1180 Utang Jaminan Pelanggan (bukan pendapatan); pemakaian melunasi tunggakan = pembayaran metode JAMINAN oleh orang lain dari penerima; pengembalian ditahan bila masih ada tunggakan. |
+| Angsuran tunggakan | jadwal cicilan dari tunggakan terpilih; status dihitung dari pembayaran sebenarnya; selama AKTIF sambungan tidak diusulkan/tidak boleh diputus; telat > 14 hari = MACET. |
+| Rute baca & tagih | rute memiliki pembaca dan kolektor; progres meter terbaca per rute; daftar petugas lapangan dapat disaring per rute. |
+| Inventaris & tera meter | meter dengan status stok/terpasang/rusak/pensiun, riwayat kejadian, tera ulang tiap 5 tahun, ganti meter mengubah nomor meter sambungan. |
+| Tagihan taksiran | pemakaian = rata-rata ≤ 3 periode nyata terverifikasi; maksimal 2 periode berturut-turut; pencatatan nyata berikutnya mengoreksi selisihnya otomatis (tanda TAKSIRAN / TAKSIRAN_LEBIH). |
+| Cetak & kirim massal | rekening, pengingat, SP1 (terlambat ≥ 7 hari), SP2 (≥ 21), SP3 (≥ 35) menurut tagihan tertua; cetak satu surat per halaman atau tautan WhatsApp; setiap pengiriman dicatat (`utility_notices`). |
+| Penagihan lapangan | daftar tunggakan per rute; hasil kunjungan; janji bayar maks. 30 hari, lewat tanpa lunas = ingkar; petugas lapangan hanya rutenya sendiri. |
+| Portal pelanggan | tautan pribadi per sambungan (token acak, dapat diputar/dicabut), tanpa login, dibatasi laju; hanya data satu sambungan; token tidak valid dijawab 404. |
+| Produksi air & NRW | produksi/distribusi harian per sumber (satu baris per hari per sumber); NRW = dialirkan − ditagih, wajar ≤ 30%; belum dihitung bila bulan itu belum ada tagihan. |
+| Kualitas air | hasil uji dievaluasi terhadap baku mutu (pH 6,5–8,5; kekeruhan ≤ 5; klor 0,2–1,0; coliform 0; TDS ≤ 500). |
+| Laporan kinerja PAM | efisiensi penagihan, umur piutang per golongan, per rute/kolektor, pengaduan tepat waktu, NRW, kualitas air; ekspor Excel/CSV/PDF. |
+
+Peran: Pelayanan pelanggan (Sales) mengajukan permohonan/mutasi/koreksi/angsuran dan mengirim surat; Petugas lapangan (Gudang) survei, memasang, mengerjakan pengaduan/perintah kerja, kunjungan kolektor, produksi dan kualitas air; Keuangan/Admin menyetujui; Akuntan hanya membaca. Data demo mengisi setiap menu ini (tiga rute, pengaduan di berbagai status termasuk yang lewat batas, permohonan di tiap tahap, mutasi, koreksi, jaminan, angsuran, tera jatuh tempo, kunjungan dan janji ingkar, SP, tautan portal, produksi 126 hari, dan uji kualitas dengan pelanggaran).
+
 ## Pencegahan kecurangan
 
 - Pencatat meter ≠ pemverifikasi (Pemilik dikecualikan, dan terlihat di kontrol "Dicatat dan diverifikasi orang yang sama").
@@ -54,7 +79,7 @@ Perusahaan Utilitas (penyedia air bersih) memakai satu grup sidebar **Layanan ai
 ## Batasan yang jujur
 
 - Tarif, PPN per layanan, besaran denda, dan batas pemutusan **harus disesuaikan dengan ketentuan penyedia/regulator dan perjanjian pelanggan**; SANSU hanya menjalankan aturan yang Anda isi. Belum ditinjau konsultan pajak/hukum.
-- Belum ada: deposit/jaminan pelanggan berjurnal, pembacaan meter otomatis (AMR/IoT), foto bukti meter, pembayaran lewat loket/virtual account per pelanggan, hitungan susut air (produksi vs terjual), dan tagihan kolektif per pengelola.
-- Faktur diterbitkan bertanggal hari penagihan (bukan akhir periode); koreksi tagihan lewat retur/jurnal penyesuaian seperti faktur jasa lain.
+- Belum ada: pembacaan meter otomatis (AMR/IoT) langsung dari alat tanpa gateway, pembayaran lewat virtual account per pelanggan, pengiriman WhatsApp/SMS otomatis lewat penyedia (yang ada: tautan wa.me dan cetak), jadwal perawatan berulang otomatis, dan tagihan kolektif per pengelola.
+- Faktur diterbitkan bertanggal hari penagihan (bukan akhir periode); koreksi tagihan lewat menu Koreksi tagihan (nota kredit berjurnal).
 - Penagihan berjalan per sambungan; bila server berhenti di tengah proses, sambungan itu ditandai *tertahan* dan tidak ditagih ulang otomatis (perlu diperiksa Admin).
 - Belum diuji di browser/HP dan belum dipakai pelanggan nyata.

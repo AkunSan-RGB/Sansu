@@ -563,6 +563,18 @@ export class UtilityService {
       one(sql`SELECT COUNT(*)::int AS n FROM (SELECT DISTINCT r.counter_id, (r.received_at AT TIME ZONE 'Asia/Jakarta')::date AS d FROM utility_counter_receipts r WHERE r.tenant_id = ${tenantId} AND r.counter_id IS NOT NULL AND (r.received_at AT TIME ZONE 'Asia/Jakarta')::date < ${today}) x
         WHERE NOT EXISTS (SELECT 1 FROM utility_counter_closings cl WHERE cl.tenant_id = ${tenantId} AND cl.counter_id = x.counter_id AND cl.date = x.d)`),
     ]);
-    return { revenueAir, revenueNonAir, counters, receiptsToday, unconfirmedDays, period, active, suspended, awaitingVerification: awaiting, readyToBill: ready, missingReadings: missing, overdueCount: od.length, overdueTotal: od.reduce((s, x) => s + num(x.outstanding), 0), suggestSuspend: od.filter((x) => x.suggestSuspend).length };
+    // pekerjaan layanan lanjutan: pengaduan, permohonan, persetujuan, tera meter
+    const [complaintsOpen, complaintsOverdue, complaintsNew, applicationsOpen, applicationsToActivate, changesPending, adjustmentsPending, installmentsPending, metersOverdue] = await Promise.all([
+      one(sql`SELECT COUNT(*)::int AS n FROM utility_complaints WHERE tenant_id = ${tenantId} AND status IN ('BARU', 'DITUGASKAN', 'DIKERJAKAN', 'SELESAI')`),
+      one(sql`SELECT COUNT(*)::int AS n FROM utility_complaints WHERE tenant_id = ${tenantId} AND status IN ('BARU', 'DITUGASKAN', 'DIKERJAKAN') AND due_at < now()`),
+      one(sql`SELECT COUNT(*)::int AS n FROM utility_complaints WHERE tenant_id = ${tenantId} AND status = 'BARU'`),
+      one(sql`SELECT COUNT(*)::int AS n FROM utility_applications WHERE tenant_id = ${tenantId} AND status IN ('PERMOHONAN', 'SURVEI', 'MENUNGGU_BAYAR', 'PEMASANGAN')`),
+      one(sql`SELECT COUNT(*)::int AS n FROM utility_applications WHERE tenant_id = ${tenantId} AND status = 'PEMASANGAN'`),
+      one(sql`SELECT COUNT(*)::int AS n FROM utility_connection_changes WHERE tenant_id = ${tenantId} AND status = 'DIAJUKAN'`),
+      one(sql`SELECT COUNT(*)::int AS n FROM utility_adjustments WHERE tenant_id = ${tenantId} AND status = 'DIAJUKAN'`),
+      one(sql`SELECT COUNT(*)::int AS n FROM utility_installment_plans WHERE tenant_id = ${tenantId} AND status = 'DIAJUKAN'`),
+      one(sql`SELECT COUNT(*)::int AS n FROM utility_meters WHERE tenant_id = ${tenantId} AND status = 'TERPASANG' AND next_calibration_on < ${today}::date`),
+    ]);
+    return { complaintsOpen, complaintsOverdue, complaintsNew, applicationsOpen, applicationsToActivate, changesPending, adjustmentsPending, installmentsPending, metersOverdue, revenueAir, revenueNonAir, counters, receiptsToday, unconfirmedDays, period, active, suspended, awaitingVerification: awaiting, readyToBill: ready, missingReadings: missing, overdueCount: od.length, overdueTotal: od.reduce((s, x) => s + num(x.outstanding), 0), suggestSuspend: od.filter((x) => x.suggestSuspend).length };
   }
 }

@@ -4,7 +4,7 @@ import { RequireApp } from '../../common/apps/app.guard';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { ProductionDto, WaterQualityDto } from './production.dto';
-import { ProductionService } from './production.service';
+import { WaterProductionService } from './production.service';
 
 @ApiTags('Layanan air — produksi dan kualitas')
 @ApiBearerAuth()
@@ -12,7 +12,7 @@ import { ProductionService } from './production.service';
 @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE')
 @Controller('utility')
 export class ProductionController {
-  constructor(private readonly svc: ProductionService) {}
+  constructor(private readonly svc: WaterProductionService) {}
 
   @Get('production') list(@CurrentUser() u: AuthUser, @Query('from') from?: string, @Query('to') to?: string) { return this.svc.list(u.tenantId, from, to); }
   @Get('production/sources') sources(@CurrentUser() u: AuthUser) { return this.svc.sources(u.tenantId); }

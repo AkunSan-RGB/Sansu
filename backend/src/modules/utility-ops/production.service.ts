@@ -15,7 +15,7 @@ const monthEnd = (p: string) => { const [y, m] = p.split('-').map(Number); retur
 
 /** Produksi dan distribusi air harian, air tak berekening (NRW), serta pengujian kualitas air terhadap baku mutu */
 @Injectable()
-export class ProductionService {
+export class WaterProductionService {
   constructor(@InjectDb() private readonly db: Db, private readonly repo: ProductionRepository, private readonly audit: AuditService) {}
 
   list(tenantId: string, from?: string, to?: string) {
@@ -40,7 +40,8 @@ export class ProductionService {
       const t = await this.repo.monthTotals(this.db, tenantId, per);
       const distributed = Number(t?.distributed ?? 0);
       const billed = Number(t?.billed ?? 0);
-      const nrw = nonRevenueWater(distributed, billed);
+      // belum ada tagihan bulan itu = NRW belum bisa dihitung (bukan 100%)
+      const nrw = billed > 0 ? nonRevenueWater(distributed, billed) : { volume: 0, pct: null };
       const energy = Number(t?.energy ?? 0);
       return { period: per, produced: round2(Number(t?.produced ?? 0)), distributed: round2(distributed), ownUse: round2(Number(t?.own_use ?? 0)), billed: round2(billed), nrwVolume: nrw.volume, nrwPct: nrw.pct, days: t?.days ?? 0, energyKwh: energy, kwhPerM3: distributed > 0 && energy > 0 ? round2(energy / distributed) : null };
     };

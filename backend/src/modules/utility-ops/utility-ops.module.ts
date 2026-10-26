@@ -42,7 +42,7 @@ import { PortalRepository } from './portal.repository';
 import { PortalService, UtilityPortalGuard } from './portal.service';
 import { ProductionController } from './production.controller';
 import { ProductionRepository } from './production.repository';
-import { ProductionService } from './production.service';
+import { WaterProductionService } from './production.service';
 import { StaffController } from './staff.controller';
 import { StaffRepository } from './staff.repository';
 import { StaffService } from './staff.service';
@@ -50,6 +50,6 @@ import { StaffService } from './staff.service';
 @Module({
   imports: [UtilityModule, UtilityFieldModule, MasterDataModule, SalesModule, AccountingModule],
   controllers: [StaffController, ComplaintsController, NetworkAssetsController, ApplicationsController, ChangesController, AdjustmentsController, DepositsController, InstallmentsController, RoutesController, MetersController, CollectionController, NoticesController, PortalAdminController, PortalPublicController, ProductionController],
-  providers: [StaffRepository, StaffService, ComplaintsRepository, ComplaintsService, NetworkAssetsRepository, NetworkAssetsService, ApplicationsRepository, ApplicationsService, ChangesRepository, ChangesService, AdjustmentsRepository, AdjustmentsService, DepositsRepository, DepositsService, InstallmentsRepository, InstallmentsService, RoutesRepository, RoutesService, MetersRepository, MetersService, CollectionRepository, CollectionService, NoticesRepository, NoticesService, PortalRepository, PortalService, UtilityPortalGuard, ProductionRepository, ProductionService],
+  providers: [StaffRepository, StaffService, ComplaintsRepository, ComplaintsService, NetworkAssetsRepository, NetworkAssetsService, ApplicationsRepository, ApplicationsService, ChangesRepository, ChangesService, AdjustmentsRepository, AdjustmentsService, DepositsRepository, DepositsService, InstallmentsRepository, InstallmentsService, RoutesRepository, RoutesService, MetersRepository, MetersService, CollectionRepository, CollectionService, NoticesRepository, NoticesService, PortalRepository, PortalService, UtilityPortalGuard, ProductionRepository, WaterProductionService],
 })
 export class UtilityOpsModule {}

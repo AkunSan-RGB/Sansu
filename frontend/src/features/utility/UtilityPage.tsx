@@ -39,7 +39,7 @@ const COL: Record<string, string> = { number: 'Sambungan', customer: 'Pelanggan'
 
 const ZONE_STATUS: Record<string, { label: string; color: string }> = { NO_SUPPLY: { label: 'Pasokan belum diisi', color: 'default' }, INCOMPLETE: { label: 'Belum lengkap', color: 'gold' }, HIGH: { label: 'Kehilangan tinggi', color: 'red' }, OK: { label: 'Wajar', color: 'green' }, NEGATIVE: { label: 'Pemakaian melebihi pasokan', color: 'volcano' } };
 
-interface Summary { period: string; active: number; suspended: number; awaitingVerification: number; readyToBill: number; missingReadings: number; overdueCount: number; overdueTotal: number; suggestSuspend: number; revenueAir: number; revenueNonAir: number; receiptsToday: number; counters: number; unconfirmedDays: number }
+interface Summary { period: string; active: number; suspended: number; awaitingVerification: number; readyToBill: number; missingReadings: number; overdueCount: number; overdueTotal: number; suggestSuspend: number; complaintsOpen?: number; complaintsOverdue?: number; complaintsNew?: number; applicationsOpen?: number; applicationsToActivate?: number; changesPending?: number; adjustmentsPending?: number; installmentsPending?: number; metersOverdue?: number; revenueAir: number; revenueNonAir: number; receiptsToday: number; counters: number; unconfirmedDays: number }
 
 interface ZoneRow { zone: string; period: string; unit: string | null; mixedUnits: boolean; connections: number; supplied: number | null; usage: number; loss: number | null; lossPct: number | null; unverified: number; missing: number; note: string | null; status: string }
 
@@ -149,6 +149,13 @@ function Overview({ s, go }: { s?: Summary; go: (tab: string) => void }) {
     s.readyToBill > 0 && { text: `${s.readyToBill} catatan terverifikasi siap ditagih`, tab: 'tagihan', action: 'Terbitkan tagihan' },
     s.unconfirmedDays > 0 && { text: `${s.unconfirmedDays} rekap harian loket belum dicek Keuangan`, tab: 'rekap', action: 'Cek rekap' },
     s.suggestSuspend > 0 && { text: `${s.suggestSuspend} sambungan diusulkan diputus sementara karena menunggak`, tab: 'tunggakan', action: 'Tinjau' },
+    (s.complaintsOverdue ?? 0) > 0 && { text: `${s.complaintsOverdue} pengaduan sudah lewat batas waktu penanganan`, tab: 'pengaduan', action: 'Tangani' },
+    (s.complaintsNew ?? 0) > 0 && { text: `${s.complaintsNew} pengaduan baru belum ditugaskan ke petugas`, tab: 'pengaduan', action: 'Tugaskan' },
+    (s.applicationsToActivate ?? 0) > 0 && { text: `${s.applicationsToActivate} sambungan baru sudah dipasang dan siap diaktifkan`, tab: 'permohonan', action: 'Aktifkan' },
+    (s.changesPending ?? 0) > 0 && { text: `${s.changesPending} pengajuan perubahan sambungan menunggu persetujuan`, tab: 'mutasi', action: 'Putuskan' },
+    (s.adjustmentsPending ?? 0) > 0 && { text: `${s.adjustmentsPending} pengajuan koreksi tagihan menunggu persetujuan`, tab: 'koreksi', action: 'Putuskan' },
+    (s.installmentsPending ?? 0) > 0 && { text: `${s.installmentsPending} rencana angsuran menunggu persetujuan`, tab: 'angsuran', action: 'Putuskan' },
+    (s.metersOverdue ?? 0) > 0 && { text: `${s.metersOverdue} meter terpasang sudah lewat jadwal tera ulang`, tab: 'inventaris', action: 'Jadwalkan tera' },
   ].filter(Boolean) as { text: string; tab: string; action: string }[];
   const total = s.revenueAir + s.revenueNonAir;
   return (
@@ -181,6 +188,8 @@ function Overview({ s, go }: { s?: Summary; go: (tab: string) => void }) {
         <Card1 title="Tunggakan lewat jatuh tempo" value={fmtMoney(Math.round(s.overdueTotal))} tab="tunggakan" warn={s.overdueTotal > 0} />
         <Card1 title="Pelanggan menunggak" value={s.overdueCount} tab="tunggakan" />
         <Card1 title="Usulan pemutusan" value={s.suggestSuspend} tab="tunggakan" warn={s.suggestSuspend > 0} />
+        {water && <Card1 title="Pengaduan belum tuntas" value={s.complaintsOpen ?? 0} tab="pengaduan" warn={(s.complaintsOverdue ?? 0) > 0} hint={(s.complaintsOverdue ?? 0) ? `${s.complaintsOverdue} lewat batas waktu` : undefined} />}
+        {water && <Card1 title="Permohonan berjalan" value={s.applicationsOpen ?? 0} tab="permohonan" />}
       </Row>
       {water ? <WorkflowGuide /> : (
         <Alert style={{ marginTop: 16 }} type="info" showIcon message="Alur bulanan"
@@ -200,7 +209,11 @@ const FLOW: FlowStep[] = [
   { title: 'Cek rekap harian loket', who: 'Keuangan (bukan kasir penerima)', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'], text: 'Rekap tiap loket per hari dicocokkan dengan mutasi bank, lalu dikonfirmasi atau ditandai selisih.', links: [['Rekap harian loket', '/utility/rekap']] },
   { title: 'Tagih layanan non-air', who: 'Pelayanan pelanggan (sewaktu-waktu)', roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES'], text: 'Sambung baru, sambung kembali, ganti meter, administrasi. Tagihannya dibayar di loket yang sama.', links: [['Layanan non-air', '/utility/non-air']] },
   { title: 'Tangani tunggakan', who: 'Keuangan / Admin', roles: ['OWNER', 'ADMIN', 'FINANCE'], text: 'Pelanggan yang menunggak, denda, dan usulan pemutusan sementara; sambung kembali setelah lunas oleh orang lain.', links: [['Tunggakan & pemutusan', '/utility/tunggakan']] },
-  { title: 'Pantau laporan dan kontrol', who: 'Pemilik / Akuntan', roles: ['OWNER', 'ADMIN', 'ACCOUNTANT'], text: 'Pendapatan air dan non-air terpisah, kehilangan air per zona, dan temuan kebocoran pendapatan.', links: [['Laporan layanan air', '/laporan/utility'], ['Laporan non-air', '/laporan/utility-nonair'], ['Kehilangan air', '/utility/zona'], ['Kontrol', '/utility/kontrol']] },
+  { title: 'Layani pelanggan baru dan pengaduan', who: 'Pelayanan pelanggan, petugas lapangan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE'], text: 'Permohonan sambungan baru dari survei sampai aktif; pengaduan dan gangguan ditugaskan, dikerjakan, lalu ditutup orang lain. Pelanggan juga bisa mengadu lewat tautan portal.', links: [['Permohonan baru', '/utility/permohonan'], ['Pengaduan', '/utility/pengaduan'], ['Portal pelanggan', '/utility/portal']] },
+  { title: 'Ubah data sambungan dan koreksi tagihan', who: 'Pelayanan mengajukan, Keuangan menyetujui', roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES'], text: 'Balik nama, ganti golongan, pindah alamat, tutup permanen, pengurangan tagihan, dan pemutihan denda selalu disetujui orang lain dan terjurnal otomatis.', links: [['Perubahan sambungan', '/utility/mutasi'], ['Koreksi tagihan', '/utility/koreksi']] },
+  { title: 'Tagih tunggakan', who: 'Pelayanan, kolektor, Keuangan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE'], text: 'Cetak atau kirim WhatsApp pengingat dan surat peringatan SP1–SP3; kolektor mengunjungi per rute dan mencatat janji bayar; tunggakan besar bisa dicicil atau dilunasi dari uang jaminan.', links: [['Cetak & kirim', '/utility/cetak'], ['Penagihan lapangan', '/utility/penagihan'], ['Angsuran', '/utility/angsuran'], ['Jaminan', '/utility/jaminan']] },
+  { title: 'Rawat jaringan dan meter', who: 'Teknisi, petugas lapangan', roles: ['OWNER', 'ADMIN', 'WAREHOUSE'], text: 'Aset jaringan dan perintah kerja perawatan; inventaris meter dengan jadwal tera ulang; rute baca meter; produksi air harian dan kualitas air terhadap baku mutu.', links: [['Perintah kerja', '/utility/perintah-kerja'], ['Aset jaringan', '/utility/aset'], ['Inventaris meter', '/utility/inventaris'], ['Rute', '/utility/rute'], ['Produksi air', '/utility/produksi'], ['Kualitas air', '/utility/kualitas']] },
+  { title: 'Pantau laporan dan kontrol', who: 'Pemilik / Akuntan', roles: ['OWNER', 'ADMIN', 'ACCOUNTANT'], text: 'Pendapatan air dan non-air terpisah, kehilangan air per zona, dan temuan kebocoran pendapatan.', links: [['Laporan kinerja', '/laporan/utility-kinerja'], ['Laporan layanan air', '/laporan/utility'], ['Laporan non-air', '/laporan/utility-nonair'], ['Kehilangan air', '/utility/zona'], ['Kontrol', '/utility/kontrol']] },
 ];
 
 /** Alur kerja bernomor: siapa mengerjakan apa dan menu mana yang dipakai; langkah milik peran yang sedang masuk ditandai */

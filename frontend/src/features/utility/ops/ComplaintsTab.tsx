@@ -96,7 +96,7 @@ function ComplaintDrawer({ id, onClose }: { id: string | null; onClose: () => vo
   const status = useAction((v: { status: ComplaintStatus; text: string }) => post(`/utility/complaints/${id}/status`, v.status === 'SELESAI' ? { status: v.status, resolution: v.text } : { status: v.status, note: v.text || undefined }), { success: 'Status diperbarui', invalidate: ['utility'], onSuccess: done });
   const note = useAction((text: string) => post(`/utility/complaints/${id}/note`, { note: text }), { success: 'Catatan ditambahkan', invalidate: ['utility'], onSuccess: done });
   const wo = useAction((v: Record<string, unknown>) => post<{ number: string }>('/utility/work-orders', { ...v, complaintId: id, description: c?.description }), { success: (r) => `Perintah kerja ${r.number} dibuat`, invalidate: ['utility'], onSuccess: () => { wf.resetFields(); done(); } });
-  const next = c ? COMPLAINT_NEXT[c.status].filter((n) => !(n === 'DITUGASKAN' && c.status === 'DITUGASKAN')) : [];
+  const next = c ? COMPLAINT_NEXT[c.status].filter((n) => n !== 'DITUGASKAN') : [];
   return (
     <Drawer open={!!id} onClose={onClose} width={520} title={c ? `${c.number} · ${COMPLAINT_CATEGORY_LABELS[c.category]}` : 'Pengaduan'} loading={q.isLoading}>
       {c && (

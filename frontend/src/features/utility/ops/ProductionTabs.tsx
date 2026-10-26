@@ -40,7 +40,7 @@ export function ProductionTab() {
       <Table size="small" rowKey="period" pagination={false} dataSource={s?.trend} style={{ marginBottom: 16 }} columns={[
         { title: 'Bulan', dataIndex: 'period' }, { title: 'Dialirkan (m³)', align: 'right' as const, render: (_: unknown, t: Summary['trend'][number]) => fmtQty(t.distributed) },
         { title: 'Ditagih (m³)', align: 'right' as const, render: (_: unknown, t: Summary['trend'][number]) => fmtQty(t.billed) },
-        { title: 'NRW', align: 'right' as const, render: (_: unknown, t: Summary['trend'][number]) => (t.nrwPct == null ? '-' : <Tag color={t.nrwPct > (s?.warnPct ?? 30) ? 'red' : 'green'}>{t.nrwPct}%</Tag>) },
+        { title: 'NRW', align: 'right' as const, render: (_: unknown, t: Summary['trend'][number]) => (t.nrwPct == null ? '-' : <Tag color={t.nrwPct > (s?.warnPct ?? 30) || t.nrwPct < 0 ? 'red' : 'green'}>{t.nrwPct}%{t.nrwPct < 0 ? ' (data tidak wajar)' : ''}</Tag>) },
       ]} />
       <Typography.Title level={5}>Catatan harian</Typography.Title>
       <ResponsiveTable<Prod> rowKey="id" size="small" loading={list.isLoading} dataSource={list.data} pagination={{ pageSize: 15 }} columns={[

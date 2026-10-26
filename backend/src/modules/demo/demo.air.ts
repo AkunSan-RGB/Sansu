@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { users } from '../../db/schema';
+import { airOpsDemo } from './demo.air.ops';
 import { Demo } from './demo.kit';
 
 /**
@@ -37,8 +38,8 @@ export async function airDemo(c: Demo, customers: Map<string, string>, tariffs: 
   const tenantId = c.tenantId;
   const thisPeriod = ym(c.today);
 
-  // ---- pengguna contoh: tiga kasir loket dan satu staf Keuangan (tidak bisa masuk; hanya agar rekap punya penerima dan pengecek yang berbeda)
-  const mkUser = async (role: 'CASHIER' | 'FINANCE', name: string, key: string): Promise<AuthUser | undefined> => {
+  // ---- pengguna contoh: tiga kasir loket dan satu staf Keuangan (tidak bisa masuk; hanya agar rekap, pengaduan, dan persetujuan punya pelaksana dan pengecek yang berbeda)
+  const mkUser = async (role: 'CASHIER' | 'FINANCE' | 'WAREHOUSE' | 'SALES', name: string, key: string): Promise<AuthUser | undefined> => {
     const r = await c.step(`pengguna ${name}`, async () => {
       try {
         const [u] = await c.db.insert(users).values({ tenantId, email: `${key}.${randomUUID().slice(0, 12)}@demo.sansu.invalid`, name, passwordHash: '!demo-tidak-bisa-masuk', role, emailVerifiedAt: new Date() }).returning({ id: users.id });
@@ -51,6 +52,8 @@ export async function airDemo(c: Demo, customers: Map<string, string>, tariffs: 
   };
   const kasir = (await Promise.all([mkUser('CASHIER', 'Rahayu (Kasir Loket Pusat)', 'kasir1'), mkUser('CASHIER', 'Dwi (Kasir Loket Pasar)', 'kasir2'), mkUser('CASHIER', 'Anton (Kasir Loket Ngaglik)', 'kasir3')])).filter(Boolean) as AuthUser[];
   const keuangan = await mkUser('FINANCE', 'Wulan Pertiwi (Keuangan)', 'keuangan');
+  const lapangan = (await Promise.all([mkUser('WAREHOUSE', 'Joko Prasetyo (Petugas Lapangan)', 'lapangan1'), mkUser('WAREHOUSE', 'Rudi Hartono (Teknisi & Kolektor)', 'lapangan2')])).filter(Boolean) as AuthUser[];
+  const pelayanan = await mkUser('SALES', 'Lestari Ningsih (Pelayanan Pelanggan)', 'pelayanan');
 
   // ---- loket di tiga lokasi
   const loket = [
@@ -156,7 +159,12 @@ export async function airDemo(c: Demo, customers: Map<string, string>, tariffs: 
   await bill(2, 85, 0, new Set(['PLG-003', 'PLG-010', 'PLG-016', 'PLG-019']));
   await readPeriod(1, {});
   await verifyPeriod(addMonth(thisPeriod, -1));
-  await bill(1, 55, 0, new Set(['PLG-003', 'PLG-019']));
+  await bill(1, 55, 0, new Set(['PLG-003', 'PLG-019', 'PLG-004', 'PLG-008', 'PLG-011']));
+  // tiga pelanggan belum membayar tagihan bulan lalu dan sudah lewat jatuh tempo 10–26 hari: calon surat peringatan 1 dan 2
+  for (const [code, late] of [['PLG-004', 10], ['PLG-008', 14], ['PLG-011', 26]] as const) {
+    await c.db.execute(sql`UPDATE invoices SET due_date = ${c.ago(late)}::date WHERE id IN (
+      SELECT b.invoice_id FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id JOIN customers cu ON cu.id = i.customer_id WHERE b.tenant_id = ${tenantId} AND b.period = ${addMonth(thisPeriod, -1)} AND cu.code = ${code})`);
+  }
 
   // bulan berjalan: 14 sambungan sudah dicatat, 10 terverifikasi (siap ditagih), 3 menunggu verifikasi, 1 ditolak; sisanya belum dicatat
   await readPeriod(0, { only: (code, i) => i < 14 && code !== 'PLG-003' });
@@ -209,4 +217,7 @@ export async function airDemo(c: Demo, customers: Map<string, string>, tariffs: 
       await c.step(`konfirmasi rekap ${x.d}`, () => c.svc.utilityCounters.closeDay(keuangan, { counterId: x.counter_id, date: x.d, dispute, note: dispute ? 'Mutasi bank kurang Rp50.000 dari rekap, menunggu penjelasan kasir' : undefined }));
     }
   }
+
+  // ---- layanan air lanjutan: pengaduan, permohonan, koreksi, rute, meter, penagihan, produksi, kualitas air, dst.
+  await airOpsDemo(c, { conns, customers, zoneOf, kasir, keuangan, lapangan, pelayanan, counterIds, tariffRt: tariffs.rt });
 }

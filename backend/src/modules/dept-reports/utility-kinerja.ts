@@ -54,7 +54,7 @@ export const utilityKinerjaReport: Builder = async (c) => {
       SELECT to_char(d, 'YYYY-MM') AS month FROM generate_series(${c.from}::date, ${c.to}::date, interval '1 month') d GROUP BY 1) m
     LEFT JOIN (SELECT to_char(date, 'YYYY-MM') AS month, SUM(produced) AS produced, SUM(distributed) AS distributed FROM utility_production WHERE tenant_id = ${T} GROUP BY 1) p ON p.month = m.month
     LEFT JOIN (SELECT period AS month, SUM(usage) AS billed FROM utility_bills WHERE tenant_id = ${T} GROUP BY 1) b ON b.month = m.month ORDER BY m.month`);
-  const nrwRows = nrwRaw.map((r) => { const n = nonRevenueWater(num(r.distributed), num(r.billed)); return { month: r.month, produced: num(r.produced), distributed: num(r.distributed), billed: num(r.billed), volume: n.volume, pct: n.pct ?? 0, status: num(r.distributed) === 0 ? 'Belum ada data produksi' : (n.pct ?? 0) > NRW_WARN_PCT ? 'Di atas batas wajar' : 'Wajar' }; });
+  const nrwRows = nrwRaw.map((r) => { const n = num(r.billed) > 0 ? nonRevenueWater(num(r.distributed), num(r.billed)) : { volume: 0, pct: null as number | null }; return { month: r.month, produced: num(r.produced), distributed: num(r.distributed), billed: num(r.billed), volume: n.volume, pct: n.pct ?? 0, status: num(r.distributed) === 0 ? 'Belum ada data produksi' : num(r.billed) === 0 ? 'Belum ada tagihan bulan ini' : (n.pct ?? 0) > NRW_WARN_PCT ? 'Di atas batas wajar' : 'Wajar' }; });
 
   const quality = await rows<{ point: string; samples: number; failing: number }>(c, sql`
     SELECT point, COUNT(*)::int AS samples, COUNT(*) FILTER (WHERE NOT ok)::int AS failing FROM utility_water_quality WHERE tenant_id = ${T} AND sampled_on BETWEEN ${c.from} AND ${c.to} GROUP BY point ORDER BY point`);
@@ -66,7 +66,7 @@ export const utilityKinerjaReport: Builder = async (c) => {
   const open = sum(tariffRows, 'open');
   const cDone = sum(complaintRows, 'done');
   const cOnTime = sum(complaintRows, 'on_time');
-  const nrwTotal = nonRevenueWater(sum(nrwRows, 'distributed'), sum(nrwRows, 'billed'));
+  const nrwTotal = sum(nrwRows, 'billed') > 0 ? nonRevenueWater(sum(nrwRows.filter((r) => num(r.billed) > 0), 'distributed'), sum(nrwRows, 'billed')) : { volume: 0, pct: null as number | null };
   const qSamples = sum(qualityRows, 'samples');
   const qOk = sum(qualityRows, 'ok');
 
@@ -78,7 +78,7 @@ export const utilityKinerjaReport: Builder = async (c) => {
       { label: 'Efisiensi penagihan', value: billed ? (collected / billed) * 100 : 0, type: 'pct', tone: billed && collected / billed < 0.8 ? 'warn' : 'ok' },
       { label: 'Piutang air (akhir periode)', value: open, type: 'money', tone: open > 0 ? 'warn' : 'ok' },
       { label: 'Pengaduan selesai tepat waktu', value: cDone ? (cOnTime / cDone) * 100 : 0, type: 'pct', tone: cDone && cOnTime / cDone < 0.8 ? 'warn' : 'ok' },
-      { label: 'Air tak berekening (NRW)', value: nrwTotal.pct ?? 0, type: 'pct', tone: (nrwTotal.pct ?? 0) > NRW_WARN_PCT ? 'warn' : 'ok' },
+      nrwTotal.pct == null ? { label: 'Air tak berekening (NRW)', value: 'Belum ada data', type: 'text' as const } : { label: 'Air tak berekening (NRW)', value: nrwTotal.pct, type: 'pct' as const, tone: nrwTotal.pct > NRW_WARN_PCT || nrwTotal.pct < 0 ? 'warn' as const : 'ok' as const },
       { label: 'Sampel air memenuhi baku mutu', value: qSamples ? (qOk / qSamples) * 100 : 0, type: 'pct', tone: qSamples && qOk < qSamples ? 'warn' : 'ok' },
       { label: 'Sambungan aktif', value: sum(tariffRows, 'connections'), type: 'int' },
     ],

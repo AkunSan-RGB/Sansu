@@ -40,7 +40,7 @@ export function CollectionTab() {
       <ResponsiveTable<Row> rowKey="connection_id" size="small" loading={list.isLoading} dataSource={list.data} pagination={{ pageSize: 25 }} locale={{ emptyText: 'Tidak ada tunggakan pada rute ini' }}
         expandable={{ expandedRowRender: (r) => <VisitHistory connectionId={r.connection_id} /> }}
         columns={[
-          { title: 'Pelanggan', render: (_: unknown, r: Row) => <><b>{r.customer}</b><div style={{ fontSize: 12, color: '#64748b' }}>{r.number} · {r.address}</div>{r.route_name && <div style={{ fontSize: 12, color: '#64748b' }}>Rute {r.route_name}</div>}</> },
+          { title: 'Pelanggan', render: (_: unknown, r: Row) => <><b>{r.customer}</b><div style={{ fontSize: 12, color: '#64748b' }}>{r.number} · {r.address}</div>{r.route_name && <div style={{ fontSize: 12, color: '#64748b' }}>{r.route_name}</div>}</> },
           { title: 'Tunggakan', align: 'right' as const, render: (_: unknown, r: Row) => <>{fmtMoney(r.outstanding)}<div style={{ fontSize: 12, color: '#64748b' }}>{r.bills} tagihan</div></> },
           { title: 'Telat', render: (_: unknown, r: Row) => <Tag color={lateColor(r.days_late)}>{r.days_late} hari</Tag> },
           { title: 'Kunjungan terakhir', render: (_: unknown, r: Row) => (r.last_outcome ? <>{VISIT_OUTCOME_LABELS[r.last_outcome]}<div style={{ fontSize: 12, color: '#64748b' }}>{fmtDate(r.last_visit_at)}</div></> : <span style={{ color: '#94a3b8' }}>belum pernah</span>) },
