@@ -54,6 +54,12 @@ export class ReadingDto {
   @ApiPropertyOptional({ description: 'Foto meter (data URL png/jpeg/webp)' }) @IsOptional() @IsString() @MaxLength(450_000) @Matches(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/) photo?: string;
 }
 
+export class EstimateDto {
+  @ApiProperty() @IsUUID() connectionId: string;
+  @ApiProperty({ example: '2026-10' }) @Matches(/^\d{4}-(0[1-9]|1[0-2])$/) period: string;
+  @ApiPropertyOptional({ description: 'Alasan meter tidak terbaca (mis. meter tertutup, pagar terkunci)' }) @IsOptional() @IsString() @MaxLength(255) note?: string;
+}
+
 export class VerifyDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) note?: string;
 }

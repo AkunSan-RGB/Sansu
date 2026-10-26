@@ -25,13 +25,19 @@ import { ComplaintsService } from './complaints.service';
 import { NetworkAssetsController } from './network-assets.controller';
 import { NetworkAssetsRepository } from './network-assets.repository';
 import { NetworkAssetsService } from './network-assets.service';
+import { MetersController } from './meters.controller';
+import { MetersRepository } from './meters.repository';
+import { MetersService } from './meters.service';
+import { RoutesController } from './routes.controller';
+import { RoutesRepository } from './routes.repository';
+import { RoutesService } from './routes.service';
 import { StaffController } from './staff.controller';
 import { StaffRepository } from './staff.repository';
 import { StaffService } from './staff.service';
 
 @Module({
   imports: [UtilityModule, UtilityFieldModule, MasterDataModule, SalesModule, AccountingModule],
-  controllers: [StaffController, ComplaintsController, NetworkAssetsController, ApplicationsController, ChangesController, AdjustmentsController, DepositsController, InstallmentsController],
-  providers: [StaffRepository, StaffService, ComplaintsRepository, ComplaintsService, NetworkAssetsRepository, NetworkAssetsService, ApplicationsRepository, ApplicationsService, ChangesRepository, ChangesService, AdjustmentsRepository, AdjustmentsService, DepositsRepository, DepositsService, InstallmentsRepository, InstallmentsService],
+  controllers: [StaffController, ComplaintsController, NetworkAssetsController, ApplicationsController, ChangesController, AdjustmentsController, DepositsController, InstallmentsController, RoutesController, MetersController],
+  providers: [StaffRepository, StaffService, ComplaintsRepository, ComplaintsService, NetworkAssetsRepository, NetworkAssetsService, ApplicationsRepository, ApplicationsService, ChangesRepository, ChangesService, AdjustmentsRepository, AdjustmentsService, DepositsRepository, DepositsService, InstallmentsRepository, InstallmentsService, RoutesRepository, RoutesService, MetersRepository, MetersService],
 })
 export class UtilityOpsModule {}

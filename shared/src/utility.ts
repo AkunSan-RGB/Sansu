@@ -149,13 +149,15 @@ export function lateFee(billTotal: number, outstanding: number, daysLate: number
   return Math.min(fee, cap);
 }
 
-export type ReadingFlag = 'LONJAKAN' | 'NOL' | 'METER_DIGANTI' | 'DI_BAWAH_SEBELUMNYA' | 'JAUH_DARI_LOKASI';
+export type ReadingFlag = 'LONJAKAN' | 'NOL' | 'METER_DIGANTI' | 'DI_BAWAH_SEBELUMNYA' | 'JAUH_DARI_LOKASI' | 'TAKSIRAN' | 'TAKSIRAN_LEBIH';
 export const READING_FLAG_LABELS: Record<ReadingFlag, string> = {
   LONJAKAN: 'Pemakaian melonjak dibanding rata-rata',
   NOL: 'Pemakaian nol (meter macet / tidak dipakai?)',
   METER_DIGANTI: 'Meter diganti',
   DI_BAWAH_SEBELUMNYA: 'Angka di bawah catatan sebelumnya',
   JAUH_DARI_LOKASI: 'Dicatat jauh dari lokasi pelanggan',
+  TAKSIRAN: 'Pemakaian ditaksir (meter tidak terbaca)',
+  TAKSIRAN_LEBIH: 'Taksiran sebelumnya lebih besar dari pemakaian nyata',
 };
 
 /** Tandai kejanggalan satu pencatatan. `history` = pemakaian periode sebelumnya (terbaru dulu). */

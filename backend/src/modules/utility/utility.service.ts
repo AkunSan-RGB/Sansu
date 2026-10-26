@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { haversineM } from '../sales/canvass/canvass.service';
-import { AIR_REVENUE_KEYS, NON_AIR_REVENUE_KEYS, computeBill, DEFAULT_UTILITY_RULES, flagReading, isPeriod, lateFee, UTILITY_SERVICE_DEFAULTS, validateBlocks, validateRules, type TariffBlock, type UtilityRules } from '@sansu/shared';
+import { AIR_REVENUE_KEYS, NON_AIR_REVENUE_KEYS, estimateUsage, trueUpUsage, type ReadingFlag, computeBill, DEFAULT_UTILITY_RULES, flagReading, isPeriod, lateFee, UTILITY_SERVICE_DEFAULTS, validateBlocks, validateRules, type TariffBlock, type UtilityRules } from '@sansu/shared';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -17,7 +17,7 @@ import { utilityBills, utilityConnections, utilityReadings, utilityTariffs } fro
 import { PostingService } from '../accounting/posting.service';
 import { SYS, type SystemKey } from '../accounting/default-coa';
 import { ServiceBillingService } from '../sales/services/service-billing.service';
-import { RulesDto, TariffDto, ConnectionDto, SuspendDto, ReasonDto, ZoneDto, ZoneSupplyDto, ReadingDto, VerifyDto, BillRunDto } from './utility.dto';
+import { RulesDto, TariffDto, ConnectionDto, SuspendDto, ReasonDto, ZoneDto, ZoneSupplyDto, ReadingDto, EstimateDto, VerifyDto, BillRunDto } from './utility.dto';
 import { findOwned, insertOne, patchById } from '../../db/owned';
 import { UtilityRepository } from './utility.repository';
 
@@ -275,7 +275,15 @@ export class UtilityService {
       const cur = D(dto.current);
       if (!cur.isFinite() || cur.lt(0)) throw new BadRequestException('Angka meter tidak valid');
       let usage = cur.minus(prev);
-      if (dto.meterReplaced) {
+      const trueUpFlags: ReadingFlag[] = [];
+      if (last?.estimated && !dto.meterReplaced) {
+        // koreksi taksiran: pemakaian = angka nyata sekarang − angka nyata terakhir − yang sudah ditagih sebagai taksiran
+        const base = await this.repo.lastActualAndEstimated(tx, c.id, c.initial_reading);
+        if (cur.lt(D(base.actual))) throw new BadRequestException(`Angka meter (${cur.toString()}) lebih kecil dari angka nyata terakhir (${D(base.actual).toString()}). Bila meter diganti, centang "meter diganti".`);
+        const tu = trueUpUsage(cur.toNumber(), D(base.actual).toNumber(), D(base.estimatedBilled).toNumber());
+        usage = D(tu.usage);
+        if (tu.overEstimate > 0) trueUpFlags.push('TAKSIRAN_LEBIH');
+      } else if (dto.meterReplaced) {
         if (dto.oldMeterFinal === undefined || dto.newMeterStart === undefined) throw new BadRequestException('Meter diganti: isi angka akhir meter lama dan angka awal meter baru');
         const oldFinal = D(dto.oldMeterFinal);
         const newStart = D(dto.newMeterStart);
@@ -283,11 +291,12 @@ export class UtilityService {
         if (cur.lt(newStart)) throw new BadRequestException('Angka meter baru lebih kecil dari angka awalnya');
         if (!(dto.note ?? '').trim()) throw new BadRequestException('Meter diganti: tulis catatan (nomor meter baru, alasan penggantian)');
         usage = oldFinal.minus(prev).plus(cur.minus(newStart));
-      } else if (cur.lt(prev)) {
+      }
+      if (!last?.estimated && !dto.meterReplaced && cur.lt(prev)) {
         throw new BadRequestException(`Angka meter (${cur.toString()}) lebih kecil dari catatan sebelumnya (${prev.toString()}). Bila meter diganti, centang "meter diganti".`);
       }
       const hist = (await this.repo.queryUtilityReadingForEnterReading2(tx, c.id)).rows.map((x) => num(x.usage));
-      const flags = flagReading(usage.toNumber(), hist, rules, !!dto.meterReplaced);
+      const flags = [...flagReading(usage.toNumber(), hist, rules, !!dto.meterReplaced), ...trueUpFlags];
       // lokasi pencatat jauh dari lokasi pelanggan → tandai agar pemeriksa mengecek (foto/cek ulang)
       if (dto.lat != null && dto.lng != null) {
         const [cu] = await this.repo.findCustomersByIdForEnterReading(tx, c.customer_id);
@@ -303,6 +312,32 @@ export class UtilityService {
       }
     }));
     return { ...result.row, flags: result.flags, photo: undefined, hasPhoto: !!photoRef };
+  }
+
+  /**
+   * Taksiran untuk meter yang tidak terbaca: pemakaian = rata-rata pemakaian nyata (maksimal 3 periode terakhir). Tetap harus diverifikasi
+   * orang lain; pada pembacaan nyata berikutnya selisihnya dikoreksi otomatis (lihat enterReading). Maksimal dua periode berturut-turut.
+   */
+  async estimateReading(u: AuthUser, dto: EstimateDto) {
+    if (dto.period > todayJakarta().slice(0, 7)) throw new BadRequestException('Periode tidak boleh di masa depan');
+    return this.db.transaction(async (tx) => {
+      const c = await this.lockConnection(tx, u.tenantId, dto.connectionId);
+      if (c.status !== 'ACTIVE') throw new BadRequestException('Sambungan tidak aktif');
+      const [t] = await this.repo.findUtilityTariffsById(tx, c.tariff_id);
+      if (!t.metered) throw new BadRequestException('Layanan ini tarif tetap — tidak perlu catat meter');
+      if (dto.period < c.installed_at.slice(0, 7)) throw new BadRequestException('Periode sebelum tanggal pasang sambungan');
+      const last = (await this.repo.queryUtilityReadingForEnterReading(tx, c.id)).rows[0];
+      if (last && last.period >= dto.period) throw new BadRequestException(last.period === dto.period ? 'Periode ini sudah dicatat' : `Pencatatan terakhir sudah periode ${last.period}; periode harus setelahnya`);
+      const base = await this.repo.lastActualAndEstimated(tx, c.id, c.initial_reading);
+      if (last?.estimated && base.estimatedCount >= 2) throw new BadRequestException('Sudah ditaksir dua periode berturut-turut; periode ini wajib dicatat dari meter (kirim petugas)');
+      const est = estimateUsage(await this.repo.realUsageHistory(tx, c.id));
+      if (est == null) throw new BadRequestException('Belum ada riwayat pemakaian terverifikasi untuk dijadikan dasar taksiran; catat angka meter nyata');
+      const prev = D(last?.current ?? c.initial_reading);
+      const cur = prev.plus(est);
+      const row = await insertOne(tx, utilityReadings, { tenantId: u.tenantId, connectionId: c.id, period: dto.period, previous: prev.toString(), current: cur.toString(), usage: String(est), meterReplaced: false, flags: ['TAKSIRAN'], note: dto.note?.trim() ? `Taksiran: ${dto.note.trim()}` : 'Taksiran: rata-rata pemakaian periode sebelumnya (meter tidak terbaca)', enteredById: u.sub, source: 'TAKSIRAN', estimated: true });
+      await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityReading', entityId: row.id, data: { connection: c.number, period: dto.period, usage: est, estimated: true } });
+      return { ...row, photo: undefined };
+    });
   }
 
   private async lockReading(tx: Db | Parameters<Parameters<Db['transaction']>[0]>[0], tenantId: string, id: string) {
