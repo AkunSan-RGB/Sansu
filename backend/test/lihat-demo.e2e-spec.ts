@@ -98,9 +98,13 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(s('DAGANG'), 'pos_orders')).toBe(0);
     // Utilitas: sambungan, tarif bertingkat, catat meter terverifikasi, dan tagihan bulanan lewat faktur
     expect(await count(s('UTILITAS'), 'utility_tariffs')).toBe(4);
-    expect(await count(s('UTILITAS'), 'utility_connections')).toBe(24);
+    expect(await count(s('UTILITAS'), 'utility_connections')).toBe(25);
     expect(await count(s('UTILITAS'), 'utility_readings')).toBeGreaterThan(10);
     expect(await count(s('UTILITAS'), 'utility_bills')).toBeGreaterThan(10);
+    // setiap menu layanan air lanjutan terisi (agar pengunjung demo tidak melihat halaman kosong)
+    for (const table of ['utility_complaints', 'utility_network_assets', 'utility_work_orders', 'utility_applications', 'utility_connection_changes', 'utility_adjustments', 'utility_deposits', 'utility_installment_plans', 'utility_routes', 'utility_meters', 'utility_collection_visits', 'utility_notices', 'utility_portal_tokens', 'utility_production', 'utility_water_quality']) {
+      expect(await count(s('UTILITAS'), table)).toBeGreaterThan(0);
+    }
     expect(await count(s('UTILITAS'), 'pos_orders')).toBe(0);
     // F&B: menu dijual lewat kasir dan bahan terpotong otomatis sesuai resep; ada resep, barang setengah jadi, dan produksi adonan
     expect(await count(s('FNB'), 'pos_orders')).toBeGreaterThan(50);

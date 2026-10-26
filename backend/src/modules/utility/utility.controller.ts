@@ -4,7 +4,7 @@ import { RequireApp } from '../../common/apps/app.guard';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { UtilityService } from './utility.service';
-import { RulesDto, TariffDto, ConnectionDto, SuspendDto, ReasonDto, ZoneSupplyDto, ZoneDto, ReadingDto, VerifyDto, BillRunDto } from './utility.dto';
+import { RulesDto, TariffDto, ConnectionDto, SuspendDto, ReasonDto, ZoneSupplyDto, ZoneDto, ReadingDto, EstimateDto, VerifyDto, BillRunDto } from './utility.dto';
 
 @ApiTags('Layanan utilitas')
 @ApiBearerAuth()
@@ -36,6 +36,7 @@ export class UtilityController {
   @Get('readings') readings(@CurrentUser() u: AuthUser, @Query('period') period?: string, @Query('status') status?: string, @Query('connectionId') connectionId?: string) { return this.svc.readings(u.tenantId, { period, status, connectionId }); }
   @Get('readings/due') due(@CurrentUser() u: AuthUser, @Query('period') period: string) { return this.svc.due(u.tenantId, period); }
   @Roles('ADMIN', 'WAREHOUSE') @Post('readings') enter(@CurrentUser() u: AuthUser, @Body() dto: ReadingDto) { return this.svc.enterReading(u, dto); }
+  @Roles('ADMIN', 'WAREHOUSE') @Post('readings/estimate') estimate(@CurrentUser() u: AuthUser, @Body() dto: EstimateDto) { return this.svc.estimateReading(u, dto); }
   @Roles('ADMIN', 'FINANCE') @Post('readings/:id/verify') verify(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VerifyDto) { return this.svc.verify(u, id, dto); }
   @Roles('ADMIN', 'FINANCE') @Post('readings/:id/reject') reject(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto) { return this.svc.reject(u, id, dto); }
 

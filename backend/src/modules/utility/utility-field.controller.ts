@@ -20,7 +20,7 @@ export class UtilityFieldController {
   @Roles('ADMIN', 'WAREHOUSE') @Post('readings/import') import(@CurrentUser() u: AuthUser, @Body() dto: ImportDto) { return this.svc.importRows(u, dto.rows, 'IMPORT'); }
   /** Pencatatan dari HP petugas: sama dengan input biasa tetapi membawa lokasi dan foto meter */
   @Roles('ADMIN', 'WAREHOUSE') @Post('field/readings') field(@CurrentUser() u: AuthUser, @Body() dto: ReadingDto) { return this.util.enterReading(u, dto, 'LAPANGAN'); }
-  @Roles('ADMIN', 'WAREHOUSE') @Get('field/route') route(@CurrentUser() u: AuthUser, @Query('period') period: string) { return this.svc.fieldRoute(u.tenantId, period); }
+  @Roles('ADMIN', 'WAREHOUSE') @Get('field/route') route(@CurrentUser() u: AuthUser, @Query('period') period: string, @Query('routeId') routeId?: string) { return this.svc.fieldRoute(u.tenantId, period, routeId || undefined); }
   @Get('readings/:id/photo') photo(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) { return this.svc.photo(u.tenantId, id); }
 
   @Roles('ADMIN') @Get('ingest-keys') keys(@CurrentUser() u: AuthUser) { return this.svc.keys(u.tenantId); }

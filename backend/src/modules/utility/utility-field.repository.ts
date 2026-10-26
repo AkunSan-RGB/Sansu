@@ -190,14 +190,15 @@ export class UtilityFieldRepository {
   }
 
   /** Dipakai oleh UtilityFieldService.fieldRoute */
-  queryUtilityConnectionForFieldRoute(db: DbOrTx, tenantId: string, period: string) {
+  queryUtilityConnectionForFieldRoute(db: DbOrTx, tenantId: string, period: string, routeId?: string) {
     return db.execute(sql`
       SELECT c.id, c.number, c.meter_no AS "meterNo", c.address, cu.name AS "customerName", cu.geo_lat AS lat, cu.geo_lng AS lng, t.unit,
              COALESCE((SELECT r.current FROM utility_readings r WHERE r.connection_id = c.id AND r.status <> 'REJECTED' ORDER BY r.period DESC LIMIT 1), c.initial_reading) AS previous
       FROM utility_connections c JOIN customers cu ON cu.id = c.customer_id JOIN utility_tariffs t ON t.id = c.tariff_id
       WHERE c.tenant_id = ${tenantId} AND c.status = 'ACTIVE' AND t.metered AND to_char(c.installed_at, 'YYYY-MM') <= ${period}
         AND NOT EXISTS (SELECT 1 FROM utility_readings r WHERE r.connection_id = c.id AND r.period = ${period} AND r.status <> 'REJECTED')
-      ORDER BY c.address LIMIT 1000`);
+        AND (${routeId ?? null}::uuid IS NULL OR c.route_id = ${routeId ?? null}::uuid)
+      ORDER BY c.route_seq NULLS LAST, c.address LIMIT 1000`);
   }
 
   /** Dipakai oleh UtilityFieldService.photo */

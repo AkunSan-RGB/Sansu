@@ -26,11 +26,14 @@ export function ReadingsTab() {
   const [photoOf, setPhotoOf] = useState<string | null>(null);
   const photo = useQuery({ queryKey: ['utility', 'photo', photoOf], queryFn: () => get<{ photo: string | null }>(`/utility/readings/${photoOf}/photo`), enabled: !!photoOf });
   const [entering, setEntering] = useState<Due | null>(null);
+  const [estimating, setEstimating] = useState<Due | null>(null);
+  const [noteEst, setNoteEst] = useState('');
   const [deciding, setDeciding] = useState<{ r: Reading; mode: 'verify' | 'reject' } | null>(null);
   const [ef] = Form.useForm();
   const [df] = Form.useForm<{ note?: string; reason?: string }>();
   const replaced = Form.useWatch('meterReplaced', ef);
   const enter = useAction((v: { connectionId: string; current: number; meterReplaced?: boolean; oldMeterFinal?: number; newMeterStart?: number; note?: string }) => post<Reading>('/utility/readings', { ...v, period, current: String(v.current), oldMeterFinal: v.oldMeterFinal == null ? undefined : String(v.oldMeterFinal), newMeterStart: v.newMeterStart == null ? undefined : String(v.newMeterStart) }), { success: 'Angka meter dicatat — menunggu verifikasi', invalidate: ['utility'], onSuccess: () => setEntering(null) });
+  const estimate = useAction(() => post('/utility/readings/estimate', { connectionId: estimating!.id, period, note: noteEst.trim() || undefined }), { success: 'Pemakaian ditaksir dari rata-rata — otomatis dikoreksi pada pencatatan meter berikutnya', invalidate: ['utility'], onSuccess: () => { setEstimating(null); setNoteEst(''); } });
   const decide = useAction((v: { id: string; mode: 'verify' | 'reject'; note?: string; reason?: string }) => post(`/utility/readings/${v.id}/${v.mode}`, v.mode === 'verify' ? { note: v.note } : { reason: v.reason }), { success: 'Tersimpan', invalidate: ['utility'], onSuccess: () => setDeciding(null) });
   return (
     <>
@@ -48,7 +51,7 @@ export function ReadingsTab() {
               { title: 'Alamat', dataIndex: 'address', ellipsis: true },
               { title: 'Meter', dataIndex: 'meterNo' },
               { title: 'Angka sebelumnya', render: (_: unknown, d: Due) => `${Number(d.previous)} ${d.unit}` },
-              { render: (_: unknown, d: Due) => <Button size="small" type="primary" onClick={() => { ef.resetFields(); setEntering(d); }}>Catat</Button> },
+              { render: (_: unknown, d: Due) => <Space><Button size="small" type="primary" onClick={() => { ef.resetFields(); setEntering(d); }}>Catat</Button>{can('POST', '/utility/readings/estimate') && <Button size="small" onClick={() => setEstimating(d)}>Taksir</Button>}</Space> },
             ]}
           />
         </>
@@ -72,6 +75,10 @@ export function ReadingsTab() {
           },
         ]}
       />
+      <Modal title={estimating ? `Taksir pemakaian — ${estimating.number}` : ''} open={!!estimating} onCancel={() => setEstimating(null)} onOk={() => estimate.mutate(undefined)} confirmLoading={estimate.isPending} okText="Taksir" destroyOnHidden>
+        <Typography.Paragraph>Untuk meter yang tidak bisa dibaca (tertutup, pagar terkunci). Pemakaian dihitung dari rata-rata sampai 3 periode nyata terakhir. Pada pencatatan meter berikutnya selisihnya dikoreksi otomatis. Maksimal 2 periode berturut-turut.</Typography.Paragraph>
+        <Input placeholder="Alasan meter tidak terbaca" value={noteEst} onChange={(e) => setNoteEst(e.target.value)} maxLength={255} />
+      </Modal>
       <Modal title="Foto meter" open={!!photoOf} onCancel={() => setPhotoOf(null)} footer={null} destroyOnHidden>
         {photo.data?.photo ? <img src={photo.data.photo} alt="Foto meter" style={{ maxWidth: '100%' }} /> : <Typography.Text type="secondary">{photo.isLoading ? 'Memuat…' : 'Tidak ada foto'}</Typography.Text>}
       </Modal>

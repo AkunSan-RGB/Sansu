@@ -68,36 +68,57 @@ export const MENU: Group[] = [
     children: [
       { key: '/utility/ringkasan', label: 'Ringkasan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'WAREHOUSE'] },
       {
-        section: SEC.prep,
+        section: 'Pelanggan & pelayanan',
         items: [
           { key: '/customers', label: 'Pelanggan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
+          { key: '/utility/permohonan', label: 'Permohonan sambungan baru', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'WAREHOUSE'] },
           { key: '/utility/sambungan', label: 'Sambungan & meter', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'WAREHOUSE'] },
-          { key: '/utility/tarif', label: 'Tarif air & aturan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-          { key: '/utility/non-air', label: 'Layanan non-air', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
-          { key: '/utility/lokasi', label: 'Daftar loket', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/utility/mutasi', label: 'Balik nama, ganti golongan, tutup', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
+          { key: '/utility/pengaduan', label: 'Pengaduan & gangguan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'WAREHOUSE'] },
+          { key: '/utility/portal', label: 'Portal pelanggan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES'] },
         ],
       },
       {
         section: 'Meter & tagihan',
         items: [
+          { key: '/utility/tarif', label: 'Tarif air & aturan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/utility/rute', label: 'Rute baca & tagih', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'WAREHOUSE'] },
           { key: '/utility/meter', label: 'Catat & verifikasi meter', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE'] },
           { key: '/utility/lapangan', label: 'Petugas lapangan', roles: ['OWNER', 'ADMIN', 'WAREHOUSE'] },
           { key: '/utility/impor', label: 'Impor & alat meter', roles: ['OWNER', 'ADMIN', 'WAREHOUSE'] },
           { key: '/utility/tagihan', label: 'Tagihan air bulanan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/utility/non-air', label: 'Layanan non-air', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
+          { key: '/utility/koreksi', label: 'Koreksi tagihan & denda', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
         ],
       },
       {
-        section: 'Penerimaan',
+        section: 'Penerimaan & penagihan',
         items: [
           { key: '/utility/loket', label: 'Terima pembayaran (loket)', roles: ['OWNER', 'ADMIN', 'FINANCE', 'CASHIER'] },
           { key: '/utility/rekap', label: 'Rekap harian loket', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/utility/lokasi', label: 'Daftar loket', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/invoices', label: 'Faktur & piutang', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/utility/tunggakan', label: 'Tunggakan & pemutusan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/utility/cetak', label: 'Cetak & kirim tagihan/SP', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
+          { key: '/utility/penagihan', label: 'Penagihan lapangan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE'] },
+          { key: '/utility/angsuran', label: 'Angsuran tunggakan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
+          { key: '/utility/jaminan', label: 'Deposit / jaminan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
+        ],
+      },
+      {
+        section: 'Teknik & produksi',
+        items: [
+          { key: '/utility/inventaris', label: 'Inventaris & tera meter', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE'] },
+          { key: '/utility/aset', label: 'Aset jaringan', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'WAREHOUSE'] },
+          { key: '/utility/perintah-kerja', label: 'Perintah kerja', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'WAREHOUSE'] },
+          { key: '/utility/produksi', label: 'Produksi air & NRW', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE'] },
+          { key: '/utility/kualitas', label: 'Kualitas air', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'WAREHOUSE'] },
         ],
       },
       {
         section: SEC.rep,
         items: [
+          { key: '/laporan/utility-kinerja', label: 'Laporan kinerja PAM', roles: REPORT_ROLES },
           { key: '/laporan/utility', label: 'Laporan layanan air', roles: REPORT_ROLES },
           { key: '/laporan/utility-nonair', label: 'Laporan layanan non-air', roles: REPORT_ROLES },
           { key: '/utility/zona', label: 'Kehilangan air per zona', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },

@@ -31,6 +31,7 @@ export const DEPT_REPORTS: Record<string, { title: string; support?: string }> =
   jasa: { title: 'Laporan jasa & proyek', support: 'jasa' },
   utility: { title: 'Laporan utilitas', support: 'utility' },
   'utility-nonair': { title: 'Laporan layanan non-air', support: 'utility' },
+  'utility-kinerja': { title: 'Laporan kinerja layanan air', support: 'utility' },
   hr: { title: 'Laporan SDM' },
 };
 

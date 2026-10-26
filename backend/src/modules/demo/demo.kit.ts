@@ -46,6 +46,19 @@ import { ServiceBillingService } from '../sales/services/service-billing.service
 import { CustomerDepositsService } from '../sales/services/customer-deposits.service';
 import { ServiceProjectsService } from '../sales/services/service-projects.service';
 import { PricingService } from '../sales/pricing/price-lists.service';
+import { AdjustmentsService } from '../utility-ops/adjustments.service';
+import { ApplicationsService } from '../utility-ops/applications.service';
+import { ChangesService } from '../utility-ops/changes.service';
+import { CollectionService } from '../utility-ops/collection.service';
+import { ComplaintsService } from '../utility-ops/complaints.service';
+import { DepositsService } from '../utility-ops/deposits.service';
+import { InstallmentsService } from '../utility-ops/installments.service';
+import { MetersService } from '../utility-ops/meters.service';
+import { NetworkAssetsService } from '../utility-ops/network-assets.service';
+import { NoticesService } from '../utility-ops/notices.service';
+import { PortalService } from '../utility-ops/portal.service';
+import { WaterProductionService } from '../utility-ops/production.service';
+import { RoutesService } from '../utility-ops/routes.service';
 import { UtilityChargesService } from '../utility/utility-charges.service';
 import { UtilityCountersService } from '../utility/utility-counters.service';
 import { UtilityFieldService } from '../utility/utility-field.service';
@@ -105,6 +118,8 @@ export interface Demo {
     utilityCharges: UtilityChargesService;
     utilityField: UtilityFieldService;
     canvass: CanvassService;
+    /** Layanan air lanjutan (pengaduan, permohonan, koreksi, rute, meter, penagihan, produksi, dst.) */
+    water: { complaints: ComplaintsService; assets: NetworkAssetsService; applications: ApplicationsService; changes: ChangesService; adjustments: AdjustmentsService; deposits: DepositsService; installments: InstallmentsService; routes: RoutesService; meters: MetersService; collection: CollectionService; notices: NoticesService; portal: PortalService; production: WaterProductionService };
   };
   acc: (code: string) => string;
   kas: string;
@@ -225,6 +240,7 @@ export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: 
       utilityCharges: get(UtilityChargesService),
       utilityField: get(UtilityFieldService),
       canvass: get(CanvassService),
+      water: { complaints: get(ComplaintsService), assets: get(NetworkAssetsService), applications: get(ApplicationsService), changes: get(ChangesService), adjustments: get(AdjustmentsService), deposits: get(DepositsService), installments: get(InstallmentsService), routes: get(RoutesService), meters: get(MetersService), collection: get(CollectionService), notices: get(NoticesService), portal: get(PortalService), production: get(WaterProductionService) },
     },
     acc: (code) => acc.get(code)!,
     kas: acc.get('1-1100')!,

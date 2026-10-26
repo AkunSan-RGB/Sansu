@@ -9,9 +9,15 @@ import { AuthUser } from '../../common/auth/auth-user';
 import type { Decimal } from 'decimal.js';
 import type { SQL } from 'drizzle-orm';
 
+
 /** Akses data untuk Utility: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
 export class UtilityRepository {
+  async connectionsWithInstallment(db: DbOrTx, tenantId: string) {
+    const r = await db.execute<{ connection_id: string }>(sql`SELECT DISTINCT connection_id FROM utility_installment_plans WHERE tenant_id = ${tenantId} AND status = 'AKTIF' AND connection_id IS NOT NULL`);
+    return new Set(r.rows.map((x) => x.connection_id));
+  }
+
   /** Dipakai oleh UtilityService.tariffs */
   queryUtilityTariff(db: DbOrTx, tenantId: string) {
     return db.execute<Record<string, unknown>>(sql`
@@ -164,9 +170,22 @@ export class UtilityRepository {
 
   /** Dipakai oleh UtilityService.enterReading */
   queryUtilityReadingForEnterReading(db: DbOrTx, id: string) {
-    return db.execute<{ period: string; current: string; status: string; id: string }>(
-      sql`SELECT id, period, current, status FROM utility_readings WHERE connection_id = ${id} AND status <> 'REJECTED' ORDER BY period DESC LIMIT 1`,
+    return db.execute<{ period: string; current: string; status: string; id: string; estimated: boolean }>(
+      sql`SELECT id, period, current, status, estimated FROM utility_readings WHERE connection_id = ${id} AND status <> 'REJECTED' ORDER BY period DESC LIMIT 1`,
     );
+  }
+
+  /** Angka meter nyata terakhir (bukan taksiran) dan jumlah pemakaian taksiran yang sudah dicatat sesudahnya */
+  async lastActualAndEstimated(db: DbOrTx, connectionId: string, initialReading: string) {
+    const a = await db.execute<{ current: string; period: string }>(sql`SELECT current, period FROM utility_readings WHERE connection_id = ${connectionId} AND status <> 'REJECTED' AND NOT estimated ORDER BY period DESC LIMIT 1`);
+    const base = a.rows[0];
+    const e = await db.execute<{ v: string; n: number }>(sql`SELECT COALESCE(SUM(usage), 0)::text AS v, COUNT(*)::int AS n FROM utility_readings WHERE connection_id = ${connectionId} AND status <> 'REJECTED' AND estimated AND period > ${base?.period ?? ''}`);
+    return { actual: base?.current ?? initialReading, estimatedBilled: e.rows[0]?.v ?? '0', estimatedCount: e.rows[0]?.n ?? 0 };
+  }
+  /** Pemakaian nyata terverifikasi/ditagih terakhir (maksimal 3) untuk menaksir */
+  async realUsageHistory(db: DbOrTx, connectionId: string) {
+    const r = await db.execute<{ usage: string }>(sql`SELECT usage FROM utility_readings WHERE connection_id = ${connectionId} AND NOT estimated AND status IN ('VERIFIED', 'BILLED') ORDER BY period DESC LIMIT 3`);
+    return r.rows.map((x) => Number(x.usage));
   }
 
   /** Dipakai oleh UtilityService.enterReading */

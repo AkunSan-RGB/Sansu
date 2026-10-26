@@ -211,9 +211,9 @@ export class UtilityFieldService {
   }
 
   /** Daftar kerja petugas lapangan: sambungan yang belum dicatat periode ini, beserta koordinat pelanggan bila ada */
-  async fieldRoute(tenantId: string, period: string) {
+  async fieldRoute(tenantId: string, period: string, routeId?: string) {
     if (!PERIOD.test(period)) throw new BadRequestException('Periode tidak valid (YYYY-MM)');
-    const r = await this.repo.queryUtilityConnectionForFieldRoute(this.db, tenantId, period);
+    const r = await this.repo.queryUtilityConnectionForFieldRoute(this.db, tenantId, period, routeId);
     return r.rows;
   }
 

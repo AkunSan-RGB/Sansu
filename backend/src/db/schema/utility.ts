@@ -98,7 +98,9 @@ export const utilityReadings = pgTable(
     verifiedAt: timestamp('verified_at', { withTimezone: true }),
     verifyNote: text('verify_note'),
     billId: uuid('bill_id').references(() => utilityBills.id),
-    source: text('source').$type<'MANUAL' | 'LAPANGAN' | 'IMPORT' | 'API'>().notNull().default('MANUAL'),
+    source: text('source').$type<'MANUAL' | 'LAPANGAN' | 'IMPORT' | 'API' | 'TAKSIRAN'>().notNull().default('MANUAL'),
+    /** Pemakaian ditaksir dari rata-rata karena meter tidak terbaca; dikoreksi otomatis pada pembacaan nyata berikutnya */
+    estimated: boolean('estimated').notNull().default(false),
     lat: numeric('lat', { precision: 9, scale: 6 }),
     lng: numeric('lng', { precision: 9, scale: 6 }),
     photo: text('photo'),

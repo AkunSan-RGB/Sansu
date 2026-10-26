@@ -45,6 +45,7 @@ import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { WorkflowModule } from './modules/workflow/workflow.module';
 import { UtilityModule } from './modules/utility/utility.module';
 import { UtilityFieldModule } from './modules/utility/utility-field.module';
+import { UtilityOpsModule } from './modules/utility-ops/utility-ops.module';
 import { StorageModule } from './common/storage/storage.service';
 import { CardSettlementModule } from './modules/pos/pos-settlement.module';
 import { BankModule } from './modules/bank/bank.module';
@@ -110,6 +111,7 @@ import { DataRightsModule } from './modules/data-rights/data-rights.module';
     WorkflowModule,
     UtilityModule,
     UtilityFieldModule,
+    UtilityOpsModule,
     StorageModule,
     CardSettlementModule,
     TaxModule,
