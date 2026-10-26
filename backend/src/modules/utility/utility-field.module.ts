@@ -15,5 +15,6 @@ import { UtilityCountersService } from './utility-counters.service';
   imports: [UtilityModule, SalesModule, AccountingModule],
   controllers: [UtilityFieldController, UtilityCountersController, UtilityIngestController],
   providers: [UtilityFieldRepository, UtilityFieldService, UtilityIngestGuard, UtilityChargesRepository, UtilityChargesService, UtilityCountersRepository, UtilityCountersService],
+  exports: [UtilityChargesService, UtilityFieldService],
 })
 export class UtilityFieldModule {}
