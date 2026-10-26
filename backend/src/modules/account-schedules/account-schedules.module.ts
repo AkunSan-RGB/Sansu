@@ -12,13 +12,17 @@ import { BankReconciliationSchedule } from './schedules/bank.schedule';
 import { DepreciationExpenseSchedule, FixedAssetAccumulatedSchedule, FixedAssetCostSchedule } from './schedules/fixed-asset.schedules';
 import { InventorySchedule } from './schedules/inventory.schedule';
 import { PayableSchedule, ReceivableSchedule } from './schedules/party.schedules';
-import { CashSchedule, CostOfSalesSchedule, EquitySchedule, ExpenseSchedule, GenericSchedule, RevenueSchedule, TaxSchedule } from './schedules/profile.schedules';
-import { AccrualSchedule, DeferredRevenueSchedule, LoanSchedule, PrepaidSchedule } from './schedules/journal-item.schedules';
+import { CashSchedule, CostOfSalesSchedule, ExpenseSchedule, RevenueSchedule, TaxSchedule } from './schedules/profile.schedules';
+import { ContractExtras } from './schedules/contract-extras';
+import { FinancingContractsController } from './financing-contracts.controller';
+import { FinancingContractsRepository } from './financing-contracts.repository';
+import { FinancingContractsService } from './financing-contracts.service';
+import { AccrualSchedule, DeferredRevenueSchedule, EquitySchedule, GenericSchedule, LeaseSchedule, LoanSchedule, PrepaidSchedule } from './schedules/journal-item.schedules';
 import { UnclosedEarningsSchedule } from './schedules/unclosed-earnings.schedule';
 
 @Module({
   imports: [AccountingModule, BankModule],
-  controllers: [AccountSchedulesController],
+  controllers: [AccountSchedulesController, FinancingContractsController],
   providers: [
     AccountSchedulesRepository,
     AccountSchedulesService,
@@ -39,7 +43,11 @@ import { UnclosedEarningsSchedule } from './schedules/unclosed-earnings.schedule
     PrepaidSchedule,
     AccrualSchedule,
     DeferredRevenueSchedule,
+    LeaseSchedule,
     LoanSchedule,
+    ContractExtras,
+    FinancingContractsRepository,
+    FinancingContractsService,
     EquitySchedule,
     CostOfSalesSchedule,
     RevenueSchedule,

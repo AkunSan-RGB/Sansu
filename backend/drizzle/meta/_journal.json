@@ -750,6 +750,13 @@
       "when": 1797532686484,
       "tag": "0106_snapshot_laporan",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1797619086484,
+      "tag": "0107_kontrak_pembiayaan",
+      "breakpoints": true
     }
   ]
 }

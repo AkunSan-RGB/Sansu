@@ -87,4 +87,27 @@ describe('Pembekuan laporan keuangan (e2e)', () => {
     await http.post('/api/account-schedules/snapshots').set(as(owner)).send({ year: year + 1 }).expect(400);
     await http.get(`/api/account-schedules/snapshots/compare?year=${year - 3}`).set(as(owner)).expect(404);
   });
+
+  it('rincian lengkap ikut dibekukan: dapat dibuka kembali apa adanya walau pembukuan sudah berubah, dan rincian yang berubah terdeteksi', async () => {
+    const acc = (await http.get('/api/accounting/accounts').set(as(owner))).body as { id: string; code: string }[];
+    const cash = acc.find((a) => a.code === '1-1100')!.id;
+    const equity = acc.find((a) => a.code === '3-1000')!.id;
+    // versi 2 sudah memuat modal 5.000.000 + 700.000; tambah jurnal baru lalu buka rincian yang dibekukan (versi 2)
+    await new Promise((r) => setTimeout(r, 1100));
+    await http.post('/api/accounting/journals').set(as(owner)).send({ date: today, description: 'Setelah versi 2', lines: [{ accountId: cash, debit: '100000' }, { accountId: equity, credit: '100000' }] }).expect(201);
+    const frozen = (await http.get(`/api/account-schedules/snapshots/detail?year=${year}&accountId=${cash}&version=2`).set(as(owner)).expect(200)).body;
+    expect(frozen.snapshot.version).toBe(2);
+    expect(Number(frozen.reported)).toBe(5700000);
+    const monthly = frozen.tables.find((t: { key: string }) => t.key === 'ledger-monthly');
+    expect(Number(monthly.total.closing)).toBe(5700000);
+    const live = (await http.get(`/api/account-schedules/${cash}?year=${year}`).set(as(owner)).expect(200)).body;
+    expect(Number(live.reported)).toBe(5800000);
+    const c = (await http.get(`/api/account-schedules/snapshots/compare?year=${year}`).set(as(owner)).expect(200)).body;
+    const row = c.accounts.find((a: { code: string }) => a.code === '1-1100');
+    expect(row.detailChanged).toBe(true);
+    expect(Number(row.delta)).toBe(100000);
+    expect(c.frozenAccounts.some((a: { accountId: string }) => a.accountId === cash)).toBe(true);
+    await http.get(`/api/account-schedules/snapshots/detail?year=${year}&accountId=00000000-0000-4000-8000-000000000000`).set(as(owner)).expect(404);
+    await http.get(`/api/account-schedules/snapshots/detail?year=${year}`).set(as(owner)).expect(400);
+  });
 });

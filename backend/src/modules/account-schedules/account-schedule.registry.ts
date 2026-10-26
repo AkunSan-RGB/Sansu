@@ -5,8 +5,8 @@ import { BankReconciliationSchedule } from './schedules/bank.schedule';
 import { DepreciationExpenseSchedule, FixedAssetAccumulatedSchedule, FixedAssetCostSchedule } from './schedules/fixed-asset.schedules';
 import { InventorySchedule } from './schedules/inventory.schedule';
 import { ReceivableSchedule, PayableSchedule } from './schedules/party.schedules';
-import { CashSchedule, CostOfSalesSchedule, EquitySchedule, ExpenseSchedule, GenericSchedule, RevenueSchedule, TaxSchedule } from './schedules/profile.schedules';
-import { AccrualSchedule, DeferredRevenueSchedule, LoanSchedule, PrepaidSchedule } from './schedules/journal-item.schedules';
+import { CashSchedule, CostOfSalesSchedule, ExpenseSchedule, RevenueSchedule, TaxSchedule } from './schedules/profile.schedules';
+import { AccrualSchedule, DeferredRevenueSchedule, EquitySchedule, GenericSchedule, LeaseSchedule, LoanSchedule, PrepaidSchedule } from './schedules/journal-item.schedules';
 import { UnclosedEarningsSchedule } from './schedules/unclosed-earnings.schedule';
 
 /**
@@ -31,6 +31,7 @@ export class ScheduleRegistry {
     prepaid: PrepaidSchedule,
     accrual: AccrualSchedule,
     deferred: DeferredRevenueSchedule,
+    lease: LeaseSchedule,
     loan: LoanSchedule,
     equity: EquitySchedule,
     costOfSales: CostOfSalesSchedule,
@@ -38,7 +39,7 @@ export class ScheduleRegistry {
     expense: ExpenseSchedule,
     generic: GenericSchedule,
   ) {
-    this.ordered = [unclosed, assetCost, assetAccumulated, depreciation, receivable, payable, inventory, bank, cash, tax, prepaid, accrual, deferred, loan, equity, costOfSales, revenue, expense, generic];
+    this.ordered = [unclosed, assetCost, assetAccumulated, depreciation, receivable, payable, inventory, bank, cash, tax, prepaid, accrual, deferred, lease, loan, equity, costOfSales, revenue, expense, generic];
   }
 
   resolve(account: AccountMeta, catalog: ScheduleCatalog): AccountSchedule {

@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import type { AccountMeta } from '../../accounting/ledger-data';
-import type { ScheduleCatalog } from '../account-schedule.types';
 import { MovementSchedule, sideLabels, type MovementProfile } from './movement.schedule';
 
 const TAX_KEYS = ['VAT_IN', 'VAT_OUT', 'PPH21_PAYABLE', 'PPH23_PAYABLE', 'PPH4_2_PAYABLE', 'FINAL_TAX_WITHHELD', 'CORPORATE_TAX_PAYABLE'];
@@ -38,25 +37,6 @@ export class TaxSchedule extends MovementSchedule {
         basis: 'Saldo pajak menurut jurnal yang memakai akun ini, per bulan masa pajak.',
         formulas: ['Saldo akhir = saldo awal + pemungutan/pemotongan − penyetoran/kompensasi', 'Kurang bayar = saldo kredit; lebih bayar = saldo debit'],
         policies: ['Cocokkan dengan Setoran Pajak dan SPT Masa tiap bulan.', 'PPN keluaran dikurangi PPN masukan menentukan PPN kurang/lebih bayar masa itu.'],
-      },
-    };
-  }
-}
-
-@Injectable()
-export class EquitySchedule extends MovementSchedule {
-  readonly kind = 'EQUITY';
-  supports(a: AccountMeta) {
-    return a.type === 'EQUITY';
-  }
-  protected profile(a: AccountMeta): MovementProfile {
-    return {
-      title: 'Rincian ekuitas',
-      labels: sideLabels(a, 'Pengurangan (debit)', 'Penambahan (kredit)'),
-      method: {
-        basis: 'Perubahan akun ekuitas menurut jurnal: setoran modal, pengambilan pemilik/dividen, dan penutupan laba rugi.',
-        formulas: ['Saldo akhir = saldo awal + setoran modal/laba ditutup − pengambilan/dividen/rugi ditutup'],
-        policies: ['Laba (rugi) tahun berjalan yang belum ditutup disajikan terpisah di laporan posisi keuangan (lihat baris "Laba (rugi) belum ditutup").'],
       },
     };
   }
@@ -112,27 +92,6 @@ export class ExpenseSchedule extends MovementSchedule {
       method: {
         basis: 'Beban diakui pada periode terjadinya (basis akrual); pembayaran di muka diamortisasi, beban yang belum dibayar diakru.',
         formulas: ['Beban bulan = beban dibukukan (debit) − koreksi/pembalikan (kredit)', 'Akumulasi = jumlah beban sejak 1 Januari'],
-      },
-    };
-  }
-}
-
-/** Cadangan: akun yang belum punya jadwal khusus mendapat mutasi bulanan dan ditandai agar metodenya ditentukan */
-@Injectable()
-export class GenericSchedule extends MovementSchedule {
-  readonly kind = 'GENERIC';
-  protected readonly needsDefinition = true;
-  supports(_a: AccountMeta, _c: ScheduleCatalog) {
-    return true;
-  }
-  protected profile(a: AccountMeta): MovementProfile {
-    return {
-      title: 'Rincian akun (mutasi bulanan)',
-      labels: sideLabels(a, 'Debit', 'Kredit'),
-      method: {
-        basis: 'Mutasi akun menurut jurnal buku besar. Akun ini belum punya jadwal rincian khusus (daftar per pihak/item dan perhitungannya).',
-        formulas: ['Saldo akhir = saldo awal + penambahan − pengurangan'],
-        policies: ['Tentukan jenis rincian dan metode perhitungan akun ini bersama akuntan sebelum diserahkan ke auditor.'],
       },
     };
   }

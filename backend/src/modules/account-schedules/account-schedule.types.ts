@@ -14,6 +14,8 @@ export interface ScheduleRow {
   cells: Record<string, Cell>;
   /** Rute halaman tempat baris ini ditelusuri ke buku besar atau dokumen asal */
   link?: string;
+  /** Baris tanpa isi (mis. bulan tanpa mutasi): tampilan menyembunyikannya secara bawaan */
+  muted?: boolean;
 }
 
 export interface ScheduleTable {
@@ -47,6 +49,8 @@ export interface ScheduleCatalog {
   assetExpenseIds: Set<string>;
   /** Akun kas yang berupa rekening bank (akun bank bawaan atau yang sudah punya rekening koran) */
   bankAccountIds: Set<string>;
+  /** Akun neraca yang punya kontrak terdaftar, per jenis kontrak (pinjaman, sewa pembiayaan, dibayar di muka) */
+  contractAccountIds: { LOAN: Set<string>; LEASE: Set<string>; PREPAID: Set<string> };
 }
 
 export interface ScheduleContext {

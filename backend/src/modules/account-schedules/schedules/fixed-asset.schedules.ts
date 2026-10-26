@@ -123,7 +123,7 @@ export class FixedAssetCostSchedule extends FixedAssetSchedule {
       tOpen = tOpen.plus(open); tAdd = tAdd.plus(add); tSub = tSub.plus(sub); tClose = tClose.plus(close);
       rows.push({
         cells: { code: a.code, name: a.name, category: category.name, acquired: a.acquisitionDate, disposed: a.disposalDate, opening: money(open), add: money(add), sub: money(sub), closing: money(close) },
-        link: `/account-schedules?manage=1&asset=${a.id}`,
+        link: `/support-reports?kind=aset&asset=${a.id}`,
       });
     }
     const perAsset: ScheduleTable = {
@@ -138,7 +138,8 @@ export class FixedAssetCostSchedule extends FixedAssetSchedule {
       const open = assets.reduce((s, r) => s.plus(calc.costAt(r.asset, p)), ZERO);
       const close = assets.reduce((s, r) => s.plus(calc.costAt(r.asset, t)), ZERO);
       const add = assets.reduce((s, r) => (r.asset.acquisitionDate >= f && r.asset.acquisitionDate <= t ? s.plus(r.asset.cost) : s), ZERO);
-      return { cells: { month: MONTH_NAMES[i], opening: money(open), add: money(add), sub: money(open.plus(add).minus(close)), closing: money(close) }, link: ledgerLink(cx.account.id, f, t) } as ScheduleRow;
+      const sub = open.plus(add).minus(close);
+      return { cells: { month: MONTH_NAMES[i], opening: money(open), add: money(add), sub: money(sub), closing: money(close) }, link: ledgerLink(cx.account.id, f, t), muted: add.isZero() && sub.isZero() } as ScheduleRow;
     });
     const monthly: ScheduleTable = {
       key: 'asset-cost-monthly',

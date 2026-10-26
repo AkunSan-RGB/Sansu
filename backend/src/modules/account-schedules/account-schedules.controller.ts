@@ -24,8 +24,8 @@ export class AccountSchedulesController {
 
   @Get()
   @ApiOperation({ summary: 'Daftar akun di laporan keuangan beserta status kecocokan rincian dengan saldo akhir di laporan' })
-  overview(@CurrentUser() u: AuthUser, @Query('year') year?: string) {
-    return this.service.overview(u.tenantId, yearOf(year));
+  overview(@CurrentUser() u: AuthUser, @Query('year') year?: string, @Query('includeEmpty') includeEmpty?: string) {
+    return this.service.overview(u.tenantId, yearOf(year), includeEmpty === '1' || includeEmpty === 'true');
   }
 
   @Get('snapshots')
@@ -38,6 +38,13 @@ export class AccountSchedulesController {
   @ApiOperation({ summary: 'Bandingkan laporan yang dibekukan dengan pembukuan terkini: selisih per akun dan jurnal susulan' })
   snapshotCompare(@CurrentUser() u: AuthUser, @Query('year') year?: string, @Query('version') version?: string) {
     return this.snapshots.compare(u.tenantId, yearOf(year), version ? Number(version) : undefined);
+  }
+
+  @Get('snapshots/detail')
+  @ApiOperation({ summary: 'Rincian satu akun sebagaimana dibekukan saat laporan ditandatangani' })
+  snapshotDetail(@CurrentUser() u: AuthUser, @Query('year') year?: string, @Query('accountId') accountId?: string, @Query('version') version?: string) {
+    if (!accountId) throw new BadRequestException('accountId wajib diisi');
+    return this.snapshots.frozenDetail(u.tenantId, yearOf(year), accountId, version ? Number(version) : undefined);
   }
 
   @Roles('ADMIN', 'ACCOUNTANT')

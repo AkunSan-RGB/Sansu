@@ -10,6 +10,8 @@ export interface ScheduleColumn {
 export interface ScheduleRow {
   cells: Record<string, string | number | null>;
   link?: string;
+  /** Baris tanpa isi (mis. bulan tanpa mutasi): disembunyikan secara bawaan */
+  muted?: boolean;
 }
 export interface ScheduleTable {
   key: string;
@@ -75,8 +77,39 @@ export interface SnapshotCompare {
   intact: boolean;
   unchanged: boolean;
   totals: { key: 'assets' | 'liabilities' | 'equity' | 'netIncome'; frozen: string; current: string; delta: string }[];
-  accounts: { accountId: string; code: string; name: string; frozen: string; current: string; delta: string }[];
+  accounts: { accountId: string; code: string; name: string; frozen: string; current: string; delta: string; detailChanged: boolean }[];
   accountsCompared: number;
+  frozenAccounts: { accountId: string; code: string; name: string; kind: string }[];
   lateJournals: { number: string; date: string; description: string; source: string; createdAt: string; total: string }[];
   lateTotal: string;
+}
+
+export type ContractKind = 'LOAN' | 'LEASE' | 'PREPAID';
+export interface FinancingContract {
+  id: string;
+  kind: ContractKind;
+  name: string;
+  counterparty: string | null;
+  accountId: string;
+  expenseAccountId: string | null;
+  startDate: string;
+  endDate: string;
+  termMonths: number;
+  amount: string;
+  ratePct: string | null;
+  method: 'ANNUITY' | 'STRAIGHT_PRINCIPAL' | 'BULLET' | 'STRAIGHT_LINE';
+  status: 'ACTIVE' | 'CLOSED';
+  notes: string | null;
+  balance: string;
+  yearInterest: string;
+  yearPrincipal: string;
+}
+export interface ContractScheduleRow {
+  period: string;
+  opening: string;
+  additions: string;
+  principal: string;
+  interest: string;
+  payment: string;
+  closing: string;
 }

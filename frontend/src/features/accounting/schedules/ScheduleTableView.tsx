@@ -1,4 +1,5 @@
-import { Table, Typography } from 'antd';
+import { Switch, Table, Typography } from 'antd';
+import { useState } from 'react';
 import type { ColumnsType } from 'antd/es/table';
 import { Link } from 'react-router-dom';
 import type { ScheduleColumn, ScheduleRow, ScheduleTable } from '@/api/types';
@@ -25,6 +26,9 @@ const show = (c: ScheduleColumn, v: string | number | null | undefined) => {
  * sehingga jenis jadwal baru di backend langsung tampil tanpa mengubah halaman.
  */
 export default function ScheduleTableView({ table }: { table: ScheduleTable }) {
+  const [showAll, setShowAll] = useState(false);
+  const muted = table.rows.filter((r) => r.muted).length;
+  const rows = showAll ? table.rows : table.rows.filter((r) => !r.muted);
   const columns: ColumnsType<ScheduleRow> = table.columns.map((c, i) => ({
     title: c.title,
     key: c.key,
@@ -38,9 +42,17 @@ export default function ScheduleTableView({ table }: { table: ScheduleTable }) {
   const total = table.total;
   return (
     <div style={{ marginBottom: 24 }}>
-      <Typography.Title level={5} style={{ marginBottom: 4 }}>
-        {table.title}
-      </Typography.Title>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+        <Typography.Title level={5} style={{ marginBottom: 4 }}>
+          {table.title}
+        </Typography.Title>
+        {muted > 0 && (
+          <label style={{ fontSize: 12, color: '#6b7280', cursor: 'pointer' }}>
+            <Switch size="small" checked={showAll} onChange={setShowAll} style={{ marginRight: 6 }} />
+            Tampilkan {muted} bulan tanpa mutasi
+          </label>
+        )}
+      </div>
       {table.note && (
         <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
           {table.note}
@@ -50,10 +62,10 @@ export default function ScheduleTableView({ table }: { table: ScheduleTable }) {
         size="small"
         rowKey={(_, i) => String(i)}
         columns={columns}
-        dataSource={table.rows}
+        dataSource={rows}
         pagination={false}
         scroll={{ x: 'max-content' }}
-        locale={{ emptyText: 'Tidak ada data pada periode ini' }}
+        locale={{ emptyText: muted ? 'Tidak ada mutasi pada tahun ini' : 'Tidak ada data pada periode ini' }}
         summary={
           total
             ? () => (

@@ -23,6 +23,8 @@ export interface AccountMeta {
   isCashAccount: boolean;
   reportGroup: ReportGroup;
   fiscalTreatment: string;
+  /** Akun aktif di bagan akun perusahaan (akun yang tidak relevan untuk jenis usaha dinonaktifkan otomatis) */
+  isActive?: boolean;
 }
 
 export interface Sum {
@@ -56,6 +58,7 @@ export async function loadAccounts(db: DbOrTx, tenantId: string): Promise<Accoun
       isCashAccount: a.isCashAccount,
       reportGroup: group,
       fiscalTreatment: a.fiscalTreatment,
+      isActive: a.isActive,
     };
   });
 }

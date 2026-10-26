@@ -7,6 +7,7 @@ import { ScheduleRegistry } from './account-schedule.registry';
 import { emptyMovement, money } from './account-schedule.support';
 import type { AccountMovement, ScheduleBody, ScheduleCatalog, ScheduleContext, ScheduleResult } from './account-schedule.types';
 import { AccountSchedulesRepository } from './account-schedules.repository';
+import { FinancingContractsRepository } from './financing-contracts.repository';
 import { ReportedBalanceService, type ReportedBalances } from './reported-balances.service';
 import { UNCLOSED_EARNINGS_ID } from './schedules/unclosed-earnings.schedule';
 
@@ -61,6 +62,7 @@ export class AccountSchedulesService {
   constructor(
     @InjectDb() private readonly db: Db,
     private readonly repo: AccountSchedulesRepository,
+    private readonly contractsRepo: FinancingContractsRepository,
     private readonly registry: ScheduleRegistry,
     private readonly reportedBalances: ReportedBalanceService,
   ) {}
@@ -68,11 +70,12 @@ export class AccountSchedulesService {
   private async snapshot(tenantId: string, year: number): Promise<Snapshot> {
     const from = `${year}-01-01`;
     const to = `${year}-12-31`;
-    const [accounts, rows, categories, banks] = await Promise.all([
+    const [accounts, rows, categories, banks, contracts] = await Promise.all([
       loadAccounts(this.db, tenantId),
       this.repo.movementsByAccountMonth(this.db, tenantId, from, to).then((r) => r.rows),
       this.repo.listAssetCategories(this.db, tenantId),
       this.repo.bankStatementAccountIds(this.db, tenantId).then((r) => r.rows.map((x) => x.id)),
+      this.contractsRepo.list(this.db, tenantId),
     ]);
     const moves = new Map<string, AccountMovement>();
     for (const r of rows) {
@@ -91,6 +94,11 @@ export class AccountSchedulesService {
       assetAccumulatedIds: new Set(categories.flatMap((c) => (c.accumulatedAccountId ? [c.accumulatedAccountId] : []))),
       assetExpenseIds: new Set(categories.flatMap((c) => (c.expenseAccountId ? [c.expenseAccountId] : []))),
       bankAccountIds: new Set([...banks, ...accounts.filter((a) => a.systemKey === 'BANK').map((a) => a.id)]),
+      contractAccountIds: {
+        LOAN: new Set(contracts.filter((c) => c.kind === 'LOAN').map((c) => c.accountId)),
+        LEASE: new Set(contracts.filter((c) => c.kind === 'LEASE').map((c) => c.accountId)),
+        PREPAID: new Set(contracts.filter((c) => c.kind === 'PREPAID').map((c) => c.accountId)),
+      },
     };
     const reported = await this.reportedBalances.forYear(tenantId, year, (id) => typeById.get(id));
     return { year, from, to, accounts, catalog, reported, movementOf: (id) => moves.get(id) ?? emptyMovement() };
@@ -130,38 +138,50 @@ export class AccountSchedulesService {
   }
 
   /** Akun yang punya angka: saldo di laporan, saldo menurut buku, atau mutasi tahun ini */
-  private active(s: Snapshot, a: AccountMeta) {
-    if (!s.reported.byAccount.get(a.id)?.isZero()) return true;
+  private active(s: Snapshot, a: AccountMeta, includeEmpty: boolean) {
+    const r = s.reported.byAccount.get(a.id);
+    if (r && !r.isZero()) return true;
+    // akun dengan kontrak terdaftar selalu ditampilkan: kontrak tanpa pembukuan adalah temuan
+    const k = s.catalog.contractAccountIds;
+    if (k.LOAN.has(a.id) || k.LEASE.has(a.id) || k.PREPAID.has(a.id)) return true;
     const m = s.movementOf(a.id);
+    // akun yang aktif di bagan akun (relevan untuk jenis usaha ini) boleh ditampilkan walau masih kosong; akun yang dinonaktifkan karena tidak relevan tidak
+    if (includeEmpty && a.isActive !== false) return true;
     return !m.openingDebit.isZero() || !m.openingCredit.isZero() || m.months.some((x) => !x.debit.isZero() || !x.credit.isZero());
   }
 
-  async overview(tenantId: string, year: number) {
+  /** Seluruh rincian akun untuk satu tahun dari satu pengambilan data (dasar daftar ringkasan dan pembekuan laporan) */
+  async allResults(tenantId: string, year: number, includeEmpty = false): Promise<ScheduleResult[]> {
     const s = await this.snapshot(tenantId, year);
-    const candidates = [...s.accounts.filter((a) => a.isPostable && this.active(s, a)), ...(s.reported.unclosedEarnings.isZero() ? [] : [UNCLOSED_META])];
-    const items: ScheduleOverviewItem[] = [];
+    const candidates = [...s.accounts.filter((a) => a.isPostable && this.active(s, a, includeEmpty)), ...(s.reported.unclosedEarnings.isZero() ? [] : [UNCLOSED_META])];
+    const out: ScheduleResult[] = [];
     for (const account of candidates) {
       const { schedule, body, reported } = await this.run(tenantId, s, account);
-      const r = this.result(s, account, schedule.kind, body, reported);
-      items.push({
-        accountId: account.id,
-        code: account.code,
-        name: account.name,
-        type: account.type,
-        reportGroup: account.reportGroup,
-        kind: r.kind,
-        title: r.title,
-        reported: r.reported,
-        computed: r.computed,
-        difference: r.difference,
-        matches: r.matches,
-        needsDefinition: r.needsDefinition,
-        findings: r.findings.length,
-      });
+      out.push(this.result(s, account, schedule.kind, body, reported));
     }
+    return out;
+  }
+
+  async overview(tenantId: string, year: number, includeEmpty = false) {
+    const results = await this.allResults(tenantId, year, includeEmpty);
+    const items: ScheduleOverviewItem[] = results.map((r) => ({
+      accountId: r.account.id,
+      code: r.account.code,
+      name: r.account.name,
+      type: r.account.type,
+      reportGroup: r.account.reportGroup,
+      kind: r.kind,
+      title: r.title,
+      reported: r.reported,
+      computed: r.computed,
+      difference: r.difference,
+      matches: r.matches,
+      needsDefinition: r.needsDefinition,
+      findings: r.findings.length,
+    }));
     return {
       year,
-      period: { from: s.from, to: s.to },
+      period: { from: `${year}-01-01`, to: `${year}-12-31` },
       summary: {
         accounts: items.length,
         matched: items.filter((i) => i.matches).length,

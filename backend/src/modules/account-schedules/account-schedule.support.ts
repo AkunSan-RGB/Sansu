@@ -56,6 +56,7 @@ export function monthlyRows(a: AccountMeta, m: AccountMovement, year: number): {
     return {
       cells: { month: MONTH_NAMES[i], opening: money(open), add: money(inc), sub: money(dec), closing: money(run) },
       link: ledgerLink(a.id, monthStart(year, i), monthEnd(year, i)),
+      muted: inc.isZero() && dec.isZero(),
     };
   });
   return { rows, closing: run, add, sub };
