@@ -5,6 +5,8 @@ import { ScheduleRegistry } from './account-schedule.registry';
 import { AccountSchedulesController } from './account-schedules.controller';
 import { AccountSchedulesRepository } from './account-schedules.repository';
 import { AccountSchedulesService } from './account-schedules.service';
+import { ReportSnapshotsRepository } from './report-snapshots.repository';
+import { ReportSnapshotsService } from './report-snapshots.service';
 import { ReportedBalanceService } from './reported-balances.service';
 import { BankReconciliationSchedule } from './schedules/bank.schedule';
 import { DepreciationExpenseSchedule, FixedAssetAccumulatedSchedule, FixedAssetCostSchedule } from './schedules/fixed-asset.schedules';
@@ -20,6 +22,8 @@ import { UnclosedEarningsSchedule } from './schedules/unclosed-earnings.schedule
   providers: [
     AccountSchedulesRepository,
     AccountSchedulesService,
+    ReportSnapshotsRepository,
+    ReportSnapshotsService,
     ReportedBalanceService,
     ScheduleRegistry,
     UnclosedEarningsSchedule,

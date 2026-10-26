@@ -48,7 +48,7 @@ const REVERSIBLE: JournalSource[] = ['MANUAL', 'OPENING', 'ADJUSTMENT', 'RECURRI
 
 export function JournalList() {
   const [initial] = useSearchParams();
-  const [filter, setFilter] = useState<{ from?: string; to?: string; source?: string; q?: string }>({ q: initial.get('q') || undefined });
+  const [filter, setFilter] = useState<{ from?: string; to?: string; source?: string; q?: string }>({ q: initial.get('q') || undefined, from: initial.get('from') || undefined, to: initial.get('to') || undefined });
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm();
   const journals = useQuery({ queryKey: ['journals', filter], queryFn: () => get<JournalEntry[]>(`/accounting/journals${qs(filter)}`) });

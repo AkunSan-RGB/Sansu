@@ -60,3 +60,23 @@ export interface ScheduleResult {
   findings: string[];
   needsDefinition: boolean;
 }
+
+export interface SnapshotListItem {
+  id: string;
+  year: number;
+  version: number;
+  signedByName: string;
+  signedAt: string;
+  note: string | null;
+  contentHash: string;
+}
+export interface SnapshotCompare {
+  snapshot: { id: string; year: number; version: number; signedByName: string; signedAt: string; note: string | null; contentHash: string; periodClosed: boolean };
+  intact: boolean;
+  unchanged: boolean;
+  totals: { key: 'assets' | 'liabilities' | 'equity' | 'netIncome'; frozen: string; current: string; delta: string }[];
+  accounts: { accountId: string; code: string; name: string; frozen: string; current: string; delta: string }[];
+  accountsCompared: number;
+  lateJournals: { number: string; date: string; description: string; source: string; createdAt: string; total: string }[];
+  lateTotal: string;
+}
