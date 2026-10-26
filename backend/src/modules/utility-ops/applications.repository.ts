@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
-import { firstOf, rowsOf } from './ops.shared';
+import { firstOf, rowsOf } from './ops.repository';
 
 export interface ApplicationRow {
   id: string; number: string; applicant_name: string; phone: string | null; id_number: string | null; address: string; geo_lat: string | null; geo_lng: string | null; tariff_id: string | null; tariff_name: string | null;

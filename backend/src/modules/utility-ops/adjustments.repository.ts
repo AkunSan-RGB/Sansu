@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { NON_AIR_CHARGE_KEYS } from '@sansu/shared';
 import { DbOrTx } from '../../db/db';
-import { firstOf, inList, rowsOf } from './ops.shared';
+import { firstOf, inList, rowsOf } from './ops.repository';
 
 export interface AdjustmentRow {
   id: string; number: string; invoice_id: string; invoice_number: string; customer_name: string; connection_number: string | null; kind: string; amount: string; reason: string; status: string;

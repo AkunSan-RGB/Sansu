@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { InstallmentRow } from '@sansu/shared';
 import { DbOrTx } from '../../db/db';
-import { firstOf, rowsOf } from './ops.shared';
+import { firstOf, rowsOf } from './ops.repository';
 
 export interface PlanRow { id: string; number: string; customer_id: string; customer_name: string; connection_id: string | null; connection_number: string | null; total: string; status: string; note: string | null; requested_by_id: string; requester_name: string | null; decided_by_id: string | null; decided_at: string | null; start_date: string | null; created_at: string; paid_since: string }
 

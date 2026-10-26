@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
-import { firstOf, rowsOf } from './ops.shared';
+import { firstOf, rowsOf } from './ops.repository';
 
 export interface AssetRow { id: string; code: string; name: string; type: string; zone: string | null; location: string | null; installed_on: string | null; condition: string; note: string | null; is_active: boolean; open_orders: number; last_done: string | null }
 export interface WorkOrderRow {

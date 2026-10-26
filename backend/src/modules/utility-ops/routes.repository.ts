@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
-import { firstOf, rowsOf } from './ops.shared';
+import { firstOf, rowsOf } from './ops.repository';
 
 export interface RouteRow { id: string; code: string; name: string; reader_id: string | null; reader_name: string | null; collector_id: string | null; collector_name: string | null; zone: string | null; is_active: boolean; connections: number; metered: number; read: number; arrears: number }
 

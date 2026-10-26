@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
-import { firstOf, rowsOf } from './ops.shared';
+import { firstOf, rowsOf } from './ops.repository';
 
 export interface ComplaintRow {
   id: string; number: string; connection_id: string | null; customer_id: string | null; reporter_name: string | null; reporter_phone: string | null; category: string; priority: string; channel: string;

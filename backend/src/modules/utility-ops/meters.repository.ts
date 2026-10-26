@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
-import { firstOf, rowsOf } from './ops.shared';
+import { firstOf, rowsOf } from './ops.repository';
 
 export interface MeterRow { id: string; serial: string; brand: string | null; size: string | null; status: string; connection_id: string | null; connection_number: string | null; customer_name: string | null; address: string | null; installed_on: string | null; last_calibrated_on: string | null; next_calibration_on: string | null; initial_reading: string; note: string | null; days_to_calibration: number | null }
 

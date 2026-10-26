@@ -16,6 +16,7 @@ import { salesReport } from './sales';
 import { jasaReport } from './services';
 import { Builder, DEPTS, type DeptKey, type DeptReport, spanDays } from './types';
 import { utilityReport } from './utility';
+import { utilityKinerjaReport } from './utility-kinerja';
 import { utilityNonAirReport } from './utility-nonair';
 import { DeptRangeQuery } from './dept-reports.shared';
 
@@ -32,6 +33,7 @@ const META: Record<DeptKey, { title: string; description: string; build: Builder
   mfg: { title: 'Laporan produksi', description: 'Biaya dan hasil produksi, perintah yang menggantung, pemakaian pusat kerja, dan tingkat gagal QC.', build: mfgReport },
   jasa: { title: 'Laporan jasa & proyek', description: 'Proyek dan penagihannya, jam belum ditagih, utilisasi karyawan, retainer, uang muka klien, dan umur piutang.', build: jasaReport },
   utility: { title: 'Laporan utilitas', description: 'Sambungan, tagihan bulanan, tunggakan, pemakaian per tarif, dan temuan pencatatan meter.', build: utilityReport },
+  'utility-kinerja': { title: 'Laporan kinerja layanan air', description: 'Efisiensi penagihan, umur piutang per golongan, kinerja rute dan kolektor, ketepatan penanganan pengaduan, air tak berekening, dan kualitas air.', build: utilityKinerjaReport },
   'utility-nonair': { title: 'Laporan layanan non-air', description: 'Pendapatan layanan di luar penjualan air: per jenis dan bulan, daftar tagihan, piutang, penerimaan loket, denda, dan pencocokan buku besar.', build: utilityNonAirReport },
   hr: { title: 'Laporan SDM', description: 'Karyawan per bagian, absensi, cuti, penggajian, dan rekap PPh 21/BPJS.', build: hrReport },
 };

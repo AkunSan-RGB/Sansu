@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DbOrTx } from '../../db/db';
-import { firstOf, rowsOf } from './ops.shared';
+import { firstOf, rowsOf } from './ops.repository';
 
 export interface ChangeRow {
   id: string; connection_id: string; connection_number: string; customer_name: string; kind: string; before: Record<string, unknown> | null; after: Record<string, unknown> | null; reason: string; status: string;
