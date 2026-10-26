@@ -90,7 +90,7 @@ describe('Rincian & perhitungan akun (e2e)', () => {
     const auth = { Authorization: `Bearer ${token}` };
     const year = new Date().getUTCFullYear();
     const exp = (await http.post('/api/accounting/accounts').set(auth).send({ code: '6-9810', name: 'Beban Uji Baru', type: 'EXPENSE', reportGroup: 'ADMIN_EXPENSE' }).expect(201)).body;
-    const ast = (await http.post('/api/accounting/accounts').set(auth).send({ code: '1-9810', name: 'Aset Lain Uji', type: 'ASSET', reportGroup: 'OTHER_CURRENT_ASSET' }).expect(201)).body;
+    const ast = (await http.post('/api/accounting/accounts').set(auth).send({ code: '1-9810', name: 'Aset Tanpa Kategori Uji', type: 'ASSET', reportGroup: 'FIXED_ASSET' }).expect(201)).body;
     const accs = (await http.get('/api/accounting/accounts').set(auth).expect(200)).body as { id: string; code: string }[];
     const cash = accs.find((a) => a.code === '1-1100')!.id;
     const day = new Date().toISOString().slice(0, 10);
@@ -168,7 +168,7 @@ describe('Rincian & perhitungan akun (e2e)', () => {
     expect(dAll.some((i) => i.code === '2-1210')).toBe(false);
     expect(fAll.some((i) => i.code === '2-1210')).toBe(true);
     // akun kosong: hanya mutasi bulanan yang seluruh barisnya ditandai kosong
-    const empty = dAll.find((i) => !dBase.some((b) => b.accountId === i.accountId))!;
+    const empty = dAll.find((i) => !dBase.some((b) => b.accountId === i.accountId) && ['EXPENSE', 'REVENUE', 'COST_OF_SALES', 'OTHER_ASSET'].includes(i.kind))!;
     const ed = (await get(dagang, `/api/account-schedules/${empty.accountId}?year=${year}`).expect(200)).body as { tables: { key: string; rows: { muted?: boolean }[] }[] };
     expect(ed.tables.map((t) => t.key)).toEqual(['ledger-monthly']);
     expect(ed.tables[0].rows.every((r) => r.muted)).toBe(true);
@@ -184,3 +184,34 @@ describe('Rincian & perhitungan akun (e2e)', () => {
   }, 180_000);
 });
 
+
+describe('Satu tab per akun (e2e)', () => {
+  let app: INestApplication;
+  let http: ReturnType<typeof request>;
+  beforeAll(async () => {
+    const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = configureApp(mod.createNestApplication());
+    await app.init();
+    http = request(app.getHttpServer());
+  });
+  afterAll(() => app.close());
+
+  it('setiap jenis usaha: tab per akun neraca lalu laba rugi, tiap tab terbuka dan saldo akhirnya sama dengan laporan keuangan, tak ada akun tanpa jadwal khusus', async () => {
+    const year = new Date().getUTCFullYear();
+    for (const model of ['RITEL', 'DAGANG', 'JASA', 'FMCG', 'MANUFAKTUR', 'FNB', 'UTILITAS']) {
+      const token = (await http.post('/api/demo/start').send({ businessModel: model }).expect(200)).body.accessToken as string;
+      const auth = { Authorization: `Bearer ${token}` };
+      const tabs = (await http.get(`/api/account-schedules/tabs?year=${year}`).set(auth).expect(200)).body as { items: { accountId: string; code: string; part: 'BS' | 'PL' }[] };
+      expect(tabs.items.length).toBeGreaterThan(60);
+      // neraca dulu, laba rugi sesudahnya
+      const firstPl = tabs.items.findIndex((i) => i.part === 'PL');
+      expect(tabs.items.slice(firstPl).every((i) => i.part === 'PL')).toBe(true);
+      const bad: string[] = [];
+      for (const t of tabs.items) {
+        const d = (await http.get(`/api/account-schedules/${t.accountId}?year=${year}`).set(auth).expect(200)).body as { kind: string; matches: boolean; needsDefinition: boolean };
+        if (!d.matches || d.kind === 'GENERIC' || d.needsDefinition) bad.push(`${model} ${t.code} ${d.kind} ${d.matches}`);
+      }
+      expect(bad).toEqual([]);
+    }
+  }, 600_000);
+});

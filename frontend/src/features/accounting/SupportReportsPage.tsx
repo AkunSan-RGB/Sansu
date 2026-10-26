@@ -143,6 +143,24 @@ export default function SupportReportsPage() {
         }
       />
       <Card className="print-area">
+        {!!accountTabs.data?.items.length && (
+          <Select
+            className="no-print"
+            showSearch
+            allowClear
+            placeholder="Cari akun (kode atau nama) untuk membuka tab akunnya"
+            optionFilterProp="label"
+            style={{ width: '100%', maxWidth: 460, marginBottom: 8 }}
+            value={accountId ?? undefined}
+            options={accountTabs.data.items.map((i) => ({ value: i.accountId, label: `${i.code ? `${i.code} · ` : ''}${i.name} (${i.part === 'PL' ? 'Laba rugi' : 'Neraca'})` }))}
+            onChange={(id) => {
+              const n = new URLSearchParams();
+              n.set('kind', id ? `a:${id}` : 'sales');
+              if (params.get('year')) n.set('year', params.get('year')!);
+              setParams(n, { replace: true });
+            }}
+          />
+        )}
         <Tabs
           activeKey={accountId ? `a:${accountId}` : (section?.key ?? kind)}
           onChange={(k) => {
