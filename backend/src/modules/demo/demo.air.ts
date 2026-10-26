@@ -200,7 +200,7 @@ export async function airDemo(c: Demo, customers: Map<string, string>, tariffs: 
   // ---- rekap harian: semua hari lebih dari dua hari lalu dicek Keuangan; satu hari ditandai selisih; dua hari terakhir sengaja dibiarkan
   if (keuangan) {
     const days = (await c.db.execute<{ counter_id: string; d: string }>(sql`
-      SELECT DISTINCT r.counter_id, r.received_at::date::text AS d FROM utility_counter_receipts r WHERE r.tenant_id = ${tenantId} AND r.counter_id IS NOT NULL ORDER BY 2, 1`)).rows;
+      SELECT DISTINCT r.counter_id, (r.received_at AT TIME ZONE 'Asia/Jakarta')::date::text AS d FROM utility_counter_receipts r WHERE r.tenant_id = ${tenantId} AND r.counter_id IS NOT NULL ORDER BY 2, 1`)).rows;
     const cutoff = c.ago(2);
     let k = 0;
     for (const x of days) {
