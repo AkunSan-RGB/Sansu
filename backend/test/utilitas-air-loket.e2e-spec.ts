@@ -106,7 +106,7 @@ describe('Utilitas air: loket & layanan non-air (e2e)', () => {
     expect(Number(s.revenueAir)).toBeGreaterThanOrEqual(0);
   });
 
-  it('peran: kasir loket menerima pembayaran (air dan non-air) tapi tidak melihat rekap/ringkasan; pelayanan pelanggan menagih layanan non-air; Akuntan boleh mengonfirmasi', async () => {
+  it('peran: kasir loket menerima pembayaran (air dan non-air) tapi tidak melihat rekap/ringkasan; pelayanan pelanggan menagih layanan non-air; Akuntan tidak mengonfirmasi', async () => {
     const mk = async (role: string, n: string) => {
       await post('/api/users', { name: n, email: `air-${n}-${stamp}@uji.id`, password: 'rahasia12345', role }).expect(201);
       return (await http.post('/api/auth/login').send({ email: `air-${n}-${stamp}@uji.id`, password: 'rahasia12345' }).expect(200)).body.accessToken as string;
@@ -133,8 +133,9 @@ describe('Utilitas air: loket & layanan non-air (e2e)', () => {
     // faktur bukan air/non-air ditolak
     const other = (await post('/api/utility/counter/pay', { invoiceId: '00000000-0000-4000-8000-000000000000', amount: '1000', counterId: l2 }, kasir));
     expect(other.status).toBe(400);
-    // Akuntan boleh mengonfirmasi rekap loket yang penerimanya kasir
-    await post('/api/utility/counter/close-day', { counterId: l2, date: today }, akuntan).expect(201);
+    // Akuntan tidak menulis di luar pembukuan: konfirmasi rekap hanya Keuangan/Admin (orang lain dari kasir)
+    expect((await post('/api/utility/counter/close-day', { counterId: l2, date: today }, akuntan)).status).toBe(403);
+    await post('/api/utility/counter/close-day', { counterId: l2, date: today }, fin2).expect(201);
   });
 
   it('laporan layanan non-air: ringkasan per jenis, daftar tagihan, umur piutang, penerimaan, dan pencocokan buku besar tanpa selisih', async () => {
