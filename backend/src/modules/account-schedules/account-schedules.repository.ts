@@ -13,6 +13,9 @@ export interface PartySpec {
   returns: string;
   returnParty: string;
   party: string;
+  /** Kolom faktur pada tabel pembayaran dan retur (untuk sisa tagihan per faktur) */
+  paymentInvoice: string;
+  returnInvoice: string;
 }
 
 export const AR_SPEC: PartySpec = {
@@ -23,6 +26,8 @@ export const AR_SPEC: PartySpec = {
   returns: 'sales_returns',
   returnParty: 'customer_id',
   party: 'customers',
+  paymentInvoice: 'invoice_id',
+  returnInvoice: 'invoice_id',
 };
 
 export const AP_SPEC: PartySpec = {
@@ -34,6 +39,8 @@ export const AP_SPEC: PartySpec = {
   returns: 'purchase_returns',
   returnParty: 'supplier_id',
   party: 'suppliers',
+  paymentInvoice: 'purchase_invoice_id',
+  returnInvoice: 'purchase_invoice_id',
 };
 
 /** Akses data untuk jadwal akun: mutasi buku besar per bulan dan sumber rincian (aset, pihak lawan, persediaan). */
@@ -174,25 +181,6 @@ export class AccountSchedulesRepository {
       ORDER BY p.sku`);
   }
 
-  /** Rincian satu akun menurut sumber jurnal (faktur, kas, penyusutan, penilaian ulang, dst.) dalam rentang tanggal */
-  sourceBreakdown(db: DbOrTx, tenantId: string, accountId: string, from: string, to: string) {
-    return db.execute<{ source_type: string; n: number; debit: string; credit: string }>(sql`
-      SELECT j.source_type, COUNT(*)::int AS n, COALESCE(SUM(l.debit), 0)::text AS debit, COALESCE(SUM(l.credit), 0)::text AS credit
-      FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-      WHERE j.tenant_id = ${tenantId} AND l.account_id = ${accountId} AND j.date BETWEEN ${from} AND ${to} AND j.source_type <> 'CLOSING'
-      GROUP BY j.source_type ORDER BY SUM(ABS(l.debit - l.credit)) DESC`);
-  }
-
-  /** Transaksi terbesar pada satu akun (menurut nilai mutlak) */
-  topLines(db: DbOrTx, tenantId: string, accountId: string, from: string, to: string, limit = 10) {
-    return db.execute<{ number: string; date: string; description: string; source_type: string; debit: string; credit: string }>(sql`
-      SELECT j.number, j.date::text AS date, COALESCE(NULLIF(l.memo, ''), j.description) AS description, j.source_type,
-             l.debit::text AS debit, l.credit::text AS credit
-      FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
-      WHERE j.tenant_id = ${tenantId} AND l.account_id = ${accountId} AND j.date BETWEEN ${from} AND ${to} AND j.source_type <> 'CLOSING'
-      ORDER BY ABS(l.debit - l.credit) DESC, j.date LIMIT ${limit}`);
-  }
-
   /** Pencairan platform pesan-antar per kanal: yang seharusnya cair, yang diterima, dan selisihnya */
   platformSettlements(db: DbOrTx, tenantId: string, from: string, to: string) {
     return db.execute<{ channel: string; n: number; orders: number; expected: string; received: string; difference: string }>(sql`
@@ -274,5 +262,120 @@ export class AccountSchedulesRepository {
     return db.execute<{ type: string; n: number; amount: string }>(sql`
       SELECT type, COUNT(*)::int AS n, COALESCE(SUM(amount), 0)::text AS amount
       FROM tax_payments WHERE tenant_id = ${tenantId} AND date BETWEEN ${from} AND ${to} GROUP BY type ORDER BY type`);
+  }
+
+  /**
+   * Setiap baris jurnal akun ini beserta dokumen sumbernya (nomor dokumen, pihak lawan, keterangan dokumen): faktur, pembayaran, retur,
+   * surat jalan, penerimaan barang, kas, kasir, gaji, aset, uang muka, setoran pajak, kemajuan proyek, dan seterusnya.
+   * Jurnal tanpa dokumen (manual, penyesuaian, saldo awal) tampil dengan nomor jurnalnya.
+   */
+  documentLines(db: DbOrTx, tenantId: string, accountId: string, from: string, to: string) {
+    return db.execute<{
+      journal_id: string; jn: string; date: string; st: string; doc_no: string | null; party: string | null; note: string | null; debit: string; credit: string;
+    }>(sql`
+      WITH base AS (
+        SELECT j.id AS journal_id, j.number AS jn, j.date::text AS date, j.source_type AS st,
+               COALESCE(NULLIF(l.memo, ''), j.description) AS jdesc,
+               CASE WHEN j.source_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN j.source_id::uuid END AS sid,
+               l.debit, l.credit
+        FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
+        WHERE j.tenant_id = ${tenantId} AND l.account_id = ${accountId} AND j.date BETWEEN ${from} AND ${to} AND j.source_type <> 'CLOSING'
+      )
+      SELECT b.journal_id, b.jn, b.date, b.st,
+        COALESCE(inv.number, pay.number, srt.number, dlv.number, gr.number, pin.number, spy.number, prt.number, ctx.number, pos.number, prn.number,
+                 run.number, dep.number, tpy.number, ppr.number, fa.code, b.jn) AS doc_no,
+        COALESCE(c_inv.name, c_pay.name, c_srt.name, c_dlv.name, c_dep.name, c_pos.name, s_gr.name, s_pin.name, s_spy.name, s_prt.name, prj.name, fa.name) AS party,
+        COALESCE(inv.description, pay.notes, ctx.description, run.period, tpy.type || ' ' || tpy.period, dep.description, fa.name, b.jdesc) AS note,
+        b.debit::text AS debit, b.credit::text AS credit
+      FROM base b
+      LEFT JOIN invoices inv ON b.st = 'INVOICE' AND inv.id = b.sid
+      LEFT JOIN customers c_inv ON c_inv.id = inv.customer_id
+      LEFT JOIN payments pay ON b.st = 'PAYMENT' AND pay.id = b.sid
+      LEFT JOIN customers c_pay ON c_pay.id = pay.customer_id
+      LEFT JOIN sales_returns srt ON b.st = 'SALES_RETURN' AND srt.id = b.sid
+      LEFT JOIN customers c_srt ON c_srt.id = srt.customer_id
+      LEFT JOIN delivery_orders dlv ON b.st = 'DELIVERY' AND dlv.id = b.sid
+      LEFT JOIN customers c_dlv ON c_dlv.id = dlv.customer_id
+      LEFT JOIN goods_receipts gr ON b.st = 'GOODS_RECEIPT' AND gr.id = b.sid
+      LEFT JOIN suppliers s_gr ON s_gr.id = gr.supplier_id
+      LEFT JOIN purchase_invoices pin ON b.st = 'PURCHASE_INVOICE' AND pin.id = b.sid
+      LEFT JOIN suppliers s_pin ON s_pin.id = pin.supplier_id
+      LEFT JOIN supplier_payments spy ON b.st = 'SUPPLIER_PAYMENT' AND spy.id = b.sid
+      LEFT JOIN suppliers s_spy ON s_spy.id = spy.supplier_id
+      LEFT JOIN purchase_returns prt ON b.st = 'PURCHASE_RETURN' AND prt.id = b.sid
+      LEFT JOIN suppliers s_prt ON s_prt.id = prt.supplier_id
+      LEFT JOIN cash_transactions ctx ON b.st IN ('CASH_IN', 'CASH_OUT', 'TRANSFER') AND ctx.id = b.sid
+      LEFT JOIN pos_orders pos ON b.st = 'POS' AND pos.id = b.sid
+      LEFT JOIN customers c_pos ON c_pos.id = pos.customer_id
+      LEFT JOIN pos_returns prn ON b.st = 'POS_RETURN' AND prn.id = b.sid
+      LEFT JOIN payroll_runs run ON b.st IN ('PAYROLL', 'PAYROLL_PAYMENT') AND run.id = b.sid
+      LEFT JOIN customer_deposits dep ON b.st IN ('CUSTOMER_DEPOSIT', 'DEPOSIT_APPLICATION') AND dep.id = b.sid
+      LEFT JOIN customers c_dep ON c_dep.id = dep.customer_id
+      LEFT JOIN tax_payments tpy ON b.st = 'TAX_PAYMENT' AND tpy.id = b.sid
+      LEFT JOIN project_progress ppr ON b.st = 'PROJECT_PROGRESS' AND ppr.id = b.sid
+      LEFT JOIN projects prj ON prj.id = ppr.project_id
+      LEFT JOIN fixed_assets fa ON b.st IN ('ASSET_ACQUISITION', 'ASSET_DISPOSAL') AND fa.id = b.sid
+      ORDER BY b.date, b.jn`);
+  }
+
+  /** Penjualan per produk dari baris faktur dan kasir yang menyentuh akun ini (kuantitas dan nilai sebelum PPN) */
+  salesByProduct(db: DbOrTx, tenantId: string, accountId: string, from: string, to: string) {
+    return db.execute<{ sku: string; name: string; qty: string; amount: string }>(sql`
+      WITH src AS (
+        SELECT j.source_type AS st, j.source_id AS sid FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
+        WHERE j.tenant_id = ${tenantId} AND l.account_id = ${accountId} AND j.date BETWEEN ${from} AND ${to} AND j.source_type IN ('INVOICE', 'POS') GROUP BY 1, 2
+      ), lines AS (
+        SELECT il.product_id, il.qty * il.uom_factor AS qty, il.line_total AS amount FROM invoice_lines il JOIN src ON src.st = 'INVOICE' AND src.sid = il.invoice_id::text
+        UNION ALL
+        SELECT pl.product_id, pl.qty * pl.uom_factor, pl.line_total FROM pos_order_lines pl JOIN src ON src.st = 'POS' AND src.sid = pl.order_id::text
+      )
+      SELECT p.sku, p.name, SUM(lines.qty)::text AS qty, SUM(lines.amount)::text AS amount
+      FROM lines JOIN products p ON p.id = lines.product_id GROUP BY p.id, p.sku, p.name ORDER BY SUM(lines.amount) DESC LIMIT 300`);
+  }
+
+  /** Harga pokok per produk dari mutasi stok keluar dokumen yang menyentuh akun ini */
+  cogsByProduct(db: DbOrTx, tenantId: string, accountId: string, from: string, to: string) {
+    return db.execute<{ sku: string; name: string; qty: string; amount: string }>(sql`
+      WITH src AS (
+        SELECT j.source_id AS sid FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
+        WHERE j.tenant_id = ${tenantId} AND l.account_id = ${accountId} AND j.date BETWEEN ${from} AND ${to} AND j.source_id IS NOT NULL GROUP BY 1
+      )
+      SELECT p.sku, p.name, SUM(-m.qty)::text AS qty, SUM(-m.qty * m.unit_cost)::text AS amount
+      FROM stock_moves m JOIN src ON src.sid = m.ref_id::text JOIN products p ON p.id = m.product_id
+      WHERE m.tenant_id = ${tenantId} AND m.qty < 0 GROUP BY p.id, p.sku, p.name ORDER BY SUM(-m.qty * m.unit_cost) DESC LIMIT 300`);
+  }
+
+  /** Slip gaji per karyawan dari penggajian yang menyentuh akun ini */
+  payrollByEmployee(db: DbOrTx, tenantId: string, accountId: string, from: string, to: string) {
+    return db.execute<{ code: string; name: string; slips: number; gross: string; net: string }>(sql`
+      WITH runs AS (
+        SELECT j.source_id AS sid FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
+        WHERE j.tenant_id = ${tenantId} AND l.account_id = ${accountId} AND j.date BETWEEN ${from} AND ${to} AND j.source_type = 'PAYROLL' GROUP BY 1
+      )
+      SELECT e.code, e.name, COUNT(*)::int AS slips, SUM(s.gross_pay)::text AS gross, SUM(s.net_pay)::text AS net
+      FROM payslips s JOIN runs ON runs.sid = s.run_id::text JOIN employees e ON e.id = s.employee_id
+      GROUP BY e.id, e.code, e.name ORDER BY e.name`);
+  }
+
+  /** Faktur yang masih terbuka per tanggal (sisa = total − pembayaran − retur sampai tanggal itu), untuk umur piutang/utang per faktur */
+  openDocuments(db: DbOrTx, tenantId: string, spec: PartySpec, to: string) {
+    const t = (name: string) => sql.identifier(name);
+    const payFilter = spec.paymentFilter ? sql.raw(` AND x.${spec.paymentFilter}`) : sql.raw('');
+    return db.execute<{ number: string; party_code: string; party: string; date: string; due_date: string; total: string; outstanding: string }>(sql`
+      SELECT i.number, p.code AS party_code, p.name AS party, i.date::text AS date, i.due_date::text AS due_date, i.total::text AS total,
+        (i.total - COALESCE((SELECT SUM(x.amount) FROM ${t(spec.payment)} x WHERE x.${t(spec.paymentInvoice)} = i.id AND x.date <= ${to}${payFilter}), 0)
+                 - COALESCE((SELECT SUM(r.total) FROM ${t(spec.returns)} r WHERE r.${t(spec.returnInvoice)} = i.id AND r.date <= ${to}), 0))::text AS outstanding
+      FROM ${t(spec.invoice)} i JOIN ${t(spec.party)} p ON p.id = i.${t(spec.invoiceParty)}
+      WHERE i.tenant_id = ${tenantId} AND i.date <= ${to}
+      ORDER BY i.due_date, i.number`);
+  }
+
+  /** Persediaan per gudang (jumlah dan nilai) sampai tanggal itu */
+  stockByWarehouse(db: DbOrTx, tenantId: string, to: string) {
+    return db.execute<{ code: string; name: string; qty: string; value: string; products: number }>(sql`
+      SELECT w.code, w.name, COALESCE(SUM(m.qty), 0)::text AS qty, COALESCE(SUM(m.qty * m.unit_cost), 0)::text AS value, COUNT(DISTINCT m.product_id)::int AS products
+      FROM stock_moves m JOIN warehouses w ON w.id = m.warehouse_id
+      WHERE m.tenant_id = ${tenantId} AND m.date <= ${to} GROUP BY w.id, w.code, w.name
+      HAVING COALESCE(SUM(m.qty), 0) <> 0 ORDER BY w.code`);
   }
 }

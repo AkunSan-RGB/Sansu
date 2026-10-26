@@ -8,6 +8,7 @@ import { emptyMovement, money } from './account-schedule.support';
 import type { AccountMovement, ScheduleBody, ScheduleCatalog, ScheduleContext, ScheduleResult } from './account-schedule.types';
 import { AccountSchedulesRepository } from './account-schedules.repository';
 import { ReportedBalanceService, type ReportedBalances } from './reported-balances.service';
+import { documentTables, SKIP_DOCUMENT_TABLES } from './schedules/document-tables';
 import { UNCLOSED_EARNINGS_ID } from './schedules/unclosed-earnings.schedule';
 
 export interface ScheduleOverviewItem {
@@ -104,9 +105,12 @@ export class AccountSchedulesService {
     return account.id === UNCLOSED_EARNINGS_ID ? s.reported.unclosedEarnings : (s.reported.byAccount.get(account.id) ?? ZERO);
   }
 
-  private async run(tenantId: string, s: Snapshot, account: AccountMeta) {
+  private async run(tenantId: string, s: Snapshot, account: AccountMeta, withDocuments = false) {
     const schedule = this.registry.resolve(account, s.catalog);
-    const body = await schedule.build(this.context(tenantId, s, account));
+    const cx = this.context(tenantId, s, account);
+    const body = await schedule.build(cx);
+    // daftar dan rincian dari dokumen sumber (kecuali jadwal yang sudah berupa kartu pembantu sendiri)
+    if (withDocuments && !SKIP_DOCUMENT_TABLES.has(schedule.kind)) body.tables.push(...(await documentTables(this.db, this.repo, cx)));
     return { schedule, body, reported: this.reportedOf(s, account) };
   }
 
@@ -205,7 +209,7 @@ export class AccountSchedulesService {
     const s = await this.snapshot(tenantId, year);
     const account = accountId === UNCLOSED_EARNINGS_ID ? UNCLOSED_META : s.accounts.find((a) => a.id === accountId && a.isPostable);
     if (!account) throw new NotFoundException('Akun tidak ditemukan');
-    const { schedule, body, reported } = await this.run(tenantId, s, account);
+    const { schedule, body, reported } = await this.run(tenantId, s, account, true);
     return this.result(s, account, schedule.kind, body, reported);
   }
 }

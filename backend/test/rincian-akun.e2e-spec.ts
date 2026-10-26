@@ -208,8 +208,14 @@ describe('Satu tab per akun (e2e)', () => {
       expect(tabs.items.slice(firstPl).every((i) => i.part === 'PL')).toBe(true);
       const bad: string[] = [];
       for (const t of tabs.items) {
-        const d = (await http.get(`/api/account-schedules/${t.accountId}?year=${year}`).set(auth).expect(200)).body as { kind: string; matches: boolean; needsDefinition: boolean };
+        const d = (await http.get(`/api/account-schedules/${t.accountId}?year=${year}`).set(auth).expect(200)).body as { kind: string; matches: boolean; needsDefinition: boolean; reported: string; tables: { key: string; total?: Record<string, string> }[] };
         if (!d.matches || d.kind === 'GENERIC' || d.needsDefinition) bad.push(`${model} ${t.code} ${d.kind} ${d.matches}`);
+        // daftar dokumen sumber: jumlahnya (saldo awal + mutasi) sama dengan saldo akun di laporan keuangan
+        const docs = d.tables.find((x) => x.key === 'source-documents');
+        if (docs && Math.abs(Number(docs.total?.amount) - Number(d.reported)) > 0.5) bad.push(`${model} ${t.code} daftar dokumen ${docs.total?.amount} <> laporan ${d.reported}`);
+        // akun yang bersaldo punya daftar dokumen sumber (kecuali kartu stok dan register aset)
+        if (!docs && Math.abs(Number(d.reported)) > 0.5 && !['INVENTORY', 'FIXED_ASSET_COST', 'FIXED_ASSET_ACCUMULATED', 'DEPRECIATION_EXPENSE', 'UNCLOSED_EARNINGS'].includes(d.kind)) bad.push(`${model} ${t.code} ${d.kind} tanpa daftar dokumen`);
+        if (d.kind === 'RECEIVABLE' && Math.abs(Number(d.reported)) > 0.5) expect(d.tables.map((x) => x.key)).toEqual(expect.arrayContaining(['aging-by-party', 'open-documents', 'by-party']));
       }
       expect(bad).toEqual([]);
     }
