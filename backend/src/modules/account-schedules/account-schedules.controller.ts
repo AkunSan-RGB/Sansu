@@ -40,6 +40,13 @@ export class AccountSchedulesController {
     return this.snapshots.compare(u.tenantId, yearOf(year), version ? Number(version) : undefined);
   }
 
+  @Get('snapshots/detail')
+  @ApiOperation({ summary: 'Rincian satu akun sebagaimana dibekukan saat laporan ditandatangani' })
+  snapshotDetail(@CurrentUser() u: AuthUser, @Query('year') year?: string, @Query('accountId') accountId?: string, @Query('version') version?: string) {
+    if (!accountId) throw new BadRequestException('accountId wajib diisi');
+    return this.snapshots.frozenDetail(u.tenantId, yearOf(year), accountId, version ? Number(version) : undefined);
+  }
+
   @Roles('ADMIN', 'ACCOUNTANT')
   @Post('snapshots')
   @ApiOperation({ summary: 'Bekukan laporan keuangan satu tahun saat ditandatangani (tidak dapat diubah; versi baru bila dibekukan lagi)' })

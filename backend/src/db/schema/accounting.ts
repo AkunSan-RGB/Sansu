@@ -189,6 +189,34 @@ export const reportSnapshots = pgTable(
   (t) => [uniqueIndex('report_snapshots_version_uq').on(t.tenantId, t.year, t.version)],
 );
 
+/** Kontrak pembiayaan (data induk): pinjaman, sewa pembiayaan, biaya dibayar di muka; jadwalnya dihitung dari syarat kontrak */
+export const financingContracts = pgTable(
+  'financing_contracts',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    /** LOAN | LEASE | PREPAID */
+    kind: text('kind').$type<'LOAN' | 'LEASE' | 'PREPAID'>().notNull(),
+    name: text('name').notNull(),
+    counterparty: text('counterparty'),
+    /** Akun neraca tempat saldo kontrak dicatat (utang bank, liabilitas sewa, atau dibayar di muka) */
+    accountId: uuid('account_id').notNull().references(() => accounts.id),
+    /** Akun beban bunga (pinjaman/sewa) atau beban amortisasi (dibayar di muka) */
+    expenseAccountId: uuid('expense_account_id').references(() => accounts.id),
+    startDate: date('start_date').notNull(),
+    termMonths: integer('term_months').notNull(),
+    amount: money('amount').notNull(),
+    ratePct: numeric('rate_pct', { precision: 9, scale: 4 }),
+    method: text('method').$type<'ANNUITY' | 'STRAIGHT_PRINCIPAL' | 'BULLET' | 'STRAIGHT_LINE'>().notNull(),
+    /** ACTIVE | CLOSED */
+    status: text('status').$type<'ACTIVE' | 'CLOSED'>().notNull().default('ACTIVE'),
+    notes: text('notes'),
+    createdById: uuid('created_by_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('financing_contracts_name_uq').on(t.tenantId, t.name), index('financing_contracts_account_idx').on(t.tenantId, t.accountId)],
+);
+
 export const journalEntriesRelations = relations(journalEntries, ({ many }) => ({ lines: many(journalLines) }));
 
 export const journalLinesRelations = relations(journalLines, ({ one }) => ({

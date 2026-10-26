@@ -4,7 +4,8 @@ import type { ReportGroup } from '@sansu/shared';
 import type { AccountMeta } from '../../accounting/ledger-data';
 import { AccountSchedulesRepository } from '../account-schedules.repository';
 import { col, money, movementTable } from '../account-schedule.support';
-import type { AccountSchedule, ScheduleBody, ScheduleContext, ScheduleMethod, ScheduleRow, ScheduleTable } from '../account-schedule.types';
+import type { AccountSchedule, ScheduleBody, ScheduleCatalog, ScheduleContext, ScheduleMethod, ScheduleRow, ScheduleTable } from '../account-schedule.types';
+import type { ContractKind } from '../contract-calc';
 
 export interface JournalLine {
   journal_id: string;
@@ -19,6 +20,8 @@ export interface JournalLine {
 export interface JournalItemProfile {
   title: string;
   groups: ReportGroup[];
+  /** Akun dengan kontrak terdaftar jenis ini juga memakai jadwal ini, apa pun kelompok laporannya */
+  contractKind?: ContractKind;
   /** Sisi yang menambah saldo akun: debit (aset) atau kredit (liabilitas) */
   increases: 'debit' | 'credit';
   addTitle: string;
@@ -47,8 +50,9 @@ export abstract class JournalItemSchedule implements AccountSchedule {
     protected readonly repo: AccountSchedulesRepository,
   ) {}
 
-  supports(a: AccountMeta) {
-    return this.profile.groups.includes(a.reportGroup);
+  supports(a: AccountMeta, c: ScheduleCatalog) {
+    const p = this.profile;
+    return p.groups.includes(a.reportGroup) || (!!p.contractKind && c.contractAccountIds[p.contractKind].has(a.id));
   }
 
   protected extras(_cx: ScheduleContext, _lines: JournalLine[], _closing: Dec): Promise<Extras> {
