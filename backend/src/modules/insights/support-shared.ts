@@ -28,7 +28,6 @@ export const SUPPORT_KINDS = [
   'purchases',
   'inventory',
   'cash',
-  'other',
   'pos',
   'fnb',
   'fmcg',

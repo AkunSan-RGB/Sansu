@@ -1,3 +1,4 @@
+import type { ScheduleResult } from '@/api/types';
 /**
  * Lembar Excel untuk setiap laporan SANSU. Semua fungsi murni: data API → SheetSpec.
  * Angka turunan ditulis sebagai rumus (dengan nilai hasil), angka sumber sebagai nilai.
@@ -1563,4 +1564,32 @@ export function bpjsSheets(b: BpjsRecap, company?: string): SheetSpec[] {
   s.note(`Batas upah: BPJS Kesehatan Rp${b.caps.kesehatan.toLocaleString('id-ID')}, Jaminan Pensiun Rp${b.caps.jp.toLocaleString('id-ID')} (sesuaikan di Pengaturan penggajian bila ada perubahan).`);
   for (const c of b.changes) s.note(`${c.kind === 'MASUK' ? 'Peserta baru' : 'Peserta keluar'}: ${c.code} ${c.name} (${tgl(c.date)}) — laporkan ke BPJS.`);
   return [s.spec];
+}
+
+
+/** Rincian satu akun (metode + tabel rincian dan perhitungan) sebagai lampiran Excel */
+export function scheduleSheet(r: ScheduleResult, company?: string): SheetSpec[] {
+  const method = { number: '', title: 'Metode', paragraphs: [r.method.basis, ...r.method.formulas.map((f) => `• ${f}`), ...(r.method.policies ?? []).map((f) => `• ${f}`)], tables: [] };
+  const compare = {
+    number: '',
+    title: 'Pencocokan dengan laporan keuangan',
+    paragraphs: r.findings,
+    tables: [{ columns: ['Saldo akhir di laporan keuangan', 'Saldo akhir menurut rincian', 'Selisih'], align: ['right', 'right', 'right'] as ('left' | 'right')[], rows: [[Number(r.reported), Number(r.computed), Number(r.difference)]] }],
+  };
+  const tables = r.tables.map((t, i) => ({
+    number: '',
+    title: t.title,
+    paragraphs: t.note ? [t.note] : [],
+    tables: [
+      {
+        columns: t.columns.map((c) => c.title),
+        align: t.columns.map((c) => (c.kind === 'text' || c.kind === 'date' ? 'left' : 'right')) as ('left' | 'right')[],
+        rows: t.rows.map((row) => t.columns.map((c) => (c.kind === 'money' || c.kind === 'qty' || c.kind === 'percent' ? (row.cells[c.key] == null ? null : Number(row.cells[c.key])) : (row.cells[c.key] ?? null)))),
+        total: t.total ? t.columns.map((c, ci) => (ci === 0 && t.total![c.key] == null ? 'Jumlah' : c.kind === 'money' || c.kind === 'qty' ? (t.total![c.key] == null ? null : Number(t.total![c.key])) : (t.total![c.key] ?? null))) : undefined,
+      },
+    ],
+    key: `t${i}`,
+  }));
+  const doc = { framework: 'SAK_EP', period: { from: r.period.from, to: r.period.to }, company: { name: company ?? '' }, sections: [compare, ...tables, method] } as unknown as DocLike;
+  return documentSheet('Rincian akun', `${r.account.code} ${r.account.name}`.trim(), doc, company, [`Periode ${tgl(r.period.from)} s/d ${tgl(r.period.to)}`, RP]);
 }

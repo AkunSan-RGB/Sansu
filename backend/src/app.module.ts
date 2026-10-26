@@ -15,6 +15,7 @@ import { IdempotencyInterceptor } from './common/idempotency/idempotency.interce
 import { DbExceptionFilter } from './common/filters/db-exception.filter';
 import { DbModule } from './db/db.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
+import { AccountSchedulesModule } from './modules/account-schedules/account-schedules.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { PermissionsModule } from './common/auth/permissions';
 import { CustomRolesModule } from './modules/platform/custom-roles.module';
@@ -61,6 +62,7 @@ import { DataRightsModule } from './modules/data-rights/data-rights.module';
 
 @Module({
   imports: [
+    AccountSchedulesModule,
     ConfigModule.forRoot({ isGlobal: true }),
     JwtModule.registerAsync({
       global: true,

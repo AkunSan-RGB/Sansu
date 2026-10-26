@@ -54,7 +54,6 @@ export class SupportReportsService {
       purchases: (t, f, e) => this.trade.purchases(t, f, e),
       inventory: (t, f, e) => this.stockCash.inventory(t, f, e),
       cash: (t, f, e) => this.stockCash.cash(t, f, e),
-      other: (t, f, e) => this.stockCash.other(t, f, e),
       pos: (t, f, e) => this.retail.pos(t, f, e),
       fnb: (t, f, e) => this.retail.fnb(t, f, e),
       fmcg: (t, f, e) => this.manufacturing.fmcg(t, f, e),

@@ -1424,7 +1424,7 @@ export interface SupportConclusion {
   findings: SupportFinding[];
 }
 export interface SupportReport {
-  kind: 'sales' | 'purchases' | 'inventory' | 'cash' | 'other' | 'pos' | 'fnb' | 'fmcg' | 'mfg' | 'jasa' | 'utility';
+  kind: 'sales' | 'purchases' | 'inventory' | 'cash' | 'pos' | 'fnb' | 'fmcg' | 'mfg' | 'jasa' | 'utility';
   title: string;
   summary: string;
   period: { from: string; to: string };
