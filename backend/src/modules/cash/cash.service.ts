@@ -45,7 +45,7 @@ export class CashService {
   /** Akun kas & bank beserta saldo per hari ini */
   async accounts(tenantId: string) {
     const res = await this.repo.queryAccount(this.db, tenantId);
-    return res.rows.map((r) => ({ ...r, balance: D(r.balance).toFixed(2) }));
+    return res.rows.map((r) => ({ ...r, balance: D(r.balance).toFixed(2), balanceForeign: r.balance_foreign === null ? null : D(r.balance_foreign).toFixed(2) }));
   }
 
   async list(tenantId: string, q: CashQueryDto, branchIds?: string[] | null) {

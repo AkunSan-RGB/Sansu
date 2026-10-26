@@ -29,6 +29,13 @@ export type BookLine = {
 };
 
 /** Akses data rekening koran, mutasi, pencocokan, dan aturan bank. Setiap metode memakai koneksi/transaksi pemanggil. */
+/**
+ * Nilai baris buku dalam mata uang rekening: rekening valas memakai jumlah valasnya (sama dengan angka rekening koran),
+ * rekening Rupiah tetap debit/kredit biasa.
+ */
+const BOOK_DEBIT = sql.raw('(CASE WHEN l.foreign_amount IS NOT NULL AND l.debit > 0 THEN l.foreign_amount ELSE l.debit END)');
+const BOOK_CREDIT = sql.raw('(CASE WHEN l.foreign_amount IS NOT NULL AND l.credit > 0 THEN l.foreign_amount ELSE l.credit END)');
+
 @Injectable()
 export class BankRepository {
   // ---- rekening koran ----
@@ -190,7 +197,7 @@ export class BankRepository {
   /** Dipakai oleh BankService.matchMany */
   queryJournalLine(db: DbOrTx, ids: string[]) {
     return db.execute<{ id: string; account_id: string; debit: string; credit: string; tenant_id: string }>(sql`
-        SELECT l.id, l.account_id, l.debit, l.credit, j.tenant_id FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
+        SELECT l.id, l.account_id, ${BOOK_DEBIT} AS debit, ${BOOK_CREDIT} AS credit, j.tenant_id FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
         WHERE l.id IN (${sql.join(
           ids.map((x) => sql`${x}`),
           sql`, `,
@@ -291,7 +298,7 @@ export class BankRepository {
   /** Dipakai oleh BankService.reconciliation */
   queryJournalLineForReconciliation(db: DbOrTx, tenantId: string, cashAccountId: string, asOf: string) {
     return db.execute<{ v: string }>(sql`
-        SELECT COALESCE(SUM(l.debit - l.credit), 0) AS v FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
+        SELECT COALESCE(SUM(${BOOK_DEBIT} - ${BOOK_CREDIT}), 0) AS v FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
         WHERE j.tenant_id = ${tenantId} AND l.account_id = ${cashAccountId} AND j.date <= ${asOf}`);
   }
 
@@ -345,7 +352,7 @@ export class BankRepository {
   /** Dipakai oleh BankService.get */
   queryJournalLineForGet(db: DbOrTx, ids: string[]) {
     return db.execute<BookLine>(sql`
-          SELECT l.id, j.id AS journal_id, j.date, j.number, j.description, j.reference, l.debit, l.credit, j.source_type
+          SELECT l.id, j.id AS journal_id, j.date, j.number, j.description, j.reference, ${BOOK_DEBIT} AS debit, ${BOOK_CREDIT} AS credit, j.source_type
           FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
           WHERE l.id IN (${sql.join(
             ids.map((x) => sql`${x}`),
@@ -356,7 +363,7 @@ export class BankRepository {
   /** Dipakai oleh BankService.openBookLines */
   queryJournalLineForOpenBookLines(db: DbOrTx, tenantId: string, cashAccountId: string, from: string, to: string) {
     return db.execute<BookLine>(sql`
-      SELECT l.id, j.id AS journal_id, j.date, j.number, j.description, j.reference, l.debit, l.credit, j.source_type
+      SELECT l.id, j.id AS journal_id, j.date, j.number, j.description, j.reference, ${BOOK_DEBIT} AS debit, ${BOOK_CREDIT} AS credit, j.source_type
       FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id
       WHERE j.tenant_id = ${tenantId} AND l.account_id = ${cashAccountId} AND j.source_type <> 'CLOSING'
         AND j.date BETWEEN ${from} AND ${to}

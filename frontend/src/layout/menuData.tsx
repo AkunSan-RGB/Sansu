@@ -321,7 +321,6 @@ export const MENU: Group[] = [
         items: [
           { key: '/journals', label: 'Jurnal umum' },
           { key: '/adjustments', label: 'Jurnal penyesuaian', roles: BOOKKEEPING },
-          { key: '/fx', label: 'Mata uang asing' },
         ],
       },
       {

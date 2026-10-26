@@ -14,11 +14,13 @@ import { RecurringJournalsRepository } from './recurring-journals.repository';
 import { PostingRepository } from './posting.repository';
 import { StatementsRepository } from './statements.repository';
 import { FinancialReportsRepository } from './financial-reports.repository';
+import { ForeignCashRepository } from './foreign-cash.repository';
+import { ForeignCashService } from './foreign-cash.service';
 import { AdjustmentsRepository } from './adjustments.repository';
 
 @Module({
   controllers: [AccountingController, BudgetController],
-  providers: [AdjustmentsRepository, FinancialReportsRepository, StatementsRepository, PostingRepository, RecurringJournalsRepository, BudgetRepository, AccountingRepository, AccountingService, RecurringJournalsService, FinancialReportsService, PostingService, StatementsService, AdjustmentsService, BudgetService, BudgetScheduler],
-  exports: [PostingService, AccountingService, RecurringJournalsService, FinancialReportsService, StatementsService, BudgetService],
+  providers: [ForeignCashRepository, ForeignCashService, AdjustmentsRepository, FinancialReportsRepository, StatementsRepository, PostingRepository, RecurringJournalsRepository, BudgetRepository, AccountingRepository, AccountingService, RecurringJournalsService, FinancialReportsService, PostingService, StatementsService, AdjustmentsService, BudgetService, BudgetScheduler],
+  exports: [ForeignCashService, PostingService, AccountingService, RecurringJournalsService, FinancialReportsService, StatementsService, BudgetService],
 })
 export class AccountingModule {}

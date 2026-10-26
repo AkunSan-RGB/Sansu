@@ -26,6 +26,7 @@ export class CreateAccountDto {
   @ApiProperty({ enum: accountTypeEnum.enumValues }) @IsIn(accountTypeEnum.enumValues) type: AccountType;
   @ApiPropertyOptional() @IsOptional() @IsUUID() parentId?: string;
   @ApiPropertyOptional({ description: 'Tandai sebagai akun kas / rekening bank' }) @IsOptional() @IsBoolean() isCashAccount?: boolean;
+  @ApiPropertyOptional({ description: 'Mata uang rekening kas/bank (kode valas, mis. USD); kosong = Rupiah. Tidak bisa diubah setelah dibuat' }) @IsOptional() @IsString() @MaxLength(3) currency?: string;
   @ApiPropertyOptional({ enum: REPORT_GROUP_KEYS, description: 'Kelompok penyajian laporan keuangan' }) @IsOptional() @IsIn(REPORT_GROUP_KEYS) reportGroup?: ReportGroup;
   @ApiPropertyOptional({ enum: FISCAL_TREATMENTS }) @IsOptional() @IsIn(FISCAL_TREATMENTS) fiscalTreatment?: FiscalTreatment;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) description?: string;
@@ -44,6 +45,7 @@ export class JournalLineDto {
   @ApiProperty() @IsUUID() accountId: string;
   @ApiPropertyOptional({ example: '150000' }) @IsOptional() @IsNumberString() debit?: string;
   @ApiPropertyOptional({ example: '0' }) @IsOptional() @IsNumberString() credit?: string;
+  @ApiPropertyOptional({ example: '100', description: 'Rekening kas/bank valas: jumlah dalam valas (wajib untuk akun valas, dilarang untuk akun Rupiah)' }) @IsOptional() @IsNumberString() foreignAmount?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() memo?: string;
   @ApiPropertyOptional({ description: 'Proyek (biaya langsung proyek, usaha jasa)' }) @IsOptional() @IsUUID() projectId?: string;
 }

@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { REPORT_GROUPS } from '@sansu/shared';
+import { BASE_CURRENCY, isKnownForeignCurrency, REPORT_GROUPS } from '@sansu/shared';
 import { and, desc, eq, gte, ilike, inArray, lte, or, sql } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
 import { ApprovalsService } from '../../common/approvals/approvals.service';
@@ -84,8 +84,13 @@ export class AccountingService {
     if (dto.reportGroup && REPORT_GROUPS[dto.reportGroup].type !== dto.type) {
       throw new BadRequestException('Kelompok laporan tidak sesuai dengan tipe akun');
     }
+    const currency = (dto.currency ?? BASE_CURRENCY).toUpperCase();
+    if (currency !== BASE_CURRENCY) {
+      if (!dto.isCashAccount) throw new BadRequestException('Mata uang asing hanya untuk akun kas/bank');
+      if (!isKnownForeignCurrency(currency)) throw new BadRequestException(`Mata uang ${currency} tidak dikenal`);
+    }
     const reportGroup = dto.isCashAccount ? 'CASH_EQUIVALENT' : (dto.reportGroup ?? guessReportGroup(dto.code, dto.type));
-    const row = await insertOne(this.db, accounts, { ...dto, reportGroup, tenantId });
+    const row = await insertOne(this.db, accounts, { ...dto, currency, reportGroup, tenantId });
     return row;
   }
 

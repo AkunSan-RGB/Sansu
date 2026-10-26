@@ -439,6 +439,8 @@ export interface Account {
   isPostable: boolean;
   systemKey: string | null;
   isCashAccount: boolean;
+  /** IDR atau kode valas (hanya rekening kas/bank) */
+  currency?: string;
   reportGroup: ReportGroup | null;
   fiscalTreatment: FiscalTreatment;
   description: string | null;
@@ -618,7 +620,10 @@ export interface CashAccount {
   id: string;
   code: string;
   name: string;
+  /** IDR atau kode valas; rekening valas menyimpan saldo valas di balanceForeign dan nilai Rupiah tercatat di balance */
+  currency: string;
   balance: string;
+  balanceForeign: string | null;
 }
 
 export interface CashTransaction {
@@ -627,6 +632,9 @@ export interface CashTransaction {
   date: string;
   type: CashTxType;
   amount: string;
+  /** Transaksi rekening valas: mata uang dan jumlah valasnya (amount = nilai Rupiah) */
+  currency?: string | null;
+  amountForeign?: string | null;
   description: string;
   reference: string | null;
   /** POSTED | VOID (dibatalkan dengan jurnal pembalik) */

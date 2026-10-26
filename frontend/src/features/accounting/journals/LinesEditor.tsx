@@ -16,6 +16,10 @@ export function LinesEditor({ form }: { form: FormInstance }) {
   const { can } = useApps();
   const projectList = useQuery({ queryKey: ['projects'], queryFn: () => get<Project[]>('/services/projects'), enabled: can('sales') });
   const activeProjects = (projectList.data ?? []).filter((p) => p.status === 'ACTIVE');
+  const foreignCurrency = (id?: string) => {
+    const c = accounts.data?.find((a) => a.id === id)?.currency;
+    return c && c !== 'IDR' ? c : undefined;
+  };
   const isExpense = (id?: string) => accounts.data?.find((a) => a.id === id)?.type === 'EXPENSE';
   const totalD = lines.reduce((a, l) => a + (l?.debit ?? 0), 0);
   const totalC = lines.reduce((a, l) => a + (l?.credit ?? 0), 0);
@@ -38,6 +42,11 @@ export function LinesEditor({ form }: { form: FormInstance }) {
                 <Form.Item name={[f.name, 'memo']}>
                   <Input placeholder="Catatan baris" style={{ width: 160 }} />
                 </Form.Item>
+                {foreignCurrency(lines[f.name]?.accountId) && (
+                  <Form.Item name={[f.name, 'foreignAmount']} rules={[{ required: true, message: 'Isi jumlah valas' }]} tooltip="Rekening valas: jumlah dalam mata uangnya wajib diisi">
+                    <InputNumber min={0.01} placeholder={`Jumlah ${foreignCurrency(lines[f.name]?.accountId)}`} style={{ width: 150 }} />
+                  </Form.Item>
+                )}
                 {activeProjects.length > 0 && isExpense(lines[f.name]?.accountId) && (
                   <Form.Item name={[f.name, 'projectId']} tooltip="Biaya langsung proyek">
                     <Select

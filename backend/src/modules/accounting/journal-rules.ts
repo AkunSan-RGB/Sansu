@@ -4,6 +4,8 @@ export interface DraftLine {
   accountId: string;
   debit?: DecValue;
   credit?: DecValue;
+  /** Jumlah valas (positif) untuk akun bermata uang asing */
+  foreignAmount?: DecValue | null;
   memo?: string;
   projectId?: string | null;
   branchId?: string | null;
@@ -13,6 +15,7 @@ export interface NormalizedLine {
   accountId: string;
   debit: Dec;
   credit: Dec;
+  foreignAmount: Dec | null;
   memo?: string;
   projectId?: string | null;
   branchId?: string | null;
@@ -34,7 +37,9 @@ export function normalizeJournalLines(lines: DraftLine[]): { lines: NormalizedLi
     if (debit.isNegative() || credit.isNegative()) throw new JournalValidationError('Nilai debit/kredit tidak boleh negatif');
     if (debit.gt(0) && credit.gt(0)) throw new JournalValidationError('Satu baris jurnal hanya boleh debit atau kredit');
     if (debit.isZero() && credit.isZero()) continue;
-    out.push({ accountId: l.accountId, debit, credit, memo: l.memo, projectId: l.projectId ?? null, branchId: l.branchId });
+    const foreign = l.foreignAmount == null ? null : money(D(l.foreignAmount));
+    if (foreign && foreign.lte(0)) throw new JournalValidationError('Jumlah valas harus lebih dari 0');
+    out.push({ accountId: l.accountId, debit, credit, foreignAmount: foreign, memo: l.memo, projectId: l.projectId ?? null, branchId: l.branchId });
   }
   if (out.length < 2) throw new JournalValidationError('Jurnal minimal memiliki dua baris bernilai');
 

@@ -74,7 +74,12 @@ export class PaymentsService {
       const diff = settle ? settle.diff : D(0);
 
       const method = dto.method ?? 'CASH';
-      const cashAccount = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, method === 'CASH' ? 'CASH' : 'BANK');
+      const cashAccount = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, method === 'CASH' ? 'CASH' : 'BANK', true);
+      // rekening valas hanya menerima pelunasan faktur dalam mata uang yang sama (uangnya masuk apa adanya, tanpa konversi)
+      const toForeignAccount = cashAccount.currency !== 'IDR';
+      if (toForeignAccount && cashAccount.currency !== inv.currency) {
+        throw new BadRequestException(`${cashAccount.name} adalah rekening ${cashAccount.currency}; faktur ini ${foreign ? inv.currency : 'Rupiah'}. Pilih rekening ${foreign ? inv.currency : 'Rupiah'}.`);
+      }
       const number = await this.seq.next(tx, user.tenantId, 'PAYMENT', date);
       const payment = await insertOne(tx, payments, {
           tenantId: user.tenantId,
@@ -101,7 +106,7 @@ export class PaymentsService {
         sourceId: payment.id,
         createdById: user.sub,
         lines: [
-          { accountId: cashAccount.id, debit: cash, memo: foreign ? `${amount.toFixed(2)} ${inv.currency} @ ${payRate.toFixed(2)}` : undefined },
+          { accountId: cashAccount.id, debit: cash, foreignAmount: toForeignAccount ? amount : undefined, memo: foreign ? `${amount.toFixed(2)} ${inv.currency} @ ${payRate.toFixed(2)}` : undefined },
           { key: SYS.AR, credit: carrying, memo: foreign ? `Faktur ${inv.currency} @ ${D(inv.fxRate).toFixed(2)}` : undefined },
           // kas diterima lebih besar dari nilai piutang tercatat = laba kurs terealisasi; lebih kecil = rugi
           { key: SYS.FX_GAIN, credit: diff.gt(0) ? diff : 0 },

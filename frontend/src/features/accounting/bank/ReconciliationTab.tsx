@@ -4,7 +4,8 @@ import { Alert, Card, Col, Descriptions, Empty, Input, Row, Space, Table } from 
 import { useState } from 'react';
 import { get } from '@/api/client';
 import type { BankReconciliation } from '@/api/types';
-import { fmtDate, fmtMoney, today } from '@/lib/format';
+import { fmtDate, today } from '@/lib/format';
+import { bankMoney } from './shared';
 
 export function ReconciliationTab({ cashAccountId }: { cashAccountId?: string }) {
   const [asOf, setAsOf] = useState(today());
@@ -27,7 +28,7 @@ export function ReconciliationTab({ cashAccountId }: { cashAccountId?: string })
         { title: 'Tanggal', dataIndex: 'date', render: fmtDate, width: 110 },
         { title: 'Nomor', dataIndex: 'number', width: 150 },
         { title: 'Keterangan', dataIndex: 'description', ellipsis: true },
-        { title: 'Jumlah', dataIndex: 'amount', align: 'right', render: fmtMoney },
+        { title: 'Jumlah', dataIndex: 'amount', align: 'right', render: bankMoney },
       ]}
       summary={() => (
         <Table.Summary.Row>
@@ -35,7 +36,7 @@ export function ReconciliationTab({ cashAccountId }: { cashAccountId?: string })
             <strong>Jumlah ({sign})</strong>
           </Table.Summary.Cell>
           <Table.Summary.Cell index={3} align="right">
-            <strong>{fmtMoney(total)}</strong>
+            <strong>{bankMoney(total)}</strong>
           </Table.Summary.Cell>
         </Table.Summary.Row>
       )}
@@ -54,17 +55,17 @@ export function ReconciliationTab({ cashAccountId }: { cashAccountId?: string })
           ) : d.reconciled ? (
             <Alert type="success" showIcon icon={<CheckCircleTwoTone twoToneColor="#52c41a" />} message="Saldo bank dan saldo buku cocok setelah penyesuaian." style={{ marginBottom: 12 }} />
           ) : (
-            <Alert type="warning" showIcon message={`Masih ada selisih ${fmtMoney(d.difference)} — periksa mutasi yang belum dicocokkan.`} style={{ marginBottom: 12 }} />
+            <Alert type="warning" showIcon message={`Masih ada selisih ${bankMoney(d.difference)} — periksa mutasi yang belum dicocokkan.`} style={{ marginBottom: 12 }} />
           )}
           <Row gutter={16}>
             <Col xs={24} lg={12}>
               <Card size="small" title="Menurut rekening koran bank">
                 <Descriptions size="small" column={1}>
-                  <Descriptions.Item label={`Saldo bank ${d.bankBalanceDate ? `(${fmtDate(d.bankBalanceDate)})` : ''}`}>{d.bankBalance ? fmtMoney(d.bankBalance) : '—'}</Descriptions.Item>
-                  <Descriptions.Item label="+ Setoran dalam perjalanan">{fmtMoney(d.totals.depositsInTransit)}</Descriptions.Item>
-                  <Descriptions.Item label="− Pembayaran belum dicairkan">{fmtMoney(d.totals.outstandingPayments)}</Descriptions.Item>
+                  <Descriptions.Item label={`Saldo bank ${d.bankBalanceDate ? `(${fmtDate(d.bankBalanceDate)})` : ''}`}>{d.bankBalance ? bankMoney(d.bankBalance) : '—'}</Descriptions.Item>
+                  <Descriptions.Item label="+ Setoran dalam perjalanan">{bankMoney(d.totals.depositsInTransit)}</Descriptions.Item>
+                  <Descriptions.Item label="− Pembayaran belum dicairkan">{bankMoney(d.totals.outstandingPayments)}</Descriptions.Item>
                   <Descriptions.Item label="Saldo bank disesuaikan">
-                    <strong>{d.adjustedBank ? fmtMoney(d.adjustedBank) : '—'}</strong>
+                    <strong>{d.adjustedBank ? bankMoney(d.adjustedBank) : '—'}</strong>
                   </Descriptions.Item>
                 </Descriptions>
               </Card>
@@ -72,10 +73,10 @@ export function ReconciliationTab({ cashAccountId }: { cashAccountId?: string })
             <Col xs={24} lg={12}>
               <Card size="small" title="Menurut buku (SANSU)">
                 <Descriptions size="small" column={1}>
-                  <Descriptions.Item label="Saldo buku">{fmtMoney(d.bookBalance)}</Descriptions.Item>
-                  <Descriptions.Item label="± Mutasi bank belum dicatat">{fmtMoney(d.totals.unrecorded)}</Descriptions.Item>
+                  <Descriptions.Item label="Saldo buku">{bankMoney(d.bookBalance)}</Descriptions.Item>
+                  <Descriptions.Item label="± Mutasi bank belum dicatat">{bankMoney(d.totals.unrecorded)}</Descriptions.Item>
                   <Descriptions.Item label="Saldo buku disesuaikan">
-                    <strong>{fmtMoney(d.adjustedBook)}</strong>
+                    <strong>{bankMoney(d.adjustedBook)}</strong>
                   </Descriptions.Item>
                 </Descriptions>
               </Card>

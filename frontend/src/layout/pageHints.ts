@@ -70,6 +70,7 @@ export const PAGE_HINTS: Record<string, string> = {
   '/production/variance': 'Selisih antara biaya standar dan biaya sebenarnya produksi.',
 
   '/cash': 'Catat uang yang masuk dan keluar di kas dan rekening bank, lengkap dengan saldonya. Kas kecil dan hitung uang kas ada di tab di atas.',
+  '/cash/foreign': 'Rekening bank valas, kurs harian, beli/jual valas, dan penilaian ulang selisih kurs.',
   '/petty-cash': 'Uang tunai kecil untuk pengeluaran harian (bensin, ATK, konsumsi): isi ulang dan catat buktinya.',
   '/bank': 'Unggah mutasi rekening bank lalu cocokkan satu per satu dengan catatan di SANSU. Lakukan tiap bulan.',
   '/cash/counts': 'Hitung uang tunai yang benar-benar ada di laci atau brankas, lalu cocokkan dengan saldo di sistem. Selisih tercatat.',
@@ -78,7 +79,6 @@ export const PAGE_HINTS: Record<string, string> = {
   '/opening-balance': 'Saldo awal akun saat mulai memakai SANSU.',
   '/journals': 'Jurnal umum: semua pencatatan debit dan kredit, otomatis maupun manual.',
   '/adjustments': 'Jurnal penyesuaian akhir periode, seperti beban dibayar dimuka.',
-  '/fx': 'Kurs mata uang asing dan selisih kurs.',
   '/ledger': 'Buku besar: rincian pergerakan setiap akun.',
   '/trial-balance': 'Neraca saldo: total debit dan kredit tiap akun harus seimbang.',
   '/worksheet': 'Neraca lajur: saldo akun sebelum dan sesudah penyesuaian.',

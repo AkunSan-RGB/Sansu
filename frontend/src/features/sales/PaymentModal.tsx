@@ -56,7 +56,7 @@ export default function PaymentModal({ invoice, onClose }: { invoice: Pick<Invoi
           <Select options={toOptions(PAYMENT_METHOD_LABELS)} />
         </Form.Item>
         <Form.Item name="cashAccountId" label="Masuk ke" extra="Kosongkan: tunai → Kas, transfer/giro → Bank utama">
-          <CashAccountSelect allowClear />
+          <CashAccountSelect allowClear currency={invoice?.currency ?? undefined} />
         </Form.Item>
         <Form.Item name="date" label="Tanggal">
           <Input type="date" />

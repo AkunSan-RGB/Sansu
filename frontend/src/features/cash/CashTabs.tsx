@@ -6,11 +6,12 @@ const TABS = [
   { key: '/cash', label: 'Uang masuk & keluar' },
   { key: '/petty-cash', label: 'Kas kecil' },
   { key: '/cash/counts', label: 'Hitung uang kas (opname)' },
+  { key: '/cash/foreign', label: 'Valas & kurs' },
 ];
 
 export default function CashTabs() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const active = pathname.startsWith('/cash/counts') ? '/cash/counts' : pathname.startsWith('/petty-cash') ? '/petty-cash' : '/cash';
+  const active = pathname.startsWith('/cash/counts') ? '/cash/counts' : pathname.startsWith('/cash/foreign') ? '/cash/foreign' : pathname.startsWith('/petty-cash') ? '/petty-cash' : '/cash';
   return <Tabs activeKey={active} items={TABS} onChange={(k) => navigate(k)} style={{ marginBottom: 4 }} />;
 }

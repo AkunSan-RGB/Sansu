@@ -18,6 +18,8 @@ export interface PostLine {
   key?: SystemKey;
   debit?: DecValue;
   credit?: DecValue;
+  /** Jumlah valas (positif) — wajib untuk akun kas/bank bermata uang asing, dilarang untuk akun Rupiah */
+  foreignAmount?: DecValue | null;
   memo?: string;
   /** Proyek (usaha jasa) — dipakai jurnal umum untuk biaya langsung proyek */
   projectId?: string | null;
@@ -57,7 +59,9 @@ export class PostingService {
     // Jurnal penutup tahun hanya memindahkan saldo pendapatan/beban ke Laba Ditahan (laporan laba rugi mengabaikannya), jadi boleh
     // dibuat sesudah periodenya dikunci; tanpa pengecualian ini kunci periode otomatis menghalangi tutup buku.
     if (input.sourceType !== 'CLOSING') await this.period.assertOpen(tx, input.tenantId, input.date);
-    const accountIds = await this.resolveAccounts(tx, input.tenantId, input.lines);
+    const accountRows = await this.resolveAccountRows(tx, input.tenantId, input.lines);
+    const accountIds = accountRows.map((a) => a.id);
+    input.lines.forEach((l, i) => this.assertForeignAmount(accountRows[i], l));
 
     let normalized;
     try {
@@ -90,7 +94,7 @@ export class PostingService {
       const [rak] = await this.resolveAccounts(tx, input.tenantId, [{ key: 'INTERBRANCH' }]);
       for (const [b, v] of net) {
         if (v.isZero()) continue;
-        normalized.lines.push({ accountId: rak, debit: v.isNegative() ? v.abs() : D(0), credit: v.isPositive() ? v : D(0), memo: 'Antar cabang', projectId: null, branchId: b });
+        normalized.lines.push({ accountId: rak, debit: v.isNegative() ? v.abs() : D(0), credit: v.isPositive() ? v : D(0), foreignAmount: null, memo: 'Antar cabang', projectId: null, branchId: b });
       }
     }
 
@@ -220,11 +224,13 @@ export class PostingService {
   /**
    * Akun kas/bank untuk penerimaan/pembayaran.
    * Jika id diberikan harus akun kas milik perusahaan; jika tidak, pakai akun sistem (Kas atau Bank).
+   * Rekening bermata uang asing ditolak kecuali alurnya memang mengenal valas (`allowForeign`): pembayaran faktur dan transaksi kas.
    */
-  async resolveCashAccount(db: DbOrTx, tenantId: string, accountId: string | undefined, fallback: 'CASH' | 'BANK') {
+  async resolveCashAccount(db: DbOrTx, tenantId: string, accountId: string | undefined, fallback: 'CASH' | 'BANK', allowForeign = false) {
     if (accountId) {
       const acc = await this.refs.account(db, tenantId, accountId);
       if (!acc || !acc.isCashAccount || !acc.isPostable) throw new BadRequestException('Akun kas/bank tidak valid');
+      if (acc.currency !== 'IDR' && !allowForeign) throw new BadRequestException(`${acc.name} adalah rekening ${acc.currency}; transaksi ini hanya untuk rekening Rupiah`);
       return acc;
     }
     const [acc] = await this.repo.findAccountsBySystemKey(db, tenantId, fallback);
@@ -246,7 +252,23 @@ export class PostingService {
     }
   }
 
+  /**
+   * Akun valas wajib membawa jumlah valasnya di setiap baris (tanpa itu saldo valas rusak), akun Rupiah dilarang memilikinya.
+   * Alur yang belum mengenal valas otomatis tertolak di sini dengan pesan jelas, bukan menulis saldo valas yang salah.
+   */
+  private assertForeignAmount(acc: { code: string; name: string; currency: string }, l: PostLine) {
+    const has = l.foreignAmount != null && !D(l.foreignAmount).isZero();
+    const nonZero = !D(l.debit).isZero() || !D(l.credit).isZero();
+    if (!nonZero) return;
+    if (acc.currency !== 'IDR' && !has) throw new BadRequestException(`${acc.name} (${acc.code}) bermata uang ${acc.currency}: transaksi ke akun ini harus menyertakan jumlah ${acc.currency}`);
+    if (acc.currency === 'IDR' && has) throw new BadRequestException(`${acc.name} (${acc.code}) berupa rekening Rupiah; jumlah valas tidak boleh diisi`);
+  }
+
   private async resolveAccounts(tx: Tx, tenantId: string, lines: PostLine[]): Promise<string[]> {
+    return (await this.resolveAccountRows(tx, tenantId, lines)).map((a) => a.id);
+  }
+
+  private async resolveAccountRows(tx: Tx, tenantId: string, lines: PostLine[]) {
     const keys = [...new Set(lines.filter((l) => l.key).map((l) => l.key!))];
     const ids = [...new Set(lines.filter((l) => l.accountId).map((l) => l.accountId!))];
     if (keys.length) await this.ensureSystemAccounts(tx, tenantId, keys);
@@ -264,7 +286,7 @@ export class PostingService {
       const acc = l.key ? byKey.get(l.key) : byId.get(l.accountId!);
       if (!acc) throw new BadRequestException(`Akun ${l.key ?? l.accountId} tidak ditemukan`);
       if (!acc.isPostable) throw new BadRequestException(`Akun ${acc.code} adalah akun induk dan tidak bisa diposting`);
-      return acc.id;
+      return acc;
     });
   }
 

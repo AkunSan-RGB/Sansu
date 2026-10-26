@@ -4,6 +4,8 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { CashService } from './cash.service';
+import { CreateForeignCashDto } from './foreign-cash-tx.dto';
+import { ForeignCashTxService } from './foreign-cash-tx.service';
 import { CashQueryDto, CashSettingsDto, CashEvidenceDto, VoidCashDto, CreateCashTxDto } from './cash.dto';
 
 @ApiTags('Kas & Bank')
@@ -12,7 +14,7 @@ import { CashQueryDto, CashSettingsDto, CashEvidenceDto, VoidCashDto, CreateCash
 @RequireApp('cash')
 @Controller('cash')
 export class CashController {
-  constructor(private readonly svc: CashService) {}
+  constructor(private readonly svc: CashService, private readonly foreignTx: ForeignCashTxService) {}
 
   /** Dipakai juga layar kasir untuk memilih laci kas & rekening QRIS */
   @Get('accounts')
@@ -69,5 +71,12 @@ export class CashController {
   @Post('transactions')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreateCashTxDto) {
     return this.svc.create(u, dto);
+  }
+
+  /** Transaksi rekening valas: terima/bayar, beli/jual valas, pindah antar rekening valas */
+  @Roles('ADMIN', 'FINANCE')
+  @Post('foreign')
+  createForeign(@CurrentUser() u: AuthUser, @Body() dto: CreateForeignCashDto) {
+    return this.foreignTx.create(u, dto);
   }
 }

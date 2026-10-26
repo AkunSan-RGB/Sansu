@@ -9,13 +9,14 @@ import { Db, DbOrTx } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { exchangeRates } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
+import { ForeignCashService } from '../accounting/foreign-cash.service';
 import { PostingService } from '../accounting/posting.service';
 import { RevaluationDto, UpsertRateDto } from './fx.dto';
 import { FxRepository } from './fx.repository';
 import type { OpenItemRow } from './fx.repository';
 
 interface OpenItem {
-  kind: 'AR' | 'AP';
+  kind: 'AR' | 'AP' | 'BANK';
   id: string;
   number: string;
   party: string;
@@ -32,6 +33,7 @@ export class FxService {
     private readonly posting: PostingService,
     private readonly audit: AuditService,
     private readonly repo: FxRepository,
+    private readonly foreignCash: ForeignCashService,
   ) {}
 
   list(tenantId: string, currency?: string) {
@@ -89,12 +91,15 @@ export class FxService {
     return { ok: true };
   }
 
-  /** Piutang dan utang valas yang masih terbuka per tanggal (pelunasan sesudahnya tidak dihitung) */
+  /** Piutang dan utang valas yang masih terbuka per tanggal (pelunasan sesudahnya tidak dihitung), ditambah saldo rekening kas/bank valas */
   private async openItems(tenantId: string, asOf: string): Promise<OpenItem[]> {
     const ar = await this.repo.queryInvoice(this.db, asOf, tenantId);
     const ap = await this.repo.queryPurchaseInvoice(this.db, asOf, tenantId);
     const map = (kind: 'AR' | 'AP') => (r: OpenItemRow): OpenItem => ({ kind, id: r.id, number: r.number, party: r.party, currency: r.currency, date: r.date, outstandingForeign: D(r.out_f), carrying: D(r.carrying) });
-    return [...ar.rows.map(map('AR')), ...ap.rows.map(map('AP'))].filter((x) => x.outstandingForeign.gt(0.004));
+    const bank: OpenItem[] = (await this.foreignCash.accounts(this.db, tenantId, asOf)).map((a) => ({
+      kind: 'BANK', id: a.id, number: a.code, party: a.name, currency: a.currency, date: asOf, outstandingForeign: a.foreign, carrying: a.idr,
+    }));
+    return [...ar.rows.map(map('AR')), ...ap.rows.map(map('AP')), ...bank].filter((x) => x.outstandingForeign.abs().gt(0.004));
   }
 
   /** Posisi valas terbuka dan selisih kurs belum terealisasi bila dinilai pada kurs tanggal tersebut */
@@ -106,26 +111,27 @@ export class FxService {
     const rows = items.map((i) => {
       const rate = rates.get(i.currency) ?? null;
       const value = rate ? money(i.outstandingForeign.times(rate)) : null;
-      // piutang: nilai lebih tinggi = laba; utang: nilai lebih tinggi = rugi
-      const unrealized = value ? (i.kind === 'AR' ? value.minus(i.carrying) : i.carrying.minus(value)) : null;
+      // piutang dan kas valas: nilai lebih tinggi = laba; utang: nilai lebih tinggi = rugi
+      const unrealized = value ? (i.kind === 'AP' ? i.carrying.minus(value) : value.minus(i.carrying)) : null;
       return {
         kind: i.kind, id: i.id, number: i.number, party: i.party, currency: i.currency, date: i.date,
         outstandingForeign: i.outstandingForeign.toFixed(2), carrying: i.carrying.toFixed(2),
         rate, valueAtRate: value?.toFixed(2) ?? null, unrealized: unrealized?.toFixed(2) ?? null,
       };
     });
-    const byCurrency = new Map<string, { currency: string; rate: string | null; receivable: Dec; payable: Dec; unrealized: Dec }>();
+    const byCurrency = new Map<string, { currency: string; rate: string | null; receivable: Dec; payable: Dec; bank: Dec; unrealized: Dec }>();
     for (const r of rows) {
-      const g = byCurrency.get(r.currency) ?? { currency: r.currency, rate: r.rate, receivable: ZERO, payable: ZERO, unrealized: ZERO };
+      const g = byCurrency.get(r.currency) ?? { currency: r.currency, rate: r.rate, receivable: ZERO, payable: ZERO, bank: ZERO, unrealized: ZERO };
       if (r.kind === 'AR') g.receivable = g.receivable.plus(r.outstandingForeign);
-      else g.payable = g.payable.plus(r.outstandingForeign);
+      else if (r.kind === 'AP') g.payable = g.payable.plus(r.outstandingForeign);
+      else g.bank = g.bank.plus(r.outstandingForeign);
       g.unrealized = g.unrealized.plus(r.unrealized ?? 0);
       byCurrency.set(r.currency, g);
     }
     return {
       asOf,
       rows,
-      byCurrency: [...byCurrency.values()].map((g) => ({ currency: g.currency, rate: g.rate, receivable: g.receivable.toFixed(2), payable: g.payable.toFixed(2), net: g.receivable.minus(g.payable).toFixed(2), unrealized: g.unrealized.toFixed(2) })),
+      byCurrency: [...byCurrency.values()].map((g) => ({ currency: g.currency, rate: g.rate, receivable: g.receivable.toFixed(2), payable: g.payable.toFixed(2), bank: g.bank.toFixed(2), net: g.receivable.plus(g.bank).minus(g.payable).toFixed(2), unrealized: g.unrealized.toFixed(2) })),
       unrealized: rows.reduce<Dec>((a, r) => a.plus(r.unrealized ?? 0), ZERO).toFixed(2),
       missingRates: [...rates.entries()].filter(([, r]) => !r).map(([c]) => c),
     };
@@ -141,36 +147,39 @@ export class FxService {
     const date = toDocDate(dto.date);
     if (date > todayJakarta()) throw new BadRequestException('Penilaian ulang tidak bisa untuk tanggal yang belum tiba');
     const exp = await this.exposure(user.tenantId, date);
-    if (!exp.rows.length) throw new BadRequestException('Tidak ada piutang atau utang valas yang terbuka pada tanggal itu');
+    if (!exp.rows.length) throw new BadRequestException('Tidak ada piutang, utang, atau saldo bank valas pada tanggal itu pada tanggal itu');
     if (exp.missingRates.length) throw new BadRequestException(`Kurs ${exp.missingRates.join(', ')} belum ada pada atau sebelum ${date}. Isi kurs penutup dulu.`);
 
     return this.db.transaction(async (tx) => {
       const [dup] = (await this.repo.queryJournalEntry(tx, user.tenantId, date)).rows;
       if (dup) throw new BadRequestException(`Penilaian ulang tanggal ${date} sudah dicatat (${dup.number})`);
 
-      const sum = (kind: 'AR' | 'AP') => exp.rows.filter((r) => r.kind === kind).reduce<Dec>((a, r) => a.plus(r.unrealized ?? 0), ZERO);
+      const sum = (kind: 'AR' | 'AP' | 'BANK') => exp.rows.filter((r) => r.kind === kind).reduce<Dec>((a, r) => a.plus(r.unrealized ?? 0), ZERO);
       const ar = sum('AR');
       const ap = sum('AP');
-      if (ar.isZero() && ap.isZero()) throw new BadRequestException('Nilai tercatat sudah sama dengan nilai pada kurs penutup; tidak ada selisih untuk dicatat');
+      const bank = sum('BANK');
+      if (ar.isZero() && ap.isZero() && bank.isZero()) throw new BadRequestException('Nilai tercatat sudah sama dengan nilai pada kurs penutup; tidak ada selisih untuk dicatat');
+      const net = ar.plus(ap).plus(bank);
       const pos = (v: Dec) => (v.gt(0) ? v : 0);
       const neg = (v: Dec) => (v.lt(0) ? v.abs() : 0);
       const journal = await this.posting.post(tx, {
         tenantId: user.tenantId,
         date,
-        description: `Penilaian ulang piutang dan utang valas per ${date}`,
+        description: `Penilaian ulang piutang, utang, dan kas/bank valas per ${date}`,
         sourceType: 'FX_REVAL',
         createdById: user.sub,
         lines: [
           // `ar` dan `ap` bernilai positif bila laba: piutang naik / utang turun menambah laba
           { key: SYS.FX_REVAL_AR, debit: pos(ar), credit: neg(ar), memo: 'Penyesuaian kurs piutang valas' },
           { key: SYS.FX_REVAL_AP, debit: pos(ap), credit: neg(ap), memo: 'Penyesuaian kurs utang valas' },
-          { key: SYS.FX_GAIN, credit: ar.plus(ap).gt(0) ? ar.plus(ap) : 0 },
-          { key: SYS.FX_LOSS, debit: ar.plus(ap).lt(0) ? ar.plus(ap).abs() : 0 },
+          { key: SYS.FX_REVAL_CASH, debit: pos(bank), credit: neg(bank), memo: 'Penyesuaian kurs saldo kas/bank valas' },
+          { key: SYS.FX_GAIN, credit: net.gt(0) ? net : 0 },
+          { key: SYS.FX_LOSS, debit: net.lt(0) ? net.abs() : 0 },
         ],
       });
       const reversal = await this.posting.reverse(tx, user.tenantId, journal.id, addDays(date, 1), user.sub, true);
-      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'FxRevaluation', entityId: journal.id, data: { date, receivable: ar.toFixed(2), payable: ap.toFixed(2) } });
-      return { date, journalNumber: journal.number, reversalNumber: reversal.number, receivable: ar.toFixed(2), payable: ap.toFixed(2), net: ar.plus(ap).toFixed(2), items: exp.rows.length };
+      await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'FxRevaluation', entityId: journal.id, data: { date, receivable: ar.toFixed(2), payable: ap.toFixed(2), bank: bank.toFixed(2) } });
+      return { date, journalNumber: journal.number, reversalNumber: reversal.number, receivable: ar.toFixed(2), payable: ap.toFixed(2), bank: bank.toFixed(2), net: net.toFixed(2), items: exp.rows.length };
     });
   }
 }
