@@ -304,8 +304,8 @@ export async function utilityChannels(c: Demo) {
   await c.step('pengaturan VA', () => va.saveSettings(c.admin, { prefix: '8808', bankName: 'Bank Mitra Daerah' }));
   const conns = await c.db.select({ id: utilityConnections.id }).from(utilityConnections).where(eq(utilityConnections.tenantId, c.tenantId)).limit(4);
   for (const [i, cn] of conns.entries()) {
-    const no = (await c.step('nomor VA', () => va.numberOf(c.tenantId, cn.id))) as { number?: string; va?: string } | undefined;
-    const number = no?.number ?? no?.va;
+    const no = (await c.step('nomor VA', () => va.numberOf(c.tenantId, cn.id))) as { vaNumber?: string } | undefined;
+    const number = no?.vaNumber;
     if (number) await c.step('pembayaran VA', () => va.receive(c.admin, { vaNumber: number, amount: String(85_000 + i * 12_500), reference: `VA-${c.today.replace(/-/g, '')}-${i + 1}`, channel: 'BCA', paidAt: new Date().toISOString() }));
   }
   await c.step('pembayaran VA tak dikenal', () => va.receive(c.admin, { vaNumber: '880899999999', amount: '120000', reference: `VA-${c.today.replace(/-/g, '')}-X`, channel: 'Mandiri' }));
