@@ -299,7 +299,8 @@ export class ProductionService {
       const number = await this.seq.next(tx, user.tenantId, 'PRODUCTION_ORDER', date);
       const [o] = await this.repo.insertProductionOrders(tx, user.tenantId, number, date, b.id, b.productId, wh.id, batches, b.outputQty, dto.notes, user.sub, extra.parentOrderId, extra.planNo, b.version, dto.subcontractorId);
       await this.repo.insertProductionOrderLines(tx, ls, o.id, batches);
-      await this.workCenters.copyToOrder(tx, user.tenantId, b.id, o.id, batches.toNumber());
+      // subkontrak dikerjakan pihak ketiga: operasi pusat kerja internal tidak dipakai
+      if (!dto.subcontractorId) await this.workCenters.copyToOrder(tx, user.tenantId, b.id, o.id, batches.toNumber());
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,

@@ -102,6 +102,7 @@ async function seedRitel(c: Demo) {
   await X.attendance(c);
   await X.stockOps(c, ids, RITEL.map((p) => p.sku), { saleInvoiceId: ritelUnpaid, billId: c.last.bill, supplierId: sup.get('SUP-FMCG') });
   await F.loyalty(c);
+  await F.ritelHargaToko(c, [{ productId: ids.get('RT-BERAS')!, price: '77500' }, { productId: ids.get('RT-MINYAK')!, price: '17000' }], { productId: ids.get('RT-MIE')!, minQty: '10', discountPct: '5', name: 'Mi instan diskon 5% min 10 bungkus' });
   await F.minimums(c, [...ids.values()]);
   await F.priceAgreements(c, [
     { supplierId: sup.get('SUP-GROSIR')!, productId: ids.get('RT-BERAS')!, price: 67500 },
@@ -337,6 +338,7 @@ async function seedJasa(c: Demo) {
   void dep;
   await X.stockOps(c, ids, JASA_BAHAN.map((p) => p.sku), { saleInvoiceId: jsold2, billId: c.last.bill, supplierId: sup.get('SUP-CLOUD') });
   await F.jasaOperations(c, [cu.get('CL-BANK')!, cu.get('CL-RETAIL')!, cu.get('CL-RS')!], p1?.id);
+  await F.projectBudgets(c);
   await F.serviceWork(c, [{ name: 'Konsultan senior — per jam', unit: 'HOUR', rate: '250000', qty: '6.5' }, { name: 'Sesi pelatihan klien', unit: 'SESSION', rate: '1500000', qty: '1' }]);
   await F.minimums(c, [...ids.values()]);
   await F.priceAgreements(c, [{ supplierId: sup.get('SUP-CLOUD')!, productId: ids.get('JB-LISENSI')!, price: 1_850_000 }]);
@@ -636,6 +638,7 @@ async function seedManufaktur(c: Demo) {
   await X.deposit(c, cu.get('APT-ASRI')!, 90_000_000, 'Uang muka kitchen set tahap 3');
   await X.stockOps(c, ids, ['FN-JATI', 'FN-PLY', 'FN-ENGSEL', 'FN-REL', 'FN-POLITUR'], { saleInvoiceId: s3, billId: c.last.bill, supplierId: sup.get('SUP-KAYU') });
   await F.manufakturExtras(c, ids, sup.get('SUP-KAYU')!);
+  await F.resepDanMaklon(c, sup.get('SUP-KAYU')!);
   await F.deliveryTrips(c);
   await F.minimums(c, [...ids.values()]);
   await F.priceAgreements(c, [
