@@ -1,37 +1,41 @@
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Card, Col, Collapse, Row, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, Collapse, Table, Tag, Typography } from 'antd';
 import { get } from '@/api/client';
 import { fmtMoney } from '@/lib/format';
 
 interface IncomeRow { key: string; label: string; group: 'SALES' | 'NONSALES' | 'OTHER'; category: 'SALES' | 'CAPITAL' | 'LOAN' | 'OTHER'; amount: number; count: number; suspect?: string }
+interface IncomeSourcesData { from: string; to: string; rows: IncomeRow[]; totals: { sales: number; nonSales: number; other: number }; categories: { sales: number; capital: number; loan: number; other: number } }
 
-/** Uang masuk 30 hari terakhir per sumber: penjualan vs bukan penjualan; penjualan yang dicatat lewat kas masuk ditandai */
+const GROUP = { SALES: { c: 'green', t: 'Penjualan' }, NONSALES: { c: 'default', t: 'Bukan penjualan' }, OTHER: { c: 'default', t: 'Lainnya' } } as const;
+
+/**
+ * Dari mana uang masuk 30 hari terakhir: satu panel ringkas (tertutup bawaan). Judulnya sudah memuat empat angka utama,
+ * rinciannya (per sumber, yang perlu diperiksa) dibuka bila diperlukan.
+ */
 export default function IncomeSources() {
-  const { data } = useQuery({ queryKey: ['cash', 'income-sources'], queryFn: () => get<{ from: string; to: string; rows: IncomeRow[]; totals: { sales: number; nonSales: number; other: number }; categories: { sales: number; capital: number; loan: number; other: number } }>('/cash/income-sources'), retry: false });
+  const { data } = useQuery({ queryKey: ['cash', 'income-sources'], queryFn: () => get<IncomeSourcesData>('/cash/income-sources') });
   if (!data || !data.rows.length) return null;
   const suspects = data.rows.filter((r) => r.suspect);
-  const GROUP = { SALES: { c: 'green', t: 'Penjualan' }, NONSALES: { c: 'blue', t: 'Bukan penjualan' }, OTHER: { c: 'default', t: 'Lainnya' } } as const;
+  const parts: [string, number][] = [['Penjualan', data.categories.sales], ['Modal dari pemilik', data.categories.capital], ['Pinjaman', data.categories.loan], ['Lainnya', data.categories.other]];
   return (
-    <>
-    <Card size="small" title="Uang masuk berdasarkan sumber (30 hari)" style={{ marginBottom: 12 }}>
-      <Row gutter={[12, 12]}>
-        {([['Penjualan', data.categories.sales, '#389e0d'], ['Modal dari pemilik', data.categories.capital, '#111111'], ['Pinjaman', data.categories.loan, '#d46b08'], ['Lainnya', data.categories.other, '#8c8c8c']] as const).map(([t, v, c]) => (
-          <Col key={t} xs={12} md={6}>
-            <Statistic title={t} value={v} formatter={(x) => fmtMoney(Number(x))} valueStyle={{ color: c, fontSize: 18 }} />
-          </Col>
-        ))}
-      </Row>
-    </Card>
     <Collapse
-      style={{ marginBottom: 16 }}
+      style={{ marginBottom: 12 }}
       items={[
         {
           key: 'src',
           label: (
-            <span>
-              <strong>Uang masuk per sumber</strong> (30 hari) · Penjualan {fmtMoney(data.totals.sales)} · Bukan penjualan {fmtMoney(data.totals.nonSales)}
+            <div>
+              <strong>Dari mana uang masuk (30 hari terakhir)</strong>
               {suspects.length > 0 && <Tag color="orange" style={{ marginLeft: 8 }}>{suspects.length} perlu diperiksa</Tag>}
-            </span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 20px', marginTop: 4 }}>
+                {parts.map(([t, v]) => (
+                  <span key={t}>
+                    <Typography.Text type="secondary">{t}: </Typography.Text>
+                    <strong>{fmtMoney(v)}</strong>
+                  </span>
+                ))}
+              </div>
+            </div>
           ),
           children: (
             <>
@@ -56,6 +60,5 @@ export default function IncomeSources() {
         },
       ]}
     />
-    </>
   );
 }

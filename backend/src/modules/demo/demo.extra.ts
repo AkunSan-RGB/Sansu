@@ -253,6 +253,50 @@ const OPS: Record<string, Ops> = {
     days: 10,
     leave: ['Cuti tahunan', 'Mengurus keperluan keluarga'],
   },
+  JASA: {
+    warehouse2: 'Lemari Perangkat Proyek',
+    transfers: [
+      { mode: 'DIRECT', qty: '2', ago: 20, notes: 'Pindah perangkat uji ke tim proyek aplikasi' },
+      { mode: 'DIRECT', qty: '1', ago: 9, notes: 'Pinjamkan lisensi cadangan ke tim desain' },
+    ],
+    countNote: 'Opname perangkat dan lisensi bulanan',
+    shortages: [1, 0],
+    writedown: null,
+    salesReturn: ['Paket cetak salah ukuran, ditukar klien', '1'],
+    purchaseReturn: ['Perangkat uji cacat dari pemasok', '1'],
+    poQty: '5',
+    poPrice: '1900000',
+    requestNote: 'Lisensi hampir habis menjelang proyek baru',
+    requestQty: '6',
+    sick: 0.04,
+    checkIn: [8, 9],
+    checkOut: [17, 18],
+    overtime: 1,
+    days: 10,
+    leave: ['Cuti tahunan', 'Keperluan keluarga'],
+  },
+  UTILITAS: {
+    warehouse2: 'Gudang Bahan Instalasi 2',
+    transfers: [
+      { mode: 'DIRECT', qty: '10', ago: 20, notes: 'Pindah pipa dan fitting ke gudang wilayah timur' },
+      { mode: 'DIRECT', qty: '4', ago: 9, notes: 'Pindah meter air cadangan untuk pemasangan baru' },
+    ],
+    countNote: 'Opname gudang pipa, meter, dan bahan kimia',
+    shortages: [2, 1],
+    writedown: [0.9, 'Kaporit lama menurun kadar efektifnya, nilai diturunkan'],
+    salesReturn: ['', '1'],
+    purchaseReturn: ['Fitting retak saat diterima', '3'],
+    poQty: '50',
+    poPrice: '30000',
+    requestNote: 'Persediaan pipa menipis, pemasangan baru bulan depan',
+    requestQty: '100',
+    sick: 0.04,
+    checkIn: [7, 8],
+    checkOut: [16, 17],
+    overtime: 1,
+    days: 10,
+    leave: ['Cuti tahunan', 'Keperluan keluarga'],
+  },
   FMCG: {
     warehouse2: 'Gudang Satelit (Mobil Kanvas)',
     transfers: [
@@ -302,7 +346,7 @@ const OPS: Record<string, Ops> = {
     transfers: [{ mode: 'IN_TRANSIT', qty: '10', ago: 19, notes: 'Pindah bahan ke gudang produksi' }],
     countNote: 'Opname bahan dan komponen pabrik',
     shortages: [2, 1],
-    writedown: null,
+    writedown: [0.9, 'Politur lama menggumpal, nilai diturunkan ke nilai jual bersih'],
     salesReturn: ['Cacat finishing, ditukar baru', '1'],
     purchaseReturn: ['Kadar air kayu melebihi standar', '4'],
     poQty: '30',
@@ -597,15 +641,49 @@ export async function pettyCash(c: Demo) {
   await c.step('ganti kas kecil', () => c.svc.petty.replenish(c.admin, fund.id, { date: c.ago(6) }));
 }
 
+/**
+ * Kas contoh tidak boleh negatif dan hitungan fisik harus masuk akal. Saldo awal kas kecil, sedangkan pengeluaran dan transfer ke bank sepanjang riwayat
+ * bisa melebihinya, sehingga buku kas negatif dan opname memposting koreksi puluhan juta. Bila saldo kas pernah di bawah nol, ditambahkan setoran modal
+ * pemilik bertanggal awal. Lalu hitungan fisik disusun dari saldo buku pada tanggal opname, kurang Rp5.000 (alasan "pembulatan uang kembalian").
+ */
+async function countedDenominations(c: Demo, countDate: string): Promise<Record<string, number>> {
+  const q = async (extra: ReturnType<typeof sql>) =>
+    Number((await c.db.execute<{ b: string }>(sql`SELECT COALESCE(${extra}, 0)::text AS b FROM (SELECT j.date AS d, SUM(SUM(l.debit - l.credit)) OVER (ORDER BY j.date) AS kum FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id WHERE j.tenant_id = ${c.tenantId} AND l.account_id = ${c.kas} GROUP BY j.date) x`)).rows[0]?.b ?? 0);
+  const lowest = await q(sql`MIN(kum)`);
+  if (lowest < 0) {
+    await c.step('setoran modal pemilik ke kas', () =>
+      c.svc.cash.create(c.admin, {
+        type: 'IN',
+        cashAccountId: c.kas,
+        date: c.ago(110),
+        description: 'Setoran modal pemilik untuk kas operasional',
+        reference: `MDL-${c.int(1000, 9999)}`,
+        lines: [{ accountId: c.acc('3-1000'), amount: String(Math.round(-lowest + 2_000_000)) }],
+      }),
+    );
+  }
+  const book = Number(
+    (await c.db.execute<{ b: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0)::text AS b FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id WHERE j.tenant_id = ${c.tenantId} AND l.account_id = ${c.kas} AND j.date <= ${countDate}`)).rows[0]?.b ?? 0,
+  );
+  let left = Math.max(0, Math.round((book - 5_000) / 1_000) * 1_000);
+  const out: Record<string, number> = {};
+  for (const note of [100_000, 50_000, 20_000, 10_000, 5_000, 2_000, 1_000]) {
+    out[`K${note}`] = Math.floor(left / note);
+    left -= out[`K${note}`] * note;
+  }
+  return out;
+}
+
 /** Opname kas (hitung fisik uang) */
 export async function cashCount(c: Demo) {
+  const denominations = await countedDenominations(c, c.ago(3));
   const cc = (await c.step('opname kas', () =>
     c.svc.cashCount.create(c.admin, { accountId: c.kas, date: c.ago(3), custodianName: flavorOf(c).petty.custodian }),
   )) as { id: string } | undefined;
   if (!cc) return;
   await c.step('isi hitungan', () =>
     c.svc.cashCount.update(c.admin, cc.id, {
-      denominations: flavorOf(c).denominations,
+      denominations,
       reason: 'Selisih kecil karena pembulatan uang kembalian',
       notes: flavorOf(c).countNote,
     }),

@@ -1,7 +1,7 @@
 import { ArrowDownOutlined, ArrowUpOutlined, FilterOutlined, SwapOutlined } from '@ant-design/icons';
 import { BRAND, CASH_TX_TYPE_LABELS, canHandleMoney, type CashTxType } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Badge, Button, Card, Checkbox, Col, Collapse, Empty, Form, Input, Popover, Row, Segmented, Select, Space, Tag, Typography } from 'antd';
+import { Alert, Badge, Button, Card, Checkbox, Col, Empty, Form, Input, Popover, Row, Segmented, Select, Space, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -44,6 +44,7 @@ export default function CashPage() {
   const [search, setSearch] = useState('');
   const [branchFilter, setBranchFilter] = useState<string>();
   const [noProofOnly, setNoProofOnly] = useState(false);
+  const [showAttention, setShowAttention] = useState(false);
   const bankStatus = useQuery({ queryKey: ['bank', 'status'], queryFn: () => get<{ id: string; unmatched: number; stale: boolean }[]>('/bank/status'), retry: false });
   const txs = useQuery({
     queryKey: ['cash-tx', filter, from, to],
@@ -92,35 +93,6 @@ export default function CashPage() {
   const controlsOff = !!cfg.data && cfg.data.evidenceFrom === 0;
   return (
     <>
-      {controlsOff && !hideTip && (
-        <Alert
-          type="warning"
-          showIcon
-          closable
-          onClose={() => {
-            setHideTip(true);
-            try {
-              localStorage.setItem('sansu.cashControlTip', '1');
-            } catch {
-              /* penyimpanan browser tidak tersedia */
-            }
-          }}
-          style={{ marginBottom: 12 }}
-          message="Kontrol uang keluar belum aktif"
-          description={
-            <span>
-              Saat ini uang keluar berapa pun boleh tanpa nomor bukti. Rekomendasi: wajib nomor bukti mulai Rp1.000.000 (saldo kas tidak boleh minus sudah aktif).{' '}
-              {me && ['OWNER', 'ADMIN'].includes(me.role) ? (
-                <Button size="small" type="primary" loading={applyControls.isPending} onClick={() => applyControls.mutate(undefined)}>
-                  Terapkan rekomendasi
-                </Button>
-              ) : (
-                <span>Minta Pemilik atau Admin mengaktifkannya (Pengaturan › Perusahaan).</span>
-              )}
-            </span>
-          }
-        />
-      )}
       <PageHeader
         title="Uang masuk & keluar"
         extra={
@@ -141,15 +113,13 @@ export default function CashPage() {
       />
       <CashTabs />
 
-      <IncomeSources />
-
       {/* Saldo: klik satu rekening untuk melihat transaksinya saja */}
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={24} xl={8}>
           <Card loading={accounts.isLoading} hoverable onClick={() => setFilter(undefined)} style={{ height: '100%', borderColor: !filter ? BRAND.colors.primary : undefined }}>
-            <Typography.Text type="secondary">Total uang kas & bank</Typography.Text>
+            <Typography.Text type="secondary">Total uang kas & bank saat ini</Typography.Text>
             <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.3 }}>{fmtMoney(total)}</div>
-            <Typography.Text type="secondary">{!filter ? 'Menampilkan transaksi semua rekening' : 'Klik untuk lihat semua rekening'}</Typography.Text>
+            <Typography.Text type="secondary">{!filter ? 'Riwayat di bawah menampilkan semua rekening. Klik satu rekening untuk menyaringnya.' : 'Klik di sini untuk kembali ke semua rekening'}</Typography.Text>
           </Card>
         </Col>
         <Col xs={24} xl={16}>
@@ -207,44 +177,72 @@ export default function CashPage() {
         </Col>
       </Row>
 
-      {/* Hal yang perlu diperhatikan: ringkas, bisa dibuka */}
+      {/* Hal yang perlu diperhatikan: satu spanduk ringkas, rinciannya dibuka bila perlu */}
       {!!controls.data?.items.length && (
-        <Collapse
-          style={{ marginBottom: 16 }}
-          items={[
-            {
-              key: 'c',
-              label: (
-                <Space>
-                  <Badge status={controls.data.items.some((c) => c.level === 'error') ? 'error' : 'warning'} />
-                  <span>Perlu diperhatikan ({controls.data.items.length})</span>
-                  <Typography.Text type="secondary">kas & bank 60 hari terakhir</Typography.Text>
-                </Space>
-              ),
-              children: (
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  {controls.data.items.map((c) => (
-                    <Alert
-                      key={c.key}
-                      type={c.level}
-                      showIcon
-                      message={c.title}
-                      description={c.detail}
-                      action={
-                        c.key === 'NO_EVIDENCE' ? (
-                          <Button size="small" onClick={() => setNoProofOnly(true)}>
-                            Tampilkan yang kurang bukti
-                          </Button>
-                        ) : undefined
-                      }
-                    />
-                  ))}
-                </Space>
-              ),
-            },
-          ]}
+        <Alert
+          style={{ marginBottom: 12 }}
+          type={controls.data.items.some((c) => c.level === 'error') ? 'error' : 'warning'}
+          showIcon
+          message={`${controls.data.items.length} hal perlu diperiksa pada kas & bank (60 hari terakhir)`}
+          description={
+            showAttention ? (
+              <Space direction="vertical" style={{ width: '100%', marginTop: 8 }}>
+                {controls.data.items.map((c) => (
+                  <Alert
+                    key={c.key}
+                    type={c.level}
+                    showIcon
+                    message={c.title}
+                    description={c.detail}
+                    action={
+                      c.key === 'NO_EVIDENCE' ? (
+                        <Button size="small" onClick={() => setNoProofOnly(true)}>
+                          Tampilkan yang kurang bukti
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                ))}
+              </Space>
+            ) : (
+              <span>{controls.data.items.slice(0, 2).map((c) => c.title).join(' · ')}{controls.data.items.length > 2 ? ' · dan lainnya' : ''}</span>
+            )
+          }
+          action={<Button size="small" onClick={() => setShowAttention((v) => !v)}>{showAttention ? 'Tutup' : 'Lihat semua'}</Button>}
         />
       )}
+
+      {controlsOff && !hideTip && (
+        <Alert
+          type="warning"
+          showIcon
+          closable
+          onClose={() => {
+            setHideTip(true);
+            try {
+              localStorage.setItem('sansu.cashControlTip', '1');
+            } catch {
+              /* penyimpanan browser tidak tersedia */
+            }
+          }}
+          style={{ marginBottom: 12 }}
+          message="Saran: aktifkan kontrol uang keluar"
+          description={
+            <span>
+              Saat ini uang keluar berapa pun boleh tanpa nomor bukti. Rekomendasi: wajib nomor bukti mulai Rp1.000.000 (saldo kas tidak boleh minus sudah aktif).{' '}
+              {me && ['OWNER', 'ADMIN'].includes(me.role) ? (
+                <Button size="small" type="primary" loading={applyControls.isPending} onClick={() => applyControls.mutate(undefined)}>
+                  Terapkan rekomendasi
+                </Button>
+              ) : (
+                <span>Minta Pemilik atau Admin mengaktifkannya (Pengaturan › Perusahaan).</span>
+              )}
+            </span>
+          }
+        />
+      )}
+
+      <IncomeSources />
 
       <Card
         title={
@@ -254,8 +252,9 @@ export default function CashPage() {
           </Space>
         }
       >
-        {/* Filter: periode cepat, jenis, cari; sisanya di "Filter lain" */}
-        <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
+        {/* Filter: baris 1 periode; baris 2 jenis, cari, filter lain, unduh */}
+        <Space wrap size={[8, 8]} style={{ marginBottom: 8 }}>
+          <Typography.Text type="secondary">Periode:</Typography.Text>
           <Segmented
             value={periodPreset}
             onChange={(v) => {
@@ -274,12 +273,15 @@ export default function CashPage() {
               <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 150 }} />
             </>
           )}
+          <Typography.Text type="secondary">{fmtDate(from)} – {fmtDate(to)}</Typography.Text>
+        </Space>
+        <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
           <Segmented
             value={typeFilter}
             onChange={(v) => setTypeFilter(v as 'ALL' | CashTxType)}
             options={[{ value: 'ALL', label: 'Semua' }, { value: 'IN', label: 'Masuk' }, { value: 'OUT', label: 'Keluar' }, { value: 'TRANSFER', label: 'Pindah' }]}
           />
-          <Input.Search allowClear placeholder="Cari keterangan atau nomor bukti" style={{ width: 240 }} onChange={(e) => setSearch(e.target.value)} />
+          <Input.Search allowClear placeholder="Cari keterangan atau nomor bukti" style={{ width: 280, maxWidth: '100%' }} onChange={(e) => setSearch(e.target.value)} />
           <Popover
             trigger="click"
             placement="bottomLeft"
@@ -308,16 +310,28 @@ export default function CashPage() {
           <ExportButtons filename={`kas-bank-${from}-${to}`} title={`Transaksi kas & bank ${from} s/d ${to}`} sheets={() => (txs.data ? cashListSheet(shown, { from, to }, me?.tenantName) : null)} print={false} />
         </Space>
 
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="Yang tampil di sini hanya uang masuk dan keluar yang dicatat lewat halaman ini"
+          description={
+            <span>
+              Pembayaran dari pelanggan dicatat lewat <a onClick={() => navigate('/invoices')}>Faktur & piutang</a> atau kasir, dan pembayaran ke pemasok lewat <a onClick={() => navigate('/purchase-invoices')}>Faktur & hutang</a>, jadi tidak ikut dihitung di bawah. Di sini untuk biaya operasional, setoran modal, pinjaman, dan pindah antar rekening. Saldo di atas sudah memuat semuanya.
+            </span>
+          }
+        />
+
         <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
           <Col xs={24} md={8}>
             <Card size="small" style={{ background: '#F1FAF6', borderColor: '#CBEBDD' }}>
-              <Typography.Text type="secondary">Uang masuk</Typography.Text>
+              <Typography.Text type="secondary">Uang masuk (dicatat di sini)</Typography.Text>
               <div style={{ fontSize: 20, fontWeight: 600, color: '#0E7A5C' }}>{fmtMoney(flow.inn)}</div>
             </Card>
           </Col>
           <Col xs={24} md={8}>
             <Card size="small" style={{ background: '#FEF3F2', borderColor: '#FAD4D0' }}>
-              <Typography.Text type="secondary">Uang keluar</Typography.Text>
+              <Typography.Text type="secondary">Uang keluar (dicatat di sini)</Typography.Text>
               <div style={{ fontSize: 20, fontWeight: 600, color: '#B42318' }}>{fmtMoney(flow.out)}</div>
             </Card>
           </Col>
@@ -331,10 +345,6 @@ export default function CashPage() {
             </Card>
           </Col>
         </Row>
-
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-          Penerimaan dari pelanggan dan pembayaran ke supplier dicatat di menu Faktur. Di sini untuk biaya operasional, setoran modal, pinjaman, dan pindah antar rekening.
-        </Typography.Paragraph>
 
         <ResponsiveTable
           rowKey="id"

@@ -2,6 +2,7 @@ import { type BusinessModel } from '@sansu/shared';
 import { tradeTerms } from '../../db/schema';
 import { airDemo, HOMES } from './demo.air';
 import * as X from './demo.extra';
+import * as F from './demo.fill';
 import { addCustomers, addSuppliers, Demo, expense, openingBalance, payBill, payroll, posDay, purchase, receive, sell } from './demo.kit';
 
 type Prod = { sku: string; name: string; cat: string; price: number; cost: number; qty: number; uom?: string; per?: number };
@@ -100,6 +101,21 @@ async function seedRitel(c: Demo) {
   await X.cashCount(c);
   await X.attendance(c);
   await X.stockOps(c, ids, RITEL.map((p) => p.sku), { saleInvoiceId: ritelUnpaid, billId: c.last.bill, supplierId: sup.get('SUP-FMCG') });
+  await F.loyalty(c);
+  await F.minimums(c, [...ids.values()]);
+  await F.priceAgreements(c, [
+    { supplierId: sup.get('SUP-GROSIR')!, productId: ids.get('RT-BERAS')!, price: 67500 },
+    { supplierId: sup.get('SUP-FMCG')!, productId: ids.get('RT-MIE')!, price: 2750 },
+  ]);
+  await F.supplierAdvance(c, sup.get('SUP-GROSIR')!, ids.get('RT-MINYAK')!, 14500);
+  await F.expiringLots(c, sup.get('SUP-FMCG')!, [
+    { productId: ids.get('RT-BISK')!, qty: 40, price: 7800, expiresInDays: -4 },
+    { productId: ids.get('RT-TEH')!, qty: 60, price: 4000, expiresInDays: 18 },
+    { productId: ids.get('RT-MIE')!, qty: 100, price: 2750, expiresInDays: 200 },
+  ]);
+  await F.serviceWork(c, [{ name: 'Premi shift malam', unit: 'SHIFT', rate: '35000', qty: '1' }, { name: 'Borongan bongkar muat', unit: 'JOB', rate: '120000', qty: '1' }]);
+  await F.employmentChange(c);
+  await F.closePeriod(c);
 }
 
 // ---------------------------------------------------------------- DAGANG
@@ -197,13 +213,40 @@ async function seedDagang(c: Demo) {
   ]);
   await X.deposit(c, cu.get('PROP-GRAHA')!, 33_300_000, 'Uang muka pengadaan keramik tahap 2');
   await X.stockOps(c, ids, DAGANG.map((p) => p.sku), { saleInvoiceId: unpaidInv, billId: c.last.bill, supplierId: sup.get('SUP-CAT') });
+  await F.minimums(c, [...ids.values()]);
+  await F.priceLists(c, [
+    { name: 'Grosir proyek', description: 'Harga kontraktor dan pengembang (minimal 100 unit)', items: [
+      { productId: id('BB-SEMEN'), minQty: '100', price: '65000' }, { productId: id('BB-BESI'), minQty: '100', price: '94500' }, { productId: id('BB-KERAMIK'), minQty: '50', price: '205000' }] },
+    { name: 'Toko bangunan mitra', description: 'Harga toko mitra (minimal 20 unit)', items: [
+      { productId: id('BB-SEMEN'), minQty: '20', price: '66500' }, { productId: id('BB-CAT-KAYU'), minQty: '12', price: '58000' }, { productId: id('BB-PIPA'), minQty: '20', price: '93000' }] },
+  ]);
+  await F.deliveryTrips(c);
+  await F.priceAgreements(c, [
+    { supplierId: sup.get('SUP-SEMEN')!, productId: id('BB-SEMEN'), price: 58500 },
+    { supplierId: sup.get('SUP-BESI')!, productId: id('BB-BESI'), price: 85000 },
+  ]);
+  await F.supplierAdvance(c, sup.get('SUP-CAT')!, id('BB-CAT-TEMBOK'), 605000);
+  await F.expiringLots(c, sup.get('SUP-SEMEN')!, [
+    { productId: id('BB-MORTAR'), qty: 60, price: 78000, expiresInDays: -6 },
+    { productId: id('BB-SEMEN'), qty: 120, price: 59000, expiresInDays: 21 },
+    { productId: id('BB-CAT-KAYU'), qty: 80, price: 49500, expiresInDays: 330 },
+  ]);
+  await F.serviceWork(c, [{ name: 'Borongan bongkar muat truk', unit: 'JOB', rate: '150000', qty: '1' }]);
+  await F.employmentChange(c);
+  await F.closePeriod(c);
 }
 
 // ---------------------------------------------------------------- JASA
+const JASA_BAHAN: Prod[] = [
+  { sku: 'JB-LISENSI', name: 'Lisensi Perangkat Lunak Desain (tahunan)', cat: 'Lisensi', price: 2_400_000, cost: 1_900_000, qty: 12, uom: 'LSN' },
+  { sku: 'JB-CLOUD', name: 'Paket Kredit Cloud (100 jam)', cat: 'Lisensi', price: 3_500_000, cost: 2_800_000, qty: 20, uom: 'PKT' },
+  { sku: 'JB-PERANGKAT', name: 'Perangkat Uji Mobile', cat: 'Perangkat', price: 3_200_000, cost: 2_600_000, qty: 8, uom: 'UNIT' },
+  { sku: 'JB-CETAK', name: 'Paket Cetak Dokumen Proyek', cat: 'Cetak', price: 450_000, cost: 300_000, qty: 60, uom: 'PKT' },
+];
 async function seedJasa(c: Demo) {
-  await openingBalance(c, { kas: 6_000_000, bank: 210_000_000, stockValue: 0 });
+  const { ids, value } = await stockItems(c, JASA_BAHAN);
+  await openingBalance(c, { kas: 6_000_000, bank: 210_000_000, stockValue: value });
   const sup = await addSuppliers(c, [{ code: 'SUP-CLOUD', name: 'PT Awan Digital Nusantara', term: 14 }]);
-  void sup;
   const cu = await addCustomers(c, [
     { code: 'CL-BANK', name: 'PT Bank Mitra Sejahtera', address: 'Jl. Sudirman Kav. 52, Jakarta', term: 30 },
     { code: 'CL-RETAIL', name: 'PT Ritel Nusantara Prima', address: 'Jl. TB Simatupang, Jakarta', term: 30 },
@@ -227,6 +270,19 @@ async function seedJasa(c: Demo) {
   if (i4) await c.step('bayar desain (sebagian)', () => receive(c, i4.id, 9, 'TRANSFER', 0.5));
   void i2;
   void i5;
+  // bahan kerja dijual/diteruskan ke klien (pesanan kerja), dibeli dari pemasok
+  const jsold = await c.step('jual bahan ke klien', () => sell(c, cu.get('CL-RS')!, 30, [{ productId: ids.get('JB-CETAK')!, qty: 20 }, { productId: ids.get('JB-CLOUD')!, qty: 2 }]));
+  const jsold2 = await c.step('jual bahan klien 2', () => sell(c, cu.get('CL-EDU')!, 16, [{ productId: ids.get('JB-LISENSI')!, qty: 3 }]));
+  if (jsold) await c.step('bayar bahan', () => receive(c, jsold, 18));
+  await c.step('beli lisensi', () => purchase(c, sup.get('SUP-CLOUD')!, 38, [{ productId: ids.get('JB-LISENSI')!, qty: 6, price: 1_880_000 }, { productId: ids.get('JB-CLOUD')!, qty: 10, price: 2_750_000 }], { pay: true, invoiceNo: 'AWAN-8841' }));
+  await c.step('beli perangkat (belum lunas)', () => purchase(c, sup.get('SUP-CLOUD')!, 8, [{ productId: ids.get('JB-PERANGKAT')!, qty: 4, price: 2_600_000 }], { invoiceNo: 'AWAN-9020' }));
+  // faktur jasa yang dipotong PPh 23 oleh klien
+  for (const [i, [cust, ago, price]] of ([['CL-BANK', 26, 36_000_000], ['CL-RS', 19, 24_000_000]] as [string, number, number][]).entries()) {
+    const w = (await c.step('faktur jasa dipotong PPh 23', () =>
+      c.svc.billing.createInvoice(c.admin, { customerId: cu.get(cust)!, date: c.ago(ago), description: 'Jasa konsultasi teknologi informasi', termLabel: 'Paket', withholdingType: 'PPH23', withholdingRate: '2', lines: [{ description: 'Konsultasi & implementasi (jasa)', price: String(price) }] }),
+    )) as { id: string } | undefined;
+    if (w && i === 0) await c.step('bayar faktur dipotong', () => receive(c, w.id, 8, 'TRANSFER', 0.98));
+  }
   if (p1) await c.step('progres', () => c.svc.projects.recordProgress(c.admin, p1.id, { date: c.ago(5), percent: '55', notes: 'BA kemajuan 03 — modul transfer & mutasi selesai' }));
   if (p2) await c.step('progres', () => c.svc.projects.recordProgress(c.admin, p2.id, { date: c.ago(5), percent: '35', notes: 'BA kemajuan 01 — konfigurasi gudang pusat' }));
   await expense(c, 56, 'bank', '6-3000', 'Sewa kantor Lt. 5', 21_000_000, 'SEWA-KTR');
@@ -271,7 +327,7 @@ async function seedJasa(c: Demo) {
   await X.pettyCash(c);
   await X.cashCount(c);
   await X.attendance(c);
-  await X.crm(c, cu.get('CL-BANK')!, '', [
+  await X.crm(c, cu.get('CL-BANK')!, ids.get('JB-CETAK')!, [
     { title: 'Aplikasi mobile — perluasan fitur investasi', company: 'PT Bank Mitra Sejahtera', contact: 'Ibu Dewi', value: 320_000_000, source: 'Klien lama' },
     { title: 'Audit keamanan sistem rumah sakit', company: 'RS Sehat Bersama', contact: 'Pak Budi', value: 95_000_000, source: 'Referensi' },
     { title: 'Portal e-learning sekolah', company: 'Yayasan Pendidikan Cerdas', contact: 'Bu Sari', value: 140_000_000, source: 'Webinar' },
@@ -279,6 +335,14 @@ async function seedJasa(c: Demo) {
   ]);
   const dep = await c.step('uang muka pelanggan', () => c.svc.deposits.createDeposit(c.admin, { customerId: cu.get('CL-EDU')!, date: c.ago(15), amount: '27750000', method: 'TRANSFER', cashAccountId: c.bank, description: 'Uang muka portal e-learning' }));
   void dep;
+  await X.stockOps(c, ids, JASA_BAHAN.map((p) => p.sku), { saleInvoiceId: jsold2, billId: c.last.bill, supplierId: sup.get('SUP-CLOUD') });
+  await F.jasaOperations(c, [cu.get('CL-BANK')!, cu.get('CL-RETAIL')!, cu.get('CL-RS')!], p1?.id);
+  await F.serviceWork(c, [{ name: 'Konsultan senior — per jam', unit: 'HOUR', rate: '250000', qty: '6.5' }, { name: 'Sesi pelatihan klien', unit: 'SESSION', rate: '1500000', qty: '1' }]);
+  await F.minimums(c, [...ids.values()]);
+  await F.priceAgreements(c, [{ supplierId: sup.get('SUP-CLOUD')!, productId: ids.get('JB-LISENSI')!, price: 1_850_000 }]);
+  await F.supplierAdvance(c, sup.get('SUP-CLOUD')!, ids.get('JB-CLOUD')!, 2_700_000);
+  await F.employmentChange(c);
+  await F.closePeriod(c);
 }
 
 // ---------------------------------------------------------------- MANUFAKTUR (bantuan produksi)
@@ -462,6 +526,23 @@ async function seedFmcg(c: Demo) {
   await X.deposit(c, cu.get('OTL-SUPER')!, 20_000_000, 'Uang muka pesanan musiman (lebaran)');
   await X.stockOps(c, ids, FMCG.map((p) => p.sku), { saleInvoiceId: unpaidInv, billId: c.last.bill, supplierId: sup.get('PRI-PANGAN') });
   await X.distributionLeaks(c, ids, cu);
+  await X.crm(c, cu.get('OTL-ALFA')!, id('FM-MIE'), [
+    { title: 'Listing 12 SKU baru di jaringan minimarket', company: 'Minimarket Berkah Jaya', contact: 'Pak Hendra', value: 240_000_000, source: 'Kunjungan sales' },
+    { title: 'Pasok grosir musim lebaran', company: 'Grosir Sumber Rezeki', contact: 'Bu Lina', value: 120_000_000, source: 'Referensi' },
+    { title: 'Kontrak tahunan koperasi pabrik', company: 'Koperasi Karyawan Pabrik Timur', contact: 'Pak Dedi', value: 85_000_000, source: 'Kunjungan sales' },
+    { title: 'Supermarket baru Depok', company: 'Supermarket Maju Bersama', contact: 'Bu Rani', value: 310_000_000, source: 'Pameran' },
+  ]);
+  await F.fmcgExtras(c, ids, cu);
+  await F.deliveryTrips(c);
+  await F.minimums(c, [...ids.values()]);
+  await F.priceAgreements(c, [
+    { supplierId: sup.get('PRI-PANGAN')!, productId: id('FM-MIE'), price: 97500 },
+    { supplierId: sup.get('PRI-MINUM')!, productId: id('FM-AIR'), price: 40800 },
+  ]);
+  await F.supplierAdvance(c, sup.get('PRI-HOME')!, id('FM-DETER'), 191000);
+  await F.serviceWork(c, [{ name: 'Borongan bongkar muat dus', unit: 'JOB', rate: '180000', qty: '1' }]);
+  await F.employmentChange(c);
+  await F.closePeriod(c);
 }
 
 const FURNITUR_RAW: Prod[] = [
@@ -554,6 +635,25 @@ async function seedManufaktur(c: Demo) {
   ]);
   await X.deposit(c, cu.get('APT-ASRI')!, 90_000_000, 'Uang muka kitchen set tahap 3');
   await X.stockOps(c, ids, ['FN-JATI', 'FN-PLY', 'FN-ENGSEL', 'FN-REL', 'FN-POLITUR'], { saleInvoiceId: s3, billId: c.last.bill, supplierId: sup.get('SUP-KAYU') });
+  await F.manufakturExtras(c, ids, sup.get('SUP-KAYU')!);
+  await F.deliveryTrips(c);
+  await F.minimums(c, [...ids.values()]);
+  await F.priceAgreements(c, [
+    { supplierId: sup.get('SUP-KAYU')!, productId: ids.get('FN-JATI')!, price: 8_950_000 },
+    { supplierId: sup.get('SUP-HARDWARE')!, productId: ids.get('FN-REL')!, price: 31_500 },
+  ]);
+  await F.supplierAdvance(c, sup.get('SUP-KAYU')!, ids.get('FN-JATI')!, 9_000_000);
+  await F.expiringLots(c, sup.get('SUP-HARDWARE')!, [
+    { productId: ids.get('FN-POLITUR')!, qty: 40, price: 77_000, expiresInDays: -3 },
+    { productId: ids.get('FN-AMPLAS')!, qty: 30, price: 44_000, expiresInDays: 25 },
+  ]);
+  await F.withheldInvoices(c, [
+    { customerId: cu.get('HTL-BINTANG')!, ago: 24, description: 'Jasa pemasangan furnitur di lokasi hotel', price: 32_000_000 },
+    { customerId: cu.get('APT-ASRI')!, ago: 15, description: 'Jasa pemasangan kitchen set apartemen', price: 21_000_000 },
+  ]);
+  await F.serviceWork(c, [{ name: 'Borongan finishing per pesanan', unit: 'JOB', rate: '350000', qty: '1' }]);
+  await F.employmentChange(c);
+  await F.closePeriod(c);
 }
 
 /** Pembelian bahan dengan lot dan tanggal kedaluwarsa: PO → penerimaan barang (bawa lot) → faktur dari penerimaan → (opsional) dibayar */
@@ -788,6 +888,16 @@ async function seedFnb(c: Demo) {
   await X.cashCount(c);
   await X.attendance(c);
   await X.stockOps(c, ids, ['BB-SUSU', 'BB-GULA', 'BB-MINYAK', 'BB-BERAS', 'BB-MIE'], { saleInvoiceId: fnbUnpaid, billId: c.last.bill, supplierId: sup.get('SUP-PASAR') });
+  await F.loyalty(c);
+  await F.minimums(c, [...ids.values()]);
+  await F.priceAgreements(c, [
+    { supplierId: sup.get('SUP-PASAR')!, productId: ids.get('BB-SUSU')!, price: 17.5 },
+    { supplierId: sup.get('SUP-PASAR')!, productId: ids.get('BB-BERAS')!, price: 13.8 },
+  ]);
+  await F.supplierAdvance(c, sup.get('SUP-PASAR')!, ids.get('BB-AYAM')!, 37, 20000);
+  await F.serviceWork(c, [{ name: 'Premi shift akhir pekan', unit: 'SHIFT', rate: '40000', qty: '1' }]);
+  await F.employmentChange(c);
+  await F.closePeriod(c);
 }
 
 // ---------------------------------------------------------------- UTILITAS
@@ -850,6 +960,15 @@ async function seedUtilitas(c: Demo) {
     { title: 'Perumahan Griya Asri blok D — 24 sambungan baru', company: 'PT Griya Asri Properti', contact: 'Pak Heru', value: 30_000_000, source: 'Pengembang / pengelola perumahan' },
     { title: 'Ruko Pasar Baru — 6 sambungan niaga', company: 'Pengelola Ruko Pasar Baru', contact: 'Bu Lina', value: 9_000_000, source: 'Datang ke kantor' },
   ]);
+  await X.stockOps(c, ids, ['UT-PIPA-PVC', 'UT-METER-AIR', 'UT-FITTING', 'UT-KAPORIT'], { billId: c.last.bill, supplierId: sup.get('SUP-PIPA') });
+  await F.utilityChannels(c);
+  await F.minimums(c, [...ids.values()]);
+  await F.priceAgreements(c, [
+    { supplierId: sup.get('SUP-PIPA')!, productId: ids.get('UT-PIPA-PVC')!, price: 28500 },
+    { supplierId: sup.get('SUP-KIMIA')!, productId: ids.get('UT-KAPORIT')!, price: 425000 },
+  ]);
+  await F.supplierAdvance(c, sup.get('SUP-PIPA')!, ids.get('UT-METER-AIR')!, 210000);
+  await F.closePeriod(c);
 }
 
 export const SEEDS: Record<BusinessModel, (c: Demo) => Promise<void>> = {

@@ -75,7 +75,7 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(s('RITEL'), 'pos_orders')).toBeGreaterThan(20);
     expect(await count(s('DAGANG'), 'invoices')).toBeGreaterThan(5);
     expect(await count(s('JASA'), 'projects')).toBeGreaterThan(0);
-    expect(await count(s('JASA'), 'products')).toBe(0);
+    expect(await count(s('JASA'), 'products')).toBeGreaterThan(0); // bahan kerja (lisensi, perangkat, cetak)
     // FMCG: distribusi barang konsumen — tanpa produksi, tetapi ber-lot dengan tanggal kedaluwarsa
     expect(await count(s('FMCG'), 'production_orders')).toBe(0);
     expect(await count(s('FMCG'), 'invoices')).toBeGreaterThan(10);

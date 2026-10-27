@@ -135,7 +135,7 @@ export class DashboardInsightsRepository {
         SELECT p.name, (l.expiry_date < ${today}) AS expired, SUM(l.qty_remaining * COALESCE(b.avg_cost, 0))::text AS v
         FROM stock_lots l JOIN products p ON p.id = l.product_id LEFT JOIN stock_balances b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
         WHERE l.tenant_id = ${tenantId} AND l.qty_remaining > 0 AND l.expiry_date IS NOT NULL AND l.expiry_date <= ${addDays(today, 30)}
-        GROUP BY p.id, p.name, (l.expiry_date < ${today}) ORDER BY SUM(l.qty_remaining * COALESCE(b.avg_cost, 0)) DESC`);
+        GROUP BY p.id, p.name, 2 ORDER BY SUM(l.qty_remaining * COALESCE(b.avg_cost, 0)) DESC`);
   }
 
   /** Dipakai oleh DashboardInsightsService.build */
