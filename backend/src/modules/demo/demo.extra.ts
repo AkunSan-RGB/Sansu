@@ -597,15 +597,49 @@ export async function pettyCash(c: Demo) {
   await c.step('ganti kas kecil', () => c.svc.petty.replenish(c.admin, fund.id, { date: c.ago(6) }));
 }
 
+/**
+ * Kas contoh tidak boleh negatif dan hitungan fisik harus masuk akal. Saldo awal kas kecil, sedangkan pengeluaran dan transfer ke bank sepanjang riwayat
+ * bisa melebihinya, sehingga buku kas negatif dan opname memposting koreksi puluhan juta. Bila saldo kas pernah di bawah nol, ditambahkan setoran modal
+ * pemilik bertanggal awal. Lalu hitungan fisik disusun dari saldo buku pada tanggal opname, kurang Rp5.000 (alasan "pembulatan uang kembalian").
+ */
+async function countedDenominations(c: Demo, countDate: string): Promise<Record<string, number>> {
+  const q = async (extra: ReturnType<typeof sql>) =>
+    Number((await c.db.execute<{ b: string }>(sql`SELECT COALESCE(${extra}, 0)::text AS b FROM (SELECT j.date AS d, SUM(SUM(l.debit - l.credit)) OVER (ORDER BY j.date) AS kum FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id WHERE j.tenant_id = ${c.tenantId} AND l.account_id = ${c.kas} GROUP BY j.date) x`)).rows[0]?.b ?? 0);
+  const lowest = await q(sql`MIN(kum)`);
+  if (lowest < 0) {
+    await c.step('setoran modal pemilik ke kas', () =>
+      c.svc.cash.create(c.admin, {
+        type: 'IN',
+        cashAccountId: c.kas,
+        date: c.ago(110),
+        description: 'Setoran modal pemilik untuk kas operasional',
+        reference: `MDL-${c.int(1000, 9999)}`,
+        lines: [{ accountId: c.acc('3-1000'), amount: String(Math.round(-lowest + 2_000_000)) }],
+      }),
+    );
+  }
+  const book = Number(
+    (await c.db.execute<{ b: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0)::text AS b FROM journal_lines l JOIN journal_entries j ON j.id = l.journal_id WHERE j.tenant_id = ${c.tenantId} AND l.account_id = ${c.kas} AND j.date <= ${countDate}`)).rows[0]?.b ?? 0,
+  );
+  let left = Math.max(0, Math.round((book - 5_000) / 1_000) * 1_000);
+  const out: Record<string, number> = {};
+  for (const note of [100_000, 50_000, 20_000, 10_000, 5_000, 2_000, 1_000]) {
+    out[`K${note}`] = Math.floor(left / note);
+    left -= out[`K${note}`] * note;
+  }
+  return out;
+}
+
 /** Opname kas (hitung fisik uang) */
 export async function cashCount(c: Demo) {
+  const denominations = await countedDenominations(c, c.ago(3));
   const cc = (await c.step('opname kas', () =>
     c.svc.cashCount.create(c.admin, { accountId: c.kas, date: c.ago(3), custodianName: flavorOf(c).petty.custodian }),
   )) as { id: string } | undefined;
   if (!cc) return;
   await c.step('isi hitungan', () =>
     c.svc.cashCount.update(c.admin, cc.id, {
-      denominations: flavorOf(c).denominations,
+      denominations,
       reason: 'Selisih kecil karena pembulatan uang kembalian',
       notes: flavorOf(c).countNote,
     }),
