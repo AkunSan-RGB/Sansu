@@ -22,12 +22,12 @@ export class SalesCommissionsController {
     return this.svc.close(u, dto.period);
   }
   @Post(':id/pay')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('FINANCE')
   pay(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: PayCommissionDto) {
     return this.svc.pay(u, id, dto);
   }
   @Post(':id/void')
-  @Roles('ADMIN')
+  @Roles('OWNER')
   voidIt(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VoidCommissionDto) {
     return this.svc.voidIt(u, id, dto);
   }

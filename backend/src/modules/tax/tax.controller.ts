@@ -42,12 +42,12 @@ export class TaxController {
   list(@CurrentUser() u: AuthUser, @Query('year') year?: string) {
     return this.svc.list(u.tenantId, yearQuery(year, undefined));
   }
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('FINANCE')
   @Post('payments')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreateTaxPaymentDto) {
     return this.svc.create(u, dto);
   }
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('OWNER')
   @Delete('payments/:id')
   remove(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.remove(u, id);

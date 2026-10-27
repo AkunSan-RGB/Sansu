@@ -56,7 +56,7 @@ export default function PurchaseInvoicesPage() {
   const [form] = Form.useForm();
   const { me } = useAuth();
   const can = useCan();
-  const canVoid = (me?.role === 'OWNER' || me?.role === 'ADMIN') && can('POST', '/purchase-invoices/payments/:id/void');
+  const canVoid = me?.role === 'OWNER' && can('POST', '/purchase-invoices/payments/:id/void');
   const [voiding, setVoiding] = useState<SupplierPayment | null>(null);
   const [voidForm] = Form.useForm<{ reason: string }>();
 
