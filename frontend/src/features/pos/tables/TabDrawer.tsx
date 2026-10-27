@@ -110,7 +110,7 @@ export function TabDrawer({ tabId, onClose, session, tables }: { tabId?: string;
             )}
           </Space>
           {!closed && !session && <Alert type="warning" showIcon style={{ marginTop: 12 }} message="Belum ada sesi kasir terbuka, jadi pembayaran belum bisa diterima." />}
-          <PayModal open={paying} onClose={() => setPaying(false)} tab={tab} session={session} onPaid={(o) => { setPaying(false); setReceipt(o); qc.invalidateQueries({ queryKey: ['pos-tab', tabId] }); }} />
+          <PayModal open={paying} onClose={() => setPaying(false)} tab={tab} session={session} onPaid={(o) => { setPaying(false); setReceipt(o); void qc.invalidateQueries({ queryKey: ['pos-tab', tabId] }); }} />
           <Modal title={needReason ? 'Batalkan menu yang sudah dikirim' : 'Batalkan baris'} open={needReason} onCancel={() => setVoidLine(null)} onOk={() => voidLine && void_.mutate(voidLine)} confirmLoading={void_.isPending} okButtonProps={{ danger: true, disabled: voidReason.trim().length < 5 }} okText="Batalkan menu" destroyOnHidden>
             <Alert type={voidLine && ['PREPARING', 'READY', 'SERVED'].includes(voidLine.status) && !supervisor ? 'error' : 'warning'} showIcon style={{ marginBottom: 12 }} message={voidLine && ['PREPARING', 'READY', 'SERVED'].includes(voidLine.status) ? (supervisor ? 'Menu ini sudah dimasak atau disajikan. Pembatalan dicatat dan ditinjau pemilik.' : 'Menu ini sudah dimasak atau disajikan: hanya supervisor (Pemilik, Admin, Keuangan) yang boleh membatalkan.') : 'Dapur akan melihat menu ini dibatalkan.'} />
             <Input.TextArea rows={3} maxLength={200} placeholder="Alasan (minimal 5 huruf)" value={voidReason} onChange={(e) => setVoidReason(e.target.value)} />

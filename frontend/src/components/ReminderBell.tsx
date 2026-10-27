@@ -38,11 +38,11 @@ export default function ReminderBell() {
   const refresh = () => qc.invalidateQueries({ queryKey: ['reminders'] });
   const snooze = async (key: string, days: number) => {
     await post('/reminders/snooze', { key, days });
-    refresh();
+    void refresh();
   };
   const restore = async (key: string) => {
     await post('/reminders/unsnooze', { key });
-    refresh();
+    void refresh();
   };
   const tasks = useTasks().data ?? [];
   const taskTotal = tasks.reduce((a, t) => a + t.count, 0);
@@ -57,7 +57,7 @@ export default function ReminderBell() {
         <a
           onClick={() => {
             setOpen(false);
-            navigate(i.link);
+            void navigate(i.link);
           }}
           style={{ fontWeight: 600, color: '#101C33' }}
         >
@@ -91,7 +91,7 @@ export default function ReminderBell() {
           <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7388', marginBottom: 4 }}>Menunggu tindakan Anda</div>
           {tasks.map((t) => (
             <div key={t.key} style={{ padding: '6px 0', borderBottom: '1px solid #F0EEE8' }}>
-              <a onClick={() => { setOpen(false); navigate(t.link); }} style={{ fontWeight: 600, color: '#101C33' }}>{t.title}</a>
+              <a onClick={() => { setOpen(false); void navigate(t.link); }} style={{ fontWeight: 600, color: '#101C33' }}>{t.title}</a>
               <div style={{ fontSize: 12.5, color: '#5B6477' }}>{t.detail}</div>
             </div>
           ))}
@@ -126,7 +126,7 @@ export default function ReminderBell() {
             style={{ fontSize: 12.5 }}
             onClick={() => {
               setOpen(false);
-              navigate('/settings/company?tab=pengingat');
+              void navigate('/settings/company?tab=pengingat');
             }}
           >
             Atur pengingat

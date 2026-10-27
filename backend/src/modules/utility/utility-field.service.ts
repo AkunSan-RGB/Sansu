@@ -171,7 +171,7 @@ export class UtilityFieldService {
   async decide(u: AuthUser, id: string, dto: DecideDto) {
     await this.db.transaction(async (tx) => {
       const r = await this.repo.queryUtilityRemittance(tx, id, u.tenantId);
-      const rem = r.rows[0] as unknown as { status: string; collector_id: string; difference: string; number: string; counted: string; date: string } | undefined;
+      const rem = r.rows[0];
       if (!rem) throw new NotFoundException('Setoran tidak ditemukan');
       if (rem.status !== 'SUBMITTED') throw new BadRequestException('Setoran ini sudah diputuskan');
       if (rem.collector_id === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Setoran harus dikonfirmasi orang lain dari penyetornya (pemisahan fungsi)');

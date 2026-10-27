@@ -11,6 +11,30 @@ import type { SQL } from 'drizzle-orm';
 
 
 /** Akses data untuk Utility: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
+/** Baris sambungan beserta nama pelanggan, dikunci untuk diubah */
+export type UtilityConnRow = {
+  id: string;
+  number: string;
+  customer_id: string;
+  customer_name: string;
+  tariff_id: string;
+  status: string;
+  installed_at: string;
+  initial_reading: string;
+  status_changed_by_id: string | null;
+  meter_no: string | null;
+  address: string;
+};
+/** Baris pencatatan meter yang dikunci */
+export type UtilityReadingLockRow = {
+  id: string;
+  status: string;
+  entered_by_id: string;
+  flags: string[];
+  connection_id: string;
+  period: string;
+};
+
 @Injectable()
 export class UtilityRepository {
   async connectionsWithInstallment(db: DbOrTx, tenantId: string) {
@@ -102,7 +126,7 @@ export class UtilityRepository {
 
   /** Dipakai oleh UtilityService.lockConnection */
   queryUtilityConnectionForLockConnection(db: DbOrTx, id: string, tenantId: string) {
-    return db.execute(
+    return db.execute<UtilityConnRow>(
       sql`SELECT c.*, cu.name AS customer_name FROM utility_connections c JOIN customers cu ON cu.id = c.customer_id WHERE c.id = ${id} AND c.tenant_id = ${tenantId} FOR UPDATE OF c`,
     );
   }
@@ -205,7 +229,7 @@ export class UtilityRepository {
 
   /** Dipakai oleh UtilityService.lockReading */
   queryUtilityReadingForLockReading(db: DbOrTx, id: string, tenantId: string) {
-    return db.execute(sql`SELECT * FROM utility_readings WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
+    return db.execute<UtilityReadingLockRow>(sql`SELECT * FROM utility_readings WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
   }
 
   /** Dipakai oleh UtilityService.lateFeesByConnection */

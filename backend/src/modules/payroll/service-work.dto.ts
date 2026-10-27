@@ -7,7 +7,7 @@ const UNITS = WORK_UNITS;
 
 export class CreateRateDto {
   @ApiProperty({ example: 'Konsultan senior — per jam' }) @IsString() @MinLength(2) @MaxLength(80) name: string;
-  @ApiProperty({ enum: UNITS }) @IsIn(UNITS as unknown as string[]) unit: (typeof UNITS)[number];
+  @ApiProperty({ enum: UNITS }) @IsIn(UNITS) unit: (typeof UNITS)[number];
   @ApiProperty({ example: '250000', description: 'Rupiah per satuan; untuk komisi = persen (1–100)' }) @IsNumberString() rate: string;
 }
 

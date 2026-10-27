@@ -49,7 +49,7 @@ function SuggestionsModal({ open, onClose }: { open: boolean; onClose: () => voi
       invalidate: ['purchase-requests'],
       onSuccess: (r) => {
         onClose();
-        navigate(r.length === 1 ? `/purchase-requests/${r[0].id}` : '/purchase-requests');
+        void navigate(r.length === 1 ? `/purchase-requests/${r[0].id}` : '/purchase-requests');
       },
     },
   );

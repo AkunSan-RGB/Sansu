@@ -118,7 +118,7 @@ export default function HelpCenterPage() {
   const showOnboarding = async () => {
     await post('/onboarding/dismiss', { dismissed: false });
     await qc.invalidateQueries({ queryKey: ['onboarding'] });
-    navigate('/');
+    void navigate('/');
   };
 
   return (

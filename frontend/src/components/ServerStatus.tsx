@@ -27,7 +27,7 @@ export default function ServerStatus() {
     if (health.isSuccess && wasDown.current) {
       wasDown.current = false;
       // Server kembali: muat ulang semua data yang tadi gagal
-      qc.refetchQueries({ predicate: (q) => q.state.status === 'error' || q.state.data === undefined });
+      void qc.refetchQueries({ predicate: (q) => q.state.status === 'error' || q.state.data === undefined });
     }
   }, [health.isError, health.isSuccess, qc]);
 

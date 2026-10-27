@@ -66,7 +66,7 @@ function VisitModal({ row, onClose }: { row: Row | null; onClose: () => void }) 
   const save = useAction((v: Record<string, unknown>) => new Promise<unknown>((resolve, reject) => {
     const send = (pos?: GeolocationPosition) => post('/utility/collection/visits', { ...v, connectionId: row!.connection_id, promisedOn: v.promisedOn ? dayjs(v.promisedOn as string).format('YYYY-MM-DD') : undefined, lat: pos?.coords.latitude, lng: pos?.coords.longitude }).then(resolve, reject);
     // lokasi dicatat bila diizinkan; bila ditolak/lambat tetap disimpan tanpa lokasi
-    if (navigator.geolocation) navigator.geolocation.getCurrentPosition(send, () => send(), { timeout: 4000 }); else send();
+    if (navigator.geolocation) navigator.geolocation.getCurrentPosition(send, () => send(), { timeout: 4000 }); else void send();
   }), { success: 'Kunjungan dicatat', invalidate: ['utility'], onSuccess: () => { f.resetFields(); onClose(); } });
   return (
     <Modal open={!!row} title={row ? `Kunjungan — ${row.customer}` : ''} okText="Simpan" cancelText="Batal" confirmLoading={save.isPending} destroyOnHidden onCancel={onClose} onOk={() => f.validateFields().then((v) => save.mutate(v))}>

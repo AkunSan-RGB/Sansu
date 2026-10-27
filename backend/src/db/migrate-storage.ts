@@ -11,6 +11,9 @@ import 'dotenv/config';
 import type { Pool } from 'pg';
 import { StorageService } from '../common/storage/storage.service';
 import { createPool } from './db';
+import { Logger } from '@nestjs/common';
+
+const log = new Logger('Penyimpanan');
 
 const TARGETS = [
   { table: 'utility_readings', column: 'photo', kind: 'meter' },
@@ -58,8 +61,8 @@ async function main() {
   try {
     const dry = process.argv.includes('--dry-run');
     const r = await moveImagesToStorage(pool, new StorageService(), { dryRun: dry });
-    console.log(dry ? `Gambar yang akan dipindah: ${r.pending}` : `Dipindah: ${r.moved}; dilewati: ${r.skipped.length}`);
-    for (const s of r.skipped) console.log(`  dilewati ${s.table} ${s.id}: ${s.reason}`);
+    log.log(dry ? `Gambar yang akan dipindah: ${r.pending}` : `Dipindah: ${r.moved}; dilewati: ${r.skipped.length}`);
+    for (const s of r.skipped) log.log(`  dilewati ${s.table} ${s.id}: ${s.reason}`);
     if (r.skipped.length) process.exitCode = 1;
   } finally {
     await pool.end();

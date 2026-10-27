@@ -195,7 +195,7 @@ export default function AppLayout() {
       onOpenChange={(keys) => setOpenState({ for: openGroup, keys: keys.slice(-1) })}
       items={items}
       onClick={(e) => {
-        navigate(e.key);
+        void navigate(e.key);
         setDrawerOpen(false);
       }}
     />

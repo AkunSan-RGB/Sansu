@@ -97,7 +97,7 @@ function PriceListDrawer({ id, canEdit, onClose }: { id: string; canEdit: boolea
           ...(canEdit ? [{ title: '', width: 40, render: (_: unknown, __: PriceItem, i: number) => <Button type="text" danger icon={<DeleteOutlined />} onClick={() => setItems(rows.filter((_r, k) => k !== i))} /> }] : []),
         ]} />
       {canEdit && (
-        <Select showSearch style={{ width: '100%', marginTop: 12 }} placeholder="+ Tambah produk ke daftar harga" optionFilterProp="label" value={null as unknown as string}
+        <Select showSearch style={{ width: '100%', marginTop: 12 }} placeholder="+ Tambah produk ke daftar harga" optionFilterProp="label" value={null}
           options={(products ?? []).filter((p) => p.isActive).map((p) => ({ value: p.id, label: `${p.sku} · ${p.name}` }))}
           onChange={(pid: string) => { const p = byId.get(pid)!; setItems([...rows, { productId: pid, sku: p.sku, name: p.name, baseUom: p.baseUom, sellPrice: p.sellPrice, minQty: '1', price: p.sellPrice }]); }} />
       )}

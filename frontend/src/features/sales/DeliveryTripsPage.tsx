@@ -127,13 +127,13 @@ export default function DeliveryTripsPage() {
       setOpen((t as { id: string }).id);
     },
   });
-  const act = (path: (id: string) => string, success: string) => useAction((id: string) => post(path(id)), { success, invalidate: refresh });
+  const useAct = (path: (id: string) => string, success: string) => useAction((id: string) => post(path(id)), { success, invalidate: refresh });
   const depart = useAction((v: { id: string; reason?: string }) => post(`/delivery-trips/${v.id}/depart`, v.reason ? { acceptOverCapacity: true, reason: v.reason } : {}), { success: 'Rute berangkat', invalidate: refresh, onSuccess: () => setOverOpen(false) });
   const createVehicle = useAction((v: { plate: string; name?: string; capacityKg?: number; defaultDriver?: string }) => post('/delivery-vehicles', { ...v, capacityKg: v.capacityKg == null ? undefined : String(v.capacityKg) }), { success: 'Kendaraan ditambahkan', invalidate: refresh });
   const toggleVehicle = useAction((v: Vehicle) => post(`/delivery-vehicles/${v.id}`, { plate: v.plate, isActive: !v.isActive }), { invalidate: refresh });
   const ping = useAction((v: { id: string; lat: number; lng: number }) => post(`/delivery-trips/${v.id}/position`, { lat: v.lat, lng: v.lng }), { invalidate: refresh });
-  const complete = act((id) => `/delivery-trips/${id}/complete`, 'Rute selesai');
-  const optimize = act((id) => `/delivery-trips/${id}/optimize`, 'Stop diurutkan dari titik terdekat');
+  const complete = useAct((id) => `/delivery-trips/${id}/complete`, 'Rute selesai');
+  const optimize = useAct((id) => `/delivery-trips/${id}/optimize`, 'Stop diurutkan dari titik terdekat');
   const reorder = useAction((v: { id: string; stopIds: string[] }) => post(`/delivery-trips/${v.id}/reorder`, { stopIds: v.stopIds }), { invalidate: refresh });
   const removeStop = useAction((v: { id: string; stopId: string }) => post(`/delivery-trips/${v.id}/stops/${v.stopId}/remove`), { success: 'Stop dilepas', invalidate: refresh });
   const addStops = useAction((v: { id: string; ids: string[] }) => post(`/delivery-trips/${v.id}/stops`, { deliveryIds: v.ids }), { success: 'Stop ditambahkan', invalidate: refresh });

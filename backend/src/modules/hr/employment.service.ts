@@ -34,7 +34,7 @@ const sealChanges = (c: Changes): Changes =>
 const openChanges = (c: Changes): Changes =>
   Object.fromEntries(Object.entries(c).map(([k, v]) => [k, ID_FIELDS.includes(k) ? { from: typeof v.from === 'string' ? decryptField(v.from) : v.from, to: typeof v.to === 'string' ? decryptField(v.to) : v.to } : v]));
 
-export interface EmpShape {
+export type EmpShape = {
   joinDate: string;
   employmentType: EmploymentType;
   contractStart: string | null;
@@ -48,7 +48,7 @@ export interface EmpShape {
   bpjsJp: boolean;
   resignDate?: string | null;
   isActive?: boolean;
-}
+};
 
 /** Aturan status kepegawaian. Mengembalikan data yang sudah dinormalkan (mis. BPJS dimatikan untuk tenaga lepas). */
 export function applyEmploymentRules<T extends EmpShape>(model: string, e: T): T {
@@ -148,7 +148,7 @@ export class EmploymentService {
     // validasi gabungan sekarang juga, agar HR tidak mengirim permintaan yang pasti ditolak aturan
     const merged = { ...emp } as Record<string, unknown>;
     for (const [k, c] of Object.entries(changes)) merged[k] = c.to;
-    applyEmploymentRules('JASA', merged as unknown as EmpShape);
+    applyEmploymentRules('JASA', merged as EmpShape);
     await this.assertNoDuplicates(this.db, user.tenantId, emp.id, { nik: merged.nik as string, npwp: merged.npwp as string, bankAccount: merged.bankAccount as string });
     const [pending] = await this.repo.findEmployeeChangeRequestsByEmployeeIdAndStatus(this.db, emp.id);
     if (pending) throw new BadRequestException('Masih ada permintaan perubahan yang menunggu persetujuan untuk karyawan ini');
@@ -185,12 +185,12 @@ export class EmploymentService {
       }
       const merged = { ...emp } as Record<string, unknown>;
       for (const [k, ch] of Object.entries(changes)) merged[k] = ch.to;
-      applyEmploymentRules('JASA', merged as unknown as EmpShape);
+      applyEmploymentRules('JASA', merged as EmpShape);
       await this.assertNoDuplicates(tx, u.tenantId, emp.id, { nik: merged.nik as string, npwp: merged.npwp as string, bankAccount: merged.bankAccount as string });
       const patch: Record<string, unknown> = {};
       for (const [k, ch] of Object.entries(changes)) patch[k] = ch.to;
       // aturan status dapat menormalkan nilai (mis. BPJS mati untuk tenaga lepas)
-      const norm = applyEmploymentRules('JASA', merged as unknown as EmpShape) as unknown as Record<string, unknown>;
+      const norm = applyEmploymentRules('JASA', merged as EmpShape);
       for (const k of ['bpjsKes', 'bpjsTk', 'bpjsJp'] as const) if (norm[k] !== merged[k]) patch[k] = norm[k];
       await patchById(tx, employees, emp.id, patch);
       await patchById(tx, employeeChangeRequests, id, { status: 'APPROVED', decidedById: u.sub, decidedAt: new Date(), decisionNote: dto.note ?? null });
@@ -229,7 +229,7 @@ export class EmploymentService {
       if (emp.verified) throw new BadRequestException('Karyawan ini sudah diverifikasi');
       if (emp.userId && emp.userId === u.sub) throw new ForbiddenException('Anda tidak dapat memverifikasi data Anda sendiri');
       if (emp.createdById === u.sub && u.role !== 'OWNER') throw new ForbiddenException('Karyawan harus diverifikasi oleh orang lain dari pembuatnya (pemisahan fungsi)');
-      applyEmploymentRules('JASA', emp as unknown as EmpShape);
+      applyEmploymentRules('JASA', emp as EmpShape);
       await this.assertNoDuplicates(tx, u.tenantId, emp.id, emp);
       await patchById(tx, employees, employeeId, { verified: true, verifiedById: u.sub, verifiedAt: new Date() });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'VERIFY', entity: 'Employee', entityId: employeeId, data: { code: emp.code, createdBy: emp.createdById, type: emp.employmentType, baseSalary: emp.baseSalary } });

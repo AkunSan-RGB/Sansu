@@ -35,20 +35,6 @@ const isUnique = (e: unknown) => ['23505'].includes((e as { code?: string }).cod
 
 const rp = (n: number) => `Rp${Math.round(n).toLocaleString('id-ID')}`;
 
-interface ConnRow {
-  id: string;
-  number: string;
-  customer_id: string;
-  customer_name: string;
-  tariff_id: string;
-  status: string;
-  installed_at: string;
-  initial_reading: string;
-  status_changed_by_id: string | null;
-  meter_no: string | null;
-  address: string;
-}
-
 @Injectable()
 export class UtilityService {
   constructor(
@@ -159,7 +145,7 @@ export class UtilityService {
   private async lockConnection(tx: Db | Parameters<Parameters<Db['transaction']>[0]>[0], tenantId: string, id: string) {
     const r = await this.repo.queryUtilityConnectionForLockConnection(tx, id, tenantId);
     if (!r.rows.length) throw new NotFoundException('Sambungan tidak ditemukan');
-    return r.rows[0] as unknown as ConnRow;
+    return r.rows[0];
   }
 
   /** Tunggakan melewati jatuh tempo untuk satu sambungan */
@@ -343,7 +329,7 @@ export class UtilityService {
   private async lockReading(tx: Db | Parameters<Parameters<Db['transaction']>[0]>[0], tenantId: string, id: string) {
     const r = await this.repo.queryUtilityReadingForLockReading(tx, id, tenantId);
     if (!r.rows.length) throw new NotFoundException('Pencatatan tidak ditemukan');
-    return r.rows[0] as unknown as { id: string; status: string; entered_by_id: string; flags: string[]; connection_id: string; period: string };
+    return r.rows[0];
   }
 
   async verify(u: AuthUser, id: string, dto: VerifyDto) {

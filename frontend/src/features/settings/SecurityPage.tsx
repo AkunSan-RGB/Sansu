@@ -30,8 +30,8 @@ function CompanyPolicy() {
   const save = useAction((require2fa: TwoFactorRequirement) => put('/settings/security', { require2fa }), {
     success: 'Kebijakan keamanan disimpan',
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['security-settings'] });
-      qc.invalidateQueries({ queryKey: ['users'] });
+      void qc.invalidateQueries({ queryKey: ['security-settings'] });
+      void qc.invalidateQueries({ queryKey: ['users'] });
     },
   });
   return (

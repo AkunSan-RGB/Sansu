@@ -28,7 +28,7 @@ export function BillingTab() {
   const job = (jobs.data ?? []).find((j) => j.period === period) ?? undefined;
   const running = (jobs.data ?? []).find((j) => j.status === 'BERJALAN');
   useEffect(() => {
-    if (!running && jobs.data?.length) { qc.invalidateQueries({ queryKey: ['utility'] }); qc.invalidateQueries({ queryKey: ['invoices'] }); }
+    if (!running && jobs.data?.length) { void qc.invalidateQueries({ queryKey: ['utility'] }); void qc.invalidateQueries({ queryKey: ['invoices'] }); }
   }, [running?.id, jobs.data?.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const run = useAction(() => post<Job>('/utility/billing/jobs', { period }), { success: 'Penagihan dimulai di server', invalidate: ['utility'], onSuccess: () => jobs.refetch() });
   const p = preview.data;

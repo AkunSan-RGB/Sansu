@@ -18,6 +18,9 @@ import { DB, Db } from './db';
 import { DEMO_VERSION, simulateDemoYear } from './demo/simulate';
 import { removeTenant } from './remove-tenant';
 import { crmActivities, crmStages, customers, leads, tenants, users } from './schema';
+import { Logger } from '@nestjs/common';
+
+const log = new Logger('Seed');
 
 const DEMO_EMAIL = 'admin@demo.id';
 
@@ -31,16 +34,16 @@ async function main() {
     const [t] = await db.select().from(tenants).where(eq(tenants.id, exists.tenantId));
     const version = (t?.settings as { demo?: { version?: number } })?.demo?.version;
     if (version === DEMO_VERSION && !force) {
-      console.log('Data demo sudah ada — dilewati.');
+      log.log('Data demo sudah ada — dilewati.');
       await app.close();
       return;
     }
-    console.log('Memperbarui data demo ke versi terbaru (transaksi 1 Januari s/d hari ini)…');
+    log.log('Memperbarui data demo ke versi terbaru (transaksi 1 Januari s/d hari ini)…');
     await removeTenant(db, exists.tenantId);
   } else {
-    console.log('Membuat data demo: transaksi 1 Januari s/d hari ini…');
+    log.log('Membuat data demo: transaksi 1 Januari s/d hari ini…');
   }
-  console.log('Mohon tunggu, ini bisa memakan waktu beberapa menit (hanya sekali).');
+  log.log('Mohon tunggu, ini bisa memakan waktu beberapa menit (hanya sekali).');
 
   const t0 = Date.now();
   const reg = await app.get(AuthService).register({
@@ -53,9 +56,9 @@ async function main() {
   const { user } = reg;
   const admin = { sub: user.id, tenantId: user.tenantId, role: user.role, email: user.email };
   await ensureDemoUsers(app, db, user.tenantId);
-  await simulateDemoYear(app, db, admin, (m) => console.log(m));
+  await simulateDemoYear(app, db, admin, (m) => log.log(m));
   await ensureCrm(db, user.tenantId, user.id);
-  console.log(`Data demo dibuat dalam ${Math.round((Date.now() - t0) / 1000)} detik. Login: ${DEMO_EMAIL} / demo12345`);
+  log.log(`Data demo dibuat dalam ${Math.round((Date.now() - t0) / 1000)} detik. Login: ${DEMO_EMAIL} / demo12345`);
   await app.close();
 }
 

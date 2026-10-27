@@ -47,7 +47,7 @@ export default function OnboardingCard() {
 
   const dismiss = async () => {
     await post('/onboarding/dismiss', { dismissed: true });
-    qc.invalidateQueries({ queryKey: ['onboarding'] });
+    void qc.invalidateQueries({ queryKey: ['onboarding'] });
   };
 
   return (

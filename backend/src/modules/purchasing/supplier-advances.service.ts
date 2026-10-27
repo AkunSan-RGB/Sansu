@@ -49,9 +49,9 @@ export class SupplierAdvancesService {
     let po: { number: string; total: string; status: string; currency: string } | undefined;
     let existing = D(0);
     if (dto.purchaseOrderId) {
-      po = (await this.repo.queryPurchaseOrder(this.db, dto.purchaseOrderId, user.tenantId)).rows[0] as typeof po & { supplier_id: string };
+      po = (await this.repo.queryPurchaseOrder(this.db, dto.purchaseOrderId, user.tenantId)).rows[0] as (typeof po & { supplier_id: string }) | undefined;
       if (!po) throw new BadRequestException('Pesanan pembelian tidak ditemukan');
-      if ((po as unknown as { supplier_id: string }).supplier_id !== sup.id) throw new BadRequestException('Pesanan pembelian itu bukan milik pemasok yang dipilih');
+      if ((po as typeof po & { supplier_id: string }).supplier_id !== sup.id) throw new BadRequestException('Pesanan pembelian itu bukan milik pemasok yang dipilih');
       if (po.status !== 'CONFIRMED') throw new BadRequestException(`Uang muka hanya untuk pesanan pembelian yang sudah dikonfirmasi dan belum difakturkan (status sekarang ${po.status})`);
       if (po.currency !== 'IDR') throw new BadRequestException('Uang muka untuk pesanan pembelian mata uang asing belum didukung');
       existing = D((await this.repo.querySupplierAdvance(this.db, dto.purchaseOrderId, user.tenantId)).rows[0].s);

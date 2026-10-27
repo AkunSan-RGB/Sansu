@@ -5,7 +5,7 @@ import { CASH_TX_TYPES, CashTxType, CASH_SOURCE_KEYS, type CashInSourceKey, type
 
 export class CashLineDto {
   @ApiPropertyOptional({ description: 'Akun lawan, mis. Beban Listrik atau Modal Pemilik (khusus pembukuan; kosong bila memakai sumber)' }) @IsOptional() @IsUUID() accountId?: string;
-  @ApiPropertyOptional({ enum: CASH_SOURCE_KEYS, description: 'Kas masuk: sumber uang (Keuangan wajib). Kas keluar: jenis biaya. Sistem menentukan akun' }) @IsOptional() @IsIn(CASH_SOURCE_KEYS as unknown as string[]) source?: CashInSourceKey | CashOutSourceKey;
+  @ApiPropertyOptional({ enum: CASH_SOURCE_KEYS, description: 'Kas masuk: sumber uang (Keuangan wajib). Kas keluar: jenis biaya. Sistem menentukan akun' }) @IsOptional() @IsIn(CASH_SOURCE_KEYS) source?: CashInSourceKey | CashOutSourceKey;
   @ApiProperty({ example: '350000' }) @IsNumberString() amount: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) memo?: string;
   @ApiPropertyOptional({ description: 'Kas keluar: biaya langsung proyek (usaha jasa)' }) @IsOptional() @IsUUID() projectId?: string;

@@ -167,7 +167,7 @@ export default function CashPage() {
                       <Typography.Link
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate(`/ledger?accountId=${a.id}`);
+                          void navigate(`/ledger?accountId=${a.id}`);
                         }}
                       >
                         Buku besar
@@ -176,7 +176,7 @@ export default function CashPage() {
                         <Typography.Link
                           onClick={(e) => {
                             e.stopPropagation();
-                            navigate(`/bank?account=${a.id}`);
+                            void navigate(`/bank?account=${a.id}`);
                           }}
                         >
                           Cocokkan dengan bank
@@ -186,7 +186,7 @@ export default function CashPage() {
                         <Typography.Link
                           onClick={(e) => {
                             e.stopPropagation();
-                            navigate('/petty-cash');
+                            void navigate('/petty-cash');
                           }}
                         >
                           Kelola kas kecil

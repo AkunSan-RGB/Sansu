@@ -56,4 +56,7 @@ process.on('uncaughtException', (e) => {
   process.exit(1);
 });
 
-bootstrap();
+void bootstrap().catch((e) => {
+  Logger.error(`API gagal start: ${(e as Error).stack ?? e}`, 'Proses');
+  process.exit(1);
+});

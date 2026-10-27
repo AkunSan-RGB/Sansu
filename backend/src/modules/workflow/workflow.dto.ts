@@ -12,7 +12,7 @@ export class CreateCaseDto {
 }
 
 export class AddLinkDto {
-  @ApiProperty({ enum: WORKFLOW_LINK_TYPES }) @IsIn(WORKFLOW_LINK_TYPES as unknown as string[]) type: WorkflowLinkType;
+  @ApiProperty({ enum: WORKFLOW_LINK_TYPES }) @IsIn(WORKFLOW_LINK_TYPES) type: WorkflowLinkType;
   @ApiProperty() @IsUUID() docId: string;
 }
 

@@ -23,15 +23,15 @@ export function MyTwoFactor() {
     onSuccess: () => {
       setDisable(false);
       form.resetFields();
-      qc.invalidateQueries({ queryKey: ['2fa'] });
-      qc.invalidateQueries({ queryKey: ['me'] });
+      void qc.invalidateQueries({ queryKey: ['2fa'] });
+      void qc.invalidateQueries({ queryKey: ['me'] });
     },
   });
   const regenerate = useAction((code: string) => post<{ backupCodes: string[] }>('/auth/2fa/backup-codes', { code }), {
     onSuccess: (r) => {
       setNewCodes(r.backupCodes);
       regenForm.resetFields();
-      qc.invalidateQueries({ queryKey: ['2fa'] });
+      void qc.invalidateQueries({ queryKey: ['2fa'] });
     },
   });
 
