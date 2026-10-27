@@ -430,7 +430,8 @@ export class UtilityService {
   }
 
   /** `asOf`: hanya untuk data contoh (faktur bertanggal mundur); permintaan biasa memakai hari ini */
-  async run(u: AuthUser, dto: BillRunDto, asOf?: string) {
+  /** `hooks.onProgress` dipanggil tiap sambungan selesai (dipakai tagih berlatar untuk bilah kemajuan) */
+  async run(u: AuthUser, dto: BillRunDto, asOf?: string, hooks?: { onProgress?: (done: number, total: number, failed: number) => Promise<void> | void }) {
     const rules = await this.rules(u.tenantId);
     const plan = await this.plan(u.tenantId, dto.period);
     const acct = {
@@ -441,8 +442,14 @@ export class UtilityService {
     } as const;
     const today = asOf ?? todayJakarta();
     const billed: { number: string; invoice: string; total: number }[] = [];
+    let billedCount = 0;
+    let billedTotal = 0;
     const failed: { number: string; reason: string }[] = [];
+    const total = plan.ready.length;
+    let done = 0;
     for (const item of plan.ready) {
+      if (done > 0 && done % 25 === 0) await hooks?.onProgress?.(done, total, failed.length);
+      done++;
       // klaim periode lebih dulu: unik per sambungan + periode, sehingga tidak mungkin tertagih dua kali meski dijalankan bersamaan
       let claimId: string;
       try {
@@ -482,14 +489,18 @@ export class UtilityService {
           for (const l of item.lateFees) await this.repo.insertUtilityLateFees(tx, u.tenantId, l.invoiceId, claimId, l.amount);
           await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'UtilityBill', entityId: claimId, data: { connection: item.number, period: dto.period, invoice: invoice.number, subtotal: item.subtotal, lateFee: item.lateFeeTotal, lateInvoice } });
         });
-        billed.push({ number: item.number, invoice: invoice.number, total: item.subtotal + item.lateFeeTotal });
+        billedCount++;
+        billedTotal += item.subtotal + item.lateFeeTotal;
+        if (billed.length < 200) billed.push({ number: item.number, invoice: invoice.number, total: item.subtotal + item.lateFeeTotal });
       } catch (e) {
         // faktur gagal dibuat: lepas klaim agar bisa diulang
         await this.repo.deleteUtilityBillsByIdAndInvoiceId(this.db, claimId);
         failed.push({ number: item.number, reason: e instanceof Error ? e.message : 'Gagal membuat faktur' });
       }
     }
-    return { period: dto.period, billedCount: billed.length, billedTotal: billed.reduce((s, b) => s + b.total, 0), billed, failed, held: plan.held };
+    await hooks?.onProgress?.(total, total, failed.length);
+    // daftar tagihan hanya memuat 200 pertama (ringkasan memuat jumlah penuh); selebihnya ada di menu Faktur
+    return { period: dto.period, billedCount, billedTotal, billed, billedTruncated: billedCount > billed.length, failed: failed.slice(0, 200), failedCount: failed.length, held: plan.held.slice(0, 500), heldCount: plan.held.length };
   }
 
   async overdue(tenantId: string) {

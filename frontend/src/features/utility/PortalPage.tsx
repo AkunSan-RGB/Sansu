@@ -14,6 +14,7 @@ interface View {
   bills: { period: string; invoice: string; total: string; outstanding: string; due_date: string; usage: string | null }[];
   usage: { period: string; usage: string | null; total: string; paid: boolean }[];
   counters: { name: string; location: string | null }[];
+  va?: { number: string; bankName: string } | null;
   complaints: { number: string; category: ComplaintCategory; status: ComplaintStatus; created_at: string; resolution: string | null }[];
 }
 const STATUS: Record<string, string> = { ACTIVE: 'Aktif', SUSPENDED: 'Disegel sementara', DISCONNECTED: 'Diputus' };
@@ -42,6 +43,7 @@ export default function PortalPage() {
         </Descriptions>
       </Card>
       {v.outstanding > 0.5 ? <Alert style={{ marginTop: 16 }} type="warning" showIcon message={`Tagihan yang belum dibayar: ${fmtMoney(v.outstanding)}`} description={v.counters.length ? `Bayar di: ${v.counters.map((c) => c.name + (c.location ? ` (${c.location})` : '')).join(', ')}. Sebutkan nomor sambungan ${v.connection.number}.` : 'Bayar di loket PAM dengan menyebutkan nomor sambungan.'} /> : <Alert style={{ marginTop: 16 }} type="success" showIcon message="Tidak ada tagihan yang tertunggak. Terima kasih!" />}
+      {v.va && <Alert style={{ marginTop: 16 }} type="info" showIcon message={`Nomor virtual account Anda: ${v.va.number}`} description={`Bayar lewat ATM, mobile banking, atau internet banking${v.va.bankName ? ` ${v.va.bankName}` : ''} ke nomor ini; tagihan lunas otomatis.`} />}
       {v.bills.length > 0 && <Card size="small" title="Tagihan terbuka" style={{ marginTop: 16 }}><Table size="small" rowKey="invoice" pagination={false} scroll={{ x: 'max-content' }} dataSource={v.bills} columns={[
         { title: 'Periode', dataIndex: 'period' }, { title: 'Pemakaian', render: (_: unknown, b: View['bills'][number]) => (b.usage ? `${fmtQty(b.usage)} m³` : '-') },
         { title: 'Sisa', align: 'right' as const, render: (_: unknown, b: View['bills'][number]) => fmtMoney(b.outstanding) }, { title: 'Jatuh tempo', render: (_: unknown, b: View['bills'][number]) => <span style={dayjs(b.due_date).isBefore(dayjs(), 'day') ? { color: '#dc2626' } : undefined}>{fmtDate(b.due_date)}</span> },

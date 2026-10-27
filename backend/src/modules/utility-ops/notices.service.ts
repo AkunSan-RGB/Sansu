@@ -30,20 +30,21 @@ export class NoticesService {
   }
 
   /** Daftar penerima untuk satu jenis surat, siap dicetak atau dikirim lewat WhatsApp */
-  async candidates(tenantId: string, kind: NoticeKind, period?: string) {
+  async candidates(tenantId: string, kind: NoticeKind, period?: string, limit = 1000) {
     const today = todayJakarta();
     const mode = kind === 'REKENING' ? 'REKENING' : kind === 'PENGINGAT' ? 'PENGINGAT' : 'TUNGGAKAN';
     if (kind === 'TAUTAN') throw new BadRequestException('Tautan portal dibuat dari menu Portal pelanggan');
     const p = period && /^\d{4}-(0[1-9]|1[0-2])$/.test(period) ? period : today.slice(0, 7);
     const co = (await this.repo.tenantName(this.db, tenantId))?.name ?? 'PAM';
-    let rows = await this.repo.candidates(this.db, tenantId, today, mode, mode === 'REKENING' ? p : null);
+    let rows = await this.repo.candidates(this.db, tenantId, today, mode, mode === 'REKENING' ? p : null, limit);
+    const truncated = rows.length >= limit;
     if (kind === 'SP1' || kind === 'SP2' || kind === 'SP3') rows = rows.filter((r) => spLevelFor(r.days_late) === kind);
     const out = rows.map((r) => {
       const message = this.message(kind, r, co);
       const sentBefore = r.last_notice_kind === kind;
       return { ...r, message, whatsapp: whatsappLink(r.phone, message), sentBefore, alreadyToday: sentBefore && !!r.last_notice_at && r.last_notice_at.slice(0, 10) === today };
     });
-    return { kind, period: kind === 'REKENING' ? p : null, company: co, total: out.reduce((a, r) => a + Number(r.outstanding), 0), rows: out };
+    return { kind, period: kind === 'REKENING' ? p : null, company: co, total: out.reduce((a, r) => a + Number(r.outstanding), 0), truncated, rows: out };
   }
 
   async log(u: AuthUser, dto: NoticeLogDto) {

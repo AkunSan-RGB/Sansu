@@ -8,6 +8,7 @@ import { get, post, put } from '@/api/client';
 import { useAction, useCustomers } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
+import { ImportConnections } from './ImportConnections';
 import { Connection, STATUS_COLOR, Tariff } from './shared';
 import { ConnectionDrawer } from './ConnectionDrawer';
 
@@ -20,6 +21,7 @@ export function ConnectionsTab() {
   const tariffs = useQuery({ queryKey: ['utility', 'tariffs'], queryFn: () => get<Tariff[]>('/utility/tariffs') });
   const customers = useCustomers();
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [detail, setDetail] = useState<string | null>(null);
   const [act, setAct] = useState<{ c: Connection; mode: 'suspend' | 'reconnect' | 'disconnect' } | null>(null);
   const [form] = Form.useForm();
@@ -38,7 +40,10 @@ export function ConnectionsTab() {
         <Input.Search allowClear placeholder="Cari nama, nomor, meter, alamat" onSearch={setSearch} style={{ width: 260 }} />
         <Select allowClear placeholder="Semua status" style={{ width: 180 }} value={status} onChange={setStatus} options={Object.entries(UTILITY_CONNECTION_LABELS).map(([value, label]) => ({ value, label }))} />
         {can('POST', '/utility/connections') && <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setCreating(true); }}>Sambungan baru</Button>}
+        {can('POST', '/utility/import/connections') && <Button onClick={() => setImporting(true)}>Impor dari Excel/CSV</Button>}
       </Space>
+      {(data?.length ?? 0) >= 500 && <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Menampilkan 500 sambungan teratas. Ketik nama, nomor, meter, atau alamat di kolom cari untuk menemukan sambungan lain." />}
+      <ImportConnections open={importing} onClose={() => setImporting(false)} />
       <ResponsiveTable<Connection> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={{ pageSize: 20 }} scroll={{ x: 900 }} locale={{ emptyText: 'Belum ada sambungan' }}
         columns={[
           { title: 'No. sambungan', dataIndex: 'number', render: (v: string, c: Connection) => <a onClick={() => setDetail(c.id)}>{v}</a> },

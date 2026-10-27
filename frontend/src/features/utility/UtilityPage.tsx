@@ -32,6 +32,7 @@ import { NoticesTab } from './ops/NoticesTab';
 import { PortalTab } from './ops/PortalTab';
 import { ProductionTab, QualityTab } from './ops/ProductionTabs';
 import { RoutesTab } from './ops/RoutesTab';
+import { OutboxTab, VaTab } from './ops/VaOutboxTabs';
 
 const SEV: Record<string, string> = { high: 'red', medium: 'orange' };
 
@@ -77,6 +78,8 @@ const WATER_TITLES: Record<string, string> = {
   'perintah-kerja': 'Perintah kerja',
   produksi: 'Produksi air & air tak berekening',
   kualitas: 'Kualitas air',
+  va: 'Pembayaran virtual account',
+  antrean: 'Antrean pesan otomatis',
 };
 
 export default function UtilityPage() {
@@ -114,6 +117,8 @@ export default function UtilityPage() {
       { key: 'perintah-kerja', label: 'Perintah kerja', children: <WorkOrdersTab /> },
       { key: 'produksi', label: 'Produksi air', children: <ProductionTab /> },
       { key: 'kualitas', label: 'Kualitas air', children: <QualityTab /> },
+      { key: 'va', label: 'Pembayaran VA', children: <VaTab /> },
+      { key: 'antrean', label: 'Antrean pesan', children: <OutboxTab /> },
     ] : []),
     { key: 'tarif', label: 'Tarif & aturan', children: <TariffsTab /> },
     ...(fin ? [{ key: 'kontrol', label: 'Kontrol', children: <ControlsTab /> }] : []),

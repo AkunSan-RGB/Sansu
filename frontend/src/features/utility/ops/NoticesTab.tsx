@@ -1,6 +1,6 @@
 import { NOTICE_CHANNELS, NOTICE_CHANNEL_LABELS, NOTICE_KIND_LABELS, type NoticeChannel, type NoticeKind } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, DatePicker, Dropdown, Segmented, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Button, DatePicker, Dropdown, Popconfirm, Segmented, Space, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { get, post } from '@/api/client';
@@ -9,7 +9,8 @@ import { useCan } from '@/auth/useCan';
 import { fmtDate, fmtMoney } from '@/lib/format';
 
 interface Cand { connection_id: string; invoice_id: string; number: string; address: string; customer: string; phone: string | null; outstanding: string; periods: string; oldest_due: string; days_late: number; message: string; whatsapp: string | null; sentBefore: boolean; alreadyToday: boolean; last_notice_at: string | null }
-interface Result { kind: NoticeKind; period: string | null; company: string; total: number; rows: Cand[] }
+interface Result { kind: NoticeKind; period: string | null; company: string; total: number; truncated?: boolean; rows: Cand[] }
+interface Queued { queued: number; noPhone: number; duplicates: number; notEligible: number; alreadySent: number }
 const KINDS: NoticeKind[] = ['REKENING', 'PENGINGAT', 'SP1', 'SP2', 'SP3'];
 const HINT: Record<string, string> = { REKENING: 'Rekening tagihan satu periode yang masih terbuka.', PENGINGAT: 'Tagihan yang jatuh tempo dalam 3 hari ke depan.', SP1: 'Terlambat 7–20 hari.', SP2: 'Terlambat 21–34 hari.', SP3: 'Terlambat 35 hari atau lebih — peringatan terakhir sebelum pemutusan.' };
 
@@ -38,6 +39,11 @@ export function NoticesTab() {
   const q = useQuery({ queryKey: ['utility', 'notices', kind, period.format('YYYY-MM')], queryFn: () => get<Result>(`/utility/notices/candidates?kind=${kind}${kind === 'REKENING' ? `&period=${period.format('YYYY-MM')}` : ''}`) });
   const hist = useQuery({ queryKey: ['utility', 'notices', 'history'], queryFn: () => get<{ id: string; kind: NoticeKind; channel: NoticeChannel; sent_at: string; connection: string; customer: string; sent_by: string | null }[]>('/utility/notices/history') });
   const log = useAction((v: { channel: NoticeChannel; rows: Cand[]; silent?: boolean }) => post<{ count: number }>('/utility/notices/log', { kind, channel: v.channel, items: v.rows.map((r) => ({ connectionId: r.connection_id, invoiceId: r.invoice_id })) }), { success: (r) => `${r.count} pengiriman dicatat`, invalidate: ['utility'], onSuccess: () => setSel([]) });
+  const outCfg = useQuery({ queryKey: ['utility', 'outbox', 'config'], queryFn: () => get<{ enabled: boolean }>('/utility/outbox/config') });
+  const enqueue = useAction((v: { all?: boolean; items?: { connectionId: string }[] }) => post<Queued>('/utility/outbox/enqueue', { kind, channel: 'WHATSAPP', period: kind === 'REKENING' ? period.format('YYYY-MM') : undefined, ...v }), {
+    success: (r) => `${r.queued} pesan diantrekan${r.alreadySent ? ` · ${r.alreadySent} sudah dikirim hari ini` : ''}${r.noPhone ? ` · ${r.noPhone} tanpa nomor HP` : ''}${r.duplicates ? ` · ${r.duplicates} sudah menunggu` : ''}`,
+    invalidate: ['utility'], onSuccess: () => setSel([]),
+  });
   const res = q.data;
   const chosen = (res?.rows ?? []).filter((r) => sel.includes(r.connection_id));
   const write = can('POST', '/utility/notices/log');
@@ -49,12 +55,15 @@ export function NoticesTab() {
         <Segmented value={kind} onChange={(v) => { setKind(v as NoticeKind); setSel([]); }} options={KINDS.map((k) => ({ value: k, label: NOTICE_KIND_LABELS[k].replace(' (pemutusan)', '') }))} />
         {kind === 'REKENING' && <DatePicker picker="month" allowClear={false} value={period} onChange={(d) => d && setPeriod(d)} />}
       </Space>
+      {res?.truncated && <Alert type="warning" showIcon style={{ marginBottom: 8 }} message="Daftar menampilkan 1.000 penerima pertama. Untuk mengirim ke seluruhnya gunakan Antrekan SEMUA penerima (kirim otomatis)." />}
       <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>{HINT[kind]} {res && `${res.rows.length} pelanggan · total ${fmtMoney(res.total)}`}</Typography.Paragraph>
       {write && (
         <Space wrap style={{ marginBottom: 12 }}>
           <Button type="primary" disabled={!chosen.length} loading={log.isPending} onClick={doPrint}>Cetak surat ({chosen.length})</Button>
           <Dropdown disabled={!chosen.length} menu={{ items: NOTICE_CHANNELS.filter((c) => c !== 'CETAK').map((c) => ({ key: c, label: `Tandai terkirim lewat ${NOTICE_CHANNEL_LABELS[c]}` })), onClick: ({ key }) => log.mutate({ channel: key as NoticeChannel, rows: chosen }) }}><Button disabled={!chosen.length}>Tandai terkirim ▾</Button></Dropdown>
           <Button onClick={() => setSel((res?.rows ?? []).filter((r) => !r.alreadyToday).map((r) => r.connection_id))}>Pilih yang belum dikirim hari ini</Button>
+          {outCfg.data?.enabled && can('POST', '/utility/outbox/enqueue') && <Button disabled={!chosen.length} loading={enqueue.isPending} onClick={() => enqueue.mutate({ items: chosen.map((r) => ({ connectionId: r.connection_id })) })}>Antrekan kirim otomatis ({chosen.length})</Button>}
+          {outCfg.data?.enabled && can('POST', '/utility/outbox/enqueue') && res?.truncated && <Popconfirm title="Antrekan semua penerima jenis surat ini?" description="Termasuk yang tidak tampil di daftar; yang sudah dikirim hari ini dilewati." onConfirm={() => enqueue.mutate({ all: true })}><Button loading={enqueue.isPending}>Antrekan SEMUA penerima</Button></Popconfirm>}
         </Space>
       )}
       <Table<Cand> rowKey="connection_id" size="small" loading={q.isLoading} dataSource={res?.rows} pagination={{ pageSize: 25 }} locale={{ emptyText: 'Tidak ada pelanggan pada tingkat ini' }}

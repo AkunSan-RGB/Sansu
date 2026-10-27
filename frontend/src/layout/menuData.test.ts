@@ -146,7 +146,7 @@ describe('menu: Layanan air khusus Utilitas', () => {
     const visible = (role: string) => flat(water).filter((i) => !i.roles || i.roles.includes(role)).map((i) => i.key);
     expect(visible('CASHIER')).toEqual(['/utility/loket']);
     expect(visible('WAREHOUSE')).toEqual(['/utility/ringkasan', '/utility/permohonan', '/utility/sambungan', '/utility/pengaduan', '/utility/rute', '/utility/meter', '/utility/lapangan', '/utility/impor', '/utility/penagihan', '/utility/inventaris', '/utility/aset', '/utility/perintah-kerja', '/utility/produksi', '/utility/kualitas']);
-    expect(visible('SALES')).toEqual(['/utility/ringkasan', '/customers', '/utility/permohonan', '/utility/sambungan', '/utility/mutasi', '/utility/pengaduan', '/utility/portal', '/utility/rute', '/utility/non-air', '/utility/koreksi', '/utility/cetak', '/utility/angsuran', '/utility/jaminan', '/utility/aset', '/utility/perintah-kerja']);
+    expect(visible('SALES')).toEqual(['/utility/ringkasan', '/customers', '/utility/permohonan', '/utility/sambungan', '/utility/mutasi', '/utility/pengaduan', '/utility/portal', '/utility/rute', '/utility/non-air', '/utility/koreksi', '/utility/cetak', '/utility/antrean', '/utility/angsuran', '/utility/jaminan', '/utility/aset', '/utility/perintah-kerja']);
     expect(visible('FINANCE')).toEqual(expect.arrayContaining(['/utility/rekap', '/utility/tagihan', '/utility/lokasi', '/laporan/utility-nonair']));
     expect(visible('ACCOUNTANT')).not.toContain('/utility/loket');
   });
