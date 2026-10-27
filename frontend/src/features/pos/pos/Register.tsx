@@ -14,21 +14,9 @@ import Receipt, { printReceipt } from '../Receipt';
 import { posTax, vatTotals } from '@/lib/vat';
 import { t } from '@/lib/terms';
 import { CloseSession } from './CloseSession';
-
-interface CartLine {
-  product: PosProduct;
-  uom: string;
-  factor: number;
-  qty: number;
-  unitPrice: number; // per uom (belum PPN, atau sudah termasuk PPN bila harga kasir termasuk PPN)
-  discountPct: number;
-}
-
-const lineTotal = (l: CartLine) => Math.round(l.qty * l.unitPrice * (100 - l.discountPct)) / 100;
+import { addToCart, checkAdd, lineTotal, loyaltyMath, paymentMath, setCartQty, type CartLine, type LoyaltyCfg } from './posCart';
 
 const QUICK_CASH = [10_000, 20_000, 50_000, 100_000];
-
-interface LoyaltyCfg { enabled: boolean; earnPerRp: number; pointValueRp: number; minRedeemPoints: number; maxRedeemPct: number; expiryMonths: number }
 
 // ---------- Layar kasir ----------
 export function Register({ session }: { session: PosSession }) {
@@ -72,25 +60,14 @@ export function Register({ session }: { session: PosSession }) {
   }, [products.data, term, category]);
 
   const add = (p: PosProduct, uom = p.baseUom) => {
-    // sama dengan server: barang tanpa harga jual (mis. bahan baku) tidak bisa dijual di kasir
-    if (Number(p.sellPrice) <= 0) {
-      message.warning(`Harga jual ${p.name} belum diisi (Rp 0), jadi tidak bisa dijual di kasir. Isi harga di Produk, atau minta supervisor.`);
+    const check = checkAdd(p, uom, cart);
+    if (!check.ok) {
+      message.warning(check.message);
       return;
     }
-    const factor = uom === p.baseUom ? 1 : Number(p.uoms.find((u) => u.uom === uom)?.factor ?? 1);
-    // sama dengan aturan server: tidak boleh menjual melebihi stok; tegur sejak barang diklik, bukan saat membayar
-    const inCart = cart.filter((l) => l.product.id === p.id).reduce((a, l) => a + l.qty * l.factor, 0);
-    if (inCart + factor > Number(p.stock) + 1e-9) {
-      message.warning(`Stok ${p.name} tidak cukup (tersedia ${fmtQty(Number(p.stock))}${inCart ? `, sudah di keranjang ${fmtQty(inCart)}` : ''})`);
-      return;
-    }
-    setCart((c) => {
-      const i = c.findIndex((l) => l.product.id === p.id && l.uom === uom);
-      if (i >= 0) return c.map((l, j) => (j === i ? { ...l, qty: l.qty + 1 } : l));
-      return [...c, { product: p, uom, factor, qty: 1, unitPrice: Number(p.sellPrice) * factor, discountPct: 0 }];
-    });
+    setCart((c) => addToCart(c, p, uom, check.factor));
   };
-  const setQty = (i: number, qty: number) => setCart((c) => (qty <= 0 ? c.filter((_, j) => j !== i) : c.map((l, j) => (j === i ? { ...l, qty } : l))));
+  const setQty = (i: number, qty: number) => setCart((c) => setCartQty(c, i, qty));
 
   const onSearchEnter = () => {
     const t = term.trim();
@@ -111,13 +88,8 @@ export function Register({ session }: { session: PosSession }) {
   // poin loyalitas: potongan dihitung dari aturan; server memeriksa ulang saldo dan batas
   const cfg = loyaltyCfg.data;
   const balance = member.data?.balance ?? 0;
-  const maxRedeem = cfg?.enabled && customerId ? Math.max(0, Math.min(balance, Math.floor((total * (cfg.maxRedeemPct / 100)) / cfg.pointValueRp))) : 0;
-  const redeemPts = redeem && cfg && redeem >= cfg.minRedeemPoints && redeem <= maxRedeem ? redeem : 0;
-  const redeemValue = redeemPts * (cfg?.pointValueRp ?? 0);
-  const payable = total - redeemValue;
-  const willEarn = cfg?.enabled && customerId ? Math.floor(payable / cfg.earnPerRp) : 0;
-  const change = method === 'CASH' ? Math.max(0, (amount ?? 0) - payable) : 0;
-  const enough = method === 'CASH' ? (amount ?? 0) >= payable : true;
+  const { maxRedeem, redeemPts, redeemValue, payable, willEarn } = loyaltyMath({ cfg, customerId, balance, redeem, total });
+  const { change, enough } = paymentMath(method, amount, payable);
 
   const pay = useAction(
     () =>

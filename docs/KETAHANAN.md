@@ -25,3 +25,15 @@ Hasil uji beban lokal (4 CPU, satu proses server, database di mesin yang sama, d
 - Belum diuji: beban berhari-hari, data jutaan baris, banyak proses server sekaligus, gangguan jaringan nyata (hanya kode dan uji lokal).
 - Batas laju 600 permintaan/menit per IP: kantor dengan satu IP publik dan banyak pengguna bisa kena 429; atur `RATE_LIMIT_PER_MIN`.
 - Pembuatan permintaan persetujuan di dalam transaksi kas keluar masih memakai koneksi terpisah (jarang terjadi).
+
+## Tambahan: batas waktu database, galat tampilan, uji beban serentak
+
+- **Batas waktu database** (pool aplikasi, bukan migrasi): `DB_STATEMENT_TIMEOUT_MS` (default 60 dtk) membatalkan kueri yang macet,
+  `DB_IDLE_TX_TIMEOUT_MS` (default 60 dtk) memutus transaksi yang dibiarkan menganggur dan melepas kuncinya. 0 = tanpa batas.
+  Galat 57014/25P03 (waktu habis), 40P01 (kebuntuan), 40001 (gagal serialisasi), 55P03 (kunci tidak tersedia) dijawab 503 dengan pesan
+  "tidak ada data yang tersimpan setengah jalan, coba lagi" — transaksinya sudah dibatalkan seluruhnya sehingga aman diulang.
+- **Galat tampilan:** `ErrorBoundary` terluar dan per rute. Halaman yang gagal tampil menjadi pesan dengan "Coba lagi"/"Muat ulang", menu tetap berfungsi;
+  galat memuat potongan kode (rilis baru saat tab lama terbuka) diarahkan ke muat ulang.
+- **Kunci idempotensi:** `api()` menambahkannya otomatis pada semua POST/PUT/PATCH/DELETE (kecuali `/auth/`) dan mempertahankannya saat jawaban tidak datang
+  (jaringan putus/waktu habis). Diuji di `frontend/src/api/client.test.ts` dan di fase jaringan buruk uji beban.
+- **Uji beban serentak:** lihat [UJI-BEBAN-SERENTAK.md](UJI-BEBAN-SERENTAK.md).
