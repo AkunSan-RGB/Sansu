@@ -9,6 +9,7 @@ import { createPool } from './db/db';
 import { describeDbError } from './db/db-error';
 import { runMigrations } from './db/run-migrations';
 import { createShedder, maxInflightFromEnv } from './common/load-shedder';
+import { opsAlert } from './common/monitor/ops-alert';
 
 async function bootstrap() {
   assertProductionConfig();
@@ -54,10 +55,13 @@ async function bootstrap() {
 // jadi proses berhenti rapi agar dihidupkan ulang oleh pengelola proses (Railway/pm2/docker).
 process.on('unhandledRejection', (reason) => {
   Logger.error(`Penolakan tak tertangani: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)}`, 'Proses');
+  opsAlert('unhandledRejection', `penolakan tak tertangani: ${reason instanceof Error ? reason.message : String(reason)}`.slice(0, 500));
 });
 process.on('uncaughtException', (e) => {
   Logger.error(`Pengecualian tak tertangkap, proses berhenti: ${e.stack ?? e.message}`, 'Proses');
-  process.exit(1);
+  opsAlert('uncaughtException', `proses berhenti karena pengecualian: ${e.message}`.slice(0, 500));
+  // beri kesempatan sekejap agar peringatan terkirim sebelum keluar
+  setTimeout(() => process.exit(1), 1500).unref();
 });
 
 void bootstrap().catch((e) => {

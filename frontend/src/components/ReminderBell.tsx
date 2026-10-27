@@ -59,7 +59,7 @@ export default function ReminderBell() {
             setOpen(false);
             void navigate(i.link);
           }}
-          style={{ fontWeight: 600, color: '#101C33' }}
+          style={{ fontWeight: 600, color: '#0A0A0A' }}
         >
           {i.title}
         </a>
@@ -91,7 +91,7 @@ export default function ReminderBell() {
           <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7388', marginBottom: 4 }}>Menunggu tindakan Anda</div>
           {tasks.map((t) => (
             <div key={t.key} style={{ padding: '6px 0', borderBottom: '1px solid #F0EEE8' }}>
-              <a onClick={() => { setOpen(false); void navigate(t.link); }} style={{ fontWeight: 600, color: '#101C33' }}>{t.title}</a>
+              <a onClick={() => { setOpen(false); void navigate(t.link); }} style={{ fontWeight: 600, color: '#0A0A0A' }}>{t.title}</a>
               <div style={{ fontSize: 12.5, color: '#5B6477' }}>{t.detail}</div>
             </div>
           ))}

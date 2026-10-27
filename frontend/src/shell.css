@@ -1,22 +1,22 @@
 /* Tampilan setelah masuk: menu samping, header, dasbor. Selaras dengan halaman masuk; gerak dimatikan bila "kurangi gerakan". */
 
 /* ---------- menu samping ---------- */
-.ant-layout-sider { background: linear-gradient(180deg, #0F1B33 0%, #0B1424 100%) !important; box-shadow: 1px 0 0 rgba(255,255,255,.04); }
+.ant-layout-sider { background: linear-gradient(180deg, #161616 0%, #0A0A0A 100%) !important; box-shadow: 1px 0 0 rgba(255,255,255,.04); }
 .ant-layout-sider .ant-menu-item,
 .ant-layout-sider .ant-menu-submenu-title { transition: background .18s ease, color .18s ease, transform .18s ease; position: relative; }
 .ant-layout-sider .ant-menu-item:hover,
 .ant-layout-sider .ant-menu-submenu-title:hover { transform: translateX(2px); }
 .ant-layout-sider .ant-menu-item-selected::before {
   content: ''; position: absolute; left: -8px; top: 9px; bottom: 9px; width: 3px; border-radius: 0 3px 3px 0;
-  background: linear-gradient(180deg, #E6CC8A, #C9A24B); animation: sh-pop .25s ease both;
+  background: #FFFFFF; animation: sh-pop .25s ease both;
 }
 .ant-layout-sider ::-webkit-scrollbar { width: 6px; }
 .ant-layout-sider ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 6px; }
 @keyframes sh-pop { from { opacity: 0; transform: scaleY(.4); } to { opacity: 1; transform: none; } }
 
 /* ---------- header ---------- */
-.ant-layout-header.sansu-header { box-shadow: 0 1px 0 #E8E6DF, 0 8px 24px -20px rgba(13,22,40,.3); }
-.sh-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: #EEF2FA; color: #1C3160; font-weight: 600; font-size: 13px; max-width: 100%; }
+.ant-layout-header.sansu-header { box-shadow: 0 1px 0 #E8E6DF, 0 8px 24px -20px rgba(10,10,10,.3); }
+.sh-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: #F2F2F2; color: #111111; font-weight: 600; font-size: 13px; max-width: 100%; }
 .sh-chip i { width: 8px; height: 8px; border-radius: 50%; background: #16A37B; box-shadow: 0 0 0 3px rgba(22,163,123,.18); flex: none; }
 .sh-date { color: #7A8294; font-size: 12.5px; }
 
@@ -25,24 +25,24 @@
 @keyframes sh-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /* ---------- dasbor ---------- */
-.dash-hero { background-size: 200% 200%; animation: sh-flow 18s ease-in-out infinite alternate; box-shadow: 0 18px 40px -22px rgba(13,22,40,.6); }
+.dash-hero { background-size: 200% 200%; animation: sh-flow 18s ease-in-out infinite alternate; box-shadow: 0 18px 40px -22px rgba(10,10,10,.6); }
 @keyframes sh-flow { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
 .row-kpi > div { animation: sh-rise .45s ease both; }
 .row-kpi > div:nth-child(2) { animation-delay: .05s; } .row-kpi > div:nth-child(3) { animation-delay: .1s; }
 .row-kpi > div:nth-child(4) { animation-delay: .15s; } .row-kpi > div:nth-child(5) { animation-delay: .2s; } .row-kpi > div:nth-child(n+6) { animation-delay: .25s; }
-.kpi:hover { transform: translateY(-2px); box-shadow: 0 1px 2px rgba(13,22,40,.05), 0 16px 32px -14px rgba(13,22,40,.2); }
+.kpi:hover { transform: translateY(-2px); box-shadow: 0 1px 2px rgba(10,10,10,.05), 0 16px 32px -14px rgba(10,10,10,.2); }
 .kpi:hover .kpi-icon { transform: scale(1.08) rotate(-4deg); }
 .kpi .kpi-icon { transition: transform .2s ease; }
 
 .qa { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
 .qa button {
   display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px; border: 1px solid #ECEAE3; background: #fff; cursor: pointer;
-  font: inherit; font-weight: 600; font-size: 13.5px; color: #18233A; text-align: left;
-  box-shadow: 0 1px 2px rgba(13,22,40,.04); transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+  font: inherit; font-weight: 600; font-size: 13.5px; color: #111111; text-align: left;
+  box-shadow: 0 1px 2px rgba(10,10,10,.04); transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
 }
-.qa button:hover { transform: translateY(-2px); border-color: #C9D3EA; box-shadow: 0 12px 24px -14px rgba(13,22,40,.3); }
-.qa button:focus-visible { outline: 2px solid #1C3160; outline-offset: 2px; }
-.qa .qa-ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: #EEF2FA; color: #1C3160; font-size: 16px; flex: none; }
+.qa button:hover { transform: translateY(-2px); border-color: #D4D4D4; box-shadow: 0 12px 24px -14px rgba(10,10,10,.3); }
+.qa button:focus-visible { outline: 2px solid #111111; outline-offset: 2px; }
+.qa .qa-ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: #F2F2F2; color: #111111; font-size: 16px; flex: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .ant-layout-content > *, .row-kpi > div, .dash-hero, .ant-layout-sider .ant-menu-item-selected::before { animation: none !important; }
@@ -101,3 +101,87 @@
 
 /* Lencana angka di menu samping: warna teks mengikuti menu (bawaan Badge gelap → label hampir tak terbaca di sisi gelap) */
 .ant-layout-sider .ant-menu .ant-badge { color: inherit; }
+
+/* ---------- ruang kerja jenis usaha ---------- */
+.ws { max-width: 1180px; }
+.ws-hero { position: relative; overflow: hidden; border-radius: 22px; padding: 32px 34px; color: #fff; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 24px; align-items: center;
+  background: radial-gradient(900px 320px at 100% -30%, rgba(255,255,255,.14), transparent 60%), repeating-linear-gradient(-45deg, rgba(255,255,255,.035) 0 1px, transparent 1px 22px), linear-gradient(135deg, #050505 0%, #1A1A1A 100%);
+  box-shadow: 0 24px 48px -28px rgba(0,0,0,.7); }
+.ws-eyebrow { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,255,255,.6); font-weight: 600; }
+.ws-hero h1 { margin: 6px 0 6px; color: #fff; font-size: clamp(24px, 3vw, 34px); letter-spacing: -.02em; line-height: 1.15; }
+.ws-hero p { margin: 0 0 18px; color: rgba(255,255,255,.74); max-width: 46ch; }
+.ws-hero-actions .ant-btn { color: #fff; border-color: rgba(255,255,255,.4); }
+.ws-hero-actions .ant-btn:hover { color: #000 !important; background: #fff !important; border-color: #fff !important; }
+.ws-figures { display: grid; gap: 10px; }
+.ws-figures button { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 12px 16px; border-radius: 14px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); color: #fff; font: inherit; cursor: pointer; text-align: left; transition: background .18s ease, transform .18s ease; }
+.ws-figures button:hover { background: rgba(255,255,255,.12); transform: translateX(3px); }
+.ws-figures span { color: rgba(255,255,255,.7); font-size: 13px; }
+.ws-figures b { font-size: 18px; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.ws-setup { margin-top: 16px; padding: 18px 22px; background: #fff; border: 1px solid #E5E5E5; border-radius: 16px; }
+.ws-setup-head { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: space-between; align-items: center; }
+.ws-setup-head strong { display: block; color: #111; }
+.ws-setup-head span { color: #6B6B6B; font-size: 13px; }
+.ws-setup ul { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.ws-setup li { display: flex; align-items: center; gap: 10px; color: #333; }
+.ws-setup li a { margin-left: auto; color: #111; font-weight: 600; white-space: nowrap; }
+.ws-ok { margin: 12px 0 0; color: #0E7A5C; }
+.ws-stages { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 12px; }
+.ws-stage { display: flex; gap: 16px; padding: 18px 20px; background: #fff; border: 1px solid #E5E5E5; border-radius: 16px; transition: border-color .18s ease, box-shadow .18s ease; }
+.ws-stage:hover { border-color: #111; box-shadow: 0 14px 28px -20px rgba(0,0,0,.45); }
+.ws-stage-no { flex: none; width: 34px; height: 34px; border-radius: 50%; background: #111; color: #fff; display: grid; place-items: center; font-weight: 700; }
+.ws-stage-body { min-width: 0; }
+.ws-stage h3 { margin: 0; font-size: 16px; color: #111; }
+.ws-stage p { margin: 2px 0 10px; color: #6B6B6B; font-size: 13.5px; }
+.ws-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.ws-links a { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 999px; border: 1px solid #D4D4D4; color: #111; font-size: 13.5px; font-weight: 500; background: #FAFAFA; transition: background .15s ease, color .15s ease, border-color .15s ease; }
+.ws-links a .anticon { font-size: 11px; opacity: .6; }
+.ws-links a:hover { background: #111; color: #fff; border-color: #111; }
+.ws-links a:focus-visible { outline: 2px solid #111; outline-offset: 2px; }
+@media (max-width: 767px) { .ws-hero { grid-template-columns: 1fr; padding: 22px; border-radius: 16px; } .ws-stage { padding: 14px; gap: 12px; } }
+@media (prefers-reduced-motion: reduce) { .ws-stage, .ws-figures button, .ws-links a { transition: none; } }
+
+/* ---------- dasbor: kepala hitam dan kartu angka ---------- */
+.db-hero { position: relative; overflow: hidden; border-radius: 22px; padding: 30px 34px; color: #fff; margin-bottom: 18px; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px; align-items: center;
+  background: radial-gradient(900px 340px at 100% -20%, rgba(255,255,255,.16), transparent 60%), repeating-linear-gradient(-45deg, rgba(255,255,255,.035) 0 1px, transparent 1px 22px), linear-gradient(135deg, #050505 0%, #1C1C1C 100%);
+  box-shadow: 0 26px 50px -30px rgba(0,0,0,.75); }
+.db-hero-mark { position: absolute; right: -40px; bottom: -60px; opacity: .06; pointer-events: none; }
+.db-hero-main { position: relative; min-width: 0; }
+.db-chip { display: inline-block; padding: 4px 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,.28); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; color: rgba(255,255,255,.85); }
+.db-hero h1 { margin: 12px 0 2px; color: #fff; font-size: clamp(24px, 3vw, 34px); letter-spacing: -.02em; line-height: 1.15; }
+.db-hero p { margin: 0 0 18px; color: rgba(255,255,255,.7); }
+.db-quick { display: flex; flex-wrap: wrap; gap: 8px; }
+.db-quick button { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.28); background: rgba(255,255,255,.07); color: #fff; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; transition: background .15s ease, color .15s ease, transform .15s ease; }
+.db-quick button:hover { background: #fff; color: #000; transform: translateY(-1px); }
+.db-quick button:focus-visible, .db-figures button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.db-figures { position: relative; display: grid; gap: 10px; }
+.db-figures button { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 14px 18px; border-radius: 16px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); color: #fff; font: inherit; text-align: left; cursor: pointer; transition: background .18s ease, transform .18s ease; }
+.db-figures button:disabled { cursor: default; }
+.db-figures button:not(:disabled):hover { background: rgba(255,255,255,.13); transform: translateX(3px); }
+.db-figures span { color: rgba(255,255,255,.68); font-size: 13px; }
+.db-figures b { font-size: clamp(17px, 1.7vw, 22px); font-variant-numeric: tabular-nums; letter-spacing: -.01em; white-space: nowrap; }
+.db-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.db-kpi { position: relative; display: flex; flex-direction: column; gap: 4px; text-align: left; font: inherit; padding: 16px 18px 15px; background: #fff; border: 1px solid #E5E5E5; border-radius: 16px; overflow: hidden; transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; animation: sh-rise .4s ease both; }
+.db-kpi::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #111; }
+.db-kpi.tone-good::before { background: #16A37B; } .db-kpi.tone-bad::before { background: #D92D20; } .db-kpi.tone-warn::before { background: #D48A06; }
+.db-kpi.clickable { cursor: pointer; }
+.db-kpi.clickable:hover { transform: translateY(-2px); border-color: #111; box-shadow: 0 16px 30px -20px rgba(0,0,0,.5); }
+.db-kpi.clickable:focus-visible { outline: 2px solid #111; outline-offset: 2px; }
+.db-kpi-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.db-kpi-label { color: #5F5F5F; font-size: 13px; font-weight: 500; }
+.db-kpi-icon { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: #F2F2F2; color: #111; font-size: 15px; flex: none; }
+.db-kpi-value { font-size: clamp(18px, 1.7vw, 24px); overflow-wrap: anywhere; font-weight: 700; letter-spacing: -.01em; color: #111; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.db-kpi-hint { color: #7A7A7A; font-size: 12.5px; }
+@media (max-width: 767px) { .db-hero { grid-template-columns: 1fr; padding: 22px; border-radius: 16px; } .db-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .db-kpi-value { font-size: 20px; } }
+@media (max-width: 420px) { .db-kpis { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .db-kpi, .db-quick button, .db-figures button { transition: none; animation: none; } }
+
+/* Kartu dan panel di seluruh aplikasi: sudut lebih lembut, bayangan halus, judul tegas */
+.ant-card { border-color: #E5E5E5; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+.ant-card .ant-card-head { border-bottom-color: #EFEFEF; }
+.ant-card .ant-card-head-title { font-weight: 700; color: #111; }
+
+/* Tema hitam-putih: warna preset biru antd (Tag/Badge) dinetralkan; status baik/buruk/peringatan (hijau, merah, kuning) tetap berwarna agar maknanya jelas */
+.ant-tag-blue, .ant-tag-geekblue, .ant-tag-cyan, .ant-tag-processing { color: #111; background: #F2F2F2; border-color: #D4D4D4; }
+.ant-badge-status-processing { background-color: #111; }
+.ant-badge-status-processing::after { border-color: #111; }
+.ant-tag-purple, .ant-tag-magenta { color: #333; background: #EFEFEF; border-color: #D4D4D4; }

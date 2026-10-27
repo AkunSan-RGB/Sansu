@@ -82,7 +82,7 @@ export const APPS: AppInfo[] = [
     name: 'Inventori',
     category: 'Supply Chain',
     description: 'Produk, multi satuan, stok per gudang, kartu stok, opname',
-    color: '#2563EB',
+    color: '#111111',
     roles: ['WAREHOUSE', 'SALES', 'FINANCE', 'ACCOUNTANT', 'PURCHASING'],
     home: '/inventory',
   },

@@ -51,7 +51,7 @@ export default function ApproveLinkPage() {
   return (
     <div style={{ minHeight: '100vh', background: BRAND.colors.surface, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '32px 16px', gap: 24 }}>
       <Logo size={40} />
-      <Card variant="borderless" style={{ width: '100%', maxWidth: 520, borderRadius: 16, boxShadow: '0 1px 2px rgba(13,22,40,0.04), 0 18px 48px -12px rgba(13,22,40,0.16)' }} styles={{ body: { padding: 28 } }}>
+      <Card variant="borderless" style={{ width: '100%', maxWidth: 520, borderRadius: 16, boxShadow: '0 1px 2px rgba(10,10,10,0.04), 0 18px 48px -12px rgba(10,10,10,0.16)' }} styles={{ body: { padding: 28 } }}>
         {done ? (
           <Result status={done === 'APPROVED' ? 'success' : 'info'} title={done === 'APPROVED' ? 'Permintaan disetujui' : 'Permintaan ditolak'} subTitle="Keputusan Anda sudah tercatat dan peminta akan melihatnya di aplikasi. Halaman ini boleh ditutup." />
         ) : !s ? (

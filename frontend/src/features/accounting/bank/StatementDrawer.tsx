@@ -64,7 +64,7 @@ export function StatementDrawer({ id, onClose }: { id: string | null; onClose: (
           <Row gutter={16} style={{ marginBottom: 12 }}>
             {(Object.keys(STATUS) as BankLineStatus[]).map((k) => (
               <Col xs={12} md={6} key={k}>
-                <Card size="small" hoverable onClick={() => setFilter(filter === k ? 'ALL' : k)} style={{ borderColor: filter === k ? '#1677ff' : undefined }}>
+                <Card size="small" hoverable onClick={() => setFilter(filter === k ? 'ALL' : k)} style={{ borderColor: filter === k ? '#111111' : undefined }}>
                   <Statistic title={STATUS[k].label} value={d.summary.counts[k] ?? 0} />
                 </Card>
               </Col>

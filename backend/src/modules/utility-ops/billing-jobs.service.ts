@@ -6,6 +6,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { UtilityService } from '../utility/utility.service';
 import { BillingJobsRepository } from './billing-jobs.repository';
+import { opsAlert } from '../../common/monitor/ops-alert';
 
 /**
  * Tagih bulanan berlatar. Permintaan langsung dijawab dengan nomor pekerjaan; penagihan berjalan di server dan kemajuannya dibaca berkala.
@@ -49,6 +50,7 @@ export class BillingJobsService {
       await this.repo.finish(this.db, id, { status: 'SELESAI', total: billed + failed, done: billed + failed, failed, billedTotal: amount, held });
     } catch (e) {
       this.log.error(`Tagih berlatar ${id} gagal: ${(e as Error).message}`);
+      opsAlert('billing-job', `tagih berlatar ${id} gagal: ${(e as Error).message}`.slice(0, 500));
       await this.repo.finish(this.db, id, { status: 'GAGAL', total: 0, done: 0, failed: 0, billedTotal: 0, held: 0, error: (e as Error).message.slice(0, 500) }).catch(() => undefined);
     }
   }

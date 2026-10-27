@@ -4,6 +4,7 @@ import { SANSU_BUILD } from '@sansu/shared';
 import { platformAdminEmails } from '../auth/platform-admin';
 import { MailService } from '../mail/mail.service';
 import { Db } from '../../db/db';
+import { telegram } from './telegram-send';
 import { InjectDb } from '../../db/db.module';
 import { errorLogs } from '../../db/schema';
 
@@ -16,23 +17,7 @@ export interface ErrorEvent {
   userId?: string | null;
 }
 
-/** Kirim pesan ke Telegram (dipakai juga oleh pemantau server). Diam jika tidak dikonfigurasi. */
-export async function telegram(text: string): Promise<boolean> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chat = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chat) return false;
-  try {
-    const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chat_id: chat, text, disable_web_page_preview: true }),
-      signal: AbortSignal.timeout(8000),
-    });
-    return r.ok;
-  } catch {
-    return false;
-  }
-}
+export { telegram };
 
 /**
  * Pencatat error server (5xx): simpan ke tabel error_logs, beri peringatan

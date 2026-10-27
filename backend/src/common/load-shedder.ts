@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { opsAlert } from './monitor/ops-alert';
 import type { NextFunction, Request, Response } from 'express';
 
 export interface ShedderOptions {
@@ -35,6 +36,7 @@ export function createShedder(opts: ShedderOptions): Shedder {
         if (Date.now() - lastLog > 30_000) {
           lastLog = Date.now();
           log.warn(`Server sibuk: ${inflight} permintaan berjalan (batas ${opts.max}); ${shed} permintaan ditolak sejak start`);
+          opsAlert('load-shed', `server kewalahan: ${inflight} permintaan berjalan (batas ${opts.max}), ${shed} ditolak sejak start`);
         }
         res.setHeader('Retry-After', String(retry));
         res.status(503).json({ statusCode: 503, message: 'Server sedang sibuk. Tidak ada data yang tersimpan; coba lagi sebentar lagi.', retryAfter: retry });

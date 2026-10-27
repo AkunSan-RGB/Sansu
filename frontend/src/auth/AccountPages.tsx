@@ -14,7 +14,7 @@ function Shell({ children }: { children: ReactNode }) {
       <Link to="/login" aria-label="Kembali ke halaman masuk">
         <Logo size={40} />
       </Link>
-      <Card variant="borderless" style={{ width: '100%', maxWidth: 420, borderRadius: 16, boxShadow: '0 1px 2px rgba(13,22,40,0.04), 0 18px 48px -12px rgba(13,22,40,0.16)' }} styles={{ body: { padding: 32 } }}>
+      <Card variant="borderless" style={{ width: '100%', maxWidth: 420, borderRadius: 16, boxShadow: '0 1px 2px rgba(10,10,10,0.04), 0 18px 48px -12px rgba(10,10,10,0.16)' }} styles={{ body: { padding: 32 } }}>
         {children}
       </Card>
     </div>

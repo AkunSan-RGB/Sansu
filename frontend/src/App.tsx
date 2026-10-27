@@ -65,6 +65,7 @@ import HealthPage from './features/accounting/HealthPage';
 import ForeignCashPage from './features/cash/ForeignCashPage';
 import CustomersPage from './features/customers/CustomersPage';
 import DashboardPage from './features/dashboard/DashboardPage';
+import WorkspacePage from './features/workspace/WorkspacePage';
 import InventoryPage from './features/inventory/InventoryPage';
 import TransfersPage from './features/inventory/TransfersPage';
 import CountsPage, { CountDetailPage } from './features/inventory/CountsPage';
@@ -157,6 +158,7 @@ export default function App() {
         <Route element={<AppGate app={['accounting', 'sales']} />}>
           <Route path="dashboard" element={<DashboardPage />} />
         </Route>
+        <Route path="vertikal" element={<WorkspacePage />} />
         <Route path="approvals" element={<ApprovalsPage />} />
         {/* tidak di bawah gerbang aplikasi tertentu: dipakai semua peran; hak akses per data dijaga server */}
         <Route path="tasks" element={<TasksPage />} />

@@ -15,7 +15,7 @@ export default function IncomeSources() {
     <>
     <Card size="small" title="Uang masuk berdasarkan sumber (30 hari)" style={{ marginBottom: 12 }}>
       <Row gutter={[12, 12]}>
-        {([['Penjualan', data.categories.sales, '#389e0d'], ['Modal dari pemilik', data.categories.capital, '#1677ff'], ['Pinjaman', data.categories.loan, '#d46b08'], ['Lainnya', data.categories.other, '#8c8c8c']] as const).map(([t, v, c]) => (
+        {([['Penjualan', data.categories.sales, '#389e0d'], ['Modal dari pemilik', data.categories.capital, '#111111'], ['Pinjaman', data.categories.loan, '#d46b08'], ['Lainnya', data.categories.other, '#8c8c8c']] as const).map(([t, v, c]) => (
           <Col key={t} xs={12} md={6}>
             <Statistic title={t} value={v} formatter={(x) => fmtMoney(Number(x))} valueStyle={{ color: c, fontSize: 18 }} />
           </Col>

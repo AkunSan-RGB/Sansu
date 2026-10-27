@@ -1,4 +1,4 @@
-import { CheckSquareOutlined, AuditOutlined, HeartOutlined } from '@ant-design/icons';
+import { CheckSquareOutlined, AuditOutlined, HeartOutlined, AppstoreAddOutlined } from '@ant-design/icons';
 import { type AppKey, type BusinessModel } from '@sansu/shared';
 import { APP_ICONS } from '@/lib/apps';
 import { t } from '@/lib/terms';
@@ -41,6 +41,7 @@ export const REPORT_ROLES = ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'];
 const SEC = { prep: 'Persiapan', proc: 'Proses', rep: 'Laporan & kontrol' } as const;
 export const MENU: Group[] = [
   { part: '', key: '/dashboard', label: 'Dashboard', icon: APP_ICONS.dashboard, to: '/dashboard' },
+  { part: '', key: '/vertikal', label: 'Ruang kerja', icon: <AppstoreAddOutlined />, to: '/vertikal', core: true, roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'PURCHASING', 'WAREHOUSE', 'CASHIER', 'HR'] },
   { part: '', key: '/health', label: 'Cek kesehatan', icon: <HeartOutlined />, to: '/health', core: true, roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
   { part: '', key: '/tasks', label: 'Tugas saya', icon: <CheckSquareOutlined />, to: '/tasks', core: true, roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'PURCHASING', 'WAREHOUSE', 'CASHIER', 'HR'] },
 
@@ -498,7 +499,7 @@ export const MENU: Group[] = [
 ];
 
 /** Bagian menu: atas (selalu), lalu bagian usaha menurut alur utama jenis usahanya, lalu keuangan sampai administrasi */
-export const HEAD_KEYS = ['/dashboard', '/health', '/tasks'];
+export const HEAD_KEYS = ['/dashboard', '/vertikal', '/health', '/tasks'];
 export const TAIL_KEYS = ['cash', 'accounting', 'tax', 'hr', 'payroll', '/approvals', 'settings'];
 export const GROUP_ORDER: Record<BusinessModel, string[]> = {
   DAGANG: ['utility', 'crm', 'sales', 'pos', 'purchase', 'inventory', 'production'],
@@ -516,3 +517,24 @@ export function menuFor(model: BusinessModel, menu: Group[] = MENU): Group[] {
   return [...menu].sort((a, b) => at(a.key) - at(b.key));
 }
 
+
+/** Konteks pengguna untuk menilai apakah sebuah item menu terlihat (sama dengan aturan sidebar) */
+export interface VisibilityCtx {
+  role: string;
+  model: BusinessModel;
+  framework?: string;
+  multiBranch?: boolean;
+  hasBudget?: boolean;
+  subscriptionEnabled?: boolean;
+  taxFeatures?: Record<string, boolean | undefined>;
+  can: (app: AppKey) => boolean;
+}
+/** Item menu terlihat untuk pengguna ini? (peran, jenis usaha, aplikasi, fitur pajak, cabang, anggaran) */
+export function itemVisible(i: Item, c: VisibilityCtx): boolean {
+  return (!i.app || c.can(i.app)) && (!i.roles || c.role === 'OWNER' || i.roles.includes(c.role)) && (!i.models || i.models.includes(c.model)) && !i.hideFor?.includes(c.model)
+    && (!i.tax || c.taxFeatures?.[i.tax] !== false) && !(i.epOnly && c.framework === 'SAK_EMKM') && !(i.billing && c.subscriptionEnabled === false) && !(i.branch && !c.multiBranch) && !(i.budget && !c.hasBudget);
+}
+/** Tautan (path, boleh dengan ?query) terlihat bila ada item menu berkunci sama yang terlihat; tautan di luar menu dianggap tidak ada */
+export function pathVisible(path: string, c: VisibilityCtx, menu: Group[] = MENU): boolean {
+  return menu.some((g) => (!g.models || g.models.includes(c.model)) && !g.hideFor?.includes(c.model) && (!g.app || c.can(g.app)) && (g.to === path ? !g.roles || c.role === 'OWNER' || g.roles.includes(c.role) : subItems(g.children).some((i) => i.key === path && itemVisible(i, c))));
+}
