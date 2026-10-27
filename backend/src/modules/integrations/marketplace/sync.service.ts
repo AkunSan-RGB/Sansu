@@ -212,6 +212,7 @@ export class MarketplaceSyncService {
 export class MarketplaceScheduler implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private busy = false;
+  private readonly logger = new Logger(MarketplaceScheduler.name);
   constructor(private readonly svc: MarketplaceSyncService) {}
   onModuleInit() {
     if (process.env.NODE_ENV === 'test') return;
@@ -219,7 +220,11 @@ export class MarketplaceScheduler implements OnModuleInit, OnModuleDestroy {
     this.timer = setInterval(() => {
       if (this.busy) return;
       this.busy = true;
-      void this.svc.syncAll().finally(() => (this.busy = false));
+      // galat apa pun dicatat; tanpa .catch, galat sinkronisasi (mis. database sesaat tak terjangkau) menjadi unhandled rejection yang mematikan proses
+      void this.svc
+        .syncAll()
+        .catch((e) => this.logger.error(`Sinkronisasi marketplace gagal: ${(e as Error).message}`))
+        .finally(() => (this.busy = false));
     }, minutes * 60_000);
     this.timer.unref();
   }

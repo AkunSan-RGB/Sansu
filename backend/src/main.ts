@@ -45,4 +45,15 @@ async function bootstrap() {
   await app.listen(port);
   Logger.log(`${webServed ? 'Web + API' : 'API'} berjalan di http://localhost:${port}${webServed ? '' : '/api'}${swagger ? `  ·  Dokumentasi: http://localhost:${port}/api/docs` : ''}`);
 }
+// Jaring pengaman terakhir. Galat di tugas latar yang lolos dari .catch tidak boleh mematikan server yang sedang melayani pengguna:
+// dicatat (terbaca di log/monitor) lalu server lanjut. Pengecualian yang tak tertangkap membuat keadaan proses tidak bisa dipercaya,
+// jadi proses berhenti rapi agar dihidupkan ulang oleh pengelola proses (Railway/pm2/docker).
+process.on('unhandledRejection', (reason) => {
+  Logger.error(`Penolakan tak tertangani: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)}`, 'Proses');
+});
+process.on('uncaughtException', (e) => {
+  Logger.error(`Pengecualian tak tertangkap, proses berhenti: ${e.stack ?? e.message}`, 'Proses');
+  process.exit(1);
+});
+
 bootstrap();
