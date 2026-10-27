@@ -1,6 +1,6 @@
 import { AppstoreOutlined, BarcodeOutlined, DeleteOutlined, LockOutlined, MinusOutlined, PlusOutlined, PrinterOutlined, SearchOutlined } from '@ant-design/icons';
 import { BRAND, POS_CASHIER_PAYMENT_METHODS, POS_ORDER_TYPE_LABELS, POS_ORDER_TYPES, POS_PAYMENT_LABELS, type PosOrderType, type PosPaymentMethod } from '@sansu/shared';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App, Badge, Button, Card, Col, Divider, Empty, Grid, Input, InputNumber, type InputRef, Modal, Row, Segmented, Select, Space, Spin, Tag, Typography } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -14,7 +14,7 @@ import Receipt, { printReceipt } from '../Receipt';
 import { posTax, vatTotals } from '@/lib/vat';
 import { t } from '@/lib/terms';
 import { CloseSession } from './CloseSession';
-import { addToCart, checkAdd, lineTotal, loyaltyMath, paymentMath, setCartQty, type CartLine, type LoyaltyCfg } from './posCart';
+import { addToCart, applyQuote, checkAdd, lineTotal, loyaltyMath, paymentMath, setCartQty, type CartLine, type LoyaltyCfg, type QuoteLine } from './posCart';
 
 const QUICK_CASH = [10_000, 20_000, 50_000, 100_000];
 
@@ -47,6 +47,15 @@ export function Register({ session }: { session: PosSession }) {
     queryKey: ['pos-products', session.warehouse.id],
     queryFn: () => get<PosProduct[]>(`/pos/products${qs({ warehouseId: session.warehouse.id })}`),
   });
+  // harga & potongan dari server (daftar harga toko/pelanggan + promo aktif); server juga memeriksa ulang saat bayar
+  const cartKey = cart.map((l) => `${l.product.id}|${l.uom}|${l.qty}`).join(',');
+  const quoted = useQuery({
+    queryKey: ['pos-quote', session.id, customerId ?? null, cartKey],
+    queryFn: () => post<{ lines: QuoteLine[] }>('/pos/quote', { sessionId: session.id, customerId, lines: cart.map((l) => ({ productId: l.product.id, uom: l.uom, qty: String(l.qty) })) }),
+    enabled: cart.length > 0,
+    placeholderData: keepPreviousData,
+  });
+  const priced = useMemo(() => applyQuote(cart, quoted.data?.lines), [cart, quoted.data]);
   const { rate: ppnRate, label: taxLabel } = posTax(me);
   const inclusive = !!me?.taxProfile?.posPricesIncludeVat && ppnRate > 0;
   const categories = ['Semua', ...new Set((products.data ?? []).map((p) => p.category ?? 'Lainnya'))];
@@ -81,7 +90,7 @@ export function Register({ session }: { session: PosSession }) {
   };
 
   const { subtotal, tax, total } = vatTotals(
-    cart.reduce((a, l) => a + lineTotal(l), 0),
+    priced.reduce((a, l) => a + lineTotal(l), 0),
     ppnRate,
     inclusive,
   );
@@ -98,7 +107,7 @@ export function Register({ session }: { session: PosSession }) {
         customerId,
         redeemPoints: redeemPts || undefined,
         ...(fnb ? { orderType, tableLabel: tableLabel.trim() || undefined } : {}),
-        lines: cart.map((l) => ({ productId: l.product.id, uom: l.uom, qty: String(l.qty), price: String(l.unitPrice), discountPct: String(l.discountPct) })),
+        lines: priced.map((l) => ({ productId: l.product.id, uom: l.uom, qty: String(l.qty), price: String(l.unitPrice), discountPct: String(l.discountPct) })),
         payments: [{ method, amount: (method === 'CASH' ? (amount ?? 0) : payable).toFixed(2) }],
       }),
     {
@@ -164,7 +173,7 @@ export function Register({ session }: { session: PosSession }) {
         {cart.length === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('Scan barcode atau klik produk')} />
         ) : (
-          cart.map((l, i) => (
+          priced.map((l, i) => (
             <div key={`${l.product.id}-${l.uom}`} style={{ padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                 <Typography.Text strong ellipsis style={{ flex: 1 }}>
@@ -192,6 +201,7 @@ export function Register({ session }: { session: PosSession }) {
                 )}
                 <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 'auto' }}>
                   @{fmtMoney(l.unitPrice)}
+                  {l.discountPct > 0 && <Tag color="green" style={{ marginLeft: 6, marginRight: 0 }}>{l.promoName ?? 'Promo'} −{l.discountPct}%</Tag>}
                 </Typography.Text>
                 <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => setQty(i, 0)} />
               </div>

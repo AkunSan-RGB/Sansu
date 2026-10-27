@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { stockBalances, posSessions, tenants, customers, products, posOrderLines, posPayments } from '../../db/schema';
+import { stockBalances, posSessions, tenants, customers, products, posOrderLines, posPayments, warehouses } from '../../db/schema';
 import { and, eq, sql } from 'drizzle-orm';
 import { nowAt } from '../../common/utils/dates';
 import { Dec } from '../../common/utils/money';
@@ -34,9 +34,14 @@ export class PosRepository {
   /** Dipakai oleh PosService.createOrderTx */
   findCustomersById(db: DbOrTx, customerId: string, tenantId: string) {
     return db
-      .select({ id: customers.id })
+      .select({ id: customers.id, priceListId: customers.priceListId })
       .from(customers)
       .where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId)));
+  }
+
+  /** Dipakai oleh PosService.priceCart: daftar harga toko */
+  findWarehousePriceList(db: DbOrTx, tenantId: string, warehouseId: string) {
+    return db.select({ priceListId: warehouses.priceListId }).from(warehouses).where(and(eq(warehouses.tenantId, tenantId), eq(warehouses.id, warehouseId)));
   }
 
   /** Dipakai oleh PosService.createOrderTx */

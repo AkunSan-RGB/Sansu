@@ -176,8 +176,8 @@ export const MENU: Group[] = [
         section: SEC.prep,
         items: [
           { key: '/customers', label: t('Pelanggan') },
-          { key: '/price-lists', label: 'Daftar harga', models: ['FMCG', 'DAGANG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
-          { key: '/promos', label: 'Promo & bonus barang', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/price-lists', label: 'Daftar harga', models: ['FMCG', 'DAGANG', 'RITEL'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
+          { key: '/promos', label: 'Promo & bonus barang', models: ['FMCG', 'RITEL'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/sales-targets', label: 'Target & komisi sales', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES'] },
         ],
       },

@@ -194,6 +194,8 @@ export interface Warehouse {
   /** MAIN = gudang biasa; CONSIGNMENT = titipan di outlet; VAN = stok mobil sales kanvas */
   kind?: 'MAIN' | 'CONSIGNMENT' | 'VAN';
   vanUserId?: string | null;
+  /** Daftar harga toko untuk kasir (kosong = harga jual master) */
+  priceListId?: string | null;
 }
 
 export interface ProductUom {

@@ -9,6 +9,8 @@ export interface CartLine {
   qty: number;
   unitPrice: number; // per uom (belum PPN, atau sudah termasuk PPN bila harga kasir termasuk PPN)
   discountPct: number;
+  /** Nama promo yang memberi potongan (dari server) */
+  promoName?: string | null;
 }
 
 export interface LoyaltyCfg {
@@ -66,4 +68,16 @@ export function paymentMath(method: PosPaymentMethod, amount: number | null, pay
     change: method === 'CASH' ? Math.max(0, (amount ?? 0) - payable) : 0,
     enough: method === 'CASH' ? (amount ?? 0) >= payable : true,
   };
+}
+
+export interface QuoteLine { productId: string; uom: string; price: string; discountPct: string; promoName: string | null }
+
+/**
+ * Terapkan kutipan server (daftar harga toko/pelanggan + promo) pada keranjang. Kutipan lama yang tidak lagi cocok
+ * dengan isi keranjang (produk/satuan berbeda atau jumlah baris berbeda) diabaikan, jadi harga tidak pernah tertukar baris.
+ */
+export function applyQuote(cart: CartLine[], quote: QuoteLine[] | undefined): CartLine[] {
+  if (!quote || quote.length !== cart.length) return cart;
+  if (cart.some((l, i) => quote[i].productId !== l.product.id || quote[i].uom !== l.uom)) return cart;
+  return cart.map((l, i) => ({ ...l, unitPrice: Number(quote[i].price), discountPct: Number(quote[i].discountPct), promoName: quote[i].promoName }));
 }

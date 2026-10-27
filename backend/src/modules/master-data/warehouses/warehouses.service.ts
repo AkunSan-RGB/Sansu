@@ -40,6 +40,7 @@ export class WarehousesService {
       if (!other) throw new BadRequestException('Harus ada minimal satu gudang aktif');
     }
     if (dto.isActive === true && !w.isActive) await this.subs.assertCanAdd(tenantId, 'warehouses');
+    if (dto.priceListId && !(await this.repo.findPriceListInTenant(this.db, tenantId, dto.priceListId))) throw new BadRequestException('Daftar harga tidak ditemukan');
     const [row] = await this.repo.updateWarehousesById(this.db, dto, id);
     return row;
   }

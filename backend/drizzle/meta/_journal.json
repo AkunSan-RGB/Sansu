@@ -827,6 +827,13 @@
       "when": 1798483086484,
       "tag": "0117_jasa_anggaran_jam",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1798569486484,
+      "tag": "0118_harga_per_toko",
+      "breakpoints": true
     }
   ]
 }
