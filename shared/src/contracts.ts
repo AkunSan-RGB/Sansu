@@ -1948,6 +1948,9 @@ export interface Project {
   accrual: string;
   /** Biaya langsung proyek dari tagihan biaya */
   directCost: string;
+  /** Anggaran biaya langsung (0 = tanpa anggaran) dan pemakaiannya terhadap biaya langsung */
+  costBudget: string;
+  budget: { status: 'NONE' | 'OK' | 'WARN' | 'OVER'; usedPct: number | null; remaining: string };
   invoices?: Invoice[];
 }
 

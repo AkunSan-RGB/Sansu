@@ -21,6 +21,7 @@ export class ServiceProjectsRepository {
       customer_code: string;
       customer_name: string;
       contract_value: string;
+      cost_budget: string;
       start_date: string | null;
       end_date: string | null;
       status: Project['status'];
@@ -34,7 +35,7 @@ export class ServiceProjectsRepository {
       accrual: string;
       direct_cost: string;
     }>(sql`
-        SELECT p.id, p.code, p.name, p.customer_id, c.code AS customer_code, c.name AS customer_name, p.contract_value,
+        SELECT p.id, p.code, p.name, p.customer_id, c.code AS customer_code, c.name AS customer_name, p.contract_value, p.cost_budget,
                p.start_date::text, p.end_date::text, p.status, p.notes,
                COALESCE((SELECT SUM(subtotal) FROM invoices i WHERE i.project_id = p.id), 0) AS billed,
                COALESCE((SELECT SUM(total - paid_amount - returned_amount) FROM invoices i WHERE i.project_id = p.id), 0) AS outstanding,
@@ -126,6 +127,7 @@ export class ServiceProjectsRepository {
         name: dto.name.trim(),
         customerId: dto.customerId,
         contractValue: money(dto.contractValue).toFixed(2),
+        costBudget: money(dto.costBudget ?? 0).toFixed(2),
         startDate: dto.startDate ? toDocDate(dto.startDate) : null,
         endDate: dto.endDate ? toDocDate(dto.endDate) : null,
         notes: dto.notes,

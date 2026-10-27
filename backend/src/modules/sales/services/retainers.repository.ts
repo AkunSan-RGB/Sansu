@@ -11,6 +11,8 @@ export type Ret = {
   title: string;
   monthly_fee: string;
   with_vat: boolean | null;
+  included_hours: string | null;
+  overage_rate: string | null;
   start_date: string;
   end_date: string | null;
   is_active: boolean;
@@ -69,7 +71,7 @@ export class RetainersRepository {
     sub: string,
   ) {
     return db.execute<{ id: string }>(
-      sql`INSERT INTO service_retainers (tenant_id, customer_id, project_id, title, monthly_fee, with_vat, start_date, end_date, created_by_id) VALUES (${tenantId}, ${dto.customerId}, ${dto.projectId ?? null}, ${dto.title.trim()}, ${fee.toFixed(2)}, ${dto.withVat ?? null}, ${start}, ${end}, ${sub}) RETURNING id`,
+      sql`INSERT INTO service_retainers (tenant_id, customer_id, project_id, title, monthly_fee, with_vat, included_hours, overage_rate, start_date, end_date, created_by_id) VALUES (${tenantId}, ${dto.customerId}, ${dto.projectId ?? null}, ${dto.title.trim()}, ${fee.toFixed(2)}, ${dto.withVat ?? null}, ${dto.includedHours ?? null}, ${dto.overageRate ?? null}, ${start}, ${end}, ${sub}) RETURNING id`,
     );
   }
 
@@ -88,9 +90,36 @@ export class RetainersRepository {
     dto: RetainerUpdateDto,
     is_active: boolean,
     id: string,
+    included_hours: string | null,
+    overage_rate: string | null,
   ) {
     return db.execute(
-      sql`UPDATE service_retainers SET monthly_fee = ${fee ? fee.toFixed(2) : monthly_fee}, end_date = ${end ?? end_date}, is_active = ${dto.isActive ?? is_active} WHERE id = ${id}`,
+      sql`UPDATE service_retainers SET monthly_fee = ${fee ? fee.toFixed(2) : monthly_fee}, end_date = ${end ?? end_date}, is_active = ${dto.isActive ?? is_active},
+          included_hours = ${dto.includedHours !== undefined ? (Number(dto.includedHours) > 0 ? dto.includedHours : null) : included_hours},
+          overage_rate = ${dto.overageRate !== undefined ? dto.overageRate : overage_rate} WHERE id = ${id}`,
     );
+  }
+
+  /** Dipakai oleh RetainerService.bill: jam tertagih yang sudah disetujui pada bulan penagihan (proyek retainer bila ada, jika tidak seluruh pelanggan) */
+  queryApprovedHours(db: DbOrTx, tenantId: string, customerId: string, projectId: string | null, period: string) {
+    return db.execute<{ id: string; hours: string }>(sql`
+      SELECT id, hours FROM time_entries
+      WHERE tenant_id = ${tenantId} AND customer_id = ${customerId} AND billable AND status = 'APPROVED'
+        AND to_char(work_date, 'YYYY-MM') = ${period} ${projectId ? sql`AND project_id = ${projectId}` : sql``}`);
+  }
+
+  /** Dipakai oleh RetainerService.bill: catatan waktu bulan itu yang belum diputuskan menahan penagihan */
+  countPendingHours(db: DbOrTx, tenantId: string, customerId: string, projectId: string | null, period: string) {
+    return db.execute<{ n: string }>(sql`
+      SELECT COUNT(*)::text AS n FROM time_entries
+      WHERE tenant_id = ${tenantId} AND customer_id = ${customerId} AND billable AND status IN ('DRAFT', 'SUBMITTED')
+        AND to_char(work_date, 'YYYY-MM') = ${period} ${projectId ? sql`AND project_id = ${projectId}` : sql``}`);
+  }
+
+  /** Dipakai oleh RetainerService.bill: catatan waktu yang tercakup retainer ditandai sudah ditagih pada faktur retainer (tidak dapat ditagih lagi lewat timesheet) */
+  markHoursBilled(db: DbOrTx, tenantId: string, ids: string[], invoiceId: string) {
+    return db.execute<{ id: string }>(sql`
+      UPDATE time_entries SET status = 'BILLED', invoice_id = ${invoiceId}
+      WHERE tenant_id = ${tenantId} AND status = 'APPROVED' AND id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)}) RETURNING id`);
   }
 }

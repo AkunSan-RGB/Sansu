@@ -67,6 +67,7 @@ export class CreateProjectDto {
   @ApiProperty({ example: '150000000', description: 'Nilai kontrak (DPP)' }) @IsNumberString() contractValue: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() startDate?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() endDate?: string;
+  @ApiPropertyOptional({ example: '90000000', description: 'Anggaran biaya langsung proyek (0/kosong = tanpa anggaran)' }) @IsOptional() @IsNumberString() costBudget?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(1000) notes?: string;
 }
 
@@ -76,6 +77,7 @@ export class UpdateProjectDto {
   @IsOptional()
   @IsNumberString()
   contractValue?: string;
+  @ApiPropertyOptional({ description: 'Anggaran biaya langsung proyek (0 = tanpa anggaran)' }) @IsOptional() @IsNumberString() costBudget?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() endDate?: string;
   @ApiPropertyOptional({ enum: ['ACTIVE', 'DONE', 'CANCELLED'] })
   @IsOptional()

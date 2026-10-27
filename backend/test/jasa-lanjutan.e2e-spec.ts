@@ -239,4 +239,45 @@ describe('Jasa lanjutan (e2e)', () => {
     });
     const row0 = (s: string) => ym(s);
   });
+
+  describe('retainer berjatah jam', () => {
+    let c2 = ''; let rid = ''; const ids: string[] = [];
+    const cur = today.slice(0, 7);
+    it('jam termasuk wajib disertai tarif kelebihan', async () => {
+      c2 = (await post(owner, '/api/customers', { code: 'JL2', name: 'PT Klien Berjatah', paymentTermDays: 14 }).expect(201)).body.id;
+      const body = { customerId: c2, title: 'Retainer berjatah', monthlyFee: '4000000', startDate: `${cur}-01`, includedHours: '10' };
+      expect((await post(fin, '/api/retainers', body)).status).toBe(400);
+      rid = (await post(fin, '/api/retainers', { ...body, overageRate: '300000' }).expect(201)).body.id;
+      const row = (await get(fin, '/api/retainers').expect(200)).body.find((r: { id: string }) => r.id === rid);
+      expect(Number(row.includedHours)).toBe(10);
+    });
+
+    it('catatan waktu yang belum disetujui menahan penagihan', async () => {
+      for (const h of ['6', '7']) ids.push((await post(adm, '/api/timesheets/entries', { employeeId: empA, workDate: `${cur}-01`, hours: h, description: 'Pendampingan', customerId: c2 }).expect(201)).body.id);
+      expect((await post(fin, `/api/retainers/${rid}/bill`, { period: cur })).status).toBe(400);
+    });
+
+    it('hanya kelebihan jam yang ditagih tambahan, dan jam tercakup tidak dapat ditagih ulang lewat timesheet', async () => {
+      await post(fin, '/api/timesheets/rates', { rate: '250000', validFrom: '2025-01-01' }).expect(201);
+      await post(adm, '/api/timesheets/submit', { ids }).expect(201);
+      for (const id of ids) await post(fin, `/api/timesheets/entries/${id}/approve`).expect(201);
+      const inv = (await post(fin, `/api/retainers/${rid}/bill`, { period: cur }).expect(201)).body;
+      const detail = (await get(fin, `/api/invoices/${inv.id}`).expect(200)).body;
+      // 13 jam terpakai dari jatah 10: kelebihan 3 jam × 300.000 = 900.000, di atas biaya bulanan 4.000.000
+      expect(Number(detail.subtotal)).toBe(4900000);
+      const st = await db.execute<{ status: string; invoice_id: string }>(sql`SELECT status, invoice_id FROM time_entries WHERE customer_id = ${c2}`);
+      expect(st.rows.every((r) => r.status === 'BILLED' && r.invoice_id === inv.id)).toBe(true);
+    });
+  });
+
+  describe('anggaran biaya proyek', () => {
+    it('anggaran dipantau terhadap biaya langsung; negatif ditolak', async () => {
+      const p = (await post(fin, '/api/services/projects', { name: 'Proyek beranggaran', customerId: cust, contractValue: '20000000', costBudget: '1000000' }).expect(201)).body;
+      expect(p.costBudget).toBe('1000000.00');
+      expect(p.budget).toMatchObject({ status: 'OK', usedPct: 0 });
+      expect((await post(fin, '/api/services/projects', { name: 'Proyek negatif', customerId: cust, contractValue: '1', costBudget: '-5' })).status).toBe(400);
+      const upd = (await http.patch(`/api/services/projects/${p.id}`).set(as(fin)).send({ costBudget: '0' }).expect(200)).body;
+      expect(upd.budget.status).toBe('NONE');
+    });
+  });
 });

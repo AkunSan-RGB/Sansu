@@ -8,6 +8,7 @@ import { InjectDb } from '../../../db/db.module';
 import { ServiceBillingService } from './service-billing.service';
 import { RetainerDto, RetainerUpdateDto, RetainerBillDto } from './retainers.dto';
 import { RetainersRepository } from './retainers.repository';
+import { retainerOverage } from './service-limits';
 
 const MAX_PERIODS = 36;
 
@@ -40,8 +41,14 @@ export class RetainerService {
       const done = new Set(mine.map((b) => b.period));
       const last = r.end_date && monthOf(String(r.end_date)) < now ? monthOf(String(r.end_date)) : now;
       const due = r.is_active ? [...periods(monthOf(String(r.start_date)), last)].filter((p) => !done.has(p)).slice(-MAX_PERIODS) : [];
-      return { id: r.id, customerId: r.customer_id, customerName: r.customer_name, projectId: r.project_id, projectName: r.project_name, title: r.title, monthlyFee: r.monthly_fee, withVat: r.with_vat, startDate: r.start_date, endDate: r.end_date, isActive: r.is_active, billedPeriods: mine.map((b) => ({ period: b.period, invoice: b.number })).sort((a, b) => a.period.localeCompare(b.period)), unbilledPeriods: due };
+      return { id: r.id, customerId: r.customer_id, customerName: r.customer_name, projectId: r.project_id, projectName: r.project_name, title: r.title, monthlyFee: r.monthly_fee, includedHours: r.included_hours, overageRate: r.overage_rate, withVat: r.with_vat, startDate: r.start_date, endDate: r.end_date, isActive: r.is_active, billedPeriods: mine.map((b) => ({ period: b.period, invoice: b.number })).sort((a, b) => a.period.localeCompare(b.period)), unbilledPeriods: due };
     });
+  }
+
+  /** Jam termasuk harus disertai tarif kelebihan; keduanya tidak boleh negatif */
+  private assertHours(hours?: string, rate?: string) {
+    if (hours === undefined || D(hours).lte(0)) return;
+    if (!rate || D(rate).lte(0)) throw new BadRequestException('Isi tarif kelebihan jam per jam bila ada jam yang sudah termasuk');
   }
 
   async create(u: AuthUser, dto: RetainerDto) {
@@ -57,6 +64,7 @@ export class RetainerService {
       if (!p) throw new BadRequestException('Proyek tidak ditemukan');
       if (p.customer_id !== dto.customerId) throw new BadRequestException('Proyek ini milik pelanggan lain');
     }
+    this.assertHours(dto.includedHours, dto.overageRate);
     const r = await this.repo.queryServiceRetainerForCreate(this.db, u.tenantId, dto, fee, start, end, u.sub);
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'ServiceRetainer', entityId: r.rows[0].id, data: dto });
     return { id: r.rows[0].id };
@@ -70,7 +78,8 @@ export class RetainerService {
     if (fee && (!fee.isFinite() || fee.lte(0))) throw new BadRequestException('Biaya bulanan harus lebih dari 0');
     const end = dto.endDate ? toDocDate(dto.endDate) : undefined;
     if (end && end < String(cur.start_date)) throw new BadRequestException('Tanggal akhir sebelum tanggal mulai');
-    await this.repo.queryUpdate(this.db, fee, cur.monthly_fee, end, cur.end_date, dto, cur.is_active, id);
+    this.assertHours(dto.includedHours ?? cur.included_hours ?? undefined, dto.overageRate ?? cur.overage_rate ?? undefined);
+    await this.repo.queryUpdate(this.db, fee, cur.monthly_fee, end, cur.end_date, dto, cur.is_active, id, cur.included_hours, cur.overage_rate);
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'ServiceRetainer', entityId: id, data: { reason: dto.reason, before: { fee: cur.monthly_fee, endDate: cur.end_date, isActive: cur.is_active }, after: { fee: fee?.toFixed(2), endDate: end, isActive: dto.isActive } } });
     return { id };
   }
@@ -84,9 +93,22 @@ export class RetainerService {
     if (dto.period > monthOf(todayJakarta())) throw new BadRequestException('Periode di masa depan belum dapat ditagih');
     const exists = await this.repo.queryServiceRetainerInvoiceForBill(this.db, id, dto.period);
     if (exists.rows.length) throw new BadRequestException(`Periode ${dto.period} sudah ditagih`);
+    // Retainer berjatah jam: jam yang sudah disetujui bulan itu dihitung; kelebihan dari jatah ditagih dengan tarif kelebihan
+    const cap = r.included_hours && D(r.included_hours).gt(0) ? D(r.included_hours) : null;
+    let usedIds: string[] = [];
+    const lines = [{ description: `${r.title} periode ${dto.period}`, qty: '1', unit: 'Bulan', price: r.monthly_fee }];
+    if (cap) {
+      const pending = Number((await this.repo.countPendingHours(this.db, u.tenantId, r.customer_id, r.project_id, dto.period)).rows[0].n);
+      if (pending) throw new BadRequestException(`Ada ${pending} catatan waktu periode ${dto.period} yang belum disetujui: putuskan dulu agar jam terpakai lengkap`);
+      const used = (await this.repo.queryApprovedHours(this.db, u.tenantId, r.customer_id, r.project_id, dto.period)).rows;
+      usedIds = used.map((x) => x.id);
+      const o = retainerOverage(used.reduce((a, x) => a.plus(x.hours), D(0)), cap, r.overage_rate ?? '0');
+      if (o.amount.gt(0))
+        lines.push({ description: `Kelebihan jam ${o.over} jam (terpakai ${o.used} dari ${cap.toFixed(2)} jam) periode ${dto.period}`, qty: o.over, unit: 'Jam', price: D(r.overage_rate).toFixed(2) });
+    }
     const inv = await this.billing.createInvoice(
       u,
-      { customerId: r.customer_id, projectId: r.project_id ?? undefined, date: dto.date, description: `${r.title} — periode ${dto.period}`, withVat: r.with_vat ?? undefined, lines: [{ description: `${r.title} periode ${dto.period}`, qty: '1', unit: 'Bulan', price: r.monthly_fee }] },
+      { customerId: r.customer_id, projectId: r.project_id ?? undefined, date: dto.date, description: `${r.title} — periode ${dto.period}`, withVat: r.with_vat ?? undefined, lines },
       {
         inTx: async (tx, invoice) => {
           // indeks unik (retainer, periode) menjamin dua penagihan bersamaan hanya satu yang berhasil; yang kalah dibatalkan utuh bersama fakturnya
@@ -96,7 +118,11 @@ export class RetainerService {
             if (((e as { code?: string }).code ?? (e as { cause?: { code?: string } }).cause?.code) === '23505') throw new ConflictException(`Periode ${dto.period} sudah ditagih`);
             throw e;
           }
-          await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'RetainerBilling', entityId: invoice.id, data: { retainerId: id, period: dto.period, invoice: invoice.number, amount: r.monthly_fee } });
+          if (usedIds.length) {
+            const marked = await this.repo.markHoursBilled(tx, u.tenantId, usedIds, invoice.id);
+            if (marked.rows.length !== usedIds.length) throw new ConflictException('Catatan waktu berubah saat penagihan: ulangi');
+          }
+          await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'RetainerBilling', entityId: invoice.id, data: { retainerId: id, period: dto.period, invoice: invoice.number, amount: r.monthly_fee, hoursCovered: usedIds.length } });
         },
       },
     );
