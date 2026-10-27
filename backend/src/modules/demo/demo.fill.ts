@@ -1,4 +1,7 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { Logger } from '@nestjs/common';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+
+const logger = new Logger('DemoData');
 import { addDays } from '../../common/utils/dates';
 import { boms, employeeChangeRequests, employees, stockBalances, utilityConnections } from '../../db/schema';
 import { OutboxService } from '../utility-ops/outbox.service';
@@ -307,5 +310,12 @@ export async function utilityChannels(c: Demo) {
   }
   await c.step('pembayaran VA tak dikenal', () => va.receive(c.admin, { vaNumber: '880899999999', amount: '120000', reference: `VA-${c.today.replace(/-/g, '')}-X`, channel: 'Mandiri' }));
   await c.step('pengaturan pesan', () => outbox.saveConfig(c.admin, { enabled: true, url: 'https://api.penyedia-pesan.example/send', authHeader: 'Authorization', token: 'demo-token', bodyTemplate: '{"to":"{to}","message":"{message}"}' }));
-  await c.step('antrekan pengingat', () => outbox.enqueue(c.admin, { kind: 'PENGINGAT', channel: 'WHATSAPP', all: true }));
+  // nomor ponsel contoh agar surat bisa diantrekan (tidak ada yang benar-benar terkirim: penyedia contoh tidak nyata)
+  await c.step('nomor ponsel pelanggan', () => c.db.execute(sql`UPDATE customers SET phone = '0812' || LPAD((ABS(HASHTEXT(id::text)) % 100000000)::text, 8, '0') WHERE tenant_id = ${c.tenantId} AND (phone IS NULL OR phone = '')`));
+  // surat tunggakan (SP1–SP3 menurut lama telat) dan rekening bulan lalu
+  for (const kind of ['SP1', 'SP2', 'SP3', 'REKENING'] as const)
+    await c.step(`antrekan ${kind}`, async () => {
+      const r = await outbox.enqueue(c.admin, { kind, channel: 'WHATSAPP', all: true, period: addDays(`${c.today.slice(0, 7)}-01`, -1).slice(0, 7) });
+      logger.log(`antrean ${kind}: ${JSON.stringify(r)}`);
+    });
 }
