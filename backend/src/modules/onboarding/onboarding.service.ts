@@ -1,6 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
-import { BUSINESS_MODEL_BY_KEY, isProductionModel, type AppKey, type BusinessModel } from '@sansu/shared';
+import { BUSINESS_MODEL_BY_KEY, MODEL_SETUP, isProductionModel, type AppKey, type BusinessModel } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -221,6 +221,15 @@ export class OnboardingService {
     ];
     const { dismissed } = await this.settings.section(this.db, u.tenantId, 'onboarding', DEFAULTS);
     return { model, steps, done: steps.filter((x) => x.done).length, total: steps.length, dismissed };
+  }
+
+  /** Pengaturan yang relevan bagi jenis usaha perusahaan ini beserta status terisi/belum (dari data nyata) */
+  async setup(u: AuthUser) {
+    const model = await this.settings.businessModel(this.db, u.tenantId);
+    const defs = MODEL_SETUP[model];
+    const row = (await this.repo.queryModelSetup(this.db, u.tenantId, defs.map((d) => d.key))).rows[0] ?? {};
+    const items = defs.map((d) => ({ ...d, done: row[d.key] === true }));
+    return { model, name: BUSINESS_MODEL_BY_KEY[model].name, items, done: items.filter((i) => i.done).length, total: items.length };
   }
 
   async dismiss(u: AuthUser, dismissed: boolean) {

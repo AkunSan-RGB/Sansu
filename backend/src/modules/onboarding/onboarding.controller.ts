@@ -18,6 +18,11 @@ export class OnboardingController {
   status(@CurrentUser() u: AuthUser) {
     return this.svc.status(u);
   }
+  /** Pengaturan yang perlu diatur menurut jenis usaha + status terisi */
+  @Get('setup')
+  setup(@CurrentUser() u: AuthUser) {
+    return this.svc.setup(u);
+  }
   @HttpCode(200)
   @Post('dismiss')
   dismiss(@CurrentUser() u: AuthUser, @Body() dto: DismissDto) {
