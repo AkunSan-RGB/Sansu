@@ -1,47 +1,30 @@
-import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, FilterOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
-import { BRAND, CASH_IN_SOURCES, CASH_OUT_SOURCES, CASH_TX_TYPE_LABELS, canHandleMoney, type CashTxType } from '@sansu/shared';
+import { ArrowDownOutlined, ArrowUpOutlined, FilterOutlined, SwapOutlined } from '@ant-design/icons';
+import { BRAND, CASH_TX_TYPE_LABELS, canHandleMoney, type CashTxType } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, App, Badge, Button, Card, Checkbox, Col, Collapse, Empty, Form, Input, InputNumber, Modal, Popover, Row, Segmented, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, Badge, Button, Card, Checkbox, Col, Collapse, Empty, Form, Input, Popover, Row, Segmented, Select, Space, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { get, post, put, qs } from '@/api/client';
+import { get, put, qs } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
-import { LEDGER_KEYS, useBranches, useAction, useCashAccounts } from '@/api/queries';
-import { withBudgetOverride } from '@/lib/budgetOverride';
+import { useBranches, useAction, useCashAccounts } from '@/api/queries';
 import type { CashTransaction, Project } from '@/api/types';
 import { useApps } from '@/lib/apps';
-import CashAccountSelect from '@/components/CashAccountSelect';
 import PageHeader from '@/layout/PageHeader';
 import CashTabs from './CashTabs';
 import ExportButtons from '@/components/ExportButtons';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import { fmtCurrency, fmtDate, fmtMoney, today } from '@/lib/format';
 import { cashListSheet } from '@/lib/xlsx/reports';
-
-interface CounterAccount {
-  id: string;
-  code: string;
-  name: string;
-  type: string;
-}
-interface FormValues {
-  cashAccountId: string;
-  toCashAccountId?: string;
-  amount?: number;
-  date: string;
-  description: string;
-  reference?: string;
-  branchId?: string;
-  lines?: { accountId?: string; source?: string; amount?: number; memo?: string; projectId?: string; assetCategoryId?: string; assetName?: string; assetUsefulLifeMonths?: number; assetTotalUnits?: number; assetUnitLabel?: string; assetLocation?: string }[];
-}
+import CashDetailModal from './CashDetailModal';
+import CashEntryModal from './CashEntryModal';
+import CashProofModal from './CashProofModal';
+import CashVoidModal from './CashVoidModal';
+import { cashFlow, filterCashTx, type AssetCatsByAccount, type CashFormValues } from './cashLogic';
+import IncomeSources from './IncomeSources';
 
 const TYPE_COLOR: Record<CashTxType, string> = { IN: 'green', OUT: 'red', TRANSFER: 'blue' };
-const TITLE: Record<CashTxType, string> = {
-  IN: 'Kas masuk — terima uang di luar penjualan',
-  OUT: 'Kas keluar — bayar biaya / pengeluaran',
-  TRANSFER: 'Transfer antar kas & bank',
-};
+
 
 export default function CashPage() {
   const navigate = useNavigate();
@@ -50,8 +33,7 @@ export default function CashPage() {
   const [from, setFrom] = useState(dayjs().startOf('month').format('YYYY-MM-DD'));
   const [to, setTo] = useState(today());
   const [mode, setMode] = useState<CashTxType | null>(null);
-  const [form] = Form.useForm<FormValues>();
-  const lines = Form.useWatch('lines', form) ?? [];
+  const [form] = Form.useForm<CashFormValues>();
   const { can } = useApps();
   const projectList = useQuery({ queryKey: ['projects'], queryFn: () => get<Project[]>('/services/projects'), enabled: can('sales') });
   const activeProjects = (projectList.data ?? []).filter((p) => p.status === 'ACTIVE');
@@ -70,7 +52,7 @@ export default function CashPage() {
   // Akun aset tetap: pembelian tunai ke akun ini otomatis menjadi kartu aset di Aset Tetap
   const assetCats = useQuery({ queryKey: ['assets', 'categories'], queryFn: () => get<{ id: string; name: string; assetAccountId: string; method: string }[]>('/assets/categories') });
   const assetCatsByAccount = useMemo(() => {
-    const m = new Map<string, { id: string; name: string; method: string }[]>();
+    const m: AssetCatsByAccount = new Map();
     for (const c of assetCats.data ?? []) m.set(c.assetAccountId, [...(m.get(c.assetAccountId) ?? []), c]);
     return m;
   }, [assetCats.data]);
@@ -81,92 +63,13 @@ export default function CashPage() {
   const { me } = useAuth();
   const branchList = useBranches();
   const branchOpts = (branchList.data?.branches ?? []).filter((b) => b.isActive);
-  const shown = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return (txs.data ?? []).filter(
-      (t) =>
-        (typeFilter === 'ALL' || t.type === typeFilter) &&
-        (!branchFilter || (branchFilter === 'NONE' ? !t.branchId : t.branchId === branchFilter)) &&
-        (!noProofOnly || (t.type !== 'IN' && t.status !== 'VOID' && !t.reference?.trim())) &&
-        (!q || `${t.number} ${t.description} ${t.reference ?? ''} ${t.cashAccount.name}`.toLowerCase().includes(q)),
-    );
-  }, [txs.data, typeFilter, branchFilter, noProofOnly, search]);
-  const flow = useMemo(() => {
-    const live = shown.filter((t) => t.status !== 'VOID');
-    const inn = live.filter((t) => t.type === 'IN').reduce((a, t) => a + Number(t.amount), 0);
-    const out = live.filter((t) => t.type === 'OUT').reduce((a, t) => a + Number(t.amount), 0);
-    return { inn, out, net: inn - out, missing: live.filter((t) => t.type !== 'IN' && !t.reference?.trim()).length };
-  }, [shown]);
+  const shown = useMemo(() => filterCashTx(txs.data ?? [], { typeFilter, branchFilter, noProofOnly, search }), [txs.data, typeFilter, branchFilter, noProofOnly, search]);
+  const flow = useMemo(() => cashFlow(shown), [shown]);
   const canVoid = me?.role === 'OWNER' || me?.role === 'ADMIN';
   const [voiding, setVoiding] = useState<CashTransaction | null>(null);
-  const [voidForm] = Form.useForm<{ reason: string }>();
   const canEvidence = canHandleMoney(me?.role);
   const [proofing, setProofing] = useState<CashTransaction | null>(null);
-  const [proofForm] = Form.useForm<{ reference: string }>();
-  const doProof = useAction((v: { id: string; reference: string }) => post(`/cash/transactions/${v.id}/evidence`, { reference: v.reference }), {
-    success: 'Nomor bukti disimpan',
-    invalidate: ['cash'],
-    onSuccess: () => setProofing(null),
-  });
-  const doVoid = useAction((v: { id: string; reason: string }) => post(`/cash/transactions/${v.id}/void`, { reason: v.reason }), {
-    success: 'Transaksi dibatalkan (jurnal pembalik dibuat)',
-    invalidate: [...LEDGER_KEYS, 'cash'],
-    onSuccess: () => setVoiding(null),
-  });
-  const branches = useBranches();
-  const counter = useQuery({
-    queryKey: ['cash-counter-accounts'],
-    queryFn: () => get<CounterAccount[]>('/cash/counter-accounts'),
-    enabled: mode === 'IN' || mode === 'OUT',
-  });
 
-  const { modal } = App.useApp();
-  const create = useAction(
-    (v: FormValues) =>
-      withBudgetOverride(modal, me?.role, (budgetOverrideReason) => post<{ number: string; journalNumber: string }>('/cash/transactions', {
-        budgetOverrideReason,
-        type: mode,
-        cashAccountId: v.cashAccountId,
-        date: v.date,
-        description: v.description,
-        reference: v.reference || undefined,
-        branchId: v.branchId || undefined,
-        ...(mode === 'TRANSFER'
-          ? { toCashAccountId: v.toCashAccountId, amount: String(v.amount) }
-          : {
-              lines: (v.lines ?? []).map((l) => ({
-                // kas masuk/keluar: pilihan berawalan "src:" = sumber uang (sistem menentukan akun)
-                accountId: l.accountId?.startsWith('src:') ? undefined : l.accountId,
-                source: l.accountId?.startsWith('src:') ? l.accountId.slice(4) : undefined,
-                amount: String(l.amount),
-                memo: l.memo || undefined,
-                projectId: mode === 'OUT' ? l.projectId || undefined : undefined,
-                ...(mode === 'OUT' && l.accountId && assetCatsByAccount.has(l.accountId)
-                  ? { assetCategoryId: l.assetCategoryId, assetName: l.assetName || undefined, assetUsefulLifeMonths: l.assetUsefulLifeMonths, assetLocation: l.assetLocation || undefined, assetTotalUnits: l.assetTotalUnits ? String(l.assetTotalUnits) : undefined, assetUnitLabel: l.assetUnitLabel || undefined }
-                  : {}),
-              })),
-            }),
-      })),
-    {
-      success: (r) => `${r.number} diposting · jurnal ${r.journalNumber}`,
-      invalidate: LEDGER_KEYS,
-      onSuccess: () => setMode(null),
-    },
-  );
-
-  /** Kas masuk: Keuangan memilih sumber uang; akun pembukuan hanya untuk Pemilik/Admin */
-  const accountOptions = (m: CashTxType | null) => {
-    const isFin = me?.role === 'FINANCE';
-    // Keuangan hanya mengeluarkan uang untuk biaya atau aset; akun modal/utang/pajak tidak ditawarkan
-    const accs = counter.data?.filter((a) => m !== 'OUT' || !isFin || a.type === 'EXPENSE' || assetCatsByAccount.has(a.id)).map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` })) ?? [];
-    if (m === 'OUT') {
-      const outs = CASH_OUT_SOURCES.map((s) => ({ value: `src:${s.key}`, label: `${s.label} — ${s.hint}` }));
-      return [{ label: 'Jenis biaya (disarankan; sistem menentukan akun)', options: outs }, { label: isFin ? 'Akun biaya / aset' : 'Akun pembukuan', options: accs }];
-    }
-    if (m !== 'IN') return accs;
-    const sources = CASH_IN_SOURCES.map((s) => ({ value: `src:${s.key}`, label: `${s.label} — ${s.hint}` }));
-    return me && ['OWNER', 'ADMIN'].includes(me.role) ? [{ label: 'Sumber uang (disarankan)', options: sources }, { label: 'Akun pembukuan (khusus Pemilik/Admin)', options: accs }] : sources;
-  };
 
   const openForm = (m: CashTxType) => {
     form.resetFields();
@@ -176,8 +79,6 @@ export default function CashPage() {
   };
 
   const total = (accounts.data ?? []).reduce((a, x) => a + Number(x.balance), 0);
-  const withProject = mode === 'OUT' && activeProjects.length > 0;
-  const linesTotal = lines.reduce((a, l) => a + (l?.amount ?? 0), 0);
 
   const cfg = useQuery({ queryKey: ['cash', 'settings'], queryFn: () => get<{ evidenceFrom: number; blockNegative: boolean; maxCashBalance: number }>('/cash/settings'), retry: false, enabled: !!me && ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'].includes(me.role) });
   const [hideTip, setHideTip] = useState(() => {
@@ -498,7 +399,7 @@ export default function CashPage() {
                 ) : t.status === 'VOID' || t.type === 'IN' || !canEvidence ? (
                   '-'
                 ) : (
-                  <Button size="small" type="link" style={{ padding: 0 }} onClick={() => { proofForm.resetFields(); setProofing(t); }}>
+                  <Button size="small" type="link" style={{ padding: 0 }} onClick={() => setProofing(t)}>
                     Lengkapi bukti
                   </Button>
                 ),
@@ -526,7 +427,7 @@ export default function CashPage() {
                     </Button>
                   )}
                   {canVoid && t.status !== 'VOID' && (
-                    <Button size="small" danger type="text" onClick={() => { voidForm.resetFields(); setVoiding(t); }}>
+                    <Button size="small" danger type="text" onClick={() => setVoiding(t)}>
                       Batalkan
                     </Button>
                   )}
@@ -537,284 +438,10 @@ export default function CashPage() {
         />
       </Card>
 
-      <Modal title={`Rincian ${detail?.number ?? ''}`} open={!!detail} onCancel={() => setDetail(null)} footer={<Button onClick={() => setDetail(null)}>Tutup</Button>} width={640}>
-        {detail && (
-          <>
-            <Space wrap style={{ marginBottom: 8 }}>
-              {detail.journalNumber && <Tag>Jurnal {detail.journalNumber}</Tag>}
-              {detail.branchName && <Tag color="purple">Cabang {detail.branchName}</Tag>}
-            </Space>
-            <Table
-              rowKey="id"
-              size="small"
-              pagination={false}
-              dataSource={detail.lines}
-              columns={[
-                { title: 'Untuk', render: (_, l) => `${l.account.name}` },
-                { title: 'Keterangan', dataIndex: 'memo' },
-                { title: 'Jumlah', dataIndex: 'amount', align: 'right', render: fmtMoney },
-              ]}
-            />
-          </>
-        )}
-      </Modal>
-
-      <Modal title={`Nomor bukti ${proofing?.number ?? ''}`} open={!!proofing} onCancel={() => setProofing(null)} onOk={() => proofForm.submit()} confirmLoading={doProof.isPending} okText="Simpan">
-        <Typography.Paragraph type="secondary">Isi nomor kuitansi / nota / bukti transfer. Hanya bisa diisi sekali dan tidak mengubah jurnal.</Typography.Paragraph>
-        <Form form={proofForm} layout="vertical" onFinish={(v) => proofing && doProof.mutate({ id: proofing.id, reference: v.reference })}>
-          <Form.Item name="reference" label="No. bukti" rules={[{ required: true, min: 2, message: 'Isi nomor bukti' }]}>
-            <Input maxLength={100} />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal title={`Batalkan ${voiding?.number ?? ''}`} open={!!voiding} onCancel={() => setVoiding(null)} onOk={() => voidForm.submit()} confirmLoading={doVoid.isPending} okText="Batalkan transaksi" okButtonProps={{ danger: true }}>
-        <Typography.Paragraph type="secondary">
-          Transaksi tidak dihapus: SANSU membuat jurnal pembalik dan mencatat alasan serta pelakunya di jejak audit. Tidak bisa dibatalkan bila sudah dicocokkan dengan mutasi bank atau sudah menjadi aset tetap.
-        </Typography.Paragraph>
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message="Ini hanya mengoreksi pembukuan, bukan mengembalikan uang"
-          description={
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
-              <li>Salah catat dan uang belum keluar: batalkan, lalu catat ulang dengan benar.</li>
-              <li>Uang sudah benar-benar keluar atau salah tujuan: jangan dibatalkan. Minta uang dikembalikan, lalu catat sebagai Uang masuk.</li>
-              <li>Membatalkan transaksi yang uangnya sudah keluar membuat saldo di SANSU lebih besar dari saldo bank asli.</li>
-            </ul>
-          }
-        />
-        <Form form={voidForm} layout="vertical" onFinish={(v) => voiding && doVoid.mutate({ id: voiding.id, reason: v.reason })}>
-          <Form.Item name="reason" label="Alasan pembatalan" rules={[{ required: true, min: 5, message: 'Isi alasan (min. 5 karakter)' }]}>
-            <Input.TextArea rows={3} maxLength={300} />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal
-        title={mode && TITLE[mode]}
-        open={!!mode}
-        width={mode === 'TRANSFER' ? 520 : 760}
-        onCancel={() => setMode(null)}
-        onOk={() => form.submit()}
-        okText="Posting"
-        confirmLoading={create.isPending}
-        destroyOnHidden
-      >
-        <Form form={form} layout="vertical" onFinish={(v) => create.mutate(v)}>
-          <Row gutter={16}>
-            <Col xs={24} md={mode === 'TRANSFER' ? 24 : 14}>
-              <Form.Item
-                name="cashAccountId"
-                label={mode === 'IN' ? 'Masuk ke' : mode === 'OUT' ? 'Keluar dari' : 'Dari'}
-                rules={[{ required: true }]}
-              >
-                <CashAccountSelect />
-              </Form.Item>
-            </Col>
-            {mode === 'TRANSFER' && (
-              <>
-                <Col xs={24}>
-                  <Form.Item name="toCashAccountId" label="Ke" rules={[{ required: true }]}>
-                    <CashAccountSelect />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} md={14}>
-                  <Form.Item name="amount" label="Jumlah" rules={[{ required: true }]}>
-                    <InputNumber min={1} style={{ width: '100%' }} prefix="Rp" />
-                  </Form.Item>
-                </Col>
-              </>
-            )}
-            <Col xs={24} md={10}>
-              <Form.Item name="date" label="Tanggal" rules={[{ required: true }]}>
-                <Input type="date" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={14}>
-              <Form.Item name="description" label="Keterangan" rules={[{ required: true }]}>
-                <Input placeholder={mode === 'OUT' ? 'Bayar listrik gudang Oktober' : mode === 'IN' ? 'Setoran modal pemilik' : 'Setor kas ke bank'} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={10}>
-              <Form.Item name="reference" label="No. bukti / referensi">
-                <Input />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          {(mode === 'IN' || mode === 'OUT') && !!branches.data?.branches.filter((b) => b.isActive).length && (
-            <Form.Item name="branchId" label="Cabang" extra="Kosong = pusat. Biaya/pendapatan ini masuk laporan laba rugi cabang yang dipilih.">
-              <Select allowClear placeholder="Pusat / semua" options={branches.data.branches.filter((b) => b.isActive).map((b) => ({ value: b.id, label: `${b.code} · ${b.name}` }))} />
-            </Form.Item>
-          )}
-
-          {(mode === 'IN' || mode === 'OUT') && (
-            <Form.List name="lines">
-              {(fields, { add, remove }) => (
-                <>
-                  <Typography.Text strong>{mode === 'OUT' ? 'Dibebankan ke akun' : 'Sumber uang masuk'}</Typography.Text>
-                  {fields.map((f) => (
-                    <Row gutter={8} key={f.key} style={{ marginTop: 8 }}>
-                      <Col xs={24} md={withProject ? 8 : 11}>
-                        <Form.Item name={[f.name, 'accountId']} rules={[{ required: true, message: mode === 'IN' ? 'Pilih sumber uang' : 'Pilih akun' }]} noStyle>
-                          <Select
-                            showSearch
-                            optionFilterProp="label"
-                            style={{ width: '100%' }}
-                            placeholder={mode === 'IN' ? 'Pilih sumber uang' : 'Pilih akun'}
-                            loading={counter.isLoading}
-                            options={accountOptions(mode) as never}
-                          />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} md={withProject ? 5 : 6}>
-                        <Form.Item name={[f.name, 'amount']} rules={[{ required: true, message: 'Isi jumlah' }]} noStyle>
-                          <InputNumber min={1} style={{ width: '100%' }} placeholder="Jumlah" />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={10} md={withProject ? 5 : 6}>
-                        <Form.Item name={[f.name, 'memo']} noStyle>
-                          <Input placeholder="Catatan" />
-                        </Form.Item>
-                      </Col>
-                      {withProject && (
-                        <Col xs={22} md={5}>
-                          <Form.Item name={[f.name, 'projectId']} noStyle>
-                            <Select
-                              allowClear
-                              style={{ width: '100%' }}
-                              placeholder="Proyek (opsional)"
-                              options={activeProjects.map((p) => ({ value: p.id, label: `${p.code} · ${p.name}` }))}
-                            />
-                          </Form.Item>
-                        </Col>
-                      )}
-                      {mode === 'OUT' && lines[f.name]?.accountId && assetCatsByAccount.has(lines[f.name]!.accountId!) && (
-                        <Col span={24}>
-                          <Alert
-                            type="info"
-                            showIcon
-                            style={{ marginTop: 6 }}
-                            message="Akun aset tetap: transaksi ini otomatis masuk ke daftar Aset Tetap"
-                            description={
-                              <Row gutter={8} style={{ marginTop: 6 }}>
-                                {(assetCatsByAccount.get(lines[f.name]!.accountId!)?.length ?? 0) > 1 && (
-                                  <Col xs={24} md={6}>
-                                    <Form.Item name={[f.name, 'assetCategoryId']} rules={[{ required: true, message: 'Pilih kategori aset' }]} noStyle>
-                                      <Select placeholder="Kategori aset" options={assetCatsByAccount.get(lines[f.name]!.accountId!)!.map((c) => ({ value: c.id, label: c.name }))} />
-                                    </Form.Item>
-                                  </Col>
-                                )}
-                                <Col xs={24} md={8}>
-                                  <Form.Item name={[f.name, 'assetName']} noStyle>
-                                    <Input placeholder="Nama aset (kosong = catatan)" maxLength={160} />
-                                  </Form.Item>
-                                </Col>
-                                <Col xs={12} md={5}>
-                                  <Form.Item name={[f.name, 'assetUsefulLifeMonths']} noStyle>
-                                    <InputNumber min={0} max={600} style={{ width: '100%' }} placeholder="Masa manfaat (bln)" />
-                                  </Form.Item>
-                                </Col>
-                                {(assetCatsByAccount.get(lines[f.name]!.accountId!) ?? []).some((c) => c.method === 'UNITS_OF_PRODUCTION' && (!lines[f.name]!.assetCategoryId || c.id === lines[f.name]!.assetCategoryId)) && (
-                                  <>
-                                    <Col xs={12} md={5}>
-                                      <Form.Item name={[f.name, 'assetTotalUnits']} rules={[{ required: true, message: 'Isi total unit' }]} noStyle>
-                                        <InputNumber min={1} style={{ width: '100%' }} placeholder="Total unit (kapasitas)" />
-                                      </Form.Item>
-                                    </Col>
-                                    <Col xs={12} md={4}>
-                                      <Form.Item name={[f.name, 'assetUnitLabel']} noStyle>
-                                        <Input placeholder="Satuan" maxLength={20} />
-                                      </Form.Item>
-                                    </Col>
-                                  </>
-                                )}
-                                <Col xs={12} md={5}>
-                                  <Form.Item name={[f.name, 'assetLocation']} noStyle>
-                                    <Input placeholder="Lokasi" maxLength={120} />
-                                  </Form.Item>
-                                </Col>
-                              </Row>
-                            }
-                          />
-                        </Col>
-                      )}
-                      <Col xs={2} md={1}>
-                        {fields.length > 1 && <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(f.name)} />}
-                      </Col>
-                    </Row>
-                  ))}
-                  <Button type="dashed" block icon={<PlusOutlined />} style={{ marginTop: 8 }} onClick={() => add({})}>
-                    Tambah akun
-                  </Button>
-                  <div style={{ textAlign: 'right', marginTop: 12 }}>
-                    Total: <strong>{fmtMoney(linesTotal)}</strong>
-                  </div>
-                </>
-              )}
-            </Form.List>
-          )}
-        </Form>
-      </Modal>
-    </>
-  );
-}
-
-interface IncomeRow { key: string; label: string; group: 'SALES' | 'NONSALES' | 'OTHER'; category: 'SALES' | 'CAPITAL' | 'LOAN' | 'OTHER'; amount: number; count: number; suspect?: string }
-
-/** Uang masuk 30 hari terakhir per sumber: penjualan vs bukan penjualan; penjualan yang dicatat lewat kas masuk ditandai */
-function IncomeSources() {
-  const { data } = useQuery({ queryKey: ['cash', 'income-sources'], queryFn: () => get<{ from: string; to: string; rows: IncomeRow[]; totals: { sales: number; nonSales: number; other: number }; categories: { sales: number; capital: number; loan: number; other: number } }>('/cash/income-sources'), retry: false });
-  if (!data || !data.rows.length) return null;
-  const suspects = data.rows.filter((r) => r.suspect);
-  const GROUP = { SALES: { c: 'green', t: 'Penjualan' }, NONSALES: { c: 'blue', t: 'Bukan penjualan' }, OTHER: { c: 'default', t: 'Lainnya' } } as const;
-  return (
-    <>
-    <Card size="small" title="Uang masuk berdasarkan sumber (30 hari)" style={{ marginBottom: 12 }}>
-      <Row gutter={[12, 12]}>
-        {([['Penjualan', data.categories.sales, '#389e0d'], ['Modal dari pemilik', data.categories.capital, '#1677ff'], ['Pinjaman', data.categories.loan, '#d46b08'], ['Lainnya', data.categories.other, '#8c8c8c']] as const).map(([t, v, c]) => (
-          <Col key={t} xs={12} md={6}>
-            <Statistic title={t} value={v} formatter={(x) => fmtMoney(Number(x))} valueStyle={{ color: c, fontSize: 18 }} />
-          </Col>
-        ))}
-      </Row>
-    </Card>
-    <Collapse
-      style={{ marginBottom: 16 }}
-      items={[
-        {
-          key: 'src',
-          label: (
-            <span>
-              <strong>Uang masuk per sumber</strong> (30 hari) · Penjualan {fmtMoney(data.totals.sales)} · Bukan penjualan {fmtMoney(data.totals.nonSales)}
-              {suspects.length > 0 && <Tag color="orange" style={{ marginLeft: 8 }}>{suspects.length} perlu diperiksa</Tag>}
-            </span>
-          ),
-          children: (
-            <>
-              {suspects.map((s) => <Alert key={s.key} type="warning" showIcon style={{ marginBottom: 8 }} message={`${s.label}: ${fmtMoney(s.amount)}`} description={s.suspect} />)}
-              <Table<IncomeRow>
-                size="small"
-                rowKey="key"
-                pagination={false}
-                dataSource={data.rows}
-                columns={[
-                  { title: 'Sumber', dataIndex: 'label' },
-                  { title: 'Jenis', dataIndex: 'group', render: (g: IncomeRow['group']) => <Tag color={GROUP[g].c}>{GROUP[g].t}</Tag> },
-                  { title: 'Transaksi', dataIndex: 'count', align: 'right' as const },
-                  { title: 'Jumlah', dataIndex: 'amount', align: 'right' as const, render: (v: number) => fmtMoney(v) },
-                ]}
-              />
-              <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-                Pembayaran pelanggan dicatat lewat Faktur & piutang (atau kasir). Uang masuk lain dicatat sebagai Kas masuk dengan memilih sumbernya; sistem membuat jurnalnya.
-              </Typography.Paragraph>
-            </>
-          ),
-        },
-      ]}
-    />
+      <CashDetailModal detail={detail} onClose={() => setDetail(null)} />
+      <CashProofModal target={proofing} onClose={() => setProofing(null)} />
+      <CashVoidModal target={voiding} onClose={() => setVoiding(null)} />
+      <CashEntryModal mode={mode} form={form} onClose={() => setMode(null)} assetCatsByAccount={assetCatsByAccount} activeProjects={activeProjects} />
     </>
   );
 }

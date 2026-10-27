@@ -14,6 +14,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { AuthProvider } from './auth/AuthContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { sansuTheme } from './brand/theme';
 import './print.css';
 import './shell.css';
@@ -54,9 +55,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <AntApp>
         <QueryClientProvider client={queryClient}>
           <BrowserRouter>
-            <AuthProvider>
-              <App />
-            </AuthProvider>
+            <ErrorBoundary fullscreen>
+              <AuthProvider>
+                <App />
+              </AuthProvider>
+            </ErrorBoundary>
           </BrowserRouter>
         </QueryClientProvider>
       </AntApp>

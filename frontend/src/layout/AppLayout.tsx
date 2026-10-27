@@ -18,6 +18,7 @@ import ReminderBell from '@/components/ReminderBell';
 import { HelpButton } from '@/features/help/HelpCenter';
 import { useApps } from '@/lib/apps';
 import { type Group, type Item, menuFor, subItems } from './menuData';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 const PART_STYLE: React.CSSProperties = {
   fontSize: 11,
@@ -315,7 +316,9 @@ export default function AppLayout() {
           )}
           <ServerStatus />
           <AccountStatusBanner />
-          <Outlet />
+          <ErrorBoundary resetKey={pathname}>
+            <Outlet />
+          </ErrorBoundary>
           <ApprovalAssignListener />
         </Layout.Content>
       </Layout>

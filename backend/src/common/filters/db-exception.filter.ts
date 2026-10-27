@@ -81,6 +81,21 @@ export class DbExceptionFilter extends BaseExceptionFilter {
         return res.status(HttpStatus.BAD_REQUEST).json({ statusCode: 400, message: 'Angka di luar batas yang diizinkan' });
       case '22001':
         return res.status(HttpStatus.BAD_REQUEST).json({ statusCode: 400, message: 'Teks terlalu panjang' });
+      // Kueri melewati batas waktu / dibatalkan, kebuntuan antar transaksi, atau gagal serialisasi: transaksi sudah dibatalkan
+      // seluruhnya (tidak ada data setengah jadi), aman diulang oleh pengguna.
+      case '57014':
+      case '25P03':
+      case '40P01':
+      case '40001':
+      case '55P03':
+        this.report(exception, host, 503);
+        return res.status(HttpStatus.SERVICE_UNAVAILABLE).json({
+          statusCode: 503,
+          message:
+            pg.code === '57014' || pg.code === '25P03'
+              ? 'Proses terlalu lama sehingga dibatalkan. Tidak ada data yang tersimpan setengah jalan; coba lagi sebentar lagi.'
+              : 'Data sedang dipakai proses lain. Tidak ada data yang tersimpan setengah jalan; coba lagi sebentar lagi.',
+        });
       default:
         this.report(exception, host, 500);
         return super.catch(exception, host);
