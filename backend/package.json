@@ -15,7 +15,9 @@
     "dev": "nest start --watch",
     "db:migrate:prod": "node dist/db/migrate.js",
     "storage:migrate": "ts-node src/db/migrate-storage.ts",
-    "storage:migrate:prod": "node dist/db/migrate-storage.js"
+    "storage:migrate:prod": "node dist/db/migrate-storage.js",
+    "load:serentak": "node scripts/uji-beban-serentak.mjs",
+    "load:seed-air": "sh scripts/seed-beban-air.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1152.0",
