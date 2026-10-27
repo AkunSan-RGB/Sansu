@@ -12,7 +12,7 @@ export default function BinLabels({ bins, warehouseCode, warehouseName }: { bins
   const [urls, setUrls] = useState<Record<string, string>>({});
   useEffect(() => {
     let live = true;
-    (async () => {
+    void (async () => {
       const out: Record<string, string> = {};
       for (const b of bins) out[b.id] = await QRCode.toDataURL(buildBinQr(warehouseCode, b.code), { margin: 1, width: 220, errorCorrectionLevel: 'M' });
       if (live) setUrls(out);

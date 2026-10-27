@@ -203,6 +203,6 @@ export function scheduleSheet(r: ScheduleResult, company?: string): SheetSpec[] 
     ],
     key: `t${i}`,
   }));
-  const doc = { framework: 'SAK_EP', period: { from: r.period.from, to: r.period.to }, company: { name: company ?? '' }, sections: [compare, ...tables, method] } as unknown as DocLike;
+  const doc = { framework: 'SAK_EP', period: { from: r.period.from, to: r.period.to }, company: { name: company ?? '' }, sections: [compare, ...tables, method] } as DocLike;
   return documentSheet('Rincian akun', `${r.account.code} ${r.account.name}`.trim(), doc, company, [`Periode ${tgl(r.period.from)} s/d ${tgl(r.period.to)}`, RP]);
 }

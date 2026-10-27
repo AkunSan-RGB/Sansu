@@ -8,6 +8,7 @@ import { MessagingConfigDto, OutboxEnqueueDto } from './outbox.dto';
 import { OutboxRepository, OutboxRow } from './outbox.repository';
 import { NoticesRepository } from './notices.repository';
 import { NoticesService } from './notices.service';
+import { schedulersEnabled } from '../../common/schedulers';
 
 const SECTION = 'utilityMessaging';
 const DEFAULTS = { enabled: false, url: '', authHeader: 'Authorization', token: '', bodyTemplate: '{"to":"{to}","message":"{message}"}' };
@@ -44,6 +45,8 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+
+    if (!schedulersEnabled()) return; // banyak proses: hanya satu yang menjalankan tugas berkala
     // di tes tidak berjalan sendiri (tes memanggil process); di produksi memeriksa antrean tiap 20 detik
     if (process.env.NODE_ENV === 'test' && process.env.OUTBOX_WORKER !== 'on') return;
     this.timer = setInterval(() => { void this.tick(); }, 20_000);

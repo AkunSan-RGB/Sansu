@@ -38,7 +38,7 @@ export class MatchManyDto {
 
 export class CreateFromLineDto {
   @ApiPropertyOptional({ description: 'Akun lawan, mis. Beban Administrasi Bank atau Pendapatan Bunga (khusus pembukuan)' }) @IsOptional() @IsUUID() accountId?: string;
-  @ApiPropertyOptional({ enum: CASH_IN_SOURCE_KEYS, description: 'Uang masuk: sumber uang (sistem menentukan akun). Keuangan wajib memakai ini untuk uang masuk' }) @IsOptional() @IsIn(CASH_IN_SOURCE_KEYS as unknown as string[]) source?: CashInSourceKey;
+  @ApiPropertyOptional({ enum: CASH_IN_SOURCE_KEYS, description: 'Uang masuk: sumber uang (sistem menentukan akun). Keuangan wajib memakai ini untuk uang masuk' }) @IsOptional() @IsIn(CASH_IN_SOURCE_KEYS) source?: CashInSourceKey;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) description?: string;
 }
 

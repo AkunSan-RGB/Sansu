@@ -14,7 +14,7 @@ export class TenantScopeInterceptor implements NestInterceptor {
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
     if (ctx.getType() !== 'http') return next.handle();
     const req = ctx.switchToHttp().getRequest<{ user?: AuthUser; rlsBypass?: boolean }>();
-    const scope: DbScope = req.user?.tenantId && !req.rlsBypass ? { tenantId: req.user.tenantId, bypass: false } : { bypass: true };
+    const scope: DbScope = req.user?.tenantId && !req.rlsBypass ? { tenantId: req.user.tenantId, bypass: false, memo: new Map() } : { bypass: true, memo: new Map() };
     return new Observable((sub) => dbScope.run(scope, () => next.handle().subscribe(sub)));
   }
 }

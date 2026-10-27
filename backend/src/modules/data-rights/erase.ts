@@ -102,7 +102,7 @@ export async function eraseTenant(db: Db, tenantId: string): Promise<EraseResult
       const b = before.get(t)!;
       if (!b.mine) continue;
       const del = await tx.execute(sql.raw(`DELETE FROM ${q(t)} WHERE ${cond.get(t)}`));
-      const n = Number((del as unknown as { rowCount?: number }).rowCount ?? 0);
+      const n = Number(del.rowCount ?? 0);
       if (n !== b.mine) throw new Error(`Penghapusan ${t} tidak sesuai: seharusnya ${b.mine}, terhapus ${n}`);
       perTable[t] = n;
     }

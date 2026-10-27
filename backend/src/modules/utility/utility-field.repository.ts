@@ -161,7 +161,7 @@ export class UtilityFieldRepository {
 
   /** Dipakai oleh UtilityFieldService.decide */
   queryUtilityRemittance(db: DbOrTx, id: string, tenantId: string) {
-    return db.execute(sql`SELECT * FROM utility_remittances WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
+    return db.execute<{ status: string; collector_id: string; difference: string; number: string; counted: string; date: string }>(sql`SELECT * FROM utility_remittances WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
   }
 
   /** Dipakai oleh UtilityFieldService.counterControls */

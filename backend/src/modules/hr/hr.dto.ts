@@ -33,7 +33,7 @@ export class CreateEmployeeDto {
   @IsUUID()
   projectId?: string | null;
   @ApiPropertyOptional({ description: 'Tenaga kerja langsung produksi (gaji masuk harga pokok produksi)' }) @IsOptional() @IsBoolean() isProduction?: boolean;
-  @ApiPropertyOptional({ enum: EMPLOYMENT_TYPES, description: 'Status kepegawaian; selain TETAP khusus usaha jasa' }) @IsOptional() @IsIn(EMPLOYMENT_TYPES as unknown as string[]) employmentType?: EmploymentType;
+  @ApiPropertyOptional({ enum: EMPLOYMENT_TYPES, description: 'Status kepegawaian; selain TETAP khusus usaha jasa' }) @IsOptional() @IsIn(EMPLOYMENT_TYPES) employmentType?: EmploymentType;
   @ApiPropertyOptional() @IsOptional() @ValidateIf((_, v) => v !== null) @IsDateString() contractStart?: string | null;
   @ApiPropertyOptional({ description: 'Akhir kontrak / magang; gaji berhenti otomatis di tanggal ini' }) @IsOptional() @ValidateIf((_, v) => v !== null) @IsDateString() contractEnd?: string | null;
   @ApiPropertyOptional({ example: '150000', description: 'Upah per hari hadir (status harian)' }) @IsOptional() @IsNumberString() dailyWage?: string;

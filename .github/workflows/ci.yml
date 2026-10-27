@@ -27,6 +27,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - name: Linter (janji tak tertangani, aturan hook React)
+        run: npm run lint
       - run: npm test
       - run: npm run build -w @sansu/web
       - run: npm run build -w @sansu/api

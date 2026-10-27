@@ -57,7 +57,7 @@ export class PriceAgreementsService {
   private async lockRow(tx: DbOrTx, tenantId: string, id: string) {
     const r = await this.repo.querySupplierPriceAgreementForLockRow(tx, id, tenantId);
     if (!r.rows.length) throw new NotFoundException('Kontrak tidak ditemukan');
-    return r.rows[0] as unknown as { id: string; status: string; created_by_id: string; supplier_id: string; product_id: string; valid_from: string; valid_to: string; price: string };
+    return r.rows[0];
   }
 
   private assertChecker(u: AuthUser, createdBy: string) {

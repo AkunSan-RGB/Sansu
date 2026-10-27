@@ -5,6 +5,7 @@ import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { UtilityService } from './utility.service';
 import { RulesDto, TariffDto, ConnectionDto, SuspendDto, ReasonDto, ZoneSupplyDto, ZoneDto, ReadingDto, EstimateDto, VerifyDto, BillRunDto } from './utility.dto';
+import { wantsPage } from '../../common/pagination';
 
 @ApiTags('Layanan utilitas')
 @ApiBearerAuth()
@@ -22,7 +23,7 @@ export class UtilityController {
   @Roles('ADMIN', 'FINANCE') @Post('tariffs') createTariff(@CurrentUser() u: AuthUser, @Body() dto: TariffDto) { return this.svc.createTariff(u, dto); }
   @Roles('ADMIN') @Put('tariffs/:id') updateTariff(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: TariffDto) { return this.svc.updateTariff(u, id, dto); }
 
-  @Get('connections') connections(@CurrentUser() u: AuthUser, @Query('status') status?: string, @Query('search') search?: string) { return this.svc.connections(u.tenantId, { status, search }); }
+  @Get('connections') connections(@CurrentUser() u: AuthUser, @Query('status') status?: string, @Query('search') search?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return wantsPage({ page }) ? this.svc.connections(u.tenantId, { status, search }, { page, pageSize }) : this.svc.connections(u.tenantId, { status, search }); }
   @Get('connections/:id') connection(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) { return this.svc.connection(u.tenantId, id); }
   @Roles('ADMIN', 'FINANCE', 'SALES') @Post('connections') createConnection(@CurrentUser() u: AuthUser, @Body() dto: ConnectionDto) { return this.svc.createConnection(u, dto); }
   @Roles('ADMIN', 'FINANCE') @Post('connections/:id/suspend') suspend(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: SuspendDto) { return this.svc.suspend(u, id, dto); }
@@ -34,7 +35,7 @@ export class UtilityController {
   @Roles('ADMIN', 'FINANCE') @Put('connections/:id/zone') setZone(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ZoneDto) { return this.svc.setZone(u, id, dto); }
 
   @Get('readings') readings(@CurrentUser() u: AuthUser, @Query('period') period?: string, @Query('status') status?: string, @Query('connectionId') connectionId?: string) { return this.svc.readings(u.tenantId, { period, status, connectionId }); }
-  @Get('readings/due') due(@CurrentUser() u: AuthUser, @Query('period') period: string) { return this.svc.due(u.tenantId, period); }
+  @Get('readings/due') due(@CurrentUser() u: AuthUser, @Query('period') period: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return wantsPage({ page }) ? this.svc.due(u.tenantId, period, { page, pageSize }) : this.svc.due(u.tenantId, period); }
   @Roles('ADMIN', 'WAREHOUSE') @Post('readings') enter(@CurrentUser() u: AuthUser, @Body() dto: ReadingDto) { return this.svc.enterReading(u, dto); }
   @Roles('ADMIN', 'WAREHOUSE') @Post('readings/estimate') estimate(@CurrentUser() u: AuthUser, @Body() dto: EstimateDto) { return this.svc.estimateReading(u, dto); }
   @Roles('ADMIN', 'FINANCE') @Post('readings/:id/verify') verify(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VerifyDto) { return this.svc.verify(u, id, dto); }
@@ -42,6 +43,6 @@ export class UtilityController {
 
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT') @Get('billing/preview') preview(@CurrentUser() u: AuthUser, @Query('period') period: string) { return this.svc.preview(u.tenantId, period); }
   @Roles('ADMIN', 'FINANCE') @Post('billing/run') run(@CurrentUser() u: AuthUser, @Body() dto: BillRunDto) { return this.svc.run(u, dto); }
-  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT') @Get('overdue') overdue(@CurrentUser() u: AuthUser) { return this.svc.overdue(u.tenantId); }
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT') @Get('overdue') overdue(@CurrentUser() u: AuthUser, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return wantsPage({ page }) ? this.svc.overdue(u.tenantId, { page, pageSize }) : this.svc.overdue(u.tenantId); }
   @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT') @Get('controls') controls(@CurrentUser() u: AuthUser) { return this.svc.controls(u.tenantId); }
 }

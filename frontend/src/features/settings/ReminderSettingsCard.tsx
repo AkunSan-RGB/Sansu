@@ -20,8 +20,8 @@ export default function ReminderSettingsCard() {
   const save = useAction((v: ReminderSettings) => put<ReminderSettings>('/settings/reminders', v), {
     success: 'Pengaturan pengingat disimpan',
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['reminder-settings'] });
-      qc.invalidateQueries({ queryKey: ['reminders'] });
+      void qc.invalidateQueries({ queryKey: ['reminder-settings'] });
+      void qc.invalidateQueries({ queryKey: ['reminders'] });
     },
   });
   const test = useAction(() => post<{ to: string; items: number }>('/reminders/digest/test'), { success: (r) => `Ringkasan contoh dikirim ke ${r.to} (${r.items} pengingat)` });

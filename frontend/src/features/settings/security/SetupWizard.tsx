@@ -19,8 +19,8 @@ export function SetupWizard({ open, onClose }: { open: boolean; onClose: () => v
     onSuccess: (r) => {
       setCodes(r.backupCodes);
       setStep(2);
-      qc.invalidateQueries({ queryKey: ['2fa'] });
-      qc.invalidateQueries({ queryKey: ['me'] });
+      void qc.invalidateQueries({ queryKey: ['2fa'] });
+      void qc.invalidateQueries({ queryKey: ['me'] });
     },
   });
   const close = () => {

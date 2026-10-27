@@ -10,6 +10,11 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 export interface DbScope {
   tenantId?: string;
   bypass: boolean;
+  /**
+   * Catatan sementara selama SATU permintaan HTTP (dibuang bersama permintaannya), mis. baris pengaturan perusahaan yang dibaca
+   * berkali-kali oleh banyak layanan. Tidak diisi untuk tugas latar: tugas panjang tidak boleh memakai data basi.
+   */
+  memo?: Map<string, unknown>;
 }
 
 export const dbScope = new AsyncLocalStorage<DbScope>();

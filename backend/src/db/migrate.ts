@@ -7,6 +7,9 @@ import 'dotenv/config';
 import { runMigrations } from './run-migrations';
 import { createPool } from './db';
 import { describeDbError } from './db-error';
+import { Logger } from '@nestjs/common';
+
+const log = new Logger('Migrasi');
 
 async function main() {
   const pool = createPool();
@@ -15,7 +18,7 @@ async function main() {
     await pool.query('DROP SCHEMA IF EXISTS public CASCADE; DROP SCHEMA IF EXISTS drizzle CASCADE; CREATE SCHEMA public;');
   }
   await runMigrations(pool);
-  console.log('Migrasi selesai.');
+  log.log('Migrasi selesai.');
   await pool.end();
 }
 

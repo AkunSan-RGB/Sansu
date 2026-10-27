@@ -467,7 +467,7 @@ export function supportSheet(r: SupportReport, framework: FinancialNotes['framew
     ],
   };
   const conclusion = { number: '', title: 'Kesimpulan dan saran', paragraphs: conclusionParagraphs(r.conclusion), tables: [] };
-  return documentSheet('Pendukung', r.title, { framework, period: r.period, company: { name: company ?? '' }, sections: [recon, ...r.sections, conclusion] } as unknown as DocLike, company, [`Periode ${tgl(r.period.from)} s/d ${tgl(r.period.to)}`, RP]);
+  return documentSheet('Pendukung', r.title, { framework, period: r.period, company: { name: company ?? '' }, sections: [recon, ...r.sections, conclusion] } as DocLike, company, [`Periode ${tgl(r.period.from)} s/d ${tgl(r.period.to)}`, RP]);
 }
 // ============ Buku besar ============
 export function ledgerSheet(l: LedgerReport, from: string, to: string, company?: string): SheetSpec[] {

@@ -52,3 +52,21 @@ export function normalizeJournalLines(lines: DraftLine[]): { lines: NormalizedLi
   }
   return { lines: out, total: totalDebit };
 }
+
+/**
+ * Jurnal lintas cabang: tiap cabang harus seimbang sendiri. Selisih (debit - kredit) per cabang ditutup dengan baris pada
+ * Rekening Antar Cabang (piutang di satu cabang, utang di cabang lain; nol bila digabung). Fungsi murni: mengembalikan baris
+ * penyeimbang, tidak mengubah masukan. Baris tanpa cabang eksplisit (`undefined`) memakai cabang jurnal; `null` berarti pusat.
+ */
+export function interBranchBalancingLines(lines: NormalizedLine[], entryBranch: string | null, interBranchAccountId: string): NormalizedLine[] {
+  const labelOf = (l: { branchId?: string | null }) => (l.branchId === undefined ? entryBranch : l.branchId) ?? null;
+  if (new Set(lines.map(labelOf)).size <= 1) return [];
+  const net = new Map<string | null, Dec>();
+  for (const l of lines) net.set(labelOf(l), (net.get(labelOf(l)) ?? D(0)).plus(l.debit).minus(l.credit));
+  const out: NormalizedLine[] = [];
+  for (const [branch, v] of net) {
+    if (v.isZero()) continue;
+    out.push({ accountId: interBranchAccountId, debit: v.isNegative() ? v.abs() : D(0), credit: v.isPositive() ? v : D(0), foreignAmount: null, memo: 'Antar cabang', projectId: null, branchId: branch });
+  }
+  return out;
+}

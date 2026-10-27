@@ -19,7 +19,7 @@ export function CameraScanner({ open, onClose, onScan, title = 'Pindai kode' }: 
     let stream: MediaStream | undefined;
     let timer: number | undefined;
     setError(null);
-    (async () => {
+    void (async () => {
       try {
         if (!navigator.mediaDevices?.getUserMedia) throw new Error('Peramban ini tidak mendukung kamera (atau halaman tidak memakai HTTPS)');
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
@@ -27,7 +27,7 @@ export function CameraScanner({ open, onClose, onScan, title = 'Pindai kode' }: 
         const el = video.current!;
         el.srcObject = stream;
         await el.play();
-        const Native = (window as unknown as { BarcodeDetector?: DetectorCtor }).BarcodeDetector;
+        const Native = (window as Window & { BarcodeDetector?: DetectorCtor }).BarcodeDetector;
         const detector = Native ? new Native({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a'] }) : null;
         const jsqr = detector ? null : (await import('jsqr')).default;
         const canvas = document.createElement('canvas');
@@ -54,7 +54,7 @@ export function CameraScanner({ open, onClose, onScan, title = 'Pindai kode' }: 
           }
           timer = window.setTimeout(tick, 250);
         };
-        tick();
+        void tick();
       } catch (e) {
         setError((e as Error).message || 'Kamera tidak dapat dipakai');
       }

@@ -38,15 +38,21 @@ dengan kunci idempotensi 0 ganda, 0 hilang, 0 tak terselesaikan. Kontrol tanpa k
    (PostgreSQL ±1,4 inti). Skala nyata perlu diukur di perangkat keras terpisah.
 3. **Perkiraan pengguna aktif:** dengan jeda 5–10 detik antar klik, 130 permintaan/dtk setara sekitar 600–1.300 pengguna aktif bersamaan per proses
    sebelum latensi di atas 1 dtk. Perusahaan air 10.000 pelanggan biasanya hanya puluhan staf aktif; beban terbesarnya adalah tagih bulanan, yang berjalan di latar.
-4. **Rata-rata ±12 kueri per permintaan** (±100 ribu commit untuk ±8 ribu permintaan). Ini peluang optimasi terbesar (gabungkan pemeriksaan izin, audit, kunci idempotensi).
+4. **Penghematan kueri:** memoisasi pengaturan per permintaan menurunkan kueri dari 25 menjadi 23 pada permintaan tulis yang diukur (**bukan 14**; angka 14 yang
+   sempat saya sebut berasal dari permintaan yang gagal dan sudah dikoreksi). Rata-rata awal **±12 kueri per permintaan** (±100 ribu commit untuk ±8 ribu permintaan). Ini peluang optimasi terbesar (gabungkan pemeriksaan izin, audit, kunci idempotensi).
 
 ## Batas yang jujur
 
 - Mesin uji kecil dan dipakai bersama pembangkit beban. Angka mutlak di server produksi akan berbeda; **pola** (tanpa galat, antre, penghambat satu inti) yang bisa dipegang.
 - Throttle per IP dimatikan di mode uji. Di produksi default 600 permintaan/menit per IP; pengguna di balik satu IP kantor bisa kena 429 pada beban tinggi.
-- Tidak ada pembatas antrean: pada 1.500 pengguna p99 22 dtk, tidak ada yang ditolak. Penolakan dini (load shedding) belum ada.
+- Tabel hasil di atas diukur **sebelum** pembatas antrean. Sekarang ada penolakan dini (`MAX_INFLIGHT`, 503 + `Retry-After`) dan mode multi-proses
+  (`npm run start:cluster`, `WEB_CONCURRENCY`; penjadwal hanya di satu pekerja). Terukur: 2 pekerja + pembatas pada 600 pengguna → p95 2,2 dtk (sebelumnya 8,1 dtk satu proses).
 - Skenario tulis mencakup penjualan, pembayaran, jurnal, kas, pelanggan. Modul lain (produksi, SDM, aset, pajak) belum ada di skrip.
-- Belum diuji: instalasi multi-proses di perangkat keras terpisah, kegagalan database di tengah beban, pemulihan sesudah restart saat tagih berjalan.
+- Belum diuji: instalasi multi-proses di perangkat keras terpisah.
+- Uji kegagalan (`backend/scripts/uji-kegagalan.mjs`): skenario `db` (PostgreSQL dihentikan di tengah beban) lulus 5/5 setelah perbaikan penangan galat kolam
+  (sebelumnya server mati). Skenario `restart` (server dimatikan paksa saat tagih berjalan) menemukan satu klaim tagihan tanpa faktur; perbaikannya
+  (`releaseStaleClaims` + sapuan kedua) membuat uji ulang lulus 10/10: setelah `kill -9` pada ±255 sambungan tertagih, tagih ulang
+  menyelesaikan 10.000 dari 10.000 sambungan, tanpa ganda, 0 klaim yatim, jurnal seimbang.
 
 ## Menjalankan ulang
 

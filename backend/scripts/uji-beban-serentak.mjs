@@ -34,7 +34,7 @@ const STAMP = Date.now();
 const stats = new Map(); // aksi -> { lat: [], ok, c4xx, c5xx, timeout, net, codes:{} }
 const unexpected = []; // contoh galat 5xx / 4xx tak terduga
 const bucket = new Map(); // detik -> jumlah selesai
-const rec = (name) => stats.get(name) ?? stats.set(name, { lat: [], ok: 0, c4xx: 0, c5xx: 0, timeout: 0, net: 0, codes: {} }).get(name);
+const rec = (name) => stats.get(name) ?? stats.set(name, { lat: [], ok: 0, c4xx: 0, c5xx: 0, shed: 0, timeout: 0, net: 0, codes: {} }).get(name);
 const t0 = Date.now();
 
 async function call(name, token, method, path, body, { expect4xx = false } = {}) {
@@ -55,7 +55,13 @@ async function call(name, token, method, path, body, { expect4xx = false } = {})
     s.codes[res.status] = (s.codes[res.status] ?? 0) + 1;
     const sec = Math.floor((Date.now() - t0) / 1000);
     bucket.set(sec, (bucket.get(sec) ?? 0) + 1);
-    if (res.status >= 500) {
+    let json0;
+    try { json0 = text ? JSON.parse(text) : null; } catch { json0 = null; }
+    if (res.status === 503 && json0?.retryAfter) {
+      // ditolak pembatas beban (bukan galat): klien yang baik menunggu Retry-After lalu mencoba lagi
+      s.shed++;
+      await sleep(json0.retryAfter * 1000);
+    } else if (res.status >= 500) {
       s.c5xx++;
       if (unexpected.length < 15) unexpected.push(`${name} ${res.status} ${text.slice(0, 160)}`);
     } else if (res.status >= 400) {
@@ -263,8 +269,8 @@ const serverRss = () => {
 
 const ticks = (pid) => { try { const f = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' '); return Number(f[11]) + Number(f[12]); } catch { return 0; } };
 const pidsOf = (cmd) => { try { return execSync(`pgrep -f '${cmd}'`).toString().trim().split(/\s+/).map(Number); } catch { return []; } };
-const serverPid = () => { try { return Number(execSync(`fuser ${new URL(BASE).port || 3000}/tcp 2>/dev/null`).toString().trim().split(/\s+/)[0]); } catch { return 0; } };
-const cpuSnap = () => ({ srv: ticks(serverPid()), pg: pidsOf('postgres').reduce((a, p) => a + ticks(p), 0), gen: ticks(process.pid) });
+const serverPids = () => { try { return execSync(`fuser ${new URL(BASE).port || 3000}/tcp 2>/dev/null`).toString().trim().split(/\s+/).map(Number).filter(Boolean); } catch { return []; } };
+const cpuSnap = () => ({ srv: serverPids().reduce((a, p) => a + ticks(p), 0), pg: pidsOf('postgres').reduce((a, p) => a + ticks(p), 0), gen: ticks(process.pid) });
 
 // ---------------- jalan ----------------
 (async () => {
@@ -325,17 +331,18 @@ const cpuSnap = () => ({ srv: ticks(serverPid()), pg: pidsOf('postgres').reduce(
 
   // ---- laporan ----
   const rows = [...stats.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  let total = 0, err5 = 0, timeouts = 0, nets = 0, unexp4 = 0;
+  let total = 0, err5 = 0, timeouts = 0, nets = 0, unexp4 = 0, shedAll = 0;
   console.log('\nAksi'.padEnd(34) + 'jml'.padStart(7) + 'ok'.padStart(7) + '4xx'.padStart(6) + '5xx'.padStart(6) + 'habis'.padStart(7) + '   p50(ms)  p95(ms)  p99(ms)  maks(ms)');
   for (const [name, s] of rows) {
     const n = s.lat.length;
-    total += n; err5 += s.c5xx; timeouts += s.timeout; nets += s.net;
+    total += n; shedAll += s.shed; err5 += s.c5xx; timeouts += s.timeout; nets += s.net;
     console.log(name.padEnd(34) + String(n).padStart(7) + String(s.ok).padStart(7) + String(s.c4xx).padStart(6) + String(s.c5xx).padStart(6) + String(s.timeout + s.net).padStart(7) + `   ${pct(s.lat, 50).toFixed(0).padStart(7)}  ${pct(s.lat, 95).toFixed(0).padStart(7)}  ${pct(s.lat, 99).toFixed(0).padStart(7)}  ${Math.max(0, ...s.lat).toFixed(0).padStart(8)}`);
   }
   const all = rows.flatMap(([, s]) => s.lat);
   const perSec = [...bucket.entries()].filter(([s]) => s >= RAMP && s < RAMP + DURATION - RAMP).map(([, v]) => v);
   console.log(`\nTotal ${total} permintaan dalam ${elapsed.toFixed(0)} dtk = ${(total / elapsed).toFixed(1)} permintaan/dtk (puncak ${Math.max(0, ...perSec)}/dtk)`);
   console.log(`Latensi semua: p50 ${pct(all, 50).toFixed(0)} ms, p95 ${pct(all, 95).toFixed(0)} ms, p99 ${pct(all, 99).toFixed(0)} ms`);
+  console.log(`Ditolak pembatas beban (503 + Retry-After, bukan galat): ${shedAll} (${((shedAll / total) * 100).toFixed(1)}%)`);
   console.log(`Galat server 5xx: ${err5} (${((err5 / total) * 100).toFixed(2)}%), waktu habis: ${timeouts}, putus jaringan: ${nets}`);
   console.log(`Memori proses server: ${rss0.toFixed(0)} MB -> ${Math.max(...rssSamples.filter(Number.isFinite), 0).toFixed(0)} MB (puncak)`);
   console.log(`CPU (inti rata-rata dari 4): server aplikasi ${cores(cpu0.srv, cpu1.srv)}, PostgreSQL ${cores(cpu0.pg, cpu1.pg)}, pembangkit beban ${cores(cpu0.gen, cpu1.gen)}`);
@@ -356,7 +363,7 @@ const cpuSnap = () => ({ srv: ticks(serverPid()), pg: pidsOf('postgres').reduce(
   const v = await verify(tenants);
   for (const c of v.checks) console.log(`  ${c.ok ? 'LULUS' : 'GAGAL'}  ${c.name}${c.detail ? ' — ' + c.detail : ''}`);
   const failed = v.checks.filter((c) => !c.ok).length + chaosFailed;
-  const summary = { vus: VUS, durasi: DURATION, total, rps: +(total / elapsed).toFixed(1), p95: +pct(all, 95).toFixed(0), p99: +pct(all, 99).toFixed(0), err5xx: err5, waktuHabis: timeouts, putus: nets, pemeriksaanGagal: failed, deadlock: Number(after.deadlocks) - Number(before.deadlocks) };
+  const summary = { vus: VUS, durasi: DURATION, total, rps: +(total / elapsed).toFixed(1), p95: +pct(all, 95).toFixed(0), p99: +pct(all, 99).toFixed(0), err5xx: err5, ditolakSibuk: shedAll, waktuHabis: timeouts, putus: nets, pemeriksaanGagal: failed, deadlock: Number(after.deadlocks) - Number(before.deadlocks) };
   console.log('\nRINGKASAN ' + JSON.stringify(summary));
   process.exit(failed || err5 || timeouts ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

@@ -8,6 +8,7 @@ import { serveWeb } from './serve-web';
 import { createPool } from './db/db';
 import { describeDbError } from './db/db-error';
 import { runMigrations } from './db/run-migrations';
+import { createShedder, maxInflightFromEnv } from './common/load-shedder';
 
 async function bootstrap() {
   assertProductionConfig();
@@ -27,6 +28,9 @@ async function bootstrap() {
 
   const app = configureApp(await NestFactory.create(AppModule, { bodyParser: false }));
   app.enableCors({ origin: (process.env.CORS_ORIGIN ?? 'http://localhost:5173').split(','), credentials: true });
+  // Di atas kapasitas, tolak kelebihannya dengan cepat (503 + Retry-After) daripada membuat semua permintaan lambat. Webhook masuk dan kesehatan dikecualikan.
+  const shedder = createShedder({ max: maxInflightFromEnv(), exempt: (p) => p === '/api/health' || p.startsWith('/api/ingest/') });
+  app.use(shedder.middleware);
   app.enableShutdownHooks();
   // Mode satu layanan: sajikan tampilan web dari frontend/dist bila ada (Railway dll.)
   const webServed = serveWeb(app);
@@ -56,4 +60,7 @@ process.on('uncaughtException', (e) => {
   process.exit(1);
 });
 
-bootstrap();
+void bootstrap().catch((e) => {
+  Logger.error(`API gagal start: ${(e as Error).stack ?? e}`, 'Proses');
+  process.exit(1);
+});

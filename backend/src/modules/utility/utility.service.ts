@@ -20,6 +20,7 @@ import { ServiceBillingService } from '../sales/services/service-billing.service
 import { RulesDto, TariffDto, ConnectionDto, SuspendDto, ReasonDto, ZoneDto, ZoneSupplyDto, ReadingDto, EstimateDto, VerifyDto, BillRunDto } from './utility.dto';
 import { findOwned, insertOne, patchById } from '../../db/owned';
 import { UtilityRepository } from './utility.repository';
+import { normalizePage, type Paged, type PageQuery } from '../../common/pagination';
 
 const SECTION = 'utility';
 
@@ -35,19 +36,7 @@ const isUnique = (e: unknown) => ['23505'].includes((e as { code?: string }).cod
 
 const rp = (n: number) => `Rp${Math.round(n).toLocaleString('id-ID')}`;
 
-interface ConnRow {
-  id: string;
-  number: string;
-  customer_id: string;
-  customer_name: string;
-  tariff_id: string;
-  status: string;
-  installed_at: string;
-  initial_reading: string;
-  status_changed_by_id: string | null;
-  meter_no: string | null;
-  address: string;
-}
+type OverdueRow = Record<string, unknown> & { outstanding: string; installmentPlan: boolean; suggestSuspend: boolean };
 
 @Injectable()
 export class UtilityService {
@@ -121,13 +110,18 @@ export class UtilityService {
     }
   }
 
-  async connections(tenantId: string, q: { status?: string; search?: string }) {
-    const r = await this.repo.queryUtilityConnection(this.db, tenantId, q);
-    return r.rows;
+  async connections(tenantId: string, q: { status?: string; search?: string }): Promise<Record<string, unknown>[]>;
+  async connections(tenantId: string, q: { status?: string; search?: string }, page: PageQuery): Promise<Paged<Record<string, unknown>>>;
+  async connections(tenantId: string, q: { status?: string; search?: string }, page?: PageQuery) {
+    if (!page) return (await this.repo.queryUtilityConnection(this.db, tenantId, q)).rows;
+    const p = normalizePage(page);
+    const [r, total] = await Promise.all([this.repo.queryUtilityConnection(this.db, tenantId, { ...q, limit: p.limit, offset: p.offset }), this.repo.countUtilityConnection(this.db, tenantId, q)]);
+    return { rows: r.rows, total, page: p.page, pageSize: p.limit };
   }
 
   async connection(tenantId: string, id: string) {
-    const [c] = (await this.connections(tenantId, {})).filter((x) => x.id === id);
+    // dicari langsung berdasarkan id: daftar dibatasi, sehingga sambungan di luar 500 teratas tidak boleh "hilang" saat dibuka
+    const [c] = (await this.repo.queryUtilityConnection(this.db, tenantId, { id, limit: 1 })).rows;
     if (!c) throw new NotFoundException('Sambungan tidak ditemukan');
     const readings = await this.repo.queryUtilityReading(this.db, id, tenantId);
     const bills = await this.repo.queryUtilityBill(this.db, id, tenantId);
@@ -159,7 +153,7 @@ export class UtilityService {
   private async lockConnection(tx: Db | Parameters<Parameters<Db['transaction']>[0]>[0], tenantId: string, id: string) {
     const r = await this.repo.queryUtilityConnectionForLockConnection(tx, id, tenantId);
     if (!r.rows.length) throw new NotFoundException('Sambungan tidak ditemukan');
-    return r.rows[0] as unknown as ConnRow;
+    return r.rows[0];
   }
 
   /** Tunggakan melewati jatuh tempo untuk satu sambungan */
@@ -251,10 +245,14 @@ export class UtilityService {
   }
 
   /** Sambungan terukur aktif yang belum punya pencatatan untuk periode ini (daftar kerja petugas) */
-  async due(tenantId: string, period: string) {
+  async due(tenantId: string, period: string): Promise<Record<string, unknown>[]>;
+  async due(tenantId: string, period: string, page: PageQuery): Promise<Paged<Record<string, unknown>>>;
+  async due(tenantId: string, period: string, page?: PageQuery) {
     if (!isPeriod(period)) throw new BadRequestException('Periode tidak valid (YYYY-MM)');
-    const r = await this.repo.queryUtilityConnectionForDue(this.db, tenantId, period);
-    return r.rows;
+    if (!page) return (await this.repo.queryUtilityConnectionForDue(this.db, tenantId, period)).rows;
+    const p = normalizePage(page);
+    const [r, total] = await Promise.all([this.repo.queryUtilityConnectionForDue(this.db, tenantId, period, p), this.repo.countUtilityConnectionForDue(this.db, tenantId, period)]);
+    return { rows: r.rows, total, page: p.page, pageSize: p.limit };
   }
 
   async enterReading(u: AuthUser, dto: ReadingDto, source: 'MANUAL' | 'LAPANGAN' | 'IMPORT' | 'API' = 'MANUAL') {
@@ -343,7 +341,7 @@ export class UtilityService {
   private async lockReading(tx: Db | Parameters<Parameters<Db['transaction']>[0]>[0], tenantId: string, id: string) {
     const r = await this.repo.queryUtilityReadingForLockReading(tx, id, tenantId);
     if (!r.rows.length) throw new NotFoundException('Pencatatan tidak ditemukan');
-    return r.rows[0] as unknown as { id: string; status: string; entered_by_id: string; flags: string[]; connection_id: string; period: string };
+    return r.rows[0];
   }
 
   async verify(u: AuthUser, id: string, dto: VerifyDto) {
@@ -503,12 +501,17 @@ export class UtilityService {
     return { period: dto.period, billedCount, billedTotal, billed, billedTruncated: billedCount > billed.length, failed: failed.slice(0, 200), failedCount: failed.length, held: plan.held.slice(0, 500), heldCount: plan.held.length };
   }
 
-  async overdue(tenantId: string) {
+  async overdue(tenantId: string): Promise<OverdueRow[]>;
+  async overdue(tenantId: string, page: PageQuery): Promise<Paged<OverdueRow>>;
+  async overdue(tenantId: string, page?: PageQuery) {
     const rules = await this.rules(tenantId);
     const today = todayJakarta();
-    const r = await this.repo.queryUtilityBillForOverdue(this.db, today, tenantId);
+    const p = page ? normalizePage(page) : undefined;
+    const r = await this.repo.queryUtilityBillForOverdue(this.db, today, tenantId, p);
     const planned = await this.repo.connectionsWithInstallment(this.db, tenantId);
-    return r.rows.map((x) => ({ ...x, outstanding: x.outstanding as string, installmentPlan: planned.has((x as { id?: string }).id ?? ''), suggestSuspend: x.status === 'ACTIVE' && Number(x.daysLate) > rules.suspendAfterDays && !planned.has((x as { id?: string }).id ?? '') }));
+    const rows: OverdueRow[] = r.rows.map((x) => ({ ...x, outstanding: x.outstanding as string, installmentPlan: planned.has((x as { id?: string }).id ?? ''), suggestSuspend: x.status === 'ACTIVE' && Number(x.daysLate) > rules.suspendAfterDays && !planned.has((x as { id?: string }).id ?? '') }));
+    if (!p) return rows;
+    return { rows, total: await this.repo.countUtilityBillForOverdue(this.db, today, tenantId), page: p.page, pageSize: p.limit };
   }
 
   async controls(tenantId: string) {

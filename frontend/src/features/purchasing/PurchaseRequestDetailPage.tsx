@@ -27,10 +27,10 @@ export default function PurchaseRequestDetailPage() {
   const [reason, setReason] = useState('');
   const [converting, setConverting] = useState(false);
   const [over, setOver] = useState<Record<string, { supplierId?: string; price?: number }>>({});
-  const act = (path: string, success: string, body: object = {}) => useAction(() => post(`/purchase-requests/${id}/${path}`, body), { success, invalidate: KEYS });
-  const submit = act('submit', 'Permintaan diajukan');
-  const approve = act('approve', 'Permintaan disetujui');
-  const cancel = act('cancel', 'Permintaan dibatalkan');
+  const useAct = (path: string, success: string, body: object = {}) => useAction(() => post(`/purchase-requests/${id}/${path}`, body), { success, invalidate: KEYS });
+  const submit = useAct('submit', 'Permintaan diajukan');
+  const approve = useAct('approve', 'Permintaan disetujui');
+  const cancel = useAct('cancel', 'Permintaan dibatalkan');
   const reject = useAction(() => post(`/purchase-requests/${id}/reject`, { note: reason }), { success: 'Permintaan ditolak', invalidate: KEYS, onSuccess: () => setRejecting(false) });
   const convert = useAction(
     () =>

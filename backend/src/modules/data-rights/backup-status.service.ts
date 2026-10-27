@@ -6,6 +6,7 @@ import { InjectDb } from '../../db/db.module';
 import { BackupReportDto } from './backup-status.dto';
 import { BackupKind } from './backup-status.shared';
 import { PlatformSettingsRepository } from '../../common/platform-settings.repository';
+import { schedulersEnabled } from '../../common/schedulers';
 
 export interface BackupEntry extends Omit<BackupReportDto, 'detail'> {
   at: string;
@@ -122,6 +123,8 @@ export class BackupStatusService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
+
+    if (!schedulersEnabled()) return; // banyak proses: hanya satu yang menjalankan tugas berkala
     if (process.env.NODE_ENV === 'test') return;
     this.timer = setInterval(() => void this.alertIfNeeded().catch((e: Error) => this.logger.warn(`Pemeriksaan status backup gagal: ${e.message}`)), 60 * 60_000);
     this.timer.unref();

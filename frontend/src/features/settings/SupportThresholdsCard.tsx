@@ -83,7 +83,7 @@ export default function SupportThresholdsCard({ canEdit }: { canEdit: boolean })
   }, [data, form]);
   const done = (r: Payload) => {
     qc.setQueryData(['support-insights-thresholds'], r);
-    qc.invalidateQueries({ queryKey: ['support-report'] });
+    void qc.invalidateQueries({ queryKey: ['support-report'] });
     form.setFieldsValue(r.values);
   };
   const save = useAction((v: SupportInsightThresholds) => put<Payload>('/settings/support-insights', v), { success: 'Ambang kesimpulan disimpan', onSuccess: done });

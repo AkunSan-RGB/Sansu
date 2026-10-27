@@ -15,7 +15,7 @@ export class CreateBinsDto {
   @ApiProperty() @IsUUID() warehouseId: string;
   @ApiProperty({ example: ['A-01-01', 'A-01-02'], description: 'Kode rak; huruf besar, angka, titik, garis, garis miring (maks 30 karakter)' })
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(MAX_BATCH) @IsString({ each: true }) codes: string[];
-  @ApiPropertyOptional({ enum: CREATABLE_KINDS }) @IsOptional() @IsIn(CREATABLE_KINDS as unknown as string[]) kind?: (typeof CREATABLE_KINDS)[number];
+  @ApiPropertyOptional({ enum: CREATABLE_KINDS }) @IsOptional() @IsIn(CREATABLE_KINDS) kind?: (typeof CREATABLE_KINDS)[number];
   @ApiPropertyOptional({ example: 'A' }) @IsOptional() @IsString() @MaxLength(30) zone?: string;
 }
 

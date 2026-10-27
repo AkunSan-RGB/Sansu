@@ -26,8 +26,8 @@ export default function InventoryMethodCard() {
   const save = useAction((method: InventoryMethod) => put<MethodInfo>('/settings/inventory-method', { method }), {
     success: 'Metode persediaan disimpan',
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['inventory-method'] });
-      qc.invalidateQueries({ queryKey: ['notes'] });
+      void qc.invalidateQueries({ queryKey: ['inventory-method'] });
+      void qc.invalidateQueries({ queryKey: ['notes'] });
     },
   });
   if (!data) return null;

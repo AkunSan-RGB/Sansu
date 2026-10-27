@@ -9,23 +9,34 @@ export interface WorkRow {
   last_outcome: string | null; last_visit_at: string | null; promised_on: string | null; promised_amount: string | null;
 }
 
-@Injectable()
-export class CollectionRepository {
-  /** Sambungan dengan tagihan air lewat jatuh tempo, lengkap dengan kunjungan terakhir; satu baris per sambungan */
-  worklist(db: DbOrTx, tenantId: string, today: string, f: { collectorId?: string; routeId?: string; q?: string }) {
-    const like = f.q ? `%${f.q}%` : null;
-    return rowsOf<WorkRow>(db, sql`
-      SELECT c.id AS connection_id, c.number, c.address, c.zone, c.status::text AS status, cu.name AS customer, cu.phone, r.id AS route_id, r.name AS route_name, r.collector_id,
-        SUM(i.total - i.paid_amount - i.returned_amount)::text AS outstanding, COUNT(*)::int AS bills, MIN(i.due_date)::text AS oldest_due, (${today}::date - MIN(i.due_date))::int AS days_late,
-        lv.outcome AS last_outcome, lv.visited_at::text AS last_visit_at, lv.promised_on::text AS promised_on, lv.promised_amount::text AS promised_amount
+/** Bagian FROM/WHERE/GROUP BY daftar tagih, dipakai bersama oleh daftar dan penghitungnya agar jumlah selalu cocok */
+function worklistBase(tenantId: string, today: string, f: { collectorId?: string; routeId?: string; q?: string }) {
+  const like = f.q ? `%${f.q}%` : null;
+  return sql`
       FROM invoices i JOIN utility_bills b ON b.invoice_id = i.id JOIN utility_connections c ON c.id = b.connection_id JOIN customers cu ON cu.id = c.customer_id
       LEFT JOIN utility_routes r ON r.id = c.route_id
       LEFT JOIN LATERAL (SELECT outcome, visited_at, promised_on, promised_amount FROM utility_collection_visits v WHERE v.connection_id = c.id ORDER BY v.visited_at DESC LIMIT 1) lv ON true
       WHERE i.tenant_id = ${tenantId} AND i.total - i.paid_amount - i.returned_amount > 0.5 AND i.due_date < ${today}::date
         AND (${f.collectorId ?? null}::uuid IS NULL OR r.collector_id = ${f.collectorId ?? null}::uuid) AND (${f.routeId ?? null}::uuid IS NULL OR c.route_id = ${f.routeId ?? null}::uuid)
         AND (${like}::text IS NULL OR c.number ILIKE ${like} OR cu.name ILIKE ${like} OR c.address ILIKE ${like})
-      GROUP BY c.id, cu.name, cu.phone, r.id, lv.outcome, lv.visited_at, lv.promised_on, lv.promised_amount
-      ORDER BY r.name NULLS LAST, c.route_seq NULLS LAST, MIN(i.due_date) LIMIT 500`);
+      GROUP BY c.id, cu.name, cu.phone, r.id, lv.outcome, lv.visited_at, lv.promised_on, lv.promised_amount`;
+}
+
+@Injectable()
+export class CollectionRepository {
+  /** Sambungan dengan tagihan air lewat jatuh tempo, lengkap dengan kunjungan terakhir; satu baris per sambungan */
+  worklist(db: DbOrTx, tenantId: string, today: string, f: { collectorId?: string; routeId?: string; q?: string }, page?: { limit: number; offset: number }) {
+    return rowsOf<WorkRow>(db, sql`
+      SELECT c.id AS connection_id, c.number, c.address, c.zone, c.status::text AS status, cu.name AS customer, cu.phone, r.id AS route_id, r.name AS route_name, r.collector_id,
+        SUM(i.total - i.paid_amount - i.returned_amount)::text AS outstanding, COUNT(*)::int AS bills, MIN(i.due_date)::text AS oldest_due, (${today}::date - MIN(i.due_date))::int AS days_late,
+        lv.outcome AS last_outcome, lv.visited_at::text AS last_visit_at, lv.promised_on::text AS promised_on, lv.promised_amount::text AS promised_amount
+      ${worklistBase(tenantId, today, f)}
+      ORDER BY r.name NULLS LAST, c.route_seq NULLS LAST, MIN(i.due_date), c.id LIMIT ${page?.limit ?? 500} OFFSET ${page?.offset ?? 0}`);
+  }
+  /** Jumlah sambungan di daftar tagih dengan penyaring yang sama (untuk paginasi) */
+  async worklistCount(db: DbOrTx, tenantId: string, today: string, f: { collectorId?: string; routeId?: string; q?: string }) {
+    const r = await firstOf<{ n: number }>(db, sql`SELECT COUNT(*)::int AS n FROM (SELECT c.id ${worklistBase(tenantId, today, f)}) x`);
+    return r?.n ?? 0;
   }
   /** Sambungan beserta penagih rutenya, untuk membatasi petugas lapangan pada rutenya sendiri */
   connectionWithCollector(db: DbOrTx, tenantId: string, id: string) {

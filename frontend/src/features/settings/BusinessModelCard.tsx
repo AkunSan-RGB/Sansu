@@ -27,12 +27,12 @@ export default function BusinessModelCard() {
           ? `Model bisnis disimpan · ${r.installed.length} aplikasi dinyalakan`
           : 'Model bisnis disimpan',
       onSuccess: () => {
-        qc.invalidateQueries({ queryKey: ['me'] });
-        qc.invalidateQueries({ queryKey: ['onboarding'] });
-        qc.invalidateQueries({ queryKey: ['onboarding', 'business'] });
-        qc.invalidateQueries({ queryKey: ['apps'] });
+        void qc.invalidateQueries({ queryKey: ['me'] });
+        void qc.invalidateQueries({ queryKey: ['onboarding'] });
+        void qc.invalidateQueries({ queryKey: ['onboarding', 'business'] });
+        void qc.invalidateQueries({ queryKey: ['apps'] });
         // bagan akun mendapat akun khusus model baru; laporan memakai istilah model baru
-        for (const k of ['accounts', 'statements', 'notes', 'appendix', 'entity-profile']) qc.invalidateQueries({ queryKey: [k] });
+        for (const k of ['accounts', 'statements', 'notes', 'appendix', 'entity-profile']) void qc.invalidateQueries({ queryKey: [k] });
       },
     },
   );

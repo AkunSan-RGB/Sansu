@@ -17,7 +17,8 @@
     "storage:migrate": "ts-node src/db/migrate-storage.ts",
     "storage:migrate:prod": "node dist/db/migrate-storage.js",
     "load:serentak": "node scripts/uji-beban-serentak.mjs",
-    "load:seed-air": "sh scripts/seed-beban-air.sh"
+    "load:seed-air": "sh scripts/seed-beban-air.sh",
+    "start:cluster": "node dist/cluster.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1152.0",
@@ -36,7 +37,7 @@
     "dotenv": "^16.6.1",
     "drizzle-orm": "^0.45.3",
     "helmet": "^8.3.0",
-    "nodemailer": "^6.10.1",
+    "nodemailer": "^10.2.1",
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"

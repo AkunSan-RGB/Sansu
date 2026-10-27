@@ -34,8 +34,19 @@ export class BillingJobsService {
 
   private async execute(u: AuthUser, id: string, period: string) {
     try {
-      const r = await this.util.run(u, { period }, undefined, { onProgress: (done, total, failed) => this.repo.progress(this.db, id, { total, done, failed }) });
-      await this.repo.finish(this.db, id, { status: 'SELESAI', total: r.billedCount + r.failedCount, done: r.billedCount + r.failedCount, failed: r.failedCount, billedTotal: r.billedTotal, held: r.heldCount });
+      // klaim yatim dari proses sebelumnya yang mati di tengah dilepas dulu agar sambungan itu ikut ditagih
+      let released = await this.repo.releaseStaleClaims(this.db, u.tenantId, period);
+      const hook = { onProgress: (done: number, total: number, failed: number) => this.repo.progress(this.db, id, { total, done, failed }) };
+      const r = await this.util.run(u, { period }, undefined, hook);
+      let billed = r.billedCount, failed = r.failedCount, amount = r.billedTotal, held = r.heldCount;
+      // klaim yang baru menjadi yatim selama jalannya pekerjaan ini (proses lain mati) disapu dan ditagih sekali lagi
+      released = await this.repo.releaseStaleClaims(this.db, u.tenantId, period);
+      if (released > 0) {
+        this.log.warn(`Tagih berlatar ${id}: ${released} klaim tanpa faktur dilepas dan ditagih ulang`);
+        const r2 = await this.util.run(u, { period }, undefined, hook);
+        billed += r2.billedCount; failed += r2.failedCount; amount += r2.billedTotal; held = Math.max(held, r2.heldCount);
+      }
+      await this.repo.finish(this.db, id, { status: 'SELESAI', total: billed + failed, done: billed + failed, failed, billedTotal: amount, held });
     } catch (e) {
       this.log.error(`Tagih berlatar ${id} gagal: ${(e as Error).message}`);
       await this.repo.finish(this.db, id, { status: 'GAGAL', total: 0, done: 0, failed: 0, billedTotal: 0, held: 0, error: (e as Error).message.slice(0, 500) }).catch(() => undefined);

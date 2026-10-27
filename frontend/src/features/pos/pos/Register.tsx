@@ -112,8 +112,8 @@ export function Register({ session }: { session: PosSession }) {
         setRedeem(null);
         const earned = (o as { loyaltyEarnedPoints?: number }).loyaltyEarnedPoints;
         if (earned) message.success(`Pelanggan memperoleh ${earned} poin`);
-        qc.invalidateQueries({ queryKey: ['pos-session'] });
-        qc.invalidateQueries({ queryKey: ['loyalty-member'] });
+        void qc.invalidateQueries({ queryKey: ['pos-session'] });
+        void qc.invalidateQueries({ queryKey: ['loyalty-member'] });
       },
     },
   );

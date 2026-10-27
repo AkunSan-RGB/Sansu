@@ -129,7 +129,7 @@ export class DeliveryTripsService {
     return this.repo.unscheduledDeliveries(this.db, tenantId);
   }
 
-  private async addStopsTx(tx: Db, tenantId: string, tripId: string, deliveryIds: string[]) {
+  private async addStopsTx(tx: DbOrTx, tenantId: string, tripId: string, deliveryIds: string[]) {
     const unique = [...new Set(deliveryIds)];
     if (unique.length !== deliveryIds.length) throw new BadRequestException('Surat jalan ganda dalam satu permintaan');
     const dos = await this.repo.deliveriesByIds(tx, tenantId, unique);
@@ -156,7 +156,7 @@ export class DeliveryTripsService {
       }
       const number = await this.seq.next(tx, u.tenantId, 'DELIVERY_TRIP', date);
       const t = await this.repo.insertTrip(tx, { tenantId: u.tenantId, number, date, vehicle, vehicleId: dto.vehicleId ?? null, driverName: driver, notes: dto.notes?.trim() || null, createdById: u.sub });
-      if (dto.deliveryIds?.length) await this.addStopsTx(tx as unknown as Db, u.tenantId, t.id, dto.deliveryIds);
+      if (dto.deliveryIds?.length) await this.addStopsTx(tx, u.tenantId, t.id, dto.deliveryIds);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'DeliveryTrip', entityId: t.id, data: { number, stops: dto.deliveryIds?.length ?? 0 } });
       return t;
     });
@@ -171,7 +171,7 @@ export class DeliveryTripsService {
       const t = await lockOwned(tx, deliveryTrips, u.tenantId, id);
       if (!t) throw new NotFoundException('Rute pengiriman tidak ditemukan');
       this.assertPlanned(t);
-      await this.addStopsTx(tx as unknown as Db, u.tenantId, id, dto.deliveryIds);
+      await this.addStopsTx(tx, u.tenantId, id, dto.deliveryIds);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'ADD_STOPS', entity: 'DeliveryTrip', entityId: id, data: { number: t.number, added: dto.deliveryIds.length } });
     });
     await this.refreshDistance(u.tenantId, id);
@@ -185,14 +185,14 @@ export class DeliveryTripsService {
       this.assertPlanned(t);
       const del = await this.repo.deleteStop(tx, id, stopId);
       if (!del.length) throw new NotFoundException('Stop tidak ditemukan');
-      await this.renumber(tx as unknown as Db, id);
+      await this.renumber(tx, id);
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'REMOVE_STOP', entity: 'DeliveryTrip', entityId: id, data: { number: t.number } });
     });
     await this.refreshDistance(u.tenantId, id);
     return this.get(u.tenantId, id);
   }
 
-  private async renumber(tx: Db, tripId: string) {
+  private async renumber(tx: DbOrTx, tripId: string) {
     const rows = await this.repo.stopIdsInOrder(tx, tripId);
     for (let i = 0; i < rows.length; i++) await this.repo.setStopSequence(tx, rows[i].id, i + 1);
   }

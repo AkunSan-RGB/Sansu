@@ -7,6 +7,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { VisitDto } from './collection.dto';
 import { CollectionRepository } from './collection.repository';
+import { normalizePage, type PageQuery } from '../../common/pagination';
 
 /** Penagihan lapangan: daftar kunjungan kolektor per rute, hasil kunjungan, dan janji bayar yang dipantau */
 @Injectable()
@@ -16,14 +17,18 @@ export class CollectionService {
   /** Petugas lapangan hanya melihat rutenya sendiri; peran lain boleh menyaring per petugas */
   private scope(u: AuthUser, collectorId?: string) { return u.role === 'WAREHOUSE' ? u.sub : collectorId || undefined; }
 
-  async worklist(u: AuthUser, f: { collectorId?: string; routeId?: string; q?: string }) {
+  async worklist(u: AuthUser, f: { collectorId?: string; routeId?: string; q?: string }, page?: PageQuery) {
     const today = todayJakarta();
-    const rows = await this.repo.worklist(this.db, u.tenantId, today, { ...f, collectorId: this.scope(u, f.collectorId), routeId: f.routeId || undefined });
-    return rows.map((r) => {
+    const filter = { ...f, collectorId: this.scope(u, f.collectorId), routeId: f.routeId || undefined };
+    const p = page ? normalizePage(page) : undefined;
+    const raw = await this.repo.worklist(this.db, u.tenantId, today, filter, p);
+    const rows = raw.map((r) => {
       const promise = r.last_outcome === 'JANJI_BAYAR' && r.promised_on ? (r.promised_on < today ? 'INGKAR' : 'MENUNGGU') : null;
       const msg = `Yth. ${r.customer}, tagihan air sambungan ${r.number} sebesar Rp${Math.round(Number(r.outstanding)).toLocaleString('id-ID')} sudah lewat jatuh tempo ${r.days_late} hari. Mohon segera dilunasi di loket atau kolektor kami.`;
       return { ...r, promise, whatsapp: whatsappLink(r.phone, msg) };
     });
+    if (!p) return rows;
+    return { rows, total: await this.repo.worklistCount(this.db, u.tenantId, today, filter), page: p.page, pageSize: p.limit };
   }
   async summary(u: AuthUser, collectorId?: string) {
     const s = await this.repo.summary(this.db, u.tenantId, todayJakarta(), this.scope(u, collectorId));

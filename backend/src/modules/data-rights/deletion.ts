@@ -30,6 +30,7 @@ import { auditLogs, dataDeletionRequests, dataErasureLog, tenants, users } from 
 import { StorageService } from '../../common/storage/storage.service';
 import { eraseTenant } from './erase';
 import { ReauthService } from './reauth';
+import { schedulersEnabled } from '../../common/schedulers';
 
 export const GRACE_DAYS = () => Math.max(7, Number(process.env.DATA_DELETION_GRACE_DAYS ?? 30) || 30);
 /** Lama salinan cadangan menyimpan data setelah penghapusan (BACKUP_RETENTION_DAYS = jendela pemulihan/retensi backup yang Anda atur di penyedia database); kosong = belum ditetapkan */
@@ -432,6 +433,8 @@ export class DeletionService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
+
+    if (!schedulersEnabled()) return; // banyak proses: hanya satu yang menjalankan tugas berkala
     if (process.env.NODE_ENV === 'test') return;
     const run = () =>
       void this.runDue().catch((e) => this.logger.error(`Penjadwal penghapusan error: ${(e as Error).message}`));

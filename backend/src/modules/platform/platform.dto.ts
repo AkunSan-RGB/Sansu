@@ -70,7 +70,7 @@ export class BrandingDto {
 }
 
 export class TermsSettingsDto {
-  @ApiProperty({ enum: RECIPE_TERMS }) @IsIn(RECIPE_TERMS as unknown as string[]) recipe: string;
+  @ApiProperty({ enum: RECIPE_TERMS }) @IsIn(RECIPE_TERMS) recipe: string;
 }
 
 export class ReportingSettingsDto {

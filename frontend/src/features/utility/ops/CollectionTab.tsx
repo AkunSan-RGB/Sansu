@@ -9,6 +9,7 @@ import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { Stats, opt } from './kit';
+import { usePaged } from '@/lib/usePaged';
 
 interface Row { connection_id: string; number: string; address: string; customer: string; phone: string | null; route_name: string | null; outstanding: string; bills: number; oldest_due: string; days_late: number; last_outcome: VisitOutcome | null; last_visit_at: string | null; promised_on: string | null; promised_amount: string | null; promise: 'MENUNGGU' | 'INGKAR' | null; whatsapp: string | null }
 interface Visit { id: string; visited_at: string; outcome: VisitOutcome; promised_on: string | null; promised_amount: string | null; note: string | null; collector: string | null }
@@ -21,7 +22,7 @@ export function CollectionTab() {
   const [q, setQ] = useState('');
   const [visiting, setVisiting] = useState<Row | null>(null);
   const routes = useQuery({ queryKey: ['utility', 'routes'], queryFn: () => get<{ routes: { id: string; code: string; name: string }[] }>('/utility/routes') });
-  const list = useQuery({ queryKey: ['utility', 'collection', routeId, q], queryFn: () => get<Row[]>(`/utility/collection/worklist?${new URLSearchParams({ ...(routeId ? { routeId } : {}), ...(q ? { q } : {}) })}`) });
+  const list = usePaged<Row>(['utility', 'collection-page'], '/utility/collection/worklist', { routeId, q });
   const sum = useQuery({ queryKey: ['utility', 'collection', 'summary'], queryFn: () => get<{ visitsToday: number; promisesToday: number; broken: number; overdueConnections: number; overdueAmount: number }>('/utility/collection/summary') });
   const s = sum.data;
   return (
@@ -37,7 +38,7 @@ export function CollectionTab() {
         <Select allowClear placeholder="Semua rute" style={{ width: 220 }} value={routeId} onChange={setRouteId} options={(routes.data?.routes ?? []).map((r) => ({ value: r.id, label: `${r.code} — ${r.name}` }))} />
         <Input.Search allowClear placeholder="Cari nomor, nama, alamat" onSearch={setQ} style={{ width: 240 }} />
       </Space>
-      <ResponsiveTable<Row> rowKey="connection_id" size="small" loading={list.isLoading} dataSource={list.data} pagination={{ pageSize: 25 }} locale={{ emptyText: 'Tidak ada tunggakan pada rute ini' }}
+      <ResponsiveTable<Row> rowKey="connection_id" size="small" loading={list.isLoading} dataSource={list.rows} pagination={list.pagination} locale={{ emptyText: 'Tidak ada tunggakan pada rute ini' }}
         expandable={{ expandedRowRender: (r) => <VisitHistory connectionId={r.connection_id} /> }}
         columns={[
           { title: 'Pelanggan', render: (_: unknown, r: Row) => <><b>{r.customer}</b><div style={{ fontSize: 12, color: '#64748b' }}>{r.number} · {r.address}</div>{r.route_name && <div style={{ fontSize: 12, color: '#64748b' }}>{r.route_name}</div>}</> },
@@ -66,7 +67,7 @@ function VisitModal({ row, onClose }: { row: Row | null; onClose: () => void }) 
   const save = useAction((v: Record<string, unknown>) => new Promise<unknown>((resolve, reject) => {
     const send = (pos?: GeolocationPosition) => post('/utility/collection/visits', { ...v, connectionId: row!.connection_id, promisedOn: v.promisedOn ? dayjs(v.promisedOn as string).format('YYYY-MM-DD') : undefined, lat: pos?.coords.latitude, lng: pos?.coords.longitude }).then(resolve, reject);
     // lokasi dicatat bila diizinkan; bila ditolak/lambat tetap disimpan tanpa lokasi
-    if (navigator.geolocation) navigator.geolocation.getCurrentPosition(send, () => send(), { timeout: 4000 }); else send();
+    if (navigator.geolocation) navigator.geolocation.getCurrentPosition(send, () => send(), { timeout: 4000 }); else void send();
   }), { success: 'Kunjungan dicatat', invalidate: ['utility'], onSuccess: () => { f.resetFields(); onClose(); } });
   return (
     <Modal open={!!row} title={row ? `Kunjungan — ${row.customer}` : ''} okText="Simpan" cancelText="Batal" confirmLoading={save.isPending} destroyOnHidden onCancel={onClose} onOk={() => f.validateFields().then((v) => save.mutate(v))}>
