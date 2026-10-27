@@ -416,7 +416,16 @@ export class AccountingService {
   async periodStatus(tenantId: string) {
     const lockedUntil = await this.period.lockedUntil(this.db, tenantId);
     const closings = await this.repo.listJournalEntriesBySourceTypeAndDate(this.db, tenantId);
-    return { lockedUntil, closings };
+    const lockHistory = (await this.repo.queryLockHistory(this.db, tenantId)).rows.map((r) => ({
+      id: r.id,
+      kind: r.action === 'UNLOCK_PERIOD' ? ('UNLOCK' as const) : ('LOCK' as const),
+      at: r.at,
+      from: r.from,
+      to: r.to,
+      who: r.who,
+      auto: r.auto,
+    }));
+    return { lockedUntil, closings, lockHistory };
   }
 
   /** Kunci periode sampai tanggal tertentu. Membuka kembali (tanggal mundur) hanya untuk Pemilik. */

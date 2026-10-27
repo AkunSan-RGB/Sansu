@@ -178,6 +178,12 @@ describe('Pembukuan otomatis (e2e)', () => {
     expect(last.payroll?.at).toBeTruthy();
     expect(last.fx?.at).toBeTruthy();
     expect(last.lock?.at).toBeTruthy();
+    // riwayat kunci periode: kunci otomatis tercatat dengan penanda otomatis dan tanggal sebelum/sesudahnya
+    const st = (await get(owner, '/api/accounting/period').expect(200)).body as { lockedUntil: string | null; lockHistory: { kind: string; auto: boolean; to: string | null; from: string | null; at: string }[] };
+    expect(st.lockHistory.length).toBeGreaterThan(0);
+    const autoLock = st.lockHistory.find((h) => h.kind === 'LOCK' && h.auto);
+    expect(autoLock?.to).toBeTruthy();
+    expect(st.lockHistory[0].at >= st.lockHistory[st.lockHistory.length - 1].at).toBe(true); // terbaru dulu
     // akun Keuangan boleh membaca (hanya melihat), Admin dan Akuntan juga
     await get(fin, '/api/accounting/auto/last').expect(200);
   });

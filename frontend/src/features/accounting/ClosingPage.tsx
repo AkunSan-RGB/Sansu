@@ -151,6 +151,42 @@ export default function ClosingPage() {
       )}
 
       <Collapse
+        style={{ marginBottom: 16 }}
+        items={[
+          {
+            key: 'history',
+            label: `Riwayat kunci periode (${status.data?.lockHistory?.length ?? 0})`,
+            children: (
+              <Table
+                rowKey="id"
+                size="small"
+                pagination={false}
+                dataSource={status.data?.lockHistory ?? []}
+                locale={{ emptyText: 'Belum ada periode yang dikunci' }}
+                columns={[
+                  { title: 'Waktu', dataIndex: 'at', render: (v: string) => dayjs(v).format('DD/MM/YYYY HH:mm') },
+                  {
+                    title: 'Tindakan',
+                    dataIndex: 'kind',
+                    render: (k: 'LOCK' | 'UNLOCK', r) => (
+                      <Space>
+                        <Tag color={k === 'LOCK' ? 'red' : 'green'} icon={k === 'LOCK' ? <LockOutlined /> : <UnlockOutlined />}>
+                          {k === 'LOCK' ? 'Dikunci' : 'Dibuka kembali'}
+                        </Tag>
+                        {r.auto && <Tag>Otomatis</Tag>}
+                      </Space>
+                    ),
+                  },
+                  { title: 'Sampai tanggal', dataIndex: 'to', render: (v: string | null) => (v ? fmtDate(v) : '—') },
+                  { title: 'Sebelumnya', dataIndex: 'from', render: (v: string | null) => (v ? fmtDate(v) : 'Belum terkunci') },
+                  { title: 'Oleh', dataIndex: 'who', render: (v: string | null, r) => (r.auto ? 'Sistem (atas nama Pemilik)' : (v ?? '—')) },
+                ]}
+              />
+            ),
+          },
+        ]}
+      />
+      <Collapse
         items={[
           {
             key: 'year',
