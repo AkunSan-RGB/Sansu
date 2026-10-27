@@ -10,6 +10,7 @@ import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import { ImportConnections } from './ImportConnections';
 import { Connection, STATUS_COLOR, Tariff } from './shared';
+import { usePaged } from '@/lib/usePaged';
 import { ConnectionDrawer } from './ConnectionDrawer';
 
 // ---------- Sambungan ----------
@@ -17,7 +18,8 @@ export function ConnectionsTab() {
   const can = useCan();
   const [status, setStatus] = useState<string>();
   const [search, setSearch] = useState('');
-  const { data, isLoading } = useQuery({ queryKey: ['utility', 'connections', status, search], queryFn: () => get<Connection[]>(`/utility/connections?${new URLSearchParams({ ...(status ? { status } : {}), ...(search ? { search } : {}) })}`) });
+  const paged = usePaged<Connection>(['utility', 'connections-page'], '/utility/connections', { status, search });
+  const { isLoading } = paged;
   const tariffs = useQuery({ queryKey: ['utility', 'tariffs'], queryFn: () => get<Tariff[]>('/utility/tariffs') });
   const customers = useCustomers();
   const [creating, setCreating] = useState(false);
@@ -42,9 +44,8 @@ export function ConnectionsTab() {
         {can('POST', '/utility/connections') && <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setCreating(true); }}>Sambungan baru</Button>}
         {can('POST', '/utility/import/connections') && <Button onClick={() => setImporting(true)}>Impor dari Excel/CSV</Button>}
       </Space>
-      {(data?.length ?? 0) >= 500 && <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Menampilkan 500 sambungan teratas. Ketik nama, nomor, meter, atau alamat di kolom cari untuk menemukan sambungan lain." />}
       <ImportConnections open={importing} onClose={() => setImporting(false)} />
-      <ResponsiveTable<Connection> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={{ pageSize: 20 }} scroll={{ x: 900 }} locale={{ emptyText: 'Belum ada sambungan' }}
+      <ResponsiveTable<Connection> rowKey="id" size="small" loading={isLoading} dataSource={paged.rows} pagination={paged.pagination} scroll={{ x: 900 }} locale={{ emptyText: 'Belum ada sambungan' }}
         columns={[
           { title: 'No. sambungan', dataIndex: 'number', render: (v: string, c: Connection) => <a onClick={() => setDetail(c.id)}>{v}</a> },
           { title: 'Pelanggan', dataIndex: 'customerName' },

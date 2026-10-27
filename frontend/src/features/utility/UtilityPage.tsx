@@ -33,6 +33,7 @@ import { PortalTab } from './ops/PortalTab';
 import { ProductionTab, QualityTab } from './ops/ProductionTabs';
 import { RoutesTab } from './ops/RoutesTab';
 import { OutboxTab, VaTab } from './ops/VaOutboxTabs';
+import { usePaged } from '@/lib/usePaged';
 
 const SEV: Record<string, string> = { high: 'red', medium: 'orange' };
 
@@ -247,7 +248,8 @@ function WorkflowGuide() {
 // ---------- Tunggakan ----------
 function OverdueTab() {
   const can = useCan();
-  const { data, isLoading } = useQuery({ queryKey: ['utility', 'overdue'], queryFn: () => get<Overdue[]>('/utility/overdue') });
+  const od = usePaged<Overdue>(['utility', 'overdue-page'], '/utility/overdue');
+  const isLoading = od.isLoading;
   const rules = useQuery({ queryKey: ['utility', 'rules'], queryFn: () => get<UtilityRules>('/utility/rules') });
   const [act, setAct] = useState<Overdue | null>(null);
   const [af] = Form.useForm<{ reason: string }>();
@@ -255,7 +257,7 @@ function OverdueTab() {
   return (
     <>
       <Alert type="info" showIcon style={{ marginBottom: 12 }} message={`Denda ${rules.data?.lateFeePct ?? DEFAULT_UTILITY_RULES.lateFeePct}% setelah ${rules.data?.graceDays ?? DEFAULT_UTILITY_RULES.graceDays} hari dari jatuh tempo (sekali per tagihan, ikut di tagihan bulan berikutnya). Usulan putus bila lewat ${rules.data?.suspendAfterDays ?? DEFAULT_UTILITY_RULES.suspendAfterDays} hari.`} />
-      <ResponsiveTable<Overdue> rowKey="id" size="small" loading={isLoading} dataSource={data} pagination={{ pageSize: 20 }} scroll={{ x: 800 }} locale={{ emptyText: 'Tidak ada tunggakan melewati jatuh tempo' }}
+      <ResponsiveTable<Overdue> rowKey="id" size="small" loading={isLoading} dataSource={od.rows} pagination={od.pagination} scroll={{ x: 800 }} locale={{ emptyText: 'Tidak ada tunggakan melewati jatuh tempo' }}
         columns={[
           { title: 'Sambungan', render: (_: unknown, o: Overdue) => `${o.number} · ${o.customerName}` },
           { title: 'Alamat', dataIndex: 'address', ellipsis: true },

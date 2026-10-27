@@ -8,6 +8,7 @@ import { useAction } from '@/api/queries';
 import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import { READ_COLOR, Reading, thisMonth } from './shared';
+import { usePaged } from '@/lib/usePaged';
 
 const SOURCE_LABEL: Record<string, string> = { LAPANGAN: 'Lapangan', IMPORT: 'Impor', API: 'Alat meter' };
 
@@ -21,7 +22,7 @@ function FlagTags({ flags }: { flags: ReadingFlag[] }) {
 export function ReadingsTab() {
   const can = useCan();
   const [period, setPeriod] = useState(thisMonth());
-  const due = useQuery({ queryKey: ['utility', 'due', period], queryFn: () => get<Due[]>(`/utility/readings/due?period=${period}`), enabled: can('POST', '/utility/readings') });
+  const due = usePaged<Due>(['utility', 'due-page'], '/utility/readings/due', { period }, { enabled: can('POST', '/utility/readings'), pageSize: 25 });
   const list = useQuery({ queryKey: ['utility', 'readings', period], queryFn: () => get<Reading[]>(`/utility/readings?period=${period}`) });
   const [photoOf, setPhotoOf] = useState<string | null>(null);
   const photo = useQuery({ queryKey: ['utility', 'photo', photoOf], queryFn: () => get<{ photo: string | null }>(`/utility/readings/${photoOf}/photo`), enabled: !!photoOf });
@@ -43,8 +44,8 @@ export function ReadingsTab() {
       </Space>
       {can('POST', '/utility/readings') && (
         <>
-          <Typography.Title level={5}>Belum dicatat ({due.data?.length ?? 0})</Typography.Title>
-          <ResponsiveTable<Due> rowKey="id" size="small" loading={due.isLoading} dataSource={due.data} pagination={{ pageSize: 10 }} locale={{ emptyText: 'Semua sambungan sudah dicatat untuk periode ini' }}
+          <Typography.Title level={5}>Belum dicatat ({due.total.toLocaleString('id-ID')})</Typography.Title>
+          <ResponsiveTable<Due> rowKey="id" size="small" loading={due.isLoading} dataSource={due.rows} pagination={due.pagination} locale={{ emptyText: 'Semua sambungan sudah dicatat untuk periode ini' }}
             columns={[
               { title: 'Sambungan', dataIndex: 'number' },
               { title: 'Pelanggan', dataIndex: 'customerName' },

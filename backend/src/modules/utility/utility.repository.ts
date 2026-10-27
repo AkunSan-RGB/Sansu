@@ -35,6 +35,12 @@ export type UtilityReadingLockRow = {
   period: string;
 };
 
+/** Penyaring daftar sambungan (dipakai bersama oleh daftar dan penghitung agar jumlah selalu cocok) */
+function connectionFilter(q: { status?: string; search?: string; id?: string }) {
+  return sql`${q.id ? sql`AND c.id = ${q.id}` : sql``} ${q.status ? sql`AND c.status = ${q.status}` : sql``}
+    ${q.search ? sql`AND (cu.name ILIKE ${'%' + q.search + '%'} OR c.number ILIKE ${'%' + q.search + '%'} OR c.meter_no ILIKE ${'%' + q.search + '%'} OR c.address ILIKE ${'%' + q.search + '%'})` : sql``}`;
+}
+
 @Injectable()
 export class UtilityRepository {
   async connectionsWithInstallment(db: DbOrTx, tenantId: string) {
@@ -75,16 +81,23 @@ export class UtilityRepository {
   }
 
   /** Dipakai oleh UtilityService.connections */
-  queryUtilityConnection(db: DbOrTx, tenantId: string, q: { status?: string; search?: string }) {
+  queryUtilityConnection(db: DbOrTx, tenantId: string, q: { status?: string; search?: string; id?: string; limit?: number; offset?: number }) {
     return db.execute<Record<string, unknown>>(sql`
       SELECT c.id, c.number, c.status, c.meter_no AS "meterNo", c.address, c.zone, c.installed_at::text AS "installedAt", c.status_note AS "statusNote",
              c.customer_id AS "customerId", cu.name AS "customerName", c.tariff_id AS "tariffId", t.name AS "tariffName", t.service_type AS "serviceType", t.unit, t.metered,
              (SELECT r.current FROM utility_readings r WHERE r.connection_id = c.id AND r.status <> 'REJECTED' ORDER BY r.period DESC LIMIT 1) AS "lastReading",
              (SELECT r.period FROM utility_readings r WHERE r.connection_id = c.id AND r.status <> 'REJECTED' ORDER BY r.period DESC LIMIT 1) AS "lastPeriod"
       FROM utility_connections c JOIN customers cu ON cu.id = c.customer_id JOIN utility_tariffs t ON t.id = c.tariff_id
-      WHERE c.tenant_id = ${tenantId} ${q.status ? sql`AND c.status = ${q.status}` : sql``}
-        ${q.search ? sql`AND (cu.name ILIKE ${'%' + q.search + '%'} OR c.number ILIKE ${'%' + q.search + '%'} OR c.meter_no ILIKE ${'%' + q.search + '%'} OR c.address ILIKE ${'%' + q.search + '%'})` : sql``}
-      ORDER BY c.number DESC LIMIT 500`);
+      WHERE c.tenant_id = ${tenantId} ${connectionFilter(q)}
+      ORDER BY c.number DESC LIMIT ${q.limit ?? 500} OFFSET ${q.offset ?? 0}`);
+  }
+
+  /** Jumlah seluruh sambungan yang cocok dengan penyaring yang sama (untuk paginasi) */
+  async countUtilityConnection(db: DbOrTx, tenantId: string, q: { status?: string; search?: string }) {
+    const r = await db.execute<{ n: number }>(sql`
+      SELECT COUNT(*)::int AS n FROM utility_connections c JOIN customers cu ON cu.id = c.customer_id
+      WHERE c.tenant_id = ${tenantId} ${connectionFilter(q)}`);
+    return r.rows[0]?.n ?? 0;
   }
 
   /** Dipakai oleh UtilityService.connection */
@@ -177,14 +190,23 @@ export class UtilityRepository {
   }
 
   /** Dipakai oleh UtilityService.due */
-  queryUtilityConnectionForDue(db: DbOrTx, tenantId: string, period: string) {
+  queryUtilityConnectionForDue(db: DbOrTx, tenantId: string, period: string, page?: { limit: number; offset: number }) {
     return db.execute<Record<string, unknown>>(sql`
       SELECT c.id, c.number, c.meter_no AS "meterNo", c.address, cu.name AS "customerName", t.unit,
              COALESCE((SELECT r.current FROM utility_readings r WHERE r.connection_id = c.id AND r.status <> 'REJECTED' ORDER BY r.period DESC LIMIT 1), c.initial_reading) AS previous
       FROM utility_connections c JOIN customers cu ON cu.id = c.customer_id JOIN utility_tariffs t ON t.id = c.tariff_id
       WHERE c.tenant_id = ${tenantId} AND c.status = 'ACTIVE' AND t.metered AND to_char(c.installed_at, 'YYYY-MM') <= ${period}
         AND NOT EXISTS (SELECT 1 FROM utility_readings r WHERE r.connection_id = c.id AND r.period = ${period} AND r.status <> 'REJECTED')
-      ORDER BY c.address LIMIT 1000`);
+      ORDER BY c.address, c.id LIMIT ${page?.limit ?? 1000} OFFSET ${page?.offset ?? 0}`);
+  }
+
+  /** Jumlah sambungan yang belum dicatat meternya pada periode itu */
+  async countUtilityConnectionForDue(db: DbOrTx, tenantId: string, period: string) {
+    const r = await db.execute<{ n: number }>(sql`
+      SELECT COUNT(*)::int AS n FROM utility_connections c JOIN utility_tariffs t ON t.id = c.tariff_id
+      WHERE c.tenant_id = ${tenantId} AND c.status = 'ACTIVE' AND t.metered AND to_char(c.installed_at, 'YYYY-MM') <= ${period}
+        AND NOT EXISTS (SELECT 1 FROM utility_readings r WHERE r.connection_id = c.id AND r.period = ${period} AND r.status <> 'REJECTED')`);
+    return r.rows[0]?.n ?? 0;
   }
 
   /** Dipakai oleh UtilityService.enterReading */
@@ -283,13 +305,22 @@ export class UtilityRepository {
   }
 
   /** Dipakai oleh UtilityService.overdue */
-  queryUtilityBillForOverdue(db: DbOrTx, today: string, tenantId: string) {
+  queryUtilityBillForOverdue(db: DbOrTx, today: string, tenantId: string, page?: { limit: number; offset: number }) {
     return db.execute<Record<string, unknown>>(sql`
       SELECT c.id, c.number, c.status, c.address, cu.name AS "customerName", cu.phone,
              SUM(i.total - i.paid_amount) AS outstanding, MAX(${today}::date - i.due_date)::int AS "daysLate", COUNT(*)::int AS bills
       FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id JOIN utility_connections c ON c.id = b.connection_id JOIN customers cu ON cu.id = c.customer_id
       WHERE b.tenant_id = ${tenantId} AND i.status <> 'PAID' AND i.due_date < ${today}::date AND c.status <> 'DISCONNECTED'
-      GROUP BY c.id, c.number, c.status, c.address, cu.name, cu.phone ORDER BY MAX(${today}::date - i.due_date) DESC LIMIT 500`);
+      GROUP BY c.id, c.number, c.status, c.address, cu.name, cu.phone ORDER BY MAX(${today}::date - i.due_date) DESC, c.id LIMIT ${page?.limit ?? 500} OFFSET ${page?.offset ?? 0}`);
+  }
+
+  /** Jumlah sambungan bertunggakan */
+  async countUtilityBillForOverdue(db: DbOrTx, today: string, tenantId: string) {
+    const r = await db.execute<{ n: number }>(sql`
+      SELECT COUNT(DISTINCT c.id)::int AS n
+      FROM utility_bills b JOIN invoices i ON i.id = b.invoice_id JOIN utility_connections c ON c.id = b.connection_id
+      WHERE b.tenant_id = ${tenantId} AND i.status <> 'PAID' AND i.due_date < ${today}::date AND c.status <> 'DISCONNECTED'`);
+    return r.rows[0]?.n ?? 0;
   }
 
   // ---- kueri yang dipindah dari service ----
