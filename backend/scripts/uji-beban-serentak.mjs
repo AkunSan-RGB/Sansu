@@ -3,12 +3,13 @@
  * Uji beban serentak SANSU: banyak pengguna maya (VU) dari beberapa perusahaan bekerja bersamaan pada server yang sedang berjalan,
  * campuran baca dan tulis, lalu memeriksa bahwa pembukuan tetap benar (bukan hanya cepat).
  *
- *   node scripts/uji-beban-serentak.mjs --vus 100 --duration 60 --tenants 5 [--base http://localhost:3000] [--utility-token FILE]
+ *   node scripts/uji-beban-serentak.mjs --vus 100 --duration 60 --tenants 5 [--ritel 2] [--base http://localhost:3000] [--utility-token FILE]
  *
  * Yang diukur : permintaan/detik, latensi p50/p95/p99 per aksi, galat 5xx, waktu habis, 4xx tak terduga.
  * Yang diperiksa setelahnya (langsung ke database): jurnal seimbang, nomor dokumen tak ganda, stok tak negatif dan = awal - terjual,
  *               terbayar <= tagihan dan = jumlah pembayaran, saldo kas = jumlah transaksi, kebuntuan (deadlock) di PostgreSQL.
- * Tanpa --utility-token hanya perusahaan dagang yang diuji. Dengan token (hasil /tmp/load/seed.sh) perusahaan air 10.000 sambungan ikut.
+ * --ritel N menambah N perusahaan ritel dengan 3 kasir tiap perusahaan (penjualan kasir lewat harga toko + promo dari server, stok, jurnal, pembayaran).
+ * Tanpa --utility-token hanya perusahaan dagang (dan ritel bila diminta) yang diuji. Dengan token (hasil /tmp/load/seed.sh) perusahaan air 10.000 sambungan ikut.
  */
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
@@ -22,6 +23,7 @@ const BASE = arg('base', 'http://localhost:3000') + '/api';
 const VUS = Number(arg('vus', 50));
 const DURATION = Number(arg('duration', 60));
 const TENANTS = Number(arg('tenants', 4));
+const RITEL = Number(arg('ritel', 0));
 const RAMP = Number(arg('ramp', 10));
 const TIMEOUT_MS = Number(arg('timeout', 30000));
 const UTIL_TOKEN_FILE = arg('utility-token', '');
@@ -106,6 +108,30 @@ async function setupTenant(i) {
   return { kind: 'dagang', token, tenantId: me.tenantId, warehouseId, productId: product.id, supplierId: supplier.id, customers, cashId, expAcc: code('6-6000'), cashAcc: code('1-1100'), unpaid: [], sold: 0, journals: 0 };
 }
 
+/** Perusahaan ritel: 3 kasir dengan sesi sendiri, daftar harga toko dan promo diskon aktif (jalur harga kasir dari server) */
+async function setupRitel(i) {
+  const reg = await call('setup', null, 'POST', '/auth/register', { companyName: `Toko Beban ${STAMP}-${i}`, name: 'Pemilik', email: `ritel-${STAMP}-${i}@uji.id`, password: 'rahasia123', businessModel: 'RITEL' });
+  if (reg.status !== 201) throw new Error('registrasi ritel gagal: ' + JSON.stringify(reg.body));
+  const token = reg.body.accessToken;
+  const me = (await call('setup', token, 'GET', '/auth/me')).body;
+  const warehouseId = (await call('setup', token, 'GET', '/warehouses')).body[0].id;
+  const product = (await call('setup', token, 'POST', '/products', { sku: 'RL-1', name: 'Barang kasir uji beban', sellPrice: '10000' })).body;
+  await call('setup', token, 'POST', '/inventory/adjustments', { warehouseId, reason: 'OPENING', lines: [{ productId: product.id, qty: '1000000', unitCost: '5000' }] });
+  const list = (await call('setup', token, 'POST', '/price-lists', { name: 'Harga toko' })).body;
+  await call('setup', token, 'PUT', `/price-lists/${list.id}/items`, { items: [{ productId: product.id, minQty: '1', price: '9000' }] });
+  await call('setup', token, 'PATCH', `/warehouses/${warehouseId}`, { priceListId: list.id });
+  await call('setup', token, 'POST', '/promos', { name: 'Diskon 5% min 3', kind: 'DISCOUNT', productId: product.id, minQty: '3', discountPct: '5' });
+  const cashiers = [];
+  for (let k = 0; k < 3; k++) {
+    const email = `kasir-${STAMP}-${i}-${k}@uji.id`;
+    await call('setup', token, 'POST', '/users', { name: `Kasir ${k}`, email, password: 'rahasia12345', role: 'CASHIER' });
+    const login = await call('setup', null, 'POST', '/auth/login', { email, password: 'rahasia12345' });
+    const sess = await call('setup', login.body.accessToken, 'POST', '/pos/sessions', { warehouseId, openingCash: '100000' });
+    cashiers.push({ token: login.body.accessToken, sessionId: sess.body.id });
+  }
+  return { kind: 'ritel', token, tenantId: me.tenantId, warehouseId, productId: product.id, cashiers, sold: 0, orders: 0 };
+}
+
 // ---------------- skenario pengguna ----------------
 const READS_DAGANG = [
   ['baca:faktur', 10, (t) => call('baca:faktur', t.token, 'GET', '/invoices')],
@@ -140,6 +166,22 @@ const WRITES_DAGANG = [
   ['tulis:kas-keluar', 3, (t) => call('tulis:kas-keluar', t.token, 'POST', '/cash/transactions', { type: 'OUT', cashAccountId: t.cashId, date: today(), description: 'Beban listrik', lines: [{ source: 'OUT_ELECTRICITY', amount: '5000' }] }, { expect4xx: true })],
   ['tulis:pelanggan', 2, (t) => call('tulis:pelanggan', t.token, 'POST', '/customers', { code: `X-${rnd(1e9)}`, name: `Toko ${rnd(1e9).toString(36)} ${rnd(1e9).toString(36)}` })],
 ];
+const RITEL_ACTIONS = [
+  ['baca:produk-kasir', 8, (t) => { const c = pick(t.cashiers); return call('baca:produk-kasir', c.token, 'GET', `/pos/products?warehouseId=${t.warehouseId}`); }],
+  ['baca:sesi-kasir', 4, (t) => call('baca:sesi-kasir', pick(t.cashiers).token, 'GET', '/pos/sessions')],
+  ['tulis:kasir', 20, async (t) => {
+    const c = pick(t.cashiers);
+    const qty = 1 + rnd(5);
+    const lines = [{ productId: t.productId, qty: String(qty) }];
+    const q = await call('tulis:kasir/kutipan', c.token, 'POST', '/pos/quote', { sessionId: c.sessionId, lines });
+    if (q.status !== 201) return;
+    // harga dan potongan persis kutipan server (kasir tidak boleh mengarang); tunai pas
+    const l = q.body.lines[0];
+    const total = Math.round(qty * Number(l.price) * (100 - Number(l.discountPct))) / 100;
+    const r = await call('tulis:kasir/transaksi', c.token, 'POST', '/pos/orders', { sessionId: c.sessionId, lines: [{ productId: t.productId, qty: String(qty), price: l.price, discountPct: l.discountPct }], payments: [{ method: 'CASH', amount: total.toFixed(2) }] });
+    if (r.status === 201) { t.sold += qty; t.orders++; }
+  }],
+];
 const UTIL_ACTIONS = [
   ['util:ringkasan', 8, (t) => call('util:ringkasan', t.token, 'GET', '/utility/summary')],
   ['util:loket-cari', 10, (t) => call('util:loket-cari', t.token, 'GET', `/utility/counter/search?search=Pelanggan%20${rnd(9000)}`)],
@@ -157,7 +199,7 @@ const weighted = (list) => {
 let stop = false;
 async function vu(t, delayMs) {
   await sleep(delayMs);
-  const mix = t.kind === 'util' ? UTIL_ACTIONS : [...READS_DAGANG, ...WRITES_DAGANG];
+  const mix = t.kind === 'util' ? UTIL_ACTIONS : t.kind === 'ritel' ? RITEL_ACTIONS : [...READS_DAGANG, ...WRITES_DAGANG];
   while (!stop) {
     const a = weighted(mix);
     try { await a[2](t); } catch (e) { rec('galat-skrip').net++; if (unexpected.length < 15) unexpected.push(`skrip ${a[0]}: ${e?.message}`); }
@@ -229,7 +271,7 @@ async function verify(tenants) {
   await db.query("SET app.bypass_rls = 'on'");
   const out = [];
   const check = (name, bad, detail = '') => out.push({ name, ok: bad === 0, detail: bad === 0 ? '' : `${bad} pelanggaran ${detail}` });
-  const ids = tenants.filter((t) => t.kind === 'dagang').map((t) => t.tenantId);
+  const ids = tenants.filter((t) => t.kind === 'dagang' || t.kind === 'ritel').map((t) => t.tenantId);
   const q = async (sql, p = [ids]) => (await db.query(sql, p)).rows;
   check('jurnal seimbang (debit = kredit tiap jurnal)', (await q(`SELECT e.id FROM journal_entries e JOIN journal_lines l ON l.journal_id=e.id WHERE e.tenant_id = ANY($1) GROUP BY e.id HAVING SUM(l.debit) <> SUM(l.credit)`)).length);
   for (const [tbl, col] of [['invoices', 'number'], ['sales_orders', 'number'], ['journal_entries', 'number'], ['cash_transactions', 'number'], ['payments', 'number']]) {
@@ -242,6 +284,17 @@ async function verify(tenants) {
     if (Math.abs(Number(r.qty) - (1_000_000 - t.sold)) > 1e-6) stokBeda++;
   }
   check('stok akhir = 1.000.000 - terjual (per perusahaan)', stokBeda, '(selisih stok dan faktur yang terbit)');
+  // ritel: stok = awal - terjual lewat kasir, jumlah transaksi kasir = yang berhasil, total tiap transaksi = pembayarannya
+  let stokRitel = 0, ordersBeda = 0;
+  for (const t of tenants.filter((x) => x.kind === 'ritel')) {
+    const r = (await q(`SELECT qty FROM stock_balances WHERE tenant_id=$1 AND product_id=$2 AND warehouse_id=$3`, [t.tenantId, t.productId, t.warehouseId]))[0];
+    if (Math.abs(Number(r.qty) - (1_000_000 - t.sold)) > 1e-6) stokRitel++;
+    const n = (await q(`SELECT COUNT(*)::int n FROM pos_orders WHERE tenant_id=$1`, [t.tenantId]))[0].n;
+    if (n !== t.orders) ordersBeda++;
+  }
+  check('ritel: stok akhir = 1.000.000 - terjual lewat kasir', stokRitel);
+  check('ritel: jumlah transaksi kasir tercatat = yang berhasil', ordersBeda);
+  check('ritel: total transaksi kasir = jumlah pembayarannya', (await q(`SELECT o.id FROM pos_orders o LEFT JOIN pos_payments p ON p.order_id=o.id WHERE o.tenant_id = ANY($1) GROUP BY o.id HAVING o.total - COALESCE(SUM(p.amount),0) NOT BETWEEN -0.005 AND 0.005`)).length, '(total tidak sama dengan pembayaran)');
   check('terbayar tidak melebihi tagihan', (await q(`SELECT 1 FROM invoices WHERE tenant_id = ANY($1) AND paid_amount > total`)).length);
   check('terbayar = jumlah pembayaran', (await q(`SELECT i.id FROM invoices i LEFT JOIN payments p ON p.invoice_id=i.id WHERE i.tenant_id = ANY($1) GROUP BY i.id HAVING i.paid_amount <> COALESCE(SUM(p.amount),0)`)).length);
   check('neraca saldo seimbang (jumlah semua baris jurnal)', (await q(`SELECT 1 FROM (SELECT tenant_id, SUM(l.debit)-SUM(l.credit) AS d FROM journal_lines l JOIN journal_entries e ON e.id=l.journal_id WHERE e.tenant_id = ANY($1) GROUP BY tenant_id) x WHERE d <> 0`)).length);
@@ -274,13 +327,14 @@ const cpuSnap = () => ({ srv: serverPids().reduce((a, p) => a + ticks(p), 0), pg
 
 // ---------------- jalan ----------------
 (async () => {
-  console.log(`Uji beban serentak: ${VUS} pengguna maya, ${DURATION} dtk, ${TENANTS} perusahaan dagang${UTIL_TOKEN_FILE ? ' + perusahaan air' : ''}, server ${BASE}`);
+  console.log(`Uji beban serentak: ${VUS} pengguna maya, ${DURATION} dtk, ${TENANTS} perusahaan dagang${RITEL ? ` + ${RITEL} ritel` : ''}${UTIL_TOKEN_FILE ? ' + perusahaan air' : ''}, server ${BASE}`);
   const health = await fetch(BASE + '/health').then((r) => r.status).catch(() => 0);
   if (health !== 200) { console.error('Server tidak menjawab /health'); process.exit(2); }
   const before = await dbCounters();
   console.log('Menyiapkan perusahaan...');
   const tenants = [];
   for (let i = 0; i < TENANTS; i++) tenants.push(await setupTenant(i));
+  for (let i = 0; i < RITEL; i++) tenants.push(await setupRitel(i));
   if (UTIL_TOKEN_FILE) tenants.push({ kind: 'util', token: readFileSync(UTIL_TOKEN_FILE, 'utf8').trim() });
   stats.delete('setup');
   const utilT = tenants.find((t) => t.kind === 'util');
@@ -291,7 +345,8 @@ const cpuSnap = () => ({ srv: serverPids().reduce((a, p) => a + ticks(p), 0), pg
   const vus = [];
   for (let i = 0; i < VUS; i++) {
     // sebagian kecil pengguna ke perusahaan air bila ada (sekitar 20%)
-    const t = utilT && i % 5 === 0 ? utilT : tenants.filter((x) => x.kind === 'dagang')[i % TENANTS];
+    const ritelTs = tenants.filter((x) => x.kind === 'ritel');
+    const t = utilT && i % 5 === 0 ? utilT : ritelTs.length && i % 3 === 2 ? ritelTs[i % ritelTs.length] : tenants.filter((x) => x.kind === 'dagang')[i % TENANTS];
     vus.push(vu(t, (i / VUS) * RAMP * 1000));
   }
   const rssSamples = [];
