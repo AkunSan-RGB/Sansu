@@ -2029,9 +2029,28 @@ export interface Bom {
   overheadCost: string;
   notes: string | null;
   isActive: boolean;
+  /** Nomor versi resep; naik tiap isi resep berubah */
+  version: number;
   lines: { id: string; productId: string; sku: string; name: string; unit: string; qty: string; unitCost: string }[];
   /** Taksiran dari biaya rata-rata bahan saat ini */
   estimate: { material: string; batchCost: string; unitCost: string };
+}
+
+/** Satu versi resep yang sudah digantikan, beserta perubahan menuju versi berikutnya */
+export interface BomRevision {
+  version: number;
+  replacedAt: string;
+  reason: string | null;
+  snapshot: {
+    name: string;
+    outputQty: string;
+    laborCost: string;
+    overheadCost: string;
+    notes: string | null;
+    isActive: boolean;
+    lines: { productId: string; qty: string; label: string }[];
+  };
+  changes: { field: string; label: string; from: string; to: string }[];
 }
 
 export interface ProductionOrder {
@@ -2044,7 +2063,7 @@ export interface ProductionOrder {
   parentNumber?: string | null;
   childCount?: number;
   planNo?: string | null;
-  bom: { id: string; code: string; name: string };
+  bom: { id: string; code: string; name: string; /** Versi resep saat perintah dibuat */ version?: number | null };
   product: { id: string; sku: string; name: string; unit: string };
   warehouse: { id: string; name: string };
   batches: string;

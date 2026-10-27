@@ -76,7 +76,7 @@ export function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }
             <Descriptions.Item label="Status">
               <Tag color={COLOR[o.status]}>{PRODUCTION_STATUS_LABELS[o.status]}</Tag>
             </Descriptions.Item>
-            <Descriptions.Item label={t("Resep")}>{o.bom.code}</Descriptions.Item>
+            <Descriptions.Item label={t("Resep")}>{o.bom.code}{o.bom.version ? ` · v${o.bom.version}` : ""}</Descriptions.Item>
             <Descriptions.Item label={t('Gudang')}>{o.warehouse.name}</Descriptions.Item>
             <Descriptions.Item label="Batch">{fmtQty(o.batches)}</Descriptions.Item>
             <Descriptions.Item label="Rencana hasil">

@@ -189,4 +189,49 @@ describe('Produksi: BOM, perintah produksi, HPP produksi (e2e)', () => {
     expect(Number(r.variance)).toBeCloseTo(direct - 300000, 2);
     expect(r.byProduct[0]).toMatchObject({ sku: 'KMJ-L', orders: 1, qty: '19', total: '940000.00' });
   });
+
+  describe('Versi resep', () => {
+    let revBom: string;
+    const put = (url: string, body: object) => http.put(url).set(as()).send(body);
+    const body = (over: object = {}) => ({
+      name: 'Kemeja versi',
+      productId: kemeja,
+      outputQty: '10',
+      laborCost: '100000',
+      overheadCost: '20000',
+      lines: [{ productId: kain, qty: '2' }],
+      ...over,
+    });
+
+    it('resep baru berversi 1; simpan tanpa perubahan tidak menaikkan versi', async () => {
+      const b = (await post('/api/production/boms', { ...body(), code: 'BOM-REV' }).expect(201)).body;
+      revBom = b.id;
+      expect(b.version).toBe(1);
+      const same = (await put(`/api/production/boms/${revBom}`, body()).expect(200)).body;
+      expect(same.version).toBe(1);
+      expect((await get(`/api/production/boms/${revBom}/revisions`).expect(200)).body).toEqual([]);
+    });
+
+    it('perubahan menaikkan versi dan menyimpan versi lama beserta alasannya', async () => {
+      const v2 = (
+        await put(`/api/production/boms/${revBom}`, body({ lines: [{ productId: kain, qty: '3' }, { productId: benang, qty: '1' }], changeReason: 'Kain lebih tebal' })).expect(200)
+      ).body;
+      expect(v2.version).toBe(2);
+      const revs = (await get(`/api/production/boms/${revBom}/revisions`).expect(200)).body;
+      expect(revs).toHaveLength(1);
+      expect(revs[0]).toMatchObject({ version: 1, reason: 'Kain lebih tebal' });
+      expect(revs[0].snapshot.lines).toHaveLength(1);
+      expect(revs[0].changes.map((c: { label: string }) => c.label).join('|')).toMatch(/Takaran bahan.*\|Bahan ditambah/);
+    });
+
+    it('perintah produksi mencatat versi resep saat dibuat', async () => {
+      const o1 = (await post('/api/production/orders', { bomId: revBom, warehouseId, batches: '1' }).expect(201)).body;
+      expect(o1.bom.version).toBe(2);
+      await put(`/api/production/boms/${revBom}`, body({ outputQty: '12', lines: [{ productId: kain, qty: '3' }] })).expect(200);
+      const o2 = (await post('/api/production/orders', { bomId: revBom, warehouseId, batches: '1' }).expect(201)).body;
+      expect(o2.bom.version).toBe(3);
+      expect((await get(`/api/production/orders/${o1.id}`).expect(200)).body.bom.version).toBe(2);
+      expect((await get(`/api/production/boms/${revBom}/revisions`).expect(200)).body.map((r: { version: number }) => r.version)).toEqual([2, 1]);
+    });
+  });
 });

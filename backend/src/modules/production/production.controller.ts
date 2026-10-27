@@ -54,6 +54,12 @@ export class ProductionController {
     return this.svc.updateBom(u, id, dto);
   }
 
+  @Get('boms/:id/revisions')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT')
+  bomRevisions(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.svc.bomRevisions(u.tenantId, id);
+  }
+
   @Get('orders')
   @Roles('ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT')
   orders(@CurrentUser() u: AuthUser) {

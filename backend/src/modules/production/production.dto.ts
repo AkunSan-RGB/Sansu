@@ -28,6 +28,7 @@ export class SaveBomDto {
   overheadCost?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) notes?: string;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() isActive?: boolean;
+  @ApiPropertyOptional({ description: 'Alasan perubahan resep (dicatat di riwayat versi)' }) @IsOptional() @IsString() @MaxLength(300) changeReason?: string;
   @ApiProperty({ type: [BomLineDto] })
   @ValidateNested({ each: true })
   @Type(() => BomLineDto)

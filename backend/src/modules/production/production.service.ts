@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq } from 'drizzle-orm';
-import type { Bom, ProductionOrder, ProductionReport } from '@sansu/shared';
+import type { Bom, BomRevision, ProductionOrder, ProductionReport } from '@sansu/shared';
 import { WorkflowService } from '../workflow/workflow.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -21,6 +21,8 @@ import { SaveBomDto, CreateProductionDto, StartProductionDto, CompleteProduction
 import { ReferenceRepository } from '../../db/reference.repository';
 import { findOwned, patchById } from '../../db/owned';
 import { ProductionRepository } from './production.repository';
+import { diffBom } from './bom-revision';
+import type { BomSnapshot } from '../../db/schema';
 
 @Injectable()
 export class ProductionService {
@@ -73,6 +75,7 @@ export class ProductionService {
         overheadCost: b.overheadCost,
         notes: b.notes,
         isActive: b.isActive,
+        version: b.version,
         lines: ls.map((l) => ({
           id: l.id,
           productId: l.productId,
@@ -127,11 +130,41 @@ export class ProductionService {
     return (await this.listBoms(user.tenantId, id))[0];
   }
 
+  /** Isi resep saat ini (header dan bahan) dalam bentuk yang disimpan sebagai riwayat versi */
+  private async bomSnapshot(tx: DbOrTx, b: typeof boms.$inferSelect): Promise<BomSnapshot> {
+    const ls = await this.repo.listBomLinesByBomId(tx, b.id);
+    return {
+      name: b.name,
+      productId: b.productId,
+      outputQty: D(b.outputQty).toString(),
+      laborCost: b.laborCost,
+      overheadCost: b.overheadCost,
+      notes: b.notes,
+      isActive: b.isActive,
+      lines: ls.map((l) => ({ productId: l.productId, qty: D(l.qty).toString() })).sort((x, y) => x.productId.localeCompare(y.productId)),
+    };
+  }
+
   async updateBom(user: AuthUser, id: string, dto: SaveBomDto) {
     const b = await findOwned(this.db, boms, user.tenantId, id);
     if (!b) throw new NotFoundException('Resep tidak ditemukan');
     await this.db.transaction(async (tx) => {
       await this.validateBom(tx, user.tenantId, dto);
+      const before = await this.bomSnapshot(tx, b);
+      const after: BomSnapshot = {
+        name: dto.name.trim(),
+        productId: dto.productId,
+        outputQty: qty4(dto.outputQty).toString(),
+        laborCost: money(dto.laborCost ?? 0).toFixed(2),
+        overheadCost: money(dto.overheadCost ?? 0).toFixed(2),
+        notes: dto.notes ?? null,
+        isActive: dto.isActive ?? b.isActive,
+        lines: dto.lines.map((l) => ({ productId: l.productId, qty: D(l.qty).toString() })).sort((x, y) => x.productId.localeCompare(y.productId)),
+      };
+      // Versi naik hanya bila isi resep benar-benar berubah; versi lama disimpan agar produksi lama tetap dapat ditelusuri
+      const changes = diffBom(before, after);
+      const nextVersion = changes.length ? b.version + 1 : b.version;
+      if (changes.length) await this.repo.insertBomRevision(tx, user.tenantId, id, b.version, before, dto.changeReason?.trim() || null);
       await patchById(tx, boms, id, {
           name: dto.name.trim(),
           productId: dto.productId,
@@ -140,6 +173,7 @@ export class ProductionService {
           overheadCost: money(dto.overheadCost ?? 0).toFixed(2),
           notes: dto.notes,
           isActive: dto.isActive ?? b.isActive,
+          version: nextVersion,
         });
       // Perintah produksi menyimpan salinan bahan sendiri, jadi resep aman diubah
       await this.repo.deleteBomLinesByBomId(tx, id);
@@ -150,9 +184,31 @@ export class ProductionService {
         action: 'UPDATE',
         entity: 'Bom',
         entityId: id,
+        data: changes.length ? { version: nextVersion, changes: changes.length } : undefined,
       });
     });
     return (await this.listBoms(user.tenantId, id))[0];
+  }
+
+  /** Riwayat versi resep (terbaru dulu): isi tiap versi, perbedaannya dari versi berikutnya, dan alasan perubahan */
+  async bomRevisions(tenantId: string, id: string): Promise<BomRevision[]> {
+    const b = await findOwned(this.db, boms, tenantId, id);
+    if (!b) throw new NotFoundException('Resep tidak ditemukan');
+    const revs = await this.repo.listBomRevisions(this.db, tenantId, id);
+    const current = await this.bomSnapshot(this.db, b);
+    const names = await this.repo.listProductLabels(this.db, tenantId, [...new Set([...revs.flatMap((r) => r.snapshot.lines.map((l) => l.productId)), ...current.lines.map((l) => l.productId)])]);
+    const label = new Map(names.map((p) => [p.id, `${p.sku} ${p.name}`]));
+    // revs terurut turun: pembanding tiap versi adalah versi yang menggantikannya (di atasnya), versi teratas dibanding resep aktif
+    return revs.map((r, i) => {
+      const next = i === 0 ? current : revs[i - 1].snapshot;
+      return {
+        version: r.version,
+        replacedAt: r.createdAt.toISOString(),
+        reason: r.reason,
+        snapshot: { ...r.snapshot, lines: r.snapshot.lines.map((l) => ({ ...l, label: label.get(l.productId) ?? l.productId })) },
+        changes: diffBom(r.snapshot, next).map((c) => (c.field.startsWith('line:') ? { ...c, label: `${c.label}: ${label.get(c.field.slice(5)) ?? c.field.slice(5)}` } : c)),
+      };
+    });
   }
 
   // ================= Perintah produksi =================
@@ -173,7 +229,7 @@ export class ProductionService {
       parentNumber: o.parentOrderId ? (numberOf.get(o.parentOrderId) ?? null) : null,
       childCount: rel.filter((x) => x.parentOrderId === o.id).length,
       planNo: o.planNo,
-      bom: { id: o.bomId, code: r.bomCode, name: r.bomName },
+      bom: { id: o.bomId, code: r.bomCode, name: r.bomName, version: o.bomVersion },
       product: { id: o.productId, sku: r.sku, name: r.name, unit: r.unit },
       warehouse: { id: o.warehouseId, name: r.warehouseName },
       batches: D(o.batches).toString(),
@@ -227,7 +283,7 @@ export class ProductionService {
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
       const ls = await this.repo.listBomLinesByBomId(tx, b.id);
       const number = await this.seq.next(tx, user.tenantId, 'PRODUCTION_ORDER', date);
-      const [o] = await this.repo.insertProductionOrders(tx, user.tenantId, number, date, b.id, b.productId, wh.id, batches, b.outputQty, dto.notes, user.sub, extra.parentOrderId, extra.planNo);
+      const [o] = await this.repo.insertProductionOrders(tx, user.tenantId, number, date, b.id, b.productId, wh.id, batches, b.outputQty, dto.notes, user.sub, extra.parentOrderId, extra.planNo, b.version);
       await this.repo.insertProductionOrderLines(tx, ls, o.id, batches);
       await this.workCenters.copyToOrder(tx, user.tenantId, b.id, o.id, batches.toNumber());
       await this.audit.log(tx, {

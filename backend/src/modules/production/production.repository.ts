@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { sql, eq, inArray, and, desc, or } from 'drizzle-orm';
-import { bomLines, products, boms, productionOrders, warehouses, productionOrderLines } from '../../db/schema';
+import { bomLines, bomRevisions, products, boms, productionOrders, warehouses, productionOrderLines } from '../../db/schema';
+import type { BomSnapshot } from '../../db/schema';
 import { qty4, money, D, Dec } from '../../common/utils/money';
 import type { BomLineDto } from './production.dto';
 
@@ -50,6 +51,15 @@ export class ProductionRepository {
       .where(inArray(products.id, [...new Set(rows.map((r) => r.productId))]));
   }
 
+  /** Dipakai oleh ProductionService.bomRevisions */
+  listProductLabels(db: DbOrTx, tenantId: string, ids: string[]) {
+    if (!ids.length) return Promise.resolve([] as { id: string; sku: string; name: string }[]);
+    return db
+      .select({ id: products.id, sku: products.sku, name: products.name })
+      .from(products)
+      .where(and(eq(products.tenantId, tenantId), inArray(products.id, ids)));
+  }
+
   /** Dipakai oleh ProductionService.validateBom */
   listProductsByIdForValidateBom(db: DbOrTx, tenantId: string, ids: string[]) {
     return db
@@ -91,6 +101,20 @@ export class ProductionRepository {
         notes: notes,
       })
       .returning({ id: boms.id });
+  }
+
+  /** Dipakai oleh ProductionService.updateBom: simpan isi versi yang akan digantikan */
+  insertBomRevision(db: DbOrTx, tenantId: string, bomId: string, version: number, snapshot: BomSnapshot, reason: string | null) {
+    return db.insert(bomRevisions).values({ tenantId, bomId, version, snapshot, reason }).returning({ id: bomRevisions.id });
+  }
+
+  /** Dipakai oleh ProductionService.bomRevisions */
+  listBomRevisions(db: DbOrTx, tenantId: string, bomId: string) {
+    return db
+      .select()
+      .from(bomRevisions)
+      .where(and(eq(bomRevisions.tenantId, tenantId), eq(bomRevisions.bomId, bomId)))
+      .orderBy(desc(bomRevisions.version));
   }
 
   /** Dipakai oleh ProductionService.updateBom */
@@ -146,6 +170,7 @@ export class ProductionRepository {
         number: string;
         date: string;
         bomId: string;
+        bomVersion: number | null;
         productId: string;
         warehouseId: string;
         batches: string;
@@ -208,6 +233,7 @@ export class ProductionRepository {
     sub: string,
     parentOrderId: string | undefined,
     planNo: string | undefined,
+    bomVersion: number,
   ) {
     return db
       .insert(productionOrders)
@@ -224,6 +250,7 @@ export class ProductionRepository {
         createdById: sub,
         parentOrderId: parentOrderId ?? null,
         planNo: planNo ?? null,
+        bomVersion,
       })
       .returning({ id: productionOrders.id });
   }
