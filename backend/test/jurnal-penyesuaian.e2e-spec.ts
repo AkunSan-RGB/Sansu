@@ -63,4 +63,14 @@ describe('Jurnal penyesuaian dan pembaliknya (e2e)', () => {
     expect(Number(r.adjustment.debit) - Number(r.adjustment.credit)).toBe(0);
     expect(w.balanced).toBe(true);
   });
+  it('daftar periksa: tiap baris menyebut sumber datanya; bulan berjalan tidak menagih pekerjaan yang baru bisa setelah akhir bulan', async () => {
+    const cl = (await get(`/api/accounting/adjustments/checklist?period=${day.slice(0, 7)}`).expect(200)).body as { items: { key: string; source?: string; waiting?: boolean; status: string }[] };
+    expect(cl.items.length).toBeGreaterThan(0);
+    for (const it of cl.items) expect(it.source).toMatch(/^Diperiksa dari:/);
+    // pekerjaan yang jurnalnya bertanggal akhir bulan tidak boleh ditandai TODO tanpa waiting selama bulan belum berakhir
+    for (const it of cl.items.filter((x) => (x.key === 'depreciation' || x.key === 'recurring') && x.status === 'TODO')) expect(it.waiting).toBe(true);
+    // bulan yang sudah berakhir tidak pernah ditandai menunggu
+    const past = (await get('/api/accounting/adjustments/checklist?period=2020-01').expect(200)).body as { items: { waiting?: boolean }[] };
+    expect(past.items.some((x) => x.waiting)).toBe(false);
+  });
 });
