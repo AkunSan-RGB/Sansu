@@ -1,4 +1,4 @@
-import { AppstoreAddOutlined, DatabaseOutlined, FileDoneOutlined, FundOutlined, ShopOutlined } from '@ant-design/icons';
+import { DatabaseOutlined, FileDoneOutlined, FundOutlined, ShopOutlined } from '@ant-design/icons';
 import { MODEL_WORKSPACE } from '@sansu/shared';
 import dayjs from 'dayjs';
 import type { ReactNode } from 'react';
@@ -29,7 +29,6 @@ const greet = () => {
 export default function DashboardHero({ name, tenantName, model, figures, showFinance, canSell }: Props) {
   const navigate = useNavigate();
   const quick = [
-    { label: 'Ruang kerja', to: '/vertikal', icon: <AppstoreAddOutlined />, on: true },
     { label: 'Faktur penjualan', to: '/invoices', icon: <FileDoneOutlined />, on: showFinance || canSell },
     { label: t('Pelanggan'), to: '/customers', icon: <ShopOutlined />, on: true },
     { label: 'Produk & stok', to: '/products', icon: <DatabaseOutlined />, on: true },

@@ -1,4 +1,4 @@
-import { CheckSquareOutlined, AuditOutlined, HeartOutlined, AppstoreAddOutlined } from '@ant-design/icons';
+import { CheckSquareOutlined, AuditOutlined, HeartOutlined } from '@ant-design/icons';
 import { type AppKey, type BusinessModel } from '@sansu/shared';
 import { APP_ICONS } from '@/lib/apps';
 import { t } from '@/lib/terms';
@@ -41,7 +41,8 @@ export const REPORT_ROLES = ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'];
 const SEC = { prep: 'Persiapan', proc: 'Proses', rep: 'Laporan & kontrol' } as const;
 export const MENU: Group[] = [
   { part: '', key: '/dashboard', label: 'Dashboard', icon: APP_ICONS.dashboard, to: '/dashboard' },
-  { part: '', key: '/vertikal', label: 'Ruang kerja', icon: <AppstoreAddOutlined />, to: '/vertikal', core: true, roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'PURCHASING', 'WAREHOUSE', 'CASHIER', 'HR'] },
+  // Menu Ruang kerja disembunyikan dulu (halaman /vertikal tetap ada; aktifkan lagi dengan mengembalikan baris di bawah dan '/vertikal' di HEAD_KEYS)
+  // { part: '', key: '/vertikal', label: 'Ruang kerja', icon: <AppstoreAddOutlined />, to: '/vertikal', core: true, roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'PURCHASING', 'WAREHOUSE', 'CASHIER', 'HR'] },
   { part: '', key: '/health', label: 'Cek kesehatan', icon: <HeartOutlined />, to: '/health', core: true, roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
   { part: '', key: '/tasks', label: 'Tugas saya', icon: <CheckSquareOutlined />, to: '/tasks', core: true, roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES', 'PURCHASING', 'WAREHOUSE', 'CASHIER', 'HR'] },
 
@@ -499,7 +500,7 @@ export const MENU: Group[] = [
 ];
 
 /** Bagian menu: atas (selalu), lalu bagian usaha menurut alur utama jenis usahanya, lalu keuangan sampai administrasi */
-export const HEAD_KEYS = ['/dashboard', '/vertikal', '/health', '/tasks'];
+export const HEAD_KEYS = ['/dashboard', '/health', '/tasks'];
 export const TAIL_KEYS = ['cash', 'accounting', 'tax', 'hr', 'payroll', '/approvals', 'settings'];
 export const GROUP_ORDER: Record<BusinessModel, string[]> = {
   DAGANG: ['utility', 'crm', 'sales', 'pos', 'purchase', 'inventory', 'production'],
