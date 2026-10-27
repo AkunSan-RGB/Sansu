@@ -53,6 +53,9 @@ export default function PettyCashPage() {
   const navigate = useNavigate();
   const { me } = useAuth();
   const admin = me?.role === 'OWNER' || me?.role === 'ADMIN';
+  // uang keluar hanya Keuangan/Pemilik; membatalkan hanya Pemilik (Admin mengatur plafon dan juru kas, tidak memegang uang)
+  const finance = me?.role === 'OWNER' || me?.role === 'FINANCE';
+  const owner = me?.role === 'OWNER';
   const money = canHandleMoney(me?.role);
   const funds = useQuery({ queryKey: ['petty', 'funds'], queryFn: () => get<Fund[]>('/petty-cash/funds') });
   const fund = funds.data?.[0];
@@ -159,10 +162,10 @@ export default function PettyCashPage() {
               )}
               {money && (
               <Button disabled={fund.openCount === 0} loading={replenish.isPending} onClick={() => replenish.mutate(fund.id)}>
-                {admin ? 'Isi kembali dana' : 'Ajukan pengisian kembali'}
+                {finance ? 'Isi kembali dana' : 'Ajukan pengisian kembali'}
               </Button>
               )}
-              {admin && fund.openCount === 0 && Number(fund.toReplenish) > 0 && (
+              {finance && fund.openCount === 0 && Number(fund.toReplenish) > 0 && (
                 <Button loading={topUp.isPending} onClick={() => topUp.mutate(fund.id)}>
                   Isi dana awal / tambah plafon
                 </Button>
@@ -196,7 +199,7 @@ export default function PettyCashPage() {
                       <Button size="small" type="text" icon={<PrinterOutlined />} onClick={() => setPreview({ kind: 'voucher', v })}>
                         Cetak
                       </Button>
-                      {admin && v.status === 'OPEN' && (
+                      {owner && v.status === 'OPEN' && (
                         <Button size="small" danger type="text" onClick={() => { voidForm.resetFields(); setVoiding(v); }}>
                           Batalkan
                         </Button>

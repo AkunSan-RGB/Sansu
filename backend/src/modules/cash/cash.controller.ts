@@ -61,20 +61,20 @@ export class CashController {
   evidence(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CashEvidenceDto) {
     return this.svc.setEvidence(u, id, dto);
   }
-  @Roles('ADMIN')
+  @Roles('OWNER')
   @Post('transactions/:id/void')
   void(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VoidCashDto) {
     return this.svc.void(u, id, dto);
   }
 
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('FINANCE')
   @Post('transactions')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreateCashTxDto) {
     return this.svc.create(u, dto);
   }
 
   /** Transaksi rekening valas: terima/bayar, beli/jual valas, pindah antar rekening valas */
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('FINANCE')
   @Post('foreign')
   createForeign(@CurrentUser() u: AuthUser, @Body() dto: CreateForeignCashDto) {
     return this.foreignTx.create(u, dto);

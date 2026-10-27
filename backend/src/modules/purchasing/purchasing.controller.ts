@@ -199,14 +199,14 @@ export class PurchaseInvoicesController {
   }
 
   @Post('payments')
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('FINANCE')
   pay(@CurrentUser() u: AuthUser, @Body() dto: CreateSupplierPaymentDto) {
     return this.supplierPayments.pay(u, dto);
   }
 
   /** Batalkan pembayaran yang salah (jurnal dibalik, hutang terbuka lagi) */
   @Post('payments/:id/void')
-  @Roles('ADMIN')
+  @Roles('OWNER')
   voidPayment(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VoidSupplierPaymentDto) {
     return this.supplierPayments.voidPayment(u, id, dto.reason);
   }

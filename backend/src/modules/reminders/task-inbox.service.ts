@@ -125,7 +125,8 @@ export class TaskInboxService {
         add('cash-count-approval', '/cash/counts', (n) => `${n} opname kas dengan selisih besar menunggu persetujuan Anda`, 'Hanya Pemilik yang menyetujui; diajukan Keuangan/Admin', await this.one(sql`
           SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - date), 0)::int AS oldest FROM cash_counts WHERE tenant_id = ${u.tenantId} AND status = 'WAITING_APPROVAL'`));
       }
-      if (is(['ADMIN', 'FINANCE'])) {
+      // pengeluaran uang hanya dikerjakan Keuangan (Admin mengatur sistem, tidak memegang uang)
+      if (is(['FINANCE'])) {
         add('bank-unmatched', '/bank', (n) => `${n} mutasi bank belum dicocokkan`, 'Cocokkan dengan catatan kas atau catat sebagai transaksi baru', await this.one(sql`
           SELECT COUNT(*)::int AS n, COALESCE(MAX(CURRENT_DATE - date), 0)::int AS oldest FROM bank_statement_lines WHERE tenant_id = ${u.tenantId} AND status = 'UNMATCHED'`));
         add('petty-replenish', '/petty-cash', (n) => `${n} bukti kas kecil belum diganti (pengisian kembali)`, 'Bukti sudah lebih dari 7 hari; ajukan pengisian kembali agar kas kecil tidak kosong', await this.one(sql`

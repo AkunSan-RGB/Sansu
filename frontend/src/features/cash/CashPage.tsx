@@ -65,7 +65,7 @@ export default function CashPage() {
   const branchOpts = (branchList.data?.branches ?? []).filter((b) => b.isActive);
   const shown = useMemo(() => filterCashTx(txs.data ?? [], { typeFilter, branchFilter, noProofOnly, search }), [txs.data, typeFilter, branchFilter, noProofOnly, search]);
   const flow = useMemo(() => cashFlow(shown), [shown]);
-  const canVoid = me?.role === 'OWNER' || me?.role === 'ADMIN';
+  const canVoid = me?.role === 'OWNER';
   const [voiding, setVoiding] = useState<CashTransaction | null>(null);
   const canEvidence = canHandleMoney(me?.role);
   const [proofing, setProofing] = useState<CashTransaction | null>(null);

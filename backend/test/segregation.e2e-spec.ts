@@ -299,4 +299,75 @@ describe('Pemisahan fungsi (e2e)', () => {
       expect(Number(inv.paidAmount)).toBe(2000000);
     });
   });
+  describe('uang keluar: hanya Keuangan (Pemilik sebagai cadangan); membatalkan hanya Pemilik', () => {
+    // Admin mengatur pengguna dan pengaturan; bila ia juga bisa membayar, satu orang bisa membuat akun, memberi diri hak, lalu mengeluarkan uang
+    const PAY: [string, string][] = [
+      ['POST', '/api/cash/transactions'], ['POST', '/api/cash/foreign'],
+      ['POST', '/api/petty-cash/vouchers'], ['POST', '/api/petty-cash/funds/:id/replenish'], ['POST', '/api/petty-cash/funds/:id/top-up'],
+      ['POST', '/api/purchase-invoices/payments'], ['POST', '/api/supplier-advances'], ['POST', '/api/supplier-advances/:id/refund'],
+      ['POST', '/api/tax/payments'], ['POST', '/api/pos/orders/:id/return'], ['POST', '/api/sales-commissions/:id/pay'],
+      ['POST', '/api/utility/deposits/:id/refund'], ['POST', '/api/payroll/runs/:id/pay'],
+    ];
+    const VOID: [string, string][] = [
+      ['POST', '/api/cash/transactions/:id/void'], ['POST', '/api/petty-cash/vouchers/:id/void'], ['POST', '/api/purchase-invoices/payments/:id/void'],
+      ['POST', '/api/supplier-advances/:id/void'], ['DELETE', '/api/tax/payments/:id'], ['POST', '/api/sales-commissions/:id/void'],
+    ];
+
+    it('matriks: yang mengeluarkan uang hanya Keuangan (selain Pemilik)', () => {
+      for (const [m, p] of PAY) expect({ m, p, roles: nonOwner(find(m, p)) }).toEqual({ m, p, roles: ['FINANCE'] });
+    });
+    it('matriks: yang membatalkan pengeluaran uang hanya Pemilik (pembuat tidak bisa menghapus jejaknya sendiri)', () => {
+      for (const [m, p] of VOID) expect({ m, p, roles: nonOwner(find(m, p)) }).toEqual({ m, p, roles: [] });
+    });
+    it('Admin tidak memegang satu pun fungsi uang keluar maupun pembatalannya', () => {
+      const held = [...PAY, ...VOID].filter(([m, p]) => find(m, p).has('ADMIN')).map(([m, p]) => `${m} ${p}`);
+      expect(held).toEqual([]);
+    });
+
+    it('langsung: Admin, Akuntan, Kasir ditolak mencatat kas keluar; Keuangan dan Pemilik boleh', async () => {
+      const cashAcc = ((await call('OWNER', 'get', '/api/cash/accounts').expect(200)).body as { id: string }[])[0].id;
+      const exp = ((await call('OWNER', 'get', '/api/cash/counter-accounts').expect(200)).body as { id: string; type: string }[]).find((a) => a.type === 'EXPENSE')!.id;
+      const body = (n: string) => ({ type: 'OUT', cashAccountId: cashAcc, date: todayJakarta(), description: `Uang keluar ${n}`, reference: `UK-${stamp}-${n}`, lines: [{ accountId: exp, amount: '1000' }] });
+      for (const r of ['ADMIN', 'ACCOUNTANT', 'CASHIER'] as const) {
+        const x = await call(r, 'post', '/api/cash/transactions', body(r)).expect(403);
+        expect(x.body.message).toMatch(/Yang berhak: .*Keuangan/);
+      }
+      await call('FINANCE', 'post', '/api/cash/transactions', body('fin')).expect(201);
+      await call('OWNER', 'post', '/api/cash/transactions', body('own')).expect(201);
+    });
+
+    it('langsung: pembatalan kas keluar ditolak untuk Admin dan Keuangan, hanya Pemilik yang bisa', async () => {
+      const cashAcc = ((await call('OWNER', 'get', '/api/cash/accounts').expect(200)).body as { id: string }[])[0].id;
+      const exp = ((await call('OWNER', 'get', '/api/cash/counter-accounts').expect(200)).body as { id: string; type: string }[]).find((a) => a.type === 'EXPENSE')!.id;
+      const tx = (await call('FINANCE', 'post', '/api/cash/transactions', { type: 'OUT', cashAccountId: cashAcc, date: todayJakarta(), description: 'Akan dibatalkan', reference: `UK-V-${stamp}`, lines: [{ accountId: exp, amount: '1000' }] }).expect(201)).body as { id: string };
+      await call('ADMIN', 'post', `/api/cash/transactions/${tx.id}/void`, { reason: 'uji' }).expect(403);
+      await call('FINANCE', 'post', `/api/cash/transactions/${tx.id}/void`, { reason: 'uji' }).expect(403);
+      await call('OWNER', 'post', `/api/cash/transactions/${tx.id}/void`, { reason: 'Salah catat (uji)' }).expect(201);
+    });
+
+    it('langsung: jalur uang keluar lain ditolak untuk Admin (kas kecil, pemasok, pajak, refund kasir, komisi, deposit) tetapi tidak untuk Keuangan', async () => {
+      const id = '00000000-0000-4000-8000-000000000000';
+      const paths: [string, string][] = [
+        ['post', '/api/petty-cash/funds/' + id + '/top-up'], ['post', '/api/purchase-invoices/payments'], ['post', '/api/tax/payments'],
+        ['post', '/api/pos/orders/' + id + '/return'], ['post', '/api/sales-commissions/' + id + '/pay'], ['post', '/api/utility/deposits/' + id + '/refund'],
+        ['post', '/api/supplier-advances'],
+      ];
+      // 403 karena peran memuat "Yang berhak:"; 403 lain (mis. aplikasi kasir belum aktif di perusahaan uji) bukan soal peran
+      const byRole = (r: { status: number; body: { message?: unknown } }) => r.status === 403 && /Yang berhak:/.test(String(r.body?.message ?? ''));
+      for (const [m, u] of paths) {
+        expect({ u, adminDitolakPeran: byRole(await call('ADMIN', m as 'post', u, {})) }).toEqual({ u, adminDitolakPeran: true });
+        expect({ u, keuanganDitolakPeran: byRole(await call('FINANCE', m as 'post', u, {})) }).toEqual({ u, keuanganDitolakPeran: false });
+      }
+    });
+
+    it('izin tampilan: Admin tidak mendapat izin uang keluar, Keuangan mendapat (tombol tersembunyi untuk yang tidak berhak)', async () => {
+      const perm = async (r: Role) => new Set<string>((await call(r, 'get', '/api/auth/permissions').expect(200)).body.allow);
+      const admin = await perm('ADMIN');
+      const fin = await perm('FINANCE');
+      for (const [m, p] of PAY) {
+        const k = permissionKey({ method: m, path: p });
+        expect({ k, admin: admin.has(k), fin: fin.has(k) }).toEqual({ k, admin: false, fin: true });
+      }
+    });
+  });
 });

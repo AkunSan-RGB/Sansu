@@ -19,5 +19,5 @@ export class DepositsController {
   @Get(':id') get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) { return this.svc.get(u.tenantId, id); }
   @Roles('ADMIN', 'FINANCE') @Post() receive(@CurrentUser() u: AuthUser, @Body() dto: DepositDto) { return this.svc.receive(u, dto); }
   @Roles('ADMIN', 'FINANCE') @Post(':id/offset') offset(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: DepositOffsetDto) { return this.svc.offset(u, id, dto); }
-  @Roles('ADMIN', 'FINANCE') @Post(':id/refund') refund(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: DepositRefundDto) { return this.svc.refund(u, id, dto); }
+  @Roles('FINANCE') @Post(':id/refund') refund(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: DepositRefundDto) { return this.svc.refund(u, id, dto); }
 }

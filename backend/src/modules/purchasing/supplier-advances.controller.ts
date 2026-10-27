@@ -29,7 +29,7 @@ export class SupplierAdvancesController {
   get(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.get(u.tenantId, id);
   }
-  @Post() @Roles('ADMIN', 'FINANCE')
+  @Post() @Roles('FINANCE')
   create(@CurrentUser() u: AuthUser, @Body() dto: CreateSupplierAdvanceDto) {
     return this.svc.create(u, dto);
   }
@@ -37,11 +37,11 @@ export class SupplierAdvancesController {
   apply(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ApplySupplierAdvanceDto) {
     return this.svc.apply(u, id, dto);
   }
-  @Post(':id/refund') @Roles('ADMIN', 'FINANCE')
+  @Post(':id/refund') @Roles('FINANCE')
   refund(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RefundSupplierAdvanceDto) {
     return this.svc.refund(u, id, dto);
   }
-  @Post(':id/void') @Roles('ADMIN')
+  @Post(':id/void') @Roles('OWNER')
   void(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VoidSupplierAdvanceDto) {
     return this.svc.void(u, id, dto.reason);
   }

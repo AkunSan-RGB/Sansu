@@ -62,7 +62,7 @@ describe('Peran khusus (e2e)', () => {
     await post(owner, '/api/settings/roles', { name: 'Gudang Nakal', baseRole: 'WAREHOUSE', denied: ['POST /accounting/journals'] }).expect(400); // bukan hak Gudang
     await post(owner, '/api/settings/roles', { name: 'Kunci Ngawur', baseRole: 'ADMIN', denied: ['POST /tidak-ada'] }).expect(400);
     await post(owner, '/api/settings/roles', { name: 'Akun Sendiri', baseRole: 'ADMIN', denied: ['POST /auth/logout-all'] }).expect(400);
-    const r = await post(owner, '/api/settings/roles', { name: 'Admin Tanpa Bayar', baseRole: 'ADMIN', denied: ['POST /payments', 'POST /purchase-invoices/payments', 'POST /accounting/journals'] }).expect(201);
+    const r = await post(owner, '/api/settings/roles', { name: 'Admin Tanpa Bayar', baseRole: 'ADMIN', denied: ['POST /payments', 'POST /payments/write-off', 'POST /accounting/journals'] }).expect(201);
     roleId = r.body.id;
     await post(owner, '/api/settings/roles', { name: 'admin tanpa bayar', baseRole: 'ADMIN' }).expect(400);
   });
@@ -81,7 +81,7 @@ describe('Peran khusus (e2e)', () => {
     const r = await post(t, '/api/payments', {}).expect(403);
     expect(r.body.message).toMatch(/Admin Tanpa Bayar/);
     await post(t, '/api/accounting/journals', {}).expect(403);
-    await post(t, '/api/purchase-invoices/payments', {}).expect(403);
+    await post(t, '/api/payments/write-off', {}).expect(403);
     // hak yang tidak dicabut tetap berjalan (400 validasi, bukan 403)
     expect((await post(t, '/api/customers', {})).status).toBe(400);
     const perms = (await get(t, '/api/auth/permissions').expect(200)).body.allow as string[];

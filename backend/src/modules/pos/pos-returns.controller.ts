@@ -29,7 +29,7 @@ export class PosReturnsController {
     return this.controlsSvc.controls(u.tenantId);
   }
 
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('FINANCE')
   @Post('orders/:id/return')
   create(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CreatePosReturnDto) {
     return this.svc.create(u, id, dto);

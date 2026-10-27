@@ -24,12 +24,12 @@ export class PettyCashController {
   saveFund(@CurrentUser() u: AuthUser, @Body() dto: PettyFundDto) {
     return this.svc.saveFund(u, dto);
   }
-  @Roles('ADMIN')
+  @Roles('FINANCE')
   @Post('funds/:id/top-up')
   topUp(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: PettyFundTopUpDto) {
     return this.svc.topUp(u, id, dto);
   }
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('FINANCE')
   @Post('funds/:id/replenish')
   replenish(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: PettyReplenishDto) {
     return this.svc.replenish(u, id, dto);
@@ -44,12 +44,12 @@ export class PettyCashController {
   vouchers(@CurrentUser() u: AuthUser, @Query('fundId') fundId?: string, @Query('status') status?: string) {
     return this.svc.vouchers(u.tenantId, fundId, status);
   }
-  @Roles('ADMIN', 'FINANCE')
+  @Roles('FINANCE')
   @Post('vouchers')
   createVoucher(@CurrentUser() u: AuthUser, @Body() dto: PettyVoucherDto) {
     return this.svc.createVoucher(u, dto);
   }
-  @Roles('ADMIN')
+  @Roles('OWNER')
   @Post('vouchers/:id/void')
   voidVoucher(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: PettyVoidDto) {
     return this.svc.voidVoucher(u, id, dto);
