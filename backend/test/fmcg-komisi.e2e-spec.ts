@@ -110,7 +110,8 @@ describe('FMCG: jurnal komisi & rekonstruksi lot (e2e)', () => {
     const bal = async (code: string) => Number((await db.execute<{ b: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0)::text AS b FROM journal_lines l JOIN accounts a ON a.id = l.account_id JOIN journal_entries j ON j.id = l.journal_id WHERE j.tenant_id = ${tenantId} AND a.code = ${code}`)).rows[0].b);
     expect(await bal('2-1450')).toBe(0);
     expect(await bal('2-1310')).toBe(-10_000);
-    expect((await post(`/api/sales-commissions/${commissionId}/void`, { reason: 'Salah hitung' }, admin)).status).toBe(400); // sudah dibayar
+    expect((await post(`/api/sales-commissions/${commissionId}/void`, { reason: 'Salah hitung' }, admin)).status).toBe(403); // Admin tidak membatalkan uang keluar
+    expect((await post(`/api/sales-commissions/${commissionId}/void`, { reason: 'Salah hitung' })).status).toBe(400); // Pemilik: sudah dibayar
   });
 
   it('pembatalan sebelum dibayar: jurnal balik, status VOID, bisa ditutup ulang', async () => {
@@ -125,8 +126,8 @@ describe('FMCG: jurnal komisi & rekonstruksi lot (e2e)', () => {
     const c = (await post('/api/sales-commissions/close', { period }, acct).expect(201)).body;
     expect(c.created).toBe(1);
     const id = c.items[0].id;
-    expect((await post(`/api/sales-commissions/${id}/void`, { reason: 'x' }, admin)).status).toBe(400); // alasan terlalu pendek
-    await post(`/api/sales-commissions/${id}/void`, { reason: 'Pesanan diinput salah sales' }, admin).expect(201);
+    expect((await post(`/api/sales-commissions/${id}/void`, { reason: 'x' })).status).toBe(400); // alasan terlalu pendek
+    await post(`/api/sales-commissions/${id}/void`, { reason: 'Pesanan diinput salah sales' }).expect(201);
     const bal = Number((await db.execute<{ b: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0)::text AS b FROM journal_lines l JOIN accounts a ON a.id = l.account_id JOIN journal_entries j ON j.id = l.journal_id WHERE j.tenant_id = ${tenantId} AND a.code = '2-1450'`)).rows[0].b);
     expect(bal).toBe(0);
     const re = (await post('/api/sales-commissions/close', { period }, acct).expect(201)).body;
