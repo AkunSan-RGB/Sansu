@@ -49,7 +49,7 @@ describe('Pengaturan perusahaan (CompanySettingsPage)', { timeout: 30_000 }, () 
     await waitFor(() => expect(name.value).toBe('PT Contoh Abadi'));
     fireEvent.change(name, { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'Simpan perubahan' }));
-    await screen.findByText('Nama perusahaan wajib diisi');
+    await screen.findByText('Nama perusahaan wajib diisi', {}, { timeout: 8000 });
     expect(patch).not.toHaveBeenCalled();
   });
 

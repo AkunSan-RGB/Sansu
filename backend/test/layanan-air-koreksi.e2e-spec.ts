@@ -20,7 +20,7 @@ describe('Layanan air: koreksi, jaminan, angsuran (e2e)', () => {
     const d = new Date(Date.UTC(t[0], t[1] - 1 - back, 1));
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
   };
-  let owner: string; let fin: string; let adm: string; let sales: string; let acct: string;
+  let owner: string; let fin: string; let fin2: string; let adm: string; let sales: string; let acct: string;
   let tenantId: string; let customer: string; let tariff: string; let connId: string; let billInvoice: string; let tenantRow: { id: string };
   const post = (url: string, body: object = {}, t = owner) => http.post(url).set(as(t)).send(body);
   const get = (url: string, t = owner) => http.get(url).set(as(t));
@@ -44,7 +44,7 @@ describe('Layanan air: koreksi, jaminan, angsuran (e2e)', () => {
       await post('/api/users', { name: n, email: `krk-${n}-${stamp}@uji.id`, password: 'rahasia12345', role }).expect(201);
       return (await http.post('/api/auth/login').send({ email: `krk-${n}-${stamp}@uji.id`, password: 'rahasia12345' }).expect(200)).body.accessToken as string;
     };
-    fin = await mk('FINANCE', 'fin'); adm = await mk('ADMIN', 'adm'); sales = await mk('SALES', 'cs'); acct = await mk('ACCOUNTANT', 'akt');
+    fin = await mk('FINANCE', 'fin'); fin2 = await mk('FINANCE', 'fin2'); adm = await mk('ADMIN', 'adm'); sales = await mk('SALES', 'cs'); acct = await mk('ACCOUNTANT', 'akt');
     tenantRow = (await db.execute<{ id: string }>(sql`SELECT tenant_id AS id FROM users WHERE email = ${`krk-${stamp}@uji.id`}`)).rows[0];
     tenantId = tenantRow.id;
     customer = (await post('/api/customers', { code: 'PLG1', name: 'Siti', paymentTermDays: 20 }).expect(201)).body.id;
@@ -110,7 +110,8 @@ describe('Layanan air: koreksi, jaminan, angsuran (e2e)', () => {
     const d = (await post('/api/utility/deposits', { customerId: customer, connectionId: connId, amount: '300000', note: 'Jaminan sambungan baru' }, fin).expect(201)).body;
     depId = d.id;
     expect(d.number).toMatch(/^JMN\//);
-    expect((await post(`/api/utility/deposits/${depId}/refund`, {}, adm)).status).toBe(400); // masih ada tunggakan
+    expect((await post(`/api/utility/deposits/${depId}/refund`, {}, adm)).status).toBe(403); // Admin tidak mengeluarkan uang
+    expect((await post(`/api/utility/deposits/${depId}/refund`, {}, fin2)).status).toBe(400); // masih ada tunggakan
     expect((await post(`/api/utility/deposits/${depId}/offset`, { invoiceId: billInvoice }, fin)).status).toBe(403); // penerima = pemakai
     const open = Number(((await get('/api/utility/adjustments/invoices?q=Siti', fin).expect(200)).body as { id: string; open: string }[]).find((x) => x.id === billInvoice)!.open);
     const off = (await post(`/api/utility/deposits/${depId}/offset`, { invoiceId: billInvoice }, adm).expect(201)).body;
@@ -125,9 +126,9 @@ describe('Layanan air: koreksi, jaminan, angsuran (e2e)', () => {
     const c2 = (await post('/api/customers', { code: 'PLG2', name: 'Budi', paymentTermDays: 20 }).expect(201)).body.id;
     const d2 = (await post('/api/utility/deposits', { customerId: c2, amount: '100000' }, fin).expect(201)).body;
     expect((await post(`/api/utility/deposits/${d2.id}/refund`, {}, fin)).status).toBe(403); // penerima tak boleh mengembalikan
-    const rf = (await post(`/api/utility/deposits/${d2.id}/refund`, { note: 'Sambungan ditutup' }, adm).expect(201)).body;
+    const rf = (await post(`/api/utility/deposits/${d2.id}/refund`, { note: 'Sambungan ditutup' }, fin2).expect(201)).body;
     expect(Number(rf.amount)).toBeCloseTo(100000, 2);
-    expect((await post(`/api/utility/deposits/${d2.id}/refund`, {}, adm)).status).toBe(400); // sudah habis
+    expect((await post(`/api/utility/deposits/${d2.id}/refund`, {}, fin2)).status).toBe(400); // sudah habis
     expect(Number((await get('/api/utility/deposits/summary', fin).expect(200)).body.held)).toBeCloseTo(Number(dep.remaining), 2);
     await arBalanced();
   });

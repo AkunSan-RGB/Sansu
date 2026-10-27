@@ -352,9 +352,11 @@ describe('Pemisahan fungsi (e2e)', () => {
         ['post', '/api/pos/orders/' + id + '/return'], ['post', '/api/sales-commissions/' + id + '/pay'], ['post', '/api/utility/deposits/' + id + '/refund'],
         ['post', '/api/supplier-advances'],
       ];
+      // 403 karena peran memuat "Yang berhak:"; 403 lain (mis. aplikasi kasir belum aktif di perusahaan uji) bukan soal peran
+      const byRole = (r: { status: number; body: { message?: unknown } }) => r.status === 403 && /Yang berhak:/.test(String(r.body?.message ?? ''));
       for (const [m, u] of paths) {
-        expect({ u, status: (await call('ADMIN', m as 'post', u, {})).status }).toEqual({ u, status: 403 });
-        expect({ u, ditolakPeran: (await call('FINANCE', m as 'post', u, {})).status === 403 }).toEqual({ u, ditolakPeran: false });
+        expect({ u, adminDitolakPeran: byRole(await call('ADMIN', m as 'post', u, {})) }).toEqual({ u, adminDitolakPeran: true });
+        expect({ u, keuanganDitolakPeran: byRole(await call('FINANCE', m as 'post', u, {})) }).toEqual({ u, keuanganDitolakPeran: false });
       }
     });
 
