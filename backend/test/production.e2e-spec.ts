@@ -234,4 +234,54 @@ describe('Produksi: BOM, perintah produksi, HPP produksi (e2e)', () => {
       expect((await get(`/api/production/boms/${revBom}/revisions`).expect(200)).body.map((r: { version: number }) => r.version)).toEqual([2, 1]);
     });
   });
+
+  describe('Subkontrak (maklon)', () => {
+    let vendor = ''; let other = ''; let laborAcc = ''; let expenseAcc = '';
+    let orderId = ''; let bomMk = '';
+    const bill = (supplierId: string, accountId: string, price: string, no: string) =>
+      post('/api/purchase-invoices/bills', { supplierId, supplierInvoiceNo: no, withVat: false, lines: [{ type: 'EXPENSE', description: 'Jasa maklon jahit', accountId, price }] });
+
+    beforeAll(async () => {
+      vendor = (await post('/api/suppliers', { code: 'MK1', name: 'CV Maklon Jahit' }).expect(201)).body.id;
+      other = (await post('/api/suppliers', { code: 'MK2', name: 'Pemasok Lain' }).expect(201)).body.id;
+      const accs = (await get('/api/cash/counter-accounts').expect(200)).body as { id: string; code: string; type: string }[];
+      laborAcc = accs.find((a) => a.code === '5-4100')!.id;
+      expenseAcc = accs.find((a) => a.type === 'EXPENSE' && a.code !== '5-4100')!.id;
+      bomMk = (await post('/api/production/boms', { code: 'BOM-MK', name: 'Kemeja maklon', productId: kemeja, outputQty: '10', laborCost: '1', lines: [{ productId: kain, qty: '10' }] }).expect(201)).body.id;
+    });
+
+    it('pemasok maklon harus ada; perintah subkontrak tidak bisa selesai tanpa tagihan jasa', async () => {
+      expect((await post('/api/production/orders', { bomId: bomMk, warehouseId, batches: '1', subcontractorId: '00000000-0000-4000-8000-000000000000' })).status).toBe(400);
+      const o = (await post('/api/production/orders', { bomId: bomMk, warehouseId, batches: '1', subcontractorId: vendor }).expect(201)).body;
+      orderId = o.id;
+      expect(o.subcontract).toMatchObject({ supplierName: 'CV Maklon Jahit', billId: null });
+      await post(`/api/production/orders/${orderId}/start`).expect(201);
+      expect((await post(`/api/production/orders/${orderId}/complete`, { outputQty: '10' })).status).toBe(400);
+    });
+
+    it('tagihan yang salah ditolak: pemasok lain, akun bukan upah langsung, faktur lain', async () => {
+      const b1 = (await bill(other, laborAcc, '500000', 'MK-A').expect(201)).body;
+      expect((await post(`/api/production/orders/${orderId}/subcontract-bill`, { purchaseInvoiceId: b1.id })).status).toBe(400);
+      const b2 = (await bill(vendor, expenseAcc, '500000', 'MK-B').expect(201)).body;
+      expect((await post(`/api/production/orders/${orderId}/subcontract-bill`, { purchaseInvoiceId: b2.id })).status).toBe(400);
+    });
+
+    it('tagihan jasa ditautkan: upah langsung = DPP tagihan, masuk harga pokok; tagihan tidak dapat dipakai dua perintah', async () => {
+      const b = (await bill(vendor, laborAcc, '600000', 'MK-C').expect(201)).body;
+      const linked = (await post(`/api/production/orders/${orderId}/subcontract-bill`, { purchaseInvoiceId: b.id }).expect(201)).body;
+      expect(linked.subcontract).toMatchObject({ billNumber: b.number, amount: '600000.00' });
+      expect((await post(`/api/production/orders/${orderId}/subcontract-bill`, { purchaseInvoiceId: b.id })).status).toBe(400); // sudah ada
+      expect((await post(`/api/production/orders/${orderId}/cancel`, {})).status).toBe(400); // tagihan menempel
+      expect((await post(`/api/production/orders/${orderId}/complete`, { outputQty: '10', laborCost: '1' })).status).toBe(400); // upah tidak boleh diketik
+      const done = (await post(`/api/production/orders/${orderId}/complete`, { outputQty: '10' }).expect(201)).body;
+      expect(Number(done.laborCost)).toBe(600000);
+      // bahan 10 × 20.000 = 200.000 + upah maklon 600.000 → 800.000 / 10
+      expect(Number(done.totalCost)).toBe(800000);
+      expect(Number(done.unitCost)).toBe(80000);
+      await bal('2-1100'); // neraca saldo tetap seimbang
+      // tagihan yang sama tidak bisa ditautkan ke perintah lain
+      const o2 = (await post('/api/production/orders', { bomId: bomMk, warehouseId, batches: '1', subcontractorId: vendor }).expect(201)).body;
+      expect((await post(`/api/production/orders/${o2.id}/subcontract-bill`, { purchaseInvoiceId: b.id })).status).toBe(400);
+    });
+  });
 });

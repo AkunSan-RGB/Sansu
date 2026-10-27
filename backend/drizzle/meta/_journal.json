@@ -834,6 +834,13 @@
       "when": 1798569486484,
       "tag": "0118_harga_per_toko",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1798655886484,
+      "tag": "0119_subkontrak_produksi",
+      "breakpoints": true
     }
   ]
 }

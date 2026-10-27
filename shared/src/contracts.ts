@@ -2069,6 +2069,8 @@ export interface ProductionOrder {
   childCount?: number;
   planNo?: string | null;
   bom: { id: string; code: string; name: string; /** Versi resep saat perintah dibuat */ version?: number | null };
+  /** Subkontrak (maklon): pemasok jasa dan tagihan jasanya (upah langsung); kosong = dikerjakan sendiri */
+  subcontract?: { supplierId: string; supplierName: string; billId: string | null; billNumber: string | null; amount: string | null } | null;
   product: { id: string; sku: string; name: string; unit: string };
   warehouse: { id: string; name: string };
   batches: string;

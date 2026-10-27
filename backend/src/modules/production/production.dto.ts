@@ -43,6 +43,11 @@ export class CreateProductionDto {
   @ApiPropertyOptional() @IsOptional() @IsDateString() date?: string;
   @ApiProperty({ example: '3', description: 'Jumlah batch' }) @IsNumberString() batches: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) notes?: string;
+  @ApiPropertyOptional({ description: 'Subkontrak (maklon): pemasok jasa yang mengerjakan produksi ini. Upah langsung = DPP tagihan jasa pemasok yang ditautkan.' }) @IsOptional() @IsUUID() subcontractorId?: string;
+}
+
+export class LinkSubcontractBillDto {
+  @ApiProperty({ description: 'Tagihan biaya (bukan faktur barang) dari pemasok maklon; semua barisnya harus ke akun Upah Langsung Produksi' }) @IsUUID() purchaseInvoiceId: string;
 }
 
 export class IssueLineDto {

@@ -1,8 +1,10 @@
 // Skema database — production
-import { boolean, date, index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { boolean, date, index, integer, jsonb, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { createdAt, id, money, qty } from './columns';
 import { tenantId } from './tenancy';
-import { products, warehouses } from './master-data';
+import { products, suppliers, warehouses } from './master-data';
+import { purchaseInvoices } from './purchasing';
 
 /** Resep / Bill of Materials: bahan per batch untuk menghasilkan produk jadi */
 export const boms = pgTable(
@@ -105,6 +107,9 @@ export const productionOrders = pgTable(
     cancelledDate: date('cancelled_date'),
     /** Versi resep saat perintah dibuat (kosong untuk perintah lama sebelum ada versi) */
     bomVersion: integer('bom_version'),
+    /** Subkontrak (maklon): pemasok jasa yang mengerjakan perintah ini dan tagihan jasanya (menjadi upah langsung) */
+    subcontractorId: uuid('subcontractor_id').references((): AnyPgColumn => suppliers.id),
+    subcontractBillId: uuid('subcontract_bill_id').references((): AnyPgColumn => purchaseInvoices.id),
     outputQty: qty('output_qty').notNull().default('0'),
     materialCost: money('material_cost').notNull().default('0'),
     laborCost: money('labor_cost').notNull().default('0'),
@@ -117,7 +122,7 @@ export const productionOrders = pgTable(
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex('production_orders_number_uq').on(t.tenantId, t.number), index('production_orders_status_idx').on(t.tenantId, t.status), index('production_orders_parent_idx').on(t.parentOrderId)],
+  (t) => [uniqueIndex('production_orders_number_uq').on(t.tenantId, t.number), uniqueIndex('production_orders_subcontract_bill_uq').on(t.subcontractBillId).where(sql`subcontract_bill_id IS NOT NULL`), index('production_orders_status_idx').on(t.tenantId, t.status), index('production_orders_parent_idx').on(t.parentOrderId)],
 );
 
 export const productionOrderLines = pgTable('production_order_lines', {

@@ -6,7 +6,7 @@ import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { ManufacturingService } from './manufacturing.service';
 import { PlanDto, RequirementsDto, VarianceQueryDto } from './manufacturing.dto';
 import { ProductionService } from './production.service';
-import { SaveBomDto, CreateProductionDto, StartProductionDto, CompleteProductionDto, CancelProductionDto } from './production.dto';
+import { SaveBomDto, CreateProductionDto, StartProductionDto, CompleteProductionDto, CancelProductionDto, LinkSubcontractBillDto } from './production.dto';
 
 @ApiTags('Produksi')
 @ApiBearerAuth()
@@ -70,6 +70,12 @@ export class ProductionController {
   report(@CurrentUser() u: AuthUser, @Query('period') period?: string) {
     return this.svc.report(u.tenantId, period || new Date().toISOString().slice(0, 7));
   }
+  @Post('orders/:id/subcontract-bill')
+  @Roles('ADMIN', 'FINANCE')
+  linkSubcontractBill(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: LinkSubcontractBillDto) {
+    return this.svc.linkSubcontractBill(u, id, dto);
+  }
+
   @Get('orders/:id')
   @Roles('ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT')
   order(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {

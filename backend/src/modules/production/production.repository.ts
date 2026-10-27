@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { sql, eq, inArray, and, desc, or } from 'drizzle-orm';
-import { bomLines, bomRevisions, products, boms, productionOrders, warehouses, productionOrderLines } from '../../db/schema';
+import { bomLines, bomRevisions, products, boms, productionOrders, warehouses, productionOrderLines, suppliers } from '../../db/schema';
 import type { BomSnapshot } from '../../db/schema';
 import { qty4, money, D, Dec } from '../../common/utils/money';
 import type { BomLineDto } from './production.dto';
@@ -58,6 +58,43 @@ export class ProductionRepository {
       .select({ id: products.id, sku: products.sku, name: products.name })
       .from(products)
       .where(and(eq(products.tenantId, tenantId), inArray(products.id, ids)));
+  }
+
+  /** Dipakai oleh ProductionService.createOrderIn: pemasok jasa maklon */
+  findSupplier(db: DbOrTx, tenantId: string, supplierId: string) {
+    return db.select({ id: suppliers.id, name: suppliers.name, isActive: suppliers.isActive }).from(suppliers).where(and(eq(suppliers.tenantId, tenantId), eq(suppliers.id, supplierId)));
+  }
+
+  /** Dipakai oleh ProductionService.listOrders: pemasok maklon dan tagihan jasanya */
+  listSubcontractInfo(db: DbOrTx, tenantId: string, orderIds: string[]) {
+    if (!orderIds.length) return Promise.resolve([] as { order_id: string; supplier_id: string; supplier_name: string; bill_id: string | null; bill_number: string | null; amount: string | null }[]);
+    return db
+      .execute<{ order_id: string; supplier_id: string; supplier_name: string; bill_id: string | null; bill_number: string | null; amount: string | null }>(sql`
+        SELECT o.id AS order_id, s.id AS supplier_id, s.name AS supplier_name, b.id AS bill_id, b.number AS bill_number, b.subtotal AS amount
+        FROM production_orders o JOIN suppliers s ON s.id = o.subcontractor_id LEFT JOIN purchase_invoices b ON b.id = o.subcontract_bill_id
+        WHERE o.tenant_id = ${tenantId} AND o.id IN (${sql.join(orderIds.map((i) => sql`${i}`), sql`, `)})`)
+      .then((r) => r.rows);
+  }
+
+  /** Dipakai oleh ProductionService.linkSubcontractBill: tagihan jasa yang boleh ditautkan (pemasok sama, tagihan biaya, jurnal belum dibalik) beserta jumlah baris yang bukan upah langsung */
+  findBillForSubcontract(db: DbOrTx, tenantId: string, billId: string) {
+    return db
+      .execute<{ id: string; number: string; supplier_id: string; kind: string; journal_id: string | null; reversed: boolean; linked_order: string | null; lines: string; labor_lines: string; labor_total: string }>(sql`
+        SELECT b.id, b.number, b.supplier_id, b.kind, b.journal_id,
+               EXISTS (SELECT 1 FROM journal_entries rv WHERE rv.reversal_of_id = b.journal_id) AS reversed,
+               (SELECT po.number FROM production_orders po WHERE po.subcontract_bill_id = b.id LIMIT 1) AS linked_order,
+               (SELECT COUNT(*) FROM purchase_invoice_lines l WHERE l.invoice_id = b.id)::text AS lines,
+               (SELECT COUNT(*) FROM purchase_invoice_lines l JOIN accounts a ON a.id = l.account_id WHERE l.invoice_id = b.id AND a.system_key = 'DIRECT_LABOR')::text AS labor_lines,
+               (SELECT COALESCE(SUM(l.line_total), 0) FROM purchase_invoice_lines l JOIN accounts a ON a.id = l.account_id WHERE l.invoice_id = b.id AND a.system_key = 'DIRECT_LABOR')::text AS labor_total
+        FROM purchase_invoices b WHERE b.tenant_id = ${tenantId} AND b.id = ${billId}`)
+      .then((r) => r.rows[0] ?? null);
+  }
+
+  /** Dipakai oleh ProductionService.complete: upah langsung dari tagihan maklon yang ditautkan */
+  subcontractLabor(db: DbOrTx, billId: string) {
+    return db
+      .execute<{ v: string }>(sql`SELECT COALESCE(SUM(l.line_total), 0)::text AS v FROM purchase_invoice_lines l JOIN accounts a ON a.id = l.account_id WHERE l.invoice_id = ${billId} AND a.system_key = 'DIRECT_LABOR'`)
+      .then((r) => r.rows[0].v);
   }
 
   /** Dipakai oleh ProductionService.validateBom */
@@ -171,6 +208,8 @@ export class ProductionRepository {
         date: string;
         bomId: string;
         bomVersion: number | null;
+        subcontractorId: string | null;
+        subcontractBillId: string | null;
         productId: string;
         warehouseId: string;
         batches: string;
@@ -234,6 +273,7 @@ export class ProductionRepository {
     parentOrderId: string | undefined,
     planNo: string | undefined,
     bomVersion: number,
+    subcontractorId?: string,
   ) {
     return db
       .insert(productionOrders)
@@ -251,6 +291,7 @@ export class ProductionRepository {
         parentOrderId: parentOrderId ?? null,
         planNo: planNo ?? null,
         bomVersion,
+        subcontractorId: subcontractorId ?? null,
       })
       .returning({ id: productionOrders.id });
   }
