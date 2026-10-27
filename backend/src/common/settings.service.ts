@@ -7,6 +7,7 @@ import {
   type TaxProfile,
 } from '@sansu/shared';
 import { DbOrTx } from '../db/db';
+import { dbScope } from '../db/db-scope';
 import { SettingsRepository } from './settings.repository';
 
 /**
@@ -73,6 +74,28 @@ export function definedOnly<T extends object>(patch: T): Partial<T> {
 export class SettingsService {
   constructor(private readonly repo: SettingsRepository) {}
 
+  /**
+   * Baris pengaturan perusahaan. Satu permintaan HTTP membaca baris yang sama berkali-kali (pajak, model usaha, kebijakan, ...);
+   * dalam satu permintaan cukup satu kueri. Setiap penulisan lewat layanan ini membuang catatannya.
+   */
+  private row(db: DbOrTx, tenantId: string) {
+    const memo = dbScope.getStore()?.memo;
+    if (!memo) return this.repo.findTenantsById(db, tenantId);
+    const key = `tenant-row:${tenantId}`;
+    let hit = memo.get(key) as ReturnType<SettingsRepository['findTenantsById']> | undefined;
+    if (!hit) {
+      hit = this.repo.findTenantsById(db, tenantId);
+      memo.set(key, hit);
+      // galat atau baris belum ada (perusahaan baru dibuat di permintaan yang sama) tidak boleh diingat
+      void Promise.resolve(hit).then((rows) => !rows.length && memo.delete(key), () => memo.delete(key));
+    }
+    return hit;
+  }
+
+  private forget(tenantId: string) {
+    dbScope.getStore()?.memo?.delete(`tenant-row:${tenantId}`);
+  }
+
   async taxProfile(db: DbOrTx, tenantId: string): Promise<TaxProfile> {
     return this.section(db, tenantId, 'tax', DEFAULT_TAX_PROFILE);
   }
@@ -82,28 +105,30 @@ export class SettingsService {
   }
 
   async reporting(db: DbOrTx, tenantId: string): Promise<ReportingSettings> {
-    const [t] = await this.repo.findTenantsById(db, tenantId);
+    const [t] = await this.row(db, tenantId);
     return { ...DEFAULT_REPORTING, ...((t?.settings?.reporting as Partial<ReportingSettings>) ?? {}) };
   }
 
   async saveReporting(db: DbOrTx, tenantId: string, patch: Partial<ReportingSettings>) {
-    const [t] = await this.repo.findTenantsById(db, tenantId);
+    const [t] = await this.row(db, tenantId);
     const current = (t?.settings ?? {}) as Record<string, unknown>;
     const reporting = { ...DEFAULT_REPORTING, ...((current.reporting as object) ?? {}), ...definedOnly(patch) };
     await this.repo.writeKey(db, tenantId, 'reporting', reporting);
+    this.forget(tenantId);
     return reporting;
   }
 
   async payroll(db: DbOrTx, tenantId: string): Promise<PayrollSettings> {
-    const [t] = await this.repo.findTenantsById(db, tenantId);
+    const [t] = await this.row(db, tenantId);
     return { ...DEFAULT_PAYROLL, ...((t?.settings?.payroll as Partial<PayrollSettings>) ?? {}) };
   }
 
   async savePayroll(db: DbOrTx, tenantId: string, patch: Partial<PayrollSettings>) {
-    const [t] = await this.repo.findTenantsById(db, tenantId);
+    const [t] = await this.row(db, tenantId);
     const current = (t?.settings ?? {}) as Record<string, unknown>;
     const payroll = { ...DEFAULT_PAYROLL, ...((current.payroll as object) ?? {}), ...definedOnly(patch) };
     await this.repo.writeKey(db, tenantId, 'payroll', payroll);
+    this.forget(tenantId);
     return payroll;
   }
 
@@ -115,7 +140,7 @@ export class SettingsService {
 
   /** Bagian pengaturan bebas (mis. 'integrations') */
   async section<T extends object>(db: DbOrTx, tenantId: string, key: string, defaults: T): Promise<T> {
-    const [t] = await this.repo.findTenantsById(db, tenantId);
+    const [t] = await this.row(db, tenantId);
     return { ...defaults, ...((t?.settings?.[key] as Partial<T>) ?? {}) };
   }
 
@@ -126,10 +151,11 @@ export class SettingsService {
     defaults: T,
     patch: Partial<T>,
   ): Promise<T> {
-    const [t] = await this.repo.findTenantsById(db, tenantId);
+    const [t] = await this.row(db, tenantId);
     const current = (t?.settings ?? {}) as Record<string, unknown>;
     const merged = { ...defaults, ...((current[key] as object) ?? {}), ...definedOnly(patch) } as T;
     await this.repo.writeKey(db, tenantId, key, merged);
+    this.forget(tenantId);
     return merged;
   }
 }
