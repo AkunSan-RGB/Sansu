@@ -720,9 +720,24 @@ export interface VatReport {
   }[];
 }
 
+export interface PeriodLockEvent {
+  id: number;
+  kind: 'LOCK' | 'UNLOCK';
+  /** Waktu kejadian (ISO) */
+  at: string;
+  /** Tanggal kunci sebelum dan sesudah */
+  from: string | null;
+  to: string | null;
+  who: string | null;
+  /** Dikerjakan pembukuan otomatis */
+  auto: boolean;
+}
+
 export interface PeriodStatus {
   lockedUntil: string | null;
   closings: { year: string; number: string; date: string }[];
+  /** Riwayat kunci dan pembukaan periode, terbaru dulu */
+  lockHistory?: PeriodLockEvent[];
 }
 
 export interface AgingRow {

@@ -127,6 +127,17 @@ export class AccountingRepository {
       .orderBy(desc(journalEntries.date));
   }
 
+  /** Riwayat kunci/pembukaan periode dari jejak audit (terbaru dulu); `auto` bila dikerjakan pembukuan otomatis */
+  queryLockHistory(db: DbOrTx, tenantId: string, limit = 24) {
+    return db.execute<{ id: number; action: string; at: string; from: string | null; to: string | null; who: string | null; auto: boolean }>(sql`
+      SELECT a.id, a.action, a.created_at::text AS at, a.data->>'from' AS "from", a.data->>'to' AS "to", u.name AS who,
+        EXISTS (SELECT 1 FROM audit_logs x WHERE x.tenant_id = a.tenant_id AND x.action = 'AUTO_LOCK_PERIOD'
+                AND x.data->>'to' = a.data->>'to' AND ABS(EXTRACT(EPOCH FROM (x.created_at - a.created_at))) < 60) AS auto
+      FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id
+      WHERE a.tenant_id = ${tenantId} AND a.action IN ('LOCK_PERIOD', 'UNLOCK_PERIOD')
+      ORDER BY a.id DESC LIMIT ${limit}`);
+  }
+
   /** Dipakai oleh AccountingService.closeYear */
   queryCloseYear(db: DbOrTx, tenantId: string) {
     return db.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`close:${tenantId}`}))`);
