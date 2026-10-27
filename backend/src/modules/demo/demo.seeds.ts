@@ -961,6 +961,12 @@ async function seedUtilitas(c: Demo) {
     { title: 'Ruko Pasar Baru — 6 sambungan niaga', company: 'Pengelola Ruko Pasar Baru', contact: 'Bu Lina', value: 9_000_000, source: 'Datang ke kantor' },
   ]);
   await X.stockOps(c, ids, ['UT-PIPA-PVC', 'UT-METER-AIR', 'UT-FITTING', 'UT-KAPORIT'], { billId: c.last.bill, supplierId: sup.get('SUP-PIPA') });
+  // faktur biaya sambung baru (kena PPN) ke pengembang perumahan: tampil di e-Faktur Coretax
+  const dev = await addCustomers(c, [{ code: 'PGB-GRIYA', name: 'PT Griya Asri Properti', address: 'Perumahan Griya Asri, Sleman', term: 30 }]);
+  const sb = (await c.step('faktur sambung baru', () =>
+    c.svc.billing.createInvoice(c.admin, { customerId: dev.get('PGB-GRIYA')!, date: c.ago(12), description: 'Biaya sambung baru air — 6 unit rumah', termLabel: 'Paket', withVat: true, lines: [{ description: 'Biaya sambung baru air (paket pemasangan)', qty: '6', unit: 'Paket', price: '1250000' }] }),
+  )) as { id: string } | undefined;
+  if (sb) await c.step('bayar sambung baru', () => receive(c, sb.id, 5, 'TRANSFER', 0.5));
   await F.utilityChannels(c);
   await F.minimums(c, [...ids.values()]);
   await F.priceAgreements(c, [
