@@ -24,6 +24,8 @@ type ChecklistItem = {
   message: string;
   amount?: string;
   link?: string;
+  source?: string;
+  waiting?: boolean;
   template?: { kind: TemplateKind; amount: string; description: string };
 };
 
@@ -229,7 +231,7 @@ export default function AdjustmentsPage() {
     invalidate: ['adjustments', ...LEDGER_KEYS],
   });
   const reversed = new Set(journals.data?.map((j) => j.reversalOfId).filter(Boolean));
-  const todo = checklist.data?.items.filter((i) => i.status === 'TODO').length ?? 0;
+  const todo = checklist.data?.items.filter((i) => i.status === 'TODO' && !i.waiting).length ?? 0;
   const s = (k: string) => summary.data?.find((x) => x.sourceType === k);
 
   return (
@@ -274,6 +276,19 @@ export default function AdjustmentsPage() {
               ),
               children: (
                 <>
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 12 }}
+                    message="Daftar ini dihitung otomatis dari data Anda"
+                    description={
+                      <span>
+                        Setiap baris adalah pengecekan akhir bulan; sistem memeriksa data (aset, penggajian, piutang, dll.) lalu menentukan statusnya.{' '}
+                        <Tag color="green">Selesai</Tag> sudah dibukukan, <Tag color="orange">Perlu dikerjakan</Tag> belum dibuat, <Tag>Belum waktunya</Tag> baru bisa setelah bulan berakhir,{' '}
+                        <Tag color="blue">Periksa</Tag> tidak salah tetapi perlu Anda pastikan, <Tag>Tidak ada</Tag> tidak ada yang perlu dikerjakan.
+                      </span>
+                    }
+                  />
                   <Space wrap style={{ marginBottom: 12 }}>
                     <Input type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} style={{ width: 180 }} />
                     <Button onClick={() => navigate(`/worksheet?${query}`)}>Lihat dampaknya di Neraca Lajur</Button>
@@ -302,11 +317,16 @@ export default function AdjustmentsPage() {
                               title={
                                 <Space>
                                   {i.title}
-                                  <Tag color={STATUS[i.status].color}>{STATUS[i.status].label}</Tag>
+                                  {i.waiting ? <Tag>Belum waktunya</Tag> : <Tag color={STATUS[i.status].color}>{STATUS[i.status].label}</Tag>}
                                   {i.amount && Number(i.amount) > 0 && <Typography.Text type="secondary">{fmtMoney(i.amount)}</Typography.Text>}
                                 </Space>
                               }
-                              description={i.message}
+                              description={
+                                <>
+                                  {i.message}
+                                  {i.source && <div><Typography.Text type="secondary" style={{ fontSize: 12 }}>{i.source}</Typography.Text></div>}
+                                </>
+                              }
                             />
                           </List.Item>
                         )}

@@ -26,6 +26,7 @@ import { useNavigate } from 'react-router-dom';
 import { get } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { fmtMoney } from '@/lib/format';
+import TrendChart from './TrendChart';
 
 type Tone = 'warning' | 'opportunity' | 'good' | 'info';
 interface Insight {
@@ -67,13 +68,6 @@ const CATEGORY: Record<string, { label: string; icon: ReactNode }> = {
   PELANGGAN: { label: 'Pelanggan', icon: <TeamOutlined /> },
   PRODUK: { label: 'Produk', icon: <ShoppingOutlined /> },
 };
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-const short = (n: number) => {
-  const a = Math.abs(n);
-  const s = n < 0 ? '−' : '';
-  return a >= 1e9 ? `${s}${(a / 1e9).toFixed(1).replace('.', ',')} M` : a >= 1e6 ? `${s}${(a / 1e6).toFixed(1).replace('.', ',')} jt` : a >= 1e3 ? `${s}${Math.round(a / 1e3)} rb` : `${s}${Math.round(a)}`;
-};
-
 const CSS = `
 @keyframes insUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @keyframes insPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(240,68,56,.45); } 50% { box-shadow: 0 0 0 7px rgba(240,68,56,0); } }
@@ -86,47 +80,6 @@ const CSS = `
 .ins-pill:hover { transform: translateY(-1px); background: rgba(255,255,255,.26) !important; }
 @media (prefers-reduced-motion: reduce) { .ins-card, .ins-pulse, .ins-line { animation: none !important; } .ins-card:hover { transform: none; } }
 `;
-
-/** Grafik garis/area ringkas: penjualan dan laba kotor 6 bulan */
-function Spark({ data }: { data: Trend[] }) {
-  const W = 340, H = 132, padX = 14, top = 14, bottom = 26;
-  const max = Math.max(1, ...data.flatMap((d) => [d.sales, d.grossProfit]));
-  const min = Math.min(0, ...data.flatMap((d) => [d.sales, d.grossProfit]));
-  const x = (i: number) => padX + (i * (W - padX * 2)) / Math.max(1, data.length - 1);
-  const y = (v: number) => top + (1 - (v - min) / (max - min || 1)) * (H - top - bottom);
-  const line = (k: 'sales' | 'grossProfit') => data.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(d[k]).toFixed(1)}`).join(' ');
-  const area = `${line('sales')} L${x(data.length - 1)},${H - bottom} L${x(0)},${H - bottom} Z`;
-  const last = data[data.length - 1];
-  const prev = data[data.length - 2];
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Tren penjualan dan laba kotor 6 bulan" style={{ display: 'block' }}>
-      <defs>
-        <linearGradient id="insArea" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#fff" stopOpacity=".38" />
-          <stop offset="100%" stopColor="#fff" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {[0.25, 0.5, 0.75].map((f) => (
-        <line key={f} x1={padX} x2={W - padX} y1={top + f * (H - top - bottom)} y2={top + f * (H - top - bottom)} stroke="#fff" strokeOpacity=".12" />
-      ))}
-      <path d={area} fill="url(#insArea)" />
-      <path className="ins-line" d={line('sales')} fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path className="ins-line" d={line('grossProfit')} fill="none" stroke="#7CF2C1" strokeWidth="2.2" strokeDasharray="5 5" strokeLinecap="round" style={{ animation: 'none' }} />
-      {data.map((d, i) => (
-        <g key={d.month}>
-          <circle cx={x(i)} cy={y(d.sales)} r={i === data.length - 1 ? 4.6 : 3} fill="#fff" />
-          <text x={x(i)} y={H - 8} textAnchor="middle" fontSize="10.5" fill="#fff" fillOpacity=".78">{MONTHS[Number(d.month.slice(5, 7)) - 1]}</text>
-        </g>
-      ))}
-      <text x={x(data.length - 1) - 9} y={y(last.sales) - 10} textAnchor="end" fontSize="11.5" fontWeight="700" fill="#fff" stroke="#111111" strokeWidth="3.5" paintOrder="stroke" strokeLinejoin="round">{short(last.sales)}</text>
-      {prev && prev.sales > 0 && (
-        <text x={padX} y={11} fontSize="10.5" fill="#fff" fillOpacity=".8">
-          ▬ Penjualan  <tspan fill="#7CF2C1">┅ Laba kotor</tspan>
-        </text>
-      )}
-    </svg>
-  );
-}
 
 function InsightCard({ i, index, onHide }: { i: Insight; index: number; onHide: () => void }) {
   const navigate = useNavigate();
@@ -297,7 +250,7 @@ export default function InsightPanel() {
         </div>
         <div style={{ background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.16)', borderRadius: 16, padding: '10px 12px 4px', minWidth: 0 }}>
           <div style={{ fontSize: 12.5, fontWeight: 600, opacity: 0.9, marginBottom: 2 }}>Penjualan & laba kotor, 6 bulan</div>
-          {hasSales ? <Spark data={data.trend} /> : <div style={{ padding: '28px 8px', fontSize: 13, opacity: 0.8 }}>Grafik muncul setelah ada penjualan.</div>}
+          {hasSales ? <TrendChart data={data.trend} /> : <div style={{ padding: '28px 8px', fontSize: 13, opacity: 0.8 }}>Grafik muncul setelah ada penjualan.</div>}
         </div>
       </div>
       <style>{`@media (max-width: 860px) { .ins-hero { grid-template-columns: minmax(0,1fr) !important; padding: 18px !important; } }`}</style>

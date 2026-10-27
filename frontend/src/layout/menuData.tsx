@@ -418,7 +418,7 @@ export const MENU: Group[] = [
         section: 'Akhir periode',
         items: [
           { key: '/closing', label: 'Tutup buku', roles: BOOKKEEPING },
-          { key: '/settings/company?tab=pelaporan', label: 'Pelaporan keuangan', roles: ['OWNER', 'ADMIN'] },
+          // Menu Pelaporan keuangan disembunyikan (pengaturannya tetap di Pengaturan → Perusahaan → Pelaporan keuangan)
         ],
       },
     ],
@@ -434,7 +434,8 @@ export const MENU: Group[] = [
       { key: '/integrations?tab=coretax', label: t('e-Faktur Coretax'), tax: 'coretax' },
       { key: '/tax/withheld', label: t('PPh dipotong pelanggan'), app: 'sales', tax: 'withheldByCustomers' },
       { key: '/tax', label: 'Setoran pajak & BPJS' },
-      { key: '/tax/recap', label: 'Rekap pajak & BPJS' },
+      { key: '/tax/recap', label: 'Rekap pajak' },
+      { key: '/payroll/bpjs?dari=pajak', label: 'Rekap BPJS', app: 'payroll' },
       { key: '/fiscal', label: 'Rekonsiliasi fiskal', tax: 'fiscalReconciliation', roles: BOOKKEEPING },
     ],
   },

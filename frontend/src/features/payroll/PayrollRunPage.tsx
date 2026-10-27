@@ -135,12 +135,13 @@ export default function PayrollRunPage() {
           rowKey="id"
           dataSource={slips}
           pagination={false}
-          scroll={{ x: 1500 }}
+          scroll={{ x: 1650 }}
           onRow={(p) => ({ onClick: () => (isDraft ? (form.setFieldsValue({ otherIncome: n(p.otherIncome), otherDeduction: n(p.otherDeduction), notes: p.notes }), setEditing(p)) : setViewing(p.id)), style: { cursor: 'pointer' } })}
           columns={[
             { title: 'Karyawan', fixed: 'left', width: 200, render: (_, p) => `${p.employee.code} · ${p.employee.name}` },
             { title: 'Hadir', align: 'right', render: (_, p) => `${p.presentDays}/${p.workDays}` },
-            { title: 'Gaji + tunjangan', align: 'right', render: (_, p) => fmtMoney(n(p.baseSalary) + n(p.fixedAllowance)) },
+            { title: 'Gaji pokok', dataIndex: 'baseSalary', align: 'right', width: 120, render: fmtMoney },
+            { title: 'Tunjangan', dataIndex: 'fixedAllowance', align: 'right', width: 120, render: fmtMoney },
             { title: 'Uang makan', dataIndex: 'dailyAllowance', align: 'right', render: fmtMoney },
             { title: 'Lembur', dataIndex: 'overtimePay', align: 'right', render: fmtMoney },
             { title: 'Bonus', dataIndex: 'otherIncome', align: 'right', render: fmtMoney },

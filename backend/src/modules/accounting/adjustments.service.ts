@@ -4,7 +4,7 @@
  * penggajian → akrual gaji, persediaan → stock opname, rekonsiliasi fiskal → pajak penghasilan).
  */
 import { Injectable } from '@nestjs/common';
-import { DocDate } from '../../common/utils/dates';
+import { DocDate, todayJakarta } from '../../common/utils/dates';
 import { D, Dec } from '../../common/utils/money';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
@@ -22,6 +22,10 @@ export interface ChecklistItem {
   amount?: string;
   /** Halaman tempat menyelesaikannya */
   link?: string;
+  /** Data mana yang diperiksa untuk menentukan status baris ini */
+  source?: string;
+  /** Bulan belum berakhir: pekerjaan ini baru bisa dikerjakan setelah akhir bulan (tidak dihitung sebagai tunggakan) */
+  waiting?: boolean;
   /** Templat jurnal penyesuaian yang bisa langsung dipakai */
   template?: { kind: string; amount: string; description: string };
 }
@@ -182,6 +186,26 @@ export class AdjustmentsService {
       amount: D(manual.total).toFixed(2),
     });
 
+    // asal data tiap baris, supaya pengguna tahu daftar ini dihitung dari mana
+    const SOURCES: Record<string, string> = {
+      depreciation: 'Diperiksa dari: daftar Aset tetap dan jurnal penyusutan bulan ini',
+      recurring: 'Diperiksa dari: jurnal berulang (Akuntansi → Jurnal → Berulang)',
+      prepaid: 'Diperiksa dari: saldo akun biaya dibayar di muka di buku besar',
+      'bad-debt': 'Diperiksa dari: faktur penjualan yang lewat jatuh tempo lebih dari 90 hari',
+      payroll: 'Diperiksa dari: data karyawan dan penggajian periode ini',
+      'stock-opname': 'Diperiksa dari: penyesuaian stok beralasan stock opname bulan ini',
+      'income-tax': 'Diperiksa dari: jurnal beban pajak penghasilan tahun ini',
+      manual: 'Diperiksa dari: jurnal penyesuaian yang dibuat manual bulan ini',
+    };
+    // penyusutan dan jurnal berulang dijurnal bertanggal akhir bulan: sebelum bulan berakhir belum waktunya
+    const ended = to <= todayJakarta();
+    for (const it of items) {
+      it.source = SOURCES[it.key];
+      if (!ended && it.status === 'TODO' && (it.key === 'depreciation' || it.key === 'recurring')) {
+        it.waiting = true;
+        it.message = `Belum waktunya: bulan ${period} baru berakhir ${to.split('-').reverse().join('/')}. Jurnalnya bertanggal akhir bulan, jalankan setelah itu. (${it.message})`;
+      }
+    }
     return { period, date: to, items };
   }
 }

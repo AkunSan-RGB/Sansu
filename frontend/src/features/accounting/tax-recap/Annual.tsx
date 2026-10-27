@@ -90,7 +90,7 @@ export function Annual() {
               <InputNumber value={year} min={2020} max={2100} onChange={(v) => v && setYear(v)} prefix="Tahun" />
               <ExportButtons
                 filename={`rekap-pajak-${year}`}
-                title={`Rekap pajak & BPJS ${year}`}
+                title={`Rekap pajak ${year}`}
                 sheets={() => annualTaxSheets(r, me?.tenantName)}
               />
             </Space>
