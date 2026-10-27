@@ -3,6 +3,7 @@ import { DbOrTx } from '../../db/db';
 import { sql, eq } from 'drizzle-orm';
 import { tenants } from '../../db/schema';
 import type { SQL } from 'drizzle-orm';
+import { probeQuery } from './model-setup.probes';
 
 /** Akses data untuk Onboarding: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -39,5 +40,10 @@ export class OnboardingRepository {
          OR EXISTS (SELECT 1 FROM pos_orders po2 JOIN pos_order_lines pl ON pl.order_id = po2.id WHERE po2.tenant_id = t.id AND pl.from_recipe)) AS production,
         EXISTS (SELECT 1 FROM users x WHERE x.id = ${sub} AND x.totp_enabled_at IS NOT NULL) AS security
       FROM tenants t WHERE t.id = ${tenantId}`);
+  }
+
+  /** Status pengaturan jenis usaha: satu baris, kolom per kunci (true bila sudah diatur) */
+  queryModelSetup(db: DbOrTx, tenantId: string, keys: string[]) {
+    return db.execute<Record<string, boolean>>(probeQuery(keys, tenantId));
   }
 }

@@ -26,6 +26,7 @@ import BrandingCard from './BrandingCard';
 import BranchFeatureCard from './BranchFeatureCard';
 import RecipeTermCard from './RecipeTermCard';
 import BusinessModelCard from './BusinessModelCard';
+import ModelSetupCard from './ModelSetupCard';
 import AccountingPolicyTab from './AccountingPolicyTab';
 import ApprovalPolicyTab from './ApprovalPolicyTab';
 import PayrollSettingsTab from './PayrollSettingsTab';
@@ -264,6 +265,12 @@ export default function CompanySettingsPage() {
           </Form>
         </Card>
       ),
+    },
+    {
+      key: 'usaha',
+      label: model ? `Pengaturan ${model.name}` : 'Pengaturan usaha',
+      icon: <SolutionOutlined />,
+      children: <ModelSetupCard />,
     },
     {
       key: 'model',

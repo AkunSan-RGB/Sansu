@@ -7,7 +7,7 @@ import {
   SearchOutlined,
   WhatsAppOutlined,
 } from '@ant-design/icons';
-import { BRAND } from '@sansu/shared';
+import { BRAND, BUSINESS_MODEL_BY_KEY } from '@sansu/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Card, Col, Drawer, Empty, Input, List, Row, Space, Tag, Tooltip, Typography } from 'antd';
 import { useMemo, useState } from 'react';
@@ -15,7 +15,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { get, post } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import PageHeader from '@/layout/PageHeader';
-import { articlesFor, HELP_ARTICLES, HELP_CATEGORIES, searchArticles, type HelpArticle } from './articles';
+import { articlesFor, articlesVisibleTo, HELP_CATEGORIES, searchArticles, type HelpArticle } from './articles';
 
 interface Support {
   whatsapp: string;
@@ -109,8 +109,10 @@ export default function HelpCenterPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const id = params.get('a');
-  const article = HELP_ARTICLES.find((a) => a.id === id);
-  const results = useMemo(() => searchArticles(term), [term]);
+  const visible = useMemo(() => articlesVisibleTo(me?.businessModel), [me?.businessModel]);
+  const article = visible.find((a) => a.id === id);
+  const results = useMemo(() => searchArticles(term, me?.businessModel), [term, me?.businessModel]);
+  const guide = me?.businessModel ? visible.find((a) => a.id === `panduan-${me.businessModel!.toLowerCase()}`) : undefined;
   const isAdmin = me?.role === 'OWNER' || me?.role === 'ADMIN';
 
   const showOnboarding = async () => {
@@ -151,7 +153,7 @@ export default function HelpCenterPage() {
               <Card size="small" title="Artikel lain di kategori ini">
                 <List
                   size="small"
-                  dataSource={HELP_ARTICLES.filter((a) => a.category === article.category && a.id !== article.id)}
+                  dataSource={visible.filter((a) => a.category === article.category && a.id !== article.id)}
                   locale={{ emptyText: '—' }}
                   renderItem={(a) => (
                     <List.Item style={{ cursor: 'pointer' }} onClick={() => setParams({ a: a.id })}>
@@ -176,6 +178,25 @@ export default function HelpCenterPage() {
             style={{ marginBottom: 16 }}
             autoFocus
           />
+          {!term && guide && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message={`Bantuan ini disesuaikan untuk jenis usaha Anda: ${BUSINESS_MODEL_BY_KEY[me!.businessModel!].name}`}
+              description="Artikel yang tidak berlaku untuk jenis usaha Anda disembunyikan. Mulai dari panduan di bawah, lalu lihat daftar pengaturan untuk jenis usaha Anda."
+              action={
+                <Space direction="vertical">
+                  <Button size="small" type="primary" onClick={() => setParams({ a: guide.id })}>
+                    Buka panduan
+                  </Button>
+                  <Link to="/settings/company?tab=usaha">
+                    <Button size="small">Pengaturan usaha</Button>
+                  </Link>
+                </Space>
+              }
+            />
+          )}
           {term ? (
             <Card>
               <List
@@ -190,10 +211,10 @@ export default function HelpCenterPage() {
             </Card>
           ) : (
             <Row gutter={[16, 16]}>
-              {HELP_CATEGORIES.map((c) => (
+              {HELP_CATEGORIES.filter((c) => visible.some((a) => a.category === c)).map((c) => (
                 <Col key={c} xs={24} md={12}>
                   <Card size="small" title={c} style={{ height: '100%' }}>
-                    {HELP_ARTICLES.filter((a) => a.category === c).map((a) => (
+                    {visible.filter((a) => a.category === c).map((a) => (
                       <div key={a.id} style={{ padding: '6px 0' }}>
                         <a onClick={() => setParams({ a: a.id })}>
                           <BookOutlined style={{ marginRight: 8, color: '#94a3b8' }} />
@@ -220,7 +241,8 @@ export function HelpButton() {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState<HelpArticle | null>(null);
   const { pathname } = useLocation();
-  const related = articlesFor(pathname);
+  const { me } = useAuth();
+  const related = articlesFor(pathname, me?.businessModel);
   return (
     <>
       <Tooltip title="Bantuan">
@@ -256,7 +278,7 @@ export function HelpButton() {
         ) : (
           <>
             <List
-              dataSource={related.length ? related : HELP_ARTICLES.filter((a) => a.category === 'Memulai')}
+              dataSource={related.length ? related : articlesVisibleTo(me?.businessModel).filter((a) => a.category === 'Memulai' || a.id === `panduan-${me?.businessModel?.toLowerCase()}`)}
               header={
                 !related.length && (
                   <Typography.Text type="secondary">

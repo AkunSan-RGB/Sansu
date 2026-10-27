@@ -24,3 +24,4 @@ export * from './utility.js';
 export * from './cash-sources.js';
 export * from './loyalty.js';
 export * from './utility-ops.js';
+export * from './model-setup.js';
