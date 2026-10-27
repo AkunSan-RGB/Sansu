@@ -526,6 +526,12 @@ async function seedFmcg(c: Demo) {
   await X.deposit(c, cu.get('OTL-SUPER')!, 20_000_000, 'Uang muka pesanan musiman (lebaran)');
   await X.stockOps(c, ids, FMCG.map((p) => p.sku), { saleInvoiceId: unpaidInv, billId: c.last.bill, supplierId: sup.get('PRI-PANGAN') });
   await X.distributionLeaks(c, ids, cu);
+  await X.crm(c, cu.get('OTL-ALFA')!, id('FM-MIE'), [
+    { title: 'Listing 12 SKU baru di jaringan minimarket', company: 'Minimarket Berkah Jaya', contact: 'Pak Hendra', value: 240_000_000, source: 'Kunjungan sales' },
+    { title: 'Pasok grosir musim lebaran', company: 'Grosir Sumber Rezeki', contact: 'Bu Lina', value: 120_000_000, source: 'Referensi' },
+    { title: 'Kontrak tahunan koperasi pabrik', company: 'Koperasi Karyawan Pabrik Timur', contact: 'Pak Dedi', value: 85_000_000, source: 'Kunjungan sales' },
+    { title: 'Supermarket baru Depok', company: 'Supermarket Maju Bersama', contact: 'Bu Rani', value: 310_000_000, source: 'Pameran' },
+  ]);
   await F.fmcgExtras(c, ids, cu);
   await F.deliveryTrips(c);
   await F.minimums(c, [...ids.values()]);

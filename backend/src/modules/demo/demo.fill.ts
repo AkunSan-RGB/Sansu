@@ -91,10 +91,13 @@ export async function serviceWork(c: Demo, rates: { name: string; unit: 'HOUR' |
     for (const [si, e] of staff.slice(0, 3).entries()) {
       // tanggal bentrok dengan absensi sakit/cuti ditolak: coba tanggal lain
       let en: { id: string } | undefined;
-      for (let k = 0; k < 6 && !en; k++)
-        en = (await c.step(`catatan kerja ${r.name}`, () =>
-          svc.create(c.admin, { employeeId: e.id, rateId: rate.id, workDate: c.ago(4 + si * 3 + ri + k * 11), quantity: r.qty, description: `${r.name} — minggu berjalan` }),
-        )) as { id: string } | undefined;
+      for (let k = 0; k < 6 && !en; k++) {
+        try {
+          en = (await svc.create(c.admin, { employeeId: e.id, rateId: rate.id, workDate: c.ago(4 + si * 3 + ri + k * 11), quantity: r.qty, description: `${r.name} — minggu berjalan` })) as { id: string };
+        } catch {
+          /* tanggal bentrok: coba tanggal lain */
+        }
+      }
       if (en && si < 2) await c.step('setujui catatan kerja', () => svc.approve(c.admin, en.id, { note: 'Sesuai absensi' }));
     }
   }
@@ -131,9 +134,9 @@ export async function loyalty(c: Demo) {
   const svc = c.get(LoyaltyService);
   await c.step('pengaturan loyalitas', () => svc.saveSettings(c.admin, { enabled: true, earnPerRp: 10000, pointValueRp: 100, minRedeemPoints: 50, maxRedeemPct: 50, expiryMonths: 12 }));
   const members = await addCustomers(c, [
-    { code: 'MBR-02', name: 'Ibu Sari (member)', address: 'Pasar Minggu, Jakarta', term: 0 },
-    { code: 'MBR-03', name: 'Pak Anwar (member)', address: 'Tanjung Barat, Jakarta', term: 0 },
-    { code: 'MBR-04', name: 'Ibu Maya (member)', address: 'Jagakarsa, Jakarta', term: 0 },
+    { code: `MBR-${c.model.slice(0, 3)}-02`, name: 'Ibu Sari (member)', address: 'Pasar Minggu, Jakarta', term: 0 },
+    { code: `MBR-${c.model.slice(0, 3)}-03`, name: 'Pak Anwar (member)', address: 'Tanjung Barat, Jakarta', term: 0 },
+    { code: `MBR-${c.model.slice(0, 3)}-04`, name: 'Ibu Maya (member)', address: 'Jagakarsa, Jakarta', term: 0 },
   ]);
   const pts = [420, 180, 75];
   let i = 0;
