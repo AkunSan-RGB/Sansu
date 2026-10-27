@@ -1,6 +1,6 @@
 import { PlusOutlined, SwapOutlined } from '@ant-design/icons';
 import { canBookkeep, canHandleMoney, currencyName } from '@sansu/shared';
-import { Alert, Button, Card, Space, Table } from 'antd';
+import { Button, Card, Collapse, Space, Table, Tooltip, Typography } from 'antd';
 import { useState } from 'react';
 import { useCashAccounts } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
@@ -18,16 +18,15 @@ export default function ForeignAccountsTab() {
   const canCreate = me?.role === 'ADMIN' || me?.role === 'OWNER' || canBookkeep(me?.role);
   return (
     <Card>
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        message="Rekening dalam mata uang asing"
-        description="Saldo dicatat dalam valas dan dalam Rupiah (biaya rata-rata tertimbang). Uang valas keluar dinilai pada biaya rata-rata, selisih terhadap nilai transaksi menjadi laba/rugi kurs terealisasi. Akhir periode, saldo dinilai ulang pada kurs penutup di tab Posisi valas & penilaian ulang. Pelunasan faktur valas memilih rekening ini langsung di formulir pembayarannya."
-      />
       <Space wrap style={{ marginBottom: 12 }}>
         {canCreate && <Button icon={<PlusOutlined />} onClick={() => setNewOpen(true)}>Rekening valas baru</Button>}
-        {canTx && <Button type="primary" icon={<SwapOutlined />} onClick={() => setTxOpen(true)} disabled={!accounts.data?.length}>Transaksi valas</Button>}
+        {canTx && (
+          <Tooltip title={accounts.data?.length ? undefined : 'Buat rekening valas dulu'}>
+            <span>
+              <Button type="primary" icon={<SwapOutlined />} onClick={() => setTxOpen(true)} disabled={!accounts.data?.length}>Transaksi valas</Button>
+            </span>
+          </Tooltip>
+        )}
       </Space>
       <Table
         rowKey="id"
@@ -43,6 +42,11 @@ export default function ForeignAccountsTab() {
           { title: 'Nilai Rupiah tercatat', dataIndex: 'balance', align: 'right', render: fmtMoney },
           { title: 'Kurs rata-rata', align: 'right', render: (_: unknown, a) => (Number(a.balanceForeign) > 0 ? fmtRate(Number(a.balance) / Number(a.balanceForeign)) : '-') },
         ]}
+      />
+      <Collapse
+        ghost
+        style={{ marginTop: 12 }}
+        items={[{ key: 'cara', label: 'Bagaimana valas dicatat?', children: <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>Saldo dicatat dalam valas dan dalam Rupiah (biaya rata-rata tertimbang). Uang valas keluar dinilai pada biaya rata-rata, selisih terhadap nilai transaksi menjadi laba/rugi kurs terealisasi. Akhir periode, saldo dinilai ulang pada kurs penutup di tab Posisi valas & penilaian ulang. Pelunasan faktur valas memilih rekening ini langsung di formulir pembayarannya.</Typography.Paragraph> }]}
       />
       <ForeignTxModal open={txOpen} onClose={() => setTxOpen(false)} />
       <NewForeignAccountModal open={newOpen} onClose={() => setNewOpen(false)} />

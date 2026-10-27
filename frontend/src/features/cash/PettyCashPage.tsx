@@ -1,6 +1,6 @@
 import { PrinterOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, Modal, Row, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, Modal, Row, Select, Space, Statistic, Table, Tag, Tooltip, Typography } from 'antd';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, post } from '@/api/client';
@@ -99,22 +99,6 @@ export default function PettyCashPage() {
           description="Tetapkan plafon dan juru kas. Pengeluaran dicatat dengan bukti (nota wajib, ada batas per bukti), lalu diganti lewat pengisian kembali sampai dana kembali ke plafon. Pengisian kembali oleh staf menunggu persetujuan pemilik/admin."
         />
       )}
-      {!!controls.data?.items.length && (
-        <Card size="small" title="Kontrol kas kecil" style={{ marginBottom: 16 }}>
-          <Space direction="vertical" style={{ width: '100%' }}>
-            {controls.data.items.map((c) => (
-              <Alert
-                key={c.key}
-                type={c.level}
-                showIcon
-                message={c.title}
-                description={c.detail}
-                action={c.key.startsWith('COUNT') || c.key.startsWith('MISMATCH') ? <Button size="small" onClick={() => navigate('/cash/counts')}>Hitung kas</Button> : undefined}
-              />
-            ))}
-          </Space>
-        </Card>
-      )}
       {fund && (
         <>
           <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
@@ -161,21 +145,45 @@ export default function PettyCashPage() {
               </Button>
               )}
               {money && (
-              <Button disabled={fund.openCount === 0} loading={replenish.isPending} onClick={() => replenish.mutate(fund.id)}>
-                {finance ? 'Isi kembali dana' : 'Ajukan pengisian kembali'}
-              </Button>
+              <Tooltip title={fund.openCount === 0 ? 'Belum ada bukti yang perlu diganti' : undefined}>
+                <span>
+                  <Button disabled={fund.openCount === 0} loading={replenish.isPending} onClick={() => replenish.mutate(fund.id)}>
+                    {finance ? 'Isi kembali dana' : 'Ajukan pengisian kembali'}
+                  </Button>
+                </span>
+              </Tooltip>
               )}
               {finance && fund.openCount === 0 && Number(fund.toReplenish) > 0 && (
                 <Button loading={topUp.isPending} onClick={() => topUp.mutate(fund.id)}>
                   Isi dana awal / tambah plafon
                 </Button>
               )}
-              <Button icon={<PrinterOutlined />} disabled={fund.openCount === 0} onClick={() => setPreview({ kind: 'list' })}>
-                Cetak daftar pengisian kembali
-              </Button>
+              <Tooltip title={fund.openCount === 0 ? 'Belum ada bukti yang perlu diganti' : undefined}>
+                <span>
+                  <Button icon={<PrinterOutlined />} disabled={fund.openCount === 0} onClick={() => setPreview({ kind: 'list' })}>
+                    Cetak daftar pengisian kembali
+                  </Button>
+                </span>
+              </Tooltip>
               {money && <Button onClick={() => navigate('/cash/counts')}>Hitung kas fisik</Button>}
             </Space>
           </Card>
+          {!!controls.data?.items.length && (
+            <Card size="small" title={`Perlu diperiksa (${controls.data.items.length})`} style={{ marginBottom: 16 }}>
+              <Space direction="vertical" style={{ width: '100%' }}>
+                {controls.data.items.map((c) => (
+                  <Alert
+                    key={c.key}
+                    type={c.level}
+                    showIcon
+                    message={c.title}
+                    description={c.detail}
+                    action={c.key.startsWith('COUNT') || c.key.startsWith('MISMATCH') ? <Button size="small" onClick={() => navigate('/cash/counts')}>Hitung kas</Button> : undefined}
+                  />
+                ))}
+              </Space>
+            </Card>
+          )}
           <Card title="Bukti kas kecil">
             <Table
               rowKey="id"
@@ -189,7 +197,7 @@ export default function PettyCashPage() {
                 { title: 'Penerima', dataIndex: 'payee' },
                 { title: 'Keperluan', dataIndex: 'description' },
                 { title: 'Akun beban', render: (_, v) => (v.expenseAccount ? `${v.expenseAccount.code} · ${v.expenseAccount.name}` : '-') },
-                { title: 'No. nota', dataIndex: 'receiptRef' },
+                { title: 'Nota', dataIndex: 'receiptRef', width: 110 },
                 { title: 'Jumlah', dataIndex: 'amount', align: 'right', render: fmtMoney },
                 { title: 'Status', dataIndex: 'status', render: (s: Voucher['status']) => <Tag color={STATUS[s][0]}>{STATUS[s][1]}</Tag> },
                 {
