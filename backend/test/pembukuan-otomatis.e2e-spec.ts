@@ -172,6 +172,16 @@ describe('Pembukuan otomatis (e2e)', () => {
     expect((await svc.runTenant(tid, { today: `${lastYear + 1}-03-06` })).closedYear).toBeNull(); // sekali saja
   });
 
+  it('status terakhir berjalan: terbaca dari jejak audit, dan hanya mencatat yang benar-benar dikerjakan', async () => {
+    const last = (await get(owner, '/api/accounting/auto/last').expect(200)).body as Record<string, { at: string; data: Record<string, unknown> | null }>;
+    // pekerjaan yang dikerjakan pada tes-tes di atas (gaji diposting, valas dinilai, periode dikunci) muncul dengan tanggalnya
+    expect(last.payroll?.at).toBeTruthy();
+    expect(last.fx?.at).toBeTruthy();
+    expect(last.lock?.at).toBeTruthy();
+    // akun Keuangan boleh membaca (hanya melihat), Admin dan Akuntan juga
+    await get(fin, '/api/accounting/auto/last').expect(200);
+  });
+
   it('Cek kesehatan memuat status pembukuan otomatis', async () => {
     const checks = (await get(owner, '/api/accounting/health').expect(200)).body.checks as { key: string; status: string; message: string }[];
     const c = checks.find((x) => x.key === 'auto-bookkeeping')!;

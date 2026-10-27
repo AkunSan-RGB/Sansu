@@ -58,4 +58,13 @@ export class AutoBookkeepingRepository {
       sql`SELECT COUNT(*)::int AS n FROM journal_entries WHERE tenant_id = ${tenantId} AND source_type = 'CLOSING' AND source_id = ${String(year)}`,
     );
   }
+
+  /** Dipakai oleh AutoBookkeepingService.lastRuns: pekerjaan otomatis terakhir per jenis (dari jejak audit) */
+  queryLastRuns(db: DbOrTx, tenantId: string) {
+    return db.execute<{ action: string; at: string; data: unknown }>(sql`
+      SELECT DISTINCT ON (action) action, created_at::text AS at, data
+      FROM audit_logs
+      WHERE tenant_id = ${tenantId} AND action IN ('AUTO_PAYROLL_POST', 'AUTO_FX_REVALUATION', 'AUTO_LOCK_PERIOD', 'AUTO_CLOSE_YEAR')
+      ORDER BY action, created_at DESC`);
+  }
 }

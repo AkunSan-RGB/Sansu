@@ -17,6 +17,12 @@ export class AutoBookkeepingController {
     return this.svc.get(u.tenantId);
   }
 
+  /** Status terakhir tiap pekerjaan otomatis */
+  @Get('last')
+  last(@CurrentUser() u: AuthUser) {
+    return this.svc.lastRuns(u.tenantId);
+  }
+
   @Put()
   @Roles('ADMIN', 'ACCOUNTANT')
   save(@CurrentUser() u: AuthUser, @Body() dto: AutoBookkeepingDto) {

@@ -51,6 +51,15 @@ export class AutoBookkeepingService {
     return this.settings.section(this.db, tenantId, 'autoBookkeeping', AUTO_BOOKKEEPING_DEFAULTS);
   }
 
+  /** Kapan tiap pekerjaan otomatis terakhir benar-benar dikerjakan (kosong bila belum pernah) */
+  async lastRuns(tenantId: string) {
+    const rows = (await this.repo.queryLastRuns(this.db, tenantId)).rows;
+    const key: Record<string, 'payroll' | 'fx' | 'lock' | 'closeYear'> = { AUTO_PAYROLL_POST: 'payroll', AUTO_FX_REVALUATION: 'fx', AUTO_LOCK_PERIOD: 'lock', AUTO_CLOSE_YEAR: 'closeYear' };
+    const out: Partial<Record<'payroll' | 'fx' | 'lock' | 'closeYear', { at: string; data: unknown }>> = {};
+    for (const r of rows) out[key[r.action]] = { at: r.at, data: r.data };
+    return out;
+  }
+
   async save(user: AuthUser, dto: AutoBookkeepingDto) {
     const patch = Object.fromEntries(Object.entries(dto).filter(([, v]) => v !== undefined)) as Partial<AutoBookkeepingSettings>;
     const before = await this.get(user.tenantId);
