@@ -960,6 +960,15 @@ async function seedUtilitas(c: Demo) {
     { title: 'Perumahan Griya Asri blok D — 24 sambungan baru', company: 'PT Griya Asri Properti', contact: 'Pak Heru', value: 30_000_000, source: 'Pengembang / pengelola perumahan' },
     { title: 'Ruko Pasar Baru — 6 sambungan niaga', company: 'Pengelola Ruko Pasar Baru', contact: 'Bu Lina', value: 9_000_000, source: 'Datang ke kantor' },
   ]);
+  await X.stockOps(c, ids, ['UT-PIPA-PVC', 'UT-METER-AIR', 'UT-FITTING', 'UT-KAPORIT'], { billId: c.last.bill, supplierId: sup.get('SUP-PIPA') });
+  await F.utilityChannels(c);
+  await F.minimums(c, [...ids.values()]);
+  await F.priceAgreements(c, [
+    { supplierId: sup.get('SUP-PIPA')!, productId: ids.get('UT-PIPA-PVC')!, price: 28500 },
+    { supplierId: sup.get('SUP-KIMIA')!, productId: ids.get('UT-KAPORIT')!, price: 425000 },
+  ]);
+  await F.supplierAdvance(c, sup.get('SUP-PIPA')!, ids.get('UT-METER-AIR')!, 210000);
+  await F.closePeriod(c);
 }
 
 export const SEEDS: Record<BusinessModel, (c: Demo) => Promise<void>> = {

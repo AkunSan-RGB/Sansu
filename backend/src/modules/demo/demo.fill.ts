@@ -1,6 +1,8 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { addDays } from '../../common/utils/dates';
-import { boms, employeeChangeRequests, employees, stockBalances } from '../../db/schema';
+import { boms, employeeChangeRequests, employees, stockBalances, utilityConnections } from '../../db/schema';
+import { OutboxService } from '../utility-ops/outbox.service';
+import { VaService } from '../utility-ops/va.service';
 import { ServiceWorkService } from '../payroll/service-work.service';
 import { QcService } from '../production/qc.service';
 import { WorkCenterService } from '../production/work-centers.service';
@@ -290,4 +292,20 @@ export async function withheldInvoices(c: Demo, rows: { customerId: string; ago:
     )) as { id: string } | undefined;
     if (w && i === 0) await c.step('bayar faktur dipotong', () => receive(c, w.id, Math.max(r.ago - 10, 1), 'TRANSFER', 0.98));
   }
+}
+
+/** Utilitas: pembayaran virtual account (cocok dan tak dikenal) + antrean pesan penagihan */
+export async function utilityChannels(c: Demo) {
+  const va = c.get(VaService);
+  const outbox = c.get(OutboxService);
+  await c.step('pengaturan VA', () => va.saveSettings(c.admin, { prefix: '8808', bankName: 'Bank Mitra Daerah' }));
+  const conns = await c.db.select({ id: utilityConnections.id }).from(utilityConnections).where(eq(utilityConnections.tenantId, c.tenantId)).limit(4);
+  for (const [i, cn] of conns.entries()) {
+    const no = (await c.step('nomor VA', () => va.numberOf(c.tenantId, cn.id))) as { number?: string; va?: string } | undefined;
+    const number = no?.number ?? no?.va;
+    if (number) await c.step('pembayaran VA', () => va.receive(c.admin, { vaNumber: number, amount: String(85_000 + i * 12_500), reference: `VA-${c.today.replace(/-/g, '')}-${i + 1}`, channel: 'BCA', paidAt: new Date().toISOString() }));
+  }
+  await c.step('pembayaran VA tak dikenal', () => va.receive(c.admin, { vaNumber: '880899999999', amount: '120000', reference: `VA-${c.today.replace(/-/g, '')}-X`, channel: 'Mandiri' }));
+  await c.step('pengaturan pesan', () => outbox.saveConfig(c.admin, { enabled: true, url: 'https://api.penyedia-pesan.example/send', authHeader: 'Authorization', token: 'demo-token', bodyTemplate: '{"to":"{to}","message":"{message}"}' }));
+  await c.step('antrekan pengingat', () => outbox.enqueue(c.admin, { kind: 'PENGINGAT', channel: 'WHATSAPP', all: true }));
 }
