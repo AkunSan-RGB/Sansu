@@ -12,6 +12,15 @@ export class BillingJobsRepository {
   async expireStale(db: DbOrTx, tenantId: string) {
     await db.execute(sql`UPDATE utility_billing_jobs SET status = 'TERHENTI', finished_at = now(), error = 'Server berhenti di tengah proses; jalankan lagi, sambungan yang sudah ditagih dilewati' WHERE tenant_id = ${tenantId} AND status = 'BERJALAN' AND heartbeat_at < now() - interval '3 minutes'`);
   }
+  /**
+   * Klaim tagihan (sambungan, periode) tanpa faktur yang sudah lebih tua dari `seconds` detik: sisa proses yang mati di tengah
+   * (server dimatikan paksa antara membuat klaim dan membuat faktur). Klaim itu menghalangi penagihan ulang sambungan tersebut selamanya
+   * bila tidak dilepas. Satu sambungan hanya butuh milidetik, jadi klaim setua itu pasti yatim. Mengembalikan jumlah yang dilepas.
+   */
+  async releaseStaleClaims(db: DbOrTx, tenantId: string, period: string, seconds = 60) {
+    const r = await firstOf<{ n: number }>(db, sql`WITH d AS (DELETE FROM utility_bills WHERE tenant_id = ${tenantId} AND period = ${period} AND invoice_id IS NULL AND created_at < now() - make_interval(secs => ${seconds}) RETURNING 1) SELECT COUNT(*)::int AS n FROM d`);
+    return r?.n ?? 0;
+  }
   async insert(db: DbOrTx, tenantId: string, period: string, userId: string) {
     const r = await firstOf<{ id: string }>(db, sql`INSERT INTO utility_billing_jobs (tenant_id, period, started_by_id) VALUES (${tenantId}, ${period}, ${userId}) RETURNING id`);
     return r!.id;

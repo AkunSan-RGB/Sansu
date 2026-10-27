@@ -78,16 +78,19 @@ export class SettingsService {
    * Baris pengaturan perusahaan. Satu permintaan HTTP membaca baris yang sama berkali-kali (pajak, model usaha, kebijakan, ...);
    * dalam satu permintaan cukup satu kueri. Setiap penulisan lewat layanan ini membuang catatannya.
    */
-  private row(db: DbOrTx, tenantId: string) {
+  private row(db: DbOrTx, tenantId: string): Promise<Awaited<ReturnType<SettingsRepository['findTenantsById']>>> {
     const memo = dbScope.getStore()?.memo;
-    if (!memo) return this.repo.findTenantsById(db, tenantId);
+    // Kueri drizzle bersifat MALAS: ia baru jalan saat di-`await` dan jalan lagi pada setiap `await` berikutnya, memakai koneksi aslinya.
+    // Catatan harus menyimpan Promise sungguhan (hasil sekali jalan), bukan kueri malasnya — kalau tidak, pembacaan kedua di dalam
+    // transaksi menjalankan ulang kueri di koneksi lain (kebuntuan kolam).
+    if (!memo) return Promise.resolve(this.repo.findTenantsById(db, tenantId));
     const key = `tenant-row:${tenantId}`;
-    let hit = memo.get(key) as ReturnType<SettingsRepository['findTenantsById']> | undefined;
+    let hit = memo.get(key) as Promise<Awaited<ReturnType<SettingsRepository['findTenantsById']>>> | undefined;
     if (!hit) {
-      hit = this.repo.findTenantsById(db, tenantId);
+      hit = Promise.resolve(this.repo.findTenantsById(db, tenantId));
       memo.set(key, hit);
       // galat atau baris belum ada (perusahaan baru dibuat di permintaan yang sama) tidak boleh diingat
-      void Promise.resolve(hit).then((rows) => !rows.length && memo.delete(key), () => memo.delete(key));
+      void hit.then((rows) => !rows.length && memo.delete(key), () => memo.delete(key));
     }
     return hit;
   }

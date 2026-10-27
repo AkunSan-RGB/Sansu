@@ -1,4 +1,5 @@
 import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { Logger } from '@nestjs/common';
 import { Pool, types } from 'pg';
 import * as schema from './schema';
 import { cleanDbUrl } from './db-error';
@@ -35,9 +36,27 @@ const appPoolOptions = {
   idle_in_transaction_session_timeout: IDLE_TX_TIMEOUT_MS,
 };
 
+const poolLog = new Logger('Database');
+let lastPoolWarn = 0;
+/**
+ * Koneksi menganggur di kolam yang diputus server (database dihidupkan ulang, failover, pemeliharaan, jaringan putus) memancarkan
+ * peristiwa 'error' pada kolam. TANPA penangan, Node menganggapnya pengecualian tak tertangkap dan MEMATIKAN proses API
+ * (terbukti di uji kegagalan: database dimatikan sesaat → server ikut mati). Dengan penangan koneksi itu dibuang dari kolam dan
+ * kolam membuat koneksi baru saat database kembali.
+ */
+export function attachPoolErrorHandler<P extends Pool>(pool: P): P {
+  pool.on('error', (e) => {
+    if (Date.now() - lastPoolWarn > 10_000) {
+      lastPoolWarn = Date.now();
+      poolLog.warn(`Koneksi database terputus (${(e as Error).message}); kolam akan membuat koneksi baru`);
+    }
+  });
+  return pool;
+}
+
 export function createPool(url = process.env.DATABASE_URL) {
   if (!url) throw new Error('DATABASE_URL belum diatur');
-  return new Pool({ connectionString: cleanDbUrl(url), ...poolOptions });
+  return attachPoolErrorHandler(new Pool({ connectionString: cleanDbUrl(url), ...poolOptions }));
 }
 
 /**
@@ -47,8 +66,8 @@ export function createPool(url = process.env.DATABASE_URL) {
 export function createAppPool(url = process.env.DATABASE_URL) {
   if (!url) throw new Error('DATABASE_URL belum diatur');
   const connectionString = cleanDbUrl(url);
-  if (process.env.RLS_DISABLED === 'true') return new Pool({ connectionString, ...appPoolOptions });
-  return new TenantPool({ connectionString, ...appPoolOptions });
+  if (process.env.RLS_DISABLED === 'true') return attachPoolErrorHandler(new Pool({ connectionString, ...appPoolOptions }));
+  return attachPoolErrorHandler(new TenantPool({ connectionString, ...appPoolOptions }));
 }
 
 export function createDb(pool: Pool): Db {
