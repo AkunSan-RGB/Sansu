@@ -15,6 +15,7 @@ import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { CreatePaymentDto } from '../sales.dto';
 import { findOwned, insertOne, patchById } from '../../../db/owned';
+import { InvoiceBalance } from '../invoices/invoice-balance';
 import { PaymentsRepository } from './payments.repository';
 
 @Injectable()
@@ -60,7 +61,8 @@ export class PaymentsService {
       const [inv] = await this.repo.findInvoicesByIdForCreate(tx, dto.invoiceId);
       const [customer] = await this.repo.findCustomersById(tx, inv.customerId);
 
-      const outstanding = D(inv.total).minus(inv.paidAmount).minus(inv.returnedAmount);
+      const balance = InvoiceBalance.of(inv);
+      const outstanding = balance.outstanding;
       const foreign = inv.currency !== 'IDR';
       // Faktur valas: `amount` dalam mata uang faktur; nilai piutang yang dilunasi memakai kurs faktur, kas memakai kurs hari bayar
       const outstandingForeign = foreign ? D(inv.totalForeign ?? 0).minus(inv.paidForeign).minus(inv.returnedForeign) : outstanding;
@@ -114,8 +116,8 @@ export class PaymentsService {
         ],
       });
 
-      const paid = D(inv.paidAmount).plus(carrying);
-      await patchById(tx, invoices, inv.id, { paidForeign: foreign ? D(inv.paidForeign).plus(amount).toFixed(2) : inv.paidForeign, paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' });
+      const after = balance.apply(carrying);
+      await patchById(tx, invoices, inv.id, { paidForeign: foreign ? D(inv.paidForeign).plus(amount).toFixed(2) : inv.paidForeign, paidAmount: after.paid.toFixed(2), status: after.status });
       await patchById(tx, payments, payment.id, { journalId: journal.id });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'Payment', entityId: payment.id });
       // pekerjaan tambahan milik pemanggil (mis. catatan penerimaan loket) ikut transaksi: sama-sama tersimpan atau sama-sama batal
@@ -147,10 +149,11 @@ export class PaymentsService {
       if (!locked.rows.length) throw new NotFoundException('Faktur tidak ditemukan');
       const [inv] = await this.repo.findInvoicesByIdForCreate(tx, dto.invoiceId);
       const [customer] = await this.repo.findCustomersById(tx, inv.customerId);
-      const outstanding = D(inv.total).minus(inv.paidAmount).minus(inv.returnedAmount);
+      const balance = InvoiceBalance.of(inv);
+      const outstanding = balance.outstanding;
       if (outstanding.lte(0)) throw new BadRequestException('Faktur ini tidak punya sisa tagihan');
       const amount = dto.amount ? money(dto.amount) : outstanding;
-      if (amount.lte(0) || amount.gt(outstanding)) throw new BadRequestException(`Jumlah penghapusan harus > 0 dan tidak melebihi sisa tagihan ${outstanding.toFixed(2)}`);
+      if (!balance.canApply(amount)) throw new BadRequestException(`Jumlah penghapusan harus > 0 dan tidak melebihi sisa tagihan ${outstanding.toFixed(2)}`);
 
       const allow = (await this.repo.queryAccount(tx, user.tenantId)).rows[0];
       const useAllow = allow ? D(allow.bal).gt(0) ? (D(allow.bal).lt(amount) ? D(allow.bal) : amount) : D(0) : D(0);
@@ -176,8 +179,8 @@ export class PaymentsService {
           { key: SYS.AR, credit: amount },
         ],
       });
-      const paid = D(inv.paidAmount).plus(amount);
-      await patchById(tx, invoices, inv.id, { paidAmount: paid.toFixed(2), status: paid.plus(inv.returnedAmount).gte(inv.total) ? 'PAID' : 'PARTIAL' });
+      const after = balance.apply(amount);
+      await patchById(tx, invoices, inv.id, { paidAmount: after.paid.toFixed(2), status: after.status });
       await patchById(tx, payments, payment.id, { journalId: journal.id });
       await this.audit.log(tx, { tenantId: user.tenantId, userId: user.sub, action: 'CREATE', entity: 'ReceivableWriteOff', entityId: payment.id, data: { invoice: inv.number, amount: amount.toFixed(2), reason } });
       return { ...payment, journalId: journal.id, journalNumber: journal.number, invoiceNumber: inv.number, customerName: customer.name, amount: amount.toFixed(2) };

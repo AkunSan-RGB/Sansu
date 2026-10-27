@@ -7,7 +7,7 @@ import { D, DecValue } from '../../common/utils/money';
 import { DbOrTx, Tx } from '../../db/db';
 import { accounts, journalEntries } from '../../db/schema';
 import { DEFAULT_COA, SystemKey } from './default-coa';
-import { JournalValidationError, normalizeJournalLines } from './journal-rules';
+import { interBranchBalancingLines, JournalValidationError, normalizeJournalLines } from './journal-rules';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { insertOne, patchById } from '../../db/owned';
 import { PostingRepository } from './posting.repository';
@@ -87,15 +87,10 @@ export class PostingService {
     // Jurnal lintas cabang: tiap cabang harus seimbang sendiri. Selisih per cabang ditutup otomatis lewat Rekening Antar Cabang
     // (piutang di satu cabang, utang di cabang lain; nol saat digabung), jadi pusat membayar biaya cabang, transfer kas antar-cabang,
     // dan gaji karyawan cabang tidak merusak neraca per cabang.
-    const labelOf = (l: { branchId?: string | null }) => (l.branchId === undefined ? entryBranch : l.branchId) ?? null;
-    if (new Set(normalized.lines.map(labelOf)).size > 1) {
-      const net = new Map<string | null, ReturnType<typeof D>>();
-      for (const l of normalized.lines) net.set(labelOf(l), (net.get(labelOf(l)) ?? D(0)).plus(l.debit).minus(l.credit));
+    const needsInterBranch = new Set(normalized.lines.map((l) => (l.branchId === undefined ? entryBranch : l.branchId) ?? null)).size > 1;
+    if (needsInterBranch) {
       const [rak] = await this.resolveAccounts(tx, input.tenantId, [{ key: 'INTERBRANCH' }]);
-      for (const [b, v] of net) {
-        if (v.isZero()) continue;
-        normalized.lines.push({ accountId: rak, debit: v.isNegative() ? v.abs() : D(0), credit: v.isPositive() ? v : D(0), foreignAmount: null, memo: 'Antar cabang', projectId: null, branchId: b });
-      }
+      normalized.lines.push(...interBranchBalancingLines(normalized.lines, entryBranch, rak));
     }
 
     const number = await this.seq.next(tx, input.tenantId, 'JOURNAL', input.date);
