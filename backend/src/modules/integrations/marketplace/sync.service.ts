@@ -13,6 +13,7 @@ import { KEYS } from './sync.shared';
 import { StartConnectionDto, UpdateConnectionDto } from './sync.dto';
 import { findOwned, patchById } from '../../../db/owned';
 import { SyncRepository } from './sync.repository';
+import { schedulersEnabled } from '../../../common/schedulers';
 
 const DAY = 86_400_000;
 
@@ -215,6 +216,7 @@ export class MarketplaceScheduler implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MarketplaceScheduler.name);
   constructor(private readonly svc: MarketplaceSyncService) {}
   onModuleInit() {
+    if (!schedulersEnabled()) return; // banyak proses: hanya satu yang menjalankan tugas berkala
     if (process.env.NODE_ENV === 'test') return;
     const minutes = Math.max(5, Number(process.env.MARKETPLACE_SYNC_MINUTES ?? 15));
     this.timer = setInterval(() => {

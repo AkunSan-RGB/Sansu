@@ -10,6 +10,7 @@ import { CashService } from '../cash/cash.service';
 import { buildDemo } from './demo.kit';
 import { SEEDS } from './demo.seeds';
 import { DemoRepository } from './demo.repository';
+import { schedulersEnabled } from '../../common/schedulers';
 
 /** Batas pembuatan demo per jam untuk seluruh sistem (pembuatannya memakai CPU/DB) */
 const HOURLY_CAP = 60;
@@ -62,6 +63,8 @@ export class DemoService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
+
+    if (!schedulersEnabled()) return; // banyak proses: hanya satu yang menjalankan tugas berkala
     if (process.env.NODE_ENV === 'test') return;
     const run = () => void this.purgeExpired().then((n) => n && this.logger.log(`${n} perusahaan demo kedaluwarsa dihapus`)).catch((e) => this.logger.error(`Pembersihan demo gagal: ${(e as Error).message}${(e as { cause?: Error }).cause ? ` — penyebab: ${(e as { cause?: Error }).cause!.message}` : ''}`));
     setTimeout(run, 180_000).unref();

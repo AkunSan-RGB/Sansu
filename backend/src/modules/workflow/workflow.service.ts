@@ -13,6 +13,7 @@ import { WorkflowSettingsDto, CaseQueryDto, CreateCaseDto, AddLinkDto, AdvanceDt
 import { findOwned, insertOne, lockOwned, patchById } from '../../db/owned';
 import { WorkflowRepository } from './workflow.repository';
 import type { Source } from './workflow.repository';
+import { schedulersEnabled } from '../../common/schedulers';
 
 /** Tabel dokumen sumber tiap jenis tautan (semua ber-tenant_id) */
 const col = (c: string) => (a: string) => `${a}.${c}::text`;
@@ -596,6 +597,8 @@ export class WorkflowScheduler implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
+
+    if (!schedulersEnabled()) return; // banyak proses: hanya satu yang menjalankan tugas berkala
     if (process.env.NODE_ENV === 'test') return;
     const run = () => void this.sweepAll().catch((e) => this.logger.error(e));
     setTimeout(run, 150_000).unref();

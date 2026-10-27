@@ -19,6 +19,7 @@ import { HelpButton } from '@/features/help/HelpCenter';
 import { useApps } from '@/lib/apps';
 import { type Group, type Item, menuFor, subItems } from './menuData';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import QueryErrorBanner from '@/components/QueryErrorBanner';
 
 const PART_STYLE: React.CSSProperties = {
   fontSize: 11,
@@ -315,6 +316,7 @@ export default function AppLayout() {
             />
           )}
           <ServerStatus />
+          <QueryErrorBanner />
           <AccountStatusBanner />
           <ErrorBoundary resetKey={pathname}>
             <Outlet />

@@ -21,6 +21,7 @@ import { CreateBillingInvoiceDto, ProofDto } from './billing.dto';
 import { findOwned, insertOne, patchById } from '../../db/owned';
 import { BillingRepository } from './billing.repository';
 import { DAY } from './billing.shared';
+import { schedulersEnabled } from '../../common/schedulers';
 
 export { DAY };
 
@@ -414,6 +415,7 @@ export class BillingScheduler implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger('Langganan');
   constructor(private readonly svc: BillingService) {}
   onModuleInit() {
+    if (!schedulersEnabled()) return; // banyak proses: hanya satu yang menjalankan tugas berkala
     if (process.env.NODE_ENV === 'test') return;
     const run = () => void this.svc.runReminders().catch((e) => this.logger.error(e));
     setTimeout(run, 60_000).unref();

@@ -14,6 +14,7 @@ import { accounts, budgets } from '../../db/schema';
 import { SaveBudgetDto, SeedBudgetDto, BudgetRowDto } from './budget.dto';
 import { patchById } from '../../db/owned';
 import { BudgetRepository } from './budget.repository';
+import { schedulersEnabled } from '../../common/schedulers';
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
 
@@ -307,6 +308,7 @@ export class BudgetScheduler implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger('Anggaran');
   constructor(private readonly svc: BudgetService) {}
   onModuleInit() {
+    if (!schedulersEnabled()) return; // banyak proses: hanya satu yang menjalankan tugas berkala
     if (process.env.NODE_ENV === 'test') return;
     const run = () => void this.svc.alertAll().catch((e) => this.logger.error(e));
     setTimeout(run, 120_000).unref();

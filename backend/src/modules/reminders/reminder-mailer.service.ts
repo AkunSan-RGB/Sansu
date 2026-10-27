@@ -14,6 +14,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { RemindersService, type ReminderItem, type ReminderSettings } from './reminders.service';
 import { ReminderMailerRepository } from './reminder-mailer.repository';
+import { schedulersEnabled } from '../../common/schedulers';
 const DIGEST_HOUR_WIB = 7;
 const rp = (v: number | string) => `Rp${Math.round(Number(v)).toLocaleString('id-ID')}`;
 const LEVEL_MARK = { error: '‼', warning: '•', info: '·' } as const;
@@ -217,6 +218,7 @@ export class ReminderScheduler implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger('Pengingat');
   constructor(private readonly mailer: ReminderMailer) {}
   onModuleInit() {
+    if (!schedulersEnabled()) return; // banyak proses: hanya satu yang menjalankan tugas berkala
     if (process.env.NODE_ENV === 'test') return;
     const run = () => void this.mailer.runAll().catch((e) => this.logger.error(e));
     setTimeout(run, 90_000).unref();

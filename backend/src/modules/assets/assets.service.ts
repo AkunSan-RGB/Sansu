@@ -18,6 +18,7 @@ import { accumulatedThrough, depreciationFor, lastDay, monthIndex, periodOf } fr
 import { CategoryDto, UpdateCategoryDto, RegisterFromJournalDto, CreateAssetDto, UpdateAssetDto, VerifyDto } from './assets.dto';
 import { insertOne, patchById } from '../../db/owned';
 import type { Asset, Category } from './asset.repository';
+import { schedulersEnabled } from '../../common/schedulers';
 
 /** Pengaturan aset tetap per perusahaan (disimpan di settings.assets) */
 export const DEFAULT_ASSET_SETTINGS = { autoDepreciation: true };
@@ -595,6 +596,7 @@ export class AssetScheduler implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger('Aset');
   constructor(private readonly svc: AssetsService) {}
   onModuleInit() {
+    if (!schedulersEnabled()) return; // banyak proses: hanya satu yang menjalankan tugas berkala
     if (process.env.NODE_ENV === 'test') return;
     const run = () => void this.svc.autoDepreciateAll(this.logger).catch((e) => this.logger.error(e));
     setTimeout(run, 90_000).unref();

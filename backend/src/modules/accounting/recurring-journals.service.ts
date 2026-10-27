@@ -13,6 +13,7 @@ import { AccountingRepository } from './accounting.repository';
 import { AccountingService, nextOccurrence } from './accounting.service';
 import { insertOne, patchById } from '../../db/owned';
 import { RecurringJournalsRepository } from './recurring-journals.repository';
+import { schedulersEnabled } from '../../common/schedulers';
 
 @Injectable()
 export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
@@ -31,6 +32,7 @@ export class RecurringJournalsService implements OnModuleInit, OnModuleDestroy {
 
   /** Jurnal berulang dijalankan otomatis setiap jam untuk semua perusahaan */
   onModuleInit() {
+    if (!schedulersEnabled()) return; // banyak proses: hanya satu yang menjalankan tugas berkala
     if (process.env.NODE_ENV === 'test') return;
     this.timer = setInterval(() => void this.runAllDue().catch((e) => this.logger.error(e)), 60 * 60 * 1000);
     this.timer.unref();

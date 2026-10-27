@@ -12,6 +12,7 @@ import { PayrollService } from '../payroll/payroll.service';
 import { AccountingService } from '../accounting/accounting.service';
 import { AutoBookkeepingDto } from './auto-bookkeeping.dto';
 import { AutoBookkeepingRepository } from './auto-bookkeeping.repository';
+import { schedulersEnabled } from '../../common/schedulers';
 
 export const AUTO_BOOKKEEPING_DEFAULTS = { payroll: true, fx: true, lock: false, lockDay: 10, closeYear: false };
 
@@ -182,6 +183,7 @@ export class AutoBookkeepingScheduler implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger('PembukuanOtomatis');
   constructor(private readonly svc: AutoBookkeepingService) {}
   onModuleInit() {
+    if (!schedulersEnabled()) return; // banyak proses: hanya satu yang menjalankan tugas berkala
     if (process.env.NODE_ENV === 'test') return;
     const run = () => void this.svc.runAll().catch((e) => this.logger.error(e));
     setTimeout(run, 120_000).unref();
