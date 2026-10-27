@@ -253,6 +253,28 @@ const OPS: Record<string, Ops> = {
     days: 10,
     leave: ['Cuti tahunan', 'Mengurus keperluan keluarga'],
   },
+  JASA: {
+    warehouse2: 'Lemari Perangkat Proyek',
+    transfers: [
+      { mode: 'DIRECT', qty: '2', ago: 20, notes: 'Pindah perangkat uji ke tim proyek aplikasi' },
+      { mode: 'DIRECT', qty: '1', ago: 9, notes: 'Pinjamkan lisensi cadangan ke tim desain' },
+    ],
+    countNote: 'Opname perangkat dan lisensi bulanan',
+    shortages: [1, 0],
+    writedown: null,
+    salesReturn: ['Paket cetak salah ukuran, ditukar klien', '1'],
+    purchaseReturn: ['Perangkat uji cacat dari pemasok', '1'],
+    poQty: '5',
+    poPrice: '1900000',
+    requestNote: 'Lisensi hampir habis menjelang proyek baru',
+    requestQty: '6',
+    sick: 0.04,
+    checkIn: [8, 9],
+    checkOut: [17, 18],
+    overtime: 1,
+    days: 10,
+    leave: ['Cuti tahunan', 'Keperluan keluarga'],
+  },
   FMCG: {
     warehouse2: 'Gudang Satelit (Mobil Kanvas)',
     transfers: [

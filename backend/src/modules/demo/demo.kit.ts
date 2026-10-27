@@ -121,6 +121,8 @@ export interface Demo {
     /** Layanan air lanjutan (pengaduan, permohonan, koreksi, rute, meter, penagihan, produksi, dst.) */
     water: { complaints: ComplaintsService; assets: NetworkAssetsService; applications: ApplicationsService; changes: ChangesService; adjustments: AdjustmentsService; deposits: DepositsService; installments: InstallmentsService; routes: RoutesService; meters: MetersService; collection: CollectionService; notices: NoticesService; portal: PortalService; production: WaterProductionService };
   };
+  /** Ambil service lain yang tidak ada di `svc` (dipakai pengisi data lanjutan) */
+  get: <T>(cls: new (...a: never[]) => T) => T;
   acc: (code: string) => string;
   kas: string;
   bank: string;
@@ -242,6 +244,7 @@ export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: 
       canvass: get(CanvassService),
       water: { complaints: get(ComplaintsService), assets: get(NetworkAssetsService), applications: get(ApplicationsService), changes: get(ChangesService), adjustments: get(AdjustmentsService), deposits: get(DepositsService), installments: get(InstallmentsService), routes: get(RoutesService), meters: get(MetersService), collection: get(CollectionService), notices: get(NoticesService), portal: get(PortalService), production: get(WaterProductionService) },
     },
+    get,
     acc: (code) => acc.get(code)!,
     kas: acc.get('1-1100')!,
     bank: acc.get('1-1200')!,
