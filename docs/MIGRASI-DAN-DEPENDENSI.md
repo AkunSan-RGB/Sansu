@@ -16,7 +16,7 @@
 | Paket | Tindakan / penilaian |
 |---|---|
 | nodemailer | **Dinaikkan** ke versi yang menutup kerentanan yang dilaporkan. |
-| multer | Terdeteksi namun **tidak dipakai** kode aplikasi (tidak ada import). Risiko praktis nol; dihapus saat pembersihan berikutnya. |
+| multer | Dependensi tidak langsung dari `@nestjs/platform-express`; kode aplikasi **tidak mengimpor atau memakai unggah berkas multer** (tidak ada `FileInterceptor`). Tidak bisa dihapus tanpa mengganti platform HTTP; risiko dinilai rendah selama tidak ada endpoint unggah multipart. Naikkan versi `@nestjs/platform-express` saat rilis perbaikan tersedia. |
 | xlsx | Tidak ada versi perbaikan di npm. Dipakai **di sisi klien** untuk berkas milik pengguna sendiri, bukan input pihak ketiga ke server. Risiko diterima, dipantau. |
 | exceljs / uuid | Kerentanan tidak terjangkau dari cara pakai kami (tidak memakai fungsi yang terdampak). |
 | swagger / js-yaml | Hanya dokumentasi API, tidak aktif di produksi. |

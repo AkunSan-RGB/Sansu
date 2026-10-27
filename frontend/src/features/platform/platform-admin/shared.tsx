@@ -39,18 +39,18 @@ export function useBillingEnabled() {
 }
 
 // ---------------- Ringkasan ----------------
-export function Bars({
+export function Bars<R extends { month: string }>({
   rows,
   value,
   fmt,
   label = (r) => dayjs(`${r.month}-01`).format('MMM YY'),
 }: {
-  rows: { month: string }[];
-  value: (r: never) => number;
+  rows: R[];
+  value: (r: R) => number;
   fmt: (n: number) => string;
-  label?: (r: { month: string }) => string;
+  label?: (r: R) => string;
 }) {
-  const vals = rows.map((r) => value(r as never));
+  const vals = rows.map((r) => value(r));
   const max = Math.max(1, ...vals);
   if (!rows.length) return <Typography.Text type="secondary">Belum ada data</Typography.Text>;
   return (

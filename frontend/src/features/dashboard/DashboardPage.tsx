@@ -1,30 +1,32 @@
 import { useQuery } from '@tanstack/react-query';
 import { canViewFinancials } from '@sansu/shared';
 import {
+  BankOutlined,
   CheckCircleTwoTone,
+  ClockCircleOutlined,
   CloseCircleFilled,
-  DatabaseOutlined,
   ExclamationCircleFilled,
-  FileDoneOutlined,
-  FundOutlined,
+  InboxOutlined,
   InfoCircleFilled,
+  LineChartOutlined,
   RightOutlined,
-  ShopOutlined,
+  ShoppingCartOutlined,
+  WalletOutlined,
 } from '@ant-design/icons';
 import { Alert, Button, Card, List, Progress, Select, Table, Tag, Typography } from 'antd';
-import dayjs from 'dayjs';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, qs } from '@/api/client';
 import { useBranches } from '@/api/queries';
 import type { Dashboard } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
-import SummaryCards, { type SummaryItem } from '@/components/SummaryCards';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
 import { InvoiceStatusTag } from '../sales/status';
 import { t } from '@/lib/terms';
+import DashboardHero from './DashboardHero';
 import InsightPanel from './InsightPanel';
+import KpiTiles, { type KpiTile } from './KpiTiles';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -54,77 +56,29 @@ export default function DashboardPage() {
   const ICON = {
     error: <CloseCircleFilled style={{ color: '#ff4d4f' }} />,
     warning: <ExclamationCircleFilled style={{ color: '#faad14' }} />,
-    info: <InfoCircleFilled style={{ color: '#1677ff' }} />,
+    info: <InfoCircleFilled style={{ color: '#111111' }} />,
   };
 
   // Angka yang tidak boleh dilihat peran ini dikirim null oleh server: kotaknya disembunyikan, bukan ditampilkan sebagai Rp0
   const val = (v: string) => (isLoading ? '…' : v);
+  // ringkasan dibaca sekilas: tanpa sen (angka lengkap ada di laporan)
+  const rp = (v: Parameters<typeof fmtMoney>[0]) => fmtMoney(v).replace(/,\d+$/, '');
   const go = (to: string) => () => navigate(to);
-  const main: (SummaryItem & { hidden?: boolean })[] = [
-    {
-      label: t('Penjualan bulan ini'),
-      value: val(fmtMoney(data?.salesMonth)),
-      hint: `${data?.invoicesMonth ?? 0} faktur${data?.posOrdersMonth ? ` · ${data.posOrdersMonth} transaksi kasir` : ''} · neto setelah retur`,
-      hidden: data?.salesMonth === null,
-    },
-    {
-      label: 'Laba kotor bulan ini',
-      value: val(fmtMoney(data?.grossProfitMonth)),
-      tone: 'good',
-      hint: `Margin ${data?.grossMarginPct ?? 0}%`,
-      hidden: data?.grossProfitMonth === null,
-    },
-    {
-      label: 'Saldo kas & bank',
-      value: val(fmtMoney(data?.cashBalance)),
-      hint: 'Semua akun kas dan rekening',
-      onClick: go('/cash'),
-      hidden: data?.cashBalance === null,
-    },
+  const heroFigures = [
+    { label: t('Penjualan bulan ini'), value: val(rp(data?.salesMonth)), hidden: data?.salesMonth === null },
+    { label: 'Laba kotor bulan ini', value: val(rp(data?.grossProfitMonth)), hidden: data?.grossProfitMonth === null },
+    { label: 'Saldo kas & bank', value: val(rp(data?.cashBalance)), onClick: go('/cash'), hidden: data?.cashBalance === null },
+  ].filter((f) => !f.hidden);
+  const tiles: (KpiTile & { hidden?: boolean })[] = [
+    { label: 'Piutang beredar', value: val(rp(data?.arOutstanding)), tone: 'warn', icon: <ClockCircleOutlined />, hint: `Jatuh tempo: ${fmtMoney(data?.arOverdue)}`, onClick: go('/invoices'), hidden: data?.arOutstanding === null },
+    { label: t('Hutang ke supplier'), value: val(rp(data?.apOutstanding)), tone: 'bad', icon: <WalletOutlined />, hint: 'Faktur pembelian belum lunas', onClick: go('/purchase-invoices'), hidden: data?.apOutstanding === null },
+    { label: t('Nilai persediaan'), value: val(rp(data?.stockValue)), icon: <InboxOutlined />, hint: `${data?.ordersPending ?? 0} order belum difakturkan`, hidden: data?.stockValue === null },
+    { label: 'Order belum difakturkan', value: String(data?.ordersPending ?? 0), icon: <ShoppingCartOutlined />, hint: 'Draft dan terkonfirmasi', onClick: go('/sales-orders'), hidden: data?.stockValue !== null || data?.ordersPending == null },
+    { label: 'Margin kotor', value: val(`${data?.grossMarginPct ?? 0}%`), tone: 'good', icon: <LineChartOutlined />, hint: 'Laba kotor dibanding penjualan bulan ini', hidden: data?.grossProfitMonth === null },
+    { label: 'Faktur bulan ini', value: String(data?.invoicesMonth ?? 0), icon: <BankOutlined />, hint: data?.posOrdersMonth ? `${data.posOrdersMonth} transaksi kasir` : 'Neto setelah retur', hidden: data?.salesMonth === null },
   ];
-  const second: (SummaryItem & { hidden?: boolean })[] = [
-    {
-      label: 'Piutang beredar',
-      value: val(fmtMoney(data?.arOutstanding)),
-      tone: 'warn',
-      hint: `Jatuh tempo: ${fmtMoney(data?.arOverdue)}`,
-      hidden: data?.arOutstanding === null,
-    },
-    {
-      label: t('Hutang ke supplier'),
-      value: val(fmtMoney(data?.apOutstanding)),
-      tone: 'bad',
-      hint: 'Faktur pembelian belum lunas',
-      onClick: go('/purchase-invoices'),
-      hidden: data?.apOutstanding === null,
-    },
-    {
-      label: t('Nilai persediaan'),
-      value: val(fmtMoney(data?.stockValue)),
-      hint: `${data?.ordersPending ?? 0} order belum difakturkan`,
-      hidden: data?.stockValue === null,
-    },
-    {
-      label: 'Order belum difakturkan',
-      value: String(data?.ordersPending ?? 0),
-      hint: 'Draft dan terkonfirmasi',
-      hidden: data?.stockValue !== null || data?.ordersPending == null,
-    },
-  ];
-  const mainShown = main.filter((c) => !c.hidden);
-  const secondShown = second.filter((c) => !c.hidden);
+  const tilesShown = tiles.filter((c) => !c.hidden);
 
-  const quick = [
-    { label: 'Faktur penjualan', to: '/invoices', icon: <FileDoneOutlined />, on: finance || me?.role === 'SALES' },
-    { label: t('Pelanggan'), to: '/customers', icon: <ShopOutlined />, on: true },
-    { label: 'Produk & stok', to: '/products', icon: <DatabaseOutlined />, on: true },
-    { label: 'Laporan', to: '/reports', icon: <FundOutlined />, on: finance },
-  ].filter((q) => q.on);
-
-  const greet = (() => {
-    const h = dayjs().hour();
-    return h < 11 ? 'Selamat pagi' : h < 15 ? 'Selamat siang' : h < 18 ? 'Selamat sore' : 'Selamat malam';
-  })();
   return (
     <>
       <PageHeader
@@ -145,9 +99,7 @@ export default function DashboardPage() {
           )
         }
       />
-      <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
-        {greet}, {me?.name?.split(' ')[0]} · {me?.tenantName} · {dayjs().format('dddd, D MMMM YYYY')}
-      </Typography.Paragraph>
+      <DashboardHero name={me?.name} tenantName={me?.tenantName} model={me?.businessModel ?? 'DAGANG'} figures={heroFigures} showFinance={finance} canSell={me?.role === 'SALES'} />
       {isError && (
         <Alert
           type="error"
@@ -166,16 +118,7 @@ export default function DashboardPage() {
           message={`${data.overdueCount} faktur sudah lewat jatuh tempo senilai ${fmtMoney(data.arOverdue)}. Pelanggan terkait otomatis diblokir dari order baru.`}
         />
       )}
-      <div className="qa">
-        {quick.map((q) => (
-          <button key={q.to} type="button" onClick={() => navigate(q.to)}>
-            <span className="qa-ic">{q.icon}</span>
-            {q.label}
-          </button>
-        ))}
-      </div>
-      {mainShown.length > 0 && <SummaryCards items={mainShown} />}
-      {secondShown.length > 0 && <SummaryCards items={secondShown} />}
+      <KpiTiles items={tilesShown} />
       {finance && !myBranches && <InsightPanel />}
       {finance && (
         <Card

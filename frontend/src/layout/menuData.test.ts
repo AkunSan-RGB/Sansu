@@ -12,7 +12,7 @@ describe('menu: susunan bertahap per jenis usaha', () => {
   it('Cek kesehatan mandiri tepat di bawah Dashboard, bukan anak menu Akuntansi', () => {
     for (const m of MODELS) {
       const top = menuFor(m).slice(0, 3).map((g) => g.key);
-      expect(top).toEqual(['/dashboard', '/health', '/tasks']);
+      expect(top).toEqual(['/dashboard', '/vertikal', '/health']);
       const acc = MENU.find((g) => g.key === 'accounting')!;
       expect(flat(acc).some((i) => i.key === '/health')).toBe(false);
     }

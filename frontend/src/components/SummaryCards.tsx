@@ -33,7 +33,7 @@ export default function SummaryCards({ items }: { items: SummaryItem[] }) {
               size="small"
               hoverable={!!it.onClick}
               onClick={it.onClick}
-              style={{ background: t.bg, borderColor: it.active ? '#1C3160' : t.border, height: '100%' }}
+              style={{ background: t.bg, borderColor: it.active ? '#111111' : t.border, height: '100%' }}
             >
               <Typography.Text type="secondary">{it.label}</Typography.Text>
               <div style={{ fontSize: 22, fontWeight: 600, color: t.color, lineHeight: 1.35 }}>{it.value}</div>

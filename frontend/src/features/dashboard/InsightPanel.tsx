@@ -52,9 +52,9 @@ interface Payload {
 
 const TONE: Record<Tone, { label: string; accent: string; soft: string; text: string }> = {
   warning: { label: 'Perlu perhatian', accent: '#F04438', soft: '#FEF3F2', text: '#B42318' },
-  opportunity: { label: 'Peluang', accent: '#7A5AF8', soft: '#F4F3FF', text: '#5925DC' },
+  opportunity: { label: 'Peluang', accent: '#444444', soft: '#F2F2F2', text: '#222222' },
   good: { label: 'Kabar baik', accent: '#12B76A', soft: '#ECFDF3', text: '#027A48' },
-  info: { label: 'Catatan', accent: '#2E90FA', soft: '#EFF8FF', text: '#175CD3' },
+  info: { label: 'Catatan', accent: '#111111', soft: '#F2F2F2', text: '#111111' },
 };
 const CATEGORY: Record<string, { label: string; icon: ReactNode }> = {
   KAS: { label: 'Kas', icon: <WalletOutlined /> },
@@ -118,7 +118,7 @@ function Spark({ data }: { data: Trend[] }) {
           <text x={x(i)} y={H - 8} textAnchor="middle" fontSize="10.5" fill="#fff" fillOpacity=".78">{MONTHS[Number(d.month.slice(5, 7)) - 1]}</text>
         </g>
       ))}
-      <text x={x(data.length - 1) - 9} y={y(last.sales) - 10} textAnchor="end" fontSize="11.5" fontWeight="700" fill="#fff" stroke="#1C3160" strokeWidth="3.5" paintOrder="stroke" strokeLinejoin="round">{short(last.sales)}</text>
+      <text x={x(data.length - 1) - 9} y={y(last.sales) - 10} textAnchor="end" fontSize="11.5" fontWeight="700" fill="#fff" stroke="#111111" strokeWidth="3.5" paintOrder="stroke" strokeLinejoin="round">{short(last.sales)}</text>
       {prev && prev.sales > 0 && (
         <text x={padX} y={11} fontSize="10.5" fill="#fff" fillOpacity=".8">
           ▬ Penjualan  <tspan fill="#7CF2C1">┅ Laba kotor</tspan>
@@ -160,7 +160,7 @@ function InsightCard({ i, index, onHide }: { i: Insight; index: number; onHide: 
         </span>
       </header>
 
-      <h3 style={{ margin: 0, fontSize: 16.5, lineHeight: 1.3, color: '#101C33', fontWeight: 700 }}>{i.title}</h3>
+      <h3 style={{ margin: 0, fontSize: 16.5, lineHeight: 1.3, color: '#0A0A0A', fontWeight: 700 }}>{i.title}</h3>
 
       {i.impact && (
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
@@ -239,7 +239,7 @@ export default function InsightPanel() {
   if (isError) return null;
   if (isLoading || !data) {
     return (
-      <div style={{ marginTop: 16, borderRadius: 20, padding: 24, background: 'linear-gradient(135deg,#101C33,#1C3160)' }}>
+      <div style={{ marginTop: 16, borderRadius: 20, padding: 24, background: 'linear-gradient(135deg,#0A0A0A,#111111)' }}>
         <Skeleton active paragraph={{ rows: 3 }} title={{ width: '40%' }} style={{ opacity: 0.35 }} />
       </div>
     );
@@ -248,7 +248,7 @@ export default function InsightPanel() {
   const hasSales = data.trend.some((t) => t.sales !== 0);
   const pills: { key: 'all' | Tone; label: string; n: number; dot: string }[] = [
     { key: 'warning', label: 'perlu perhatian', n: s.warnings, dot: '#FF8A80' },
-    { key: 'opportunity', label: 'peluang', n: s.opportunities, dot: '#C4B5FD' },
+    { key: 'opportunity', label: 'peluang', n: s.opportunities, dot: '#D4D4D4' },
     { key: 'good', label: 'kabar baik', n: s.good, dot: '#7CF2C1' },
   ];
   return (
@@ -259,7 +259,7 @@ export default function InsightPanel() {
           borderRadius: 22,
           padding: '22px 24px',
           color: '#fff',
-          background: 'radial-gradient(1200px 400px at 85% -10%, rgba(124,242,193,.22), transparent 60%), radial-gradient(900px 380px at -5% 120%, rgba(122,90,248,.35), transparent 55%), linear-gradient(135deg,#101C33 0%,#1C3160 55%,#2A4580 100%)',
+          background: 'radial-gradient(1200px 400px at 85% -10%, rgba(255,255,255,.16), transparent 60%), radial-gradient(900px 380px at -5% 120%, rgba(255,255,255,.08), transparent 55%), linear-gradient(135deg,#0A0A0A 0%,#111111 55%,#2B2B2B 100%)',
           boxShadow: '0 22px 44px -22px rgba(16,28,51,.7)',
           display: 'grid',
           gridTemplateColumns: 'minmax(0,1.25fr) minmax(0,1fr)',
@@ -313,7 +313,7 @@ export default function InsightPanel() {
                   type="button"
                   onClick={() => setFilter(k)}
                   aria-pressed={filter === k}
-                  style={{ border: '1px solid ' + (filter === k ? '#1C3160' : '#D0D5DD'), background: filter === k ? '#1C3160' : '#fff', color: filter === k ? '#fff' : '#344054', padding: '5px 14px', borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                  style={{ border: '1px solid ' + (filter === k ? '#111111' : '#D0D5DD'), background: filter === k ? '#111111' : '#fff', color: filter === k ? '#fff' : '#344054', padding: '5px 14px', borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
                 >
                   {label}
                 </button>

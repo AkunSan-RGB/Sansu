@@ -13,7 +13,7 @@ const ICON: Record<HealthStatus, React.ReactNode> = {
   OK: <CheckCircleFilled style={{ color: '#52c41a' }} />,
   WARN: <ExclamationCircleFilled style={{ color: '#faad14' }} />,
   ERROR: <CloseCircleFilled style={{ color: '#ff4d4f' }} />,
-  INFO: <InfoCircleFilled style={{ color: '#1677ff' }} />,
+  INFO: <InfoCircleFilled style={{ color: '#111111' }} />,
 };
 const COLOR: Record<HealthStatus, string> = { OK: 'green', WARN: 'orange', ERROR: 'red', INFO: 'blue' };
 const LABEL: Record<HealthStatus, string> = { OK: 'Baik', WARN: 'Perhatikan', ERROR: 'Perlu diperbaiki', INFO: 'Info' };

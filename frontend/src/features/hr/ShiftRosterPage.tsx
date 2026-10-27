@@ -64,7 +64,7 @@ function RosterTab() {
         columns={[
           { title: 'Pegawai', fixed: 'left' as const, width: 170, render: (_: unknown, e: Emp) => `${e.code} · ${e.name}` },
           ...days.map((d) => ({
-            title: <span style={{ color: d.format('YYYY-MM-DD') === today ? '#2563eb' : undefined }}>{d.format('ddd DD/MM')}</span>,
+            title: <span style={{ color: d.format('YYYY-MM-DD') === today ? '#111111' : undefined }}>{d.format('ddd DD/MM')}</span>,
             width: 120,
             render: (_: unknown, e: Emp) => {
               const date = d.format('YYYY-MM-DD');

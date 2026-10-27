@@ -91,7 +91,7 @@ export function MarketplaceTab() {
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         {(channels.data ?? []).map((c) => (
           <Col xs={12} md={6} key={c.channel}>
-            <Card size="small" hoverable onClick={() => setChannel(c.channel)} style={{ borderColor: c.channel === channel ? '#1677ff' : undefined }}>
+            <Card size="small" hoverable onClick={() => setChannel(c.channel)} style={{ borderColor: c.channel === channel ? '#111111' : undefined }}>
               <Statistic title={`${c.channel} · ${c.orders} pesanan`} value={Number(c.open)} formatter={(v) => fmtMoney(Number(v))} prefix={<ShopOutlined />} />
               <Typography.Text type="secondary">belum dicairkan</Typography.Text>
             </Card>

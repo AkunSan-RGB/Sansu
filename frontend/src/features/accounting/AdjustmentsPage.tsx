@@ -75,7 +75,7 @@ const TEMPLATES: Record<TemplateKind, { label: string; hint: string; debit: { la
 const STATUS = {
   DONE: { color: 'green', label: 'Selesai', icon: <CheckCircleFilled style={{ color: '#52c41a' }} /> },
   TODO: { color: 'orange', label: 'Perlu dikerjakan', icon: <ClockCircleFilled style={{ color: '#faad14' }} /> },
-  INFO: { color: 'blue', label: 'Periksa', icon: <InfoCircleFilled style={{ color: '#1677ff' }} /> },
+  INFO: { color: 'blue', label: 'Periksa', icon: <InfoCircleFilled style={{ color: '#111111' }} /> },
   NA: { color: 'default', label: 'Tidak ada', icon: <MinusCircleOutlined style={{ color: '#bfbfbf' }} /> },
 };
 

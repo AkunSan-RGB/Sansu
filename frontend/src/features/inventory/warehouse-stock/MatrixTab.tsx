@@ -11,7 +11,7 @@ import { useCan } from '@/auth/useCan';
 import ExportButtons from '@/components/ExportButtons';
 import SummaryCards from '@/components/SummaryCards';
 import { fmtMoney, fmtQty } from '@/lib/format';
-import { n, SheetBuilder, type SheetSpec } from '@/lib/xlsx/book';
+import { n, SheetBuilder, type SheetSpec, type Val } from '@/lib/xlsx/book';
 import { t } from '@/lib/terms';
 
 interface Matrix {
@@ -42,10 +42,10 @@ export function matrixSheet(m: Matrix, company?: string): SheetSpec[] {
   const first = s.next;
   for (const r of m.rows) {
     const row = s.next;
-    const vals: Record<string, unknown> = { sku: r.sku, name: r.name, cat: r.category ?? '', uom: r.baseUom, value: n(r.value) };
+    const vals: Record<string, Val> = { sku: r.sku, name: r.name, cat: r.category ?? '', uom: r.baseUom, value: n(r.value) };
     for (const w of whs) vals[`w${w.id}`] = n(r.qty[w.id] ?? '0');
     vals.total = whs.length ? s.verified(`SUM(${s.ref(`w${whs[0].id}`, row)}:${s.ref(`w${whs[whs.length - 1].id}`, row)})`, n(r.totalQty), whs.reduce((a, w) => a + Number(r.qty[w.id] ?? 0), 0)) : n(r.totalQty);
-    s.row(vals as never);
+    s.row(vals);
   }
   s.totals('Jumlah', first, s.next - 1, ['value'], { style: 'grand', labelKey: 'name', cache: { value: n(m.totals.value) } });
   return [s.spec];

@@ -16,15 +16,15 @@ export const BRAND = {
   ],
   colors: {
     /** Warna utama: biru navy logo SANSU (teks putih di atasnya kontras >10:1) */
-    primary: '#1C3160',
-    primaryHover: '#2A4580',
+    primary: '#111111',
+    primaryHover: '#2B2B2B',
     /** Latar lembut untuk sorotan / pilihan aktif */
-    primarySoft: '#EEF2FA',
+    primarySoft: '#F2F2F2',
     /** Navy pekat persis seperti tanda "S" */
-    mark: '#101C33',
+    mark: '#0A0A0A',
     /** Navigasi & latar gelap */
-    ink: '#0D1628',
-    inkSoft: '#17233B',
+    ink: '#0A0A0A',
+    inkSoft: '#1A1A1A',
     /** Aksen: hijau zamrud garis diagonal logo */
     accent: '#16A37B',
     surface: '#F5F7FA',

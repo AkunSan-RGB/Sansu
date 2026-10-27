@@ -54,6 +54,19 @@ selisih setengah poin antar jenis usaha bisa terbalik oleh satu audit. Skala 0�
 **Batas kesiapan produksi:** tanpa pilot nyata, tidak ada jenis usaha yang layak dinilai di atas ±7 untuk "siap dipakai sungguhan", berapa pun rata-ratanya.
 Nilai kelengkapan Utilitas (7,8) berarti fiturnya paling lengkap, bukan paling siap produksi.
 
+## Pembaruan setelah perbaikan ketahanan dan antarmuka
+
+K10 naik karena ada bukti baru: server tidak lagi mati saat PostgreSQL berhenti, klaim tagihan yatim dilepas setelah restart paksa (uji kegagalan `db` 5/5 dan `restart` 10/10 pada 10.000 sambungan), pembatas beban, dan banner galat. Dagang dan Utilitas naik 1 poin pada K10
+(alur yang diuji beban/kegagalan); lima jenis usaha lain naik tipis karena hanya mendapat perbaikan lintas sistem tanpa uji sendiri. K7 (Bantuan) dan K8 (Pengaturan) tidak berubah. Ruang kerja per jenis usaha (`/vertikal`) memberi semua jenis usaha pintu masuk alur khasnya, tetapi tidak menambah fitur baru,
+jadi K2 tidak dinaikkan.
+
+| | Dagang | Ritel | Jasa | FMCG | Manufaktur | F&B | Utilitas |
+|---|---|---|---|---|---|---|---|
+| Rata-rata K1–K10 (sebelum) | 7,2 | 6,5 | 6,5 | 7,2 | 6,3 | 7,0 | 7,8 |
+| Rata-rata K1–K10 (sekarang) | 7,3 | 6,6 | 6,6 | 7,3 | 6,4 | 7,1 | 7,9 |
+
+Rata-rata ketujuhnya ±7,0 (sebelumnya ±6,9). Ini penilaian saya, bukan audit pihak luar; K11 tetap nol.
+
 ## Perubahan dari taksiran saya sebelumnya
 
 Taksiran lisan sebelumnya: Utilitas 7,5, F&B 7,5, FMCG 7, Manufaktur 7, Jasa 6,5, Ritel 6,5, Dagang 6,5.

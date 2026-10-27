@@ -232,7 +232,7 @@ function WorkflowGuide() {
       <Space direction="vertical" size={10} style={{ width: '100%' }}>
         {FLOW.map((st, i) => (
           <div key={st.title} style={{ display: 'flex', gap: 12, padding: 8, borderRadius: 8, background: mine(st) ? 'rgba(22,119,255,0.08)' : undefined }}>
-            <div style={{ width: 28, height: 28, borderRadius: 14, background: mine(st) ? '#1677ff' : '#94a3b8', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontWeight: 600 }}>{i + 1}</div>
+            <div style={{ width: 28, height: 28, borderRadius: 14, background: mine(st) ? '#111111' : '#94a3b8', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontWeight: 600 }}>{i + 1}</div>
             <div style={{ flex: 1 }}>
               <div><b>{st.title}</b> <Tag style={{ marginLeft: 4 }}>{st.who}</Tag></div>
               <div style={{ color: '#64748b', fontSize: 13 }}>{st.text}</div>

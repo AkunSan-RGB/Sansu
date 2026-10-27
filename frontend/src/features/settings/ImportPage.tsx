@@ -284,7 +284,7 @@ export default function ImportPage() {
                         <Statistic title="Baru" value={preview.summary.create} valueStyle={{ color: '#16a34a' }} />
                       </Col>
                       <Col xs={12} md={6}>
-                        <Statistic title="Diperbarui" value={preview.summary.update} valueStyle={{ color: '#2563eb' }} />
+                        <Statistic title="Diperbarui" value={preview.summary.update} valueStyle={{ color: '#111111' }} />
                       </Col>
                       <Col xs={12} md={6}>
                         <Statistic title="Bermasalah" value={preview.summary.errors} valueStyle={{ color: preview.summary.errors ? '#dc2626' : undefined }} />

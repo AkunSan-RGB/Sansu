@@ -26,7 +26,7 @@ td.ant-table-cell[style*='text-align: right'],
 
 /* Layar menu aplikasi */
 .app-tile:hover { background: rgba(28, 49, 96, .07); }
-.app-tile:focus-visible { outline: 2px solid #1C3160; }
+.app-tile:focus-visible { outline: 2px solid #111111; }
 
 /* Cetak struk kasir saja */
 @media print {
@@ -89,37 +89,37 @@ body { background: #F6F6F3; -webkit-font-smoothing: antialiased; }
 .app-tile { transition: transform .18s ease, background .18s ease; }
 .app-tile:hover { transform: translateY(-3px); }
 .app-tile > span:first-child { transition: box-shadow .18s ease; }
-.app-tile:hover > span:first-child { box-shadow: 0 14px 28px -10px rgba(13,22,40,.4) !important; }
+.app-tile:hover > span:first-child { box-shadow: 0 14px 28px -10px rgba(10,10,10,.4) !important; }
 
 /* Dasbor */
 .dash-hero { position: relative; overflow: hidden; border-radius: 20px; padding: 28px 30px; color: #fff;
-  background: radial-gradient(1200px 300px at 90% -40%, rgba(201,162,75,.38), transparent 60%), linear-gradient(135deg, #0D1628 0%, #1C3160 100%); }
+  background: radial-gradient(1200px 300px at 90% -40%, rgba(201,162,75,.38), transparent 60%), linear-gradient(135deg, #0A0A0A 0%, #111111 100%); }
 .dash-hero h2 { margin: 0 0 4px; color: #fff; font-weight: 700; letter-spacing: -.01em; }
 .dash-hero p { margin: 0; color: rgba(255,255,255,.72); }
 .dash-hero .hero-figure { font-size: clamp(20px, 2.1vw, 30px); white-space: nowrap; font-weight: 700; letter-spacing: -.02em; color: #fff; line-height: 1.15; }
 .dash-hero .hero-label { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: #E6CC8A; font-weight: 600; }
 .kpi { position: relative; height: 100%; background: #fff; border: 1px solid #ECEAE3; border-radius: 16px; padding: 18px 20px;
-  box-shadow: 0 1px 2px rgba(13,22,40,.04), 0 8px 24px -14px rgba(13,22,40,.14); transition: transform .18s ease, box-shadow .18s ease; }
+  box-shadow: 0 1px 2px rgba(10,10,10,.04), 0 8px 24px -14px rgba(10,10,10,.14); transition: transform .18s ease, box-shadow .18s ease; }
 .kpi.clickable { cursor: pointer; }
-.kpi.clickable:hover { transform: translateY(-2px); box-shadow: 0 1px 2px rgba(13,22,40,.05), 0 16px 32px -14px rgba(13,22,40,.22); }
+.kpi.clickable:hover { transform: translateY(-2px); box-shadow: 0 1px 2px rgba(10,10,10,.05), 0 16px 32px -14px rgba(10,10,10,.22); }
 .kpi .kpi-icon { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; font-size: 18px; }
 .kpi .kpi-label { color: #5B6477; font-size: 13px; font-weight: 500; }
-.kpi .kpi-value { font-size: 24px; font-weight: 700; letter-spacing: -.01em; color: #101C33; margin: 10px 0 2px; font-variant-numeric: tabular-nums; }
+.kpi .kpi-value { font-size: 24px; font-weight: 700; letter-spacing: -.01em; color: #0A0A0A; margin: 10px 0 2px; font-variant-numeric: tabular-nums; }
 .kpi .kpi-sub { color: #7A8294; font-size: 12.5px; }
 @media (prefers-reduced-motion: reduce) { .app-tile, .kpi { transition: none; } }
 
 .ant-alert { border-radius: 12px; }
-.ant-alert-info { background: #F1F4FB; border-color: #DCE4F5; }
+.ant-alert-info { background: #F5F5F5; border-color: #E0E0E0; }
 .dash-hero .hero-grid { display: grid; grid-template-columns: minmax(220px, 1.1fr) repeat(auto-fit, minmax(190px, 1fr)); gap: 20px 28px; align-items: center; }
 @media (max-width: 767px) { .dash-hero { padding: 20px; border-radius: 16px; } .dash-hero .hero-grid { grid-template-columns: 1fr; } }
 
 /* Pengaturan perusahaan */
 .settings-summary { display: flex; align-items: center; justify-content: space-between; margin: -4px 0 18px; padding: 16px 20px;
-  background: #fff; border: 1px solid #ECEAE3; border-radius: 16px; box-shadow: 0 1px 2px rgba(13,22,40,.04); }
-.settings-summary-name { font-size: 18px; font-weight: 700; color: #101C33; }
+  background: #fff; border: 1px solid #ECEAE3; border-radius: 16px; box-shadow: 0 1px 2px rgba(10,10,10,.04); }
+.settings-summary-name { font-size: 18px; font-weight: 700; color: #0A0A0A; }
 .settings-tabs.ant-tabs-left > .ant-tabs-nav { min-width: 220px; }
 .settings-tabs.ant-tabs-left > .ant-tabs-nav .ant-tabs-tab { padding: 12px 16px; border-radius: 10px; margin: 0 0 4px; }
-.settings-tabs.ant-tabs-left > .ant-tabs-nav .ant-tabs-tab-active { background: #EEF2FA; }
+.settings-tabs.ant-tabs-left > .ant-tabs-nav .ant-tabs-tab-active { background: #F2F2F2; }
 .settings-tabs.ant-tabs-left > .ant-tabs-nav .ant-tabs-ink-bar { display: none; }
 .settings-tabs.ant-tabs-left > .ant-tabs-content-holder { border-left: 0; padding-left: 8px; min-width: 0; }
 .settings-tabs.ant-tabs-left > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane { padding-left: 16px; }

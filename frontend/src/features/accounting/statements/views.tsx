@@ -278,7 +278,7 @@ export function TrialBalanceView({ d, onAccount }: { d: FullTrialBalance; onAcco
           dc('Mutasi', 'movement'),
           dc('Saldo akhir', 'closing'),
         ]}
-        summary={() => totalsRow(keys, d.totals as never, 'Jumlah')}
+        summary={() => totalsRow(keys, d.totals, 'Jumlah')}
       />
     </>
   );
@@ -310,7 +310,7 @@ export function WorksheetView({ d, onAdjustments }: { d: Worksheet; onAdjustment
         ]}
         summary={() => (
           <>
-            {totalsRow(keys, d.totals as never, 'Jumlah')}
+            {totalsRow(keys, d.totals, 'Jumlah')}
             <Table.Summary.Row>
               <Table.Summary.Cell index={0} colSpan={7}>
                 <strong>{np >= 0 ? 'Laba bersih' : 'Rugi bersih'}</strong>

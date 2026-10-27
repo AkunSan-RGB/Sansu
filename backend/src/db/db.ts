@@ -5,6 +5,7 @@ import * as schema from './schema';
 import { cleanDbUrl } from './db-error';
 import { txScope } from './db-scope';
 import { TenantPool } from './tenant-pool';
+import { opsAlert } from '../common/monitor/ops-alert';
 
 // Kembalikan kolom DATE sebagai string 'YYYY-MM-DD' apa adanya (tanpa konversi zona waktu)
 types.setTypeParser(1082, (v) => v);
@@ -49,6 +50,7 @@ export function attachPoolErrorHandler<P extends Pool>(pool: P): P {
     if (Date.now() - lastPoolWarn > 10_000) {
       lastPoolWarn = Date.now();
       poolLog.warn(`Koneksi database terputus (${(e as Error).message}); kolam akan membuat koneksi baru`);
+      opsAlert('db-pool', `koneksi database terputus: ${(e as Error).message}`);
     }
   });
   return pool;
