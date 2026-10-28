@@ -1,7 +1,7 @@
 # Celah vertikal Jasa, Ritel, Manufaktur: yang dibangun dan batasnya
 
 Dokumen ini mencatat apa yang ditambahkan untuk menutup celah tiga jenis usaha, cara kerjanya, dan yang **belum** dikerjakan.
-Semua fitur memakai lapisan yang sudah ada (controller → service → repository), migrasi maju-saja (0116–0119), dan dicakup tes.
+Semua fitur memakai lapisan yang sudah ada (controller → service → repository), migrasi maju-saja (0116–0121), dan dicakup tes.
 
 ## Manufaktur
 
@@ -18,14 +18,16 @@ Semua fitur memakai lapisan yang sudah ada (controller → service → repositor
 - Saat produksi selesai, DPP tagihan itu menjadi upah langsung yang dibebankan ke harga pokok barang jadi (akun upah yang didebit tagihan diimbangi *Biaya Produksi Dibebankan*, sama seperti upah dari penggajian).
 - Pengendalian: tagihan harus dari pemasok maklon yang sama, berjenis Tagihan biaya, jurnal belum dibalik, belum dipakai perintah lain (indeks unik), semua baris ke akun upah langsung; produksi subkontrak tidak bisa selesai tanpa tagihan; tidak bisa dibatalkan setelah tagihan menempel; upah tidak dapat diketik.
 - Perintah subkontrak tidak menyalin operasi pusat kerja internal dari resep.
-- **Belum ada**: pelacakan stok yang berada di tangan maklon sebagai lokasi terpisah (bahan yang dikirim tetap tercatat di Barang dalam Proses, bukan gudang pemasok); pembayaran sebagian per tahap; satu tagihan untuk beberapa perintah.
+- **Satu tagihan untuk beberapa perintah**: saat menautkan, isi jumlah alokasi (kosong = seluruh sisa tagihan). Jumlah alokasi semua perintah tidak boleh melebihi DPP tagihan (baris tagihan dikunci saat menautkan); upah langsung tiap perintah = alokasinya.
+- **Bahan di tangan maklon**: `GET /production/subcontract/holdings` dan kartu di halaman Perintah produksi menampilkan bahan yang sudah dikeluarkan untuk perintah maklon yang masih berjalan, per pemasok, beserta nilainya. Ini **turunan dari perintah produksi** (nilainya tetap di Barang dalam Proses), bukan gudang fisik terpisah; belum ada pencatatan bahan kembali sebagian atau sisa bahan dari maklon.
+- **Pembayaran bertahap**: tagihan maklon adalah tagihan biasa, jadi dibayar sebagian lewat pembayaran pemasok yang sudah ada; tidak ada jadwal termin khusus maklon.
 
 ## Jasa
 
 ### Anggaran biaya proyek
 - `projects.cost_budget` (0 = tanpa anggaran). Status pemakaian dihitung dari biaya langsung proyek yang sudah ada (tagihan biaya, kas keluar, jurnal, gaji): **OK**, **WARN** mulai 80%, **OVER** di atas 100% (`service-limits.ts`, diuji).
 - Tampil di detail proyek; bisa diatur saat membuat/mengubah proyek.
-- **Sifatnya pemantauan, bukan pemblokir**: pencatatan biaya yang melewati anggaran tidak ditolak.
+- **Kendali**: mengikuti *Kendali anggaran* di Persetujuan (OFF / Persetujuan / Blokir). Pada Blokir, Tagihan biaya dan Kas keluar bertanda proyek yang membuat biaya langsung melewati anggaran ditolak (Pemilik dapat menembus dengan alasan, tercatat di audit); pada Persetujuan, staf menunggu persetujuan. Pada OFF hanya pemantauan. **Jurnal umum manual bertanda proyek tidak diperiksa.**
 
 ### Retainer berjatah jam
 - `service_retainers.included_hours` + `overage_rate`. Saat menagih periode, sistem menghitung jam tertagih yang sudah **disetujui** pada bulan itu (proyek retainer bila ada, jika tidak seluruh pelanggan); kelebihan dari jatah ditambahkan di faktur dengan tarif kelebihan.
@@ -39,7 +41,8 @@ Semua fitur memakai lapisan yang sudah ada (controller → service → repositor
 - `POST /pos/quote` menghitung harga dan potongan promo diskon yang aktif dengan mesin harga yang sama dengan pesanan penjualan (`pricing-engine.ts`). Layar kasir menampilkan angka ini (nama promo di keranjang).
 - Server memakai perhitungan yang sama saat transaksi: baris tanpa harga/diskon diisi server; **kasir/sales hanya boleh menjual dengan harga dan potongan persis hasil hitungan server** (aturan anti-fraud lama "harus harga master" diganti "harus harga yang berlaku"). Supervisor tetap boleh mengubah manual.
 - Menu *Daftar harga* dan *Promo* kini muncul untuk Ritel.
-- **Belum ada**: promo bonus barang di kasir (hanya potongan harga); stok minimum/harga yang berbeda per toko di luar daftar harga; pengelolaan perangkat kasir (printer, laci kas, EDC) dan mode luring.
+- **Promo bonus barang di kasir**: kutipan menampilkan barang gratis; saat transaksi server menambah baris harga 0 (`pos_order_lines.is_bonus`), stok terpotong dan biayanya masuk HPP. Bonus hanya untuk barang stok biasa (bukan menu/setengah jadi) dan dibatasi sisa stok toko setelah barang yang dibeli; klien tidak mengirim baris bonus.
+- **Belum ada, dengan alasan**: mode luring kasir (butuh rancangan tanggal transaksi, harga yang berubah, dan stok saat sinkron; tidak ditambal setengah-setengah); pengelolaan perangkat keras kasir (printer, laci kas, EDC) yang memerlukan lapisan aplikasi/peranti yang tidak dapat diverifikasi di sini. Cetak struk lewat peramban tetap seperti sebelumnya.
 
 ### Uji beban kasir
 `backend/scripts/uji-beban-serentak.mjs --ritel N` menambah N perusahaan ritel (3 kasir tiap perusahaan, harga toko + promo aktif). Setelah beban diperiksa: stok = awal − terjual, jumlah transaksi kasir = yang berhasil, total transaksi = pembayarannya, jurnal seimbang.

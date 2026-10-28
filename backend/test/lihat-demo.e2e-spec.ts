@@ -96,7 +96,7 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(s('RITEL'), 'price_lists')).toBe(1);
     expect(await count(s('RITEL'), 'promos')).toBe(2);
     const prc = async (q: string) => Number((await db.execute<{ n: string }>(sql.raw(q))).rows[0].n);
-    expect(await prc(`SELECT COUNT(*)::text AS n FROM warehouses WHERE tenant_id = '${s('RITEL')}' AND price_list_id IS NOT NULL`)).toBe(1);
+    expect(await prc(`SELECT COUNT(*)::text AS n FROM warehouses WHERE tenant_id = '${s('RITEL')}' AND price_list_id IS NOT NULL`)).toBeGreaterThanOrEqual(1);
     // Jasa: anggaran biaya proyek dan retainer berjatah jam
     expect(await prc(`SELECT COUNT(*)::text AS n FROM projects WHERE tenant_id = '${s('JASA')}' AND cost_budget > 0`)).toBeGreaterThan(0);
     expect(await prc(`SELECT COUNT(*)::text AS n FROM service_retainers WHERE tenant_id = '${s('JASA')}' AND included_hours > 0`)).toBe(1);

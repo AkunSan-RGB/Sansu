@@ -359,12 +359,12 @@ export async function resepDanMaklon(c: Demo, supplierId: string) {
   await c.step('tautkan sisa tagihan', () => c.svc.production.linkSubcontractBill(c.admin, o2.id, { purchaseInvoiceId: bill.id }));
 }
 
-/** Ritel: daftar harga toko (harga khusus) + promo diskon yang tampil otomatis di kasir */
+/** Ritel: daftar harga toko (dipasang di semua gudang demo) + promo diskon dan bonus yang tampil otomatis di kasir */
 export async function ritelHargaToko(c: Demo, rows: { productId: string; price: string }[], promo: { productId: string; minQty: string; discountPct: string; name: string }, bonus?: { productId: string; minQty: string; bonusProductId: string; bonusQty: string; name: string }) {
   const pl = (await c.step('daftar harga toko', () => c.svc.pricing.createPriceList(c.admin, { name: 'Harga toko utama', description: 'Harga rak di toko ini' }))) as { id: string } | undefined;
   if (pl) {
     await c.step('isi daftar harga toko', () => c.svc.pricing.replaceItems(c.admin, pl.id, rows.map((r) => ({ productId: r.productId, minQty: '1', price: r.price }))));
-    await c.step('pasang daftar harga toko', () => c.db.update(warehouses).set({ priceListId: pl.id }).where(and(eq(warehouses.tenantId, c.tenantId), eq(warehouses.id, c.wh))));
+    await c.step('pasang daftar harga toko', () => c.db.update(warehouses).set({ priceListId: pl.id }).where(eq(warehouses.tenantId, c.tenantId)));
   }
   await c.step('promo diskon kasir', () => c.svc.pricing.createPromo(c.admin, { name: promo.name, kind: 'DISCOUNT', productId: promo.productId, minQty: promo.minQty, discountPct: promo.discountPct, isActive: true }));
   if (bonus) await c.step('promo bonus kasir', () => c.svc.pricing.createPromo(c.admin, { name: bonus.name, kind: 'BONUS', productId: bonus.productId, minQty: bonus.minQty, bonusProductId: bonus.bonusProductId, bonusQty: bonus.bonusQty, isActive: true }));
