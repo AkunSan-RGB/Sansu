@@ -39,6 +39,9 @@ export const projects = pgTable(
     contractValue: money('contract_value').notNull().default('0'),
     /** Anggaran biaya langsung proyek; 0 = tanpa anggaran (tidak dipantau) */
     costBudget: money('cost_budget').notNull().default('0'),
+    /** Retensi kontraktor: persen tiap termin yang ditagih terpisah dan jatuh tempo setelah masa pemeliharaan */
+    retentionPct: numeric('retention_pct', { precision: 5, scale: 2 }).notNull().default('0'),
+    retentionDays: integer('retention_days').notNull().default(180),
     startDate: date('start_date'),
     endDate: date('end_date'),
     status: text('status').$type<'ACTIVE' | 'DONE' | 'CANCELLED'>().notNull().default('ACTIVE'),
@@ -46,6 +49,27 @@ export const projects = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('projects_code_uq').on(t.tenantId, t.code)],
+);
+
+/** BoQ / RAB proyek: item pekerjaan dengan volume, harga satuan, dan volume yang sudah selesai (dasar persentase kemajuan) */
+export const projectBoqItems = pgTable(
+  'project_boq_items',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    lineNo: integer('line_no').notNull(),
+    code: text('code'),
+    description: text('description').notNull(),
+    unit: text('unit').notNull(),
+    qty: qty('qty').notNull(),
+    unitPrice: money('unit_price').notNull(),
+    completedQty: qty('completed_qty').notNull().default('0'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('project_boq_items_project_idx').on(t.projectId, t.lineNo)],
 );
 
 /** Uang muka (DP) dari pelanggan: dicatat sebagai liabilitas sampai dipakai melunasi faktur */

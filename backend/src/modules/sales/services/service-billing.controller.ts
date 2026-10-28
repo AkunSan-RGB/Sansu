@@ -7,6 +7,7 @@ import { ServiceBillingService } from './service-billing.service';
 import { CreateServiceInvoiceDto, WithholdingSlipDto, CreateProjectDto, ProjectProgressDto, UpdateProjectDto, CreateDepositDto, ApplyDepositDto } from './service-billing.dto';
 import { CustomerDepositsService } from './customer-deposits.service';
 import { ServiceProjectsService } from './service-projects.service';
+import { ServiceContractingService } from './service-contracting.service';
 
 @ApiTags('Penjualan — jasa')
 @ApiBearerAuth()
@@ -15,12 +16,13 @@ import { ServiceProjectsService } from './service-projects.service';
 export class ServiceBillingController {
   constructor(private readonly svc: ServiceBillingService,
     private readonly customerDeposits: CustomerDepositsService,
-    private readonly serviceProjects: ServiceProjectsService) {}
+    private readonly serviceProjects: ServiceProjectsService,
+    private readonly contracting: ServiceContractingService) {}
 
   @Post('invoices')
   @Roles('ADMIN', 'FINANCE')
   createInvoice(@CurrentUser() u: AuthUser, @Body() dto: CreateServiceInvoiceDto) {
-    return this.svc.createInvoice(u, dto);
+    return this.contracting.createInvoice(u, dto);
   }
 
   @Put('invoices/:id/withholding-slip')

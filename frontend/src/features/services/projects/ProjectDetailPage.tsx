@@ -13,6 +13,8 @@ import { InvoiceStatusTag } from '../../sales/status';
 import { t } from '@/lib/terms';
 import { ProjectDetail, STATUS } from './shared';
 import { ProgressCard } from './ProgressCard';
+import { BoqCard } from './BoqCard';
+import { RetentionCard } from './RetentionCard';
 import { CostsCard } from './CostsCard';
 
 export function ProjectDetailPage() {
@@ -23,11 +25,13 @@ export function ProjectDetailPage() {
   const [edit, setEdit] = useState(false);
   const [form] = Form.useForm();
   const save = useAction(
-    (v: { contractValue: number; costBudget?: number; status: Project['status']; endDate?: string; notes?: string }) =>
+    (v: { contractValue: number; costBudget?: number; retentionPct?: number; retentionDays?: number; status: Project['status']; endDate?: string; notes?: string }) =>
       patch(`/services/projects/${id}`, {
         ...v,
         contractValue: String(v.contractValue),
         costBudget: String(v.costBudget ?? 0),
+        retentionPct: String(v.retentionPct ?? 0),
+        retentionDays: v.retentionDays ?? 180,
         endDate: v.endDate || undefined,
       }),
     {
@@ -61,6 +65,8 @@ export function ProjectDetailPage() {
                   form.setFieldsValue({
                     contractValue: Number(p.contractValue),
                     costBudget: Number(p.costBudget),
+                    retentionPct: Number(p.retentionPct),
+                    retentionDays: p.retentionDays,
                     status: p.status,
                     endDate: p.endDate ?? undefined,
                     notes: p.notes ?? undefined,
@@ -133,7 +139,9 @@ export function ProjectDetailPage() {
             </Descriptions>
             <Progress percent={p.billedPct} style={{ marginTop: 8 }} />
           </Card>
+          <BoqCard project={p} />
           <ProgressCard project={p} />
+          <RetentionCard project={p} />
           <CostsCard project={p} />
           <Card title="Tagihan termin" style={{ marginBottom: 16 }}>
             <Table<Invoice>
@@ -194,6 +202,14 @@ export function ProjectDetailPage() {
           <Form.Item name="costBudget" label="Anggaran biaya langsung" extra="Biaya langsung proyek dipantau terhadap angka ini (peringatan di 80%, merah bila melampaui). 0 = tidak dipantau. Bila Kendali anggaran di Persetujuan diset Blokir/Persetujuan, tagihan dan kas keluar bertanda proyek yang melewati angka ini ditolak atau menunggu persetujuan.">
             <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
           </Form.Item>
+          <Space align="start" wrap>
+            <Form.Item name="retentionPct" label="Retensi (%)" extra="Berlaku untuk termin berikutnya; tagihan retensi terpisah, jatuh tempo setelah masa pemeliharaan">
+              <InputNumber min={0} max={99.99} step={0.5} style={{ width: 140 }} />
+            </Form.Item>
+            <Form.Item name="retentionDays" label="Masa pemeliharaan (hari)">
+              <InputNumber min={0} max={3650} precision={0} style={{ width: 160 }} />
+            </Form.Item>
+          </Space>
           <Form.Item name="status" label="Status">
             <Select options={Object.entries(STATUS).map(([value, s]) => ({ value, label: s.label }))} />
           </Form.Item>

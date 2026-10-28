@@ -13,6 +13,7 @@ export function ProjectModal({ open, onClose, onDone }: { open: boolean; onClose
       customerId: string;
       contractValue: number;
       costBudget?: number;
+      retentionPct?: number;
       code?: string;
       startDate?: string;
       endDate?: string;
@@ -22,6 +23,7 @@ export function ProjectModal({ open, onClose, onDone }: { open: boolean; onClose
         ...v,
         contractValue: String(v.contractValue),
         costBudget: v.costBudget ? String(v.costBudget) : undefined,
+        retentionPct: v.retentionPct ? String(v.retentionPct) : undefined,
         startDate: v.startDate || undefined,
         endDate: v.endDate || undefined,
       }),
@@ -60,6 +62,9 @@ export function ProjectModal({ open, onClose, onDone }: { open: boolean; onClose
         </Form.Item>
         <Form.Item name="costBudget" label="Anggaran biaya langsung (opsional)" extra="Biaya langsung proyek dipantau terhadap angka ini">
           <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
+        </Form.Item>
+        <Form.Item name="retentionPct" label="Retensi kontraktor (%, opsional)" extra="Bagian tiap termin yang ditahan pelanggan sampai masa pemeliharaan selesai; ditagih terpisah">
+          <InputNumber min={0} max={99.99} step={0.5} style={{ width: '100%' }} />
         </Form.Item>
         <Row gutter={12}>
           <Col span={12}>

@@ -158,6 +158,8 @@ export const invoices = pgTable(
     projectId: uuid('project_id'),
     /** Mis. "Termin 2 (40%)" */
     termLabel: text('term_label'),
+    /** Tagihan retensi: menunjuk tagihan termin induknya; jatuh tempo setelah masa pemeliharaan */
+    retentionOfInvoiceId: uuid('retention_of_invoice_id'),
     /** PPh dipotong pelanggan (PPH23 = kredit pajak, PPH4_2 = final). Ikut dihitung di paidAmount. */
     withholdingType: text('withholding_type').$type<'PPH23' | 'PPH4_2'>(),
     withholdingRate: numeric('withholding_rate', { precision: 5, scale: 2 }),

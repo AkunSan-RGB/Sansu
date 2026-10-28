@@ -398,3 +398,25 @@ export async function jasaKasir(c: Demo) {
     });
   }
 }
+
+/** Jasa kontraktor: proyek beretensi dengan BoQ, kemajuan dari volume selesai, dan termin yang dipecah otomatis menjadi tagihan jalan + tagihan retensi */
+export async function kontraktorRetensi(c: Demo, customerId: string) {
+  const p = (await c.step('proyek kontraktor', () => c.svc.projects.createProject(c.admin, { code: 'KTR-01', name: 'Renovasi gedung kantor lantai 2', customerId, contractValue: '180000000', retentionPct: '5', retentionDays: 180, startDate: c.ago(30), endDate: c.ago(-60) }))) as { id: string } | undefined;
+  if (!p) return;
+  await c.step('BoQ proyek', () =>
+    c.svc.contracting.saveBoq(c.admin, p.id, {
+      syncContract: true,
+      items: [
+        { code: 'A.1', description: 'Pekerjaan persiapan & bongkaran', unit: 'ls', qty: '1', unitPrice: '15000000' },
+        { code: 'B.1', description: 'Pasangan dinding bata ringan', unit: 'm2', qty: '240', unitPrice: '185000' },
+        { code: 'C.1', description: 'Pekerjaan lantai keramik', unit: 'm2', qty: '320', unitPrice: '310000' },
+        { code: 'D.1', description: 'Instalasi listrik & plafon', unit: 'ls', qty: '1', unitPrice: '21600000' },
+      ],
+    }),
+  );
+  const boq = (await c.svc.contracting.boq(c.tenantId, p.id)) as { items: { id: string; qty: string }[] };
+  await c.step('kemajuan dari BoQ', () =>
+    c.svc.contracting.boqProgress(c.admin, p.id, { date: c.ago(8), notes: 'Opname lapangan', items: boq.items.map((i, k) => ({ itemId: i.id, completedQty: String(k < 2 ? Number(i.qty) : Number(i.qty) / 2) })) }),
+  );
+  await c.step('termin beretensi', () => c.svc.contracting.createInvoice(c.admin, { customerId, projectId: p.id, date: c.ago(7), termLabel: 'Termin 1', withVat: false, lines: [{ description: 'Termin 1 — pekerjaan persiapan, dinding, sebagian lantai', price: '90000000' }] }));
+}

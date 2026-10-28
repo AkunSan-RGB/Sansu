@@ -1954,6 +1954,10 @@ export interface Project {
   directCost: string;
   /** Anggaran biaya langsung (0 = tanpa anggaran) dan pemakaiannya terhadap biaya langsung */
   costBudget: string;
+  /** Retensi (%) per termin, masa pemeliharaan (hari), dan retensi yang masih ditahan pelanggan */
+  retentionPct: string;
+  retentionDays: number;
+  retentionHeld: string;
   budget: { status: 'NONE' | 'OK' | 'WARN' | 'OVER'; usedPct: number | null; remaining: string };
   invoices?: Invoice[];
 }

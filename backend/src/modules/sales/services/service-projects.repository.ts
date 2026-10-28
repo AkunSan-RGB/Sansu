@@ -4,7 +4,7 @@ import { type Project } from '@sansu/shared';
 import { sql, eq, desc, and, asc } from 'drizzle-orm';
 import { projectCostsSql } from '../../../common/project-costs';
 import { projects, projectProgress, customers } from '../../../db/schema';
-import { money } from '../../../common/utils/money';
+import { D, money } from '../../../common/utils/money';
 import { toDocDate } from '../../../common/utils/dates';
 import { CreateProjectDto } from './service-billing.dto';
 
@@ -22,6 +22,9 @@ export class ServiceProjectsRepository {
       customer_name: string;
       contract_value: string;
       cost_budget: string;
+      retention_pct: string;
+      retention_days: number;
+      retention_held: string;
       start_date: string | null;
       end_date: string | null;
       status: Project['status'];
@@ -35,7 +38,8 @@ export class ServiceProjectsRepository {
       accrual: string;
       direct_cost: string;
     }>(sql`
-        SELECT p.id, p.code, p.name, p.customer_id, c.code AS customer_code, c.name AS customer_name, p.contract_value, p.cost_budget,
+        SELECT p.id, p.code, p.name, p.customer_id, c.code AS customer_code, c.name AS customer_name, p.contract_value, p.cost_budget, p.retention_pct, p.retention_days,
+               COALESCE((SELECT SUM(r.total - r.paid_amount - r.returned_amount) FROM invoices r WHERE r.project_id = p.id AND r.retention_of_invoice_id IS NOT NULL), 0) AS retention_held,
                p.start_date::text, p.end_date::text, p.status, p.notes,
                COALESCE((SELECT SUM(subtotal) FROM invoices i WHERE i.project_id = p.id), 0) AS billed,
                COALESCE((SELECT SUM(total - paid_amount - returned_amount) FROM invoices i WHERE i.project_id = p.id), 0) AS outstanding,
@@ -128,6 +132,8 @@ export class ServiceProjectsRepository {
         customerId: dto.customerId,
         contractValue: money(dto.contractValue).toFixed(2),
         costBudget: money(dto.costBudget ?? 0).toFixed(2),
+        retentionPct: D(dto.retentionPct ?? 0).toFixed(2),
+        retentionDays: dto.retentionDays ?? 180,
         startDate: dto.startDate ? toDocDate(dto.startDate) : null,
         endDate: dto.endDate ? toDocDate(dto.endDate) : null,
         notes: dto.notes,

@@ -862,6 +862,13 @@
       "when": 1798915086484,
       "tag": "0122_layanan_kasir",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1799001486484,
+      "tag": "0123_retensi_boq",
+      "breakpoints": true
     }
   ]
 }
