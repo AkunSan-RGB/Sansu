@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq } from 'drizzle-orm';
-import { CONTROL_PROFILES } from '@sansu/shared';
+import { CONTROL_PROFILES, REVENUE_KIND_ACCOUNT } from '@sansu/shared';
 import { SettingsService } from '../../common/settings.service';
 import { LoyaltyService } from './loyalty.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -93,6 +93,24 @@ export class PosReturnsService {
       }
       const subtotal = total.minus(tax);
 
+      // Bengkel: bagian layanan dibalik dari akun pendapatan jasa servis (cermin pemisahan saat penjualan), sisanya ke retur penjualan.
+      // Retur terakhir menutup sisa persis sehingga akun jasa servis untuk transaksi ini kembali nol.
+      let serviceReturn: Dec = ZERO;
+      const svc = await this.repo.findServiceRevenueOfOrder(tx, orderId, REVENUE_KIND_ACCOUNT.REPAIR);
+      if (svc) {
+        const left = svc.sold.minus(svc.returned);
+        if (completes) serviceReturn = left;
+        else {
+          const svcIds = await this.repo.listServiceProductIds(tx, user.tenantId, picks.map((p) => p.line.productId));
+          const gross = (ps: typeof picks) => ps.reduce<Dec>((a, p) => a.plus(D(p.line.lineTotal).times(p.qty).div(p.line.qty)), ZERO);
+          const all = gross(picks);
+          serviceReturn = all.gt(0) ? money(subtotal.times(gross(picks.filter((p) => svcIds.has(p.line.productId)))).div(all)) : ZERO;
+        }
+        if (serviceReturn.gt(left)) serviceReturn = left;
+        if (serviceReturn.gt(subtotal)) serviceReturn = subtotal;
+        if (serviceReturn.lt(0)) serviceReturn = ZERO;
+      }
+
       // pengembalian uang
       const pays = await this.repo.listPosPaymentsByOrderId(tx, orderId);
       const hadCash = pays.some((p) => p.method === 'CASH');
@@ -161,7 +179,8 @@ export class PosReturnsService {
         sourceId: ret.id,
         createdById: user.sub,
         lines: [
-          { key: SYS.SALES_RETURN, debit: subtotal },
+          { key: SYS.SALES_RETURN, debit: subtotal.minus(serviceReturn) },
+          ...(svc && serviceReturn.gt(0) ? [{ accountId: svc.accountId, debit: serviceReturn }] : []),
           { key: order.taxKind === 'LOCAL' ? SYS.LOCAL_TAX : SYS.VAT_OUT, debit: tax },
           { accountId: refundAccount, credit: cashRefund },
           ...loyaltyLines,

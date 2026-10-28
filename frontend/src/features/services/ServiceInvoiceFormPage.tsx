@@ -90,15 +90,14 @@ export default function ServiceInvoiceFormPage() {
       lines: cur.map((l) => ({ ...l, unit: d.unit, description: l.description || d.description, accountId: acc ?? l.accountId })),
     });
   };
-  // dari tautan / aksi cepat: ?type=; bawaan = jenis tagihan pertama profil
+  // dari tautan / aksi cepat: ?type=; bawaan = jenis tagihan pertama profil.
+  // Nilainya masuk lewat initialValue field (bukan setFieldValue saat field baru dipasang), isian turunannya diterapkan sekali.
+  const defaultType = (types.find((x) => x.key === params.get('type')) ?? types[0])?.key;
   useEffect(() => {
-    if (!types.length || !revenueAccounts.length || form.getFieldValue('type')) return;
-    const wanted = params.get('type');
-    const first = types.find((x) => x.key === wanted) ?? types[0];
-    form.setFieldValue('type', first.key);
-    applyType(first.key);
+    if (!defaultType || !revenueAccounts.length) return;
+    applyType(form.getFieldValue('type') ?? defaultType);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [types.length, revenueAccounts.length]);
+  }, [defaultType, revenueAccounts.length]);
 
   // ganti jenis PPh → akun pendapatan baris yang masih bawaan ikut berganti
   useEffect(() => {
@@ -186,7 +185,7 @@ export default function ServiceInvoiceFormPage() {
           {types.length > 0 && (
             <Row gutter={16}>
               <Col xs={24} md={12}>
-                <Form.Item name="type" label="Jenis tagihan" extra={type?.hint}>
+                <Form.Item name="type" label="Jenis tagihan" extra={type?.hint} initialValue={defaultType}>
                   <Select onChange={applyType} options={types.map((x) => ({ value: x.key, label: x.label }))} />
                 </Form.Item>
               </Col>
