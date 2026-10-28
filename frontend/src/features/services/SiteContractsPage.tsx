@@ -1,4 +1,5 @@
 import { DeleteOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
+import type { Employee } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Checkbox, DatePicker, Drawer, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
@@ -25,8 +26,7 @@ export default function SiteContractsPage() {
   const [month, setMonth] = useState(dayjs().format('YYYY-MM'));
   const [cf] = Form.useForm<{ customerId: string; siteName: string; title: string; startDate: dayjs.Dayjs; posts: { name: string; headcount: number; monthlyRate: number }[] }>();
   const [rf] = Form.useForm<{ postId: string; employeeId: string; range: [dayjs.Dayjs, dayjs.Dayjs] }>();
-  // pemilih petugas: hanya id, kode, dan nama (peran operasional tidak perlu membuka data SDM)
-  const emps = useQuery({ queryKey: [...KEY, 'staff'], queryFn: () => get<{ id: string; code: string; name: string }[]>('/services/sites/staff'), enabled: !!roster });
+  const emps = useQuery({ queryKey: ['employees'], queryFn: () => get<Employee[]>('/hr/employees'), enabled: !!roster });
   const first = `${month}-01`;
   const last = dayjs(first).endOf('month').format('YYYY-MM-DD');
   const cov = useQuery({ queryKey: [...KEY, 'coverage', roster?.id, month], queryFn: () => get<Coverage>(`/services/sites/${roster!.id}/coverage?from=${first}&to=${last}`), enabled: !!roster });

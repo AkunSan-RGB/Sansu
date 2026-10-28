@@ -13,7 +13,6 @@ import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { ALL_SERVICE_PROFILES, type BusinessModel, taxFeatures } from '@sansu/shared';
-import { RoleOfferService } from '../../common/auth/role-offer.service';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { Db } from '../../db/db';
@@ -56,7 +55,6 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly setup: TenantSetupService,
     private readonly apps: AppsService,
-    private readonly roleOffer: RoleOfferService,
     private readonly limiter: LoginLimiter,
     private readonly mail: MailService,
     private readonly subs: SubscriptionService,
@@ -372,7 +370,6 @@ export class AuthService {
       apps: [...(await this.apps.enabled(u.tenantId))],
       businessModel: await this.settings.businessModel(this.db, u.tenantId),
       serviceProfiles: await this.settings.serviceProfiles(this.db, u.tenantId),
-      roleCustomization: await this.settings.roleCustomization(this.db, u.tenantId),
       multiBranch: await this.multiBranch(u.tenantId),
       recipeTerm: (await this.settings.section(this.db, u.tenantId, 'terms', { recipe: 'Resep' })).recipe,
       demo: await this.demoInfo(u.tenantId),
@@ -412,7 +409,6 @@ export class AuthService {
       if (!cr) throw new BadRequestException('Peran khusus tidak ditemukan');
       if (cr.baseRole !== role) throw new BadRequestException('Peran khusus harus turunan dari peran dasar yang dipilih');
     }
-    await this.roleOffer.assertOffered(actor.tenantId, role);
     const email = dto.email.toLowerCase();
     await this.assertEmailFree(email);
     await this.subs.assertCanAdd(actor.tenantId, 'users');

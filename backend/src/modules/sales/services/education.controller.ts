@@ -9,8 +9,7 @@ import { EducationService } from './education.service';
 @ApiTags('Pendidikan')
 @ApiBearerAuth()
 @RequireApp('sales')
-// Sales (Jasa: "Pemasaran & kontrak") boleh melihat dan mendaftarkan peserta; menagih dan mengatur kelas tetap Admin/Keuangan
-@Roles('ADMIN', 'FINANCE', 'ACCOUNTANT', 'SALES')
+@Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
 @Controller('services/education')
 export class EducationController {
   constructor(private readonly svc: EducationService) {}
@@ -19,8 +18,8 @@ export class EducationController {
   @Roles('ADMIN', 'FINANCE') @Post('classes') createClass(@CurrentUser() u: AuthUser, @Body() dto: EduClassDto) { return this.svc.createClass(u, dto); }
   @Roles('ADMIN') @Put('classes/:id') updateClass(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: EduClassUpdateDto) { return this.svc.updateClass(u, id, dto); }
   @Get('enrollments') enrollments(@CurrentUser() u: AuthUser, @Query('classId') classId?: string) { return this.svc.enrollments(u.tenantId, classId); }
-  @Roles('ADMIN', 'FINANCE', 'SALES') @Post('enrollments') enroll(@CurrentUser() u: AuthUser, @Body() dto: EduEnrollDto) { return this.svc.enroll(u, dto); }
-  @Roles('ADMIN', 'FINANCE', 'SALES') @Post('enrollments/:id/leave') leave(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: EduLeaveDto) { return this.svc.leave(u, id, dto); }
+  @Roles('ADMIN', 'FINANCE') @Post('enrollments') enroll(@CurrentUser() u: AuthUser, @Body() dto: EduEnrollDto) { return this.svc.enroll(u, dto); }
+  @Roles('ADMIN', 'FINANCE') @Post('enrollments/:id/leave') leave(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: EduLeaveDto) { return this.svc.leave(u, id, dto); }
   @Get('due') due(@CurrentUser() u: AuthUser, @Query('period') period: string) { return this.svc.due(u.tenantId, period); }
   @Roles('ADMIN', 'FINANCE') @Post('bill') bill(@CurrentUser() u: AuthUser, @Body() dto: EduBillDto) { return this.svc.bill(u, dto); }
 }
