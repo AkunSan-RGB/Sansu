@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { BUSINESS_MODEL_BY_KEY, type BusinessModel } from '@sansu/shared';
+import { BUSINESS_MODEL_BY_KEY, NEW_SERVICE_PROFILES, type BusinessModel } from '@sansu/shared';
 import { SettingsService } from '../../common/settings.service';
 import { AppsService } from '../../common/apps/apps.service';
 import { Tx } from '../../db/db';
@@ -24,6 +24,8 @@ export class TenantSetupService {
     if (model === 'RITEL') await this.settings.saveTaxProfile(tx, tenantId, { posPricesIncludeVat: true });
     // Kafe/restoran: penjualan makanan & minuman dikenai pajak restoran daerah (PB1/PBJT, 10%), bukan PPN; tarif bisa diubah sesuai perda
     if (model === 'FNB') await this.settings.saveTaxProfile(tx, tenantId, { localTaxEnabled: true, localTaxRate: '10' });
+    // Perusahaan jasa baru mulai dengan profil sederhana (konsultan); profil lain dipilih di Pengaturan usaha
+    if (model === 'JASA') await this.settings.saveServiceProfiles(tx, tenantId, NEW_SERVICE_PROFILES);
     await this.apps.provisionDefaults(tx, tenantId, BUSINESS_MODEL_BY_KEY[model].apps);
   }
 }

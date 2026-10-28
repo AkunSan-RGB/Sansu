@@ -26,3 +26,4 @@ export * from './loyalty.js';
 export * from './utility-ops.js';
 export * from './model-setup.js';
 export * from './model-workspace.js';
+export * from './service-profiles.js';

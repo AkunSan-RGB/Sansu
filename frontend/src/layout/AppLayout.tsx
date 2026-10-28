@@ -17,7 +17,7 @@ import AccountMenu from '@/components/AccountMenu';
 import ReminderBell from '@/components/ReminderBell';
 import { HelpButton } from '@/features/help/HelpCenter';
 import { useApps } from '@/lib/apps';
-import { type Group, type Item, menuFor, subItems } from './menuData';
+import { type Group, type Item, menuFor, profileOk, subItems } from './menuData';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import QueryErrorBanner from '@/components/QueryErrorBanner';
 
@@ -108,11 +108,12 @@ export default function AppLayout() {
     (g) =>
       (!g.models || g.models.includes(me.businessModel)) &&
       !g.hideFor?.includes(me.businessModel) &&
+      profileOk(g.profiles, me.businessModel, me.serviceProfiles) &&
       (g.core ? me.role === 'OWNER' || !!g.roles?.includes(me.role) : g.admin ? isAdmin : g.app ? can(g.app) : (can('accounting') || can('sales')) && (g.key !== '/dashboard' || dashboardRole)),
   );
   const L = (text: string) => localize(text, me.businessModel);
   // Fitur pajak yang tidak relevan (non-PKP, PPh final, usaha penjualan barang) tidak ditampilkan
-  const taxOk = (i: Item) => (!i.roles || me.role === 'OWNER' || i.roles.includes(me.role)) && (!i.models || i.models.includes(me.businessModel)) && (!i.tax || me.taxFeatures?.[i.tax] !== false) && !i.hideFor?.includes(me.businessModel) && !(i.epOnly && me.framework === 'SAK_EMKM') && !(i.billing && me.subscription?.enabled === false) && !(i.branch && !me.multiBranch) && !(i.budget && !me.hasBudget);
+  const taxOk = (i: Item) => profileOk(i.profiles, me.businessModel, me.serviceProfiles) && (!i.roles || me.role === 'OWNER' || i.roles.includes(me.role)) && (!i.models || i.models.includes(me.businessModel)) && (!i.tax || me.taxFeatures?.[i.tax] !== false) && !i.hideFor?.includes(me.businessModel) && !(i.epOnly && me.framework === 'SAK_EMKM') && !(i.billing && me.subscription?.enabled === false) && !(i.branch && !me.multiBranch) && !(i.budget && !me.hasBudget);
   // Menu yang disembunyikan pengguna sendiri (preferensi pribadi); menu yang sedang dibuka dan menu inti tidak pernah hilang
   const keepKeys = new Set(['/tasks', '/approvals', '/dashboard']);
   const shown = (key: string) => !hidden.includes(key) || keepKeys.has(key) || key === pathname + search || (key.split('?')[0] === pathname && !key.includes('?'));

@@ -15,7 +15,7 @@ describe('istilah antarmuka per jenis usaha', () => {
     expect(localize('Sales Order', 'JASA')).toBe('Pesanan kerja');
     expect(localize('Pipeline calon pelanggan', 'JASA')).toBe('Pipeline calon klien');
     expect(localize('Supplier', 'JASA')).toBe('Pemasok & subkontraktor');
-    expect(localize('Inventori', 'JASA')).toBe('Bahan kerja');
+    expect(localize('Inventori', 'JASA')).toBe('Bahan habis pakai');
     expect(localize('Penjualan bulan ini (DPP)', 'JASA')).toBe('Pendapatan bulan ini (DPP)');
   });
   it('jasa: retur dan perputaran persediaan memakai istilah bahan; jenis usaha lain tidak berubah', () => {
@@ -23,7 +23,7 @@ describe('istilah antarmuka per jenis usaha', () => {
     expect(localize('Retur Pembelian', 'JASA')).toBe('Retur bahan ke pemasok');
     expect(localize('Retur', 'JASA')).toBe('Retur bahan');
     expect(localize('Perputaran persediaan', 'JASA')).toBe('Pemakaian bahan');
-    expect(localize('Persediaan & mutasi', 'JASA')).toBe('Bahan & mutasi');
+    expect(localize('Persediaan & mutasi', 'JASA')).toBe('Stok bahan');
     expect(localize('Tidak bergerak', 'JASA')).toBe('Tidak terpakai');
     for (const m of ['DAGANG', 'RITEL', 'FMCG', 'MANUFAKTUR', 'FNB'] as const) {
       expect(localize('Retur penjualan', m)).toBe('Retur penjualan');

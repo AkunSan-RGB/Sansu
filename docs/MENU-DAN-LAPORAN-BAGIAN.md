@@ -11,7 +11,7 @@
 | Ritel | Penjualan (**Kasir** → Penjualan → CRM) → Pembelian → Persediaan |
 | F&B | Penjualan (**Kasir** → …) → Pembelian bahan → Persediaan bahan → Produksi |
 | Manufaktur | Pembelian bahan → Persediaan pabrik → **Produksi** → Penjualan |
-| Jasa | Pendapatan jasa (CRM → …) → Pembelian → Bahan kerja |
+| Jasa | Pendapatan jasa (CRM → …) → Pembelian → Bahan habis pakai |
 | Utilitas | **Layanan utilitas** → Penjualan/penagihan → Pembelian → Persediaan |
 
   Sesudahnya selalu: Kas & Bank → Akuntansi → Pajak → SDM → Administrasi.

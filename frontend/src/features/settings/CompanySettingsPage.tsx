@@ -26,6 +26,7 @@ import BrandingCard from './BrandingCard';
 import BranchFeatureCard from './BranchFeatureCard';
 import RecipeTermCard from './RecipeTermCard';
 import BusinessModelCard from './BusinessModelCard';
+import ServiceProfilesCard from './ServiceProfilesCard';
 import ModelSetupCard from './ModelSetupCard';
 import AccountingPolicyTab from './AccountingPolicyTab';
 import ApprovalPolicyTab from './ApprovalPolicyTab';
@@ -279,6 +280,7 @@ export default function CompanySettingsPage() {
       children: (
         <div style={wide}>
           <BusinessModelCard />
+          <ServiceProfilesCard />
           <BranchFeatureCard />
           <RecipeTermCard />
         </div>

@@ -50,6 +50,13 @@ Jenis usaha Jasa semula paling cocok untuk konsultan/agensi (proyek, timesheet, 
 
 **Sengaja tidak dipaksakan**: klinik dengan rekam medis (data kesehatan memerlukan persetujuan, retensi, dan kontrol akses tersendiri) dan jasa keuangan (kewajiban regulator yang berbeda). Untuk jenis ini sistem hanya cocok sebagai pembukuan jasa biasa.
 
+### Profil layanan (menu Jasa mengikuti jenis pekerjaan)
+Karena Jasa kini melayani banyak jenis pekerjaan, perusahaan Jasa memilih satu atau lebih **profil layanan** di Pengaturan › Jenis usaha: Konsultan/agensi, Kontraktor, Pendidikan, Alih daya per lokasi, Bengkel/salon/kasir. Disimpan di pengaturan perusahaan (`serviceProfiles`), dibaca lewat `/auth/me` dan `GET/PUT /settings/business/service-profiles` (hanya Admin, hanya jenis usaha Jasa).
+- **Hanya tampilan**: menu (`profiles` pada item/grup di `menuData.tsx`), Ruang kerja (tautan ikut tersaring), dan artikel bantuan. Backend tidak memblokir fitur profil lain, akun/pajak/SDM tidak berbeda per profil, dan data profil yang tidak dicentang tidak hilang.
+- **Bawaan**: perusahaan Jasa baru = Konsultan; perusahaan lama yang belum memilih = semua profil (menu tidak tiba-tiba hilang); demo Jasa = semua profil.
+- **Menu Persediaan Jasa** disederhanakan: Katalog jasa & bahan, Stok bahan, Hitung stok bahan, laporan. Lokasi bahan, Persediaan per lokasi, dan Transfer antar lokasi disembunyikan untuk Jasa (halamannya masih dapat dibuka lewat alamat langsung). Grup Persediaan hanya tampil untuk profil Kontraktor, Alih daya, Bengkel; Kasir layanan hanya untuk Bengkel.
+- **Tidak berubah**: SDM (Karyawan, Cuti, Upah jasa) dan Pajak tampil sama untuk semua profil Jasa.
+
 ## Ritel
 
 ### Daftar harga toko dan promo di kasir

@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { BUSINESS_MODEL_BY_KEY, MODEL_SETUP, isProductionModel, type AppKey, type BusinessModel } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
@@ -8,7 +8,7 @@ import { SettingsService } from '../../common/settings.service';
 import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { syncChartOfAccounts } from '../accounting/coa-sync';
-import { BusinessModelDto } from './onboarding.dto';
+import { BusinessModelDto, ServiceProfilesDto } from './onboarding.dto';
 import { OnboardingRepository } from './onboarding.repository';
 
 export interface OnboardingStep {
@@ -58,6 +58,20 @@ export class OnboardingService {
     const model = await this.settings.businessModel(this.db, tenantId);
     const locked = (await this.chosen(tenantId)) && (await this.hasTransactions(tenantId));
     return { model, info: BUSINESS_MODEL_BY_KEY[model], locked };
+  }
+
+  async serviceProfiles(tenantId: string) {
+    return { profiles: await this.settings.serviceProfiles(this.db, tenantId) };
+  }
+
+  /** Profil layanan hanya mengatur tampilan (menu, ruang kerja, bantuan) perusahaan Jasa; akun, pajak, dan SDM tidak berubah */
+  async setServiceProfiles(u: AuthUser, dto: ServiceProfilesDto) {
+    if ((await this.settings.businessModel(this.db, u.tenantId)) !== 'JASA') throw new BadRequestException('Profil layanan hanya untuk jenis usaha Jasa');
+    const before = await this.settings.serviceProfiles(this.db, u.tenantId);
+    const profiles = [...new Set(dto.profiles)];
+    await this.settings.saveServiceProfiles(this.db, u.tenantId, profiles);
+    await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'ServiceProfiles', entityId: u.tenantId, data: { before, after: profiles } });
+    return { profiles };
   }
 
   async setBusiness(u: AuthUser, dto: BusinessModelDto) {

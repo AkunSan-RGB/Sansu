@@ -12,7 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
-import { type BusinessModel, taxFeatures } from '@sansu/shared';
+import { ALL_SERVICE_PROFILES, type BusinessModel, taxFeatures } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { Db } from '../../db/db';
@@ -103,6 +103,8 @@ export class AuthService {
     const user = await this.db.transaction(async (tx) => {
       const tenant = await insertOne(tx, tenants, { name: 'PT DEMO', settings: { demo: { model, createdAt: new Date().toISOString() } } });
       await this.setup.provision(tx, tenant.id, model);
+      // Demo Jasa menampilkan semua profil agar pengunjung bisa melihat seluruh fitur
+      if (model === 'JASA') await this.settings.saveServiceProfiles(tx, tenant.id, ALL_SERVICE_PROFILES);
       await this.subs.startTrial(tx, tenant.id);
       const u = await insertOne(tx, users, { tenantId: tenant.id, email, name: 'Pengunjung Demo', passwordHash, role: 'OWNER', emailVerifiedAt: new Date() });
       return u;
@@ -367,6 +369,7 @@ export class AuthService {
       twoFactor: { enabled: !!totpEnabledAt, required: await this.twoFactor.requiredFor(u.tenantId, row.role) },
       apps: [...(await this.apps.enabled(u.tenantId))],
       businessModel: await this.settings.businessModel(this.db, u.tenantId),
+      serviceProfiles: await this.settings.serviceProfiles(this.db, u.tenantId),
       multiBranch: await this.multiBranch(u.tenantId),
       recipeTerm: (await this.settings.section(this.db, u.tenantId, 'terms', { recipe: 'Resep' })).recipe,
       demo: await this.demoInfo(u.tenantId),

@@ -103,6 +103,8 @@ describe('Lihat Demo (e2e)', () => {
     // Jasa: layanan tanpa stok dijual di kasir dengan petugas
     expect(await prc(`SELECT COUNT(*)::text AS n FROM products WHERE tenant_id = '${s('JASA')}' AND is_service`)).toBe(3);
     expect(await prc(`SELECT COUNT(*)::text AS n FROM pos_order_lines l JOIN pos_orders o ON o.id = l.order_id WHERE o.tenant_id = '${s('JASA')}' AND l.staff_id IS NOT NULL`)).toBeGreaterThanOrEqual(10);
+    // akun Pemilik demo terhubung ke karyawan (timer/lembar waktu tidak menampilkan galat)
+    expect(await prc(`SELECT COUNT(*)::text AS n FROM employees WHERE tenant_id = '${s('JASA')}' AND user_id IS NOT NULL`)).toBe(1);
     // Jasa kontraktor: BoQ, kemajuan dari volume, dan termin yang dipecah (tagihan jalan + retensi)
     expect(await count(s('JASA'), 'project_boq_items')).toBe(4);
     expect(await prc(`SELECT COUNT(*)::text AS n FROM invoices WHERE tenant_id = '${s('JASA')}' AND retention_of_invoice_id IS NOT NULL`)).toBe(1);

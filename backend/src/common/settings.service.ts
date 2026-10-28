@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import {
+  ALL_SERVICE_PROFILES,
   BUSINESS_MODEL_KEYS,
+  isServiceProfile,
   type BusinessModel,
+  type ServiceProfile,
   type PayrollSettings,
   type ReportingSettings,
   type TaxProfile,
@@ -139,6 +142,18 @@ export class SettingsService {
   async businessModel(db: DbOrTx, tenantId: string): Promise<BusinessModel> {
     const s = await this.section(db, tenantId, 'business', { model: 'DAGANG' as BusinessModel });
     return (BUSINESS_MODEL_KEYS as readonly string[]).includes(s.model) ? s.model : 'DAGANG';
+  }
+
+  /** Profil layanan perusahaan Jasa; belum pernah dipilih (perusahaan lama) = semua profil, agar tidak ada menu yang tiba-tiba hilang */
+  async serviceProfiles(db: DbOrTx, tenantId: string): Promise<ServiceProfile[]> {
+    const s = await this.section<{ profiles?: string[] }>(db, tenantId, 'serviceProfiles', {});
+    const chosen = (s.profiles ?? []).filter(isServiceProfile);
+    return chosen.length ? chosen : [...ALL_SERVICE_PROFILES];
+  }
+
+  async saveServiceProfiles(db: DbOrTx, tenantId: string, profiles: ServiceProfile[]) {
+    await this.saveSection(db, tenantId, 'serviceProfiles', {}, { profiles });
+    return profiles;
   }
 
   /** Bagian pengaturan bebas (mis. 'integrations') */

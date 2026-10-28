@@ -1,7 +1,7 @@
 import { BUSINESS_MODELS, type BusinessModel, localize } from '@sansu/shared';
 import { describe, expect, it } from 'vitest';
 import { DEPT_REPORTS } from '@/features/laporan/DeptReportPage';
-import { GROUP_ORDER, type Group, type Item, MENU, menuFor, type Sub } from './menuData';
+import { GROUP_ORDER, type Group, type Item, itemVisible, MENU, menuFor, pathVisible, profileOk, type Sub, type VisibilityCtx } from './menuData';
 
 const MODELS = BUSINESS_MODELS.map((m) => m.key) as BusinessModel[];
 const flat = (g: Group): Item[] => (g.children ?? []).flatMap((c: Sub) => ('section' in c ? c.items : [c]));
@@ -149,5 +149,47 @@ describe('menu: Layanan air khusus Utilitas', () => {
     expect(visible('SALES')).toEqual(['/utility/ringkasan', '/customers', '/utility/permohonan', '/utility/sambungan', '/utility/mutasi', '/utility/pengaduan', '/utility/portal', '/utility/rute', '/utility/non-air', '/utility/koreksi', '/utility/cetak', '/utility/antrean', '/utility/angsuran', '/utility/jaminan', '/utility/aset', '/utility/perintah-kerja']);
     expect(visible('FINANCE')).toEqual(expect.arrayContaining(['/utility/rekap', '/utility/tagihan', '/utility/lokasi', '/laporan/utility-nonair']));
     expect(visible('ACCOUNTANT')).not.toContain('/utility/loket');
+  });
+});
+
+describe('menu Jasa: profil layanan', () => {
+  const ctx = (profiles?: VisibilityCtx['profiles']): VisibilityCtx => ({ role: 'OWNER', model: 'JASA', profiles, can: () => true });
+  const salesKeys = (c: VisibilityCtx) => flat(MENU.find((g) => g.key === 'sales')!).filter((i) => itemVisible(i, c)).map((i) => i.key);
+
+  it('konsultan tidak melihat kelas, kontrak lokasi, atau kasir; profil lain menampilkan miliknya', () => {
+    const k = salesKeys(ctx(['KONSULTAN']));
+    expect(k).toEqual(expect.arrayContaining(['/projects', '/timesheets', '/retainers']));
+    expect(k).not.toContain('/education');
+    expect(k).not.toContain('/sites');
+    expect(salesKeys(ctx(['PENDIDIKAN']))).toContain('/education');
+    expect(salesKeys(ctx(['ALIH_DAYA']))).toContain('/sites');
+    expect(salesKeys(ctx(['ALIH_DAYA']))).not.toContain('/retainers');
+    expect(salesKeys(ctx(['KONTRAKTOR', 'PENDIDIKAN']))).toEqual(expect.arrayContaining(['/projects', '/education']));
+  });
+
+  it('profil belum diketahui (perusahaan lama) = semua menu tampil', () => {
+    expect(salesKeys(ctx(undefined))).toEqual(expect.arrayContaining(['/projects', '/education', '/sites', '/retainers']));
+  });
+
+  it('profil hanya berlaku untuk Jasa; model lain tidak terpengaruh', () => {
+    expect(profileOk(['BENGKEL'], 'RITEL', ['KONSULTAN'])).toBe(true);
+    expect(profileOk(['BENGKEL'], 'JASA', ['KONSULTAN'])).toBe(false);
+    expect(profileOk(undefined, 'JASA', ['KONSULTAN'])).toBe(true);
+  });
+
+  it('kasir dan bahan habis pakai hanya untuk profil yang memakainya; tautan ruang kerja ikut tersaring', () => {
+    expect(pathVisible('/pos', ctx(['KONSULTAN']))).toBe(false);
+    expect(pathVisible('/pos', ctx(['BENGKEL']))).toBe(true);
+    expect(pathVisible('/inventory', ctx(['KONSULTAN']))).toBe(false);
+    expect(pathVisible('/inventory', ctx(['ALIH_DAYA']))).toBe(true);
+    expect(pathVisible('/education', ctx(['KONSULTAN']))).toBe(false);
+  });
+
+  it('menu persediaan Jasa disederhanakan: tanpa lokasi/transfer antar gudang', () => {
+    const keys = flat(MENU.find((g) => g.key === 'inventory')!).filter((i) => itemVisible(i, ctx(['BENGKEL']))).map((i) => i.key);
+    expect(keys).toEqual(expect.arrayContaining(['/products', '/inventory', '/inventory/counts']));
+    expect(keys).not.toEqual(expect.arrayContaining(['/warehouses']));
+    expect(keys).not.toContain('/inventory/warehouses');
+    expect(keys).not.toContain('/inventory/transfers');
   });
 });
