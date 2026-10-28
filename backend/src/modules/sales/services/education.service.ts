@@ -96,6 +96,7 @@ export class EducationService {
 
   /** SPP yang belum ditagih pada periode: dikelompokkan per wali */
   async due(tenantId: string, period: string) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period ?? '')) throw new BadRequestException('Periode berformat YYYY-MM');
     const map = await this.lines(tenantId, period);
     return [...map.entries()].map(([customerId, rows]) => ({
       customerId,
