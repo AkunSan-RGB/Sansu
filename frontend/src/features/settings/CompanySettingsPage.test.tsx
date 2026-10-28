@@ -9,7 +9,7 @@ vi.mock('@/api/client', async (orig) => ({ ...(await orig<typeof import('@/api/c
 vi.mock('@/auth/AuthContext', () => ({ useAuth: () => ({ me: { name: 'Uji', role: 'OWNER', businessModel: 'RITEL', tenantName: 'PT Uji', tenantId: 't1', framework: 'SAK_EMKM' } }) }));
 vi.mock('@/lib/apps', async (orig) => ({ ...(await orig<typeof import('@/lib/apps')>()), useApps: () => ({ can: () => false, enabled: new Set(), isAdmin: true }) }));
 // kartu dan tab lain punya tes sendiri; di sini yang diuji adalah rangka halaman dan formulir profil
-for (const f of ['BrandingCard', 'BranchFeatureCard', 'RecipeTermCard', 'BusinessModelCard', 'ServiceProfilesCard', 'ModelSetupCard', 'AccountingPolicyTab', 'ApprovalPolicyTab', 'PayrollSettingsTab', 'ReminderSettingsCard', 'SupportThresholdsCard', 'DataPrivacyCard', 'EntityProfileWizard']) vi.doMock(`./${f}`, () => ({ default: () => null }));
+for (const f of ['BrandingCard', 'BranchFeatureCard', 'RecipeTermCard', 'BusinessModelCard', 'ServiceProfilesCard', 'RoleCustomizationCard', 'ModelSetupCard', 'AccountingPolicyTab', 'ApprovalPolicyTab', 'PayrollSettingsTab', 'ReminderSettingsCard', 'SupportThresholdsCard', 'DataPrivacyCard', 'EntityProfileWizard']) vi.doMock(`./${f}`, () => ({ default: () => null }));
 
 import CompanySettingsPage from './CompanySettingsPage';
 

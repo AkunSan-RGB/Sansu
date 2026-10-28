@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SettingsService, taxProfileOf } from '../../common/settings.service';
+import { RoleOfferService } from '../../common/auth/role-offer.service';
 import { SubscriptionService } from '../../common/billing/subscription.service';
 import { normalizeWarehouseIds } from '../../common/auth/warehouse-ids';
 import { Db } from '../../db/db';
@@ -33,6 +34,7 @@ export class PlatformService {
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
     private readonly subs: SubscriptionService,
+    private readonly roleOffer: RoleOfferService,
     private readonly repo: PlatformRepository,
   ) {}
 
@@ -63,6 +65,7 @@ export class PlatformService {
       const others = await this.repo.listUsersByRoleAndIsActiveAndId(this.db, actor.tenantId, id);
       if (!others.length) throw new BadRequestException('Harus ada minimal satu Pemilik aktif');
     }
+    if (dto.role && dto.role !== target.role) await this.roleOffer.assertOffered(actor.tenantId, dto.role);
     // Peran khusus membatasi hak: yang membatasi/melonggarkan hanya Pemilik (Admin tidak bisa melepas batas orang lain atau dirinya)
     const nextRole = dto.role ?? target.role;
     if (target.customRoleId && actor.role !== 'OWNER' && (dto.customRoleId !== undefined || (dto.role && dto.role !== target.role))) {

@@ -58,6 +58,11 @@ export class SiteContractsRepository {
     return db.execute<SitePostRow>(sql`SELECT id, contract_id, name, headcount, monthly_rate FROM site_posts WHERE id = ${postId} AND contract_id = ${contractId} AND tenant_id = ${tenantId}`);
   }
 
+  /** Pemilih petugas: hanya id, kode, dan nama (tanpa gaji atau data pribadi) agar peran operasional tidak perlu membuka data SDM */
+  listStaff(db: DbOrTx, tenantId: string) {
+    return db.execute<{ id: string; code: string; name: string }>(sql`SELECT id, code, name FROM employees WHERE tenant_id = ${tenantId} AND is_active ORDER BY name`);
+  }
+
   findEmployee(db: DbOrTx, tenantId: string, id: string) {
     return db.execute<{ name: string }>(sql`SELECT name FROM employees WHERE id = ${id} AND tenant_id = ${tenantId} AND is_active`);
   }

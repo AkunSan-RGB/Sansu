@@ -51,6 +51,10 @@ export class SiteContractsService {
     });
   }
 
+  async staff(tenantId: string) {
+    return (await this.repo.listStaff(this.db, tenantId)).rows;
+  }
+
   async create(u: AuthUser, dto: SiteContractDto) {
     if (!(await this.repo.findCustomer(this.db, u.tenantId, dto.customerId)).rows.length) throw new BadRequestException('Pelanggan tidak ditemukan / nonaktif');
     const start = toDocDate(dto.startDate);

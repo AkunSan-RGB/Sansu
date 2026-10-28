@@ -58,6 +58,11 @@ Karena Jasa kini melayani banyak jenis pekerjaan, perusahaan Jasa memilih satu a
 - **Menu Persediaan Jasa** disederhanakan: Katalog jasa & bahan, Stok bahan, Hitung stok bahan, laporan. Lokasi bahan, Persediaan per lokasi, dan Transfer antar lokasi disembunyikan untuk Jasa (halamannya masih dapat dibuka lewat alamat langsung). Grup Persediaan hanya tampil untuk profil Kontraktor, Alih daya, Bengkel; Kasir layanan hanya untuk Bengkel.
 - **Tidak berubah**: SDM (Karyawan, Cuti, Upah jasa) dan Pajak tampil sama untuk semua profil Jasa.
 
+### Peran di Jasa
+Sebutan: Sales = Pemasaran & kontrak, Gudang = Koordinator lapangan, Pembelian = Pembelian & subkontrak, Kasir = Kasir layanan (katalog di `shared/src/model-roles.ts`; tiap jenis usaha punya sebutan sendiri, dan tiap klien dapat menyesuaikannya: `docs/KUSTOMISASI-KLIEN.md`).
+- **Akses operasional**: Sales dan Koordinator lapangan melihat Kontrak per lokasi dan mengatur jadwal jaga; Sales juga melihat dan mendaftarkan peserta (Kelas & SPP). **Menagih, membuat/mengubah kontrak, tarif, kelas, dan pencairan retensi tetap Admin/Keuangan.** Kasir tidak punya akses.
+- **SDM**: pemilih petugas jadwal jaga memakai endpoint khusus (`GET /services/sites/staff`) yang hanya mengembalikan id, kode, dan nama; peran operasional tidak membuka data karyawan lengkap (gaji, PTKP) dan tetap ditolak di `/hr/employees`.
+
 ## Ritel
 
 ### Daftar harga toko dan promo di kasir

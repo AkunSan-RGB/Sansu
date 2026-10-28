@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import {
   ALL_SERVICE_PROFILES,
+  type RoleCustomization,
   BUSINESS_MODEL_KEYS,
   isServiceProfile,
   type BusinessModel,
@@ -154,6 +155,17 @@ export class SettingsService {
   async saveServiceProfiles(db: DbOrTx, tenantId: string, profiles: ServiceProfile[]) {
     await this.saveSection(db, tenantId, 'serviceProfiles', {}, { profiles });
     return profiles;
+  }
+
+  /** Penyesuaian peran milik perusahaan ini (sebutan, peran disembunyikan/ditambahkan); kosong = ikut jenis usaha */
+  async roleCustomization(db: DbOrTx, tenantId: string): Promise<RoleCustomization> {
+    return this.section<RoleCustomization>(db, tenantId, 'roleCustomization', {});
+  }
+
+  async saveRoleCustomization(db: DbOrTx, tenantId: string, value: RoleCustomization) {
+    await this.repo.writeKey(db, tenantId, 'roleCustomization', value);
+    this.forget(tenantId);
+    return value;
   }
 
   /** Bagian pengaturan bebas (mis. 'integrations') */

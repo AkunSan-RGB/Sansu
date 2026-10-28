@@ -17,12 +17,6 @@ export const ROLE_LABELS: Record<Role, string> = {
   HR: 'SDM / HRD',
 };
 
-/** Sebutan peran di jenis usaha tertentu (peran dasarnya sama; hanya namanya yang mengikuti pekerjaan sehari-hari) */
-const ROLE_LABELS_BY_MODEL: Partial<Record<string, Partial<Record<Role, string>>>> = {
-  UTILITAS: { SALES: 'Pelayanan pelanggan', WAREHOUSE: 'Petugas lapangan', CASHIER: 'Kasir loket', PURCHASING: 'Pembelian bahan' },
-};
-export const roleLabelFor = (role: Role, model: string | null | undefined): string => ROLE_LABELS_BY_MODEL[model ?? '']?.[role] ?? ROLE_LABELS[role];
-
 /**
  * Pemisahan fungsi uang vs pembukuan: yang memegang uang (Keuangan) tidak membukukan,
  * yang membukukan (Akuntan) tidak memegang uang. Pemilik dan Admin memegang keduanya sebagai pengelola.
