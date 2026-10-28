@@ -31,22 +31,39 @@ export type Fk = { child: string; col: string; parent: string; pcol: string };
 export function planErase(tenantTables: string[], allTables: string[], fks: Fk[], tenantId: string) {
   if (!UUID_RE.test(tenantId)) throw new Error('tenantId tidak valid');
   const hasTenant = new Set(tenantTables);
-  const cond = new Map<string, string>();
-  for (const t of tenantTables) cond.set(t, `${q(t)}.${q('tenant_id')} = '${tenantId}'`);
   // tabel anak: kepemilikan lewat rantai foreign key ke tabel yang sudah diketahui miliknya
+  const ownedSet = new Set(tenantTables);
   const pending = allTables.filter((t) => !hasTenant.has(t) && !GLOBAL_TABLES.has(t) && t !== 'tenants');
   let progressed = true;
   const remaining = new Set(pending);
   while (progressed && remaining.size) {
     progressed = false;
     for (const t of [...remaining]) {
-      const link = fks.find((f) => f.child === t && f.parent !== t && cond.has(f.parent));
-      if (!link) continue;
-      cond.set(t, `${q(t)}.${q(link.col)} IN (SELECT ${q(link.pcol)} FROM ${q(link.parent)} WHERE ${cond.get(link.parent)})`);
+      if (!fks.some((f) => f.child === t && f.parent !== t && ownedSet.has(f.parent))) continue;
+      ownedSet.add(t);
       remaining.delete(t);
       progressed = true;
     }
   }
+  // Baris anak milik perusahaan bila SALAH SATU foreign key-nya menunjuk ke baris milik perusahaan. Satu tautan saja tidak cukup:
+  // kolom yang boleh kosong (mis. petugas per baris kasir) melewatkan baris yang tetap ikut terhapus lewat cascade induk lain,
+  // dan urutan foreign key dari katalog tidak pasti.
+  const cond = new Map<string, string>();
+  for (const t of tenantTables) cond.set(t, `${q(t)}.${q('tenant_id')} = '${tenantId}'`);
+  const build = (t: string, visiting: Set<string>): string => {
+    const known = cond.get(t);
+    if (known) return known;
+    visiting.add(t);
+    const links = fks
+      .filter((f) => f.child === t && f.parent !== t && ownedSet.has(f.parent) && !visiting.has(f.parent))
+      .sort((a, b) => a.col.localeCompare(b.col) || a.parent.localeCompare(b.parent));
+    const parts = links.map((l) => `${q(t)}.${q(l.col)} IN (SELECT ${q(l.pcol)} FROM ${q(l.parent)} WHERE ${build(l.parent, visiting)})`);
+    visiting.delete(t);
+    const c = parts.length === 1 ? parts[0] : `(${parts.join(' OR ')})`;
+    cond.set(t, c);
+    return c;
+  };
+  for (const t of [...ownedSet].sort()) build(t, new Set());
   const owned = [...cond.keys()];
   // urutan: tabel yang tidak lagi dirujuk tabel milik lain (selain dirinya) dihapus lebih dulu
   const order: string[] = [];

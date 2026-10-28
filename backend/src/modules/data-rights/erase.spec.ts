@@ -33,6 +33,18 @@ describe('planErase', () => {
     expect(idx('journal_lines')).toBeLessThan(idx('journal_entries'));
   });
 
+  it('baris anak milik perusahaan lewat foreign key mana pun, tidak bergantung urutan katalog (kolom boleh kosong tidak membatasi)', () => {
+    const tt = ['pos_orders', 'employees', 'products'];
+    const link = (col: string, parent: string) => ({ child: 'pos_order_lines', col, parent, pcol: 'id' });
+    const a = [link('staff_id', 'employees'), link('order_id', 'pos_orders'), link('product_id', 'products')];
+    const b = [...a].reverse();
+    const ca = planErase(tt, [...tt, 'pos_order_lines'], a, T).cond.get('pos_order_lines')!;
+    const cb = planErase(tt, [...tt, 'pos_order_lines'], b, T).cond.get('pos_order_lines')!;
+    expect(ca).toBe(cb);
+    for (const col of ['order_id', 'product_id', 'staff_id']) expect(ca).toContain(`"pos_order_lines"."${col}" IN (`);
+    expect(ca).toContain(' OR ');
+  });
+
   it('tabel tanpa tenant_id yang tidak terhubung ke perusahaan dilaporkan (skema berubah tanpa penyesuaian)', () => {
     const p = planErase(tenantTables, [...all, 'tabel_yatim'], fks, T);
     expect(p.unowned).toEqual(['tabel_yatim']);

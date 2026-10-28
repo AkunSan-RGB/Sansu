@@ -28,11 +28,16 @@ import DashboardHero from './DashboardHero';
 import InsightPanel from './InsightPanel';
 import KpiTiles, { type KpiTile } from './KpiTiles';
 import ProfileKpiTiles from './ProfileKpiTiles';
+import { quickActionsFor } from '@sansu/shared';
+import { useVisibilityCtx, visibleLinks } from '@/lib/visibility';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { me } = useAuth();
   const finance = canViewFinancials(me?.role);
+  const ctx = useVisibilityCtx();
+  // Jasa: pintasan di kepala beranda = aksi cepat khas profil layanan yang boleh dibuka pengguna ini
+  const profileActions = me?.businessModel === 'JASA' ? visibleLinks(quickActionsFor(me.serviceProfiles), ctx) : undefined;
   const branchList = useBranches();
   const myBranches = me?.branchIds?.length ? me.branchIds : null;
   const branchOpts = (branchList.data?.branches ?? []).filter(
@@ -100,7 +105,7 @@ export default function DashboardPage() {
           )
         }
       />
-      <DashboardHero name={me?.name} tenantName={me?.tenantName} model={me?.businessModel ?? 'DAGANG'} profiles={me?.serviceProfiles} figures={heroFigures} showFinance={finance} canSell={me?.role === 'SALES'} />
+      <DashboardHero name={me?.name} tenantName={me?.tenantName} model={me?.businessModel ?? 'DAGANG'} profiles={me?.serviceProfiles} actions={profileActions} figures={heroFigures} showFinance={finance} canSell={me?.role === 'SALES'} />
       {isError && (
         <Alert
           type="error"

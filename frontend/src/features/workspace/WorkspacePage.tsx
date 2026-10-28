@@ -6,8 +6,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { get } from '@/api/client';
 import type { Dashboard } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
-import { pathVisible, type VisibilityCtx } from '@/layout/menuData';
-import { useApps } from '@/lib/apps';
+import { t } from '@/lib/terms';
+import { useVisibilityCtx, visibleLinks } from '@/lib/visibility';
 import { fmtMoney } from '@/lib/format';
 
 /** Artikel panduan per profil layanan Jasa (selain itu panduan umum jenis usaha) */
@@ -22,7 +22,7 @@ interface Setup {
 /** Ruang kerja jenis usaha: alur kerja khas usaha ini dari awal sampai laporan, dengan tautan langsung ke tiap langkah */
 export default function WorkspacePage() {
   const { me } = useAuth();
-  const { can } = useApps();
+  const ctx = useVisibilityCtx();
   const navigate = useNavigate();
   const finance = canViewFinancials(me?.role);
   const setup = useQuery({ queryKey: ['onboarding', 'setup'], queryFn: () => get<Setup>('/onboarding/setup') });
@@ -30,19 +30,18 @@ export default function WorkspacePage() {
   if (!me) return null;
   // Jasa: ruang kerja mengikuti profil layanan (satu profil = alur khas profil itu)
   const def = workspaceForTenant(me.businessModel, me.serviceProfiles);
-  const ctx: VisibilityCtx = { role: me.role, model: me.businessModel, framework: me.framework, multiBranch: me.multiBranch, hasBudget: me.hasBudget, subscriptionEnabled: me.subscription?.enabled, taxFeatures: me.taxFeatures as unknown as VisibilityCtx['taxFeatures'], profiles: me.serviceProfiles, can };
   const stages = def.stages
-    .map((s) => ({ ...s, links: s.links.filter((l) => pathVisible(l.to, ctx)) }))
+    .map((s) => ({ ...s, links: visibleLinks(s.links, ctx) }))
     .filter((s) => s.links.length > 0);
   // Transaksi khas profil layanan (Jasa) yang terlihat di menu pengguna ini
-  const actions = me.businessModel === 'JASA' ? quickActionsFor(me.serviceProfiles).filter((a) => pathVisible(a.to, ctx)) : [];
+  const actions = me.businessModel === 'JASA' ? visibleLinks(quickActionsFor(me.serviceProfiles), ctx) : [];
   const sole = soleProfile(me.serviceProfiles);
   const pct = setup.data?.total ? Math.round((setup.data.done / setup.data.total) * 100) : 0;
   const todo = setup.data?.items.filter((i) => !i.done).slice(0, 3) ?? [];
   const d = summary.data;
   const figures = [
-    { label: 'Penjualan bulan ini', v: d?.salesMonth, to: '/invoices' },
-    { label: 'Piutang beredar', v: d?.arOutstanding, to: '/invoices' },
+    { label: t('Penjualan bulan ini'), v: d?.salesMonth, to: '/invoices' },
+    { label: t('Piutang beredar'), v: d?.arOutstanding, to: '/invoices' },
     { label: 'Saldo kas & bank', v: d?.cashBalance, to: '/cash' },
   ].filter((f) => f.v !== null && f.v !== undefined);
 

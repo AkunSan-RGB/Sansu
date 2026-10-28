@@ -19,6 +19,8 @@ interface Props {
   figures: HeroFigure[];
   showFinance: boolean;
   canSell: boolean;
+  /** Jasa: aksi cepat khas profil layanan (menggantikan pintasan umum) */
+  actions?: { label: string; to: string }[];
 }
 
 const greet = () => {
@@ -27,7 +29,7 @@ const greet = () => {
 };
 
 /** Kepala dasbor: sapaan, jenis usaha, pintasan kerja, dan tiga angka utama dalam satu panel hitam */
-export default function DashboardHero({ name, tenantName, model, profiles, figures, showFinance, canSell }: Props) {
+export default function DashboardHero({ name, tenantName, model, profiles, figures, showFinance, canSell, actions }: Props) {
   const navigate = useNavigate();
   const quick = [
     { label: 'Faktur penjualan', to: '/invoices', icon: <FileDoneOutlined />, on: showFinance || canSell },
@@ -35,6 +37,7 @@ export default function DashboardHero({ name, tenantName, model, profiles, figur
     { label: 'Produk & stok', to: '/products', icon: <DatabaseOutlined />, on: true },
     { label: 'Laporan', to: '/reports', icon: <FundOutlined />, on: showFinance },
   ].filter((q) => q.on);
+  const shortcuts = actions?.length ? actions.slice(0, 4).map((a) => ({ label: a.label, to: a.to, icon: <FileDoneOutlined /> })) : quick;
   return (
     <section className="db-hero">
       <span className="db-hero-mark" aria-hidden>
@@ -49,7 +52,7 @@ export default function DashboardHero({ name, tenantName, model, profiles, figur
           {tenantName} · {dayjs().format('dddd, D MMMM YYYY')}
         </p>
         <div className="db-quick">
-          {quick.map((q) => (
+          {shortcuts.map((q) => (
             <button key={q.to} type="button" onClick={() => navigate(q.to)}>
               {q.icon}
               {q.label}

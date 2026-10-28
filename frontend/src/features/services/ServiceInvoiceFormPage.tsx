@@ -106,9 +106,11 @@ export default function ServiceInvoiceFormPage() {
     if (!acc) return;
     const cur = (form.getFieldValue('lines') as Line[]) ?? [];
     const defaults = new Set(['4-2000', '4-2100', '4-2200'].map(accountByCode));
+    // hanya baris yang memang berubah yang diganti; bila tidak ada yang berubah, nilai form tidak disentuh
+    if (!cur.some((l) => (!l.accountId || defaults.has(l.accountId)) && l.accountId !== acc)) return;
     form.setFieldValue(
       'lines',
-      cur.map((l) => (!l.accountId || defaults.has(l.accountId) ? { ...l, accountId: acc } : l)),
+      cur.map((l) => (!l.accountId || defaults.has(l.accountId) ? { ...l, accountId: acc } : { ...l })),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preset, revenueAccounts.length]);
