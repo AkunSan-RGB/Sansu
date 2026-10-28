@@ -91,7 +91,7 @@ export default function PromosPage() {
         rows={data}
         loading={isLoading}
         views={[{ value: 'ALL', label: 'Semua', test: () => true }, { value: 'ON', label: 'Aktif', test: (p) => p.isActive }]}
-        below={<Alert type="info" showIcon style={{ marginBottom: 12 }} message={(retail ? 'Di kasir, promo potongan harga berlaku otomatis dan tampil di keranjang; promo bonus barang belum dipakai di kasir. ' : '') + "Promo diterapkan pada pesanan penjualan untuk baris yang belum diberi potongan. Potongan tidak ditumpuk (dipakai yang terbesar). Barang bonus masuk sebagai baris harga Rp 0: stoknya terpotong dan biayanya masuk HPP. Perlakuan pajak barang bonus perlu dipastikan dengan konsultan pajak Anda."} />}
+        below={<Alert type="info" showIcon style={{ marginBottom: 12 }} message={(retail ? 'Di kasir, promo potongan harga dan bonus barang berlaku otomatis (bonus dibatasi sisa stok toko). ' : '') + "Promo diterapkan pada pesanan penjualan untuk baris yang belum diberi potongan. Potongan tidak ditumpuk (dipakai yang terbesar). Barang bonus masuk sebagai baris harga Rp 0: stoknya terpotong dan biayanya masuk HPP. Perlakuan pajak barang bonus perlu dipastikan dengan konsultan pajak Anda."} />}
         searchText={(p) => `${p.name} ${p.productName ?? ''} ${p.bonusName ?? ''}`}
         searchPlaceholder="Cari promo"
         emptyText="Belum ada promo."

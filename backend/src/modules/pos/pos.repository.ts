@@ -127,6 +127,7 @@ export class PosRepository {
     lineTotal: Dec,
     unitCost: Dec,
     recipe: RecipeComponent[] | undefined,
+    isBonus = false,
   ) {
     return db.insert(posOrderLines).values({
       orderId: id,
@@ -139,6 +140,7 @@ export class PosRepository {
       lineTotal: lineTotal.toFixed(2),
       unitCost: unitCost.toFixed(4),
       fromRecipe: !!recipe,
+      isBonus,
     });
   }
 

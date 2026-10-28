@@ -242,6 +242,8 @@ export const posOrderLines = pgTable('pos_order_lines', {
   unitCost: qty('unit_cost').notNull(),
   /** Baris menu: bahan dipotong sesuai resep saat dijual (retur tidak mengembalikan bahan yang sudah diolah) */
   fromRecipe: boolean('from_recipe').notNull().default(false),
+  /** Bonus barang dari promo (harga 0, ditambahkan server) */
+  isBonus: boolean('is_bonus').notNull().default(false),
   /** Sudah diretur (satuan sesuai baris) */
   returnedQty: qty('returned_qty').notNull().default('0'),
 });

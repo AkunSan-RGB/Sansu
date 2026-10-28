@@ -8,7 +8,7 @@ import { assertWarehouseAccess } from '../../common/auth/warehouse-access';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { localTaxOf, outputVatRate, taxProfileOf } from '../../common/settings.service';
 import { nowAt, todayJakarta } from '../../common/utils/dates';
-import { D, Dec, money, ZERO } from '../../common/utils/money';
+import { D, Dec, Decimal, money, ZERO } from '../../common/utils/money';
 import { InjectDb } from '../../db/db.module';
 import { posOrders, posSessions, products } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
@@ -150,7 +150,7 @@ export class PosService {
     const prods = await db.query.products.findMany({ where: and(eq(products.tenantId, tenantId), inArray(products.id, lines.map((l) => l.productId))), with: { uoms: true } });
     const byId = new Map(prods.map((p) => [p.id, p]));
     const r = await this.pricing.apply(db, tenantId, { priceListId }, date, lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: l.qty })), byId, true);
-    return r.lines.map((l) => {
+    const priced = r.lines.map((l) => {
       const p = byId.get(l.productId);
       if (!p) throw new BadRequestException(`Produk ${l.productId} tidak ditemukan`);
       const uom = l.uom ?? p.baseUom;
@@ -165,6 +165,26 @@ export class PosService {
         promoName: (l as { promoName?: string }).promoName ?? null,
       };
     });
+    // Bonus barang: hanya barang stok biasa (bukan menu/setengah jadi) dan dibatasi sisa stok toko setelah barang yang dibeli
+    const stockRows = r.bonus.length ? await this.repo.listStockBalancesByWarehouseId(db, tenantId, warehouseId) : [];
+    const avail = new Map(stockRows.map((x) => [x.productId, D(x.qty)]));
+    const bought = new Map<string, Dec>();
+    for (const l of priced) {
+      const p = byId.get(l.productId)!;
+      const f = l.uom === p.baseUom ? D(1) : D(p.uoms.find((u) => u.uom === l.uom)?.factor ?? 1);
+      bought.set(l.productId, (bought.get(l.productId) ?? ZERO).plus(D(l.qty).times(f)));
+    }
+    const bonus: { productId: string; sku: string; name: string; uom: string; qty: string; promoName: string }[] = [];
+    for (const b of r.bonus) {
+      const p = byId.get(b.productId);
+      if (!p || p.madeToOrder || p.inventoryKind === 'SEMI') continue;
+      const free = (avail.get(b.productId) ?? ZERO).minus(bought.get(b.productId) ?? ZERO);
+      const give = Decimal.min(D(b.qty), free.lt(0) ? ZERO : free);
+      if (give.lte(0)) continue;
+      bonus.push({ productId: b.productId, sku: p.sku, name: p.name, uom: p.baseUom, qty: give.toString(), promoName: b.promoName });
+      avail.set(b.productId, free.minus(give).plus(bought.get(b.productId) ?? ZERO));
+    }
+    return { lines: priced, bonus };
   }
 
   /** Kutipan harga untuk layar kasir (tanpa menyimpan apa pun) */
@@ -172,8 +192,7 @@ export class PosService {
     const [s] = await this.repo.findPosSessionsById(this.db, dto.sessionId);
     if (!s || s.tenantId !== user.tenantId) throw new NotFoundException('Sesi kasir tidak ditemukan');
     if (s.status !== 'OPEN') throw new BadRequestException(`Sesi ${s.number} sudah ditutup`);
-    const lines = await this.priceCart(this.db, user.tenantId, s.warehouseId, dto.customerId, todayJakarta(), dto.lines);
-    return { lines };
+    return this.priceCart(this.db, user.tenantId, s.warehouseId, dto.customerId, todayJakarta(), dto.lines);
   }
 
   async createOrderTx(
@@ -191,10 +210,10 @@ export class PosService {
     }
     // Harga yang berlaku (daftar harga toko/pelanggan + promo diskon) dihitung server; baris tanpa harga/diskon memakainya
     const expected = await this.priceCart(tx, user.tenantId, session.warehouseId, dto.customerId, date, dto.lines);
-    const lines = await buildLines(
+    let lines = await buildLines(
       tx,
       user.tenantId,
-      dto.lines.map((l, i) => ({ ...l, price: l.price ?? expected[i].price, discountPct: l.discountPct ?? expected[i].discountPct })),
+      dto.lines.map((l, i) => ({ ...l, price: l.price ?? expected.lines[i].price, discountPct: l.discountPct ?? expected.lines[i].discountPct })),
       'sell',
       2,
       { menuOk: true },
@@ -212,11 +231,18 @@ export class PosService {
           throw new BadRequestException(`Harga jual ${pn?.name ?? 'barang'} (${pn?.sku ?? ''}) belum diisi (Rp 0), jadi tidak bisa dijual di kasir. Isi harga jual di Produk, atau minta supervisor.`);
         }
         // yang boleh: harga & potongan persis seperti hitungan server (harga master, daftar harga toko/pelanggan, promo aktif)
-        if (!l.price.eq(money(expected[i].price)) || !l.discountPct.eq(D(expected[i].discountPct))) {
+        if (!l.price.eq(money(expected.lines[i].price)) || !l.discountPct.eq(D(expected.lines[i].discountPct))) {
           throw new ForbiddenException('Harga dan diskon hanya dapat diubah oleh supervisor (Pemilik, Admin, atau Keuangan). Kasir menjual dengan harga yang berlaku (harga master/daftar harga toko dan promo aktif).');
         }
       }
     }
+    // Bonus barang promo ditambahkan server (harga 0; stok dan HPP tercatat); klien tidak mengirimnya
+    const requested = lines.length;
+    if (expected.bonus.length)
+      lines = [
+        ...lines,
+        ...(await buildLines(tx, user.tenantId, expected.bonus.map((b) => ({ productId: b.productId, uom: b.uom, qty: b.qty, price: '0', discountPct: '0' })), 'sell', 2, {})),
+      ];
     // Harga rak termasuk PPN → DPP & PPN dihitung mundur; non-PKP → tanpa PPN
     const inclusive = taxProfileOf(tenant.settings).posPricesIncludeVat;
     // Pajak daerah (PB1/PBJT) menggantikan PPN pada penjualan kasir bila dinyalakan
@@ -285,7 +311,7 @@ export class PosService {
       columns: { id: true, sku: true },
     });
     const recipes = await recipesFor(tx, user.tenantId, menuRows);
-    for (const l of lines) {
+    for (const [lineIdx, l] of lines.entries()) {
       const baseQty = D(l.qty).times(l.uomFactor);
       const recipe = recipes.get(l.productId);
       let lineValue: Dec = ZERO;
@@ -325,7 +351,7 @@ export class PosService {
         issued.push({ productId: l.productId, value: moved.value });
       }
       cogs = cogs.plus(lineValue);
-      await this.repo.insertPosOrderLines(tx, order.id, l.productId, l.uom, l.uomFactor, l.qty, l.price, l.discountPct, l.lineTotal, unitCost, recipe);
+      await this.repo.insertPosOrderLines(tx, order.id, l.productId, l.uom, l.uomFactor, l.qty, l.price, l.discountPct, l.lineTotal, unitCost, recipe, lineIdx >= requested);
     }
     cogs = money(cogs);
 

@@ -95,4 +95,30 @@ describe('Ritel: harga per toko + promo di kasir (e2e)', () => {
     const r = await post(adm, '/api/pos/orders', { sessionId: sid, lines: [{ productId: P, qty: '1', price: '7500', discountPct: '5' }], payments: [{ method: 'CASH', amount: '100000' }] });
     expect(r.status).toBe(201);
   });
+
+  it('promo bonus barang: kutipan menampilkan bonus, transaksi menambah baris gratis, stok dan HPP tercatat; dibatasi sisa stok', async () => {
+    const gift = (await post(owner, '/api/products', { sku: 'RH-3', name: 'Gelas Hadiah', sellPrice: '5000' }).expect(201)).body.id;
+    await post(owner, '/api/inventory/adjustments', { warehouseId: W, reason: 'OPENING', date: todayJakarta(), lines: [{ productId: gift, qty: '5', unitCost: '2000' }] }).expect(201);
+    const main = (await post(owner, '/api/products', { sku: 'RH-4', name: 'Kopi Bubuk', sellPrice: '20000' }).expect(201)).body.id;
+    await post(owner, '/api/inventory/adjustments', { warehouseId: W, reason: 'OPENING', date: todayJakarta(), lines: [{ productId: main, qty: '100', unitCost: '12000' }] }).expect(201);
+    await post(owner, '/api/promos', { name: 'Beli 2 kopi gratis 1 gelas', kind: 'BONUS', productId: main, minQty: '2', bonusProductId: gift, bonusQty: '1' }).expect(201);
+    const q = (await post(cashier, '/api/pos/quote', { sessionId, lines: [{ productId: main, qty: '4' }] }).expect(201)).body;
+    expect(q.bonus).toEqual([expect.objectContaining({ productId: gift, qty: '2', promoName: 'Beli 2 kopi gratis 1 gelas' })]);
+    const bal = async (id: string) => Number((await get(owner, `/api/inventory/balances?productId=${id}`).expect(200)).body[0].qty);
+    const r = await sell([{ productId: main, qty: '4', price: q.lines[0].price, discountPct: q.lines[0].discountPct }]);
+    expect(r.status).toBe(201);
+    expect(await bal(gift)).toBe(3);
+    expect(await bal(main)).toBe(96);
+    const order = (await get(owner, `/api/pos/orders/${r.body.id}`).expect(200)).body;
+    const bonusLine = order.lines.find((l: { productId: string }) => l.productId === gift);
+    expect(Number(bonusLine.lineTotal)).toBe(0);
+    // total hanya barang berbayar
+    expect(Number(order.subtotal ?? order.total)).toBeGreaterThan(0);
+    // bonus dibatasi sisa stok: beli 20 kopi → 10 gelas diminta, hanya 3 tersedia
+    const q2 = (await post(cashier, '/api/pos/quote', { sessionId, lines: [{ productId: main, qty: '20' }] }).expect(201)).body;
+    expect(q2.bonus[0].qty).toBe('3');
+    expect((await sell([{ productId: main, qty: '20', price: q2.lines[0].price, discountPct: q2.lines[0].discountPct }])).status).toBe(201);
+    expect(await bal(gift)).toBe(0);
+    expect((await get(owner, '/api/accounting/reports/trial-balance').expect(200)).body.balanced).toBe(true);
+  });
 });

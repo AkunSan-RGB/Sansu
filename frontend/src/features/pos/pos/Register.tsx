@@ -51,7 +51,7 @@ export function Register({ session }: { session: PosSession }) {
   const cartKey = cart.map((l) => `${l.product.id}|${l.uom}|${l.qty}`).join(',');
   const quoted = useQuery({
     queryKey: ['pos-quote', session.id, customerId ?? null, cartKey],
-    queryFn: () => post<{ lines: QuoteLine[] }>('/pos/quote', { sessionId: session.id, customerId, lines: cart.map((l) => ({ productId: l.product.id, uom: l.uom, qty: String(l.qty) })) }),
+    queryFn: () => post<{ lines: QuoteLine[]; bonus?: { productId: string; name: string; uom: string; qty: string; promoName: string }[] }>('/pos/quote', { sessionId: session.id, customerId, lines: cart.map((l) => ({ productId: l.product.id, uom: l.uom, qty: String(l.qty) })) }),
     enabled: cart.length > 0,
     placeholderData: keepPreviousData,
   });
@@ -209,6 +209,15 @@ export function Register({ session }: { session: PosSession }) {
           ))
         )}
       </div>
+      {(quoted.data?.bonus ?? []).length > 0 && cart.length > 0 && (
+        <div style={{ padding: '6px 0' }}>
+          {(quoted.data?.bonus ?? []).map((b) => (
+            <Tag key={b.productId} color="green" style={{ marginBottom: 4 }}>
+              Gratis: {b.name} {fmtQty(b.qty)} {b.uom} · {b.promoName}
+            </Tag>
+          ))}
+        </div>
+      )}
       <Divider style={{ margin: '8px 0' }} />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: 2 }}>
         {ppnRate > 0 && (

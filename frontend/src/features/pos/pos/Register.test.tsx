@@ -99,6 +99,16 @@ describe('Kasir (Register)', { timeout: 30_000 }, () => {
     expect((orderCalls()[0][1] as { lines: object[] }).lines).toEqual([expect.objectContaining({ price: '15000', discountPct: '10' })]);
   });
 
+  it('bonus barang dari promo tampil sebagai "Gratis" di keranjang', async () => {
+    post.mockImplementation(async (url: string, body: { lines: { productId: string; uom: string }[] }) => {
+      if (url === '/pos/quote') return { lines: body.lines.map((l) => ({ ...l, price: '15000', discountPct: '0', promoName: null })), bonus: [{ productId: 'teh', name: 'Teh Manis', uom: 'PCS', qty: '2', promoName: 'Beli kopi gratis teh' }] };
+      return { id: 'o1', number: 'POS-1', total: '15000', lines: [], payments: [] };
+    });
+    renderWithProviders(<Register session={session} />);
+    fireEvent.click(await screen.findByText('Kopi Susu'));
+    await screen.findByText(/Gratis: Teh Manis 2 PCS/);
+  });
+
   it('uang diterima kurang dari total: tombol selesai nonaktif dan tercatat kurang', async () => {
     renderWithProviders(<Register session={session} />);
     fireEvent.click(await screen.findByText('Kopi Susu'));
