@@ -89,7 +89,7 @@ export const PAGE_HINTS: Record<string, string> = {
 
   '/vat': 'Rekap PPN keluaran dan masukan untuk pelaporan masa.',
   '/tax': 'Setoran pajak dan BPJS: yang harus dibayar dan yang sudah disetor.',
-  '/tax/recap': 'Rekap pajak per bulan dan PPh dipotong untuk pelaporan. Iuran BPJS ada di Rekap BPJS.',
+  '/tax/recap': 'Semua rekap pajak dalam satu halaman: ringkasan tahunan, PPN, PPh 21, PPh yang kita potong dan yang dipotong pihak lain, dan BPJS. Tab menyesuaikan jenis usaha.',
   '/fiscal': 'Rekonsiliasi laba akuntansi ke laba fiskal untuk SPT Tahunan.',
   '/integrations': 'Sambungan ke marketplace dan sistem pajak (e-Faktur Coretax).',
 

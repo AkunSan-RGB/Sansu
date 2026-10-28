@@ -10,8 +10,8 @@ import { usePeriod } from './ledger/usePeriod';
 import { VatView } from './statements/views';
 import { vatSheets } from '@/lib/xlsx/reports';
 
-/** Rekap PPN keluaran & masukan per dokumen — terhubung ke Setoran Pajak dan ekspor Coretax */
-export default function VatPage() {
+/** Rekap PPN keluaran & masukan per dokumen — tab PPN di halaman Rekap pajak; terhubung ke Setoran Pajak dan ekspor Coretax */
+export function VatRecap() {
   const { me } = useAuth();
   const navigate = useNavigate();
   const { from, to, setFrom, setTo } = usePeriod();
@@ -19,11 +19,11 @@ export default function VatPage() {
   return (
     <ReportShell
       title="Rekap PPN"
+      embedded
       from={from}
       to={to}
       onFrom={setFrom}
       onTo={setTo}
-      hint="Ringkasan PPN keluaran (dari penjualan) dan PPN masukan (dari pembelian) pada periode yang dipilih."
       controls={
         <>
           <Button size="small" onClick={() => navigate(`/tax?period=${to.slice(0, 7)}`)}>

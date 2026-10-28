@@ -1,5 +1,5 @@
 /** PPh yang dipotong pelanggan: daftar & pencatatan nomor bukti potong (syarat kredit pajak) */
-import type { WithheldByCustomerReport, WithheldByCustomerRow } from '@sansu/shared';
+import { withheldParty, type WithheldByCustomerReport, type WithheldByCustomerRow } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Empty, Form, Input, Modal, Segmented, Select, Space, Tag } from 'antd';
 import dayjs from 'dayjs';
@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, put, qs } from '@/api/client';
 import { useAction } from '@/api/queries';
+import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import SummaryCards from '@/components/SummaryCards';
@@ -16,7 +17,11 @@ import { t } from '@/lib/terms';
 
 const TYPE_LABEL = { PPH23: 'PPh 23', PPH4_2: 'PPh 4(2) final' } as const;
 
-export default function WithheldPage() {
+/** Tab "Dipotong <pihak>" di halaman Rekap pajak (embedded) atau halaman sendiri untuk peran yang tidak memegang Akuntansi */
+export function WithheldRecap({ embedded }: { embedded?: boolean }) {
+  const { me } = useAuth();
+  // sebutan pihak yang memotong mengikuti jenis usaha: klien, pemberi kerja, pengguna jasa, pemesan, pelanggan
+  const party = withheldParty(me?.businessModel ?? 'DAGANG', me?.serviceProfiles);
   const navigate = useNavigate();
   const can = useCan();
   const [year, setYear] = useState(dayjs().year());
@@ -39,35 +44,33 @@ export default function WithheldPage() {
   );
   const total = (t: 'PPH23' | 'PPH4_2') => q.data?.totals.find((x) => x.type === t);
 
+  const tools = (
+    <Space>
+      <Select
+        value={year}
+        onChange={setYear}
+        style={{ width: 100 }}
+        options={[0, 1, 2, 3].map((i) => ({ value: dayjs().year() - i, label: dayjs().year() - i }))}
+      />
+      <Select
+        allowClear
+        placeholder="Setahun"
+        value={month}
+        onChange={(v) => setMonth(v ?? null)}
+        style={{ width: 130 }}
+        options={Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: dayjs().month(i).format('MMMM') }))}
+      />
+    </Space>
+  );
   return (
     <>
-      <PageHeader
-        title={t('PPh dipotong pelanggan')}
-        extra={
-          <Space>
-            <Select
-              value={year}
-              onChange={setYear}
-              style={{ width: 100 }}
-              options={[0, 1, 2, 3].map((i) => ({ value: dayjs().year() - i, label: dayjs().year() - i }))}
-            />
-            <Select
-              allowClear
-              placeholder="Setahun"
-              value={month}
-              onChange={(v) => setMonth(v ?? null)}
-              style={{ width: 130 }}
-              options={Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: dayjs().month(i).format('MMMM') }))}
-            />
-          </Space>
-        }
-      />
+      {embedded ? <div style={{ marginBottom: 12 }}>{tools}</div> : <PageHeader title={`PPh dipotong ${party}`} extra={tools} />}
       <Alert
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message={t('PPh 23 yang dipotong pelanggan adalah kredit pajak Anda')}
-        description={`Nilainya mengurangi PPh Badan terutang di SPT Tahunan (dicatat di akun Pajak Dibayar Dimuka) — syaratnya ada bukti potong dari pelanggan; cocokkan dengan bukti potong di Coretax lalu catat nomornya di sini. PPh 4(2) (jasa konstruksi, sewa) bersifat final: tercatat sebagai beban PPh final dan pendapatannya dikeluarkan dari PPh tarif umum.`}
+        message={`PPh 23 yang dipotong ${party} adalah kredit pajak Anda`}
+        description={`Nilainya mengurangi PPh Badan terutang di SPT Tahunan (dicatat di akun Pajak Dibayar Dimuka) — syaratnya ada bukti potong dari ${party}; cocokkan dengan bukti potong di Coretax lalu catat nomornya di sini. PPh 4(2) (jasa konstruksi, sewa) bersifat final: tercatat sebagai beban PPh final dan pendapatannya dikeluarkan dari PPh tarif umum.`}
       />
       {!q.isLoading && !!q.data?.rows.length && (
         <SummaryCards
@@ -102,7 +105,7 @@ export default function WithheldPage() {
               render: (v, r) => <a onClick={() => navigate(`/invoices/${r.invoiceId}`)}>{v}</a>,
             },
             { title: 'Tanggal', dataIndex: 'date', render: fmtDate },
-            { title: t('Pelanggan'), dataIndex: 'customer' },
+            { title: party.charAt(0).toUpperCase() + party.slice(1), dataIndex: 'customer' },
             { title: 'NPWP pemotong', dataIndex: 'customerNpwp', render: (v) => v ?? <Tag color="orange">kosong</Tag> },
             { title: 'Jenis', dataIndex: 'type', render: (t: keyof typeof TYPE_LABEL) => TYPE_LABEL[t] },
             { title: 'Tarif', dataIndex: 'rate', align: 'right', render: (v) => `${Number(v)}%` },
@@ -141,7 +144,7 @@ export default function WithheldPage() {
       >
         <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
           <Form.Item name="slipNo" label="Nomor bukti potong" rules={[{ required: true, min: 3 }]}>
-            <Input placeholder={t('Nomor dari Coretax / bukti potong pelanggan')} />
+            <Input placeholder={`Nomor dari Coretax / bukti potong ${party}`} />
           </Form.Item>
           <Form.Item name="slipDate" label="Tanggal bukti potong" rules={[{ required: true }]}>
             <Input type="date" />
@@ -150,4 +153,8 @@ export default function WithheldPage() {
       </Modal>
     </>
   );
+}
+
+export default function WithheldPage() {
+  return <WithheldRecap />;
 }

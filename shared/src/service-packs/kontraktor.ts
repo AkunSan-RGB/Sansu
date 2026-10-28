@@ -27,7 +27,7 @@ export const KONTRAKTOR_PACK: ServiceProfilePack = {
       { title: 'Siapkan proyek', desc: 'Kontrak, BoQ/RAB, anggaran biaya, dan retensi.', links: [{ label: 'Proyek & termin', to: '/projects' }, { label: 'Uang muka pemberi kerja', to: '/customer-deposits' }] },
       { title: 'Laksanakan & beli', desc: 'Material, subkontraktor, dan upah langsung per proyek.', links: [{ label: 'Pesanan pembelian', to: '/purchase-orders' }, { label: 'Tagihan subkontraktor & pemasok', to: '/purchase-invoices' }, { label: 'Upah harian', to: '/payroll/jasa' }, { label: 'Material proyek', to: '/inventory' }] },
       { title: 'Tagih termin & retensi', desc: 'Tagih sesuai kemajuan; retensi ditagih terpisah setelah masa pemeliharaan.', links: [{ label: 'Tagihan termin baru', to: '/invoices/services/new' }, { label: 'Termin & piutang', to: '/invoices' }] },
-      { title: 'Laba & pajak', desc: 'Laba per proyek, retensi tertahan, dan PPh final konstruksi.', links: [{ label: 'Laporan kontraktor', to: '/laporan/jasa-kontraktor' }, { label: 'PPh dipotong pemberi kerja', to: '/tax/withheld' }] },
+      { title: 'Laba & pajak', desc: 'Laba per proyek, retensi tertahan, dan PPh final konstruksi.', links: [{ label: 'Laporan kontraktor', to: '/laporan/jasa-kontraktor' }, { label: 'PPh dipotong pemberi kerja', to: '/tax/recap?tab=withheld' }] },
     ],
   },
   setup: [

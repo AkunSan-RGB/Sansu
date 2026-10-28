@@ -16,28 +16,29 @@ interface Report {
   monthly: { period: string; gross: string; pph21: string; n: number }[];
 }
 
-export default function Pph21ReportPage() {
+/** Rekap PPh 21: tab di halaman Rekap pajak (embedded) atau halaman sendiri untuk peran yang hanya memegang Penggajian */
+export function Pph21Recap({ embedded }: { embedded?: boolean }) {
   const { me } = useAuth();
   const [year, setYear] = useState(dayjs().year());
   const { data, isLoading } = useQuery({ queryKey: ['pph21', year], queryFn: () => get<Report>(`/payroll/reports/pph21?year=${year}`) });
+  const tools = (
+    <Space wrap className="no-print">
+      <InputNumber value={year} min={2020} max={2100} onChange={(v) => v && setYear(v)} prefix="Tahun" />
+      <ExportButtons
+        filename={`pph21-${year}`}
+        title={`Rekap PPh 21 ${year}`}
+        sheets={() => (data ? pph21Sheets(data, me?.tenantName) : null)}
+      />
+    </Space>
+  );
   return (
     <>
-      <PageHeader
-        title="Rekap PPh 21"
-        extra={
-          <Space wrap className="no-print">
-            <InputNumber value={year} min={2020} max={2100} onChange={(v) => v && setYear(v)} prefix="Tahun" />
-            <ExportButtons
-              filename={`pph21-${year}`}
-              title={`Rekap PPh 21 ${year}`}
-              sheets={() => (data ? pph21Sheets(data, me?.tenantName) : null)}
-            />
-          </Space>
-        }
-      />
-      <Typography.Paragraph type="secondary">
-        Bahan pelaporan SPT Masa PPh 21 (per bulan) dan bukti potong 1721-A1 (per pegawai). Hanya penggajian yang sudah diposting.
-      </Typography.Paragraph>
+      {embedded ? <div style={{ marginBottom: 12 }}>{tools}</div> : <PageHeader title="Rekap PPh 21" extra={tools} />}
+      {!embedded && (
+        <Typography.Paragraph type="secondary">
+          Bahan pelaporan SPT Masa PPh 21 (per bulan) dan bukti potong 1721-A1 (per pegawai). Hanya penggajian yang sudah diposting.
+        </Typography.Paragraph>
+      )}
       {!isLoading && !!data?.employees.length && (
         <SummaryCards
           items={[
@@ -88,4 +89,8 @@ export default function Pph21ReportPage() {
       </Row>
     </>
   );
+}
+
+export default function Pph21ReportPage() {
+  return <Pph21Recap />;
 }
