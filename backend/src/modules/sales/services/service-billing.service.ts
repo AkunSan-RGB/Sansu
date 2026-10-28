@@ -21,6 +21,12 @@ import { ReferenceRepository } from '../../../db/reference.repository';
 import { findOwned, insertOne, patchById } from '../../../db/owned';
 import { ServiceBillingRepository } from './service-billing.repository';
 
+export interface InvoiceOpts {
+  inTx?: (tx: Tx, invoice: { id: string; number: string }) => Promise<void>;
+  /** Tagihan retensi: menunjuk tagihan termin induknya */
+  retentionOfInvoiceId?: string;
+}
+
 export const outstandingOf = (i: { total: string; paidAmount: string; returnedAmount: string }) =>
   D(i.total).minus(i.paidAmount).minus(i.returnedAmount);
 
@@ -44,9 +50,14 @@ export class ServiceBillingService {
 
   // ================= Faktur jasa =================
 
-  async createInvoice(user: AuthUser, dto: CreateServiceInvoiceDto, opts: { inTx?: (tx: Tx, invoice: { id: string; number: string }) => Promise<void> } = {}) {
+  async createInvoice(user: AuthUser, dto: CreateServiceInvoiceDto, opts: InvoiceOpts = {}) {
+    return this.db.transaction((tx) => this.createInvoiceIn(tx, user, dto, opts));
+  }
+
+  /** Buat faktur jasa di dalam transaksi pemanggil (dipakai juga untuk tagihan termin yang dipecah dengan retensi) */
+  async createInvoiceIn(tx: Tx, user: AuthUser, dto: CreateServiceInvoiceDto, opts: InvoiceOpts = {}) {
     const date = toDocDate(dto.date);
-    const result = await this.db.transaction(async (tx) => {
+    {
       const [tenant] = await this.repo.findTenantsById(tx, user.tenantId);
       const customer = await this.refs.customer(tx, user.tenantId, dto.customerId);
       if (!customer || !customer.isActive) throw new BadRequestException('Pelanggan tidak ditemukan / nonaktif');
@@ -119,6 +130,7 @@ export class ServiceBillingService {
           description: dto.description,
           projectId: dto.projectId,
           termLabel: dto.termLabel,
+          retentionOfInvoiceId: opts.retentionOfInvoiceId ?? null,
           subtotal: doc.subtotal.toFixed(2),
           taxAmount: doc.taxAmount.toFixed(2),
           total: doc.total.toFixed(2),
@@ -169,8 +181,7 @@ export class ServiceBillingService {
       // pekerjaan tambahan milik pemanggil (mis. menandai catatan waktu tertagih) ikut transaksi: sama-sama tersimpan atau sama-sama batal
       await opts.inTx?.(tx, { id: invoice.id, number });
       return { id: invoice.id, number, journalNumber: journal.number };
-    });
-    return result;
+    }
   }
 
   async setSlip(user: AuthUser, id: string, dto: WithholdingSlipDto) {

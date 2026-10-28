@@ -4,6 +4,7 @@ import { RequireApp } from '../../common/apps/app.guard';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { PosService } from './pos.service';
+import { todayJakarta } from '../../common/utils/dates';
 import { PosProductQueryDto, OpenSessionDto, CloseSessionDto, CreatePosOrderDto, PosQuoteDto } from './pos.dto';
 
 @ApiTags('Kasir (POS)')
@@ -24,6 +25,18 @@ export class PosController {
   @Get('sessions/current')
   current(@CurrentUser() u: AuthUser) {
     return this.svc.current(u);
+  }
+
+  @Roles('CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT')
+  @Get('staff')
+  staff(@CurrentUser() u: AuthUser) {
+    return this.svc.staff(u.tenantId);
+  }
+
+  @Roles('ADMIN', 'FINANCE', 'ACCOUNTANT')
+  @Get('staff-sales')
+  staffSales(@CurrentUser() u: AuthUser, @Query('from') from: string = todayJakarta().slice(0, 8) + '01', @Query('to') to: string = todayJakarta()) {
+    return this.svc.staffSales(u.tenantId, from, to);
   }
 
   @Roles('CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT')

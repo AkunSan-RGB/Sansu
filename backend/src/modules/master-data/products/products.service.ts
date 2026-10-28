@@ -47,7 +47,7 @@ export class ProductsService {
     const legacyUoms = [...new Set(used.rows.map((r) => r.uom).filter((u): u is string => !!u && !isKnownUom(u)))];
     return {
       model,
-      form: { barcode: profile.barcode, packs: profile.packs, menu: profile.menu, semi: profile.semi, shelfLife: profile.shelfLife, skuLabel: profile.skuLabel, nameLabel: profile.nameLabel, baseUomLabel: profile.baseUomLabel, priceLabel: profile.priceLabel, note: profile.note },
+      form: { barcode: profile.barcode, packs: profile.packs, menu: profile.menu, semi: profile.semi, shelfLife: profile.shelfLife, service: !!profile.service, skuLabel: profile.skuLabel, nameLabel: profile.nameLabel, baseUomLabel: profile.baseUomLabel, priceLabel: profile.priceLabel, note: profile.note },
       categories,
       baseUoms: [...profile.baseUoms, ...legacyUoms].map((u) => ({ value: u, label: u === uomLabel(u) ? u : `${u} — ${uomLabel(u)}` })),
       packUoms: [...profile.packUoms, ...legacyUoms].map((u) => ({ value: u, label: u === uomLabel(u) ? u : `${u} — ${uomLabel(u)}` })),
@@ -86,6 +86,7 @@ export class ProductsService {
     }
     if (dto.uoms?.length && !profile.packs) throw new BadRequestException('Jenis usaha ini tidak memakai satuan bertingkat');
     if (dto.madeToOrder && !current?.madeToOrder && !profile.menu) throw new BadRequestException('Menu (dibuat saat dipesan) hanya untuk jenis usaha F&B');
+    if (dto.isService && !profile.service) throw new BadRequestException('Layanan tanpa stok hanya untuk jenis usaha Jasa');
     if (dto.shelfLifeDays != null && dto.shelfLifeDays !== current?.shelfLifeDays && !profile.shelfLife) throw new BadRequestException('Umur simpan hanya untuk jenis usaha yang memproduksi (Manufaktur, F&B)');
     if (dto.barcode && !profile.barcode) throw new BadRequestException('Jenis usaha ini tidak memakai barcode');
     if (dto.barcode) {
@@ -229,9 +230,10 @@ export class ProductsService {
     const baseUom = dto.baseUom ?? 'PCS';
     this.validateUoms(baseUom, dto.uoms);
     if (dto.madeToOrder && dto.inventoryKind === 'SEMI') throw new BadRequestException('Barang setengah jadi tidak bisa menjadi menu yang dijual di kasir');
+    if (dto.isService && (dto.madeToOrder || dto.inventoryKind === 'SEMI')) throw new BadRequestException('Layanan tidak bisa menjadi menu atau barang setengah jadi');
     if (dto.inventoryKind === 'SEMI') await this.assertSemiAllowed(tenantId);
     const id = await this.db.transaction(async (tx) => {
-      const [p] = await this.repo.insertProducts(tx, { tenantId, sku: dto.sku.trim().toUpperCase(), name: dto.name.trim(), category: await canonicalCategory(tx, tenantId, dto.category), baseUom, sellPrice: dto.sellPrice, ...(await this.resolveBarcode(tx, tenantId, dto.barcode)), inventoryKind: dto.inventoryKind ?? 'GOODS', madeToOrder: dto.madeToOrder ?? false, shelfLifeDays: dto.shelfLifeDays ?? null, weightKg: dto.weightKg ?? null, });
+      const [p] = await this.repo.insertProducts(tx, { tenantId, sku: dto.sku.trim().toUpperCase(), name: dto.name.trim(), category: await canonicalCategory(tx, tenantId, dto.category), baseUom, sellPrice: dto.sellPrice, ...(await this.resolveBarcode(tx, tenantId, dto.barcode)), inventoryKind: dto.inventoryKind ?? 'GOODS', madeToOrder: dto.madeToOrder ?? false, isService: dto.isService ?? false, shelfLifeDays: dto.shelfLifeDays ?? null, weightKg: dto.weightKg ?? null, });
       if (dto.uoms?.length) {
         await this.repo.insertProductUoms(tx, dto.uoms, p.id);
       }
@@ -246,6 +248,11 @@ export class ProductsService {
     const baseUom = dto.baseUom ?? current.baseUom;
     if (dto.uoms) this.validateUoms(baseUom, dto.uoms);
     if ((dto.madeToOrder ?? current.madeToOrder) && (dto.inventoryKind ?? current.inventoryKind) === 'SEMI') throw new BadRequestException('Barang setengah jadi tidak bisa menjadi menu yang dijual di kasir');
+    if (dto.isService === true && !current.isService) {
+      if ((dto.madeToOrder ?? current.madeToOrder) || (dto.inventoryKind ?? current.inventoryKind) === 'SEMI') throw new BadRequestException('Layanan tidak bisa menjadi menu atau barang setengah jadi');
+      const moves = await this.repo.queryStockMove(this.db, tenantId, id);
+      if (moves.rows[0].n > 0) throw new BadRequestException('Barang yang sudah punya mutasi stok tidak bisa dijadikan layanan');
+    }
     if (dto.inventoryKind !== undefined && dto.inventoryKind !== current.inventoryKind) {
       if (dto.inventoryKind === 'SEMI') await this.assertSemiAllowed(tenantId);
       // riwayat jurnal persediaan mengikuti jenis barang saat bergerak; jenisnya tidak boleh berubah setelah ada mutasi stok
@@ -269,6 +276,7 @@ export class ProductsService {
           ...(dto.barcode === undefined ? {} : await this.resolveBarcode(tx, tenantId, dto.barcode.trim() || undefined, { id, barcode: current.barcode, barcodeSource: current.barcodeSource })),
           inventoryKind: dto.inventoryKind,
           madeToOrder: dto.madeToOrder,
+          isService: dto.isService,
           shelfLifeDays: dto.shelfLifeDays,
           weightKg: dto.weightKg,
           isActive: dto.isActive,

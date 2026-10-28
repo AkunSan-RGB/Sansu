@@ -7,7 +7,7 @@ import { AuthUser } from '../../../common/auth/auth-user';
 import { SequenceService } from '../../../common/sequence/sequence.service';
 import { toDocDate } from '../../../common/utils/dates';
 import { D, Dec, money, ZERO } from '../../../common/utils/money';
-import { Db } from '../../../db/db';
+import { Db, Tx } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
 import { invoices, projectProgress, projects } from '../../../db/schema';
 import { frameworkOf } from '../../accounting/coa-sync';
@@ -61,6 +61,9 @@ export class ServiceProjectsService {
       accrual: D(r.accrual).toFixed(2),
       directCost: D(r.direct_cost).toFixed(2),
       costBudget: D(r.cost_budget).toFixed(2),
+      retentionPct: D(r.retention_pct).toFixed(2),
+      retentionDays: r.retention_days,
+      retentionHeld: D(r.retention_held).toFixed(2),
       budget: budgetUsage(r.direct_cost, r.cost_budget),
     }));
   }
@@ -164,6 +167,16 @@ export class ServiceProjectsService {
     });
   }
 
+  /** Dipakai kontraktor: DPP yang sudah ditagih pada proyek */
+  billedOf(tx: Tx, projectId: string) {
+    return this.repo.queryInvoice(tx, projectId, '9999-12-31');
+  }
+
+  /** Dipakai kontraktor: samakan nilai kontrak dengan total BoQ */
+  setContractValue(tx: Tx, projectId: string, value: Dec) {
+    return patchById(tx, projects, projectId, { contractValue: money(value).toFixed(2) });
+  }
+
   async getProject(tenantId: string, id: string) {
     const [p] = await this.listProjects(tenantId, id);
     if (!p) throw new NotFoundException('Proyek tidak ditemukan');
@@ -193,6 +206,7 @@ export class ServiceProjectsService {
     if (!c) throw new BadRequestException('Pelanggan tidak ditemukan');
     if (D(dto.contractValue).lt(0)) throw new BadRequestException('Nilai kontrak tidak boleh negatif');
     if (D(dto.costBudget ?? 0).lt(0)) throw new BadRequestException('Anggaran biaya tidak boleh negatif');
+    if (D(dto.retentionPct ?? 0).lt(0) || D(dto.retentionPct ?? 0).gte(100)) throw new BadRequestException('Retensi harus di antara 0 dan 100%');
     const id = await this.db.transaction(async (tx) => {
       const code = dto.code?.trim() || (await this.seq.next(tx, user.tenantId, 'PROJECT', toDocDate(dto.startDate)));
       const [dup] = await this.repo.findProjectsByCode(tx, user.tenantId, code);
@@ -217,10 +231,13 @@ export class ServiceProjectsService {
       throw new BadRequestException(`Nilai kontrak tidak boleh di bawah yang sudah ditagih (${p.billed})`);
     }
     if (dto.costBudget !== undefined && D(dto.costBudget).lt(0)) throw new BadRequestException('Anggaran biaya tidak boleh negatif');
+    if (dto.retentionPct !== undefined && (D(dto.retentionPct).lt(0) || D(dto.retentionPct).gte(100))) throw new BadRequestException('Retensi harus di antara 0 dan 100%');
     const patch: Partial<typeof projects.$inferInsert> = {};
     if (dto.name !== undefined) patch.name = dto.name.trim();
     if (dto.contractValue !== undefined) patch.contractValue = money(dto.contractValue).toFixed(2);
     if (dto.costBudget !== undefined) patch.costBudget = money(dto.costBudget).toFixed(2);
+    if (dto.retentionPct !== undefined) patch.retentionPct = D(dto.retentionPct).toFixed(2);
+    if (dto.retentionDays !== undefined) patch.retentionDays = dto.retentionDays;
     if (dto.endDate !== undefined) patch.endDate = toDocDate(dto.endDate);
     if (dto.status !== undefined) patch.status = dto.status;
     if (dto.notes !== undefined) patch.notes = dto.notes;

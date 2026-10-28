@@ -54,6 +54,8 @@ export const products = pgTable(
     inventoryKind: text('inventory_kind').$type<'GOODS' | 'SEMI'>().notNull().default('GOODS'),
     /** Menu: dibuat saat dipesan. Kasir memotong bahan sesuai resep aktif (bukan stok produk ini) dan HPP dihitung dari bahan */
     madeToOrder: boolean('made_to_order').notNull().default(false),
+    /** Layanan (jenis usaha Jasa): dijual di kasir tanpa stok; bahan habis pakai opsional lewat resep. Tidak boleh punya stok */
+    isService: boolean('is_service').notNull().default(false),
     /** Umur simpan (hari): hasil produksi barang ini otomatis mendapat lot dengan tanggal kedaluwarsa = tanggal selesai + umur simpan */
     shelfLifeDays: integer('shelf_life_days'),
     /** Hasil produksi barang ini wajib diinspeksi QC (masuk karantina dulu) */

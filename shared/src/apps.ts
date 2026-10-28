@@ -196,8 +196,9 @@ export const BUSINESS_MODELS: BusinessModelInfo[] = [
     summary: 'Menjual keahlian atau pekerjaan, ditagih per pekerjaan atau termin',
     examples: 'Kontraktor, bengkel, konsultan, agen perjalanan, event organizer, jasa kebersihan & keamanan',
     flow: ['Penawaran & kontrak', 'Uang muka', 'Tagihan termin', 'Pembayaran & bukti potong', 'Laporan & pajak'],
-    apps: ['crm', 'sales', 'purchase', 'accounting', 'cash'],
+    apps: ['crm', 'sales', 'purchase', 'accounting', 'cash', 'pos'],
     ready: true,
+    note: 'Layanan yang dibayar langsung per kunjungan (bengkel, salon, klinik) dijual lewat Kasir: tandai produk sebagai "Layanan (tanpa stok)", pilih petugas per layanan, dan bahan habis pakai terpotong lewat resep. Pekerjaan besar tetap lewat Proyek & termin, jam lewat Lembar waktu, langganan lewat Retainer.',
   },
   {
     key: 'FMCG',

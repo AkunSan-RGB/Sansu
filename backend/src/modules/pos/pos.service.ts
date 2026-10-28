@@ -15,7 +15,7 @@ import { SYS } from '../accounting/default-coa';
 import { PostingService } from '../accounting/posting.service';
 import { StockService } from '../inventory/stock.service';
 import { inventoryLines, semiSet } from '../inventory/inventory-accounts';
-import { componentNeeds, portionsAvailable, recipesFor } from './recipe-issue';
+import { componentNeeds, optionalRecipesFor, portionsAvailable, recipesFor } from './recipe-issue';
 import { LoyaltyService } from './loyalty.service';
 import { earnPoints } from '@sansu/shared';
 import { buildLines } from '../master-data/products/line-builder';
@@ -187,6 +187,17 @@ export class PosService {
     return { lines: priced, bonus };
   }
 
+  /** Pegawai aktif yang dapat dipilih sebagai petugas layanan di kasir */
+  async staff(tenantId: string) {
+    return (await this.repo.listActiveStaff(this.db, tenantId)).rows;
+  }
+
+  /** Kinerja petugas: jumlah dan nilai layanan yang dikerjakan pada rentang tanggal (retur dikurangkan, bonus tidak dihitung) */
+  async staffSales(tenantId: string, from: string, to: string) {
+    const rows = (await this.repo.queryStaffSales(this.db, tenantId, from, to)).rows;
+    return rows.map((r) => ({ staffId: r.staff_id, name: r.name, lines: Number(r.lines), qty: D(r.qty).toString(), revenue: money(r.revenue).toFixed(2) }));
+  }
+
   /** Kutipan harga untuk layar kasir (tanpa menyimpan apa pun) */
   async quote(user: AuthUser, dto: PosQuoteDto) {
     const [s] = await this.repo.findPosSessionsById(this.db, dto.sessionId);
@@ -243,6 +254,12 @@ export class PosService {
         ...lines,
         ...(await buildLines(tx, user.tenantId, expected.bonus.map((b) => ({ productId: b.productId, uom: b.uom, qty: b.qty, price: '0', discountPct: '0' })), 'sell', 2, {})),
       ];
+    // Petugas layanan: harus pegawai aktif perusahaan ini
+    const staffIds = [...new Set(dto.lines.map((l) => l.staffId).filter((x): x is string => !!x))];
+    if (staffIds.length) {
+      const found = (await this.repo.listActiveStaff(tx, user.tenantId, staffIds)).rows;
+      if (found.length !== staffIds.length) throw new BadRequestException('Petugas tidak ditemukan atau tidak aktif');
+    }
     // Harga rak termasuk PPN → DPP & PPN dihitung mundur; non-PKP → tanpa PPN
     const inclusive = taxProfileOf(tenant.settings).posPricesIncludeVat;
     // Pajak daerah (PB1/PBJT) menggantikan PPN pada penjualan kasir bila dinyalakan
@@ -311,9 +328,16 @@ export class PosService {
       columns: { id: true, sku: true },
     });
     const recipes = await recipesFor(tx, user.tenantId, menuRows);
+    // Layanan (Jasa): tanpa stok; bahan habis pakai hanya bila ada resep aktif
+    const svcRows = await tx.query.products.findMany({
+      where: and(eq(products.tenantId, user.tenantId), inArray(products.id, lines.map((l) => l.productId)), eq(products.isService, true)),
+      columns: { id: true, sku: true },
+    });
+    const svcRecipes = await optionalRecipesFor(tx, user.tenantId, svcRows);
+    const serviceIds = new Set(svcRows.map((x) => x.id));
     for (const [lineIdx, l] of lines.entries()) {
       const baseQty = D(l.qty).times(l.uomFactor);
-      const recipe = recipes.get(l.productId);
+      const recipe = serviceIds.has(l.productId) ? (svcRecipes.get(l.productId) ?? []) : recipes.get(l.productId);
       let lineValue: Dec = ZERO;
       let unitCost: Dec;
       if (recipe) {
@@ -351,7 +375,7 @@ export class PosService {
         issued.push({ productId: l.productId, value: moved.value });
       }
       cogs = cogs.plus(lineValue);
-      await this.repo.insertPosOrderLines(tx, order.id, l.productId, l.uom, l.uomFactor, l.qty, l.price, l.discountPct, l.lineTotal, unitCost, recipe, lineIdx >= requested);
+      await this.repo.insertPosOrderLines(tx, order.id, l.productId, l.uom, l.uomFactor, l.qty, l.price, l.discountPct, l.lineTotal, unitCost, recipe, lineIdx >= requested, lineIdx < requested ? (dto.lines[lineIdx].staffId ?? null) : null);
     }
     cogs = money(cogs);
 

@@ -55,6 +55,9 @@ export function Register({ session }: { session: PosSession }) {
     enabled: cart.length > 0,
     placeholderData: keepPreviousData,
   });
+  const hasService = (products.data ?? []).some((p) => p.isService);
+  const staff = useQuery({ queryKey: ['pos-staff'], queryFn: () => get<{ id: string; name: string }[]>('/pos/staff'), enabled: hasService, staleTime: 60_000 });
+  const setStaff = (i: number, staffId?: string) => setCart((c) => c.map((x, j) => (j === i ? { ...x, staffId } : x)));
   const priced = useMemo(() => applyQuote(cart, quoted.data?.lines), [cart, quoted.data]);
   const { rate: ppnRate, label: taxLabel } = posTax(me);
   const inclusive = !!me?.taxProfile?.posPricesIncludeVat && ppnRate > 0;
@@ -107,7 +110,7 @@ export function Register({ session }: { session: PosSession }) {
         customerId,
         redeemPoints: redeemPts || undefined,
         ...(fnb ? { orderType, tableLabel: tableLabel.trim() || undefined } : {}),
-        lines: priced.map((l) => ({ productId: l.product.id, uom: l.uom, qty: String(l.qty), price: String(l.unitPrice), discountPct: String(l.discountPct) })),
+        lines: priced.map((l) => ({ productId: l.product.id, uom: l.uom, qty: String(l.qty), price: String(l.unitPrice), discountPct: String(l.discountPct), staffId: l.staffId })),
         payments: [{ method, amount: (method === 'CASH' ? (amount ?? 0) : payable).toFixed(2) }],
       }),
     {
@@ -205,6 +208,19 @@ export function Register({ session }: { session: PosSession }) {
                 </Typography.Text>
                 <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => setQty(i, 0)} />
               </div>
+              {l.product.isService && (
+                <Select
+                  size="small"
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="Petugas yang mengerjakan"
+                  value={l.staffId}
+                  onChange={(v) => setStaff(i, v)}
+                  options={(staff.data ?? []).map((x) => ({ value: x.id, label: x.name }))}
+                  style={{ width: '100%', marginTop: 6 }}
+                />
+              )}
             </div>
           ))
         )}
@@ -301,7 +317,7 @@ export function Register({ session }: { session: PosSession }) {
                   const stock = Number(p.stock);
                   return (
                     <Col key={p.id} xs={12} sm={8} lg={6} xl={4}>
-                      <Badge.Ribbon text={p.madeToOrder ? `${fmtQty(stock)} porsi` : fmtQty(stock)} color={stock > 0 ? 'cyan' : 'red'}>
+                      <Badge.Ribbon text={p.isService ? 'Layanan' : p.madeToOrder ? `${fmtQty(stock)} porsi` : fmtQty(stock)} color={p.isService ? 'purple' : stock > 0 ? 'cyan' : 'red'}>
                         <Card hoverable size="small" onClick={() => add(p)} style={{ height: 104, ...(Number(p.sellPrice) <= 0 ? { opacity: 0.55 } : {}) }} styles={{ body: { padding: 10 } }}>
                           <Typography.Paragraph strong ellipsis={{ rows: 2 }} style={{ marginBottom: 4, minHeight: 44, paddingRight: 24 }}>
                             {p.name}

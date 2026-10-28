@@ -326,6 +326,7 @@ async function seedJasa(c: Demo) {
   await X.taxes(c);
   await X.bankStatement(c);
   await X.pettyCash(c);
+  await F.jasaKasir(c);
   await X.cashCount(c);
   await X.attendance(c);
   await X.crm(c, cu.get('CL-BANK')!, ids.get('JB-CETAK')!, [
@@ -338,6 +339,9 @@ async function seedJasa(c: Demo) {
   void dep;
   await X.stockOps(c, ids, JASA_BAHAN.map((p) => p.sku), { saleInvoiceId: jsold2, billId: c.last.bill, supplierId: sup.get('SUP-CLOUD') });
   await F.jasaOperations(c, [cu.get('CL-BANK')!, cu.get('CL-RETAIL')!, cu.get('CL-RS')!], p1?.id);
+  await F.kontraktorRetensi(c, cu.get('CL-RETAIL')!);
+  await F.kontrakLokasi(c, cu.get('CL-RETAIL')!);
+  await F.pendidikanSpp(c, [cu.get('CL-EDU')!, cu.get('CL-BANK')!]);
   await F.projectBudgets(c);
   await F.serviceWork(c, [{ name: 'Konsultan senior — per jam', unit: 'HOUR', rate: '250000', qty: '6.5' }, { name: 'Sesi pelatihan klien', unit: 'SESSION', rate: '1500000', qty: '1' }]);
   await F.minimums(c, [...ids.values()]);

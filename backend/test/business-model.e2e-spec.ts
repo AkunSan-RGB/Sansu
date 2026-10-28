@@ -87,7 +87,8 @@ describe('Model bisnis (e2e)', () => {
     const r = (await http.put('/api/settings/business').set(auth).send({ model: 'RITEL', applyApps: true }).expect(200))
       .body;
     expect(r.model).toBe('RITEL');
-    expect(r.installed).toContain('pos');
+    // Jasa kini sudah punya kasir (layanan di kasir), jadi tidak perlu dipasang lagi
+    expect(r.installed).not.toContain('crm');
     const m = await me(t);
     expect(m.businessModel).toBe('RITEL');
     expect(m.apps).toEqual(expect.arrayContaining(['pos', 'crm']));

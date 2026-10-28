@@ -96,6 +96,8 @@ export class StockService {
     if (qty.isPositive()) {
       const [w] = await this.repo.findWarehousesById(tx, m.warehouseId);
       if (w && !w.isActive) throw new BadRequestException(`Gudang ${w.name} sudah nonaktif — aktifkan dulu di Inventori › Gudang.`);
+      const [pf] = await this.repo.findProductServiceFlag(tx, m.productId);
+      if (pf?.isService) throw new BadRequestException(`${pf.sku} adalah layanan: tidak punya stok`);
     } else if (!m.fromQc) {
       // stok karantina hanya keluar lewat keputusan QC (tidak bisa dijual, dipakai produksi, atau dipindah begitu saja)
       const [w] = await this.repo.findWarehousesByIdForMove(tx, m.warehouseId);

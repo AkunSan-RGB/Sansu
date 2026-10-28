@@ -182,6 +182,8 @@ export class SalesOrdersService {
             throw new BadRequestException(
               `${p.sku} adalah barang setengah jadi: dibuat dan dipakai lewat perintah produksi, tidak dijual`,
             );
+          if (p.isService)
+            throw new BadRequestException(`${p.sku} adalah layanan tanpa stok: jual lewat Kasir (POS) atau Faktur jasa, bukan pesanan barang`);
           if (p.madeToOrder)
             throw new BadRequestException(
               `${p.sku} adalah menu yang dibuat saat dipesan: jual lewat Kasir (POS) agar bahan sesuai resep terpotong otomatis`,

@@ -218,6 +218,8 @@ export interface Product {
   inventoryKind?: 'GOODS' | 'SEMI';
   /** Menu dibuat saat dipesan: kasir memotong bahan sesuai resep (stok = porsi yang bisa dibuat) */
   madeToOrder?: boolean;
+  /** Layanan tanpa stok (jenis usaha Jasa): dijual di kasir, bahan habis pakai opsional lewat resep */
+  isService?: boolean;
   /** Umur simpan (hari) untuk hasil produksi; kosong = kedaluwarsa tidak dipantau */
   shelfLifeDays?: number | null;
   /** Berat per satuan dasar (kg); dasar muatan rute pengiriman */
@@ -1952,6 +1954,10 @@ export interface Project {
   directCost: string;
   /** Anggaran biaya langsung (0 = tanpa anggaran) dan pemakaiannya terhadap biaya langsung */
   costBudget: string;
+  /** Retensi (%) per termin, masa pemeliharaan (hari), dan retensi yang masih ditahan pelanggan */
+  retentionPct: string;
+  retentionDays: number;
+  retentionHeld: string;
   budget: { status: 'NONE' | 'OK' | 'WARN' | 'OVER'; usedPct: number | null; remaining: string };
   invoices?: Invoice[];
 }

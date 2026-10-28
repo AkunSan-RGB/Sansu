@@ -21,6 +21,7 @@ export class PosLineDto {
   @ApiProperty({ example: '2' }) @IsNumberString() qty: string;
   @ApiPropertyOptional({ description: 'Kosong = harga jual master' }) @IsOptional() @IsNumberString() price?: string;
   @ApiPropertyOptional() @IsOptional() @IsNumberString() discountPct?: string;
+  @ApiPropertyOptional({ description: 'Petugas yang mengerjakan layanan ini (pegawai aktif)' }) @IsOptional() @IsUUID() staffId?: string;
 }
 
 export class PosQuoteLineDto {

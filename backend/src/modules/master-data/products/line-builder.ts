@@ -49,6 +49,7 @@ export async function buildLines(
     if (!p || !p.isActive) throw new BadRequestException(`Produk ${l.productId} tidak ditemukan / nonaktif`);
     if (p.inventoryKind === 'SEMI') throw new BadRequestException(`${p.sku} adalah barang setengah jadi: dibuat dan dipakai lewat perintah produksi, tidak dijual atau dibeli lewat dokumen ini`);
     if (defaultPrice === 'sell' && p.madeToOrder && !opts.menuOk) throw new BadRequestException(`${p.sku} adalah menu yang dibuat saat dipesan: jual lewat Kasir (POS) agar bahan sesuai resep terpotong otomatis`);
+    if (p.isService && !opts.menuOk) throw new BadRequestException(`${p.sku} adalah layanan tanpa stok: jual lewat Kasir (POS) atau Faktur jasa, bukan lewat dokumen barang`);
     const uom = l.uom ?? p.baseUom;
     const factor = uom === p.baseUom ? '1' : p.uoms.find((u) => u.uom === uom)?.factor;
     if (!factor) throw new BadRequestException(`Satuan ${uom} tidak terdaftar untuk ${p.sku}`);

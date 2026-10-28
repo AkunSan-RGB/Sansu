@@ -11,6 +11,8 @@ export interface CartLine {
   discountPct: number;
   /** Nama promo yang memberi potongan (dari server) */
   promoName?: string | null;
+  /** Petugas yang mengerjakan layanan (pegawai) */
+  staffId?: string;
 }
 
 export interface LoyaltyCfg {
@@ -33,6 +35,7 @@ export function checkAdd(p: PosProduct, uom: string, cart: CartLine[]): { ok: tr
     return { ok: false, message: `Harga jual ${p.name} belum diisi (Rp 0), jadi tidak bisa dijual di kasir. Isi harga di Produk, atau minta supervisor.` };
   }
   const factor = uom === p.baseUom ? 1 : Number(p.uoms.find((u) => u.uom === uom)?.factor ?? 1);
+  if (p.isService) return { ok: true, factor }; // layanan tanpa stok
   const inCart = cart.filter((l) => l.product.id === p.id).reduce((a, l) => a + l.qty * l.factor, 0);
   if (inCart + factor > Number(p.stock) + 1e-9) {
     return { ok: false, message: `Stok ${p.name} tidak cukup (tersedia ${fmtQty(Number(p.stock))}${inCart ? `, sudah di keranjang ${fmtQty(inCart)}` : ''})` };

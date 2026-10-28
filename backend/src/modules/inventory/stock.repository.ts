@@ -50,6 +50,11 @@ export class StockRepository {
       .where(eq(warehouses.id, warehouseId));
   }
 
+  /** Dipakai oleh StockService.move: layanan tidak boleh punya stok */
+  findProductServiceFlag(db: DbOrTx, productId: string) {
+    return db.select({ isService: products.isService, sku: products.sku }).from(products).where(eq(products.id, productId));
+  }
+
   /** Dipakai oleh StockService.move */
   findWarehousesByIdForMove(db: DbOrTx, warehouseId: string) {
     return db

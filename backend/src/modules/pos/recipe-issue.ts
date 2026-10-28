@@ -73,3 +73,26 @@ export async function portionsAvailable(
   }
   return out;
 }
+
+/** Resep aktif layanan (bahan habis pakai): layanan tanpa resep boleh dijual, jadi tidak ada galat bila resepnya kosong */
+export async function optionalRecipesFor(
+  db: DbOrTx,
+  tenantId: string,
+  services: { id: string; sku: string }[],
+): Promise<Map<string, RecipeComponent[]>> {
+  const out = new Map<string, RecipeComponent[]>();
+  if (!services.length) return out;
+  const rows = await listBomsByIsActiveAndProductIdAndCreatedAt(db, tenantId, services);
+  const chosen = new Map<string, (typeof rows)[number]>();
+  for (const b of rows) if (!chosen.has(b.productId)) chosen.set(b.productId, b);
+  const bomIds = [...chosen.values()].map((b) => b.id);
+  const lines = bomIds.length ? await listBomLinesByBomId(db, bomIds) : [];
+  for (const sv of services) {
+    const bom = chosen.get(sv.id);
+    const ls = bom ? lines.filter((l) => l.bomId === bom.id) : [];
+    const per = bom ? D(bom.outputQty) : D(0);
+    if (!bom || !ls.length || per.lte(0)) continue;
+    out.set(sv.id, ls.map((l) => ({ productId: l.productId, perUnit: D(l.qty).div(per) })));
+  }
+  return out;
+}

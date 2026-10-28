@@ -39,6 +39,23 @@ export class PosRepository {
       .where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId)));
   }
 
+  /** Dipakai oleh PosService.products/staff: pegawai aktif yang boleh dipilih sebagai petugas layanan */
+  listActiveStaff(db: DbOrTx, tenantId: string, ids?: string[]) {
+    return db.execute<{ id: string; name: string }>(sql`
+      SELECT id, name FROM employees WHERE tenant_id = ${tenantId} AND is_active ${ids ? sql`AND id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})` : sql``} ORDER BY name`);
+  }
+
+  /** Dipakai oleh PosService.staffSales: layanan per petugas (baris bonus dan bagian yang diretur tidak dihitung) */
+  queryStaffSales(db: DbOrTx, tenantId: string, from: string, to: string) {
+    return db.execute<{ staff_id: string; name: string; lines: string; qty: string; revenue: string }>(sql`
+      SELECT e.id AS staff_id, e.name, COUNT(*)::text AS lines,
+             SUM(l.qty - l.returned_qty)::text AS qty,
+             SUM(l.line_total * (l.qty - l.returned_qty) / NULLIF(l.qty, 0))::text AS revenue
+      FROM pos_order_lines l JOIN pos_orders o ON o.id = l.order_id JOIN employees e ON e.id = l.staff_id
+      WHERE o.tenant_id = ${tenantId} AND o.date >= ${from} AND o.date <= ${to} AND NOT l.is_bonus
+      GROUP BY e.id, e.name ORDER BY SUM(l.line_total * (l.qty - l.returned_qty) / NULLIF(l.qty, 0)) DESC`);
+  }
+
   /** Dipakai oleh PosService.priceCart: daftar harga toko */
   findWarehousePriceList(db: DbOrTx, tenantId: string, warehouseId: string) {
     return db.select({ priceListId: warehouses.priceListId }).from(warehouses).where(and(eq(warehouses.tenantId, tenantId), eq(warehouses.id, warehouseId)));
@@ -128,6 +145,7 @@ export class PosRepository {
     unitCost: Dec,
     recipe: RecipeComponent[] | undefined,
     isBonus = false,
+    staffId: string | null = null,
   ) {
     return db.insert(posOrderLines).values({
       orderId: id,
@@ -141,6 +159,7 @@ export class PosRepository {
       unitCost: unitCost.toFixed(4),
       fromRecipe: !!recipe,
       isBonus,
+      staffId,
     });
   }
 

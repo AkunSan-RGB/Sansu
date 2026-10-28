@@ -17,6 +17,7 @@ const PRODUCTS = [
   product({ id: 'kopi', sku: 'KOPI', name: 'Kopi Susu', sellPrice: '15000', stock: '10' }),
   product({ id: 'teh', sku: 'TEH', name: 'Teh Manis', sellPrice: '8000', stock: '1' }),
   product({ id: 'gratis', sku: 'GRT', name: 'Tanpa Harga', sellPrice: '0', stock: '9' }),
+  product({ id: 'servis', sku: 'SRV', name: 'Servis Ringan', sellPrice: '150000', stock: '0', isService: true }),
 ];
 const session = { id: 'ses-1', number: 'KS-0001', warehouse: { id: 'wh-1', name: 'Toko Utama' }, summary: { orderCount: 0, totalSales: '0', byMethod: {}, openingCash: '0', expectedCash: '0' } } as unknown as PosSession;
 
@@ -26,6 +27,7 @@ describe('Kasir (Register)', { timeout: 30_000 }, () => {
     post.mockReset();
     get.mockImplementation(async (url: string) => {
       if (url.startsWith('/pos/products')) return PRODUCTS;
+      if (url.startsWith('/pos/staff')) return [{ id: 'e1', name: 'Teknisi Andi' }];
       if (url.startsWith('/loyalty/settings')) return { enabled: false, earnPerRp: 10000, pointValueRp: 100, minRedeemPoints: 10, maxRedeemPct: 50, expiryMonths: 12 };
       return [];
     });
@@ -60,6 +62,13 @@ describe('Kasir (Register)', { timeout: 30_000 }, () => {
     await screen.findByText(/Harga jual Tanpa Harga belum diisi/);
     expect(screen.getByText('Keranjang (0)')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Bayar/ })).toBeDisabled();
+  });
+
+  it('layanan tanpa stok bisa masuk keranjang dan meminta petugas', async () => {
+    renderWithProviders(<Register session={session} />);
+    fireEvent.click(await screen.findByText('Servis Ringan'));
+    await screen.findByText('Keranjang (1)');
+    expect(screen.getByText('Petugas yang mengerjakan')).toBeInTheDocument();
   });
 
   it('bayar tunai pas: pesanan dikirim sekali dengan baris dan pembayaran yang benar', async () => {

@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsDateString, IsIn, IsNumberString, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsDateString, IsIn, IsInt, Max, Min, IsNumberString, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateNested } from 'class-validator';
 import { PAYMENT_METHODS } from '@sansu/shared';
 
 export class ServiceLineDto {
@@ -30,6 +30,7 @@ export class CreateServiceInvoiceDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) description?: string;
   @ApiPropertyOptional() @IsOptional() @IsUUID() projectId?: string;
   @ApiPropertyOptional({ example: 'Termin 1 (30%)' }) @IsOptional() @IsString() @MaxLength(80) termLabel?: string;
+  @ApiPropertyOptional({ description: 'Proyek beretensi: true = tagih penuh tanpa memecah retensi (Admin; tercatat di audit)' }) @IsOptional() @IsBoolean() withoutRetention?: boolean;
   @ApiPropertyOptional({ description: 'Dikenai PPN (bawaan ya bila PKP)' })
   @IsOptional()
   @IsBoolean()
@@ -68,6 +69,8 @@ export class CreateProjectDto {
   @ApiPropertyOptional() @IsOptional() @IsDateString() startDate?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() endDate?: string;
   @ApiPropertyOptional({ example: '90000000', description: 'Anggaran biaya langsung proyek (0/kosong = tanpa anggaran)' }) @IsOptional() @IsNumberString() costBudget?: string;
+  @ApiPropertyOptional({ example: '5', description: 'Retensi (%): bagian tiap termin yang ditagih terpisah dan jatuh tempo setelah masa pemeliharaan' }) @IsOptional() @IsNumberString() retentionPct?: string;
+  @ApiPropertyOptional({ example: 180, description: 'Masa pemeliharaan (hari) sebelum retensi jatuh tempo' }) @IsOptional() @IsInt() @Min(0) @Max(3650) retentionDays?: number;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(1000) notes?: string;
 }
 
@@ -78,6 +81,8 @@ export class UpdateProjectDto {
   @IsNumberString()
   contractValue?: string;
   @ApiPropertyOptional({ description: 'Anggaran biaya langsung proyek (0 = tanpa anggaran)' }) @IsOptional() @IsNumberString() costBudget?: string;
+  @ApiPropertyOptional({ description: 'Retensi (%) untuk termin berikutnya; termin yang sudah ditagih tidak berubah' }) @IsOptional() @IsNumberString() retentionPct?: string;
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) @Max(3650) retentionDays?: number;
   @ApiPropertyOptional() @IsOptional() @IsDateString() endDate?: string;
   @ApiPropertyOptional({ enum: ['ACTIVE', 'DONE', 'CANCELLED'] })
   @IsOptional()

@@ -53,6 +53,10 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   madeToOrder?: boolean;
+  @ApiPropertyOptional({ description: 'Layanan tanpa stok (jenis usaha Jasa): dijual di kasir; bahan habis pakai opsional lewat resep aktif' })
+  @IsOptional()
+  @IsBoolean()
+  isService?: boolean;
   @ApiPropertyOptional({ example: 3, description: 'Umur simpan (hari). Hasil produksi barang ini otomatis dipantau kedaluwarsanya; kosong = tidak dipantau' })
   @IsOptional()
   @IsInt()

@@ -369,3 +369,94 @@ export async function ritelHargaToko(c: Demo, rows: { productId: string; price: 
   await c.step('promo diskon kasir', () => c.svc.pricing.createPromo(c.admin, { name: promo.name, kind: 'DISCOUNT', productId: promo.productId, minQty: promo.minQty, discountPct: promo.discountPct, isActive: true }));
   if (bonus) await c.step('promo bonus kasir', () => c.svc.pricing.createPromo(c.admin, { name: bonus.name, kind: 'BONUS', productId: bonus.productId, minQty: bonus.minQty, bonusProductId: bonus.bonusProductId, bonusQty: bonus.bonusQty, isActive: true }));
 }
+
+/** Jasa: layanan di kasir (tanpa stok) dengan petugas dan satu layanan berbahan habis pakai lewat resep, beberapa hari penjualan */
+export async function jasaKasir(c: Demo) {
+  const { withSimulatedDay } = await import('../../common/utils/dates');
+  const staff = await c.db.select({ id: employees.id }).from(employees).where(eq(employees.tenantId, c.tenantId));
+  const svc: { id: string; price: number }[] = [];
+  for (const [sku, name, price] of [['LY-KONS', 'Konsultasi singkat', 150_000], ['LY-AUDIT', 'Pemeriksaan sistem (per kunjungan)', 350_000], ['LY-SETUP', 'Instalasi & konfigurasi perangkat', 275_000]] as const) {
+    const p = (await c.step(`layanan ${sku}`, () => c.svc.products.create(c.tenantId, { sku, name, baseUom: 'KUNJUNGAN', sellPrice: String(price), category: 'Konsultasi', isService: true }))) as { id: string } | undefined;
+    if (p) svc.push({ id: p.id, price });
+  }
+  if (!svc.length || !staff.length) return;
+  for (const day of [6, 4, 2, 1]) {
+    await withSimulatedDay(c.ago(day), async () => {
+      const s = await c.svc.pos.open(c.admin, { warehouseId: c.wh, openingCash: '200000' });
+      for (let i = 0; i < 3; i++) {
+        const l = svc[(i + day) % svc.length];
+        await c.step('transaksi layanan', () =>
+          c.svc.pos.createOrder(c.admin, {
+            sessionId: s.id,
+            lines: [{ productId: l.id, qty: '1', price: String(l.price), staffId: staff[(i + day) % staff.length].id }],
+            payments: [{ method: 'CASH', amount: String(Math.ceil((l.price * 1.11) / 10_000) * 10_000) }],
+          }),
+        );
+      }
+      const cur = (await c.svc.pos.current(c.admin)) as { summary: { expectedCash: string } } | null;
+      await c.svc.pos.close(c.admin, s.id, { countedCash: String(Number(cur?.summary.expectedCash ?? 200000)) });
+    });
+  }
+}
+
+/** Jasa kontraktor: proyek beretensi dengan BoQ, kemajuan dari volume selesai, dan termin yang dipecah otomatis menjadi tagihan jalan + tagihan retensi */
+export async function kontraktorRetensi(c: Demo, customerId: string) {
+  const p = (await c.step('proyek kontraktor', () => c.svc.projects.createProject(c.admin, { code: 'KTR-01', name: 'Renovasi gedung kantor lantai 2', customerId, contractValue: '180000000', retentionPct: '5', retentionDays: 180, startDate: c.ago(30), endDate: c.ago(-60) }))) as { id: string } | undefined;
+  if (!p) return;
+  await c.step('BoQ proyek', () =>
+    c.svc.contracting.saveBoq(c.admin, p.id, {
+      syncContract: true,
+      items: [
+        { code: 'A.1', description: 'Pekerjaan persiapan & bongkaran', unit: 'ls', qty: '1', unitPrice: '15000000' },
+        { code: 'B.1', description: 'Pasangan dinding bata ringan', unit: 'm2', qty: '240', unitPrice: '185000' },
+        { code: 'C.1', description: 'Pekerjaan lantai keramik', unit: 'm2', qty: '320', unitPrice: '310000' },
+        { code: 'D.1', description: 'Instalasi listrik & plafon', unit: 'ls', qty: '1', unitPrice: '21600000' },
+      ],
+    }),
+  );
+  const boq = (await c.svc.contracting.boq(c.tenantId, p.id)) as { items: { id: string; qty: string }[] };
+  await c.step('kemajuan dari BoQ', () =>
+    c.svc.contracting.boqProgress(c.admin, p.id, { date: c.ago(8), notes: 'Opname lapangan', items: boq.items.map((i, k) => ({ itemId: i.id, completedQty: String(k < 2 ? Number(i.qty) : Number(i.qty) / 2) })) }),
+  );
+  await c.step('termin beretensi', () => c.svc.contracting.createInvoice(c.admin, { customerId, projectId: p.id, date: c.ago(7), termLabel: 'Termin 1', withVat: false, lines: [{ description: 'Termin 1 — pekerjaan persiapan, dinding, sebagian lantai', price: '90000000' }] }));
+}
+
+/** Jasa pendidikan: dua kelas, peserta dengan wali (saudara kandung diskon), satu keluar, SPP dua bulan terakhir sudah ditagih */
+export async function pendidikanSpp(c: Demo, walis: string[]) {
+  const month = (ago: number) => c.ago(ago).slice(0, 7);
+  const mk = async (code: string, name: string, fee: string, capacity: number) =>
+    (await c.step(`kelas ${code}`, () => c.svc.education.createClass(c.admin, { code, name, monthlyFee: fee, capacity, startDate: c.ago(120) }))) as { id: string } | undefined;
+  const mat = await mk('MAT-7', 'Matematika kelas 7', '350000', 12);
+  const ing = await mk('ING-1', 'Bahasa Inggris dasar', '275000', 10);
+  if (!mat || !ing || !walis.length) return;
+  const w = (i: number) => walis[i % walis.length];
+  const people: [string, string, number, number, string?][] = [['Andi Pratama', mat.id, 0, 110], ['Budi Pratama', mat.id, 0, 110, '10'], ['Citra Lestari', mat.id, 1, 100], ['Dewi Anggraini', ing.id, 1, 95], ['Eko Saputra', ing.id, 0, 80]];
+  const ids: string[] = [];
+  for (const [name, classId, wi, ago, disc] of people) {
+    const e = (await c.step(`peserta ${name}`, () => c.svc.education.enroll(c.admin, { classId, customerId: w(wi), studentName: name, enrolledOn: c.ago(ago), discountPct: disc }))) as { id: string } | undefined;
+    if (e) ids.push(e.id);
+  }
+  if (ids[4]) await c.step('peserta keluar', () => c.svc.education.leave(c.admin, ids[4], { leftOn: c.ago(40), reason: 'Pindah domisili' }));
+  for (const ago of [62, 32]) await c.step(`SPP ${month(ago)}`, () => c.svc.education.bill(c.admin, { period: month(ago), date: c.ago(ago) }));
+}
+
+/** Jasa alih daya: kontrak per lokasi dengan dua pos, jadwal jaga sebagian terpenuhi, satu bulan lalu ditagih dengan potongan kekurangan */
+export async function kontrakLokasi(c: Demo, customerId: string) {
+  const staff = await c.db.select({ id: employees.id }).from(employees).where(eq(employees.tenantId, c.tenantId));
+  if (staff.length < 2) return;
+  const created = (await c.step('kontrak lokasi', () =>
+    c.svc.sites.create(c.admin, { customerId, siteName: 'Gedung Menara Satu', title: 'Jasa pengamanan', startDate: c.ago(75), posts: [{ name: 'Satpam shift pagi', headcount: 2, monthlyRate: '4200000' }, { name: 'Satpam shift malam', headcount: 1, monthlyRate: '4500000' }] }),
+  )) as { id: string } | undefined;
+  if (!created) return;
+  const sites = (await c.svc.sites.list(c.tenantId)) as { id: string; posts: { id: string; name: string }[] }[];
+  const posts = sites.find((s) => s.id === created.id)?.posts ?? [];
+  const pagi = posts.find((p) => p.name.includes('pagi'));
+  const malam = posts.find((p) => p.name.includes('malam'));
+  if (!pagi || !malam) return;
+  await c.step('jaga pagi', () => c.svc.sites.assign(c.admin, created.id, { postId: pagi.id, employeeId: staff[0].id, from: c.ago(40), to: c.ago(10) }));
+  await c.step('jaga pagi 2', () => c.svc.sites.assign(c.admin, created.id, { postId: pagi.id, employeeId: staff[1].id, from: c.ago(40), to: c.ago(25) }));
+  const night = staff[staff.length > 2 ? 2 : 1].id;
+  await c.step('jaga malam 1', () => c.svc.sites.assign(c.admin, created.id, { postId: malam.id, employeeId: night, from: c.ago(70), to: c.ago(35) }));
+  await c.step('jaga malam 2', () => c.svc.sites.assign(c.admin, created.id, { postId: malam.id, employeeId: night, from: c.ago(34), to: c.ago(5) }));
+  await c.step('tagih kontrak lokasi', () => c.svc.sites.bill(c.admin, created.id, { period: c.ago(62).slice(0, 7), date: c.ago(55), deductShortfall: true }));
+}

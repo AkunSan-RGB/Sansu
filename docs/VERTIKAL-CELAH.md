@@ -34,6 +34,22 @@ Semua fitur memakai lapisan yang sudah ada (controller → service → repositor
 - Catatan waktu yang tercakup ditandai *BILLED* pada faktur retainer, jadi tidak dapat ditagih ulang lewat penagihan timesheet. Catatan yang masih draf/diajukan pada bulan itu menahan penagihan sampai diputuskan.
 - Perubahan jatah/tarif hanya berlaku untuk periode yang belum ditagih.
 
+### Jasa untuk jenis perusahaan jasa lain
+Jenis usaha Jasa semula paling cocok untuk konsultan/agensi (proyek, timesheet, retainer). Empat tambahan membuat jenis lain dapat memakainya. Semuanya memakai faktur jasa yang sama (piutang pembantu = buku besar).
+
+**Kasir & katalog layanan** (bengkel, salon, klinik non-medis): `products.is_service` (layanan tanpa stok), kasir untuk Jasa, petugas per baris (`pos_order_lines.staff_id`) dan laporan kinerja petugas. Layanan tidak boleh masuk dokumen barang. Bahan habis pakai opsional lewat resep (dipotong saat dijual).
+
+**Kontraktor** (`0123`): retensi per proyek (`retention_pct`, `retention_days`). Termin proyek beretensi otomatis dipecah satu transaksi menjadi faktur jalan (100−r%) dan **faktur retensi** terpisah (`retention_of_invoice_id`) yang jatuh tempo setelah masa pemeliharaan. Keduanya faktur biasa sehingga umur piutang dan pembayaran bekerja apa adanya; pendapatan/PPN tetap diakui saat termin. Pencairan = memajukan jatuh tempo faktur retensi (Admin/Keuangan, alasan tercatat). BoQ/RAB (`project_boq_items`): item, volume, harga satuan; volume selesai kumulatif per item (tidak boleh turun/melebihi volume) menghitung persentase kemajuan dari nilai item lalu dicatat lewat alur kemajuan yang sudah ada.
+- **Belum ada**: kemajuan subkontraktor, addendum nilai kontrak berversi, jaminan pelaksanaan/bank garansi, pemecahan retensi pada faktur selain termin proyek.
+
+**Pendidikan/kursus** (`0124`): kelas (kode, SPP, kuota), peserta terdaftar yang ditagih ke wali, SPP bulanan: satu faktur per wali dengan satu baris per peserta (`edu_fee_invoices` unik per peserta-periode, jadi tidak bisa ditagih dua kali walau serentak). Diskon saudara/beasiswa per peserta; peserta keluar berhenti ditagih mulai bulan berikutnya.
+- **Belum ada**: prorata bulan masuk/keluar (bulan itu ditagih penuh), uang pangkal/registrasi sebagai komponen terpisah, absensi/nilai/rapor, portal wali, pembayaran SPP tahunan dimuka (pendapatan ditangguhkan).
+
+**Kontrak per lokasi** (kebersihan/keamanan/alih daya, `0125`): kontrak per lokasi dengan pos (jumlah petugas × tarif), jadwal jaga harian (satu petugas satu pos per hari, di dalam masa kontrak), cakupan per hari, dan tagihan bulanan satu faktur per kontrak (satu baris per pos). Bila dipilih, tagihan dipotong sebesar kekurangan petugas (hari-orang ÷ hari dalam bulan) dan jumlah kekurangan tercatat di kontrak.
+- **Belum ada**: absensi nyata petugas (jadwal = rencana, bukan kehadiran), penggantian shift/lembur, tagihan per jam/penjagaan khusus, penggajian otomatis dari jadwal jaga.
+
+**Sengaja tidak dipaksakan**: klinik dengan rekam medis (data kesehatan memerlukan persetujuan, retensi, dan kontrol akses tersendiri) dan jasa keuangan (kewajiban regulator yang berbeda). Untuk jenis ini sistem hanya cocok sebagai pembukuan jasa biasa.
+
 ## Ritel
 
 ### Daftar harga toko dan promo di kasir

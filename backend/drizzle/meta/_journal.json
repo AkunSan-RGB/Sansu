@@ -855,6 +855,34 @@
       "when": 1798828686484,
       "tag": "0121_kasir_bonus",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1798915086484,
+      "tag": "0122_layanan_kasir",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1799001486484,
+      "tag": "0123_retensi_boq",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1799001487484,
+      "tag": "0124_pendidikan_kelas",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1799001488484,
+      "tag": "0125_kontrak_lokasi",
+      "breakpoints": true
     }
   ]
 }

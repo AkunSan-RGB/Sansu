@@ -45,6 +45,9 @@ import { documentTotals } from '../sales/pricing';
 import { ServiceBillingService } from '../sales/services/service-billing.service';
 import { CustomerDepositsService } from '../sales/services/customer-deposits.service';
 import { ServiceProjectsService } from '../sales/services/service-projects.service';
+import { SiteContractsService } from '../sales/services/site-contracts.service';
+import { EducationService } from '../sales/services/education.service';
+import { ServiceContractingService } from '../sales/services/service-contracting.service';
 import { PricingService } from '../sales/pricing/price-lists.service';
 import { AdjustmentsService } from '../utility-ops/adjustments.service';
 import { ApplicationsService } from '../utility-ops/applications.service';
@@ -99,6 +102,9 @@ export interface Demo {
     billing: ServiceBillingService;
     deposits: CustomerDepositsService;
     projects: ServiceProjectsService;
+    contracting: ServiceContractingService;
+    education: EducationService;
+    sites: SiteContractsService;
     pricing: PricingService;
     assets: AssetsService;
     bank: BankService;
@@ -223,6 +229,9 @@ export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: 
       billing: get(ServiceBillingService),
       deposits: get(CustomerDepositsService),
       projects: get(ServiceProjectsService),
+      contracting: get(ServiceContractingService),
+      education: get(EducationService),
+      sites: get(SiteContractsService),
       pricing: get(PricingService),
       assets: get(AssetsService),
       bank: get(BankService),

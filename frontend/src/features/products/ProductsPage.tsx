@@ -19,7 +19,7 @@ import { t } from '@/lib/terms';
 interface Opt { value: string; label: string }
 interface ProductOptions {
   model: string;
-  form: { barcode: boolean; packs: boolean; menu: boolean; semi: boolean; shelfLife: boolean; skuLabel: string; nameLabel: string; baseUomLabel: string; priceLabel: string; note: string | null };
+  form: { barcode: boolean; packs: boolean; menu: boolean; semi: boolean; shelfLife: boolean; service?: boolean; skuLabel: string; nameLabel: string; baseUomLabel: string; priceLabel: string; note: string | null };
   categories: { value: string; source: 'PRESET' | 'CUSTOM' | 'USED' }[];
   baseUoms: Opt[];
   packUoms: Opt[];
@@ -36,6 +36,7 @@ interface FormValues {
   isActive?: boolean;
   semi?: boolean;
   madeToOrder?: boolean;
+  isService?: boolean;
   shelfLifeDays?: number | null;
   weightKg?: number | null;
 }
@@ -70,6 +71,7 @@ export default function ProductsPage() {
         barcode: useMfr && v.barcode ? v.barcode : undefined,
         inventoryKind: v.semi ? 'SEMI' : 'GOODS',
         madeToOrder: !!v.madeToOrder && !v.semi,
+        isService: !!v.isService,
         shelfLifeDays: v.shelfLifeDays ?? null,
         weightKg: v.weightKg == null ? null : String(v.weightKg),
         uoms: (v.uoms ?? []).map((u) => ({ uom: u.uom.toUpperCase(), factor: String(u.factor) })),
@@ -91,6 +93,7 @@ export default function ProductsPage() {
         sellPrice: Number(p.sellPrice),
         semi: p.inventoryKind === 'SEMI',
         madeToOrder: !!p.madeToOrder,
+        isService: !!p.isService,
         shelfLifeDays: p.shelfLifeDays ?? undefined,
         weightKg: p.weightKg == null ? undefined : Number(p.weightKg),
         uoms: p.uoms.map((u) => ({ uom: u.uom, factor: Number(u.factor) })),
@@ -259,6 +262,15 @@ export default function ProductsPage() {
               )
             }
           </Form.Item>
+          {f?.service && (
+            <Form.Item
+              name="isService"
+              valuePropName="checked"
+              extra="Layanan dijual di Kasir tanpa stok (servis, potong rambut, konsultasi). Bila perlu bahan habis pakai, buat resepnya di Produksi › Resep: bahan terpotong otomatis saat dijual. Tidak bisa dipakai di pesanan barang dan tidak punya stok."
+            >
+              <Checkbox>Layanan (tanpa stok)</Checkbox>
+            </Form.Item>
+          )}
           {f?.shelfLife && (
             <Form.Item name="shelfLifeDays" label="Umur simpan (hari, opsional)" extra="Isi untuk barang yang cepat basi (roti, kue, olahan segar): hasil produksinya otomatis dipantau di Persediaan › Kedaluwarsa bahan, tanggal kedaluwarsa = tanggal selesai + umur simpan.">
               <InputNumber min={1} max={3650} precision={0} style={{ width: 160 }} />

@@ -39,6 +39,9 @@ export const projects = pgTable(
     contractValue: money('contract_value').notNull().default('0'),
     /** Anggaran biaya langsung proyek; 0 = tanpa anggaran (tidak dipantau) */
     costBudget: money('cost_budget').notNull().default('0'),
+    /** Retensi kontraktor: persen tiap termin yang ditagih terpisah dan jatuh tempo setelah masa pemeliharaan */
+    retentionPct: numeric('retention_pct', { precision: 5, scale: 2 }).notNull().default('0'),
+    retentionDays: integer('retention_days').notNull().default(180),
     startDate: date('start_date'),
     endDate: date('end_date'),
     status: text('status').$type<'ACTIVE' | 'DONE' | 'CANCELLED'>().notNull().default('ACTIVE'),
@@ -46,6 +49,27 @@ export const projects = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('projects_code_uq').on(t.tenantId, t.code)],
+);
+
+/** BoQ / RAB proyek: item pekerjaan dengan volume, harga satuan, dan volume yang sudah selesai (dasar persentase kemajuan) */
+export const projectBoqItems = pgTable(
+  'project_boq_items',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    lineNo: integer('line_no').notNull(),
+    code: text('code'),
+    description: text('description').notNull(),
+    unit: text('unit').notNull(),
+    qty: qty('qty').notNull(),
+    unitPrice: money('unit_price').notNull(),
+    completedQty: qty('completed_qty').notNull().default('0'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('project_boq_items_project_idx').on(t.projectId, t.lineNo)],
 );
 
 /** Uang muka (DP) dari pelanggan: dicatat sebagai liabilitas sampai dipakai melunasi faktur */
@@ -286,4 +310,134 @@ export const serviceRetainerInvoices = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('service_retainer_invoices_uq').on(t.retainerId, t.period)],
+);
+
+/** Pendidikan/kursus: kelas dengan SPP bulanan */
+export const eduClasses = pgTable(
+  'edu_classes',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    monthlyFee: money('monthly_fee').notNull(),
+    capacity: integer('capacity'),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('edu_classes_code_uq').on(t.tenantId, t.code)],
+);
+
+/** Peserta terdaftar di kelas; tagihan SPP ditujukan ke wali/pelanggan */
+export const eduEnrollments = pgTable(
+  'edu_enrollments',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    classId: uuid('class_id')
+      .notNull()
+      .references(() => eduClasses.id),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    studentName: text('student_name').notNull(),
+    enrolledOn: date('enrolled_on').notNull(),
+    leftOn: date('left_on'),
+    discountPct: numeric('discount_pct', { precision: 5, scale: 2 }).notNull().default('0'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('edu_enrollments_class_idx').on(t.classId), index('edu_enrollments_customer_idx').on(t.customerId)],
+);
+
+/** SPP yang sudah ditagih: satu baris per peserta per periode (unik, anti tagih ganda) */
+export const eduFeeInvoices = pgTable(
+  'edu_fee_invoices',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    enrollmentId: uuid('enrollment_id')
+      .notNull()
+      .references(() => eduEnrollments.id),
+    period: text('period').notNull(),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => invoices.id),
+    amount: money('amount').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('edu_fee_invoices_uq').on(t.enrollmentId, t.period)],
+);
+
+/** Kontrak per lokasi (kebersihan/keamanan/alih daya): pos jaga dengan jumlah petugas, ditagih bulanan */
+export const siteContracts = pgTable(
+  'site_contracts',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    siteName: text('site_name').notNull(),
+    title: text('title').notNull(),
+    withVat: boolean('with_vat'),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [index('site_contracts_customer_idx').on(t.customerId)],
+);
+
+export const sitePosts = pgTable(
+  'site_posts',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    contractId: uuid('contract_id')
+      .notNull()
+      .references(() => siteContracts.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    headcount: integer('headcount').notNull(),
+    monthlyRate: money('monthly_rate').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('site_posts_contract_idx').on(t.contractId)],
+);
+
+/** Jadwal jaga harian: satu petugas satu pos per hari */
+export const siteDuty = pgTable(
+  'site_duty',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    postId: uuid('post_id')
+      .notNull()
+      .references(() => sitePosts.id, { onDelete: 'cascade' }),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => employees.id),
+    dutyDate: date('duty_date').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('site_duty_employee_day_uq').on(t.employeeId, t.dutyDate), index('site_duty_post_day_idx').on(t.postId, t.dutyDate)],
+);
+
+export const siteContractInvoices = pgTable(
+  'site_contract_invoices',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    contractId: uuid('contract_id')
+      .notNull()
+      .references(() => siteContracts.id),
+    period: text('period').notNull(),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => invoices.id),
+    shortfallHeadDays: numeric('shortfall_head_days', { precision: 10, scale: 2 }).notNull().default('0'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('site_contract_invoices_uq').on(t.contractId, t.period)],
 );
