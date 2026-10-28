@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../../db/db';
 import { type Project } from '@sansu/shared';
 import { sql, eq, desc, and, asc } from 'drizzle-orm';
-import { projectCostsSql } from './project-costs';
+import { projectCostsSql } from '../../../common/project-costs';
 import { projects, projectProgress, customers } from '../../../db/schema';
 import { money } from '../../../common/utils/money';
 import { toDocDate } from '../../../common/utils/dates';

@@ -102,7 +102,7 @@ async function seedRitel(c: Demo) {
   await X.attendance(c);
   await X.stockOps(c, ids, RITEL.map((p) => p.sku), { saleInvoiceId: ritelUnpaid, billId: c.last.bill, supplierId: sup.get('SUP-FMCG') });
   await F.loyalty(c);
-  await F.ritelHargaToko(c, [{ productId: ids.get('RT-BERAS')!, price: '77500' }, { productId: ids.get('RT-MINYAK')!, price: '17000' }], { productId: ids.get('RT-MIE')!, minQty: '10', discountPct: '5', name: 'Mi instan diskon 5% min 10 bungkus' });
+  await F.ritelHargaToko(c, [{ productId: ids.get('RT-BERAS')!, price: '77500' }, { productId: ids.get('RT-MINYAK')!, price: '17000' }], { productId: ids.get('RT-MIE')!, minQty: '10', discountPct: '5', name: 'Mi instan diskon 5% min 10 bungkus' }, { productId: ids.get('RT-KOPI')!, minQty: '3', bonusProductId: ids.get('RT-TEH')!, bonusQty: '1', name: 'Beli 3 kopi gratis 1 teh' });
   await F.minimums(c, [...ids.values()]);
   await F.priceAgreements(c, [
     { supplierId: sup.get('SUP-GROSIR')!, productId: ids.get('RT-BERAS')!, price: 67500 },

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
 import { sql, and, eq } from 'drizzle-orm';
-import { projectCostsSql } from '../sales/services/project-costs';
+import { projectCostsSql } from '../../common/project-costs';
 import { SYS } from '../accounting/default-coa';
 import { fiscalYears, fiscalAdjustments } from '../../db/schema';
 import { money } from '../../common/utils/money';

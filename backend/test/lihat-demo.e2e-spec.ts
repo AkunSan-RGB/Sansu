@@ -94,7 +94,7 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(s('FMCG'), 'sales_returns')).toBeGreaterThanOrEqual(4);
     // Ritel: daftar harga toko terpasang di gudang + promo diskon kasir
     expect(await count(s('RITEL'), 'price_lists')).toBe(1);
-    expect(await count(s('RITEL'), 'promos')).toBe(1);
+    expect(await count(s('RITEL'), 'promos')).toBe(2);
     const prc = async (q: string) => Number((await db.execute<{ n: string }>(sql.raw(q))).rows[0].n);
     expect(await prc(`SELECT COUNT(*)::text AS n FROM warehouses WHERE tenant_id = '${s('RITEL')}' AND price_list_id IS NOT NULL`)).toBe(1);
     // Jasa: anggaran biaya proyek dan retainer berjatah jam
@@ -103,6 +103,9 @@ describe('Lihat Demo (e2e)', () => {
     // Manufaktur: riwayat versi resep dan satu perintah subkontrak selesai dengan tagihan jasa
     expect(await count(s('MANUFAKTUR'), 'bom_revisions')).toBeGreaterThanOrEqual(2);
     expect(await prc(`SELECT COUNT(*)::text AS n FROM production_orders WHERE tenant_id = '${s('MANUFAKTUR')}' AND subcontractor_id IS NOT NULL AND subcontract_bill_id IS NOT NULL AND status = 'COMPLETED'`)).toBe(1);
+    // satu tagihan maklon dibagi ke dua perintah (satu masih berjalan: bahan di tangan maklon)
+    expect(await prc(`SELECT COUNT(DISTINCT subcontract_bill_id)::text AS n FROM production_orders WHERE tenant_id = '${s('MANUFAKTUR')}' AND subcontract_bill_id IS NOT NULL`)).toBe(1);
+    expect(await prc(`SELECT COUNT(*)::text AS n FROM production_orders WHERE tenant_id = '${s('MANUFAKTUR')}' AND subcontract_bill_id IS NOT NULL`)).toBe(2);
     expect(await count(s('MANUFAKTUR'), 'production_orders')).toBeGreaterThan(2);
     expect(await count(s('RITEL'), 'production_orders')).toBe(0);
     expect(await count(s('DAGANG'), 'pos_orders')).toBe(0);

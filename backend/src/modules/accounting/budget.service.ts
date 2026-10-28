@@ -268,6 +268,43 @@ export class BudgetService {
     throw this.approvals.required(req.id, `Transaksi ini melewati anggaran (${detail}); permintaan dikirim ke pemilik atau admin dan diproses setelah disetujui.`);
   }
 
+  /**
+   * Anggaran biaya per proyek (usaha jasa): memakai mode kendali anggaran yang sama (OFF / APPROVAL / BLOCK).
+   * Biaya baru yang membuat biaya langsung proyek melewati anggarannya ditolak (Pemilik dapat menembus dengan alasan) atau menunggu persetujuan.
+   */
+  async guardProject(
+    user: AuthUser,
+    items: { projectId: string; amount: Dec }[],
+    ctx: { kind: ApprovalKind; title: string; payload: Record<string, unknown>; approved?: boolean; overrideReason?: string },
+  ) {
+    if (ctx.approved || !items.length) return;
+    const mode = (await this.approvals.policy(this.db, user.tenantId)).budgetControl ?? 'OFF';
+    if (mode === 'OFF') return;
+    const usage = await this.repo.listProjectBudgetUsage(this.db, user.tenantId, [...new Set(items.map((i) => i.projectId))]);
+    const over: { code: string; name: string; budget: string; actual: string; amount: string }[] = [];
+    for (const u of usage) {
+      const amount = items.filter((i) => i.projectId === u.id).reduce<Dec>((s, i) => s.plus(i.amount), ZERO);
+      if (D(u.direct_cost).plus(amount).gt(u.cost_budget)) over.push({ code: u.code, name: u.name, budget: D(u.cost_budget).toFixed(2), actual: D(u.direct_cost).toFixed(2), amount: amount.toFixed(2) });
+    }
+    if (!over.length) return;
+    const rp = (v: string) => `Rp${Math.round(Number(v)).toLocaleString('id-ID')}`;
+    const detail = over.map((o) => `proyek ${o.code} ${o.name}: anggaran biaya ${rp(o.budget)}, biaya langsung ${rp(o.actual)}, transaksi ini ${rp(o.amount)}`).join('; ');
+    if (mode === 'BLOCK') {
+      if (user.role === 'OWNER' && (ctx.overrideReason?.trim().length ?? 0) >= 10) {
+        await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'BUDGET_OVERRIDE', entity: 'ProjectBudget', entityId: user.tenantId, data: { over, reason: ctx.overrideReason!.trim(), title: ctx.title } });
+        return;
+      }
+      throw new BadRequestException({ statusCode: 400, code: 'BUDGET_EXCEEDED', message: `Melebihi anggaran proyek: ${detail}.${user.role === 'OWNER' ? ' Isi alasan (min. 10 karakter) untuk menembus sebagai Pemilik.' : ' Hubungi Pemilik atau naikkan anggaran proyek.'}`, over });
+    }
+    if (this.approvals.isApprover(user.role)) {
+      await this.audit.log(this.db, { tenantId: user.tenantId, userId: user.sub, action: 'BUDGET_OVERRIDE', entity: 'ProjectBudget', entityId: user.tenantId, data: { over, title: ctx.title } });
+      return;
+    }
+    const total = items.reduce<Dec>((s, x) => s.plus(x.amount), ZERO);
+    const req = await this.approvals.create(this.db, user, { kind: ctx.kind, refId: null, title: `${ctx.title} (melebihi anggaran proyek)`, amount: total.toNumber(), payload: ctx.payload });
+    throw this.approvals.required(req.id, `Transaksi ini melewati anggaran proyek (${detail}); permintaan dikirim ke pemilik atau admin dan diproses setelah disetujui.`);
+  }
+
   async alertAll() {
     const year = Number(todayJakarta().slice(0, 4));
     const list = await this.repo.listBudgetsByYearAndStatus(this.db, year);

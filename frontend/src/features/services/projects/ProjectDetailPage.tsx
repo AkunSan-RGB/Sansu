@@ -191,7 +191,7 @@ export function ProjectDetailPage() {
           >
             <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
           </Form.Item>
-          <Form.Item name="costBudget" label="Anggaran biaya langsung" extra="Biaya langsung proyek dipantau terhadap angka ini (peringatan di 80%, merah bila melampaui). 0 = tidak dipantau.">
+          <Form.Item name="costBudget" label="Anggaran biaya langsung" extra="Biaya langsung proyek dipantau terhadap angka ini (peringatan di 80%, merah bila melampaui). 0 = tidak dipantau. Bila Kendali anggaran di Persetujuan diset Blokir/Persetujuan, tagihan dan kas keluar bertanda proyek yang melewati angka ini ditolak atau menunggu persetujuan.">
             <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
           </Form.Item>
           <Form.Item name="status" label="Status">

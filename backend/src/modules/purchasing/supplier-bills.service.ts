@@ -51,6 +51,13 @@ export class SupplierBillsService {
         overrideReason: dto.budgetOverrideReason,
       },
     );
+    if (dto.projectId) {
+      await this.budget.guardProject(
+        user,
+        [{ projectId: dto.projectId, amount: dto.lines.filter((l) => l.type !== 'ASSET').reduce<Dec>((a, l) => a.plus(money(D(l.qty ?? '1').times(l.price))), ZERO) }],
+        { kind: 'BILL', title: `Tagihan ${dto.supplierInvoiceNo}`, payload: JSON.parse(JSON.stringify(dto)), approved: opts.approved, overrideReason: dto.budgetOverrideReason },
+      );
+    }
     const result = await this.db.transaction(async (tx) => {
       const supplier = await this.repo.supplierOfTenant(tx, user.tenantId, dto.supplierId);
       if (!supplier) throw new NotFoundException('Supplier tidak ditemukan');
