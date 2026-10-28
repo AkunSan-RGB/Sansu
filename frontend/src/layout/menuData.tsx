@@ -189,6 +189,7 @@ export const MENU: Group[] = [
           { key: '/scheduling', label: 'Jadwal sumber daya', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
           { key: '/timesheets', label: 'Lembar waktu', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
           { key: '/retainers', label: 'Retainer', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/sites', label: 'Kontrak lokasi', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/education', label: 'Kelas & SPP', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/customer-deposits', label: t('Uang muka pelanggan'), hideFor: ['RITEL'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
           { key: '/deliveries', label: 'Surat jalan', hideFor: ['JASA', 'RITEL', 'FNB', 'UTILITAS'] },

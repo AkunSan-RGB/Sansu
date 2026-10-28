@@ -116,6 +116,7 @@ import TimesheetPage from './features/services/TimesheetPage';
 import SchedulePage from './features/services/SchedulePage';
 import RetainersPage from './features/services/RetainersPage';
 import EducationPage from './features/services/EducationPage';
+import SiteContractsPage from './features/services/SiteContractsPage';
 import DeptReportPage from './features/laporan/DeptReportPage';
 import WithheldPage from './features/services/WithheldPage';
 import ProductsPage from './features/products/ProductsPage';
@@ -189,6 +190,7 @@ export default function App() {
           <Route path="scheduling" element={<SchedulePage />} />
           <Route path="retainers" element={<RetainersPage />} />
           <Route path="education" element={<EducationPage />} />
+          <Route path="sites" element={<SiteContractsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="customer-deposits" element={<DepositsPage />} />
           <Route path="tax/withheld" element={<WithheldPage />} />

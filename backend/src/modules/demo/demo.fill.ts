@@ -439,3 +439,24 @@ export async function pendidikanSpp(c: Demo, walis: string[]) {
   if (ids[4]) await c.step('peserta keluar', () => c.svc.education.leave(c.admin, ids[4], { leftOn: c.ago(40), reason: 'Pindah domisili' }));
   for (const ago of [62, 32]) await c.step(`SPP ${month(ago)}`, () => c.svc.education.bill(c.admin, { period: month(ago), date: c.ago(ago) }));
 }
+
+/** Jasa alih daya: kontrak per lokasi dengan dua pos, jadwal jaga sebagian terpenuhi, satu bulan lalu ditagih dengan potongan kekurangan */
+export async function kontrakLokasi(c: Demo, customerId: string) {
+  const staff = await c.db.select({ id: employees.id }).from(employees).where(eq(employees.tenantId, c.tenantId));
+  if (staff.length < 2) return;
+  const created = (await c.step('kontrak lokasi', () =>
+    c.svc.sites.create(c.admin, { customerId, siteName: 'Gedung Menara Satu', title: 'Jasa pengamanan', startDate: c.ago(75), posts: [{ name: 'Satpam shift pagi', headcount: 2, monthlyRate: '4200000' }, { name: 'Satpam shift malam', headcount: 1, monthlyRate: '4500000' }] }),
+  )) as { id: string } | undefined;
+  if (!created) return;
+  const sites = (await c.svc.sites.list(c.tenantId)) as { id: string; posts: { id: string; name: string }[] }[];
+  const posts = sites.find((s) => s.id === created.id)?.posts ?? [];
+  const pagi = posts.find((p) => p.name.includes('pagi'));
+  const malam = posts.find((p) => p.name.includes('malam'));
+  if (!pagi || !malam) return;
+  await c.step('jaga pagi', () => c.svc.sites.assign(c.admin, created.id, { postId: pagi.id, employeeId: staff[0].id, from: c.ago(40), to: c.ago(10) }));
+  await c.step('jaga pagi 2', () => c.svc.sites.assign(c.admin, created.id, { postId: pagi.id, employeeId: staff[1].id, from: c.ago(40), to: c.ago(25) }));
+  const night = staff[staff.length > 2 ? 2 : 1].id;
+  await c.step('jaga malam 1', () => c.svc.sites.assign(c.admin, created.id, { postId: malam.id, employeeId: night, from: c.ago(70), to: c.ago(35) }));
+  await c.step('jaga malam 2', () => c.svc.sites.assign(c.admin, created.id, { postId: malam.id, employeeId: night, from: c.ago(34), to: c.ago(5) }));
+  await c.step('tagih kontrak lokasi', () => c.svc.sites.bill(c.admin, created.id, { period: c.ago(62).slice(0, 7), date: c.ago(55), deductShortfall: true }));
+}

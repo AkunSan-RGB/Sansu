@@ -110,6 +110,10 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(s('JASA'), 'edu_classes')).toBe(2);
     expect(await count(s('JASA'), 'edu_enrollments')).toBe(5);
     expect(await count(s('JASA'), 'edu_fee_invoices')).toBeGreaterThanOrEqual(8);
+    // Jasa alih daya: kontrak lokasi, jadwal jaga, satu bulan ditagih
+    expect(await count(s('JASA'), 'site_posts')).toBe(2);
+    expect(await count(s('JASA'), 'site_duty')).toBeGreaterThan(30);
+    expect(await count(s('JASA'), 'site_contract_invoices')).toBe(1);
     // Manufaktur: riwayat versi resep dan satu perintah subkontrak selesai dengan tagihan jasa
     expect(await count(s('MANUFAKTUR'), 'bom_revisions')).toBeGreaterThanOrEqual(2);
     expect(await prc(`SELECT COUNT(*)::text AS n FROM production_orders WHERE tenant_id = '${s('MANUFAKTUR')}' AND subcontractor_id IS NOT NULL AND subcontract_bill_id IS NOT NULL AND status = 'COMPLETED'`)).toBe(1);
