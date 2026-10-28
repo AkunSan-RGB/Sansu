@@ -40,9 +40,11 @@ describe('Peran per jenis usaha & penyesuaian perusahaan (e2e)', () => {
       expect(d.catalog.find((r: { role: string }) => r.role === 'WAREHOUSE').label).toBe('Gudang');
     });
 
-    it('daftar bawaan jenis usaha hanya menyederhanakan pilihan: Kasir tidak ditampilkan di Dagang tetapi alur lama tetap dapat dipakai', async () => {
-      const d = (await http.get('/api/settings/customization/roles').set(as(dagang)).expect(200)).body;
-      expect(d.catalog.find((r: { role: string }) => r.role === 'CASHIER').offered).toBe(false);
+    it('peran yang tidak ditawarkan jenis usaha ditolak; ditawarkan bila aplikasi Kasir menyala', async () => {
+      const r = await mkUser(dagang, 'CASHIER', 'dagang');
+      expect(r.status).toBe(400);
+      expect(r.body.message).toMatch(/tidak ditawarkan/);
+      await http.post('/api/apps/pos/install').set(as(dagang)).send({}).expect(201);
       expect((await mkUser(dagang, 'CASHIER', 'dagang')).status).toBe(201);
     });
   });
@@ -74,9 +76,8 @@ describe('Peran per jenis usaha & penyesuaian perusahaan (e2e)', () => {
       expect((await http.get('/api/auth/me').set(as(dagang2)).expect(200)).body.roleCustomization).toEqual({});
     });
 
-    it('menambahkan peran ke daftar pilihan; hak akses peran tidak berubah', async () => {
-      const r = (await http.put('/api/settings/customization/roles').set(as(dagang2)).send({ extra: ['CASHIER'] }).expect(200)).body;
-      expect(r.catalog.find((x: { role: string }) => x.role === 'CASHIER').offered).toBe(true);
+    it('menambahkan peran yang tidak ditawarkan jenis usahanya; hak akses peran tidak berubah', async () => {
+      await http.put('/api/settings/customization/roles').set(as(dagang2)).send({ extra: ['CASHIER'] }).expect(200);
       expect((await mkUser(dagang2, 'CASHIER', 'dagang2')).status).toBe(201);
       const cashier = await login('dagang2', 'CASHIER');
       // Kasir tetap tidak boleh membuka jurnal walau sebutan/penawarannya disesuaikan

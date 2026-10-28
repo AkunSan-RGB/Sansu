@@ -99,13 +99,6 @@ export function roleCatalog(model: string | null | undefined, custom?: RoleCusto
   });
 }
 
-/**
- * Peran yang diblokir untuk pengguna baru: hanya yang disembunyikan perusahaan itu sendiri (keputusan eksplisit klien).
- * Daftar bawaan jenis usaha (`notOffered`) hanya menyederhanakan pilihan di layar dan tidak ditegakkan di server,
- * supaya alur lama (mis. membuat Kasir sebelum aplikasi Kasir dinyalakan) tidak tiba-tiba ditolak.
- */
-export const isRoleBlocked = (role: Role, custom?: RoleCustomization | null): boolean => !ALWAYS_OFFERED.includes(role) && !!custom?.hidden?.includes(role);
-
 export const isRoleOffered = (role: Role, model: string | null | undefined, custom?: RoleCustomization | null, apps: readonly string[] = []): boolean =>
   roleCatalog(model, custom, apps).find((r) => r.role === role)?.offered ?? false;
 
