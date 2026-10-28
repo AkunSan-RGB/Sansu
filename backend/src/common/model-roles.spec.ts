@@ -1,4 +1,4 @@
-import { isRoleOffered, MODEL_ROLES, roleCatalog, roleLabelFor, validateRoleCustomization } from '@sansu/shared';
+import { isRoleBlocked, isRoleOffered, MODEL_ROLES, roleCatalog, roleLabelFor, validateRoleCustomization } from '@sansu/shared';
 import { BUSINESS_MODEL_KEYS } from '@sansu/shared';
 
 describe('katalog peran per jenis usaha', () => {
@@ -37,6 +37,12 @@ describe('katalog peran per jenis usaha', () => {
     expect(validateRoleCustomization({ hidden: ['ADMIN'] })).toMatch(/tidak boleh disembunyikan/);
     expect(validateRoleCustomization({ hidden: ['BOSS' as never] })).toMatch(/tidak dikenal/);
     expect(validateRoleCustomization({ labels: { SALES: 'Admin akademik' }, hidden: ['HR'], extra: ['CASHIER'] })).toBeNull();
+  });
+
+  it('hanya peran yang disembunyikan perusahaan yang diblokir di server; bawaan jenis usaha tidak', () => {
+    expect(isRoleBlocked('CASHIER', undefined)).toBe(false);
+    expect(isRoleBlocked('PURCHASING', { hidden: ['PURCHASING'] })).toBe(true);
+    expect(isRoleBlocked('ADMIN', { hidden: ['ADMIN' as never] })).toBe(false);
   });
 
   it('setiap jenis usaha terdaftar di katalog', () => {

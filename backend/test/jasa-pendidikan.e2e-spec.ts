@@ -26,7 +26,7 @@ describe('Jasa pendidikan: kelas + SPP (e2e)', () => {
     await app.init();
     http = request(app.getHttpServer());
     owner = (await http.post('/api/auth/register').send({ companyName: 'Bimbel Cerdas', name: 'Pemilik', email: `ed-${stamp}@uji.id`, password: 'rahasia123', businessModel: 'JASA' }).expect(201)).body.accessToken;
-    await post(owner, '/api/users', { name: 'Sales', email: `ed-s-${stamp}@uji.id`, password: 'rahasia12345', role: 'SALES' }).expect(201);
+    await post(owner, '/api/users', { name: 'Gudang', email: `ed-s-${stamp}@uji.id`, password: 'rahasia12345', role: 'WAREHOUSE' }).expect(201);
     sales = (await http.post('/api/auth/login').send({ email: `ed-s-${stamp}@uji.id`, password: 'rahasia12345' }).expect(200)).body.accessToken;
     wali1 = (await post(owner, '/api/customers', { code: 'W1', name: 'Bu Ratna', paymentTermDays: 7 }).expect(201)).body.id;
     wali2 = (await post(owner, '/api/customers', { code: 'W2', name: 'Pak Hendra', paymentTermDays: 7 }).expect(201)).body.id;
@@ -43,7 +43,7 @@ describe('Jasa pendidikan: kelas + SPP (e2e)', () => {
     expect((await post(owner, '/api/services/education/classes', { code: 'NOL-1', name: 'Nol', monthlyFee: '0', startDate: today })).status).toBe(400);
   });
 
-  it('peran SALES tidak punya akses ke kelas dan pendaftaran', async () => {
+  it('peran Gudang (koordinator lapangan) tidak punya akses ke kelas dan pendaftaran', async () => {
     expect((await get(sales, '/api/services/education/classes')).status).toBe(403);
     expect((await post(sales, '/api/services/education/enrollments', { classId: kelas, customerId: wali1, studentName: 'X', enrolledOn: today })).status).toBe(403);
   });

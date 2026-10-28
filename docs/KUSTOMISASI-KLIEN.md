@@ -15,8 +15,8 @@ Tujuan: satu klien dapat menyesuaikan jenis usahanya untuk dirinya sendiri, tanp
 ## Alur teknis
 - `GET /settings/customization/roles` → katalog berlaku + bawaan jenis usaha (untuk perbandingan). `PUT` (Admin) menyimpan, `DELETE` (Admin) mereset.
 - `/auth/me` membawa `roleCustomization`; frontend memakai `roleLabelFor` dan `roleCatalog` dari `@sansu/shared` (satu sumber yang sama dengan backend).
-- Backend menegakkan penawaran peran saat membuat pengguna dan saat mengganti peran (`RoleOfferService`). Pengguna yang sudah memegang peran yang disembunyikan tidak berubah.
-- Kasir ditawarkan di jenis usaha yang punya kasir, atau bila aplikasi Kasir menyala.
+- **Dua tingkat penegakan.** Daftar bawaan jenis usaha (`notOffered`, mis. Kasir di Dagang) hanya menyederhanakan pilihan di layar dan tidak ditegakkan di server, supaya alur lama tidak tiba-tiba ditolak. Peran yang **disembunyikan klien sendiri** (keputusan eksplisit) ditolak server saat membuat pengguna atau mengganti peran (`RoleOfferService`, `isRoleBlocked`). Pengguna yang sudah memegang peran yang disembunyikan tidak berubah.
+- Kasir ditampilkan di jenis usaha yang punya kasir, atau bila aplikasi Kasir menyala.
 
 ## Contoh
 - Bimbel (Jasa): Sales disebut "Admin akademik", Pembelian disembunyikan.
