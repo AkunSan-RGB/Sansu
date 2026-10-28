@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import { DbOrTx } from '../../../db/db';
 
 export type SiteContractRow = { id: string; customer_id: string; customer_name: string; site_name: string; title: string; with_vat: boolean | null; start_date: string; end_date: string | null; is_active: boolean };
-export type SitePostRow = { id: string; contract_id: string; name: string; headcount: number; monthly_rate: string };
+export type SitePostRow = { id: string; contract_id: string; name: string; headcount: number; monthly_rate: string; service_kind: 'SECURITY' | 'CLEANING' | 'OTHER' };
 
 /** Akses data kontrak per lokasi */
 @Injectable()
@@ -25,8 +25,8 @@ export class SiteContractsRepository {
   listPosts(db: DbOrTx, tenantId: string, contractIds?: string[]) {
     return db.execute<SitePostRow>(
       contractIds?.length
-        ? sql`SELECT id, contract_id, name, headcount, monthly_rate FROM site_posts WHERE tenant_id = ${tenantId} AND contract_id IN (${sql.join(contractIds.map((c) => sql`${c}::uuid`), sql`, `)}) ORDER BY created_at, name`
-        : sql`SELECT id, contract_id, name, headcount, monthly_rate FROM site_posts WHERE tenant_id = ${tenantId} ORDER BY created_at, name`,
+        ? sql`SELECT id, contract_id, name, headcount, monthly_rate, service_kind FROM site_posts WHERE tenant_id = ${tenantId} AND contract_id IN (${sql.join(contractIds.map((c) => sql`${c}::uuid`), sql`, `)}) ORDER BY created_at, name`
+        : sql`SELECT id, contract_id, name, headcount, monthly_rate, service_kind FROM site_posts WHERE tenant_id = ${tenantId} ORDER BY created_at, name`,
     );
   }
 
@@ -46,8 +46,8 @@ export class SiteContractsRepository {
     );
   }
 
-  insertPost(db: DbOrTx, tenantId: string, contractId: string, v: { name: string; headcount: number; rate: string }) {
-    return db.execute(sql`INSERT INTO site_posts (tenant_id, contract_id, name, headcount, monthly_rate) VALUES (${tenantId}, ${contractId}, ${v.name}, ${v.headcount}, ${v.rate})`);
+  insertPost(db: DbOrTx, tenantId: string, contractId: string, v: { name: string; headcount: number; rate: string; kind: string }) {
+    return db.execute(sql`INSERT INTO site_posts (tenant_id, contract_id, name, headcount, monthly_rate, service_kind) VALUES (${tenantId}, ${contractId}, ${v.name}, ${v.headcount}, ${v.rate}, ${v.kind})`);
   }
 
   updateContract(db: DbOrTx, id: string, end: string | null, isActive: boolean | null) {
@@ -55,7 +55,7 @@ export class SiteContractsRepository {
   }
 
   findPost(db: DbOrTx, tenantId: string, contractId: string, postId: string) {
-    return db.execute<SitePostRow>(sql`SELECT id, contract_id, name, headcount, monthly_rate FROM site_posts WHERE id = ${postId} AND contract_id = ${contractId} AND tenant_id = ${tenantId}`);
+    return db.execute<SitePostRow>(sql`SELECT id, contract_id, name, headcount, monthly_rate, service_kind FROM site_posts WHERE id = ${postId} AND contract_id = ${contractId} AND tenant_id = ${tenantId}`);
   }
 
   findEmployee(db: DbOrTx, tenantId: string, id: string) {

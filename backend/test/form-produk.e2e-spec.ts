@@ -65,8 +65,9 @@ describe('Form produk per jenis usaha (e2e)', () => {
   });
 
   it('JASA tanpa barcode; F&B boleh menu dan umur simpan; bidang menu ditolak di jenis usaha lain', async () => {
-    expect((await post('JASA', '/api/products', { sku: 'S1', name: 'Konsultasi', sellPrice: '300000', baseUom: 'JAM', category: 'Konsultasi', barcode: '123' })).status).toBe(400);
-    expect((await post('JASA', '/api/products', { sku: 'S1', name: 'Konsultasi', sellPrice: '300000', baseUom: 'JAM', category: 'Konsultasi' })).status).toBe(201);
+    // perusahaan Jasa baru memakai profil bawaan Konsultan: kategori dari paket profil itu
+    expect((await post('JASA', '/api/products', { sku: 'S1', name: 'Konsultasi', sellPrice: '300000', baseUom: 'JAM', category: 'Konsultasi Manajemen', barcode: '123' })).status).toBe(400);
+    expect((await post('JASA', '/api/products', { sku: 'S1', name: 'Konsultasi', sellPrice: '300000', baseUom: 'JAM', category: 'Konsultasi Manajemen' })).status).toBe(201);
     expect((await post('FNB', '/api/products', { sku: 'M1', name: 'Kopi Susu', sellPrice: '25000', baseUom: 'GELAS', category: 'Minuman', madeToOrder: true })).status).toBe(201);
     expect((await post('FNB', '/api/products', { sku: 'R1', name: 'Roti', sellPrice: '9000', baseUom: 'PCS', category: 'Roti & kue', shelfLifeDays: 3 })).status).toBe(201);
     for (const m of ['DAGANG', 'RITEL', 'MANUFAKTUR']) {

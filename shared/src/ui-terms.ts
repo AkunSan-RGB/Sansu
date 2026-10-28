@@ -4,6 +4,7 @@
  * data, rute, dan perhitungan sama untuk semua jenis usaha.
  */
 import type { BusinessModel } from './apps.js';
+import type { ProfileTerms } from './service-packs/types.js';
 
 interface Terms {
   /** Penggantian kata utuh (huruf besar/kecil awal mengikuti teks asal), diterapkan berurutan: yang lebih panjang dulu */
@@ -121,11 +122,15 @@ const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Terjemahkan satu teks antarmuka ke istilah jenis usaha (DAGANG bila model tidak dikenal) */
-export function localize(text: string, model: BusinessModel | undefined, extra: [string, string][] = []): string {
+export function localize(text: string, model: BusinessModel | undefined, extra: [string, string][] = [], profile?: ProfileTerms): string {
   const base = TERMS[model ?? 'DAGANG'] ?? TERMS.DAGANG;
-  const t = { exact: base.exact, words: [...base.words, ...extra] };
+  // Kata profil layanan (Jasa) diterapkan lebih dulu daripada kata umum jenis usaha, sehingga profil menang
+  const t = { exact: { ...base.exact, ...(profile?.exact ?? {}) }, words: [...(profile?.words ?? []), ...base.words, ...extra] };
   if (t.exact[text]) return t.exact[text];
   for (const [k, v] of Object.entries(t.exact)) if (text === k.toUpperCase()) return v.toUpperCase();
+  // Hasil penggantian disimpan sebagai penanda tanpa huruf, sehingga kata pengganti tidak diganti lagi oleh aturan berikutnya
+  // (mis. profil kontraktor "Nilai material di gudang" tidak berubah menjadi "... lokasi bahan" oleh aturan umum Jasa)
+  const done: string[] = [];
   let out = text;
   for (const [from, to] of t.words) {
     for (const [f, r] of [
@@ -133,10 +138,10 @@ export function localize(text: string, model: BusinessModel | undefined, extra: 
       [lowerFirst(from), lowerFirst(to)],
       [from.toUpperCase(), to.toUpperCase()],
     ]) {
-      out = out.replace(new RegExp(`(?<![\\p{L}])${escape(f)}(?![\\p{L}])`, 'gu'), r);
+      out = out.replace(new RegExp(`(?<![\\p{L}])${escape(f)}(?![\\p{L}])`, 'gu'), () => `\u0000${done.push(r) - 1}\u0001`);
     }
   }
-  return out;
+  return out.replace(/\u0000(\d+)\u0001/g, (_, i: string) => done[Number(i)]);
 }
 
 /** Pilihan sebutan untuk "Resep" (BOM) sesuai industri: makanan = Resep, furnitur = Daftar bahan, konveksi = Pola & bahan, dst. */

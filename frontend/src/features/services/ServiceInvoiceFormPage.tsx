@@ -3,7 +3,7 @@
  * PPh 23 / PPh 4(2) yang dipotong pelanggan dihitung otomatis dari DPP.
  */
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { CUSTOMER_WITHHOLDING_PRESETS, type Project } from '@sansu/shared';
+import { CUSTOMER_WITHHOLDING_PRESETS, invoiceTypesFor, REVENUE_KIND_ACCOUNT, type InvoiceTypeDef, type Project } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Checkbox, Col, Descriptions, Form, Input, InputNumber, Row, Select, Space } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
@@ -33,6 +33,8 @@ interface FormValues {
   withVat: boolean;
   pricesIncludeVat: boolean;
   preset?: string;
+  /** Jenis tagihan khas profil layanan (Jasa) */
+  type?: string;
   lines: Line[];
 }
 
@@ -54,6 +56,10 @@ export default function ServiceInvoiceFormPage() {
   const withVat = Form.useWatch('withVat', form) ?? true;
   const inclusive = Form.useWatch('pricesIncludeVat', form) ?? false;
   const lines: Line[] = Form.useWatch('lines', form) ?? [];
+  const typeKey = Form.useWatch('type', form);
+  // Jenis tagihan khas profil layanan perusahaan (kontraktor: termin/pekerjaan tambah; pendidikan: pendaftaran; dst.)
+  const types: InvoiceTypeDef[] = useMemo(() => (me?.businessModel === 'JASA' ? invoiceTypesFor(me.serviceProfiles) : []), [me?.businessModel, me?.serviceProfiles]);
+  const type = types.find((x) => x.key === typeKey);
 
   const revenueAccounts = useMemo(
     () => (accounts ?? []).filter((a) => a.type === 'REVENUE' && a.isPostable && a.isActive),
@@ -71,15 +77,40 @@ export default function ServiceInvoiceFormPage() {
     if (p && !form.getFieldValue('projectId')) form.setFieldsValue({ customerId: p.customerId, projectId: p.id });
   }, [params, projects.data, form]);
 
+  // pilih jenis tagihan → PPh, PPN, label termin, satuan, uraian awal, dan akun pendapatan khas jenis itu terisi otomatis (tetap bisa diubah)
+  const applyType = (key: string | undefined) => {
+    const d = types.find((x) => x.key === key);
+    if (!d) return;
+    const acc = accountByCode(REVENUE_KIND_ACCOUNT[d.revenueKind]);
+    const cur = (form.getFieldValue('lines') as Line[]) ?? [];
+    form.setFieldsValue({
+      preset: d.withholding ?? undefined,
+      withVat: d.withVat,
+      termLabel: form.getFieldValue('termLabel') || d.termLabel,
+      lines: cur.map((l) => ({ ...l, unit: d.unit, description: l.description || d.description, accountId: acc ?? l.accountId })),
+    });
+  };
+  // dari tautan / aksi cepat: ?type=; bawaan = jenis tagihan pertama profil
+  useEffect(() => {
+    if (!types.length || !revenueAccounts.length || form.getFieldValue('type')) return;
+    const wanted = params.get('type');
+    const first = types.find((x) => x.key === wanted) ?? types[0];
+    form.setFieldValue('type', first.key);
+    applyType(first.key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [types.length, revenueAccounts.length]);
+
   // ganti jenis PPh → akun pendapatan baris yang masih bawaan ikut berganti
   useEffect(() => {
     const acc = accountByCode(presetInfo?.account ?? '4-2000');
     if (!acc) return;
     const cur = (form.getFieldValue('lines') as Line[]) ?? [];
     const defaults = new Set(['4-2000', '4-2100', '4-2200'].map(accountByCode));
+    // hanya baris yang memang berubah yang diganti; bila tidak ada yang berubah, nilai form tidak disentuh
+    if (!cur.some((l) => (!l.accountId || defaults.has(l.accountId)) && l.accountId !== acc)) return;
     form.setFieldValue(
       'lines',
-      cur.map((l) => (!l.accountId || defaults.has(l.accountId) ? { ...l, accountId: acc } : l)),
+      cur.map((l) => (!l.accountId || defaults.has(l.accountId) ? { ...l, accountId: acc } : { ...l })),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preset, revenueAccounts.length]);
@@ -152,6 +183,15 @@ export default function ServiceInvoiceFormPage() {
         onFinish={(v) => create.mutate(v)}
       >
         <Card>
+          {types.length > 0 && (
+            <Row gutter={16}>
+              <Col xs={24} md={12}>
+                <Form.Item name="type" label="Jenis tagihan" extra={type?.hint}>
+                  <Select onChange={applyType} options={types.map((x) => ({ value: x.key, label: x.label }))} />
+                </Form.Item>
+              </Col>
+            </Row>
+          )}
           <Row gutter={16}>
             <Col xs={24} md={8}>
               <Form.Item name="customerId" label={t('Pelanggan')} rules={[{ required: true }]}>
@@ -166,7 +206,12 @@ export default function ServiceInvoiceFormPage() {
               </Form.Item>
             </Col>
             <Col xs={24} md={8}>
-              <Form.Item name="projectId" label="Proyek / kontrak" extra="Opsional — untuk tagihan per termin">
+              <Form.Item
+                name="projectId"
+                label="Proyek / kontrak"
+                extra={type?.requiresProject ? 'Wajib untuk jenis tagihan ini' : 'Opsional — untuk tagihan per termin'}
+                rules={type?.requiresProject ? [{ required: true, message: 'Pilih proyek untuk jenis tagihan ini' }] : undefined}
+              >
                 <Select
                   allowClear
                   disabled={!customerId}
@@ -288,7 +333,11 @@ export default function ServiceInvoiceFormPage() {
                   block
                   icon={<PlusOutlined />}
                   onClick={() =>
-                    add({ qty: 1, unit: 'Paket', accountId: accountByCode(presetInfo?.account ?? '4-2000') })
+                    add({
+                      qty: 1,
+                      unit: type?.unit ?? 'Paket',
+                      accountId: (type && accountByCode(REVENUE_KIND_ACCOUNT[type.revenueKind])) ?? accountByCode(presetInfo?.account ?? '4-2000'),
+                    })
                   }
                 >
                   Tambah baris

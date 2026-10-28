@@ -8,7 +8,7 @@ export interface Col { key: string; label: string; type?: ColType }
 /** Satu tabel laporan; tampilan membuat satu tab per bagian */
 export interface Section { key: string; title: string; note?: string; columns: Col[]; rows: Record<string, unknown>[]; empty?: string }
 export interface Kpi { label: string; value: string | number; type?: ColType; tone?: 'warn' | 'ok' }
-export const DEPTS = ['sales', 'purchases', 'inventory', 'cash', 'pos', 'fnb', 'fmcg', 'mfg', 'jasa', 'utility', 'utility-nonair', 'utility-kinerja', 'hr'] as const;
+export const DEPTS = ['sales', 'purchases', 'inventory', 'cash', 'pos', 'fnb', 'fmcg', 'mfg', 'jasa', 'jasa-konsultan', 'jasa-kontraktor', 'jasa-pendidikan', 'jasa-alihdaya', 'jasa-bengkel', 'utility', 'utility-nonair', 'utility-kinerja', 'hr'] as const;
 export type DeptKey = (typeof DEPTS)[number];
 export interface DeptReport { dept: DeptKey; title: string; description: string; period: { from: string; to: string }; kpis: Kpi[]; sections: Section[] }
 export interface Ctx { db: Db; tenantId: string; from: string; to: string; today: string; model: BusinessModel }

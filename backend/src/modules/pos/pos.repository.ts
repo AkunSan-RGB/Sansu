@@ -1,15 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { stockBalances, posSessions, tenants, customers, products, posOrderLines, posPayments, warehouses } from '../../db/schema';
+import { accounts, stockBalances, posSessions, tenants, customers, products, posOrderLines, posPayments, warehouses } from '../../db/schema';
 import { and, eq, sql } from 'drizzle-orm';
 import { nowAt } from '../../common/utils/dates';
 import { Dec } from '../../common/utils/money';
-import { type PosPaymentMethod } from '@sansu/shared';
+import { REVENUE_KIND_ACCOUNT, type PosPaymentMethod } from '@sansu/shared';
 import type { RecipeComponent } from './recipe-issue';
 
 /** Akses data untuk Pos: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
 export class PosRepository {
+  /** Akun pendapatan jasa servis (profil Bengkel); tidak ada = layanan kasir dibukukan ke akun penjualan bersama barang */
+  async findServiceRevenueAccount(db: DbOrTx, tenantId: string): Promise<string | undefined> {
+    const [a] = await db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(and(eq(accounts.tenantId, tenantId), eq(accounts.code, REVENUE_KIND_ACCOUNT.REPAIR), eq(accounts.type, 'REVENUE'), eq(accounts.isPostable, true), eq(accounts.isActive, true)));
+    return a?.id;
+  }
+
   /** Dipakai oleh PosService.products */
   listStockBalancesByWarehouseId(db: DbOrTx, tenantId: string, warehouseId: string) {
     return db

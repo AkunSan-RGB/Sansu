@@ -125,6 +125,12 @@
 .ws-setup li { display: flex; align-items: center; gap: 10px; color: #333; }
 .ws-setup li a { margin-left: auto; color: #111; font-weight: 600; white-space: nowrap; }
 .ws-ok { margin: 12px 0 0; color: #0E7A5C; }
+.ws-actions { margin-top: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.ws-actions button { text-align: left; padding: 14px 16px; border-radius: 14px; border: 1px solid #E5E5E5; background: #fff; cursor: pointer; display: grid; gap: 4px; transition: border-color .15s ease, box-shadow .15s ease; }
+.ws-actions button b { color: #111; font-size: 14px; }
+.ws-actions button span { color: #6B6B6B; font-size: 12.5px; }
+.ws-actions button:hover { border-color: #111; box-shadow: 0 10px 22px -18px rgba(0,0,0,.5); }
+.ws-actions button:focus-visible { outline: 2px solid #111; outline-offset: 2px; }
 .ws-stages { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 12px; }
 .ws-stage { display: flex; gap: 16px; padding: 18px 20px; background: #fff; border: 1px solid #E5E5E5; border-radius: 16px; transition: border-color .18s ease, box-shadow .18s ease; }
 .ws-stage:hover { border-color: #111; box-shadow: 0 14px 28px -20px rgba(0,0,0,.45); }

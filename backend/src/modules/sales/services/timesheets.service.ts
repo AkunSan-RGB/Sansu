@@ -251,6 +251,7 @@ export class TimesheetService {
       groups.set(k, g);
     }
     const total = rows.reduce((a, r) => a.plus(D(r.hours).times(r.rate!)), D(0));
+    const accountId = await this.billing.revenueAccountFor(this.db, u.tenantId, 'CONSULT');
     const inv = await this.billing.createInvoice(
       u,
       {
@@ -259,7 +260,7 @@ export class TimesheetService {
         date: dto.date,
         description: dto.description ?? 'Jasa berdasarkan lembar waktu',
         withVat: dto.withVat,
-        lines: [...groups.values()].map((g) => ({ description: `Jasa ${g.name} ${g.from === g.to ? g.from : `${g.from} s/d ${g.to}`}`, qty: g.hours.toFixed(2), unit: 'Jam', price: g.rate })),
+        lines: [...groups.values()].map((g) => ({ description: `Jasa ${g.name} ${g.from === g.to ? g.from : `${g.from} s/d ${g.to}`}`, qty: g.hours.toFixed(2), unit: 'Jam', price: g.rate, accountId })),
       },
       {
         // penandaan tertagih satu transaksi dengan faktur; bila ada yang berubah sejak dibaca, seluruhnya dibatalkan

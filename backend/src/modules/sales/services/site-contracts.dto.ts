@@ -1,11 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsInt, IsNumberString, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { SITE_POST_KINDS, type SitePostKind } from '@sansu/shared';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsNumberString, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 
 export class SitePostDto {
   @ApiProperty({ example: 'Satpam shift pagi' }) @IsString() @MinLength(2) @MaxLength(80) name: string;
   @ApiProperty({ example: 2, description: 'Jumlah petugas yang wajib hadir tiap hari' }) @IsInt() @Min(1) @Max(500) headcount: number;
   @ApiProperty({ example: '4200000', description: 'Tarif per petugas per bulan' }) @IsNumberString() monthlyRate: string;
+  @ApiPropertyOptional({ enum: SITE_POST_KINDS, description: 'Jenis layanan pos (kosong = ditebak dari nama pos)' }) @IsOptional() @IsIn(SITE_POST_KINDS) serviceKind?: SitePostKind;
 }
 
 export class SiteContractDto {

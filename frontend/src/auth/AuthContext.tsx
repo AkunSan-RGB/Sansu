@@ -3,7 +3,7 @@ import { createContext, ReactNode, useContext } from 'react';
 import type { BusinessModel, LoginResponse, ServiceProfile } from '@sansu/shared';
 import { ApiError, get, post, tokenStore } from '@/api/client';
 import type { Me } from '@/api/types';
-import { setRecipeTerm, setUiModel } from '@/lib/terms';
+import { setRecipeTerm, setUiModel, setUiProfiles } from '@/lib/terms';
 
 interface AuthState {
   me: Me | undefined;
@@ -36,6 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
   // Istilah antarmuka (t()) mengikuti jenis usaha; diisi sebelum halaman anak dirender
   setUiModel(me?.businessModel);
+  setUiProfiles(me?.serviceProfiles);
   setRecipeTerm(me?.recipeTerm);
   const unauthorized = isError && error instanceof ApiError && error.status === 401;
 

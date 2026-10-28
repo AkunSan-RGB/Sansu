@@ -5,6 +5,7 @@ import { Alert, App, Button, Checkbox, Col, Descriptions, Form, Input, InputNumb
 import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAccounts, useAction } from '@/api/queries';
 import { useAuth } from '@/auth/AuthContext';
+import { withProfileCosts } from '@/lib/profileCosts';
 import { withBudgetOverride } from '@/lib/budgetOverride';
 import type { AssetCategory, CompanySettings, Project, PurchaseInvoice } from '@/api/types';
 import { useApps } from '@/lib/apps';
@@ -48,12 +49,11 @@ export default function BillModal({ open, onClose }: { open: boolean; onClose: (
     return cost / units < threshold;
   };
 
-  const expenseOptions = accounts.data
-    ?.filter((a) => a.isPostable && a.isActive !== false && !a.isCashAccount && ['EXPENSE', 'ASSET'].includes(a.type) && a.systemKey !== 'INVENTORY')
-    .map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` }));
-
   const { modal } = App.useApp();
   const { me } = useAuth();
+  const postable = accounts.data?.filter((a) => a.isPostable && a.isActive !== false && !a.isCashAccount && ['EXPENSE', 'ASSET'].includes(a.type) && a.systemKey !== 'INVENTORY');
+  // Jasa: biaya khas profil layanan (subkontraktor, honor pengajar, seragam petugas, komisi mekanik, ...) tampil paling atas
+  const expenseOptions = withProfileCosts(me?.businessModel, me?.serviceProfiles, postable, postable?.map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` })) ?? []);
   const save = useAction(
     (v: Record<string, unknown> & { lines: LineV[] }) =>
       withBudgetOverride(modal, me?.role, (budgetOverrideReason) =>

@@ -73,6 +73,8 @@ export interface Demo {
   admin: AuthUser;
   tenantId: string;
   model: BusinessModel;
+  /** Jasa: profil layanan yang didemokan */
+  serviceProfile?: ServiceProfile;
   today: DocDate;
   /** tanggal n hari lalu */
   ago: (n: number) => DocDate;
@@ -209,6 +211,7 @@ export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: 
     admin,
     tenantId,
     model,
+    serviceProfile: model === 'JASA' ? serviceProfile : undefined,
     today,
     ago: (n) => addDays(today, -n),
     rnd: R,

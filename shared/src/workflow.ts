@@ -5,6 +5,7 @@
  */
 import type { BusinessModel } from './apps.js';
 import type { Role } from './domain.js';
+import type { ServiceProfile } from './service-profiles.js';
 
 export const WORKFLOW_LINK_TYPES = [
   'QUOTATION', 'SALES_ORDER', 'DELIVERY_ORDER', 'INVOICE', 'PURCHASE_ORDER', 'GOODS_RECEIPT', 'PURCHASE_INVOICE', 'PRODUCTION_ORDER', 'PROJECT', 'POS_SESSION', 'PRINCIPAL_CLAIM', 'CANVASS', 'STOCK_TRANSFER', 'SALES_RETURN', 'PURCHASE_RETURN', 'POS_TAB',
@@ -42,6 +43,8 @@ export interface WorkflowStage {
 export interface WorkflowPipeline {
   key: string;
   model: BusinessModel;
+  /** Jasa: hanya untuk profil layanan ini (kosong = semua profil) */
+  profiles?: ServiceProfile[];
   label: string;
   summary: string;
   /** Pihak yang ditangani kasus: pelanggan, pemasok, atau tidak ada */
@@ -137,7 +140,7 @@ export const WORKFLOW_PIPELINES: WorkflowPipeline[] = [
   // ---- Jasa ----
   {
     open: { link: 'QUOTATION', subject: 'customer', label: 'Penawaran' },
-    key: 'JASA_PROYEK', model: 'JASA', label: 'Proyek jasa: survei → serah terima → retensi', summary: 'Dari survei kebutuhan klien sampai pekerjaan diserahterimakan, ditagih, dan retensi selesai.', subject: 'CUSTOMER',
+    key: 'JASA_PROYEK', model: 'JASA', profiles: ['KONTRAKTOR', 'KONSULTAN'], label: 'Proyek jasa: survei → serah terima → retensi', summary: 'Dari survei kebutuhan klien sampai pekerjaan diserahterimakan, ditagih, dan retensi selesai.', subject: 'CUSTOMER',
     links: ['QUOTATION', 'PROJECT', 'INVOICE'], start: 'SURVEI',
     stages: [
       { key: 'SURVEI', label: 'Survei / briefing', hint: 'Kebutuhan klien dipahami; lingkup dan perkiraan biaya dibuat.', next: ['PENAWARAN', 'BATAL'], roles: ['SALES', 'ADMIN'] },
@@ -149,6 +152,43 @@ export const WORKFLOW_PIPELINES: WorkflowPipeline[] = [
       { key: 'RETENSI', label: 'Masa retensi', hint: 'Tagihan lunas; sebagian nilai kontrak ditahan sampai masa pemeliharaan selesai.', next: ['SELESAI'], roles: FIN, requireNote: true, slaDays: 180 },
       { key: 'SELESAI', label: 'Selesai', hint: 'Seluruh nilai kontrak tertagih dan retensi dilepas.', next: [], roles: FIN, requireNote: true, sod: true, terminal: 'DONE' },
       { key: 'BATAL', label: 'Dibatalkan', hint: 'Dihentikan sebelum selesai (wajib alasan).', next: [], roles: ['ADMIN'], requireNote: true, terminal: 'DONE' },
+    ],
+  },
+  {
+    key: 'JASA_PESERTA', model: 'JASA', profiles: ['PENDIDIKAN'], label: 'Peserta baru: pertanyaan → percobaan → daftar → aktif', summary: 'Dari calon peserta bertanya sampai terdaftar di kelas dan uang pendaftaran lunas.', subject: 'CUSTOMER',
+    links: ['INVOICE'], start: 'PERTANYAAN',
+    stages: [
+      { key: 'PERTANYAAN', label: 'Pertanyaan masuk', hint: 'Calon peserta atau wali bertanya tentang kelas dan biaya.', next: ['PERCOBAAN', 'DAFTAR', 'BATAL'], roles: ['SALES', 'ADMIN'] },
+      { key: 'PERCOBAAN', label: 'Kelas percobaan', hint: 'Peserta mengikuti kelas percobaan atau tes penempatan (catat hasilnya).', next: ['DAFTAR', 'BATAL'], roles: ['SALES', 'ADMIN'], requireNote: true, slaDays: 14 },
+      { key: 'DAFTAR', label: 'Mendaftar', hint: 'Peserta didaftarkan ke kelas; tagihan uang pendaftaran terbit.', next: ['AKTIF', 'BATAL'], roles: ['ADMIN', 'FINANCE'], requireLink: ['INVOICE'], auto: [{ link: 'INVOICE', status: ['UNPAID', 'PARTIAL'] }], slaDays: 7 },
+      { key: 'AKTIF', label: 'Peserta aktif', hint: 'Uang pendaftaran lunas; SPP bulanan ditagih lewat Kelas & SPP.', next: [], roles: FIN, requireLink: ['INVOICE'], auto: [{ link: 'INVOICE', status: ['PAID'] }], terminal: 'DONE' },
+      { key: 'BATAL', label: 'Tidak jadi', hint: 'Calon peserta tidak jadi mendaftar (wajib alasan).', next: [], roles: ['SALES', 'ADMIN'], requireNote: true, terminal: 'DONE' },
+    ],
+  },
+  {
+    key: 'JASA_LOKASI', model: 'JASA', profiles: ['ALIH_DAYA'], label: 'Kontrak lokasi baru: survei → penawaran → kontrak → penempatan → tagihan pertama', summary: 'Dari survei kebutuhan petugas di lokasi pengguna jasa sampai petugas ditempatkan dan bulan pertama ditagih.', subject: 'CUSTOMER',
+    links: ['QUOTATION', 'INVOICE'], start: 'SURVEI',
+    stages: [
+      { key: 'SURVEI', label: 'Survei lokasi', hint: 'Kebutuhan pos jaga, shift, dan jumlah petugas dicatat.', next: ['PENAWARAN', 'BATAL'], roles: ['SALES', 'ADMIN'], requireNote: true },
+      { key: 'PENAWARAN', label: 'Penawaran per pos', hint: 'Penawaran harga per petugas per bulan terkirim.', next: ['KONTRAK', 'BATAL'], roles: ['SALES', 'ADMIN'], requireLink: ['QUOTATION'], auto: [{ link: 'QUOTATION', status: ['SENT'] }], slaDays: 14 },
+      { key: 'KONTRAK', label: 'Kontrak kerja sama', hint: 'Kontrak ditandatangani (catat nomor dan masa kontrak); kontrak lokasi dibuat di Kontrak per lokasi.', next: ['PENEMPATAN', 'BATAL'], roles: ['ADMIN'], requireNote: true, sod: true, slaDays: 14 },
+      { key: 'PENEMPATAN', label: 'Petugas ditempatkan', hint: 'Petugas dijadwalkan di tiap pos sesuai kontrak (catat nama koordinator lokasi).', next: ['DITAGIH', 'BATAL'], roles: ['ADMIN', 'WAREHOUSE'], requireNote: true, slaDays: 7 },
+      { key: 'DITAGIH', label: 'Bulan pertama ditagih', hint: 'Tagihan bulan pertama terbit; kasus selesai saat lunas.', next: ['SELESAI'], roles: FIN, requireLink: ['INVOICE'], auto: [{ link: 'INVOICE', status: ['UNPAID', 'PARTIAL'] }], slaDays: 45 },
+      { key: 'SELESAI', label: 'Berjalan', hint: 'Tagihan pertama lunas; kontrak berjalan rutin.', next: [], roles: FIN, requireLink: ['INVOICE'], auto: [{ link: 'INVOICE', status: ['PAID'] }], terminal: 'DONE' },
+      { key: 'BATAL', label: 'Dibatalkan', hint: 'Dihentikan sebelum berjalan (wajib alasan).', next: [], roles: ['ADMIN'], requireNote: true, terminal: 'DONE' },
+    ],
+  },
+  {
+    key: 'JASA_SERVIS', model: 'JASA', profiles: ['BENGKEL'], label: 'Servis besar / armada: terima → periksa → setuju → kerjakan → uji → serahkan', summary: 'Pekerjaan servis yang tidak selesai di kasir: kendaraan diterima, diperiksa, biaya disetujui pelanggan, dikerjakan, diuji, lalu diserahkan dan ditagih.', subject: 'CUSTOMER',
+    links: ['INVOICE', 'POS_SESSION'], start: 'DITERIMA',
+    stages: [
+      { key: 'DITERIMA', label: 'Kendaraan diterima', hint: 'Catat nomor polisi, kilometer, dan keluhan pelanggan.', next: ['DIPERIKSA', 'BATAL'], roles: ['SALES', 'ADMIN', 'WAREHOUSE'], requireNote: true },
+      { key: 'DIPERIKSA', label: 'Diperiksa & estimasi', hint: 'Mekanik memeriksa dan membuat estimasi jasa dan suku cadang (catat estimasinya).', next: ['DISETUJUI', 'BATAL'], roles: ['WAREHOUSE', 'ADMIN'], requireNote: true, slaDays: 2 },
+      { key: 'DISETUJUI', label: 'Disetujui pelanggan', hint: 'Pelanggan menyetujui estimasi biaya (catat cara persetujuan).', next: ['DIKERJAKAN', 'BATAL'], roles: ['SALES', 'ADMIN'], requireNote: true, slaDays: 3 },
+      { key: 'DIKERJAKAN', label: 'Dikerjakan', hint: 'Pekerjaan berjalan; suku cadang diambil dari gudang.', next: ['DIUJI'], roles: ['WAREHOUSE', 'ADMIN'], slaDays: 5 },
+      { key: 'DIUJI', label: 'Uji jalan / QC', hint: 'Hasil diuji oleh orang selain mekanik yang mengerjakan (catat hasilnya).', next: ['DISERAHKAN', 'DIKERJAKAN'], roles: ['ADMIN', 'WAREHOUSE'], requireNote: true, sod: true, slaDays: 1 },
+      { key: 'DISERAHKAN', label: 'Diserahkan & ditagih', hint: 'Kendaraan diserahkan; tagihan servis terbit atau dibayar di kasir.', next: [], roles: FIN, requireLink: ['INVOICE'], auto: [{ link: 'INVOICE', status: ['UNPAID', 'PARTIAL', 'PAID'] }], terminal: 'DONE' },
+      { key: 'BATAL', label: 'Dibatalkan', hint: 'Pelanggan membatalkan (wajib alasan).', next: [], roles: ['ADMIN'], requireNote: true, terminal: 'DONE' },
     ],
   },
   // ---- Utilitas ----
@@ -251,7 +291,9 @@ export const WORKFLOW_PIPELINES: WorkflowPipeline[] = [
 ];
 
 export const WORKFLOW_PIPELINE_BY_KEY: Record<string, WorkflowPipeline> = Object.fromEntries(WORKFLOW_PIPELINES.map((p) => [p.key, p]));
-export const pipelinesFor = (model: BusinessModel | string | null | undefined) => WORKFLOW_PIPELINES.filter((p) => p.model === model);
+/** Alur jenis usaha ini; Jasa: hanya alur untuk profil layanan perusahaan bila profilnya diberikan */
+export const pipelinesFor = (model: BusinessModel | string | null | undefined, profiles?: readonly ServiceProfile[] | null) =>
+  WORKFLOW_PIPELINES.filter((p) => p.model === model && (!p.profiles || !profiles?.length || p.profiles.some((x) => profiles.includes(x))));
 export const stageOf = (p: WorkflowPipeline, key: string) => p.stages.find((s) => s.key === key);
 
 /**
@@ -297,8 +339,8 @@ export function validateWorkflowOverrides(model: BusinessModel | string, ov: Wor
 }
 
 /** Definisi alur yang berlaku untuk satu perusahaan (bawaan + penyesuaian yang sudah divalidasi) */
-export function effectivePipelines(model: BusinessModel | string, ov?: WorkflowOverrides | null): WorkflowPipeline[] {
-  return pipelinesFor(model).map((p) => {
+export function effectivePipelines(model: BusinessModel | string, ov?: WorkflowOverrides | null, profiles?: readonly ServiceProfile[] | null): WorkflowPipeline[] {
+  return pipelinesFor(model, profiles).map((p) => {
     const mine = ov?.[p.key];
     if (!mine) return p;
     return {

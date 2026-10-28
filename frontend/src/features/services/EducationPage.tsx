@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, DatePicker, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
+import { Alert, Button, Checkbox, DatePicker, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { get, post } from '@/api/client';
@@ -30,7 +30,9 @@ export default function EducationPage() {
   const createClass = useAction((v: { code: string; name: string; monthlyFee: number; capacity?: number; startDate: dayjs.Dayjs }) => post('/services/education/classes', { ...v, monthlyFee: String(v.monthlyFee), startDate: v.startDate.format('YYYY-MM-DD') }), { invalidate: KEY, success: 'Kelas dibuat', onSuccess: () => setNewClass(false) });
   const enroll = useAction((v: { classId: string; customerId: string; studentName: string; enrolledOn: dayjs.Dayjs; discountPct?: number }) => post('/services/education/enrollments', { ...v, enrolledOn: v.enrolledOn.format('YYYY-MM-DD'), discountPct: v.discountPct ? String(v.discountPct) : undefined }), { invalidate: KEY, success: 'Peserta didaftarkan', onSuccess: () => setEnrolling(false) });
   const leave = useAction((v: { leftOn: dayjs.Dayjs; reason: string }) => post(`/services/education/enrollments/${leaving!.id}/leave`, { ...v, leftOn: v.leftOn.format('YYYY-MM-DD') }), { invalidate: KEY, success: 'Peserta dicatat keluar', onSuccess: () => setLeaving(null) });
-  const bill = useAction(() => post('/services/education/bill', { period }), { invalidate: [...KEY, 'invoices'], success: 'SPP ditagih: satu faktur per wali' });
+  // jasa pendidikan umumnya dibebaskan PPN: SPP ditagih tanpa PPN kecuali dicentang
+  const [sppVat, setSppVat] = useState(false);
+  const bill = useAction(() => post('/services/education/bill', { period, withVat: sppVat }), { invalidate: [...KEY, 'invoices'], success: 'SPP ditagih: satu faktur per wali' });
   const nameOf = (id: string) => (customers.data ?? []).find((c) => c.id === id)?.name ?? '-';
   const total = (due.data ?? []).reduce((a, d) => a + Number(d.total), 0);
   return (
@@ -82,6 +84,7 @@ export default function EducationPage() {
               <>
                 <Space style={{ marginBottom: 12 }} wrap>
                   <DatePicker picker="month" allowClear={false} value={dayjs(`${period}-01`)} onChange={(d) => d && setPeriod(d.format('YYYY-MM'))} />
+                  <Checkbox checked={sppVat} onChange={(e) => setSppVat(e.target.checked)}>Kenakan PPN pada SPP</Checkbox>
                   {can('POST', '/services/education/bill') && <Button type="primary" disabled={!due.data?.length} loading={bill.isPending} onClick={() => bill.mutate(undefined)}>Tagih semua ({due.data?.length ?? 0} wali, {fmtMoney(total)})</Button>}
                 </Space>
                 <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Satu faktur per wali dengan satu baris per peserta. Bulan masuk dan bulan keluar ditagih penuh (tanpa prorata); peserta dengan tagihan periode ini tidak muncul lagi." />

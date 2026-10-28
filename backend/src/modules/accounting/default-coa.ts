@@ -1,4 +1,4 @@
-import type { BusinessModel, FiscalTreatment, ReportGroup, ReportingFramework } from '@sansu/shared';
+import type { BusinessModel, FiscalTreatment, ReportGroup, ReportingFramework, ServiceProfile } from '@sansu/shared';
 import { AccountType } from '../../db/schema';
 
 /** Kunci akun sistem yang dipakai jurnal otomatis. */
@@ -105,6 +105,8 @@ export interface CoaRow {
   fiscal?: FiscalTreatment;
   /** Akun khusus jenis usaha: hanya dibuat untuk model ini (kosong = semua model). Tidak pernah dihapus bila model diganti. */
   models?: BusinessModel[];
+  /** Akun khusus profil layanan (jenis usaha Jasa): hanya dibuat bila salah satu profil ini dipilih. Tidak pernah dihapus bila profil diganti. */
+  profiles?: ServiceProfile[];
   /** Nama khusus jenis usaha untuk akun inti (bila tidak ada: pakai `name`). Hanya menggantikan nama bawaan, tidak pernah nama yang sudah diubah pengguna. */
   names?: Partial<Record<BusinessModel, string>>;
   /** Akun bukan-sistem yang tidak relevan untuk jenis usaha ini: tidak dibuat (yang sudah ada dibiarkan) */
@@ -221,6 +223,19 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '4-2390', name: 'Pendapatan Non-Air Lainnya', type: 'REVENUE', parent: '4-0000', key: SYS.UTILITY_OTHER_REVENUE, group: 'SALES_REVENUE', models: ['UTILITAS'] },
   { code: '4-2100', name: 'Pendapatan Jasa Konstruksi (PPh Final)', type: 'REVENUE', parent: '4-0000', key: SYS.CONSTRUCTION_REVENUE, group: 'SALES_REVENUE', fiscal: 'FINAL_INCOME' },
   { code: '4-2200', name: 'Pendapatan Sewa (PPh Final)', type: 'REVENUE', parent: '4-0000', key: SYS.RENTAL_REVENUE, group: 'SALES_REVENUE', fiscal: 'FINAL_INCOME' },
+  // Pendapatan khas profil layanan Jasa: tiap jenis layanan punya baris sendiri di laba rugi
+  { code: '4-2510', name: 'Pendapatan Jasa Konsultasi & Profesional', type: 'REVENUE', parent: '4-0000', group: 'SALES_REVENUE', models: ['JASA'], profiles: ['KONSULTAN'] },
+  { code: '4-2520', name: 'Pendapatan Retainer (Langganan Jasa)', type: 'REVENUE', parent: '4-0000', group: 'SALES_REVENUE', models: ['JASA'], profiles: ['KONSULTAN'] },
+  { code: '4-2530', name: 'Pendapatan Pekerjaan Tambah Konstruksi (PPh Final)', type: 'REVENUE', parent: '4-0000', group: 'SALES_REVENUE', fiscal: 'FINAL_INCOME', models: ['JASA'], profiles: ['KONTRAKTOR'] },
+  { code: '4-2610', name: 'Pendapatan SPP & Biaya Kursus', type: 'REVENUE', parent: '4-0000', group: 'SALES_REVENUE', models: ['JASA'], profiles: ['PENDIDIKAN'] },
+  { code: '4-2620', name: 'Pendapatan Uang Pendaftaran', type: 'REVENUE', parent: '4-0000', group: 'SALES_REVENUE', models: ['JASA'], profiles: ['PENDIDIKAN'] },
+  { code: '4-2640', name: 'Pendapatan Pelatihan Korporat & Sekolah', type: 'REVENUE', parent: '4-0000', group: 'SALES_REVENUE', models: ['JASA'], profiles: ['PENDIDIKAN'] },
+  { code: '4-2710', name: 'Pendapatan Jasa Keamanan', type: 'REVENUE', parent: '4-0000', group: 'SALES_REVENUE', models: ['JASA'], profiles: ['ALIH_DAYA'] },
+  { code: '4-2720', name: 'Pendapatan Jasa Kebersihan', type: 'REVENUE', parent: '4-0000', group: 'SALES_REVENUE', models: ['JASA'], profiles: ['ALIH_DAYA'] },
+  { code: '4-2730', name: 'Pendapatan Layanan Tambahan (Sekali Pakai)', type: 'REVENUE', parent: '4-0000', group: 'SALES_REVENUE', models: ['JASA'], profiles: ['ALIH_DAYA'] },
+  { code: '4-2740', name: 'Pendapatan Jasa Alih Daya Lainnya', type: 'REVENUE', parent: '4-0000', group: 'SALES_REVENUE', models: ['JASA'], profiles: ['ALIH_DAYA'] },
+  { code: '4-2810', name: 'Pendapatan Jasa Servis & Perbaikan', type: 'REVENUE', parent: '4-0000', group: 'SALES_REVENUE', models: ['JASA'], profiles: ['BENGKEL'] },
+  { code: '4-2820', name: 'Pendapatan Servis Armada Korporat', type: 'REVENUE', parent: '4-0000', group: 'SALES_REVENUE', models: ['JASA'], profiles: ['BENGKEL'] },
   { code: '4-9000', name: 'Pendapatan Lain-lain', type: 'REVENUE', parent: '4-0000', group: 'OTHER_INCOME' },
   { code: '4-9100', name: 'Pendapatan Bunga / Jasa Giro', type: 'REVENUE', parent: '4-0000', key: SYS.INTEREST_INCOME, group: 'FINANCE_INCOME', fiscal: 'FINAL_INCOME' },
   { code: '4-9300', name: 'Laba Selisih Kurs', type: 'REVENUE', parent: '4-0000', key: SYS.FX_GAIN, group: 'OTHER_INCOME' },
@@ -248,6 +263,23 @@ export const DEFAULT_COA: CoaRow[] = [
   { code: '5-1450', name: 'Bahan Terbuang (Basi, Kedaluwarsa, Tumpah)', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['FNB'] },
   { code: '5-1800', name: 'Beban Tenaga Ahli & Konsultan Eksternal', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'] },
   { code: '5-1900', name: 'Beban Sewa Alat & Peralatan Proyek', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'] },
+  // Beban pokok khas profil layanan Jasa
+  { code: '5-1810', name: 'Honor Pengajar per Sesi', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['PENDIDIKAN'] },
+  { code: '5-1820', name: 'Beban Modul & Bahan Ajar', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['PENDIDIKAN'] },
+  { code: '5-1830', name: 'Beban Sewa Ruang & Fasilitas Belajar', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['PENDIDIKAN'] },
+  { code: '5-1840', name: 'Beban Seragam & Perlengkapan Petugas', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['ALIH_DAYA'] },
+  { code: '5-1850', name: 'Beban Bahan & Peralatan Kebersihan Habis Pakai', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['ALIH_DAYA'] },
+  { code: '5-1860', name: 'Beban Pelatihan & Sertifikasi Petugas', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['ALIH_DAYA'] },
+  { code: '5-1870', name: 'Beban Lembur & Petugas Pengganti', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['ALIH_DAYA'] },
+  { code: '5-1880', name: 'Beban Komisi & Bagi Hasil Mekanik', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['BENGKEL'] },
+  { code: '5-1890', name: 'Beban Bahan Habis Pakai Bengkel', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['BENGKEL'] },
+  { code: '5-1910', name: 'Beban Garansi & Pengerjaan Ulang', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['BENGKEL'] },
+  { code: '5-1920', name: 'Beban Mobilisasi & Demobilisasi Proyek', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['KONTRAKTOR'] },
+  { code: '5-1930', name: 'Beban K3 & Asuransi Proyek', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['KONTRAKTOR'] },
+  { code: '5-1940', name: 'Beban Jaminan Bank & Surety Bond Proyek', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['KONTRAKTOR'] },
+  { code: '5-1950', name: 'Beban Perizinan & Retribusi Proyek', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['KONTRAKTOR'] },
+  { code: '5-1960', name: 'Beban Riset, Data & Lisensi Proyek', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['KONSULTAN'] },
+  { code: '5-1970', name: 'Beban Perjalanan & Akomodasi Proyek', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['JASA'], profiles: ['KONSULTAN'] },
   { code: '5-4500', name: 'Beban Energi Produksi (Listrik, Gas, BBM)', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['MANUFAKTUR'] },
   { code: '5-4600', name: 'Beban Pengujian & Pengendalian Mutu', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['MANUFAKTUR'] },
   { code: '5-4700', name: 'Beban Kemasan Produk Jadi', type: 'EXPENSE', parent: '5-0000', group: 'COST_OF_SALES', models: ['MANUFAKTUR'] },

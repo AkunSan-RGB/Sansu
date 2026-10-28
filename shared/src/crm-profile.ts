@@ -69,8 +69,8 @@ export const CRM_PROFILES: Record<BusinessModel, CrmProfile> = {
 
 export const OTHER_REASON_PREFIX = 'Lainnya: ';
 
-/** Alasan kalah yang sah: salah satu pilihan jenis usaha ini, atau "Lainnya: …" dengan keterangan */
-export function isValidLostReason(model: BusinessModel, reason: string): boolean {
-  if (CRM_PROFILES[model].lostReasons.includes(reason)) return true;
+/** Alasan kalah yang sah: salah satu pilihan jenis usaha ini (atau daftar yang diberikan, mis. gabungan profil layanan Jasa), atau "Lainnya: …" dengan keterangan */
+export function isValidLostReason(model: BusinessModel, reason: string, allowed: readonly string[] = CRM_PROFILES[model].lostReasons): boolean {
+  if (allowed.includes(reason)) return true;
   return reason.startsWith(OTHER_REASON_PREFIX) && reason.slice(OTHER_REASON_PREFIX.length).trim().length >= 3;
 }

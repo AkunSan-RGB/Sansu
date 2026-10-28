@@ -1,6 +1,7 @@
 /**
  * Profil layanan untuk jenis usaha Jasa: satu perusahaan jasa memilih satu atau lebih profil sesuai pekerjaannya.
- * Profil hanya mengatur apa yang tampil (menu, Ruang kerja, bantuan); akun, pajak, dan SDM sama untuk semua profil.
+ * Profil mengatur menu, Ruang kerja, istilah, jenis tagihan/biaya, akun pendapatan & biaya khas, laporan, ubin dashboard, dan bantuan
+ * (lihat service-packs/). Pajak dan SDM tetap mengikuti pengaturan perusahaan.
  */
 export const SERVICE_PROFILE_KEYS = ['KONSULTAN', 'KONTRAKTOR', 'PENDIDIKAN', 'ALIH_DAYA', 'BENGKEL'] as const;
 export type ServiceProfile = (typeof SERVICE_PROFILE_KEYS)[number];

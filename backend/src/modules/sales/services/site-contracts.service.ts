@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { addDays, toDocDate, todayJakarta } from '../../../common/utils/dates';
+import { guessSitePostKind, SITE_POST_REVENUE, type SitePostKind } from '@sansu/shared';
 import { D } from '../../../common/utils/money';
 import { Db } from '../../../db/db';
 import { InjectDb } from '../../../db/db.module';
@@ -43,7 +44,7 @@ export class SiteContractsService {
       const monthly = mine.reduce((a, p) => a.plus(D(p.monthly_rate).times(p.headcount)), D(0));
       return {
         id: r.id, customerId: r.customer_id, customerName: r.customer_name, siteName: r.site_name, title: r.title, startDate: r.start_date, endDate: r.end_date, isActive: r.is_active,
-        posts: mine.map((p) => ({ id: p.id, name: p.name, headcount: p.headcount, monthlyRate: p.monthly_rate })),
+        posts: mine.map((p) => ({ id: p.id, name: p.name, headcount: p.headcount, monthlyRate: p.monthly_rate, serviceKind: p.service_kind })),
         monthlyTotal: monthly.toFixed(2),
         billedPeriods: billed.rows.filter((b) => b.contract_id === r.id).map((b) => ({ period: b.period, invoice: b.number, shortfall: b.shortfall })).sort((a, b) => a.period.localeCompare(b.period)),
         unbilledPeriods: unbilled.slice(-36),
@@ -59,7 +60,7 @@ export class SiteContractsService {
     for (const p of dto.posts) if (!D(p.monthlyRate).isFinite() || D(p.monthlyRate).lte(0)) throw new BadRequestException(`Tarif pos "${p.name}" harus lebih dari 0`);
     return this.db.transaction(async (tx) => {
       const c = (await this.repo.insertContract(tx, u.tenantId, { customerId: dto.customerId, siteName: dto.siteName, title: dto.title, withVat: dto.withVat ?? null, start, end })).rows[0];
-      for (const p of dto.posts) await this.repo.insertPost(tx, u.tenantId, c.id, { name: p.name, headcount: p.headcount, rate: D(p.monthlyRate).toFixed(2) });
+      for (const p of dto.posts) await this.repo.insertPost(tx, u.tenantId, c.id, { name: p.name, headcount: p.headcount, rate: D(p.monthlyRate).toFixed(2), kind: p.serviceKind ?? guessSitePostKind(p.name) });
       await this.audit.log(tx, { tenantId: u.tenantId, userId: u.sub, action: 'CREATE', entity: 'SiteContract', entityId: c.id, data: dto });
       return { id: c.id };
     });
@@ -148,12 +149,15 @@ export class SiteContractsService {
     const posts = (await this.repo.listPosts(this.db, u.tenantId, [id])).rows;
     const cov = dto.deductShortfall ? await this.coverage(u.tenantId, id, first, last) : null;
     let totalShort = D(0);
+    // Tiap pos dibukukan ke akun pendapatan jenis layanannya (keamanan / kebersihan / lainnya) bila profil Alih daya dipilih
+    const accountByKind = new Map<SitePostKind, string | undefined>();
+    for (const k of new Set(posts.map((p) => p.service_kind))) accountByKind.set(k, await this.billing.revenueAccountFor(this.db, u.tenantId, SITE_POST_REVENUE[k]));
     const lines = posts.map((p) => {
       const short = cov?.posts.find((x) => x.postId === p.id)?.shortfallHeadDays ?? 0;
       const b = postBilling(p.headcount, p.monthly_rate, dim, short, !!dto.deductShortfall);
       totalShort = totalShort.plus(short);
       const note = dto.deductShortfall && short ? ` — dipotong kekurangan ${short} hari-orang` : '';
-      return { description: `${c.title} ${c.site_name} — ${p.name} (${p.headcount} petugas) periode ${dto.period}${note}`, qty: b.qty, unit: 'Petugas', price: D(p.monthly_rate).toFixed(2) };
+      return { description: `${c.title} ${c.site_name} — ${p.name} (${p.headcount} petugas) periode ${dto.period}${note}`, qty: b.qty, unit: 'Petugas', price: D(p.monthly_rate).toFixed(2), accountId: accountByKind.get(p.service_kind) };
     });
     return this.billing.createInvoice(
       u,

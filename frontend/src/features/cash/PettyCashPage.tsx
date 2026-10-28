@@ -12,6 +12,7 @@ import PageHeader from '@/layout/PageHeader';
 import CashTabs from './CashTabs';
 import { fmtDate, fmtMoney, rupiahInput, today } from '@/lib/format';
 import { printDoc } from '@/lib/print';
+import { withProfileCosts } from '@/lib/profileCosts';
 
 type Fund = {
   id: string;
@@ -233,7 +234,7 @@ export default function PettyCashPage() {
             <Input />
           </Form.Item>
           <Form.Item name="expenseAccountId" label="Akun beban" rules={[{ required: true }]}>
-            <Select showSearch optionFilterProp="label" options={expenseAccounts.map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` }))} />
+            <Select showSearch optionFilterProp="label" options={withProfileCosts(me?.businessModel, me?.serviceProfiles, expenseAccounts, expenseAccounts.map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` })))} />
           </Form.Item>
           <Form.Item name="amount" label={`Jumlah (maks. ${fmtMoney(fund?.maxVoucher)})`} rules={[{ required: true }]}>
             <InputNumber {...rupiahInput} min={1} max={Number(fund?.maxVoucher ?? 0)} style={{ width: '100%' }} prefix="Rp" />

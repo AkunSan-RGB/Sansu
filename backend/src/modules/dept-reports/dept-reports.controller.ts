@@ -22,6 +22,11 @@ export class DeptReportsController {
   @RequireApp('sales') @Get('fmcg') fmcg(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'fmcg', q); }
   @RequireApp('inventory') @Get('mfg') mfg(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'mfg', q); }
   @RequireApp('sales') @Get('jasa') jasa(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'jasa', q); }
+  @RequireApp('sales') @Get('jasa-konsultan') jasaKonsultan(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'jasa-konsultan', q); }
+  @RequireApp('sales') @Get('jasa-kontraktor') jasaKontraktor(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'jasa-kontraktor', q); }
+  @RequireApp('sales') @Get('jasa-pendidikan') jasaPendidikan(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'jasa-pendidikan', q); }
+  @RequireApp('sales') @Get('jasa-alihdaya') jasaAlihDaya(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'jasa-alihdaya', q); }
+  @RequireApp('sales') @Get('jasa-bengkel') jasaBengkel(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'jasa-bengkel', q); }
   @RequireApp('utility') @Get('utility') utility(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'utility', q); }
   @RequireApp('utility') @Get('utility-kinerja') utilityKinerja(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'utility-kinerja', q); }
   @RequireApp('utility') @Get('utility-nonair') utilityNonAir(@CurrentUser() u: AuthUser, @Query() q: DeptRangeQuery) { return this.svc.build(u, 'utility-nonair', q); }

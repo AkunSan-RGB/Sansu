@@ -53,10 +53,29 @@ Jenis usaha Jasa semula paling cocok untuk konsultan/agensi (proyek, timesheet, 
 
 ### Profil layanan (menu Jasa mengikuti jenis pekerjaan)
 Karena Jasa kini melayani banyak jenis pekerjaan, perusahaan Jasa memilih satu atau lebih **profil layanan** di Pengaturan › Jenis usaha: Konsultan/agensi, Kontraktor, Pendidikan, Alih daya per lokasi, Bengkel/salon/kasir. Disimpan di pengaturan perusahaan (`serviceProfiles`), dibaca lewat `/auth/me` dan `GET/PUT /settings/business/service-profiles` (hanya Admin, hanya jenis usaha Jasa).
-- **Hanya tampilan**: menu (`profiles` pada item/grup di `menuData.tsx`), Ruang kerja (tautan ikut tersaring), dan artikel bantuan. Backend tidak memblokir fitur profil lain, akun/pajak/SDM tidak berbeda per profil, dan data profil yang tidak dicentang tidak hilang.
+- **Menu dan paket profil**: menu (`profiles` pada item/grup di `menuData.tsx`), Ruang kerja, dan artikel bantuan tersaring per profil; transaksi, akun, laporan, KPI, CRM, alur kerja, dan pajak mengikuti paket profil (lihat bagian berikut). Backend tidak memblokir fitur profil lain, dan data profil yang tidak dicentang tidak hilang.
 - **Bawaan**: perusahaan Jasa baru = Konsultan; perusahaan lama yang belum memilih = semua profil (menu tidak tiba-tiba hilang); demo Jasa = satu profil yang dipilih pengunjung (bawaan Kontraktor); tiap profil punya data sendiri dari transaksi sampai laporan keuangan (Kontraktor: BoQ/retensi/subkontraktor; Konsultan: proyek/retainer/lembar waktu; Pendidikan: kelas/SPP/tunggakan; Alih daya: kontrak lokasi/jadwal jaga/potongan; Bengkel: layanan+suku cadang di kasir/faktur armada). Sebutan peran (Pembelian, Penjualan, Gudang, Kasir) mengikuti jenis usaha — hanya label, hak akses tidak berubah.
 - **Menu Persediaan Jasa** disederhanakan: Katalog jasa & bahan, Stok bahan, Hitung stok bahan, laporan. Lokasi bahan, Persediaan per lokasi, dan Transfer antar lokasi disembunyikan untuk Jasa (halamannya masih dapat dibuka lewat alamat langsung). Grup Persediaan hanya tampil untuk profil Kontraktor, Alih daya, Bengkel; Kasir layanan hanya untuk Bengkel.
-- **Tidak berubah**: SDM (Karyawan, Cuti, Upah jasa) dan Pajak tampil sama untuk semua profil Jasa.
+- **Tidak berubah**: menu SDM (Karyawan, Cuti, Upah jasa) dan menu Pajak tampil sama untuk semua profil Jasa (isi fokus pajak mengikuti profil).
+
+### Paket profil layanan (transaksi, akun, laporan per profil)
+
+Semua yang membedakan profil didefinisikan di satu tempat: `shared/src/service-packs/` (satu berkas per profil + `index.ts` sebagai registri dan penggabung). Satu profil dipilih = paket penuh profil itu; beberapa profil = daftar digabung dan istilah tetap umum Jasa.
+
+| Bagian | Konsultan | Kontraktor | Pendidikan | Alih daya | Bengkel |
+|---|---|---|---|---|---|
+| Akun pendapatan khas | 4-2510 jasa konsultasi, 4-2520 retainer | 4-2100 konstruksi (PPh final), 4-2530 pekerjaan tambah | 4-2610 SPP & kursus, 4-2620 pendaftaran, 4-2640 pelatihan korporat | 4-2710 keamanan, 4-2720 kebersihan, 4-2730 layanan tambahan, 4-2740 lainnya | 4-2810 jasa servis, 4-2820 armada korporat (suku cadang tetap 4-1000) |
+| Biaya khas | tenaga ahli, data/lisensi proyek, perjalanan proyek | subkon, material, upah, sewa alat, mobilisasi, K3, jaminan bank, perizinan | honor pengajar, modul, sewa ruang | seragam, bahan kebersihan, pelatihan petugas, lembur/pengganti | komisi mekanik, bahan habis pakai, garansi |
+| Jenis tagihan (form) | jam kerja, milestone, konsultasi | termin, pekerjaan tambah, pekerjaan kecil | pendaftaran, les privat, pelatihan | layanan tambahan, tenaga sementara | armada korporat, perbaikan besar |
+| Otomatis ke akun khas | lembar waktu → 4-2510, retainer → 4-2520 | termin beretensi (tetap) | SPP → 4-2610, tanpa PPN bawaan | tagihan bulanan dipecah per jenis pos | layanan di kasir → 4-2810 |
+| Laporan | `/laporan/jasa-konsultan` | `/laporan/jasa-kontraktor` | `/laporan/jasa-pendidikan` | `/laporan/jasa-alihdaya` | `/laporan/jasa-bengkel` |
+| Alur kerja | JASA_PROYEK | JASA_PROYEK | JASA_PESERTA | JASA_LOKASI | JASA_SERVIS |
+
+Juga per profil: istilah layar (mis. kontraktor "Pemberi kerja", pendidikan "Wali / peserta"), Ruang kerja dan aksi cepat, daftar Pengaturan usaha, CRM (tahap/sumber/alasan kalah), form produk (kategori, satuan, label), ubin KPI dan saran beranda (`GET /dashboard/profile-kpis`), fokus dan pemeriksaan pajak (PPh final konstruksi, PPN SPP, PPh 23 alih daya, harga kasir bengkel), serta artikel bantuan.
+
+Akun khas profil (`CoaRow.profiles`) dibuat saat perusahaan dibuat, saat profil dipilih (`PUT /settings/business/service-profiles`), dan saat migrasi (sinkron bagan akun semua perusahaan); akun profil lama tidak pernah dihapus. Pos jaga kontrak lokasi punya jenis layanan (`site_posts.service_kind`, migrasi 0126; data lama ditebak dari nama pos). Bila akun khas tidak ada, alur memakai akun pendapatan jasa bawaan sehingga perusahaan lama tetap berjalan.
+
+Batasan yang diketahui: margin per lokasi alih daya memakai estimasi biaya petugas (gaji pokok ÷ 25 × hari jaga), bukan alokasi gaji dari penggajian; retur kasir bengkel tetap ke akun Retur Penjualan (tidak dipisah layanan/suku cadang).
 
 ## Ritel
 
