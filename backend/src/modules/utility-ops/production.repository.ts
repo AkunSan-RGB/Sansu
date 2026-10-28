@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
+import { textArray } from '../../common/utils/sql-guard';
 import { DbOrTx } from '../../db/db';
 import { firstOf, rowsOf } from './ops.repository';
 
@@ -37,7 +38,7 @@ export class ProductionRepository {
   }
   async qualityInsert(db: DbOrTx, v: { tenantId: string; sampledOn: string; point: string; ph: number | null; turbidity: number | null; chlorine: number | null; coliform: number | null; tds: number | null; ok: boolean; failed: string[]; samplerId: string; note: string | null }) {
     const r = await firstOf<{ id: string }>(db, sql`INSERT INTO utility_water_quality (tenant_id, sampled_on, point, ph, turbidity, chlorine, coliform, tds, ok, failed, sampler_id, note)
-      VALUES (${v.tenantId}, ${v.sampledOn}, ${v.point}, ${v.ph}, ${v.turbidity}, ${v.chlorine}, ${v.coliform}, ${v.tds}, ${v.ok}, ${sql.raw(`ARRAY[${v.failed.map((f) => `'${f}'`).join(',')}]::text[]`)}, ${v.samplerId}, ${v.note}) RETURNING id`);
+      VALUES (${v.tenantId}, ${v.sampledOn}, ${v.point}, ${v.ph}, ${v.turbidity}, ${v.chlorine}, ${v.coliform}, ${v.tds}, ${v.ok}, ${textArray(v.failed)}, ${v.samplerId}, ${v.note}) RETURNING id`);
     return r!.id;
   }
   qualitySummary(db: DbOrTx, tenantId: string, since: string) {

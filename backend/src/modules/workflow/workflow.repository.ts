@@ -3,6 +3,7 @@ import { DbOrTx } from '../../db/db';
 import { workflowLinks, workflowCases, workflowEvents, customers, suppliers } from '../../db/schema';
 import { and, eq, asc, sql, desc } from 'drizzle-orm';
 import { AuthUser } from '../../common/auth/auth-user';
+import { assertDocDateText, assertUuid, textArray } from '../../common/utils/sql-guard';
 import { CaseQueryDto } from './workflow.dto';
 import { type WorkflowLinkType } from '@sansu/shared';
 
@@ -34,7 +35,7 @@ export class WorkflowRepository {
              cu.name AS "customerName", su.name AS "supplierName",
              (SELECT COUNT(*)::int FROM workflow_links l WHERE l.case_id = c.id) AS "linkCount"
       FROM workflow_cases c LEFT JOIN customers cu ON cu.id = c.customer_id LEFT JOIN suppliers su ON su.id = c.supplier_id
-      WHERE c.tenant_id = ${u.tenantId} AND c.pipeline = ANY(${sql.raw(`ARRAY[${keys.map((k) => `'${k}'`).join(',')}]::text[]`)})
+      WHERE c.tenant_id = ${u.tenantId} AND c.pipeline = ANY(${textArray(keys)})
         ${q.pipeline ? sql`AND c.pipeline = ${q.pipeline}` : sql``} ${q.status ? sql`AND c.status = ${q.status}` : sql``}
       ORDER BY c.created_at DESC LIMIT 300`);
   }
@@ -136,7 +137,7 @@ export class WorkflowRepository {
     tenantId: string,
     docId: string,
   ) {
-    return db.execute<{ id: string | null }>(sql.raw(f.ids(tenantId, docId)));
+    return db.execute<{ id: string | null }>(sql.raw(f.ids(assertUuid(tenantId, 'Perusahaan'), assertUuid(docId, 'Dokumen'))));
   }
 
   /** Dipakai oleh WorkflowService.discoverRestock */
@@ -223,6 +224,8 @@ export class WorkflowRepository {
   // ---- kueri yang dipindah dari service ----
   /** Dipakai oleh WorkflowService.liveLinks */
   queryLiveLinks(db: DbOrTx, s: Source, table: string, tenantId: string, docId: string) {
+    assertUuid(tenantId, 'Perusahaan');
+    assertUuid(docId, 'Dokumen');
     return db.execute<{ number: string; status: string }>(
       sql.raw(
         `SELECT ${s.number('t')} AS number, ${s.status('t')} AS status FROM "${table}" t WHERE t.tenant_id = '${tenantId}' AND t.id = '${docId}'`,
@@ -246,6 +249,8 @@ export class WorkflowRepository {
 
   /** Dipakai oleh WorkflowService.followLinks */
   queryFollowLinksForFollowLinks(db: DbOrTx, s: Source, table: string, tenantId: string, id: string) {
+    assertUuid(tenantId, 'Perusahaan');
+    assertUuid(id, 'Dokumen');
     return db.execute<{ number: string; status: string }>(
       sql.raw(
         `SELECT ${s.number('t')} AS number, ${s.status('t')} AS status FROM "${table}" t WHERE t.tenant_id = '${tenantId}' AND t.id = '${id}'`,
@@ -279,6 +284,8 @@ export class WorkflowRepository {
     since: string,
     o: { link: WorkflowLinkType; subject?: 'customer' | 'supplier'; label: string; where?: string },
   ) {
+    assertUuid(tenantId, 'Perusahaan');
+    assertDocDateText(since, 'Tanggal awal');
     return db.execute<{ id: string; number: string; status: string; subject_id: string | null }>(
       sql.raw(`
         SELECT d.id, ${s.number('d')} AS number, ${s.status('d')} AS status, ${subjectCol} AS subject_id FROM "${table}" d
