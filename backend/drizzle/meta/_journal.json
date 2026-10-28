@@ -841,6 +841,13 @@
       "when": 1798655886484,
       "tag": "0119_subkontrak_produksi",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1798742286484,
+      "tag": "0120_maklon_alokasi",
+      "breakpoints": true
     }
   ]
 }

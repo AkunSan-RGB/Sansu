@@ -59,16 +59,17 @@ export function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }
     },
   );
   const [billId, setBillId] = useState<string>();
+  const [billAmount, setBillAmount] = useState<number | null>(null);
   const sub = o?.subcontract ?? null;
   const bills = useQuery({
     queryKey: ['purchase-invoices', 'maklon', sub?.supplierId],
     enabled: !!sub && !sub.billId && can('POST', '/production/orders/:id/subcontract-bill'),
     queryFn: () => get<PurchaseInvoice[]>(`/purchase-invoices?supplierId=${sub!.supplierId}`),
   });
-  const link = useAction(() => post<ProductionOrder>(`/production/orders/${id}/subcontract-bill`, { purchaseInvoiceId: billId }), {
+  const link = useAction(() => post<ProductionOrder>(`/production/orders/${id}/subcontract-bill`, { purchaseInvoiceId: billId, amount: billAmount ? String(billAmount) : undefined }), {
     success: 'Tagihan maklon ditautkan',
     invalidate: INVALIDATE,
-    onSuccess: () => setBillId(undefined),
+    onSuccess: () => { setBillId(undefined); setBillAmount(null); },
   });
   const cancel = useAction(() => post<ProductionOrder>(`/production/orders/${id}/cancel`, {}), {
     success: 'Produksi dibatalkan',
@@ -132,6 +133,7 @@ export function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }
                           options={(bills.data ?? []).filter((b) => b.kind === 'BILL').map((b) => ({ value: b.id, label: `${b.number} · ${b.supplierInvoiceNo} · ${fmtMoney(b.subtotal)}` }))}
                           notFoundContent="Belum ada tagihan biaya dari pemasok ini"
                         />
+                        <InputNumber min={1} value={billAmount} onChange={setBillAmount} placeholder="Jumlah (kosong = sisa tagihan)" style={{ width: 220 }} prefix="Rp" />
                         <Button type="primary" disabled={!billId} loading={link.isPending} onClick={() => link.mutate(undefined)}>
                           Tautkan tagihan
                         </Button>

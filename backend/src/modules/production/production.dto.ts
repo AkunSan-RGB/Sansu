@@ -48,6 +48,7 @@ export class CreateProductionDto {
 
 export class LinkSubcontractBillDto {
   @ApiProperty({ description: 'Tagihan biaya (bukan faktur barang) dari pemasok maklon; semua barisnya harus ke akun Upah Langsung Produksi' }) @IsUUID() purchaseInvoiceId: string;
+  @ApiPropertyOptional({ example: '600000', description: 'Bagian DPP tagihan untuk perintah ini; kosong = seluruh sisa tagihan yang belum dialokasikan' }) @IsOptional() @IsNumberString() amount?: string;
 }
 
 export class IssueLineDto {

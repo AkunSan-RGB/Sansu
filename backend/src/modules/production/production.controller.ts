@@ -76,6 +76,12 @@ export class ProductionController {
     return this.svc.linkSubcontractBill(u, id, dto);
   }
 
+  @Get('subcontract/holdings')
+  @Roles('ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT')
+  subcontractHoldings(@CurrentUser() u: AuthUser) {
+    return this.svc.subcontractHoldings(u.tenantId);
+  }
+
   @Get('orders/:id')
   @Roles('ADMIN', 'WAREHOUSE', 'FINANCE', 'ACCOUNTANT')
   order(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {

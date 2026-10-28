@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq } from 'drizzle-orm';
-import type { Bom, BomRevision, ProductionOrder, ProductionReport } from '@sansu/shared';
+import type { Bom, BomRevision, ProductionOrder, ProductionReport, SubcontractHolding } from '@sansu/shared';
 import { WorkflowService } from '../workflow/workflow.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -336,20 +336,42 @@ export class ProductionService {
       if (b.kind !== 'BILL') throw new BadRequestException('Hanya Tagihan biaya yang dapat ditautkan, bukan faktur barang');
       if (b.supplier_id !== o.subcontractorId) throw new BadRequestException('Tagihan ini dari pemasok lain, bukan pemasok maklon perintah ini');
       if (!b.journal_id || b.reversed) throw new BadRequestException('Tagihan sudah dibatalkan / belum dijurnal');
-      if (b.linked_order) throw new BadRequestException(`Tagihan sudah ditautkan ke perintah ${b.linked_order}`);
       if (b.lines !== b.labor_lines || D(b.labor_total).lte(0))
         throw new BadRequestException('Semua baris tagihan maklon harus ke akun Upah Langsung Produksi agar biaya masuk harga pokok barang jadi');
-      await patchById(tx, productionOrders, id, { subcontractBillId: b.id });
+      // satu tagihan boleh dibagi ke beberapa perintah; jumlah alokasi tidak boleh melebihi DPP tagihan
+      const remaining = money(D(b.labor_total).minus(b.allocated));
+      const amount = money(dto.amount ?? remaining);
+      if (amount.lte(0)) throw new BadRequestException('Tagihan ini sudah seluruhnya dialokasikan ke perintah lain');
+      if (amount.gt(remaining)) throw new BadRequestException(`Alokasi melebihi sisa tagihan (${remaining.toFixed(2)})`);
+      await patchById(tx, productionOrders, id, { subcontractBillId: b.id, subcontractBillAmount: amount.toFixed(2) });
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,
         action: 'UPDATE',
         entity: 'ProductionOrder',
         entityId: id,
-        data: { subcontractBill: b.number, amount: D(b.labor_total).toFixed(2) },
+        data: { subcontractBill: b.number, amount: amount.toFixed(2) },
       });
     });
     return this.getOrder(user.tenantId, id);
+  }
+
+  /**
+   * Bahan yang berada di tangan pemasok maklon: yang sudah dikeluarkan untuk perintah subkontrak berstatus berjalan.
+   * Diturunkan dari perintah produksi (nilainya tercatat di Barang dalam Proses), bukan gudang fisik terpisah.
+   */
+  async subcontractHoldings(tenantId: string): Promise<SubcontractHolding[]> {
+    const rows = await this.repo.listSubcontractHoldings(this.db, tenantId);
+    const out = new Map<string, SubcontractHolding>();
+    for (const r of rows) {
+      const h = out.get(r.supplier_id) ?? { supplierId: r.supplier_id, supplierName: r.supplier_name, totalValue: '0.00', orders: [] };
+      let o = h.orders.find((x) => x.orderId === r.order_id);
+      if (!o) h.orders.push((o = { orderId: r.order_id, orderNumber: r.order_number, startedDate: r.started, materials: [] }));
+      o.materials.push({ sku: r.sku, name: r.name, unit: r.unit, qty: D(r.qty).toString(), value: D(r.value).toFixed(2) });
+      h.totalValue = D(h.totalValue).plus(r.value).toFixed(2);
+      out.set(r.supplier_id, h);
+    }
+    return [...out.values()];
   }
 
   /** Keluarkan bahan ke produksi: Dr Barang dalam Proses | Cr Persediaan */
@@ -440,7 +462,7 @@ export class ProductionService {
         if (dto.laborCost !== undefined) throw new BadRequestException('Upah subkontrak diambil dari tagihan jasa pemasok; tidak dapat diketik');
         if (ops) throw new BadRequestException('Perintah subkontrak tidak memakai operasi pusat kerja');
       }
-      const subLabor = o.subcontractBillId ? money(await this.repo.subcontractLabor(tx, o.subcontractBillId)) : null;
+      const subLabor = o.subcontractBillId ? money(o.subcontractBillAmount ?? 0) : null;
       const labor = subLabor ?? (ops ? money(ops.labor) : money(dto.laborCost ?? D(b.laborCost).times(o.batches)));
       const overhead = o.subcontractorId ? money(dto.overheadCost ?? 0) : ops ? money(ops.overhead) : money(dto.overheadCost ?? D(b.overheadCost).times(o.batches));
       if (labor.isNegative() || overhead.isNegative()) throw new BadRequestException('Biaya tidak boleh negatif');

@@ -2041,6 +2041,14 @@ export interface Bom {
   estimate: { material: string; batchCost: string; unitCost: string };
 }
 
+/** Bahan yang sedang berada di tangan pemasok maklon (perintah subkontrak berjalan) */
+export interface SubcontractHolding {
+  supplierId: string;
+  supplierName: string;
+  totalValue: string;
+  orders: { orderId: string; orderNumber: string; startedDate: string | null; materials: { sku: string; name: string; unit: string; qty: string; value: string }[] }[];
+}
+
 /** Satu versi resep yang sudah digantikan, beserta perubahan menuju versi berikutnya */
 export interface BomRevision {
   version: number;
