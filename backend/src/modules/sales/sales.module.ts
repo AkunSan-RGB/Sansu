@@ -42,6 +42,9 @@ import { CalendarFeedService } from './services/calendar-feed.service';
 import { SchedulingController } from './services/scheduling.controller';
 import { SchedulingService } from './services/scheduling.service';
 import { RetainerController } from './services/retainers.controller';
+import { EducationController } from './services/education.controller';
+import { EducationService } from './services/education.service';
+import { EducationRepository } from './services/education.repository';
 import { RetainerService } from './services/retainers.service';
 import { CustomerDepositsRepository } from './services/customer-deposits.repository';
 import { TimesheetsRepository } from './services/timesheets.repository';
@@ -65,8 +68,8 @@ import { SalesControlsRepository } from './sales-controls.repository';
 
 @Module({
   imports: [AccountingModule, InventoryModule, FxModule],
-  controllers: [SalesControlsController, SalesOrdersController, DeliveriesController, InvoicesController, PaymentsController, ServiceBillingController, ServiceContractingController, PricingController, SalesTargetsController, SalesCommissionsController, ConsignmentsController, CanvassController, DeliveryTripsController, DeliveryVehiclesController, TradeController, TimesheetController, SchedulingController, CalendarFeedController, CalendarPublicController, RetainerController],
-  providers: [SalesControlsRepository, CreditRepository, PriceListsRepository, ConsignmentsRepository, PaymentsRepository, TradeRepository, CanvassRepository, SalesCommissionsRepository, SalesTargetsRepository, SalesOrdersRepository, InvoicesRepository, DeliveriesRepository, ServiceProjectsRepository, ServiceContractingRepository, RetainersRepository, SchedulingRepository, ServiceBillingRepository, CalendarFeedRepository, TimesheetsRepository, CustomerDepositsRepository, DeliveryTripRepository, RoutingService, DeliveryVehiclesService, DeliveryTripsService, SalesControlsService, TradeService, CanvassService, ConsignmentsService, PricingService, SalesTargetsService, SalesCommissionsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService, CustomerDepositsService, ServiceProjectsService, ServiceContractingService, TimesheetService, SchedulingService, CalendarFeedService, RetainerService],
+  controllers: [SalesControlsController, SalesOrdersController, DeliveriesController, InvoicesController, PaymentsController, ServiceBillingController, ServiceContractingController, PricingController, SalesTargetsController, SalesCommissionsController, ConsignmentsController, CanvassController, DeliveryTripsController, DeliveryVehiclesController, TradeController, TimesheetController, SchedulingController, CalendarFeedController, CalendarPublicController, RetainerController, EducationController],
+  providers: [SalesControlsRepository, CreditRepository, PriceListsRepository, ConsignmentsRepository, PaymentsRepository, TradeRepository, CanvassRepository, SalesCommissionsRepository, SalesTargetsRepository, SalesOrdersRepository, InvoicesRepository, DeliveriesRepository, ServiceProjectsRepository, ServiceContractingRepository, RetainersRepository, EducationRepository, SchedulingRepository, ServiceBillingRepository, CalendarFeedRepository, TimesheetsRepository, CustomerDepositsRepository, DeliveryTripRepository, RoutingService, DeliveryVehiclesService, DeliveryTripsService, SalesControlsService, TradeService, CanvassService, ConsignmentsService, PricingService, SalesTargetsService, SalesCommissionsService, SalesOrdersService, CreditService, DeliveriesService, InvoicesService, PaymentsService, ServiceBillingService, CustomerDepositsService, ServiceProjectsService, ServiceContractingService, TimesheetService, SchedulingService, CalendarFeedService, RetainerService, EducationService],
   exports: [SalesOrdersService, InvoicesService, PricingService, ServiceBillingService, PaymentsService],
 })
 export class SalesModule {}

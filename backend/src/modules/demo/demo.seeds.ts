@@ -340,6 +340,7 @@ async function seedJasa(c: Demo) {
   await X.stockOps(c, ids, JASA_BAHAN.map((p) => p.sku), { saleInvoiceId: jsold2, billId: c.last.bill, supplierId: sup.get('SUP-CLOUD') });
   await F.jasaOperations(c, [cu.get('CL-BANK')!, cu.get('CL-RETAIL')!, cu.get('CL-RS')!], p1?.id);
   await F.kontraktorRetensi(c, cu.get('CL-RETAIL')!);
+  await F.pendidikanSpp(c, [cu.get('CL-EDU')!, cu.get('CL-BANK')!]);
   await F.projectBudgets(c);
   await F.serviceWork(c, [{ name: 'Konsultan senior — per jam', unit: 'HOUR', rate: '250000', qty: '6.5' }, { name: 'Sesi pelatihan klien', unit: 'SESSION', rate: '1500000', qty: '1' }]);
   await F.minimums(c, [...ids.values()]);

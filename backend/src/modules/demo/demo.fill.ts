@@ -420,3 +420,22 @@ export async function kontraktorRetensi(c: Demo, customerId: string) {
   );
   await c.step('termin beretensi', () => c.svc.contracting.createInvoice(c.admin, { customerId, projectId: p.id, date: c.ago(7), termLabel: 'Termin 1', withVat: false, lines: [{ description: 'Termin 1 — pekerjaan persiapan, dinding, sebagian lantai', price: '90000000' }] }));
 }
+
+/** Jasa pendidikan: dua kelas, peserta dengan wali (saudara kandung diskon), satu keluar, SPP dua bulan terakhir sudah ditagih */
+export async function pendidikanSpp(c: Demo, walis: string[]) {
+  const month = (ago: number) => c.ago(ago).slice(0, 7);
+  const mk = async (code: string, name: string, fee: string, capacity: number) =>
+    (await c.step(`kelas ${code}`, () => c.svc.education.createClass(c.admin, { code, name, monthlyFee: fee, capacity, startDate: c.ago(120) }))) as { id: string } | undefined;
+  const mat = await mk('MAT-7', 'Matematika kelas 7', '350000', 12);
+  const ing = await mk('ING-1', 'Bahasa Inggris dasar', '275000', 10);
+  if (!mat || !ing || !walis.length) return;
+  const w = (i: number) => walis[i % walis.length];
+  const people: [string, string, number, number, string?][] = [['Andi Pratama', mat.id, 0, 110], ['Budi Pratama', mat.id, 0, 110, '10'], ['Citra Lestari', mat.id, 1, 100], ['Dewi Anggraini', ing.id, 1, 95], ['Eko Saputra', ing.id, 0, 80]];
+  const ids: string[] = [];
+  for (const [name, classId, wi, ago, disc] of people) {
+    const e = (await c.step(`peserta ${name}`, () => c.svc.education.enroll(c.admin, { classId, customerId: w(wi), studentName: name, enrolledOn: c.ago(ago), discountPct: disc }))) as { id: string } | undefined;
+    if (e) ids.push(e.id);
+  }
+  if (ids[4]) await c.step('peserta keluar', () => c.svc.education.leave(c.admin, ids[4], { leftOn: c.ago(40), reason: 'Pindah domisili' }));
+  for (const ago of [62, 32]) await c.step(`SPP ${month(ago)}`, () => c.svc.education.bill(c.admin, { period: month(ago), date: c.ago(ago) }));
+}

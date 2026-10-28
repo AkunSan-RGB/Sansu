@@ -311,3 +311,133 @@ export const serviceRetainerInvoices = pgTable(
   },
   (t) => [uniqueIndex('service_retainer_invoices_uq').on(t.retainerId, t.period)],
 );
+
+/** Pendidikan/kursus: kelas dengan SPP bulanan */
+export const eduClasses = pgTable(
+  'edu_classes',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    monthlyFee: money('monthly_fee').notNull(),
+    capacity: integer('capacity'),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('edu_classes_code_uq').on(t.tenantId, t.code)],
+);
+
+/** Peserta terdaftar di kelas; tagihan SPP ditujukan ke wali/pelanggan */
+export const eduEnrollments = pgTable(
+  'edu_enrollments',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    classId: uuid('class_id')
+      .notNull()
+      .references(() => eduClasses.id),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    studentName: text('student_name').notNull(),
+    enrolledOn: date('enrolled_on').notNull(),
+    leftOn: date('left_on'),
+    discountPct: numeric('discount_pct', { precision: 5, scale: 2 }).notNull().default('0'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('edu_enrollments_class_idx').on(t.classId), index('edu_enrollments_customer_idx').on(t.customerId)],
+);
+
+/** SPP yang sudah ditagih: satu baris per peserta per periode (unik, anti tagih ganda) */
+export const eduFeeInvoices = pgTable(
+  'edu_fee_invoices',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    enrollmentId: uuid('enrollment_id')
+      .notNull()
+      .references(() => eduEnrollments.id),
+    period: text('period').notNull(),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => invoices.id),
+    amount: money('amount').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('edu_fee_invoices_uq').on(t.enrollmentId, t.period)],
+);
+
+/** Kontrak per lokasi (kebersihan/keamanan/alih daya): pos jaga dengan jumlah petugas, ditagih bulanan */
+export const siteContracts = pgTable(
+  'site_contracts',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    siteName: text('site_name').notNull(),
+    title: text('title').notNull(),
+    withVat: boolean('with_vat'),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [index('site_contracts_customer_idx').on(t.customerId)],
+);
+
+export const sitePosts = pgTable(
+  'site_posts',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    contractId: uuid('contract_id')
+      .notNull()
+      .references(() => siteContracts.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    headcount: integer('headcount').notNull(),
+    monthlyRate: money('monthly_rate').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('site_posts_contract_idx').on(t.contractId)],
+);
+
+/** Jadwal jaga harian: satu petugas satu pos per hari */
+export const siteDuty = pgTable(
+  'site_duty',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    postId: uuid('post_id')
+      .notNull()
+      .references(() => sitePosts.id, { onDelete: 'cascade' }),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => employees.id),
+    dutyDate: date('duty_date').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('site_duty_employee_day_uq').on(t.employeeId, t.dutyDate), index('site_duty_post_day_idx').on(t.postId, t.dutyDate)],
+);
+
+export const siteContractInvoices = pgTable(
+  'site_contract_invoices',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    contractId: uuid('contract_id')
+      .notNull()
+      .references(() => siteContracts.id),
+    period: text('period').notNull(),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => invoices.id),
+    shortfallHeadDays: numeric('shortfall_head_days', { precision: 10, scale: 2 }).notNull().default('0'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('site_contract_invoices_uq').on(t.contractId, t.period)],
+);

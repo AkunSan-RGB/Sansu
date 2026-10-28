@@ -106,6 +106,10 @@ describe('Lihat Demo (e2e)', () => {
     // Jasa kontraktor: BoQ, kemajuan dari volume, dan termin yang dipecah (tagihan jalan + retensi)
     expect(await count(s('JASA'), 'project_boq_items')).toBe(4);
     expect(await prc(`SELECT COUNT(*)::text AS n FROM invoices WHERE tenant_id = '${s('JASA')}' AND retention_of_invoice_id IS NOT NULL`)).toBe(1);
+    // Jasa pendidikan: kelas, peserta, SPP dua bulan ditagih per wali
+    expect(await count(s('JASA'), 'edu_classes')).toBe(2);
+    expect(await count(s('JASA'), 'edu_enrollments')).toBe(5);
+    expect(await count(s('JASA'), 'edu_fee_invoices')).toBeGreaterThanOrEqual(8);
     // Manufaktur: riwayat versi resep dan satu perintah subkontrak selesai dengan tagihan jasa
     expect(await count(s('MANUFAKTUR'), 'bom_revisions')).toBeGreaterThanOrEqual(2);
     expect(await prc(`SELECT COUNT(*)::text AS n FROM production_orders WHERE tenant_id = '${s('MANUFAKTUR')}' AND subcontractor_id IS NOT NULL AND subcontract_bill_id IS NOT NULL AND status = 'COMPLETED'`)).toBe(1);

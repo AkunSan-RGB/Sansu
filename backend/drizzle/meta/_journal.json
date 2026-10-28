@@ -869,6 +869,20 @@
       "when": 1799001486484,
       "tag": "0123_retensi_boq",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1799001487484,
+      "tag": "0124_pendidikan_kelas",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1799001488484,
+      "tag": "0125_kontrak_lokasi",
+      "breakpoints": true
     }
   ]
 }
