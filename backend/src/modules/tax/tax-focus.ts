@@ -3,7 +3,7 @@
  * Hanya memeriksa kelengkapan data (NPWP, bukti potong, pengaturan pajak), tidak menghitung kewajiban pajak.
  */
 import { Injectable } from '@nestjs/common';
-import { TAX_FOCUS, type BusinessModel } from '@sansu/shared';
+import { taxFocusForTenant, type BusinessModel, type ServiceProfile } from '@sansu/shared';
 import { sql } from 'drizzle-orm';
 import { SettingsService } from '../../common/settings.service';
 import { addDays, todayJakarta } from '../../common/utils/dates';
@@ -31,12 +31,62 @@ export class TaxFocusService {
     return Number(r.rows[0]?.n ?? 0);
   }
 
+  /** Pemeriksaan khas profil layanan Jasa: PPh final konstruksi, PPN atas SPP, potongan PPh 23 alih daya, harga kasir bengkel */
+  private async profileChecks(tenantId: string, profiles: ServiceProfile[], since: string, pkp: boolean, posIncludesVat: boolean): Promise<TaxCheck[]> {
+    const out: TaxCheck[] = [];
+    if (profiles.includes('KONTRAKTOR')) {
+      const n = await this.count(sql`
+        SELECT COUNT(*)::int AS n FROM invoices i
+        WHERE i.tenant_id = ${tenantId} AND i.kind = 'SERVICE' AND i.project_id IS NOT NULL AND i.date >= ${since} AND i.is_opening = false
+          AND i.withholding_type IS DISTINCT FROM 'PPH4_2'
+          AND EXISTS (SELECT 1 FROM service_invoice_lines l JOIN accounts a ON a.id = l.account_id WHERE l.invoice_id = i.id AND a.fiscal_treatment = 'FINAL_INCOME')`);
+      out.push(
+        n > 0
+          ? { key: 'KONSTRUKSI_TANPA_PPH_FINAL', status: 'PERLU', title: 'Tagihan konstruksi tanpa PPh final', detail: `${n} tagihan proyek 90 hari terakhir dibukukan sebagai pendapatan konstruksi (PPh final) tetapi tidak mencatat PPh 4(2). Bila pemberi kerja tidak memotong, PPh final perlu disetor sendiri.`, link: '/tax/withheld' }
+          : { key: 'KONSTRUKSI_TANPA_PPH_FINAL', status: 'OK', title: 'PPh final konstruksi', detail: 'Semua tagihan konstruksi 90 hari terakhir mencatat PPh 4(2).' },
+      );
+    }
+    if (profiles.includes('PENDIDIKAN')) {
+      const n = await this.count(sql`
+        SELECT COUNT(DISTINCT f.invoice_id)::int AS n FROM edu_fee_invoices f JOIN invoices i ON i.id = f.invoice_id
+        WHERE f.tenant_id = ${tenantId} AND i.date >= ${since} AND i.tax_amount > 0`);
+      out.push(
+        n > 0
+          ? { key: 'SPP_KENA_PPN', status: 'PERLU', title: 'Tagihan SPP memuat PPN', detail: `${n} tagihan SPP 90 hari terakhir memuat PPN. Jasa pendidikan yang memenuhi syarat umumnya dibebaskan dari PPN — periksa status lembaga Anda dan pengaturan PPN perusahaan.`, link: '/settings/company' }
+          : { key: 'SPP_KENA_PPN', status: 'OK', title: 'PPN atas SPP', detail: 'Tagihan SPP 90 hari terakhir tidak memuat PPN.' },
+      );
+    }
+    if (profiles.includes('ALIH_DAYA')) {
+      const n = await this.count(sql`
+        SELECT COUNT(*)::int AS n FROM site_contract_invoices s JOIN invoices i ON i.id = s.invoice_id
+        WHERE s.tenant_id = ${tenantId} AND i.date >= ${since} AND i.status = 'PAID' AND i.withholding_amount = 0`);
+      out.push({
+        key: 'ALIH_DAYA_POTONGAN',
+        status: n > 0 ? 'INFO' : 'OK',
+        title: 'PPh 23 atas tagihan kontrak lokasi',
+        detail: n > 0 ? `${n} tagihan kontrak lokasi lunas 90 hari terakhir tanpa catatan PPh yang dipotong. Bila pengguna jasa memotong PPh 23, catat bukti potongnya agar menjadi kredit pajak.` : 'Tidak ada tagihan kontrak lokasi lunas tanpa catatan potongan dalam 90 hari terakhir.',
+        link: '/tax/withheld',
+      });
+    }
+    if (profiles.includes('BENGKEL') && pkp) {
+      out.push({
+        key: 'HARGA_KASIR_PPN',
+        status: 'INFO',
+        title: 'Harga kasir dan PPN',
+        detail: posIncludesVat ? 'Harga layanan dan suku cadang di kasir dianggap SUDAH termasuk PPN.' : 'Harga layanan dan suku cadang di kasir dianggap BELUM termasuk PPN (PPN ditambahkan di struk). Pastikan sesuai papan harga.',
+        link: '/settings',
+      });
+    }
+    return out;
+  }
+
   async focus(tenantId: string) {
     const model: BusinessModel = await this.settings.businessModel(this.db, tenantId);
     const tax = await this.settings.taxProfile(this.db, tenantId);
     const since = addDays(todayJakarta(), -90);
     const checks: TaxCheck[] = [];
     const goods = model !== 'JASA';
+    const profiles: ServiceProfile[] = model === 'JASA' ? await this.settings.serviceProfiles(this.db, tenantId) : [];
 
     // PPN masukan hanya sah dengan faktur pajak dari pemasok ber-NPWP
     if (goods && tax.pkp) {
@@ -83,6 +133,8 @@ export class TaxFocusService {
             },
       );
     }
+
+    if (model === 'JASA') checks.push(...(await this.profileChecks(tenantId, profiles, since, !!tax.pkp, !!tax.posPricesIncludeVat)));
 
     // F&B: pajak restoran daerah
     if (model === 'FNB') {
@@ -166,7 +218,7 @@ export class TaxFocusService {
 
     return {
       model,
-      focus: TAX_FOCUS[model],
+      focus: taxFocusForTenant(model, model === 'JASA' ? profiles : undefined),
       pkp: tax.pkp,
       checks,
       disclaimer:

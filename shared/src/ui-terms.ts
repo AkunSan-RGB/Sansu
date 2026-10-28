@@ -4,6 +4,7 @@
  * data, rute, dan perhitungan sama untuk semua jenis usaha.
  */
 import type { BusinessModel } from './apps.js';
+import type { ProfileTerms } from './service-packs/types.js';
 
 interface Terms {
   /** Penggantian kata utuh (huruf besar/kecil awal mengikuti teks asal), diterapkan berurutan: yang lebih panjang dulu */
@@ -121,9 +122,10 @@ const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Terjemahkan satu teks antarmuka ke istilah jenis usaha (DAGANG bila model tidak dikenal) */
-export function localize(text: string, model: BusinessModel | undefined, extra: [string, string][] = []): string {
+export function localize(text: string, model: BusinessModel | undefined, extra: [string, string][] = [], profile?: ProfileTerms): string {
   const base = TERMS[model ?? 'DAGANG'] ?? TERMS.DAGANG;
-  const t = { exact: base.exact, words: [...base.words, ...extra] };
+  // Kata profil layanan (Jasa) diterapkan lebih dulu daripada kata umum jenis usaha, sehingga profil menang
+  const t = { exact: { ...base.exact, ...(profile?.exact ?? {}) }, words: [...(profile?.words ?? []), ...base.words, ...extra] };
   if (t.exact[text]) return t.exact[text];
   for (const [k, v] of Object.entries(t.exact)) if (text === k.toUpperCase()) return v.toUpperCase();
   let out = text;

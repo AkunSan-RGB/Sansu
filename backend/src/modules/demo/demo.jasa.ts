@@ -29,7 +29,7 @@ async function seedKonsultan(c: Demo) {
   const p1 = await proj('PRJ-APP', 'Pengembangan Aplikasi Mobile Banking Nasabah', 'CL-BANK', 240_000_000, 58);
   const p2 = await proj('PRJ-ERP', 'Implementasi Sistem Gudang Terpadu', 'CL-RETAIL', 150_000_000, 42);
   const inv = async (cust: string, ago: number, desc: string, label: string, lines: { description: string; qty?: string; unit?: string; price: string }[], projectId?: string) =>
-    c.step(`faktur ${desc}`, () => c.svc.billing.createInvoice(c.admin, { customerId: cu.get(cust)!, date: c.ago(ago), description: desc, termLabel: label, projectId, lines })) as Promise<{ id: string } | undefined>;
+    c.step(`faktur ${desc}`, () => c.svc.billing.createInvoice(c.admin, { customerId: cu.get(cust)!, date: c.ago(ago), description: desc, termLabel: label, projectId, lines: lines.map((l) => ({ ...l, accountId: c.acc('4-2510') })) })) as Promise<{ id: string } | undefined>;
   const i1 = await inv('CL-BANK', 50, 'Termin 1 — desain & prototipe', 'Termin 1 (30%)', [{ description: 'Desain UX & prototipe aplikasi', price: '72000000' }], p1?.id);
   const i2 = await inv('CL-RETAIL', 34, 'Termin 1 — analisis kebutuhan', 'Termin 1 (30%)', [{ description: 'Analisis proses gudang & konfigurasi awal', price: '45000000' }], p2?.id);
   const i3 = await inv('CL-RS', 40, 'Konsultasi keamanan informasi (audit ISO 27001)', 'Paket', [{ description: 'Audit kesiapan ISO 27001', qty: '1', unit: 'Paket', price: '38000000' }, { description: 'Pelatihan staf (2 hari)', qty: '2', unit: 'Hari', price: '6500000' }]);
@@ -49,7 +49,7 @@ async function seedKonsultan(c: Demo) {
   // faktur jasa yang dipotong PPh 23 oleh klien
   for (const [i, [cust, ago, price]] of ([['CL-BANK', 26, 36_000_000], ['CL-RS', 19, 24_000_000]] as [string, number, number][]).entries()) {
     const w = (await c.step('faktur jasa dipotong PPh 23', () =>
-      c.svc.billing.createInvoice(c.admin, { customerId: cu.get(cust)!, date: c.ago(ago), description: 'Jasa konsultasi teknologi informasi', termLabel: 'Paket', withholdingType: 'PPH23', withholdingRate: '2', lines: [{ description: 'Konsultasi & implementasi (jasa)', price: String(price) }] }),
+      c.svc.billing.createInvoice(c.admin, { customerId: cu.get(cust)!, date: c.ago(ago), description: 'Jasa konsultasi teknologi informasi', termLabel: 'Paket', withholdingType: 'PPH23', withholdingRate: '2', lines: [{ accountId: c.acc('4-2510'), description: 'Konsultasi & implementasi (jasa)', price: String(price) }] }),
     )) as { id: string } | undefined;
     if (w && i === 0) await c.step('bayar faktur dipotong', () => receive(c, w.id, 8, 'TRANSFER', 0.98));
   }
@@ -57,7 +57,11 @@ async function seedKonsultan(c: Demo) {
   if (p2) await c.step('progres', () => c.svc.projects.recordProgress(c.admin, p2.id, { date: c.ago(5), percent: '35', notes: 'BA kemajuan 01 — konfigurasi gudang pusat' }));
   await expense(c, 56, 'bank', '6-3000', 'Sewa kantor Lt. 5', 21_000_000, 'SEWA-KTR');
   await expense(c, 30, 'bank', '6-4000', 'Internet & listrik kantor', 4_800_000);
-  await expense(c, 20, 'bank', '6-6000', 'Langganan perangkat lunak desain & cloud', 5_250_000, 'INV-CLOUD');
+  await expense(c, 20, 'bank', '6-3710', 'Langganan perangkat lunak desain & cloud', 5_250_000, 'INV-CLOUD');
+  // biaya langsung khas konsultan: tenaga ahli lepas, data/lisensi proyek, perjalanan ke klien
+  await expense(c, 37, 'bank', '5-1800', 'Honor tenaga ahli keamanan siber (lepas) — audit ISO', 15_000_000, 'HTA-0937');
+  await expense(c, 27, 'bank', '5-1960', 'Langganan data riset pasar untuk proyek gudang terpadu', 4_500_000, 'DATA-0927');
+  await expense(c, 17, 'bank', '5-1970', 'Perjalanan & akomodasi tim ke kantor klien Bandung', 6_800_000, 'TRV-0917');
   await expense(c, 8, 'kas', '6-6000', 'Perlengkapan & konsumsi rapat klien', 780_000, 'NOTA-0805');
   await payroll(c, [
     { code: 'J-001', name: 'Arief Nugraha', title: 'Konsultan Senior', dept: 'Konsultasi', salary: 14_000_000, allowance: 1_500_000, ptkp: 'K/2' },
@@ -214,6 +218,11 @@ async function seedKontraktor(c: Demo) {
   if (t3) await c.step('bayar termin jalan', () => receive(c, t3.id, 12));
   if (t5) await c.step('bayar uang muka IGD', () => receive(c, t5.id, 6));
   void t4;
+  // pekerjaan tambah (addendum) dibukukan terpisah dari nilai kontrak awal
+  if (p3)
+    await c.step('pekerjaan tambah gudang', () =>
+      c.svc.billing.createInvoice(c.admin, { customerId: cu.get('PM-SINAR')!, projectId: p3.id, date: c.ago(10), termLabel: 'Pekerjaan tambah', description: 'Addendum 01 — kanopi bongkar muat', withholdingType: 'PPH4_2', withholdingRate: '2.65', lines: [{ accountId: c.acc('4-2530'), description: 'Pekerjaan tambah — kanopi bongkar muat 120 m2', qty: '120', unit: 'm2', price: '400000' }] }),
+    );
   if (p2) await c.step('progres jalan', () => c.svc.projects.recordProgress(c.admin, p2.id, { date: c.ago(5), percent: '45', notes: 'Laporan mingguan — pengaspalan segmen 1–3' }));
   if (p3) await c.step('progres gudang', () => c.svc.projects.recordProgress(c.admin, p3.id, { date: c.ago(5), percent: '30', notes: 'Pondasi dan sloof selesai' }));
   if (p4) await c.step('progres IGD', () => c.svc.projects.recordProgress(c.admin, p4.id, { date: c.ago(5), percent: '20', notes: 'Bongkaran dan instalasi awal' }));
@@ -225,6 +234,10 @@ async function seedKontraktor(c: Demo) {
   await costBill(c, sup.get('SUP-SEMEN')!, 35, 'SBJ-2250', p2?.id, [{ desc: 'Material lapis pondasi agregat', code: '5-1600', price: 72_000_000 }]);
   await costBill(c, sup.get('SUP-BESI')!, 26, 'BU-7790', p3?.id, [{ desc: 'Besi & baja ringan gudang', code: '5-1600', price: 88_000_000 }]);
   await costBill(c, sup.get('SUP-SUBKON')!, 14, 'MP-0344', p4?.id, [{ desc: 'Subkontrak instalasi medis gas & listrik', code: '5-1500', price: 41_000_000 }]);
+  await costBill(c, sup.get('SUP-ALAT')!, 68, 'SAB-4380', p2?.id, [{ desc: 'Mobilisasi alat berat ke lokasi jalan', code: '5-1920', price: 18_000_000 }], 40);
+  await costBill(c, sup.get('SUP-SUBKON')!, 85, 'MP-0301', p1?.id, [{ desc: 'Perlengkapan K3 & asuransi CAR proyek ruko', code: '5-1930', price: 9_500_000 }], 60);
+  await expense(c, 90, 'bank', '5-1940', 'Provisi jaminan pelaksanaan bank — proyek ruko', 6_200_000, 'BG-0790');
+  await expense(c, 48, 'bank', '5-1950', 'Retribusi & izin perluasan gudang', 4_800_000, 'PBG-0848');
   await purchase(c, sup.get('SUP-SEMEN')!, 28, [{ productId: ids.get('KB-SEMEN')!, qty: 200, price: 62_000 }, { productId: ids.get('KB-PASIR')!, qty: 40, price: 245_000 }], { pay: true, invoiceNo: 'SBJ-2234' });
   await purchase(c, sup.get('SUP-BESI')!, 9, [{ productId: ids.get('KB-BESI')!, qty: 120, price: 143_000 }], { invoiceNo: 'BU-7803' });
   await expense(c, 33, 'bank', '6-3000', 'Sewa kantor proyek & bedeng pekerja', 12_000_000, 'SEWA-KP');
@@ -302,7 +315,7 @@ async function seedPendidikan(c: Demo) {
     const e = (await c.step(`peserta ${name}`, () => c.svc.education.enroll(c.admin, { classId: klass.id, customerId: cu.get(walis[wi][0])!, studentName: name, enrolledOn: c.ago(ago), discountPct: disc }))) as { id: string } | undefined;
     if (e) enrolled.push(e.id);
     // uang pendaftaran siswa baru (tagihan jasa tersendiri, bukan SPP)
-    const reg = (await c.step(`pendaftaran ${name}`, () => c.svc.billing.createInvoice(c.admin, { customerId: cu.get(walis[wi][0])!, date: c.ago(ago), description: `Uang pendaftaran — ${name}`, termLabel: 'Pendaftaran', lines: [{ description: `Uang pendaftaran siswa baru ${name}`, price: '250000' }] }))) as { id: string } | undefined;
+    const reg = (await c.step(`pendaftaran ${name}`, () => c.svc.billing.createInvoice(c.admin, { customerId: cu.get(walis[wi][0])!, date: c.ago(ago), description: `Uang pendaftaran — ${name}`, termLabel: 'Pendaftaran', lines: [{ accountId: c.acc('4-2620'), description: `Uang pendaftaran siswa baru ${name}`, price: '250000' }] }))) as { id: string } | undefined;
     if (reg) await c.step('bayar pendaftaran', () => receive(c, reg.id, Math.max(ago - 2, 1), 'CASH'));
   }
   if (enrolled[10]) await c.step('peserta keluar', () => c.svc.education.leave(c.admin, enrolled[10], { leftOn: c.ago(45), reason: 'Pindah domisili' }));
@@ -319,9 +332,13 @@ async function seedPendidikan(c: Demo) {
       if (!unpaid) await c.step('bayar SPP', () => receive(c, inv.invoiceId, Math.max(off - c.int(2, 9), 1), i % 2 ? 'CASH' : 'TRANSFER'));
     }
   }
+  const priv = (await c.step('les privat', () =>
+    c.svc.billing.createInvoice(c.admin, { customerId: cu.get('W-003')!, date: c.ago(26), description: 'Les privat matematika (8 sesi)', termLabel: 'Les privat', withVat: false, lines: [{ accountId: c.acc('4-2610'), description: 'Les privat matematika — Citra Lestari', qty: '8', unit: 'Sesi', price: '150000' }] }),
+  )) as { id: string } | undefined;
+  if (priv) await c.step('bayar les privat', () => receive(c, priv.id, 20, 'CASH'));
   // pelatihan guru untuk sekolah (dipotong PPh 23 oleh sekolah negeri) dan penjualan modul ke wali
   const trn = (await c.step('pelatihan guru', () =>
-    c.svc.billing.createInvoice(c.admin, { customerId: cu.get('S-001')!, date: c.ago(30), description: 'Pelatihan metode belajar untuk guru (2 hari)', termLabel: 'Paket', withholdingType: 'PPH23', withholdingRate: '2', lines: [{ description: 'Pelatihan metode belajar untuk guru (2 hari)', price: '12500000' }] }),
+    c.svc.billing.createInvoice(c.admin, { customerId: cu.get('S-001')!, date: c.ago(30), description: 'Pelatihan metode belajar untuk guru (2 hari)', termLabel: 'Paket', withholdingType: 'PPH23', withholdingRate: '2', lines: [{ accountId: c.acc('4-2640'), description: 'Pelatihan metode belajar untuk guru (2 hari)', price: '12500000' }] }),
   )) as { id: string } | undefined;
   if (trn) await c.step('bayar pelatihan', () => receive(c, trn.id, 8, 'TRANSFER', 0.98));
   await purchase(c, sup.get('SUP-CETAK')!, 50, [{ productId: ids.get('PB-MOD-MTK')!, qty: 100, price: 38_500 }, { productId: ids.get('PB-MOD-ING')!, qty: 80, price: 32_500 }], { pay: true, invoiceNo: 'CPE-1180' });
@@ -330,6 +347,10 @@ async function seedPendidikan(c: Demo) {
   await expense(c, 30, 'bank', '6-4000', 'Listrik, air & internet gedung belajar', 4_200_000);
   await expense(c, 24, 'bank', '6-2100', 'Spanduk & iklan penerimaan siswa baru', 6_500_000, 'IKL-0924');
   await expense(c, 9, 'kas', '6-6000', 'ATK & fotokopi soal latihan', 1_240_000, 'NOTA-0911');
+  // biaya langsung khas pendidikan: honor pengajar tamu, cetak modul, sewa aula try out
+  await expense(c, 33, 'bank', '5-1810', 'Honor pengajar tamu kelas UTBK (12 sesi)', 4_320_000, 'HON-0933');
+  await expense(c, 19, 'bank', '5-1820', 'Cetak modul latihan soal semester ganjil', 3_150_000, 'CTK-0919');
+  await expense(c, 13, 'bank', '5-1830', 'Sewa aula untuk try out bersama', 2_500_000, 'AULA-1013');
   await payroll(c, [
     { code: 'P-001', name: 'Maya Kusumawati', title: 'Kepala Bimbel', dept: 'Manajemen', salary: 11_000_000, allowance: 1_200_000, ptkp: 'K/1' },
     { code: 'P-002', name: 'Rizky Maulana', title: 'Admin Akademik', dept: 'Akademik', salary: 6_500_000, allowance: 500_000, ptkp: 'TK/0' },
@@ -444,7 +465,7 @@ async function seedAlihDaya(c: Demo) {
   await bill(s3, 32, false);
   // jasa tambahan sekali pakai: general cleaning, dipotong PPh 23 oleh pelanggan
   const gc = (await c.step('general cleaning', () =>
-    c.svc.billing.createInvoice(c.admin, { customerId: cu.get('GD-TEKSTIL')!, date: c.ago(27), description: 'General cleaning area produksi & kantor', termLabel: 'Paket', withholdingType: 'PPH23', withholdingRate: '2', lines: [{ description: 'General cleaning area produksi (3 hari, 12 petugas)', price: '18600000' }] }),
+    c.svc.billing.createInvoice(c.admin, { customerId: cu.get('GD-TEKSTIL')!, date: c.ago(27), description: 'General cleaning area produksi & kantor', termLabel: 'Paket', withholdingType: 'PPH23', withholdingRate: '2', lines: [{ accountId: c.acc('4-2730'), description: 'General cleaning area produksi (3 hari, 12 petugas)', price: '18600000' }] }),
   )) as { id: string } | undefined;
   if (gc) await c.step('bayar general cleaning', () => receive(c, gc.id, 6, 'TRANSFER', 0.98));
   await purchase(c, sup.get('SUP-KIMIA')!, 44, [{ productId: ids.get('AD-PEMBERSIH')!, qty: 60, price: 49_000 }, { productId: ids.get('AD-KANTONG')!, qty: 40, price: 69_000 }], { pay: true, invoiceNo: 'KBN-5521' });
@@ -452,7 +473,11 @@ async function seedAlihDaya(c: Demo) {
   await expense(c, 57, 'bank', '6-3000', 'Sewa kantor dan basecamp', 9_500_000, 'SEWA-BC');
   await expense(c, 29, 'bank', '6-4000', 'Listrik, air & internet kantor', 2_900_000);
   await expense(c, 21, 'kas', '6-2000', 'BBM patroli & antar bahan ke lokasi', 3_150_000, 'NOTA-0921');
-  await expense(c, 12, 'bank', '6-6000', 'Pelatihan dasar satpam & K3 petugas', 4_800_000, 'PLT-1012');
+  await expense(c, 12, 'bank', '5-1860', 'Pelatihan dasar satpam & K3 petugas', 4_800_000, 'PLT-1012');
+  // biaya langsung khas alih daya: seragam, bahan kebersihan di lokasi, lembur & petugas pengganti
+  await expense(c, 46, 'bank', '5-1840', 'Seragam & sepatu petugas baru (6 set)', 3_900_000, 'SRG-0946');
+  await expense(c, 24, 'kas', '5-1850', 'Bahan kebersihan habis pakai di Metro Plaza', 1_850_000, 'NOTA-0924');
+  await expense(c, 6, 'bank', '5-1870', 'Lembur & petugas pengganti Menara Sentral', 2_640_000, 'LMB-1022');
   await X.monthlyOps(c, [
     { code: '6-3000', desc: 'Sewa kantor dan basecamp', amount: 9_500_000, from: 'bank', day: 2 },
     { code: '6-4000', desc: 'Listrik, air & internet kantor', amount: 2_900_000, from: 'bank', day: 10 },
@@ -514,7 +539,7 @@ async function seedBengkel(c: Demo) {
   const mech = (await staffIds(c)).slice(1, 4);
   const svc: { id: string; price: number }[] = [];
   for (const [sku, name, price] of BENGKEL_LAYANAN) {
-    const p = (await c.step(`layanan ${sku}`, () => c.svc.products.create(c.tenantId, { sku, name, baseUom: 'KALI', sellPrice: String(price), category: 'Layanan servis', isService: true }))) as { id: string } | undefined;
+    const p = (await c.step(`layanan ${sku}`, () => c.svc.products.create(c.tenantId, { sku, name, baseUom: 'PEKERJAAN', sellPrice: String(price), category: 'Servis Berkala', isService: true }))) as { id: string } | undefined;
     if (p) svc.push({ id: p.id, price });
   }
   const parts = BENGKEL_SUKU.map((p) => ({ id: ids.get(p.sku)!, price: p.price }));
@@ -541,17 +566,20 @@ async function seedBengkel(c: Demo) {
   }
   // servis armada pelanggan korporat ditagih lewat faktur jasa
   const fleet = (await c.step('servis armada', () =>
-    c.svc.billing.createInvoice(c.admin, { customerId: cu.get('FL-ARMADA')!, date: c.ago(30), description: 'Servis berkala armada (18 unit)', termLabel: 'Bulanan', withholdingType: 'PPH23', withholdingRate: '2', lines: [{ description: 'Servis berkala & ganti oli armada (18 unit)', qty: '18', unit: 'Unit', price: '350000' }] }),
+    c.svc.billing.createInvoice(c.admin, { customerId: cu.get('FL-ARMADA')!, date: c.ago(30), description: 'Servis berkala armada (18 unit)', termLabel: 'Bulanan', withholdingType: 'PPH23', withholdingRate: '2', lines: [{ accountId: c.acc('4-2820'), description: 'Servis berkala & ganti oli armada (18 unit)', qty: '18', unit: 'Unit', price: '350000' }] }),
   )) as { id: string } | undefined;
   if (fleet) await c.step('bayar servis armada', () => receive(c, fleet.id, 9, 'TRANSFER', 0.98));
   await c.step('servis armada 2', () =>
-    c.svc.billing.createInvoice(c.admin, { customerId: cu.get('FL-ANTAR')!, date: c.ago(14), description: 'Servis rem & tune up (6 unit)', termLabel: 'Paket', lines: [{ description: 'Servis rem & tune up (6 unit)', qty: '6', unit: 'Unit', price: '420000' }] }),
+    c.svc.billing.createInvoice(c.admin, { customerId: cu.get('FL-ANTAR')!, date: c.ago(14), description: 'Servis rem & tune up (6 unit)', termLabel: 'Paket', lines: [{ accountId: c.acc('4-2820'), description: 'Servis rem & tune up (6 unit)', qty: '6', unit: 'Unit', price: '420000' }] }),
   );
   await purchase(c, sup.get('SUP-PELUMAS')!, 40, [{ productId: ids.get('BP-OLI')!, qty: 60, price: 59_000 }, { productId: ids.get('BP-FILTER')!, qty: 40, price: 31_000 }], { pay: true, invoiceNo: 'PLN-3301' });
   await purchase(c, sup.get('SUP-SPAREPART')!, 12, [{ productId: ids.get('BP-KAMPAS')!, qty: 20, price: 121_000 }, { productId: ids.get('BP-AKI')!, qty: 6, price: 705_000 }], { invoiceNo: 'TSM-8810' });
   await expense(c, 55, 'bank', '6-3000', 'Sewa tempat bengkel', 10_000_000, 'SEWA-BKL');
   await expense(c, 28, 'bank', '6-4000', 'Listrik, air & internet bengkel', 3_300_000);
-  await expense(c, 15, 'kas', '6-6000', 'Perlengkapan bengkel & limbah oli', 1_150_000, 'NOTA-1015');
+  await expense(c, 15, 'kas', '5-1890', 'Bahan habis pakai bengkel & pengangkutan limbah oli', 1_150_000, 'NOTA-1015');
+  // biaya langsung khas bengkel: komisi mekanik dan pengerjaan ulang garansi
+  await expense(c, 26, 'bank', '5-1880', 'Komisi mekanik bulan lalu', 4_350_000, 'KMS-0926');
+  await expense(c, 8, 'kas', '5-1910', 'Pengerjaan ulang garansi servis rem pelanggan', 650_000, 'GRS-1020');
   await X.monthlyOps(c, [
     { code: '6-3000', desc: 'Sewa tempat bengkel', amount: 10_000_000, from: 'bank', day: 2 },
     { code: '6-4000', desc: 'Listrik, air & internet bengkel', amount: 3_300_000, from: 'bank', day: 10 },

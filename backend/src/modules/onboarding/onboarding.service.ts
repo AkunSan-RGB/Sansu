@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
-import { BUSINESS_MODEL_BY_KEY, MODEL_SETUP, isProductionModel, type AppKey, type BusinessModel } from '@sansu/shared';
+import { BUSINESS_MODEL_BY_KEY, isProductionModel, setupForTenant, type AppKey, type BusinessModel } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { assertUuid } from '../../common/utils/sql-guard';
 import { AuditService } from '../../common/audit/audit.service';
@@ -66,12 +66,16 @@ export class OnboardingService {
     return { profiles: await this.settings.serviceProfiles(this.db, tenantId) };
   }
 
-  /** Profil layanan hanya mengatur tampilan (menu, ruang kerja, bantuan) perusahaan Jasa; akun, pajak, dan SDM tidak berubah */
+  /** Profil layanan mengatur menu, ruang kerja, istilah, jenis tagihan/biaya, dan akun khas profil perusahaan Jasa */
   async setServiceProfiles(u: AuthUser, dto: ServiceProfilesDto) {
     if ((await this.settings.businessModel(this.db, u.tenantId)) !== 'JASA') throw new BadRequestException('Profil layanan hanya untuk jenis usaha Jasa');
     const before = await this.settings.serviceProfiles(this.db, u.tenantId);
     const profiles = [...new Set(dto.profiles)];
-    await this.settings.saveServiceProfiles(this.db, u.tenantId, profiles);
+    await this.db.transaction(async (tx) => {
+      await this.settings.saveServiceProfiles(tx, u.tenantId, profiles);
+      // Akun pendapatan dan biaya khas profil yang baru dipilih ditambahkan; akun profil lama tidak dihapus
+      await syncChartOfAccounts(tx, u.tenantId);
+    });
     await this.audit.log(this.db, { tenantId: u.tenantId, userId: u.sub, action: 'UPDATE', entity: 'ServiceProfiles', entityId: u.tenantId, data: { before, after: profiles } });
     return { profiles };
   }
@@ -242,7 +246,8 @@ export class OnboardingService {
   /** Pengaturan yang relevan bagi jenis usaha perusahaan ini beserta status terisi/belum (dari data nyata) */
   async setup(u: AuthUser) {
     const model = await this.settings.businessModel(this.db, u.tenantId);
-    const defs = MODEL_SETUP[model];
+    // Jasa: daftar pengaturan mengikuti profil layanan (kontraktor, pendidikan, alih daya, bengkel, konsultan)
+    const defs = setupForTenant(model, model === 'JASA' ? await this.settings.serviceProfiles(this.db, u.tenantId) : undefined);
     const row = (await this.repo.queryModelSetup(this.db, u.tenantId, defs.map((d) => d.key))).rows[0] ?? {};
     const items = defs.map((d) => ({ ...d, done: row[d.key] === true }));
     return { model, name: BUSINESS_MODEL_BY_KEY[model].name, items, done: items.filter((i) => i.done).length, total: items.length };

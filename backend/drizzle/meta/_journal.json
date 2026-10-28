@@ -883,6 +883,13 @@
       "when": 1799001488484,
       "tag": "0125_kontrak_lokasi",
       "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1799101488484,
+      "tag": "0126_jenis_pos_jaga",
+      "breakpoints": true
     }
   ]
 }

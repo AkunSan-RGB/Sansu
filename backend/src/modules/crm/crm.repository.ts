@@ -11,7 +11,6 @@ import {
   quotationLines,
 } from '../../db/schema';
 import { eq, asc, and, sql, inArray } from 'drizzle-orm';
-import { CRM_PROFILES } from '@sansu/shared';
 import { addDays } from '../../common/utils/dates';
 import { CreateQuotationDto } from './crm.dto';
 import type { Decimal } from 'decimal.js';
@@ -25,14 +24,10 @@ export class CrmRepository {
   }
 
   /** Dipakai oleh CrmService.stages */
-  insertCrmStages(
-    db: DbOrTx,
-    model: 'DAGANG' | 'RITEL' | 'JASA' | 'FMCG' | 'MANUFAKTUR' | 'FNB' | 'UTILITAS',
-    tenantId: string,
-  ) {
+  insertCrmStages(db: DbOrTx, stages: { name: string; probability: number }[], tenantId: string) {
     return db
       .insert(crmStages)
-      .values(CRM_PROFILES[model].stages.map((s, i) => ({ tenantId: tenantId, sequence: i + 1, ...s })))
+      .values(stages.map((s, i) => ({ tenantId: tenantId, sequence: i + 1, ...s })))
       .returning();
   }
 

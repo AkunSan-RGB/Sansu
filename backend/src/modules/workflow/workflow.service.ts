@@ -102,13 +102,18 @@ export class WorkflowService {
     return this.settings.saveSection(db, tenantId, 'workflow', DEFAULT_SETTINGS, { since: todayJakarta() });
   }
 
-  private async defs(tenantId: string, db: DbOrTx = this.db): Promise<WorkflowPipeline[]> {
+  /**
+   * Alur yang berlaku: Jasa hanya alur profil layanan yang dipilih (daftar, kasus otomatis).
+   * `all` = semua alur jenis usaha ini, dipakai untuk kasus yang sudah ada agar tetap bisa diproses walau profil diganti.
+   */
+  private async defs(tenantId: string, db: DbOrTx = this.db, all = false): Promise<WorkflowPipeline[]> {
     const model = await this.settings.businessModel(db, tenantId);
-    return effectivePipelines(model, (await this.cfg(tenantId, db)).overrides);
+    const profiles = model === 'JASA' && !all ? await this.settings.serviceProfiles(db, tenantId) : undefined;
+    return effectivePipelines(model, (await this.cfg(tenantId, db)).overrides, profiles);
   }
 
   private async pipelineOf(tenantId: string, key: string, db: DbOrTx = this.db): Promise<WorkflowPipeline> {
-    const p = (await this.defs(tenantId, db)).find((x) => x.key === key);
+    const p = (await this.defs(tenantId, db, true)).find((x) => x.key === key);
     // jenis usaha dikunci per perusahaan, jadi alur jenis usaha lain tidak pernah bisa dipakai
     if (!p) throw new BadRequestException('Alur kerja ini bukan untuk jenis usaha perusahaan Anda');
     return p;
@@ -116,7 +121,7 @@ export class WorkflowService {
 
   async getSettings(u: AuthUser) {
     const model = await this.settings.businessModel(this.db, u.tenantId);
-    return { settings: await this.cfg(u.tenantId), defaults: pipelinesFor(model) };
+    return { settings: await this.cfg(u.tenantId), defaults: pipelinesFor(model, model === 'JASA' ? await this.settings.serviceProfiles(this.db, u.tenantId) : undefined) };
   }
 
   async saveSettings(u: AuthUser, dto: WorkflowSettingsDto) {

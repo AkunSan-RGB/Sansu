@@ -106,9 +106,11 @@ export class RetainerService {
       if (o.amount.gt(0))
         lines.push({ description: `Kelebihan jam ${o.over} jam (terpakai ${o.used} dari ${cap.toFixed(2)} jam) periode ${dto.period}`, qty: o.over, unit: 'Jam', price: D(r.overage_rate).toFixed(2) });
     }
+    // Retainer dibukukan ke Pendapatan Retainer bila profil Konsultan dipilih (selain itu akun pendapatan jasa bawaan)
+    const accountId = await this.billing.revenueAccountFor(this.db, u.tenantId, 'RETAINER');
     const inv = await this.billing.createInvoice(
       u,
-      { customerId: r.customer_id, projectId: r.project_id ?? undefined, date: dto.date, description: `${r.title} — periode ${dto.period}`, withVat: r.with_vat ?? undefined, lines },
+      { customerId: r.customer_id, projectId: r.project_id ?? undefined, date: dto.date, description: `${r.title} — periode ${dto.period}`, withVat: r.with_vat ?? undefined, lines: lines.map((l) => ({ ...l, accountId })) },
       {
         inTx: async (tx, invoice) => {
           // indeks unik (retainer, periode) menjamin dua penagihan bersamaan hanya satu yang berhasil; yang kalah dibatalkan utuh bersama fakturnya

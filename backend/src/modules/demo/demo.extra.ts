@@ -1,5 +1,5 @@
 import { AuthUser } from '../../common/auth/auth-user';
-import { CRM_PROFILES } from '@sansu/shared';
+import { crmProfileForTenant } from '@sansu/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import { addDays } from '../../common/utils/dates';
 import {
@@ -754,7 +754,7 @@ export async function crm(
   productId: string,
   items: { title: string; company: string; contact: string; value: number; source: string }[],
 ) {
-  const prof = CRM_PROFILES[c.model];
+  const prof = crmProfileForTenant(c.model, c.serviceProfile ? [c.serviceProfile] : undefined);
   const stages = await c.db
     .insert(crmStages)
     .values(

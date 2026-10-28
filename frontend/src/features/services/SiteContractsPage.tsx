@@ -1,5 +1,5 @@
 import { DeleteOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
-import type { Employee } from '@sansu/shared';
+import { guessSitePostKind, SITE_POST_KIND_LABELS, SITE_POST_KINDS, type Employee, type SitePostKind } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Checkbox, DatePicker, Drawer, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
@@ -11,7 +11,7 @@ import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
 
 const KEY = ['site-contracts'];
-interface Post { id: string; name: string; headcount: number; monthlyRate: string }
+interface Post { id: string; name: string; headcount: number; monthlyRate: string; serviceKind?: SitePostKind }
 interface Row { id: string; customerName: string; siteName: string; title: string; startDate: string; endDate: string | null; isActive: boolean; posts: Post[]; monthlyTotal: string; billedPeriods: { period: string; invoice: string; shortfall: string }[]; unbilledPeriods: string[] }
 interface Coverage { posts: { postId: string; name: string; headcount: number; shortfallHeadDays: number; days: { date: string; assigned: number; required: number }[]; duty: { id: string; employeeName: string; date: string }[] }[] }
 
@@ -24,13 +24,13 @@ export default function SiteContractsPage() {
   const [deduct, setDeduct] = useState(false);
   const [roster, setRoster] = useState<Row | null>(null);
   const [month, setMonth] = useState(dayjs().format('YYYY-MM'));
-  const [cf] = Form.useForm<{ customerId: string; siteName: string; title: string; startDate: dayjs.Dayjs; posts: { name: string; headcount: number; monthlyRate: number }[] }>();
+  const [cf] = Form.useForm<{ customerId: string; siteName: string; title: string; startDate: dayjs.Dayjs; posts: { name: string; headcount: number; monthlyRate: number; serviceKind?: SitePostKind }[] }>();
   const [rf] = Form.useForm<{ postId: string; employeeId: string; range: [dayjs.Dayjs, dayjs.Dayjs] }>();
   const emps = useQuery({ queryKey: ['employees'], queryFn: () => get<Employee[]>('/hr/employees'), enabled: !!roster });
   const first = `${month}-01`;
   const last = dayjs(first).endOf('month').format('YYYY-MM-DD');
   const cov = useQuery({ queryKey: [...KEY, 'coverage', roster?.id, month], queryFn: () => get<Coverage>(`/services/sites/${roster!.id}/coverage?from=${first}&to=${last}`), enabled: !!roster });
-  const create = useAction((v: { customerId: string; siteName: string; title: string; startDate: dayjs.Dayjs; posts: { name: string; headcount: number; monthlyRate: number }[] }) => post('/services/sites', { ...v, startDate: v.startDate.format('YYYY-MM-DD'), posts: v.posts.map((p) => ({ ...p, monthlyRate: String(p.monthlyRate) })) }), { invalidate: KEY, success: 'Kontrak lokasi dibuat', onSuccess: () => setCreating(false) });
+  const create = useAction((v: { customerId: string; siteName: string; title: string; startDate: dayjs.Dayjs; posts: { name: string; headcount: number; monthlyRate: number; serviceKind?: SitePostKind }[] }) => post('/services/sites', { ...v, startDate: v.startDate.format('YYYY-MM-DD'), posts: v.posts.map((p) => ({ ...p, monthlyRate: String(p.monthlyRate) })) }), { invalidate: KEY, success: 'Kontrak lokasi dibuat', onSuccess: () => setCreating(false) });
   const bill = useAction((v: { id: string; period: string }) => post(`/services/sites/${v.id}/bill`, { period: v.period, deductShortfall: deduct }), { invalidate: [...KEY, 'invoices'], success: 'Faktur kontrak dibuat' });
   const assign = useAction((v: { postId: string; employeeId: string; range: [dayjs.Dayjs, dayjs.Dayjs] }) => post(`/services/sites/${roster!.id}/roster`, { postId: v.postId, employeeId: v.employeeId, from: v.range[0].format('YYYY-MM-DD'), to: v.range[1].format('YYYY-MM-DD') }), { invalidate: KEY, success: 'Petugas dijadwalkan' });
   const unassign = useAction((dutyId: string) => del(`/services/sites/${roster!.id}/roster/${dutyId}`), { invalidate: KEY, success: 'Jadwal dihapus' });
@@ -44,7 +44,7 @@ export default function SiteContractsPage() {
       <Table<Row> size="small" rowKey="id" loading={rows.isLoading} dataSource={rows.data} pagination={false} locale={{ emptyText: 'Belum ada kontrak lokasi' }} scroll={{ x: 900 }}
         columns={[
           { title: 'Lokasi', render: (_: unknown, r: Row) => <div>{r.siteName}<div style={{ fontSize: 12, color: '#64748b' }}>{r.customerName} · {r.title}</div></div> },
-          { title: 'Pos', render: (_: unknown, r: Row) => r.posts.map((p) => <div key={p.id}>{p.name}: {p.headcount} × {fmtMoney(p.monthlyRate)}</div>) },
+          { title: 'Pos', render: (_: unknown, r: Row) => r.posts.map((p) => <div key={p.id}>{p.name}{p.serviceKind ? ` (${SITE_POST_KIND_LABELS[p.serviceKind]})` : ''}: {p.headcount} × {fmtMoney(p.monthlyRate)}</div>) },
           { title: 'Per bulan', align: 'right', render: (_: unknown, r: Row) => <b>{fmtMoney(r.monthlyTotal)}</b> },
           { title: 'Masa', render: (_: unknown, r: Row) => `${fmtDate(r.startDate)} – ${r.endDate ? fmtDate(r.endDate) : 'berjalan'}` },
           { title: 'Sudah ditagih', render: (_: unknown, r: Row) => r.billedPeriods.length ? r.billedPeriods.slice(-3).map((b) => <Tag key={b.period} color={Number(b.shortfall) ? 'orange' : 'green'}>{b.period}</Tag>) : '-' },
@@ -64,7 +64,17 @@ export default function SiteContractsPage() {
               <>
                 {fields.map((f) => (
                   <Space key={f.key} align="baseline" wrap>
-                    <Form.Item name={[f.name, 'name']} rules={[{ required: true, message: 'Nama pos' }]}><Input placeholder="Pos (mis. Satpam shift pagi)" style={{ width: 240 }} /></Form.Item>
+                    <Form.Item name={[f.name, 'name']} rules={[{ required: true, message: 'Nama pos' }]}>
+                      <Input
+                        placeholder="Pos (mis. Satpam shift pagi)"
+                        style={{ width: 240 }}
+                        // jenis layanan ditebak dari nama pos selama belum dipilih sendiri (menentukan akun pendapatan tagihan bulanan)
+                        onBlur={(e) => !cf.getFieldValue(['posts', f.name, 'serviceKind']) && cf.setFieldValue(['posts', f.name, 'serviceKind'], guessSitePostKind(e.target.value))}
+                      />
+                    </Form.Item>
+                    <Form.Item name={[f.name, 'serviceKind']} rules={[{ required: true, message: 'Jenis' }]} tooltip="Menentukan akun pendapatan: jasa keamanan, jasa kebersihan, atau lainnya">
+                      <Select placeholder="Jenis layanan" style={{ width: 150 }} options={SITE_POST_KINDS.map((k) => ({ value: k, label: SITE_POST_KIND_LABELS[k] }))} />
+                    </Form.Item>
                     <Form.Item name={[f.name, 'headcount']} rules={[{ required: true, message: 'Jumlah' }]}><InputNumber min={1} placeholder="Petugas" /></Form.Item>
                     <Form.Item name={[f.name, 'monthlyRate']} rules={[{ required: true, message: 'Tarif' }]}><InputNumber min={1} placeholder="Tarif / petugas / bulan" prefix="Rp" style={{ width: 200 }} /></Form.Item>
                     {fields.length > 1 && <MinusCircleOutlined onClick={() => remove(f.name)} />}

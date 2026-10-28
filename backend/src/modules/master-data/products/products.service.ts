@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { INTERNAL_BARCODE_PREFIX, internalBarcode, isKnownUom, isProductionModel, isValidBarcode, PRODUCT_FORM, uomLabel, type BusinessModel } from '@sansu/shared';
+import { INTERNAL_BARCODE_PREFIX, internalBarcode, isKnownUom, isProductionModel, isValidBarcode, PRODUCT_FORM, productFormForTenant, uomLabel, type BusinessModel } from '@sansu/shared';
 import { SettingsService } from '../../../common/settings.service';
 import { and, asc, eq, ilike, or, sql } from 'drizzle-orm';
 import { D } from '../../../common/utils/money';
@@ -30,7 +30,8 @@ export class ProductsService {
    */
   async options(tenantId: string) {
     const model: BusinessModel = await this.settings.businessModel(this.db, tenantId);
-    const profile = PRODUCT_FORM[model];
+    // Jasa: kategori, satuan, dan label mengikuti profil layanan perusahaan
+    const profile = productFormForTenant(model, model === 'JASA' ? await this.settings.serviceProfiles(this.db, tenantId) : undefined);
     const used = await this.repo.queryProduct(this.db, tenantId);
     const seen = new Set<string>();
     const categories: { value: string; source: 'PRESET' | 'CUSTOM' | 'USED' }[] = [];
@@ -69,7 +70,7 @@ export class ProductsService {
   /** Semua pilihan form harus dari daftar: kategori, satuan dasar, satuan bertingkat, serta bidang yang sesuai jenis usaha */
   private async assertChoices(tenantId: string, dto: Partial<CreateProductDto>, current?: { category: string | null; baseUom: string; uoms: { uom: string }[]; madeToOrder: boolean; shelfLifeDays: number | null }) {
     const opts = await this.options(tenantId);
-    const profile = PRODUCT_FORM[opts.model];
+    const profile = productFormForTenant(opts.model, opts.model === 'JASA' ? await this.settings.serviceProfiles(this.db, tenantId) : undefined);
     if (dto.category !== undefined) {
       const c = cleanCategory(dto.category);
       if (c && c.toLowerCase() !== (current?.category ?? '').toLowerCase() && !opts.categories.some((o) => o.value.toLowerCase() === c.toLowerCase())) {

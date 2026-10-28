@@ -6,6 +6,9 @@ import {
   type AppKey,
   type BusinessModel,
   type ReportingFramework,
+  effectiveProfiles,
+  isServiceProfile,
+  type ServiceProfile,
   withDependencies,
 } from '@sansu/shared';
 import { accounts } from '../../db/schema';
@@ -87,6 +90,13 @@ async function businessModelOf(db: DbOrTx, tenantId: string): Promise<BusinessMo
   return (BUSINESS_MODEL_KEYS as readonly string[]).includes(m) ? (m as BusinessModel) : 'DAGANG';
 }
 
+/** Profil layanan perusahaan Jasa dari pengaturan; belum pernah dipilih = semua profil */
+async function serviceProfilesOf(db: DbOrTx, tenantId: string): Promise<ServiceProfile[]> {
+  const [t] = await findTenantsById(db, tenantId);
+  const raw = (t?.settings as { serviceProfiles?: { profiles?: unknown[] } } | null)?.serviceProfiles?.profiles ?? [];
+  return effectiveProfiles(raw.filter(isServiceProfile));
+}
+
 /**
  * Sesuaikan relevansi akun dengan jenis usaha dan aplikasi aktif: akun tidak relevan yang belum pernah dipakai dinonaktifkan,
  * akun yang sebelumnya dinonaktifkan otomatis diaktifkan kembali bila kini relevan. Nonaktif buatan pengguna tidak disentuh.
@@ -150,6 +160,7 @@ export async function refreshChartRelevance(db: DbOrTx, tenantId: string) {
 
 export async function syncChartOfAccounts(db: DbOrTx, tenantId: string, opts: { apps?: ReadonlySet<string> } = {}) {
   const model = await businessModelOf(db, tenantId);
+  const profiles = model === 'JASA' ? await serviceProfilesOf(db, tenantId) : [];
   const existing = await listAccounts(db, tenantId);
   const byCode = new Map(existing.map((a) => [a.code, a]));
   const byKey = new Map(existing.filter((a) => a.systemKey).map((a) => [a.systemKey!, a]));
@@ -161,6 +172,8 @@ export async function syncChartOfAccounts(db: DbOrTx, tenantId: string, opts: { 
     // Akun khusus jenis usaha lain tidak dibuat; yang sudah ada (model sebelumnya) dibiarkan apa adanya
     if (!acc && row.models && !row.models.includes(model)) continue;
     if (!acc && row.skip?.includes(model) && !row.key) continue;
+    // Akun khusus profil layanan lain tidak dibuat; yang sudah ada (profil sebelumnya) dibiarkan
+    if (!acc && row.profiles && !row.profiles.some((p) => profiles.includes(p))) continue;
     // Akun sistem yang dulu dibuat otomatis dengan kode lain (mis. 2-1310-S) tetap dipakai
     if (!acc && row.key && byKey.has(row.key)) acc = byKey.get(row.key);
 

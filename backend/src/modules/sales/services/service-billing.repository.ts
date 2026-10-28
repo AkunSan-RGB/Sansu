@@ -8,6 +8,14 @@ import { D, Dec } from '../../../common/utils/money';
 @Injectable()
 export class ServiceBillingRepository {
   /** Dipakai oleh ServiceBillingService.keyAccount */
+  /** Akun pendapatan aktif menurut kode (akun khas profil layanan) */
+  findRevenueAccountByCode(db: DbOrTx, tenantId: string, code: string) {
+    return db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(and(eq(accounts.tenantId, tenantId), eq(accounts.code, code), eq(accounts.type, 'REVENUE'), eq(accounts.isPostable, true), eq(accounts.isActive, true)));
+  }
+
   findAccountsBySystemKey(db: DbOrTx, tenantId: string, key: string) {
     return db
       .select({ id: accounts.id })

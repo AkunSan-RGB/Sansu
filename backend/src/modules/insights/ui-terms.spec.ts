@@ -1,4 +1,4 @@
-import { localize } from '@sansu/shared';
+import { localize, profileTermsFor } from '@sansu/shared';
 
 describe('istilah antarmuka per jenis usaha', () => {
   it('dagang membaca barang; ritel juga membaca toko', () => {
@@ -53,5 +53,17 @@ describe('istilah antarmuka per jenis usaha', () => {
     expect(localize('Pelangganku', 'JASA')).toBe('Pelangganku');
     expect(localize('Produk', undefined)).toBe('Barang');
     expect(localize('Dashboard', 'JASA')).toBe('Dashboard');
+  });
+
+  it('jasa satu profil memakai istilah profil itu; beberapa profil tetap istilah umum jasa', () => {
+    const k = profileTermsFor(['KONTRAKTOR']);
+    expect(localize('Pelanggan', 'JASA', [], k)).toBe('Pemberi kerja');
+    expect(localize('Faktur & piutang', 'JASA', [], k)).toBe('Termin & piutang');
+    expect(localize('Faktur jasa baru', 'JASA', [], k)).toBe('Tagihan termin baru');
+    expect(localize('Pelanggan', 'JASA', [], profileTermsFor(['PENDIDIKAN']))).toBe('Wali / peserta');
+    expect(localize('Supplier', 'JASA', [], profileTermsFor(['BENGKEL']))).toBe('Pemasok suku cadang');
+    expect(localize('Pelanggan', 'JASA', [], profileTermsFor(['ALIH_DAYA']))).toBe('Pengguna jasa');
+    expect(localize('Pelanggan', 'JASA', [], profileTermsFor(['KONTRAKTOR', 'PENDIDIKAN']))).toBe('Klien');
+    expect(localize('Pelanggan', 'JASA')).toBe('Klien');
   });
 });

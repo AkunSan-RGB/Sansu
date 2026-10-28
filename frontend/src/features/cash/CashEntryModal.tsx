@@ -9,6 +9,7 @@ import { useAuth } from '@/auth/AuthContext';
 import CashAccountSelect from '@/components/CashAccountSelect';
 import { withBudgetOverride } from '@/lib/budgetOverride';
 import { fmtMoney } from '@/lib/format';
+import { profileCostOptions } from '@/lib/profileCosts';
 import { buildCashBody, cashAccountOptions, type AssetCatsByAccount, type CashFormValues, type CounterAccount } from './cashLogic';
 
 const TITLE: Record<CashTxType, string> = {
@@ -128,7 +129,7 @@ export default function CashEntryModal({
                           style={{ width: '100%' }}
                           placeholder={mode === 'IN' ? 'Pilih sumber uang' : 'Pilih akun'}
                           loading={counter.isLoading}
-                          options={cashAccountOptions(mode, me?.role, counter.data, assetCatsByAccount) as never}
+                          options={cashAccountOptions(mode, me?.role, counter.data, assetCatsByAccount, profileCostOptions(me?.businessModel, me?.serviceProfiles, counter.data?.filter((a) => a.type === 'EXPENSE'))) as never}
                         />
                       </Form.Item>
                     </Col>

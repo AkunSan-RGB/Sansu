@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
-import { type CustomerDeposit, type Project, type WithheldByCustomerReport } from '@sansu/shared';
+import { REVENUE_KIND_ACCOUNT, type CustomerDeposit, type Project, type RevenueKind, type WithheldByCustomerReport } from '@sansu/shared';
 import { AuditService } from '../../../common/audit/audit.service';
 import { AuthUser } from '../../../common/auth/auth-user';
 import { SequenceService } from '../../../common/sequence/sequence.service';
@@ -46,6 +46,15 @@ export class ServiceBillingService {
     if (!a)
       throw new BadRequestException(`Akun ${key} belum tersedia — jalankan ulang aplikasi agar bagan akun diperbarui`);
     return a.id;
+  }
+
+  /**
+   * Akun pendapatan khas profil layanan untuk satu jenis pendapatan (mis. SPP, jasa keamanan, servis armada).
+   * Tidak ada (profil itu tidak dipilih / akun dinonaktifkan) = undefined: faktur memakai akun pendapatan bawaan.
+   */
+  async revenueAccountFor(tx: Tx | Db, tenantId: string, kind: RevenueKind): Promise<string | undefined> {
+    const [a] = await this.repo.findRevenueAccountByCode(tx, tenantId, REVENUE_KIND_ACCOUNT[kind]);
+    return a?.id;
   }
 
   // ================= Faktur jasa =================

@@ -102,9 +102,8 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(randomUUID(), 8);
     const user = await this.db.transaction(async (tx) => {
       const tenant = await insertOne(tx, tenants, { name: 'PT DEMO', settings: { demo: { model, ...(model === 'JASA' ? { serviceProfile } : {}), createdAt: new Date().toISOString() } } });
-      await this.setup.provision(tx, tenant.id, model);
-      // Demo Jasa hanya menampilkan satu profil layanan yang dipilih, agar isinya sesuai profil itu
-      if (model === 'JASA') await this.settings.saveServiceProfiles(tx, tenant.id, [serviceProfile]);
+      // Demo Jasa hanya memakai satu profil layanan yang dipilih, agar menu, akun, dan isinya sesuai profil itu
+      await this.setup.provision(tx, tenant.id, model, { serviceProfiles: [serviceProfile] });
       await this.subs.startTrial(tx, tenant.id);
       const u = await insertOne(tx, users, { tenantId: tenant.id, email, name: 'Pengunjung Demo', passwordHash, role: 'OWNER', emailVerifiedAt: new Date() });
       return u;

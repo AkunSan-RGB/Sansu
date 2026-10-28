@@ -74,12 +74,14 @@ export function buildCashBody(mode: CashTxType | null, v: CashFormValues, assetC
 }
 
 /** Pilihan akun/sumber pada formulir: Keuangan hanya boleh biaya atau aset; akun pembukuan penuh khusus Pemilik/Admin */
-export function cashAccountOptions(m: CashTxType | null, role: string | undefined, counter: CounterAccount[] | undefined, assetCatsByAccount: AssetCatsByAccount) {
+export function cashAccountOptions(m: CashTxType | null, role: string | undefined, counter: CounterAccount[] | undefined, assetCatsByAccount: AssetCatsByAccount, profileCosts: { value: string; label: string }[] = []) {
   const isFin = role === 'FINANCE';
   const accs = counter?.filter((a) => m !== 'OUT' || !isFin || a.type === 'EXPENSE' || assetCatsByAccount.has(a.id)).map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` })) ?? [];
   if (m === 'OUT') {
     const outs = CASH_OUT_SOURCES.map((s) => ({ value: `src:${s.key}`, label: `${s.label} — ${s.hint}` }));
-    return [{ label: 'Jenis biaya (disarankan; sistem menentukan akun)', options: outs }, { label: isFin ? 'Akun biaya / aset' : 'Akun pembukuan', options: accs }];
+    // Jasa: biaya khas profil layanan (akun langsung) di atas sumber biaya umum
+    const own = profileCosts.length ? [{ label: 'Biaya khas layanan Anda', options: profileCosts }] : [];
+    return [...own, { label: 'Jenis biaya (disarankan; sistem menentukan akun)', options: outs }, { label: isFin ? 'Akun biaya / aset' : 'Akun pembukuan', options: accs }];
   }
   if (m !== 'IN') return accs;
   const sources = CASH_IN_SOURCES.map((s) => ({ value: `src:${s.key}`, label: `${s.label} — ${s.hint}` }));

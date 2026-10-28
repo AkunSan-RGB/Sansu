@@ -378,6 +378,11 @@ export class PosService {
       await this.repo.insertPosOrderLines(tx, order.id, l.productId, l.uom, l.uomFactor, l.qty, l.price, l.discountPct, l.lineTotal, unitCost, recipe, lineIdx >= requested, lineIdx < requested ? (dto.lines[lineIdx].staffId ?? null) : null);
     }
     cogs = money(cogs);
+    // Bengkel: pendapatan layanan (tanpa stok) dipisah dari penjualan suku cadang, sebanding porsi baris layanan dalam dasar pengenaan pajak
+    const serviceAccount = serviceIds.size ? await this.repo.findServiceRevenueAccount(tx, user.tenantId) : undefined;
+    const grossAll = lines.reduce((a, l) => a.plus(l.lineTotal), ZERO);
+    const grossSvc = lines.filter((l) => serviceIds.has(l.productId)).reduce((a, l) => a.plus(l.lineTotal), ZERO);
+    const serviceRevenue = serviceAccount && grossAll.gt(0) ? money(totals.subtotal.times(grossSvc).div(grossAll)) : ZERO;
 
     // Loyalitas: tukar poin (pembayaran non-kas), lalu poin baru dari jumlah yang dibayar nyata
     let loyaltyLines: { key: typeof SYS.LOYALTY_LIABILITY | typeof SYS.LOYALTY_EXPENSE; debit?: Dec; credit?: Dec }[] = [];
@@ -421,7 +426,8 @@ export class PosService {
               { accountId: session.cashAccountId, debit: cashNet },
               { accountId: session.bankAccountId, debit: nonCash },
             ]),
-        { key: SYS.SALES, credit: totals.subtotal },
+        { key: SYS.SALES, credit: totals.subtotal.minus(serviceRevenue) },
+        ...(serviceAccount && serviceRevenue.gt(0) ? [{ accountId: serviceAccount, credit: serviceRevenue }] : []),
         { key: local.enabled ? SYS.LOCAL_TAX : SYS.VAT_OUT, credit: totals.taxAmount },
         ...loyaltyLines,
         { key: SYS.COGS, debit: cogs },

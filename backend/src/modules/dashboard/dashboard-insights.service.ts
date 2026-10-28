@@ -6,6 +6,7 @@ import { Db } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
 import { concentrationInsight, costRiseInsight, deadStockInsight, type DashboardInsight, expiryInsight, lapsedCustomersInsight, lowMarginProductsInsight, lowStockInsight, marginInsight, overdueReceivableInsight, payableInsight, rankInsights, runwayInsight, salesTrendInsight, summarize, topProductsInsight } from './insight-rules';
 import { DashboardInsightsRepository, addMonths } from './dashboard-insights.repository';
+import { ProfileKpiService } from './profile-kpis.service';
 export { addMonths } from './dashboard-insights.repository';
 
 const num = (v: unknown) => Number(v ?? 0) || 0;
@@ -23,7 +24,7 @@ export interface TrendPoint {
 export class DashboardInsightsService {
   private readonly log = new Logger('DashboardInsights');
   constructor(@InjectDb() private readonly db: Db, private readonly settings: SettingsService,
-    private readonly repo: DashboardInsightsRepository) {}
+    private readonly repo: DashboardInsightsRepository, private readonly profileKpis: ProfileKpiService) {}
 
   /** Jalankan satu pengumpul data; kegagalan satu aturan tidak boleh menggagalkan seluruh beranda */
   private async safe<T>(name: string, fn: () => Promise<T>, fallback: T): Promise<T> {
@@ -152,6 +153,9 @@ export class DashboardInsightsService {
       const low = (await this.repo.queryStockMinimum(this.db, tenantId)).rows;
       push(lowStockInsight({ n: low.length, top: low.slice(0, 3).map((x) => x.name) }));
     }, undefined);
+
+    // Jasa: saran khas profil layanan (retensi, jam belum ditagih, tunggakan SPP, keterisian jaga, mekanik)
+    for (const i of await this.safe('profil', () => this.profileKpis.insights(tenantId), [] as DashboardInsight[])) push(i);
 
     const insights = rankInsights(items);
     return {

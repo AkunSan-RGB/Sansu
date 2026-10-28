@@ -111,11 +111,13 @@ export class EducationService {
     const map = await this.lines(u.tenantId, dto.period);
     if (!map.size) throw new BadRequestException(`Tidak ada SPP yang perlu ditagih untuk periode ${dto.period}`);
     const out: { customerId: string; invoiceId: string; number: string; total: string }[] = [];
+    // SPP dibukukan ke Pendapatan SPP bila profil Pendidikan dipilih; tanpa PPN kecuali diminta (jasa pendidikan umumnya dibebaskan PPN)
+    const accountId = await this.billing.revenueAccountFor(this.db, u.tenantId, 'EDU_FEE');
     for (const [customerId, rows] of map) {
-      const lines = rows.map((r) => ({ description: `SPP ${r.class_name} — ${r.student_name} (${dto.period})`, qty: '1', unit: 'Bulan', price: D(r.monthly_fee).times(D(100).minus(r.discount_pct)).div(100).toFixed(2) }));
+      const lines = rows.map((r) => ({ description: `SPP ${r.class_name} — ${r.student_name} (${dto.period})`, qty: '1', unit: 'Bulan', price: D(r.monthly_fee).times(D(100).minus(r.discount_pct)).div(100).toFixed(2), accountId }));
       const inv = await this.billing.createInvoice(
         u,
-        { customerId, date: dto.date, description: `SPP periode ${dto.period}`, termLabel: `SPP ${dto.period}`, lines },
+        { customerId, date: dto.date, description: `SPP periode ${dto.period}`, termLabel: `SPP ${dto.period}`, withVat: dto.withVat ?? false, lines },
         {
           inTx: async (tx, invoice) => {
             try {

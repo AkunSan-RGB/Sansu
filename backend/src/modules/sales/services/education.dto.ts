@@ -34,4 +34,5 @@ export class EduLeaveDto {
 export class EduBillDto {
   @ApiProperty({ example: '2026-10' }) @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'Periode berformat YYYY-MM' }) period: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() date?: string;
+  @ApiPropertyOptional({ description: 'Kenakan PPN pada SPP (bawaan tidak: jasa pendidikan umumnya dibebaskan PPN)' }) @IsOptional() @IsBoolean() withVat?: boolean;
 }

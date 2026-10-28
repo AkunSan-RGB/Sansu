@@ -1,4 +1,5 @@
-import { APPS, BRAND, localize, type AppKey } from '@sansu/shared';
+import { APPS, BRAND, type AppKey } from '@sansu/shared';
+import { t } from '@/lib/terms';
 import { Card, Col, Row, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
@@ -76,7 +77,7 @@ export default function HomePage() {
       .filter((a) => can(a.key))
       .map((a) => ({
         key: a.key,
-        name: localize(a.name, me?.businessModel),
+        name: t(a.name),
         color: a.color,
         to: a.home,
         icon: APP_ICONS[a.key],

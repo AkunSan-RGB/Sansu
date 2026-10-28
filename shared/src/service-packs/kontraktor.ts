@@ -1,0 +1,97 @@
+import { BEFORE, LATER, setupItem as I } from './helpers.js';
+import type { ServiceProfilePack } from './types.js';
+
+export const KONTRAKTOR_PACK: ServiceProfilePack = {
+  customerNoun: 'Pemberi kerja',
+  tagline: 'Kontrak proyek, BoQ/RAB, termin dan retensi, biaya langsung per proyek.',
+  terms: {
+    words: [
+      ['Faktur & piutang', 'Termin & piutang'],
+      ['Faktur terbaru', 'Termin terbaru'],
+      ['Penjualan bulan ini', 'Pendapatan proyek bulan ini'],
+      ['Sales Order', 'SPK / kontrak kerja'],
+      ['Nilai persediaan', 'Nilai material di gudang'],
+      ['Pelanggan', 'Pemberi kerja'],
+      ['Supplier', 'Subkontraktor & pemasok'],
+      ['Produk', 'Material & pekerjaan'],
+      ['Gudang', 'Gudang proyek'],
+      ['Inventori', 'Material proyek'],
+    ],
+    exact: { 'Faktur jasa baru': 'Tagihan termin baru', 'Faktur jasa': 'Tagihan termin' },
+  },
+  workspace: {
+    title: 'Kontraktor & proyek',
+    tagline: 'Tender, kontrak, BoQ, pelaksanaan, termin dan retensi, lalu laba per proyek.',
+    stages: [
+      { title: 'Dapatkan proyek', desc: 'Tender dan undangan penawaran sampai kontrak.', links: [{ label: 'Pipeline calon proyek', to: '/crm' }, { label: 'Penawaran harga (RAB)', to: '/quotations' }, { label: 'Pemberi kerja', to: '/customers' }] },
+      { title: 'Siapkan proyek', desc: 'Kontrak, BoQ/RAB, anggaran biaya, dan retensi.', links: [{ label: 'Proyek & termin', to: '/projects' }, { label: 'Uang muka pemberi kerja', to: '/customer-deposits' }] },
+      { title: 'Laksanakan & beli', desc: 'Material, subkontraktor, dan upah langsung per proyek.', links: [{ label: 'Pesanan pembelian', to: '/purchase-orders' }, { label: 'Tagihan subkontraktor & pemasok', to: '/purchase-invoices' }, { label: 'Upah harian', to: '/payroll/jasa' }, { label: 'Material proyek', to: '/inventory' }] },
+      { title: 'Tagih termin & retensi', desc: 'Tagih sesuai kemajuan; retensi ditagih terpisah setelah masa pemeliharaan.', links: [{ label: 'Tagihan termin baru', to: '/invoices/services/new' }, { label: 'Termin & piutang', to: '/invoices' }] },
+      { title: 'Laba & pajak', desc: 'Laba per proyek, retensi tertahan, dan PPh final konstruksi.', links: [{ label: 'Laporan kontraktor', to: '/laporan/jasa-kontraktor' }, { label: 'PPh dipotong pemberi kerja', to: '/tax/withheld' }] },
+    ],
+  },
+  setup: [
+    I('projects', BEFORE, 'Proyek / kontrak', 'Termin, uang muka, dan biaya langsung terkumpul per proyek; tanpa proyek tidak ada laba per proyek.', '/projects'),
+    I('boq', BEFORE, 'BoQ / RAB per proyek', 'Kemajuan pekerjaan dihitung dari volume yang selesai, bukan tebakan persen.', '/projects'),
+    I('retention', BEFORE, 'Retensi dan masa pemeliharaan', 'Sebagian termin ditahan pemberi kerja; sistem memisahkan tagihan retensi dan mengingatkan saat jatuh tempo.', '/projects'),
+    I('costBudget', LATER, 'Anggaran biaya proyek', 'Biaya langsung dibandingkan dengan anggaran; pembengkakan terlihat sebelum proyek selesai.', '/projects'),
+    I('subcontractors', LATER, 'Subkontraktor dan pemasok material', 'Tagihan biaya langsung dicatat per proyek sehingga margin tiap proyek terlihat.', '/suppliers'),
+    I('leads', LATER, 'Tender dan calon proyek', 'Peluang dilacak dari info tender sampai kontrak.', '/crm'),
+  ],
+  crm: {
+    noun: 'Calon proyek',
+    titleExample: 'Renovasi gudang PT Maju — lantai 2',
+    stages: [{ name: 'Info tender / proyek', probability: 10 }, { name: 'Survei lokasi & kajian', probability: 25 }, { name: 'Penawaran / RAB dikirim', probability: 50 }, { name: 'Klarifikasi & negosiasi', probability: 75 }],
+    sources: ['Tender / lelang', 'Undangan penawaran', 'Referensi pemberi kerja', 'Kontraktor utama (subkon)', 'Website', 'Kunjungan'],
+    lostReasons: ['Harga lebih tinggi dari pemenang', 'Kualifikasi / SBU tidak memenuhi', 'Proyek dibatalkan atau ditunda', 'Jadwal pelaksanaan tidak cocok', 'Tidak lolos evaluasi teknis'],
+  },
+  product: {
+    categories: ['Material Bangunan', 'Besi & Baja', 'Semen & Beton', 'Keramik & Lantai', 'Cat & Finishing', 'Elektrikal', 'Plumbing', 'Perlengkapan K3', 'Pekerjaan Borongan', 'Upah Tukang', 'Sewa Alat', 'Lain-lain'],
+    baseUoms: ['M2', 'M3', 'M', 'KG', 'SAK', 'BATANG', 'LEMBAR', 'ROLL', 'TITIK', 'PAKET', 'HARI', 'ORANG', 'BULAN', 'UNIT', 'SET', 'PCS'],
+    skuLabel: 'Kode material / pekerjaan',
+    nameLabel: 'Nama material / pekerjaan',
+    baseUomLabel: 'Satuan',
+    priceLabel: 'Harga satuan (belum PPN)',
+    note: 'Material dibeli untuk proyek dicatat per proyek di tagihan pemasok. Pekerjaan (volume × harga satuan) dikelola di BoQ proyek.',
+  },
+  invoiceTypes: [
+    { key: 'TERMIN', label: 'Tagihan termin proyek', hint: 'Termin sesuai kemajuan atau jadwal kontrak; retensi dipisah otomatis bila proyek beretensi.', revenueKind: 'CONSTRUCTION', unit: 'Paket', description: 'Termin — pekerjaan ', termLabel: 'Termin', withholding: 'KONSTRUKSI_MENENGAH', withVat: true, requiresProject: true },
+    { key: 'VARIATION', label: 'Pekerjaan tambah (addendum / VO)', hint: 'Pekerjaan di luar kontrak awal; dibukukan terpisah agar pekerjaan tambah terlihat di laporan.', revenueKind: 'VARIATION', unit: 'Paket', description: 'Pekerjaan tambah — ', termLabel: 'Pekerjaan tambah', withholding: 'KONSTRUKSI_MENENGAH', withVat: true, requiresProject: true },
+    { key: 'SMALL_JOB', label: 'Perbaikan / pekerjaan kecil (tanpa kontrak)', hint: 'Pekerjaan sekali jadi tanpa proyek terpisah.', revenueKind: 'CONSTRUCTION', unit: 'Paket', description: 'Pekerjaan perbaikan — ', withholding: 'KONSTRUKSI_KECIL', withVat: true },
+  ],
+  costTypes: [
+    { key: 'SUBCON', label: 'Subkontraktor', hint: 'Pekerjaan yang disubkontrakkan.', account: '5-1500' },
+    { key: 'MATERIAL', label: 'Material proyek', hint: 'Material yang langsung dipakai proyek (bukan stok gudang).', account: '5-1600' },
+    { key: 'LABOR', label: 'Upah langsung proyek', hint: 'Upah tukang dan mandor.', account: '5-1700' },
+    { key: 'EQUIPMENT', label: 'Sewa alat proyek', hint: 'Sewa alat berat dan perancah.', account: '5-1900' },
+    { key: 'MOBILIZATION', label: 'Mobilisasi & demobilisasi', hint: 'Angkut alat dan bedeng proyek.', account: '5-1920' },
+    { key: 'SAFETY', label: 'K3 dan asuransi proyek', hint: 'Perlengkapan keselamatan dan asuransi pekerjaan.', account: '5-1930' },
+    { key: 'GUARANTEE', label: 'Jaminan bank / surety bond', hint: 'Jaminan penawaran, uang muka, pelaksanaan, dan pemeliharaan.', account: '5-1940' },
+    { key: 'PERMIT', label: 'Perizinan dan retribusi proyek', hint: 'IMB/PBG, retribusi, dan izin lokasi.', account: '5-1950' },
+  ],
+  quickActions: [
+    { label: 'Buat proyek / kontrak', desc: 'Nilai kontrak, BoQ, anggaran, dan retensi.', to: '/projects' },
+    { label: 'Tagih termin', desc: 'Tagihan termin atau pekerjaan tambah.', to: '/invoices/services/new' },
+    { label: 'Catat biaya subkontraktor / material', desc: 'Tagihan pemasok per proyek.', to: '/purchase-invoices' },
+    { label: 'Terima uang muka', desc: 'Uang muka pemberi kerja.', to: '/customer-deposits' },
+    { label: 'Laporan kontraktor', desc: 'Laba per proyek dan retensi.', to: '/laporan/jasa-kontraktor' },
+  ],
+  kpis: [
+    { key: 'k_projects_active', label: 'Proyek berjalan', hint: 'Jumlah proyek berstatus aktif.', format: 'number', to: '/projects' },
+    { key: 'k_contract_active', label: 'Nilai kontrak berjalan', hint: 'Jumlah nilai kontrak (sebelum PPN) proyek aktif.', format: 'money', to: '/projects' },
+    { key: 'k_billed_pct', label: 'Tertagih dari kontrak', hint: 'Tagihan termin dibanding nilai kontrak proyek aktif.', format: 'percent', to: '/projects' },
+    { key: 'k_retention_held', label: 'Retensi tertahan', hint: 'Tagihan retensi yang belum dibayar pemberi kerja.', format: 'money', to: '/invoices' },
+    { key: 'k_cost_vs_budget', label: 'Biaya vs anggaran', hint: 'Biaya langsung proyek dibanding anggaran proyek yang beranggaran.', format: 'percent', to: '/laporan/jasa-kontraktor' },
+  ],
+  report: { kind: 'jasa-kontraktor', label: 'Laporan kontraktor', hint: 'Laba per proyek, retensi, kemajuan BoQ, dan biaya langsung per jenis.' },
+  taxFocus: {
+    title: 'Kontraktor: PPh final konstruksi',
+    points: [
+      'Penghasilan jasa konstruksi umumnya dikenai PPh final Pasal 4(2); tarif mengikuti kualifikasi usaha (SBU). Pilih jenis PPh yang sesuai di tiap tagihan termin.',
+      'Bila pemberi kerja memotong PPh, kumpulkan bukti potongnya; bila tidak, PPh final disetor sendiri.',
+      'Retensi ditagih terpisah setelah masa pemeliharaan; pastikan pajak atas retensi mengikuti saat penagihan.',
+      'Pembayaran ke subkontraktor konstruksi dan upah tukang harian punya ketentuan potong pajak sendiri; konfirmasikan dengan konsultan pajak.',
+      'PPN atas penyerahan jasa konstruksi berlaku bagi PKP.',
+    ],
+  },
+};

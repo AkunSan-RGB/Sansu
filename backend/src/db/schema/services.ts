@@ -401,6 +401,8 @@ export const sitePosts = pgTable(
     name: text('name').notNull(),
     headcount: integer('headcount').notNull(),
     monthlyRate: money('monthly_rate').notNull(),
+    /** Jenis layanan pos: menentukan akun pendapatan tagihan bulanannya */
+    serviceKind: text('service_kind').$type<'SECURITY' | 'CLEANING' | 'OTHER'>().notNull().default('OTHER'),
     createdAt: createdAt(),
   },
   (t) => [index('site_posts_contract_idx').on(t.contractId)],

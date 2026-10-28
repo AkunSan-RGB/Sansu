@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq, lte } from 'drizzle-orm';
-import { CRM_PROFILES, isValidLostReason, type LeadStatus, type QuotationStatus } from '@sansu/shared';
+import { crmAcceptedForTenant, crmProfileForTenant, isValidLostReason, type LeadStatus, type QuotationStatus } from '@sansu/shared';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SequenceService } from '../../common/sequence/sequence.service';
@@ -34,7 +34,9 @@ export class CrmService {
     if (!rows.length) {
       // tahap bawaan mengikuti jenis usaha (survei untuk jasa, kunjungan outlet untuk FMCG, dst.)
       const model = await this.settings.businessModel(db, tenantId);
-      rows = await this.repo.insertCrmStages(db, model, tenantId);
+      // Tahap bawaan mengikuti jenis usaha (dan profil layanan Jasa) saat pipeline perusahaan pertama kali dibuka
+      const prof = crmProfileForTenant(model, model === 'JASA' ? await this.settings.serviceProfiles(db, tenantId) : undefined);
+      rows = await this.repo.insertCrmStages(db, prof.stages, tenantId);
     }
     return rows;
   }
@@ -101,16 +103,24 @@ export class CrmService {
     return l;
   }
 
-  /** Profil CRM jenis usaha ini (tahap bawaan, sumber, alasan kalah) untuk layar */
-  async profile(tenantId: string) {
+  /** Jenis usaha dan profil layanan (Jasa) perusahaan: menentukan pilihan CRM */
+  private async scope(tenantId: string) {
     const model = await this.settings.businessModel(this.db, tenantId);
-    return { model, ...CRM_PROFILES[model] };
+    return { model, profiles: model === 'JASA' ? await this.settings.serviceProfiles(this.db, tenantId) : undefined };
   }
 
+  /** Profil CRM jenis usaha ini (tahap bawaan, sumber, alasan kalah) untuk layar; Jasa mengikuti profil layanan */
+  async profile(tenantId: string) {
+    const { model, profiles } = await this.scope(tenantId);
+    return { model, ...crmProfileForTenant(model, profiles) };
+  }
+
+  /** Sumber sah: pilihan profil yang tampil ditambah pilihan umum jenis usaha, agar prospek lama tetap valid */
   private async assertSource(tenantId: string, source: string | undefined | null, current?: string | null) {
     if (!source || source === current) return;
-    const model = await this.settings.businessModel(this.db, tenantId);
-    if (!CRM_PROFILES[model].sources.includes(source)) throw new BadRequestException(`Sumber prospek harus salah satu: ${CRM_PROFILES[model].sources.join(', ')}`);
+    const { model, profiles } = await this.scope(tenantId);
+    const { sources } = crmAcceptedForTenant(model, profiles);
+    if (!sources.includes(source)) throw new BadRequestException(`Sumber prospek harus salah satu: ${crmProfileForTenant(model, profiles).sources.join(', ')}`);
   }
 
   async createLead(user: AuthUser, dto: CreateLeadDto) {
@@ -150,7 +160,8 @@ export class CrmService {
   async mark(user: AuthUser, id: string, dto: MarkLeadDto) {
     const lead = await this.getLead(user.tenantId, id);
     if (dto.status === 'LOST' && !dto.lostReason) throw new BadRequestException('Isi alasan kalah agar bisa dianalisis');
-    if (dto.status === 'LOST' && !isValidLostReason(await this.settings.businessModel(this.db, user.tenantId), dto.lostReason!)) throw new BadRequestException('Pilih alasan kalah dari daftar, atau tulis "Lainnya: …" dengan keterangan');
+    const sc = await this.scope(user.tenantId);
+    if (dto.status === 'LOST' && !isValidLostReason(sc.model, dto.lostReason!, crmAcceptedForTenant(sc.model, sc.profiles).lostReasons)) throw new BadRequestException('Pilih alasan kalah dari daftar, atau tulis "Lainnya: …" dengan keterangan');
     return this.db.transaction(async (tx) => {
       let customerId = lead.customerId;
       if (dto.status === 'WON' && !customerId && dto.createCustomer) {

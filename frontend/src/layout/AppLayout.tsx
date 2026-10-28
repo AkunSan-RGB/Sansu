@@ -2,7 +2,7 @@ import { taskCountByPath, useTasks } from './useTasks';
 import ApprovalAssignListener from '@/features/approvals/ApprovalAssignListener';
 import { rememberReturnTo } from '@/auth/returnTo';
 import { AppstoreOutlined, CrownOutlined, MenuOutlined, SettingOutlined } from '@ant-design/icons';
-import { BUSINESS_MODELS, SERVICE_PROFILES, SERVICE_PROFILE_KEYS, localize, type BusinessModel, type ServiceProfile } from '@sansu/shared';
+import { BUSINESS_MODELS, SERVICE_PROFILES, SERVICE_PROFILE_KEYS, type BusinessModel, type ServiceProfile } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Badge, Button, Checkbox, Drawer, Grid, Layout, Menu, type MenuProps, message, Segmented, Spin, Typography } from 'antd';
 import { useEffect, useState } from 'react';
@@ -17,6 +17,7 @@ import AccountMenu from '@/components/AccountMenu';
 import ReminderBell from '@/components/ReminderBell';
 import { HelpButton } from '@/features/help/HelpCenter';
 import { useApps } from '@/lib/apps';
+import { t } from '@/lib/terms';
 import { type Group, type Item, menuFor, profileOk, subItems } from './menuData';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import QueryErrorBanner from '@/components/QueryErrorBanner';
@@ -111,7 +112,7 @@ export default function AppLayout() {
       profileOk(g.profiles, me.businessModel, me.serviceProfiles) &&
       (g.core ? me.role === 'OWNER' || !!g.roles?.includes(me.role) : g.admin ? isAdmin : g.app ? can(g.app) : (can('accounting') || can('sales')) && (g.key !== '/dashboard' || dashboardRole)),
   );
-  const L = (text: string) => localize(text, me.businessModel);
+  const L = (text: string) => t(text);
   // Fitur pajak yang tidak relevan (non-PKP, PPh final, usaha penjualan barang) tidak ditampilkan
   const taxOk = (i: Item) => profileOk(i.profiles, me.businessModel, me.serviceProfiles) && (!i.roles || me.role === 'OWNER' || i.roles.includes(me.role)) && (!i.models || i.models.includes(me.businessModel)) && (!i.tax || me.taxFeatures?.[i.tax] !== false) && !i.hideFor?.includes(me.businessModel) && !(i.epOnly && me.framework === 'SAK_EMKM') && !(i.billing && me.subscription?.enabled === false) && !(i.branch && !me.multiBranch) && !(i.budget && !me.hasBudget);
   // Menu yang disembunyikan pengguna sendiri (preferensi pribadi); menu yang sedang dibuka dan menu inti tidak pernah hilang

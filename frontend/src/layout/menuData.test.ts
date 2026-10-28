@@ -40,7 +40,7 @@ describe('menu: susunan bertahap per jenis usaha', () => {
     const reportKeys = (m: BusinessModel) => groups(m).filter((g) => g.key !== 'utility' || m === 'UTILITAS').flatMap((g) => forModel(m, g)).map((i) => i.key).filter((k) => k.startsWith('/laporan/')).sort();
     expect(reportKeys('RITEL')).toEqual(['/laporan/cash', '/laporan/hr', '/laporan/inventory', '/laporan/pos', '/laporan/purchases']);
     expect(reportKeys('FNB')).toEqual(['/laporan/cash', '/laporan/fnb', '/laporan/hr', '/laporan/inventory', '/laporan/pos', '/laporan/purchases']);
-    expect(reportKeys('JASA')).toEqual(['/laporan/cash', '/laporan/hr', '/laporan/inventory', '/laporan/jasa', '/laporan/purchases']);
+    expect(reportKeys('JASA')).toEqual(['/laporan/cash', '/laporan/hr', '/laporan/inventory', '/laporan/jasa', '/laporan/jasa-alihdaya', '/laporan/jasa-bengkel', '/laporan/jasa-konsultan', '/laporan/jasa-kontraktor', '/laporan/jasa-pendidikan', '/laporan/purchases']);
     expect(reportKeys('MANUFAKTUR')).toEqual(['/laporan/cash', '/laporan/hr', '/laporan/inventory', '/laporan/mfg', '/laporan/purchases', '/laporan/sales']);
     expect(reportKeys('FMCG')).toEqual(['/laporan/cash', '/laporan/fmcg', '/laporan/hr', '/laporan/inventory', '/laporan/purchases', '/laporan/sales']);
     expect(reportKeys('DAGANG')).toEqual(['/laporan/cash', '/laporan/hr', '/laporan/inventory', '/laporan/purchases', '/laporan/sales']);

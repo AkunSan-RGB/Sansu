@@ -27,6 +27,7 @@ import { t } from '@/lib/terms';
 import DashboardHero from './DashboardHero';
 import InsightPanel from './InsightPanel';
 import KpiTiles, { type KpiTile } from './KpiTiles';
+import ProfileKpiTiles from './ProfileKpiTiles';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -99,7 +100,7 @@ export default function DashboardPage() {
           )
         }
       />
-      <DashboardHero name={me?.name} tenantName={me?.tenantName} model={me?.businessModel ?? 'DAGANG'} figures={heroFigures} showFinance={finance} canSell={me?.role === 'SALES'} />
+      <DashboardHero name={me?.name} tenantName={me?.tenantName} model={me?.businessModel ?? 'DAGANG'} profiles={me?.serviceProfiles} figures={heroFigures} showFinance={finance} canSell={me?.role === 'SALES'} />
       {isError && (
         <Alert
           type="error"
@@ -119,6 +120,7 @@ export default function DashboardPage() {
         />
       )}
       <KpiTiles items={tilesShown} />
+      {finance && <ProfileKpiTiles />}
       {finance && !myBranches && <InsightPanel />}
       {finance && (
         <Card

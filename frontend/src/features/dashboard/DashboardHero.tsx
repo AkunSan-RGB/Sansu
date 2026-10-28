@@ -1,5 +1,5 @@
 import { DatabaseOutlined, FileDoneOutlined, FundOutlined, ShopOutlined } from '@ant-design/icons';
-import { MODEL_WORKSPACE } from '@sansu/shared';
+import { type BusinessModel, type ServiceProfile, workspaceForTenant } from '@sansu/shared';
 import dayjs from 'dayjs';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -14,7 +14,8 @@ export interface HeroFigure {
 interface Props {
   name?: string;
   tenantName?: string;
-  model: keyof typeof MODEL_WORKSPACE;
+  model: BusinessModel;
+  profiles?: ServiceProfile[];
   figures: HeroFigure[];
   showFinance: boolean;
   canSell: boolean;
@@ -26,7 +27,7 @@ const greet = () => {
 };
 
 /** Kepala dasbor: sapaan, jenis usaha, pintasan kerja, dan tiga angka utama dalam satu panel hitam */
-export default function DashboardHero({ name, tenantName, model, figures, showFinance, canSell }: Props) {
+export default function DashboardHero({ name, tenantName, model, profiles, figures, showFinance, canSell }: Props) {
   const navigate = useNavigate();
   const quick = [
     { label: 'Faktur penjualan', to: '/invoices', icon: <FileDoneOutlined />, on: showFinance || canSell },
@@ -40,7 +41,7 @@ export default function DashboardHero({ name, tenantName, model, figures, showFi
         <LogoMark size={220} tone="light" />
       </span>
       <div className="db-hero-main">
-        <span className="db-chip">{MODEL_WORKSPACE[model].title}</span>
+        <span className="db-chip">{workspaceForTenant(model, profiles).title}</span>
         <h1>
           {greet()}, {name?.split(' ')[0] ?? 'Anda'}
         </h1>

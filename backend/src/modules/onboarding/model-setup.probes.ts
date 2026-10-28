@@ -43,6 +43,22 @@ export const SETUP_PROBES: Record<string, string> = {
   vaSetup: `(t.settings ? 'utilityVa')`,
   messaging: `COALESCE(t.settings->'utilityMessaging'->>'enabled', 'false') = 'true'`,
   utilRoutes: own('utility_routes'),
+  // profil layanan Jasa
+  boq: own('project_boq_items'),
+  retention: own('projects', 'x.retention_pct > 0'),
+  costBudget: own('projects', 'x.cost_budget > 0'),
+  subcontractors: own('suppliers'),
+  eduClasses: own('edu_classes'),
+  eduEnroll: own('edu_enrollments'),
+  eduBilled: own('edu_fee_invoices'),
+  siteContracts: own('site_contracts'),
+  dutyRoster: own('site_duty'),
+  fieldStaff: own('employees', 'x.is_active'),
+  sitesBilled: own('site_contract_invoices'),
+  servicesCatalog: own('products', 'x.is_service'),
+  partsStock: own('stock_minimums'),
+  mechanics: own('service_work_entries'),
+  fleetCustomers: own('customers', 'x.payment_term_days > 0'),
 };
 
 /** Satu kueri untuk semua kunci yang diminta: kolom bernama kunci, nilai true/false */
