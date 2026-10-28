@@ -58,6 +58,58 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(me.tenantId, 'employees')).toBeGreaterThan(0);
   }, 90_000); // pembuatan demo F&B ±25 detik sendirian; beri ruang saat mesin sibuk
 
+  const PROFILES = ['KONSULTAN', 'PENDIDIKAN', 'ALIH_DAYA', 'BENGKEL'] as const;
+  const pses = new Map<string, { token: string; tenantId: string }>();
+  it.each(PROFILES)('Jasa profil %s: demo sendiri, pembukuan seimbang, hanya profil itu yang aktif', async (profile) => {
+    const r = await http.post('/api/demo/start').send({ businessModel: 'JASA', serviceProfile: profile }).expect(200);
+    const token = r.body.accessToken as string;
+    const me = (await get(token, '/api/auth/me').expect(200)).body;
+    expect(me.serviceProfiles).toEqual([profile]);
+    pses.set(profile, { token, tenantId: me.tenantId });
+    const tb = (await get(token, '/api/accounting/reports/trial-balance').expect(200)).body;
+    expect(tb.balanced).toBe(true);
+    const pl = (await get(token, '/api/accounting/reports/profit-loss').expect(200)).body;
+    expect(Number(pl.totalRevenue)).toBeGreaterThan(0);
+    expect((await get(token, '/api/accounting/reports/balance-sheet').expect(200)).body.balanced).toBe(true);
+    const health = (await get(token, '/api/accounting/health').expect(200)).body.checks as { key: string; status: string }[];
+    expect(health.filter((h) => h.status === 'ERROR').map((h) => h.key)).toEqual([]);
+    const t = me.tenantId as string;
+    if (profile === 'PENDIDIKAN') {
+      expect(await count(t, 'edu_classes')).toBe(4);
+      expect(await count(t, 'edu_enrollments')).toBeGreaterThanOrEqual(10);
+      expect(await count(t, 'edu_fee_invoices')).toBeGreaterThanOrEqual(20);
+      expect(await count(t, 'project_boq_items')).toBe(0);
+    }
+    if (profile === 'ALIH_DAYA') {
+      expect(await count(t, 'site_posts')).toBeGreaterThanOrEqual(5);
+      expect(await count(t, 'site_duty')).toBeGreaterThan(100);
+      expect(await count(t, 'site_contract_invoices')).toBeGreaterThanOrEqual(5);
+      expect(await count(t, 'edu_classes')).toBe(0);
+    }
+    if (profile === 'BENGKEL') {
+      expect(await count(t, 'pos_orders')).toBeGreaterThanOrEqual(20);
+      expect(Number((await db.execute<{ n: string }>(sql.raw(`SELECT COUNT(*)::text AS n FROM pos_order_lines l JOIN pos_orders o ON o.id = l.order_id WHERE o.tenant_id = '${t}' AND l.staff_id IS NOT NULL`))).rows[0].n)).toBeGreaterThanOrEqual(15);
+    }
+    if (profile === 'KONSULTAN') {
+      expect(await count(t, 'service_retainers')).toBeGreaterThanOrEqual(1);
+      expect(await count(t, 'projects')).toBeGreaterThan(0);
+    }
+  }, 90_000);
+
+  it('demo tiap profil Jasa berbeda isinya (produk, pelanggan, laba rugi)', async () => {
+    const all = [...pses.entries(), ['KONTRAKTOR', sessions.get('JASA')!] as const];
+    const sku = new Set<string>(), cust = new Set<string>();
+    let nSku = 0, nCust = 0;
+    for (const [, v] of all) {
+      for (const r of (await db.execute<{ v: string }>(sql.raw(`SELECT sku AS v FROM products WHERE tenant_id = '${v.tenantId}'`))).rows) { sku.add(r.v); nSku++; }
+      for (const r of (await db.execute<{ v: string }>(sql.raw(`SELECT code AS v FROM customers WHERE tenant_id = '${v.tenantId}'`))).rows) { cust.add(r.v); nCust++; }
+    }
+    expect(sku.size).toBe(nSku);
+    expect(cust.size).toBe(nCust);
+    const rev = await Promise.all(all.map(async ([, v]) => (await get(v.token, '/api/accounting/reports/profit-loss').expect(200)).body.totalRevenue as string));
+    expect(new Set(rev).size).toBe(rev.length);
+  });
+
   it('data tiap jenis usaha berbeda (produk, pelanggan, jenis dokumen)', async () => {
     const names = async (model: string, table: string, col: string) => {
       const s = sessions.get(model)!;
@@ -97,25 +149,17 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(s('RITEL'), 'promos')).toBe(2);
     const prc = async (q: string) => Number((await db.execute<{ n: string }>(sql.raw(q))).rows[0].n);
     expect(await prc(`SELECT COUNT(*)::text AS n FROM warehouses WHERE tenant_id = '${s('RITEL')}' AND price_list_id IS NOT NULL`)).toBeGreaterThanOrEqual(1);
-    // Jasa: anggaran biaya proyek dan retainer berjatah jam
+    // Jasa Kontraktor: anggaran biaya proyek (retainer berjatah jam ada di profil Konsultan)
     expect(await prc(`SELECT COUNT(*)::text AS n FROM projects WHERE tenant_id = '${s('JASA')}' AND cost_budget > 0`)).toBeGreaterThan(0);
-    expect(await prc(`SELECT COUNT(*)::text AS n FROM service_retainers WHERE tenant_id = '${s('JASA')}' AND included_hours > 0`)).toBe(1);
-    // Jasa: layanan tanpa stok dijual di kasir dengan petugas
-    expect(await prc(`SELECT COUNT(*)::text AS n FROM products WHERE tenant_id = '${s('JASA')}' AND is_service`)).toBe(3);
-    expect(await prc(`SELECT COUNT(*)::text AS n FROM pos_order_lines l JOIN pos_orders o ON o.id = l.order_id WHERE o.tenant_id = '${s('JASA')}' AND l.staff_id IS NOT NULL`)).toBeGreaterThanOrEqual(10);
+    // Jasa bawaan = profil Kontraktor: hanya profil itu yang aktif, BoQ, kemajuan dari volume, termin dipecah (tagihan jalan + retensi)
+    const jasa = (await get(sessions.get('JASA')!.token, '/api/auth/me').expect(200)).body;
+    expect(jasa.serviceProfiles).toEqual(['KONTRAKTOR']);
+    expect(await count(s('JASA'), 'project_boq_items')).toBeGreaterThanOrEqual(4);
+    expect(await prc(`SELECT COUNT(*)::text AS n FROM invoices WHERE tenant_id = '${s('JASA')}' AND retention_of_invoice_id IS NOT NULL`)).toBeGreaterThanOrEqual(1);
+    expect(await count(s('JASA'), 'edu_classes')).toBe(0);
+    expect(await count(s('JASA'), 'site_posts')).toBe(0);
     // akun Pemilik demo terhubung ke karyawan (timer/lembar waktu tidak menampilkan galat)
     expect(await prc(`SELECT COUNT(*)::text AS n FROM employees WHERE tenant_id = '${s('JASA')}' AND user_id IS NOT NULL`)).toBe(1);
-    // Jasa kontraktor: BoQ, kemajuan dari volume, dan termin yang dipecah (tagihan jalan + retensi)
-    expect(await count(s('JASA'), 'project_boq_items')).toBe(4);
-    expect(await prc(`SELECT COUNT(*)::text AS n FROM invoices WHERE tenant_id = '${s('JASA')}' AND retention_of_invoice_id IS NOT NULL`)).toBe(1);
-    // Jasa pendidikan: kelas, peserta, SPP dua bulan ditagih per wali
-    expect(await count(s('JASA'), 'edu_classes')).toBe(2);
-    expect(await count(s('JASA'), 'edu_enrollments')).toBe(5);
-    expect(await count(s('JASA'), 'edu_fee_invoices')).toBeGreaterThanOrEqual(8);
-    // Jasa alih daya: kontrak lokasi, jadwal jaga, satu bulan ditagih
-    expect(await count(s('JASA'), 'site_posts')).toBe(2);
-    expect(await count(s('JASA'), 'site_duty')).toBeGreaterThan(30);
-    expect(await count(s('JASA'), 'site_contract_invoices')).toBe(1);
     // Manufaktur: riwayat versi resep dan satu perintah subkontrak selesai dengan tagihan jasa
     expect(await count(s('MANUFAKTUR'), 'bom_revisions')).toBeGreaterThanOrEqual(2);
     expect(await prc(`SELECT COUNT(*)::text AS n FROM production_orders WHERE tenant_id = '${s('MANUFAKTUR')}' AND subcontractor_id IS NOT NULL AND subcontract_bill_id IS NOT NULL AND status = 'COMPLETED'`)).toBe(1);

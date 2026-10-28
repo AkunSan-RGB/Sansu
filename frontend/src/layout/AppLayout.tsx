@@ -2,7 +2,7 @@ import { taskCountByPath, useTasks } from './useTasks';
 import ApprovalAssignListener from '@/features/approvals/ApprovalAssignListener';
 import { rememberReturnTo } from '@/auth/returnTo';
 import { AppstoreOutlined, CrownOutlined, MenuOutlined, SettingOutlined } from '@ant-design/icons';
-import { BUSINESS_MODELS, localize, type BusinessModel } from '@sansu/shared';
+import { BUSINESS_MODELS, SERVICE_PROFILES, SERVICE_PROFILE_KEYS, localize, type BusinessModel, type ServiceProfile } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Badge, Button, Checkbox, Drawer, Grid, Layout, Menu, type MenuProps, message, Segmented, Spin, Typography } from 'antd';
 import { useEffect, useState } from 'react';
@@ -33,10 +33,10 @@ const SECTION_STYLE: React.CSSProperties = { fontSize: 11, letterSpacing: 0.6, c
 export default function AppLayout() {
   const { me, loading, logout, startDemo } = useAuth();
   const [switching, setSwitching] = useState(false);
-  const switchDemo = async (model: BusinessModel) => {
+  const switchDemo = async (model: BusinessModel, profile?: ServiceProfile) => {
     setSwitching(true);
     try {
-      await startDemo(model);
+      await startDemo(model, profile);
       window.location.assign('/dashboard');
     } catch (e) {
       message.error((e as Error).message || 'Gagal membuat demo baru');
@@ -308,6 +308,18 @@ export default function AppLayout() {
                       onChange={(v) => switchDemo(v as BusinessModel)}
                       options={BUSINESS_MODELS.map((m) => ({ value: m.key, label: m.name }))}
                     />
+                    {me.businessModel === 'JASA' && (
+                      <div style={{ marginTop: 6 }}>
+                        <div style={{ fontSize: 12, marginBottom: 4 }}>Layanan jasa yang didemokan (data tiap layanan berbeda):</div>
+                        <Segmented
+                          size="small"
+                          disabled={switching}
+                          value={me.serviceProfiles?.[0]}
+                          onChange={(v) => switchDemo('JASA', v as ServiceProfile)}
+                          options={SERVICE_PROFILE_KEYS.map((k) => ({ value: k, label: SERVICE_PROFILES[k].label }))}
+                        />
+                      </div>
+                    )}
                   </div>
                   <Button size="small" type="primary" style={{ marginTop: 8 }} onClick={() => logout()}>
                     Keluar & daftar sendiri

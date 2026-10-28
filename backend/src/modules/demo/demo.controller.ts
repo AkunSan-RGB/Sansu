@@ -17,6 +17,6 @@ export class DemoController {
   @Post('start')
   start(@Body() dto: StartDemoDto) {
     if (!BUSINESS_MODEL_KEYS.includes(dto.businessModel)) throw new BadRequestException('Jenis usaha tidak dikenal');
-    return this.svc.start(dto.businessModel);
+    return this.svc.start(dto.businessModel, dto.serviceProfile);
   }
 }

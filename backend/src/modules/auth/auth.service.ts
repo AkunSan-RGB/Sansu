@@ -12,7 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
-import { ALL_SERVICE_PROFILES, type BusinessModel, taxFeatures } from '@sansu/shared';
+import { type BusinessModel, type ServiceProfile, taxFeatures } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { Db } from '../../db/db';
@@ -97,14 +97,14 @@ export class AuthService {
    * Akun "Lihat Demo": perusahaan baru bernama PT DEMO untuk satu pengunjung (terpisah dari perusahaan lain).
    * Email palsu (tidak dikirimi apa pun) dan langsung terverifikasi; ditandai settings.demo agar bisa dibersihkan.
    */
-  async createDemoAccount(model: BusinessModel) {
+  async createDemoAccount(model: BusinessModel, serviceProfile: ServiceProfile = 'KONTRAKTOR') {
     const email = `demo-${randomUUID().slice(0, 12)}@demo.sansu.invalid`;
     const passwordHash = await bcrypt.hash(randomUUID(), 8);
     const user = await this.db.transaction(async (tx) => {
-      const tenant = await insertOne(tx, tenants, { name: 'PT DEMO', settings: { demo: { model, createdAt: new Date().toISOString() } } });
+      const tenant = await insertOne(tx, tenants, { name: 'PT DEMO', settings: { demo: { model, ...(model === 'JASA' ? { serviceProfile } : {}), createdAt: new Date().toISOString() } } });
       await this.setup.provision(tx, tenant.id, model);
-      // Demo Jasa menampilkan semua profil agar pengunjung bisa melihat seluruh fitur
-      if (model === 'JASA') await this.settings.saveServiceProfiles(tx, tenant.id, ALL_SERVICE_PROFILES);
+      // Demo Jasa hanya menampilkan satu profil layanan yang dipilih, agar isinya sesuai profil itu
+      if (model === 'JASA') await this.settings.saveServiceProfiles(tx, tenant.id, [serviceProfile]);
       await this.subs.startTrial(tx, tenant.id);
       const u = await insertOne(tx, users, { tenantId: tenant.id, email, name: 'Pengunjung Demo', passwordHash, role: 'OWNER', emailVerifiedAt: new Date() });
       return u;

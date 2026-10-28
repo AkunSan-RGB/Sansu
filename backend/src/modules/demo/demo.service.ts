@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import { type BusinessModel } from '@sansu/shared';
+import { type BusinessModel, type ServiceProfile } from '@sansu/shared';
 import { AuthUser } from '../../common/auth/auth-user';
 import { Db, createDb, createPool } from '../../db/db';
 import { InjectDb } from '../../db/db.module';
@@ -26,18 +26,18 @@ export class DemoService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   /** Buat PT DEMO baru berisi transaksi contoh sesuai jenis usaha, lalu kembalikan sesi masuk */
-  async start(model: BusinessModel) {
+  async start(model: BusinessModel, serviceProfile: ServiceProfile = 'KONTRAKTOR') {
     const recent = await this.repo.queryTenant(this.db);
     if ((recent.rows[0]?.n ?? 0) >= HOURLY_CAP) throw new HttpException('Demo sedang ramai. Coba lagi beberapa menit lagi.', HttpStatus.TOO_MANY_REQUESTS);
 
-    const { user, session } = await this.ref.get(AuthService, { strict: false }).createDemoAccount(model);
+    const { user, session } = await this.ref.get(AuthService, { strict: false }).createDemoAccount(model, serviceProfile);
     const admin: AuthUser = { sub: user.id, tenantId: user.tenantId, role: user.role, email: user.email };
     // Data contoh dibuat dengan tanggal mundur dan urutan yang tidak selalu menjaga saldo kas: larangan saldo negatif dimatikan hanya selama pengisian
     const cash = this.ref.get(CashService, { strict: false });
     await cash.saveCashSettings(user.tenantId, { blockNegative: false });
     try {
-      const demo = await buildDemo(this.ref, this.db, admin, model);
-      await SEEDS[model](demo);
+      const demo = await buildDemo(this.ref, this.db, admin, model, serviceProfile);
+      await SEEDS[model](demo, serviceProfile);
     } catch (e) {
       this.logger.error(`Data demo ${model} gagal: ${(e as Error).message}`);
       if (process.env.DEMO_STRICT === 'true') throw e;

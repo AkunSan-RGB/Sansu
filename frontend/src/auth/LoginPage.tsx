@@ -1,5 +1,5 @@
-import { BRAND, type BusinessModel } from '@sansu/shared';
-import { Alert, Button, Checkbox, Form, Grid, Input, Modal, Tabs, Typography } from 'antd';
+import { BRAND, SERVICE_PROFILES, SERVICE_PROFILE_KEYS, type BusinessModel, type ServiceProfile } from '@sansu/shared';
+import { Alert, Button, Checkbox, Form, Grid, Input, Modal, Radio, Tabs, Typography } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { CSSProperties, useEffect, useRef, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
@@ -33,6 +33,7 @@ export default function LoginPage() {
   const { me, login, loginTwoFactor, register, startDemo } = useAuth();
   const [demoOpen, setDemoOpen] = useState(false);
   const [demoModel, setDemoModel] = useState<BusinessModel>('DAGANG');
+  const [demoProfile, setDemoProfile] = useState<ServiceProfile>('KONTRAKTOR');
   const screens = Grid.useBreakpoint();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -331,7 +332,7 @@ export default function LoginPage() {
             okText="Mulai demo"
             cancelText="Batal"
             confirmLoading={busy}
-            onOk={() => run(() => startDemo(demoModel))}
+            onOk={() => run(() => startDemo(demoModel, demoProfile))}
             maskClosable={!busy}
             destroyOnHidden
           >
@@ -339,6 +340,18 @@ export default function LoginPage() {
               Pilih jenis usaha. SANSU menyiapkan perusahaan contoh <b>PT DEMO</b> lengkap dengan transaksi yang sesuai jenis usahanya, supaya Anda bisa menjelajah semua fitur.
             </Typography.Paragraph>
             <BusinessModelPicker value={demoModel} onChange={setDemoModel} />
+            {demoModel === 'JASA' && (
+              <div style={{ marginTop: 12 }}>
+                <Typography.Text strong>Layanan yang didemokan</Typography.Text>
+                <Radio.Group value={demoProfile} onChange={(e) => setDemoProfile(e.target.value)} style={{ display: 'block', marginTop: 6 }}>
+                  {SERVICE_PROFILE_KEYS.map((k) => (
+                    <Radio key={k} value={k} style={{ display: 'flex', marginBottom: 4 }}>
+                      {SERVICE_PROFILES[k].label}
+                    </Radio>
+                  ))}
+                </Radio.Group>
+              </div>
+            )}
             {error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
             <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
               {busy ? 'Menyiapkan data contoh, sekitar 5–10 detik…' : 'Data contoh dihapus otomatis setelah 3 hari. Jangan memasukkan data asli.'}
