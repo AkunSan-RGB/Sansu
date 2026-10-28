@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbOrTx } from '../../db/db';
-import { sql, eq } from 'drizzle-orm';
-import { posOrders, posSessions, posOrderLines, posPayments, posReturnLines } from '../../db/schema';
+import { sql, eq, and, inArray } from 'drizzle-orm';
+import { posOrders, posSessions, posOrderLines, posPayments, posReturnLines, products } from '../../db/schema';
 import { Dec, D } from '../../common/utils/money';
 
 /** Pesanan meja terbuka lebih lama dari ini dianggap menggantung */
@@ -37,6 +37,31 @@ export class PosReturnsRepository {
     return db.execute<{ total: string; tax: string }>(
       sql`SELECT COALESCE(SUM(total), 0) AS total, COALESCE(SUM(tax_amount), 0) AS tax FROM pos_returns WHERE order_id = ${orderId}`,
     );
+  }
+
+  /**
+   * Pendapatan jasa servis yang dipisah saat penjualan (Bengkel): akun, jumlah dikredit di jurnal penjualan, dan yang sudah dibalik
+   * oleh retur sebelumnya. Tidak ada = penjualan tidak memisah layanan (semua retur ke akun retur penjualan seperti biasa).
+   */
+  async findServiceRevenueOfOrder(db: DbOrTx, orderId: string, accountCode: string): Promise<{ accountId: string; sold: Dec; returned: Dec } | undefined> {
+    const r = await db.execute<{ account_id: string; sold: string; returned: string }>(sql`
+      SELECT jl.account_id, SUM(jl.credit) AS sold,
+        COALESCE((SELECT SUM(rl.debit) FROM pos_returns r JOIN journal_lines rl ON rl.journal_id = r.journal_id
+                  WHERE r.order_id = o.id AND rl.account_id = jl.account_id), 0) AS returned
+      FROM pos_orders o
+      JOIN journal_lines jl ON jl.journal_id = o.journal_id
+      JOIN accounts a ON a.id = jl.account_id AND a.tenant_id = o.tenant_id
+      WHERE o.id = ${orderId} AND a.code = ${accountCode} AND jl.credit > 0
+      GROUP BY o.id, jl.account_id`);
+    const row = r.rows[0];
+    return row ? { accountId: row.account_id, sold: D(row.sold), returned: D(row.returned) } : undefined;
+  }
+
+  /** Produk layanan (tanpa stok) di antara produk yang diretur */
+  async listServiceProductIds(db: DbOrTx, tenantId: string, productIds: string[]): Promise<Set<string>> {
+    if (!productIds.length) return new Set();
+    const rows = await db.select({ id: products.id }).from(products).where(and(eq(products.tenantId, tenantId), inArray(products.id, productIds), eq(products.isService, true)));
+    return new Set(rows.map((x) => x.id));
   }
 
   /** Dipakai oleh PosReturnsService.create */

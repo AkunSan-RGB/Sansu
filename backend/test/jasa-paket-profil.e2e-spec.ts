@@ -187,4 +187,38 @@ describe('Paket profil layanan Jasa (e2e)', () => {
       .expect(201);
     expect(await credit(tenantId, '4-2820')).toBe(before + 1_400_000);
   });
+
+  it('retur kasir Bengkel: bagian layanan dibalik dari pendapatan jasa servis, barang ke retur penjualan, retur penuh menutup persis', async () => {
+    const { tenantId } = t.get('BENGKEL')!;
+    // transaksi kasir yang memuat baris layanan dan belum pernah diretur (utamakan yang juga berisi barang)
+    const order = (
+      await db.execute<{ id: string; svc_line: string; svc_qty: string }>(sql`
+        SELECT o.id, (array_agg(l.id) FILTER (WHERE p.is_service))[1] AS svc_line, (array_agg(l.qty::text) FILTER (WHERE p.is_service))[1] AS svc_qty
+        FROM pos_orders o JOIN pos_order_lines l ON l.order_id = o.id JOIN products p ON p.id = l.product_id
+        WHERE o.tenant_id = ${tenantId} AND o.channel IS NULL AND NOT EXISTS (SELECT 1 FROM pos_returns r WHERE r.order_id = o.id)
+        GROUP BY o.id HAVING bool_or(p.is_service)
+        ORDER BY count(*) FILTER (WHERE NOT p.is_service) DESC, o.number LIMIT 1`)
+    ).rows[0];
+    expect(order).toBeDefined();
+    /** Mutasi akun pada jurnal sumber tertentu (debit − kredit) */
+    const net = async (code: string, where: ReturnType<typeof sql>) =>
+      Number((await db.execute<{ v: string }>(sql`SELECT COALESCE(SUM(l.debit - l.credit), 0)::text AS v FROM journal_lines l JOIN accounts a ON a.id = l.account_id WHERE a.tenant_id = ${tenantId} AND a.code = ${code} AND ${where}`)).rows[0].v);
+    const saleJournal = sql`l.journal_id = (SELECT journal_id FROM pos_orders WHERE id = ${order.id})`;
+    const returnJournals = sql`l.journal_id IN (SELECT journal_id FROM pos_returns WHERE order_id = ${order.id})`;
+    const sold = -(await net('4-2810', saleJournal));
+    expect(sold).toBeGreaterThan(0);
+    const owner = { Authorization: `Bearer ${t.get('BENGKEL')!.token}` };
+
+    // retur sebagian: hanya baris layanan → seluruh nilai retur (tanpa pajak) membalik pendapatan jasa servis
+    const r1 = (await http.post(`/api/pos/orders/${order.id}/return`).set(owner).send({ lines: [{ orderLineId: order.svc_line, qty: order.svc_qty }], reason: 'Pekerjaan servis diulang' }).expect(201)).body;
+    const j1 = sql`l.journal_id = (SELECT journal_id FROM pos_returns WHERE id = ${r1.id})`;
+    expect(await net('4-2810', j1)).toBeCloseTo(Number(r1.subtotal), 2);
+    expect(await net('4-1100', j1)).toBe(0); // retur penjualan tidak tersentuh bila yang diretur hanya layanan
+
+    // retur sisa transaksi: akun jasa servis untuk transaksi ini kembali nol persis, barang ke retur penjualan
+    await http.post(`/api/pos/orders/${order.id}/return`).set(owner).send({ all: true, reason: 'Pelanggan membatalkan seluruhnya' }).expect(201);
+    expect(await net('4-2810', returnJournals)).toBeCloseTo(sold, 2);
+    const returned = (await db.execute<{ v: string }>(sql`SELECT COALESCE(SUM(subtotal), 0)::text AS v FROM pos_returns WHERE order_id = ${order.id}`)).rows[0].v;
+    expect((await net('4-2810', returnJournals)) + (await net('4-1100', returnJournals))).toBeCloseTo(Number(returned), 2);
+  });
 });
