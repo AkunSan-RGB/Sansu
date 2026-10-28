@@ -12,6 +12,7 @@ export function ProjectModal({ open, onClose, onDone }: { open: boolean; onClose
       name: string;
       customerId: string;
       contractValue: number;
+      costBudget?: number;
       code?: string;
       startDate?: string;
       endDate?: string;
@@ -20,6 +21,7 @@ export function ProjectModal({ open, onClose, onDone }: { open: boolean; onClose
       post<Project>('/services/projects', {
         ...v,
         contractValue: String(v.contractValue),
+        costBudget: v.costBudget ? String(v.costBudget) : undefined,
         startDate: v.startDate || undefined,
         endDate: v.endDate || undefined,
       }),
@@ -54,6 +56,9 @@ export function ProjectModal({ open, onClose, onDone }: { open: boolean; onClose
           />
         </Form.Item>
         <Form.Item name="contractValue" label="Nilai kontrak (DPP, belum PPN)" rules={[{ required: true }]}>
+          <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
+        </Form.Item>
+        <Form.Item name="costBudget" label="Anggaran biaya langsung (opsional)" extra="Biaya langsung proyek dipantau terhadap angka ini">
           <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
         </Form.Item>
         <Row gutter={12}>

@@ -9,7 +9,7 @@ import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney } from '@/lib/format';
 
 const KEY = ['retainers'];
-interface Row { id: string; customerName: string; projectName: string | null; title: string; monthlyFee: string; startDate: string; endDate: string | null; isActive: boolean; billedPeriods: { period: string; invoice: string }[]; unbilledPeriods: string[]; withVat: boolean | null }
+interface Row { id: string; customerName: string; projectName: string | null; title: string; monthlyFee: string; startDate: string; endDate: string | null; isActive: boolean; billedPeriods: { period: string; invoice: string }[]; unbilledPeriods: string[]; withVat: boolean | null; includedHours: string | null; overageRate: string | null }
 
 /** Retainer: biaya tetap bulanan per klien; satu faktur per periode */
 export default function RetainersPage() {
@@ -17,8 +17,8 @@ export default function RetainersPage() {
   const rows = useQuery({ queryKey: KEY, queryFn: () => get<Row[]>('/retainers') });
   const customers = useCustomers();
   const [creating, setCreating] = useState(false);
-  const [cf] = Form.useForm<{ customerId: string; title: string; monthlyFee: number; startDate: dayjs.Dayjs; endDate?: dayjs.Dayjs; withVat?: boolean }>();
-  const create = useAction((v: { customerId: string; title: string; monthlyFee: number; startDate: dayjs.Dayjs; endDate?: dayjs.Dayjs; withVat?: boolean }) => post('/retainers', { ...v, monthlyFee: String(v.monthlyFee), startDate: v.startDate.format('YYYY-MM-DD'), endDate: v.endDate?.format('YYYY-MM-DD') }), { invalidate: KEY, success: 'Retainer dibuat', onSuccess: () => setCreating(false) });
+  const [cf] = Form.useForm<{ customerId: string; title: string; monthlyFee: number; startDate: dayjs.Dayjs; endDate?: dayjs.Dayjs; withVat?: boolean; includedHours?: number; overageRate?: number }>();
+  const create = useAction((v: { customerId: string; title: string; monthlyFee: number; startDate: dayjs.Dayjs; endDate?: dayjs.Dayjs; withVat?: boolean; includedHours?: number; overageRate?: number }) => post('/retainers', { ...v, monthlyFee: String(v.monthlyFee), includedHours: v.includedHours ? String(v.includedHours) : undefined, overageRate: v.overageRate ? String(v.overageRate) : undefined, startDate: v.startDate.format('YYYY-MM-DD'), endDate: v.endDate?.format('YYYY-MM-DD') }), { invalidate: KEY, success: 'Retainer dibuat', onSuccess: () => setCreating(false) });
   const bill = useAction((v: { id: string; period: string }) => post(`/retainers/${v.id}/bill`, { period: v.period }), { invalidate: [...KEY, 'invoices'], success: 'Faktur retainer dibuat' });
   const [editing, setEditing] = useState<Row | null>(null);
   const [ef] = Form.useForm<{ monthlyFee: number; isActive: boolean; reason: string }>();
@@ -32,6 +32,7 @@ export default function RetainersPage() {
         columns={[
           { title: 'Klien', render: (_: unknown, r: Row) => <div>{r.customerName}<div style={{ fontSize: 12, color: '#64748b' }}>{r.title}{r.projectName ? ` · ${r.projectName}` : ''}</div></div> },
           { title: 'Per bulan', align: 'right' as const, render: (_: unknown, r: Row) => fmtMoney(r.monthlyFee) },
+          { title: 'Jatah jam', render: (_: unknown, r: Row) => r.includedHours ? <span>{Number(r.includedHours)} jam<div style={{ fontSize: 12, color: '#64748b' }}>lebih: {fmtMoney(r.overageRate ?? 0)}/jam</div></span> : <Typography.Text type="secondary">tanpa batas</Typography.Text> },
           { title: 'Masa', render: (_: unknown, r: Row) => `${fmtDate(r.startDate)} – ${r.endDate ? fmtDate(r.endDate) : 'berjalan'}` },
           { title: 'Sudah ditagih', render: (_: unknown, r: Row) => r.billedPeriods.length ? r.billedPeriods.map((b) => <Tag key={b.period} color="green">{b.period}</Tag>) : '-' },
           { title: 'Belum ditagih', render: (_: unknown, r: Row) => r.unbilledPeriods.length ? <Space wrap>{r.unbilledPeriods.map((p) => <Button key={p} size="small" disabled={!can('POST', '/retainers/:id/bill')} loading={bill.isPending} onClick={() => bill.mutate({ id: r.id, period: p })}>Tagih {p}</Button>)}</Space> : <Typography.Text type="secondary">{r.isActive ? 'Lengkap' : 'Nonaktif'}</Typography.Text> },
@@ -43,6 +44,11 @@ export default function RetainersPage() {
           <Form.Item name="title" label="Layanan" rules={[{ required: true, min: 3 }]}><Input maxLength={120} placeholder="mis. Retainer konsultasi pajak" /></Form.Item>
           <Form.Item name="monthlyFee" label="Biaya per bulan" rules={[{ required: true }]}><InputNumber min={1} style={{ width: '100%' }} /></Form.Item>
           <Space><Form.Item name="startDate" label="Mulai" rules={[{ required: true }]}><DatePicker /></Form.Item><Form.Item name="endDate" label="Berakhir (opsional)"><DatePicker /></Form.Item></Space>
+          <Space align="start">
+            <Form.Item name="includedHours" label="Jatah jam per bulan" extra="Kosong = tanpa batas jam"><InputNumber min={0} style={{ width: 160 }} /></Form.Item>
+            <Form.Item name="overageRate" label="Tarif kelebihan per jam" dependencies={['includedHours']} rules={[({ getFieldValue }) => ({ validator: (_, v) => (getFieldValue('includedHours') > 0 && !(v > 0) ? Promise.reject(new Error('Isi tarif kelebihan')) : Promise.resolve()) })]}><InputNumber min={0} style={{ width: 180 }} /></Form.Item>
+          </Space>
+          <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Bila ada jatah jam, saat menagih periode itu sistem menghitung jam yang sudah disetujui; kelebihannya ditambahkan di faktur dan catatan waktunya ditandai sudah ditagih." />
           <Form.Item name="withVat" label="Dikenai PPN" valuePropName="checked" extra="Kosongkan untuk mengikuti pengaturan perusahaan."><Switch /></Form.Item>
         </Form>
       </Modal>

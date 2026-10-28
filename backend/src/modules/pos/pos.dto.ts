@@ -23,6 +23,18 @@ export class PosLineDto {
   @ApiPropertyOptional() @IsOptional() @IsNumberString() discountPct?: string;
 }
 
+export class PosQuoteLineDto {
+  @ApiProperty() @IsUUID() productId: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() uom?: string;
+  @ApiProperty({ example: '2' }) @IsNumberString() qty: string;
+}
+
+export class PosQuoteDto {
+  @ApiProperty() @IsUUID() sessionId: string;
+  @ApiPropertyOptional({ description: 'Pelanggan terdaftar: daftar harga miliknya menggantikan daftar harga toko' }) @IsOptional() @IsUUID() customerId?: string;
+  @ApiProperty({ type: [PosQuoteLineDto] }) @ValidateNested({ each: true }) @Type(() => PosQuoteLineDto) @ArrayMinSize(1) lines: PosQuoteLineDto[];
+}
+
 export class PosPaymentDto {
   @ApiProperty({ enum: POS_PAYMENT_METHODS }) @IsIn(POS_PAYMENT_METHODS) method: PosPaymentMethod;
   @ApiProperty({ example: '100000', description: 'Uang diterima (tunai boleh lebih, kembalian dihitung)' }) @IsNumberString() amount: string;

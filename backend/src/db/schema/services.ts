@@ -37,6 +37,8 @@ export const projects = pgTable(
       .references(() => customers.id),
     /** Nilai kontrak (DPP, belum PPN) */
     contractValue: money('contract_value').notNull().default('0'),
+    /** Anggaran biaya langsung proyek; 0 = tanpa anggaran (tidak dipantau) */
+    costBudget: money('cost_budget').notNull().default('0'),
     startDate: date('start_date'),
     endDate: date('end_date'),
     status: text('status').$type<'ACTIVE' | 'DONE' | 'CANCELLED'>().notNull().default('ACTIVE'),
@@ -257,6 +259,10 @@ export const serviceRetainers = pgTable('service_retainers', {
   projectId: uuid('project_id').references(() => projects.id),
   title: text('title').notNull(),
   monthlyFee: money('monthly_fee').notNull(),
+  /** Jam yang sudah termasuk dalam biaya bulanan; kosong = tanpa batas jam */
+  includedHours: numeric('included_hours', { precision: 7, scale: 2 }),
+  /** Tarif per jam untuk kelebihan dari jam termasuk */
+  overageRate: money('overage_rate'),
   withVat: boolean('with_vat'),
   startDate: date('start_date').notNull(),
   endDate: date('end_date'),

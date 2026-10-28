@@ -8,8 +8,7 @@ import { assertWarehouseAccess } from '../../common/auth/warehouse-access';
 import { SequenceService } from '../../common/sequence/sequence.service';
 import { localTaxOf, outputVatRate, taxProfileOf } from '../../common/settings.service';
 import { nowAt, todayJakarta } from '../../common/utils/dates';
-import { D, Dec, money, ZERO } from '../../common/utils/money';
-import { Db, Tx } from '../../db/db';
+import { D, Dec, Decimal, money, ZERO } from '../../common/utils/money';
 import { InjectDb } from '../../db/db.module';
 import { posOrders, posSessions, products } from '../../db/schema';
 import { SYS } from '../accounting/default-coa';
@@ -21,7 +20,9 @@ import { LoyaltyService } from './loyalty.service';
 import { earnPoints } from '@sansu/shared';
 import { buildLines } from '../master-data/products/line-builder';
 import { documentTotals, inclusiveTotals } from '../sales/pricing';
-import { PosProductQueryDto, OpenSessionDto, CreatePosOrderDto, CloseSessionDto } from './pos.dto';
+import { PosProductQueryDto, OpenSessionDto, CreatePosOrderDto, CloseSessionDto, PosQuoteDto } from './pos.dto';
+import { PricingService } from '../sales/pricing/price-lists.service';
+import { Db, DbOrTx, Tx } from '../../db/db';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { insertOne, patchById } from '../../db/owned';
 import { PosRepository } from './pos.repository';
@@ -38,6 +39,7 @@ export class PosService {
     private readonly approvals: ApprovalsService,
     private readonly refs: ReferenceRepository,
     private readonly repo: PosRepository,
+    private readonly pricing: PricingService,
   ) {}
 
   /** Produk untuk layar kasir: harga, satuan, barcode, dan stok di gudang sesi */
@@ -132,6 +134,67 @@ export class PosService {
   }
 
   /** Inti penjualan kasir di dalam transaksi pemanggil (dipakai juga oleh pembayaran pesanan meja); mengembalikan id transaksi */
+  /**
+   * Harga dan potongan yang berlaku untuk keranjang: daftar harga pelanggan, bila tidak ada daftar harga toko (gudang sesi), lalu
+   * harga jual master; ditambah promo diskon yang aktif. Bonus barang tidak dipakai di kasir. Hasil sama persis dengan yang
+   * dipakai server untuk memeriksa kasir, jadi layar kasir cukup menampilkan angka ini.
+   */
+  async priceCart(db: DbOrTx, tenantId: string, warehouseId: string, customerId: string | undefined, date: string, lines: { productId: string; uom?: string; qty: string }[]) {
+    const [wh] = await this.repo.findWarehousePriceList(db, tenantId, warehouseId);
+    let priceListId = wh?.priceListId ?? null;
+    if (customerId) {
+      const [c] = await this.repo.findCustomersById(db, customerId, tenantId);
+      if (!c) throw new BadRequestException('Pelanggan tidak ditemukan');
+      priceListId = c.priceListId ?? priceListId;
+    }
+    const prods = await db.query.products.findMany({ where: and(eq(products.tenantId, tenantId), inArray(products.id, lines.map((l) => l.productId))), with: { uoms: true } });
+    const byId = new Map(prods.map((p) => [p.id, p]));
+    const r = await this.pricing.apply(db, tenantId, { priceListId }, date, lines.map((l) => ({ productId: l.productId, uom: l.uom, qty: l.qty })), byId, true);
+    const priced = r.lines.map((l) => {
+      const p = byId.get(l.productId);
+      if (!p) throw new BadRequestException(`Produk ${l.productId} tidak ditemukan`);
+      const uom = l.uom ?? p.baseUom;
+      const factor = uom === p.baseUom ? '1' : (p.uoms.find((u) => u.uom === uom)?.factor ?? '1');
+      return {
+        productId: l.productId,
+        uom,
+        qty: l.qty,
+        price: money(l.price ?? D(p.sellPrice).times(factor)).toFixed(2),
+        discountPct: D(l.discountPct ?? 0).toString(),
+        source: l.priceSource,
+        promoName: (l as { promoName?: string }).promoName ?? null,
+      };
+    });
+    // Bonus barang: hanya barang stok biasa (bukan menu/setengah jadi) dan dibatasi sisa stok toko setelah barang yang dibeli
+    const stockRows = r.bonus.length ? await this.repo.listStockBalancesByWarehouseId(db, tenantId, warehouseId) : [];
+    const avail = new Map(stockRows.map((x) => [x.productId, D(x.qty)]));
+    const bought = new Map<string, Dec>();
+    for (const l of priced) {
+      const p = byId.get(l.productId)!;
+      const f = l.uom === p.baseUom ? D(1) : D(p.uoms.find((u) => u.uom === l.uom)?.factor ?? 1);
+      bought.set(l.productId, (bought.get(l.productId) ?? ZERO).plus(D(l.qty).times(f)));
+    }
+    const bonus: { productId: string; sku: string; name: string; uom: string; qty: string; promoName: string }[] = [];
+    for (const b of r.bonus) {
+      const p = byId.get(b.productId);
+      if (!p || p.madeToOrder || p.inventoryKind === 'SEMI') continue;
+      const free = (avail.get(b.productId) ?? ZERO).minus(bought.get(b.productId) ?? ZERO);
+      const give = Decimal.min(D(b.qty), free.lt(0) ? ZERO : free);
+      if (give.lte(0)) continue;
+      bonus.push({ productId: b.productId, sku: p.sku, name: p.name, uom: p.baseUom, qty: give.toString(), promoName: b.promoName });
+      avail.set(b.productId, free.minus(give).plus(bought.get(b.productId) ?? ZERO));
+    }
+    return { lines: priced, bonus };
+  }
+
+  /** Kutipan harga untuk layar kasir (tanpa menyimpan apa pun) */
+  async quote(user: AuthUser, dto: PosQuoteDto) {
+    const [s] = await this.repo.findPosSessionsById(this.db, dto.sessionId);
+    if (!s || s.tenantId !== user.tenantId) throw new NotFoundException('Sesi kasir tidak ditemukan');
+    if (s.status !== 'OPEN') throw new BadRequestException(`Sesi ${s.number} sudah ditutup`);
+    return this.priceCart(this.db, user.tenantId, s.warehouseId, dto.customerId, todayJakarta(), dto.lines);
+  }
+
   async createOrderTx(
     tx: Tx,
     user: AuthUser,
@@ -145,12 +208,21 @@ export class PosService {
       const [c] = await this.repo.findCustomersById(tx, dto.customerId, user.tenantId);
       if (!c) throw new BadRequestException('Pelanggan tidak ditemukan');
     }
-    const lines = await buildLines(tx, user.tenantId, dto.lines, 'sell', 2, { menuOk: true });
+    // Harga yang berlaku (daftar harga toko/pelanggan + promo diskon) dihitung server; baris tanpa harga/diskon memakainya
+    const expected = await this.priceCart(tx, user.tenantId, session.warehouseId, dto.customerId, date, dto.lines);
+    let lines = await buildLines(
+      tx,
+      user.tenantId,
+      dto.lines.map((l, i) => ({ ...l, price: l.price ?? expected.lines[i].price, discountPct: l.discountPct ?? expected.lines[i].discountPct })),
+      'sell',
+      2,
+      { menuOk: true },
+    );
     // Anti-fraud: kasir/sales tidak boleh mengubah harga atau memberi diskon sendiri; hanya supervisor (Pemilik, Admin, Keuangan)
     if (user.role === 'CASHIER' || user.role === 'SALES') {
       const masters = await tx.query.products.findMany({ where: and(eq(products.tenantId, user.tenantId), inArray(products.id, lines.map((l) => l.productId))), columns: { id: true, sellPrice: true } });
       const m = new Map(masters.map((p) => [p.id, p]));
-      for (const l of lines) {
+      for (const [i, l] of lines.entries()) {
         const p = m.get(l.productId)!;
         const master = money(D(p.sellPrice).times(l.uomFactor));
         // barang tanpa harga jual (mis. bahan baku) tidak boleh "dijual" kasir: stoknya berkurang tanpa pendapatan (celah barang gratis)
@@ -158,11 +230,19 @@ export class PosService {
           const [pn] = await this.repo.findProductsById(tx, l.productId);
           throw new BadRequestException(`Harga jual ${pn?.name ?? 'barang'} (${pn?.sku ?? ''}) belum diisi (Rp 0), jadi tidak bisa dijual di kasir. Isi harga jual di Produk, atau minta supervisor.`);
         }
-        if (!l.price.eq(master) || l.discountPct.gt(0)) {
-          throw new ForbiddenException('Harga dan diskon hanya dapat diubah oleh supervisor (Pemilik, Admin, atau Keuangan). Kasir menjual dengan harga master.');
+        // yang boleh: harga & potongan persis seperti hitungan server (harga master, daftar harga toko/pelanggan, promo aktif)
+        if (!l.price.eq(money(expected.lines[i].price)) || !l.discountPct.eq(D(expected.lines[i].discountPct))) {
+          throw new ForbiddenException('Harga dan diskon hanya dapat diubah oleh supervisor (Pemilik, Admin, atau Keuangan). Kasir menjual dengan harga yang berlaku (harga master/daftar harga toko dan promo aktif).');
         }
       }
     }
+    // Bonus barang promo ditambahkan server (harga 0; stok dan HPP tercatat); klien tidak mengirimnya
+    const requested = lines.length;
+    if (expected.bonus.length)
+      lines = [
+        ...lines,
+        ...(await buildLines(tx, user.tenantId, expected.bonus.map((b) => ({ productId: b.productId, uom: b.uom, qty: b.qty, price: '0', discountPct: '0' })), 'sell', 2, {})),
+      ];
     // Harga rak termasuk PPN → DPP & PPN dihitung mundur; non-PKP → tanpa PPN
     const inclusive = taxProfileOf(tenant.settings).posPricesIncludeVat;
     // Pajak daerah (PB1/PBJT) menggantikan PPN pada penjualan kasir bila dinyalakan
@@ -231,7 +311,7 @@ export class PosService {
       columns: { id: true, sku: true },
     });
     const recipes = await recipesFor(tx, user.tenantId, menuRows);
-    for (const l of lines) {
+    for (const [lineIdx, l] of lines.entries()) {
       const baseQty = D(l.qty).times(l.uomFactor);
       const recipe = recipes.get(l.productId);
       let lineValue: Dec = ZERO;
@@ -271,7 +351,7 @@ export class PosService {
         issued.push({ productId: l.productId, value: moved.value });
       }
       cogs = cogs.plus(lineValue);
-      await this.repo.insertPosOrderLines(tx, order.id, l.productId, l.uom, l.uomFactor, l.qty, l.price, l.discountPct, l.lineTotal, unitCost, recipe);
+      await this.repo.insertPosOrderLines(tx, order.id, l.productId, l.uom, l.uomFactor, l.qty, l.price, l.discountPct, l.lineTotal, unitCost, recipe, lineIdx >= requested);
     }
     cogs = money(cogs);
 

@@ -29,8 +29,13 @@ describe('Kasir (Register)', { timeout: 30_000 }, () => {
       if (url.startsWith('/loyalty/settings')) return { enabled: false, earnPerRp: 10000, pointValueRp: 100, minRedeemPoints: 10, maxRedeemPct: 50, expiryMonths: 12 };
       return [];
     });
-    post.mockImplementation(async () => ({ id: 'o1', number: 'POS-1', total: '15000', lines: [], payments: [] }));
+    post.mockImplementation(async (url: string, body: { lines: { productId: string; uom: string }[] }) => {
+      // kutipan server: harga master tanpa promo
+      if (url === '/pos/quote') return { lines: body.lines.map((l) => ({ ...l, price: PRODUCTS.find((p) => p.id === l.productId)?.sellPrice ?? '0', discountPct: '0', promoName: null })) };
+      return { id: 'o1', number: 'POS-1', total: '15000', lines: [], payments: [] };
+    });
   });
+  const orderCalls = () => post.mock.calls.filter((c) => c[0] === '/pos/orders');
 
   it('klik produk memasukkan ke keranjang dan total terhitung', async () => {
     renderWithProviders(<Register session={session} />);
@@ -68,13 +73,40 @@ describe('Kasir (Register)', { timeout: 30_000 }, () => {
     await waitFor(() => expect(done).toBeEnabled());
     fireEvent.click(done);
     fireEvent.click(done); // klik ganda cepat
-    await waitFor(() => expect(post).toHaveBeenCalled());
-    expect(post).toHaveBeenCalledTimes(1);
-    const [path, body] = post.mock.calls[0] as [string, { sessionId: string; lines: { productId: string; qty: string; price: string }[]; payments: { method: string; amount: string }[] }];
+    await waitFor(() => expect(orderCalls().length).toBeGreaterThan(0));
+    expect(orderCalls()).toHaveLength(1);
+    const [path, body] = orderCalls()[0] as [string, { sessionId: string; lines: { productId: string; qty: string; price: string }[]; payments: { method: string; amount: string }[] }];
     expect(path).toBe('/pos/orders');
     expect(body.sessionId).toBe('ses-1');
     expect(body.lines).toEqual([expect.objectContaining({ productId: 'kopi', qty: '1', price: '15000' })]);
     expect(body.payments).toEqual([{ method: 'CASH', amount: '15000.00' }]);
+  });
+
+  it('promo dari server tampil di keranjang dan memotong total; pesanan membawa potongan itu', async () => {
+    post.mockImplementation(async (url: string, body: { lines: { productId: string; uom: string }[] }) => {
+      if (url === '/pos/quote') return { lines: body.lines.map((l) => ({ ...l, price: '15000', discountPct: '10', promoName: 'Promo Kopi' })) };
+      return { id: 'o1', number: 'POS-1', total: '13500', lines: [], payments: [] };
+    });
+    renderWithProviders(<Register session={session} />);
+    fireEvent.click(await screen.findByText('Kopi Susu'));
+    await screen.findByText(/Promo Kopi/);
+    expect(screen.getAllByText(/13\.500/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: /Bayar/ }));
+    const dlg = await screen.findByRole('dialog');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Uang pas' }));
+    fireEvent.click(within(dlg).getByRole('button', { name: /Selesaikan transaksi/ }));
+    await waitFor(() => expect(orderCalls()).toHaveLength(1));
+    expect((orderCalls()[0][1] as { lines: object[] }).lines).toEqual([expect.objectContaining({ price: '15000', discountPct: '10' })]);
+  });
+
+  it('bonus barang dari promo tampil sebagai "Gratis" di keranjang', async () => {
+    post.mockImplementation(async (url: string, body: { lines: { productId: string; uom: string }[] }) => {
+      if (url === '/pos/quote') return { lines: body.lines.map((l) => ({ ...l, price: '15000', discountPct: '0', promoName: null })), bonus: [{ productId: 'teh', name: 'Teh Manis', uom: 'PCS', qty: '2', promoName: 'Beli kopi gratis teh' }] };
+      return { id: 'o1', number: 'POS-1', total: '15000', lines: [], payments: [] };
+    });
+    renderWithProviders(<Register session={session} />);
+    fireEvent.click(await screen.findByText('Kopi Susu'));
+    await screen.findByText(/Gratis: Teh Manis 2 PCS/);
   });
 
   it('uang diterima kurang dari total: tombol selesai nonaktif dan tercatat kurang', async () => {

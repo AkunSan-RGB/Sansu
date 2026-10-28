@@ -1,7 +1,7 @@
 import { PlusOutlined } from '@ant-design/icons';
-import { PRODUCTION_STATUS_LABELS, type ProductionOrder, type ProductionStatus } from '@sansu/shared';
+import { PRODUCTION_STATUS_LABELS, type ProductionOrder, type ProductionStatus, type SubcontractHolding } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Space, Tag } from 'antd';
+import { Alert, Button, Space, Tag } from 'antd';
 import { useState } from 'react';
 import { get } from '@/api/client';
 import { useCan } from '@/auth/useCan';
@@ -18,6 +18,7 @@ export default function ProductionOrdersPage() {
     queryKey: ['production', 'orders'],
     queryFn: () => get<ProductionOrder[]>('/production/orders'),
   });
+  const holdings = useQuery({ queryKey: ['production', 'holdings'], queryFn: () => get<SubcontractHolding[]>('/production/subcontract/holdings') });
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   return (
@@ -33,6 +34,26 @@ export default function ProductionOrdersPage() {
         }
         rows={q.data}
         loading={q.isLoading}
+        below={
+          (holdings.data ?? []).length > 0 && (
+            <Alert
+              style={{ marginBottom: 12 }}
+              type="info"
+              showIcon
+              message="Bahan di tangan maklon"
+              description={
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {(holdings.data ?? []).map((h) => (
+                    <li key={h.supplierId}>
+                      <b>{h.supplierName}</b> — {fmtMoney(h.totalValue)} (perintah {h.orders.map((o) => o.orderNumber).join(', ')}):{' '}
+                      {h.orders.flatMap((o) => o.materials).map((m) => `${m.name} ${fmtQty(m.qty)} ${m.unit}`).join(', ')}
+                    </li>
+                  ))}
+                </ul>
+              }
+            />
+          )
+        }
         summary={(rows) => {
           const running = rows.filter((o) => o.status === 'IN_PROGRESS');
           const planned = rows.filter((o) => o.status === 'DRAFT');

@@ -28,6 +28,7 @@ export class SaveBomDto {
   overheadCost?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) notes?: string;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() isActive?: boolean;
+  @ApiPropertyOptional({ description: 'Alasan perubahan resep (dicatat di riwayat versi)' }) @IsOptional() @IsString() @MaxLength(300) changeReason?: string;
   @ApiProperty({ type: [BomLineDto] })
   @ValidateNested({ each: true })
   @Type(() => BomLineDto)
@@ -42,6 +43,12 @@ export class CreateProductionDto {
   @ApiPropertyOptional() @IsOptional() @IsDateString() date?: string;
   @ApiProperty({ example: '3', description: 'Jumlah batch' }) @IsNumberString() batches: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) notes?: string;
+  @ApiPropertyOptional({ description: 'Subkontrak (maklon): pemasok jasa yang mengerjakan produksi ini. Upah langsung = DPP tagihan jasa pemasok yang ditautkan.' }) @IsOptional() @IsUUID() subcontractorId?: string;
+}
+
+export class LinkSubcontractBillDto {
+  @ApiProperty({ description: 'Tagihan biaya (bukan faktur barang) dari pemasok maklon; semua barisnya harus ke akun Upah Langsung Produksi' }) @IsUUID() purchaseInvoiceId: string;
+  @ApiPropertyOptional({ example: '600000', description: 'Bagian DPP tagihan untuk perintah ini; kosong = seluruh sisa tagihan yang belum dialokasikan' }) @IsOptional() @IsNumberString() amount?: string;
 }
 
 export class IssueLineDto {

@@ -813,6 +813,48 @@
       "when": 1798310286484,
       "tag": "0115_antrean_pesan",
       "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1798396686484,
+      "tag": "0116_versi_resep",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1798483086484,
+      "tag": "0117_jasa_anggaran_jam",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1798569486484,
+      "tag": "0118_harga_per_toko",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1798655886484,
+      "tag": "0119_subkontrak_produksi",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1798742286484,
+      "tag": "0120_maklon_alokasi",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1798828686484,
+      "tag": "0121_kasir_bonus",
+      "breakpoints": true
     }
   ]
 }

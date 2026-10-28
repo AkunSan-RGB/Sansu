@@ -5,6 +5,7 @@ import dayjs from 'dayjs';
 import { useState } from 'react';
 import { get, post, put } from '@/api/client';
 import { useAction, useProducts } from '@/api/queries';
+import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
 import ListPage from '@/components/ListPage';
 import { fmtDate, fmtQty } from '@/lib/format';
@@ -77,6 +78,8 @@ export default function PromosPage() {
     setEditing(p);
   };
   const prodOpts = (products ?? []).filter((p) => p.isActive).map((p) => ({ value: p.id, label: `${p.sku} · ${p.name}` }));
+  const { me } = useAuth();
+  const retail = me?.businessModel === 'RITEL';
   const describe = (p: PromoRow) => p.kind === 'DISCOUNT'
     ? `Potongan ${Number(p.discountPct)}% bila beli ≥ ${fmtQty(p.minQty)}${p.productName ? ` ${p.productName}` : ' (semua produk)'}`
     : `Beli ${fmtQty(p.minQty)} ${p.productName} gratis ${fmtQty(p.bonusQty)} ${p.bonusName} (tiap kelipatan)`;
@@ -88,7 +91,7 @@ export default function PromosPage() {
         rows={data}
         loading={isLoading}
         views={[{ value: 'ALL', label: 'Semua', test: () => true }, { value: 'ON', label: 'Aktif', test: (p) => p.isActive }]}
-        below={<Alert type="info" showIcon style={{ marginBottom: 12 }} message="Promo diterapkan pada pesanan penjualan untuk baris yang belum diberi potongan. Potongan tidak ditumpuk (dipakai yang terbesar). Barang bonus masuk sebagai baris harga Rp 0: stoknya terpotong dan biayanya masuk HPP. Perlakuan pajak barang bonus perlu dipastikan dengan konsultan pajak Anda." />}
+        below={<Alert type="info" showIcon style={{ marginBottom: 12 }} message={(retail ? 'Di kasir, promo potongan harga dan bonus barang berlaku otomatis (bonus dibatasi sisa stok toko). ' : '') + "Promo diterapkan pada pesanan penjualan untuk baris yang belum diberi potongan. Potongan tidak ditumpuk (dipakai yang terbesar). Barang bonus masuk sebagai baris harga Rp 0: stoknya terpotong dan biayanya masuk HPP. Perlakuan pajak barang bonus perlu dipastikan dengan konsultan pajak Anda."} />}
         searchText={(p) => `${p.name} ${p.productName ?? ''} ${p.bonusName ?? ''}`}
         searchPlaceholder="Cari promo"
         emptyText="Belum ada promo."

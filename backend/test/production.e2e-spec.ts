@@ -189,4 +189,109 @@ describe('Produksi: BOM, perintah produksi, HPP produksi (e2e)', () => {
     expect(Number(r.variance)).toBeCloseTo(direct - 300000, 2);
     expect(r.byProduct[0]).toMatchObject({ sku: 'KMJ-L', orders: 1, qty: '19', total: '940000.00' });
   });
+
+  describe('Versi resep', () => {
+    let revBom: string;
+    const put = (url: string, body: object) => http.put(url).set(as()).send(body);
+    const body = (over: object = {}) => ({
+      name: 'Kemeja versi',
+      productId: kemeja,
+      outputQty: '10',
+      laborCost: '100000',
+      overheadCost: '20000',
+      lines: [{ productId: kain, qty: '2' }],
+      ...over,
+    });
+
+    it('resep baru berversi 1; simpan tanpa perubahan tidak menaikkan versi', async () => {
+      const b = (await post('/api/production/boms', { ...body(), code: 'BOM-REV' }).expect(201)).body;
+      revBom = b.id;
+      expect(b.version).toBe(1);
+      const same = (await put(`/api/production/boms/${revBom}`, body()).expect(200)).body;
+      expect(same.version).toBe(1);
+      expect((await get(`/api/production/boms/${revBom}/revisions`).expect(200)).body).toEqual([]);
+    });
+
+    it('perubahan menaikkan versi dan menyimpan versi lama beserta alasannya', async () => {
+      const v2 = (
+        await put(`/api/production/boms/${revBom}`, body({ lines: [{ productId: kain, qty: '3' }, { productId: benang, qty: '1' }], changeReason: 'Kain lebih tebal' })).expect(200)
+      ).body;
+      expect(v2.version).toBe(2);
+      const revs = (await get(`/api/production/boms/${revBom}/revisions`).expect(200)).body;
+      expect(revs).toHaveLength(1);
+      expect(revs[0]).toMatchObject({ version: 1, reason: 'Kain lebih tebal' });
+      expect(revs[0].snapshot.lines).toHaveLength(1);
+      expect(revs[0].changes.map((c: { label: string }) => c.label).join('|')).toMatch(/Takaran bahan.*\|Bahan ditambah/);
+    });
+
+    it('perintah produksi mencatat versi resep saat dibuat', async () => {
+      const o1 = (await post('/api/production/orders', { bomId: revBom, warehouseId, batches: '1' }).expect(201)).body;
+      expect(o1.bom.version).toBe(2);
+      await put(`/api/production/boms/${revBom}`, body({ outputQty: '12', lines: [{ productId: kain, qty: '3' }] })).expect(200);
+      const o2 = (await post('/api/production/orders', { bomId: revBom, warehouseId, batches: '1' }).expect(201)).body;
+      expect(o2.bom.version).toBe(3);
+      expect((await get(`/api/production/orders/${o1.id}`).expect(200)).body.bom.version).toBe(2);
+      expect((await get(`/api/production/boms/${revBom}/revisions`).expect(200)).body.map((r: { version: number }) => r.version)).toEqual([2, 1]);
+    });
+  });
+
+  describe('Subkontrak (maklon)', () => {
+    let vendor = ''; let other = ''; let laborAcc = ''; let expenseAcc = '';
+    let orderId = ''; let bomMk = '';
+    const bill = (supplierId: string, accountId: string, price: string, no: string) =>
+      post('/api/purchase-invoices/bills', { supplierId, supplierInvoiceNo: no, withVat: false, lines: [{ type: 'EXPENSE', description: 'Jasa maklon jahit', accountId, price }] });
+
+    beforeAll(async () => {
+      vendor = (await post('/api/suppliers', { code: 'MK1', name: 'CV Maklon Jahit' }).expect(201)).body.id;
+      other = (await post('/api/suppliers', { code: 'MK2', name: 'Pemasok Lain' }).expect(201)).body.id;
+      const accs = (await get('/api/cash/counter-accounts').expect(200)).body as { id: string; code: string; type: string }[];
+      laborAcc = accs.find((a) => a.code === '5-4100')!.id;
+      expenseAcc = accs.find((a) => a.type === 'EXPENSE' && a.code !== '5-4100')!.id;
+      bomMk = (await post('/api/production/boms', { code: 'BOM-MK', name: 'Kemeja maklon', productId: kemeja, outputQty: '10', laborCost: '1', lines: [{ productId: kain, qty: '10' }] }).expect(201)).body.id;
+    });
+
+    it('pemasok maklon harus ada; perintah subkontrak tidak bisa selesai tanpa tagihan jasa', async () => {
+      expect((await post('/api/production/orders', { bomId: bomMk, warehouseId, batches: '1', subcontractorId: '00000000-0000-4000-8000-000000000000' })).status).toBe(400);
+      const o = (await post('/api/production/orders', { bomId: bomMk, warehouseId, batches: '1', subcontractorId: vendor }).expect(201)).body;
+      orderId = o.id;
+      expect(o.subcontract).toMatchObject({ supplierName: 'CV Maklon Jahit', billId: null });
+      await post(`/api/production/orders/${orderId}/start`).expect(201);
+      expect((await post(`/api/production/orders/${orderId}/complete`, { outputQty: '10' })).status).toBe(400);
+    });
+
+    it('tagihan yang salah ditolak: pemasok lain, akun bukan upah langsung, faktur lain', async () => {
+      const b1 = (await bill(other, laborAcc, '500000', 'MK-A').expect(201)).body;
+      expect((await post(`/api/production/orders/${orderId}/subcontract-bill`, { purchaseInvoiceId: b1.id })).status).toBe(400);
+      const b2 = (await bill(vendor, expenseAcc, '500000', 'MK-B').expect(201)).body;
+      expect((await post(`/api/production/orders/${orderId}/subcontract-bill`, { purchaseInvoiceId: b2.id })).status).toBe(400);
+    });
+
+    it('satu tagihan dibagi ke dua perintah: upah langsung = alokasi masing-masing; alokasi tak boleh melebihi sisa', async () => {
+      const b = (await bill(vendor, laborAcc, '600000', 'MK-C').expect(201)).body;
+      // bahan di tangan maklon terlihat selama perintah berjalan
+      const h = (await get('/api/production/subcontract/holdings').expect(200)).body as { supplierName: string; totalValue: string; orders: { orderNumber: string }[] }[];
+      expect(h.find((x) => x.supplierName === 'CV Maklon Jahit')?.orders.length).toBeGreaterThan(0);
+      expect((await post(`/api/production/orders/${orderId}/subcontract-bill`, { purchaseInvoiceId: b.id, amount: '700000' })).status).toBe(400); // melebihi tagihan
+      const linked = (await post(`/api/production/orders/${orderId}/subcontract-bill`, { purchaseInvoiceId: b.id, amount: '400000' }).expect(201)).body;
+      expect(linked.subcontract).toMatchObject({ billNumber: b.number, amount: '400000.00' });
+      expect((await post(`/api/production/orders/${orderId}/subcontract-bill`, { purchaseInvoiceId: b.id })).status).toBe(400); // sudah ada
+      expect((await post(`/api/production/orders/${orderId}/cancel`, {})).status).toBe(400); // tagihan menempel
+      expect((await post(`/api/production/orders/${orderId}/complete`, { outputQty: '10', laborCost: '1' })).status).toBe(400); // upah tidak boleh diketik
+      const done = (await post(`/api/production/orders/${orderId}/complete`, { outputQty: '10' }).expect(201)).body;
+      expect(Number(done.laborCost)).toBe(400000);
+      // bahan 10 × 20.000 = 200.000 + upah maklon 400.000 → 600.000 / 10
+      expect(Number(done.totalCost)).toBe(600000);
+      expect(Number(done.unitCost)).toBe(60000);
+      // perintah kedua mengambil sisa tagihan (200.000)
+      const o2 = (await post('/api/production/orders', { bomId: bomMk, warehouseId, batches: '1', subcontractorId: vendor }).expect(201)).body;
+      await post(`/api/production/orders/${o2.id}/start`).expect(201);
+      const l2 = (await post(`/api/production/orders/${o2.id}/subcontract-bill`, { purchaseInvoiceId: b.id }).expect(201)).body;
+      expect(l2.subcontract.amount).toBe('200000.00');
+      expect(Number((await post(`/api/production/orders/${o2.id}/complete`, { outputQty: '10' }).expect(201)).body.laborCost)).toBe(200000);
+      // tagihan sudah habis dialokasikan
+      const o3 = (await post('/api/production/orders', { bomId: bomMk, warehouseId, batches: '1', subcontractorId: vendor }).expect(201)).body;
+      expect((await post(`/api/production/orders/${o3.id}/subcontract-bill`, { purchaseInvoiceId: b.id })).status).toBe(400);
+      await bal('2-1100'); // neraca saldo tetap seimbang
+    });
+  });
 });

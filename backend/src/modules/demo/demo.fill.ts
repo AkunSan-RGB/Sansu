@@ -3,7 +3,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 
 const logger = new Logger('DemoData');
 import { addDays } from '../../common/utils/dates';
-import { boms, employeeChangeRequests, employees, stockBalances, utilityConnections } from '../../db/schema';
+import { accounts, boms, employeeChangeRequests, employees, stockBalances, utilityConnections, warehouses } from '../../db/schema';
 import { OutboxService } from '../utility-ops/outbox.service';
 import { VaService } from '../utility-ops/va.service';
 import { ServiceWorkService } from '../payroll/service-work.service';
@@ -204,7 +204,7 @@ export async function jasaOperations(c: Demo, customerIds: string[], projectId?:
   }
 
   const r1 = (await c.step('retainer 1', () => ret.create(c.admin, { customerId: customerIds[0], title: 'Retainer konsultasi bulanan', monthlyFee: '7500000', startDate: c.ago(120) }))) as { id: string } | undefined;
-  await c.step('retainer 2', () => ret.create(c.admin, { customerId: customerIds[1] ?? customerIds[0], title: 'Retainer dukungan teknis', monthlyFee: '4200000', startDate: c.ago(60) }));
+  await c.step('retainer 2', () => ret.create(c.admin, { customerId: customerIds[1] ?? customerIds[0], title: 'Retainer dukungan teknis', monthlyFee: '4200000', startDate: c.ago(60), includedHours: '20', overageRate: '350000' }));
   if (r1) await c.step('tagih retainer', () => ret.bill(c.admin, r1.id, { period: addDays(c.today, -30).slice(0, 7), date: c.ago(28) }));
 }
 
@@ -318,4 +318,54 @@ export async function utilityChannels(c: Demo) {
       const r = await outbox.enqueue(c.admin, { kind, channel: 'WHATSAPP', all: true, period: addDays(`${c.today.slice(0, 7)}-01`, -1).slice(0, 7) });
       logger.log(`antrean ${kind}: ${JSON.stringify(r)}`);
     });
+}
+
+/** Jasa: anggaran biaya langsung proyek (satu aman, satu hampir habis, satu melampaui) agar status pemakaian tampil */
+export async function projectBudgets(c: Demo) {
+  const list = (await c.svc.projects.listProjects(c.tenantId)) as { id: string; directCost: string; contractValue: string }[];
+  for (const [i, p] of list.slice(0, 6).entries()) {
+    const cost = Number(p.directCost);
+    const base = cost > 0 ? cost : Number(p.contractValue) * 0.4;
+    const budget = [base * 2, base * 1.1, cost > 0 ? base * 0.8 : base * 1.5][i % 3];
+    await c.step('anggaran biaya proyek', () => c.svc.projects.updateProject(c.admin, p.id, { costBudget: Math.round(budget).toString() }));
+  }
+}
+
+/** Manufaktur: resep diubah dua kali (riwayat versi) dan satu perintah subkontrak (maklon) lengkap dengan tagihan jasa pemasok */
+export async function resepDanMaklon(c: Demo, supplierId: string) {
+  const list = (await c.svc.production.listBoms(c.tenantId)) as { id: string; name: string; productId: string; outputQty: string; laborCost: string; overheadCost: string; notes: string | null; lines: { productId: string; qty: string }[] }[];
+  const b = list[0];
+  if (b) {
+    const save = (over: object, reason: string) => c.svc.production.updateBom(c.admin, b.id, { name: b.name, productId: b.productId, outputQty: b.outputQty, laborCost: b.laborCost, overheadCost: b.overheadCost, notes: b.notes ?? undefined, lines: b.lines.map((l) => ({ productId: l.productId, qty: l.qty })), changeReason: reason, ...over });
+    await c.step('revisi resep 1', () => save({ laborCost: String(Number(b.laborCost) + 15_000), overheadCost: String(Number(b.overheadCost) + 5_000) }, 'Penyesuaian upah dan overhead standar'));
+    await c.step('revisi resep 2', () => save({ laborCost: String(Number(b.laborCost) + 15_000), lines: b.lines.map((l, i) => ({ productId: l.productId, qty: i === 0 ? String(Number(l.qty) * 1.05) : l.qty })) }, 'Susut bahan utama naik 5% menurut pengamatan produksi'));
+  }
+  const [labor] = await c.db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.tenantId, c.tenantId), eq(accounts.systemKey, 'DIRECT_LABOR')));
+  const target = list[list.length - 1];
+  if (!labor || !target) return;
+  const o = (await c.step('perintah maklon', () => c.svc.production.createOrder(c.admin, { bomId: target.id, warehouseId: c.wh, batches: '1', date: c.ago(9), subcontractorId: supplierId }))) as { id: string } | undefined;
+  if (!o) return;
+  await c.step('mulai maklon', () => c.svc.production.start(c.admin, o.id, { date: c.ago(9) }));
+  const bill = (await c.step('tagihan jasa maklon', () =>
+    c.svc.bills.createBill(c.admin, { supplierId, supplierInvoiceNo: `MAKLON-${c.today.replace(/-/g, '')}`, date: c.ago(4), withVat: false, description: 'Jasa pengerjaan maklon', lines: [{ type: 'EXPENSE', description: 'Jasa maklon pengerjaan', accountId: labor.id, price: '1850000' }] }),
+  )) as { id: string } | undefined;
+  if (!bill) return;
+  await c.step('tautkan tagihan maklon', () => c.svc.production.linkSubcontractBill(c.admin, o.id, { purchaseInvoiceId: bill.id, amount: '1000000' }));
+  await c.step('selesai maklon', () => c.svc.production.complete(c.admin, o.id, { date: c.ago(3), outputQty: String(Number(target.outputQty)) }));
+  // sisa tagihan dialokasikan ke perintah maklon kedua yang masih berjalan (bahan masih di tangan pemasok)
+  const o2 = (await c.step('perintah maklon 2', () => c.svc.production.createOrder(c.admin, { bomId: target.id, warehouseId: c.wh, batches: '1', date: c.ago(2), subcontractorId: supplierId }))) as { id: string } | undefined;
+  if (!o2) return;
+  await c.step('mulai maklon 2', () => c.svc.production.start(c.admin, o2.id, { date: c.ago(2) }));
+  await c.step('tautkan sisa tagihan', () => c.svc.production.linkSubcontractBill(c.admin, o2.id, { purchaseInvoiceId: bill.id }));
+}
+
+/** Ritel: daftar harga toko (dipasang di semua gudang demo) + promo diskon dan bonus yang tampil otomatis di kasir */
+export async function ritelHargaToko(c: Demo, rows: { productId: string; price: string }[], promo: { productId: string; minQty: string; discountPct: string; name: string }, bonus?: { productId: string; minQty: string; bonusProductId: string; bonusQty: string; name: string }) {
+  const pl = (await c.step('daftar harga toko', () => c.svc.pricing.createPriceList(c.admin, { name: 'Harga toko utama', description: 'Harga rak di toko ini' }))) as { id: string } | undefined;
+  if (pl) {
+    await c.step('isi daftar harga toko', () => c.svc.pricing.replaceItems(c.admin, pl.id, rows.map((r) => ({ productId: r.productId, minQty: '1', price: r.price }))));
+    await c.step('pasang daftar harga toko', () => c.db.update(warehouses).set({ priceListId: pl.id }).where(eq(warehouses.tenantId, c.tenantId)));
+  }
+  await c.step('promo diskon kasir', () => c.svc.pricing.createPromo(c.admin, { name: promo.name, kind: 'DISCOUNT', productId: promo.productId, minQty: promo.minQty, discountPct: promo.discountPct, isActive: true }));
+  if (bonus) await c.step('promo bonus kasir', () => c.svc.pricing.createPromo(c.admin, { name: bonus.name, kind: 'BONUS', productId: bonus.productId, minQty: bonus.minQty, bonusProductId: bonus.bonusProductId, bonusQty: bonus.bonusQty, isActive: true }));
 }

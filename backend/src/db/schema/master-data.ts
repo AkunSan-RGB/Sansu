@@ -25,6 +25,8 @@ export const warehouses = pgTable(
     isQuarantine: boolean('is_quarantine').notNull().default(false),
     /** Lokasi rak aktif: stok gudang ini juga dicatat per rak (lihat modules/inventory/bins.ts); mati = perilaku lama */
     binsEnabled: boolean('bins_enabled').notNull().default(false),
+    /** Daftar harga toko: kasir di gudang ini memakai harga daftar ini (bila pelanggan tidak punya daftar sendiri); kosong = harga jual master */
+    priceListId: uuid('price_list_id').references((): AnyPgColumn => priceLists.id),
   },
   (t) => [
     uniqueIndex('warehouses_code_uq').on(t.tenantId, t.code),

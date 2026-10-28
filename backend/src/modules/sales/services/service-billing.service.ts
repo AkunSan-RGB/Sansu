@@ -14,7 +14,7 @@ import { frameworkOf } from '../../accounting/coa-sync';
 import { SYS } from '../../accounting/default-coa';
 import { PostingService } from '../../accounting/posting.service';
 import { documentTotals, inclusiveDocument } from '../pricing';
-import { projectCostsSql } from './project-costs';
+import { projectCostsSql } from '../../../common/project-costs';
 import { decryptField } from '../../../common/utils/secret';
 import { CreateServiceInvoiceDto, WithholdingSlipDto, ProjectProgressDto, CreateProjectDto, UpdateProjectDto, CreateDepositDto, ApplyDepositDto } from './service-billing.dto';
 import { ReferenceRepository } from '../../../db/reference.repository';

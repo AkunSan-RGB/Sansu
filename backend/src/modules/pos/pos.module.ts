@@ -4,13 +4,14 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { PosControlsService, PosReturnsService } from './pos-returns.service';
 import { PosReturnsController } from './pos-returns.controller';
 import { LoyaltyModule } from './loyalty.module';
+import { SalesModule } from '../sales/sales.module';
 import { PosController } from './pos.controller';
 import { PosService } from './pos.service';
 import { PosReturnsRepository } from './pos-returns.repository';
 import { PosRepository } from './pos.repository';
 
 @Module({
-  imports: [AccountingModule, InventoryModule, LoyaltyModule],
+  imports: [AccountingModule, InventoryModule, LoyaltyModule, SalesModule],
   controllers: [PosController, PosReturnsController],
   providers: [PosRepository, PosReturnsRepository, PosService, PosReturnsService, PosControlsService],
   exports: [PosService],

@@ -1,8 +1,10 @@
 // Skema database — production
-import { boolean, date, index, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { boolean, date, index, integer, jsonb, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { createdAt, id, money, qty } from './columns';
 import { tenantId } from './tenancy';
-import { products, warehouses } from './master-data';
+import { products, suppliers, warehouses } from './master-data';
+import { purchaseInvoices } from './purchasing';
 
 /** Resep / Bill of Materials: bahan per batch untuk menghasilkan produk jadi */
 export const boms = pgTable(
@@ -22,9 +24,42 @@ export const boms = pgTable(
     overheadCost: money('overhead_cost').notNull().default('0'),
     notes: text('notes'),
     isActive: boolean('is_active').notNull().default(true),
+    /** Nomor versi resep; naik 1 tiap resep diubah (versi lama tersimpan di bom_revisions) */
+    version: integer('version').notNull().default(1),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('boms_code_uq').on(t.tenantId, t.code)],
+);
+
+/** Isi resep pada satu versi (header dan bahan), disimpan sebelum resep diubah agar produksi lama dapat ditelusuri ke resep yang dipakainya */
+export interface BomSnapshot {
+  name: string;
+  productId: string;
+  outputQty: string;
+  laborCost: string;
+  overheadCost: string;
+  notes: string | null;
+  isActive: boolean;
+  lines: { productId: string; qty: string }[];
+}
+
+/** Riwayat versi resep: satu baris per versi yang sudah digantikan (versi aktif ada di boms) */
+export const bomRevisions = pgTable(
+  'bom_revisions',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    bomId: uuid('bom_id')
+      .notNull()
+      .references(() => boms.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    snapshot: jsonb('snapshot').$type<BomSnapshot>().notNull(),
+    /** Alasan perubahan yang menggantikan versi ini */
+    reason: text('reason'),
+    /** Saat versi ini digantikan */
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('bom_revisions_version_uq').on(t.bomId, t.version)],
 );
 
 export const bomLines = pgTable('bom_lines', {
@@ -70,6 +105,13 @@ export const productionOrders = pgTable(
     startedDate: date('started_date'),
     completedDate: date('completed_date'),
     cancelledDate: date('cancelled_date'),
+    /** Versi resep saat perintah dibuat (kosong untuk perintah lama sebelum ada versi) */
+    bomVersion: integer('bom_version'),
+    /** Subkontrak (maklon): pemasok jasa yang mengerjakan perintah ini dan tagihan jasanya (menjadi upah langsung) */
+    subcontractorId: uuid('subcontractor_id').references((): AnyPgColumn => suppliers.id),
+    subcontractBillId: uuid('subcontract_bill_id').references((): AnyPgColumn => purchaseInvoices.id),
+    /** Bagian DPP tagihan jasa yang dialokasikan ke perintah ini (satu tagihan boleh dibagi ke beberapa perintah) */
+    subcontractBillAmount: money('subcontract_bill_amount'),
     outputQty: qty('output_qty').notNull().default('0'),
     materialCost: money('material_cost').notNull().default('0'),
     laborCost: money('labor_cost').notNull().default('0'),
@@ -82,7 +124,7 @@ export const productionOrders = pgTable(
     createdById: uuid('created_by_id'),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex('production_orders_number_uq').on(t.tenantId, t.number), index('production_orders_status_idx').on(t.tenantId, t.status), index('production_orders_parent_idx').on(t.parentOrderId)],
+  (t) => [uniqueIndex('production_orders_number_uq').on(t.tenantId, t.number), index('production_orders_subcontract_bill_idx').on(t.subcontractBillId).where(sql`subcontract_bill_id IS NOT NULL`), index('production_orders_status_idx').on(t.tenantId, t.status), index('production_orders_parent_idx').on(t.parentOrderId)],
 );
 
 export const productionOrderLines = pgTable('production_order_lines', {

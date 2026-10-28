@@ -18,6 +18,7 @@ import { ServiceBillingService } from './service-billing.service';
 import { CustomerDepositsService } from './customer-deposits.service';
 import { insertOne, patchById } from '../../../db/owned';
 import { ServiceProjectsRepository } from './service-projects.repository';
+import { budgetUsage } from './service-limits';
 
 @Injectable()
 export class ServiceProjectsService {
@@ -59,6 +60,8 @@ export class ServiceProjectsService {
       progressDate: r.progress_date,
       accrual: D(r.accrual).toFixed(2),
       directCost: D(r.direct_cost).toFixed(2),
+      costBudget: D(r.cost_budget).toFixed(2),
+      budget: budgetUsage(r.direct_cost, r.cost_budget),
     }));
   }
 
@@ -189,6 +192,7 @@ export class ServiceProjectsService {
     const [c] = await this.repo.findCustomersById(this.db, dto.customerId, user.tenantId);
     if (!c) throw new BadRequestException('Pelanggan tidak ditemukan');
     if (D(dto.contractValue).lt(0)) throw new BadRequestException('Nilai kontrak tidak boleh negatif');
+    if (D(dto.costBudget ?? 0).lt(0)) throw new BadRequestException('Anggaran biaya tidak boleh negatif');
     const id = await this.db.transaction(async (tx) => {
       const code = dto.code?.trim() || (await this.seq.next(tx, user.tenantId, 'PROJECT', toDocDate(dto.startDate)));
       const [dup] = await this.repo.findProjectsByCode(tx, user.tenantId, code);
@@ -212,9 +216,11 @@ export class ServiceProjectsService {
     if (dto.contractValue !== undefined && D(dto.contractValue).gt(0) && D(dto.contractValue).lt(p.billed)) {
       throw new BadRequestException(`Nilai kontrak tidak boleh di bawah yang sudah ditagih (${p.billed})`);
     }
+    if (dto.costBudget !== undefined && D(dto.costBudget).lt(0)) throw new BadRequestException('Anggaran biaya tidak boleh negatif');
     const patch: Partial<typeof projects.$inferInsert> = {};
     if (dto.name !== undefined) patch.name = dto.name.trim();
     if (dto.contractValue !== undefined) patch.contractValue = money(dto.contractValue).toFixed(2);
+    if (dto.costBudget !== undefined) patch.costBudget = money(dto.costBudget).toFixed(2);
     if (dto.endDate !== undefined) patch.endDate = toDocDate(dto.endDate);
     if (dto.status !== undefined) patch.status = dto.status;
     if (dto.notes !== undefined) patch.notes = dto.notes;

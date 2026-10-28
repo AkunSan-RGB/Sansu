@@ -1,7 +1,7 @@
 import { PlusOutlined } from '@ant-design/icons';
 import { BRAND, type Warehouse } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Form, Input, Modal, Progress, Space, Switch, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Form, Input, Modal, Progress, Select, Space, Switch, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, patch, post } from '@/api/client';
@@ -20,12 +20,13 @@ export default function WarehousesPage() {
   const list = useWarehouses({ all: true });
   const usage = useQuery({ queryKey: ['billing'], enabled: useHasRole(['ADMIN']), queryFn: () => get<{ usage: { warehouses: number } }>('/billing') });
   const [editing, setEditing] = useState<Partial<Warehouse> | null>(null);
+  const priceLists = useQuery({ queryKey: ['price-lists'], enabled: isAdmin, queryFn: () => get<{ id: string; name: string; isActive: boolean }[]>('/price-lists') });
   const [form] = Form.useForm();
   const keys = ['warehouses', 'billing', 'me'];
   const save = useAction(
-    (v: { code?: string; name: string; address?: string }) =>
+    (v: { code?: string; name: string; address?: string; priceListId?: string | null }) =>
       editing?.id
-        ? patch(`/warehouses/${editing.id}`, { name: v.name, address: v.address ?? '' })
+        ? patch(`/warehouses/${editing.id}`, { name: v.name, address: v.address ?? '', priceListId: v.priceListId ?? null })
         : post('/warehouses', v),
     {
       success: editing?.id ? 'Gudang diperbarui' : 'Gudang ditambahkan',
@@ -173,6 +174,19 @@ export default function WarehousesPage() {
           <Form.Item name="address" label="Alamat">
             <Input.TextArea rows={2} maxLength={300} />
           </Form.Item>
+          {editing?.id && (
+            <Form.Item
+              name="priceListId"
+              label="Daftar harga toko"
+              extra="Kasir di toko ini memakai harga dari daftar ini (pelanggan yang punya daftar harga sendiri memakai miliknya). Kosong = harga jual master. Promo aktif tetap berlaku."
+            >
+              <Select
+                allowClear
+                placeholder="Harga jual master"
+                options={(priceLists.data ?? []).filter((p) => p.isActive).map((p) => ({ value: p.id, label: p.name }))}
+              />
+            </Form.Item>
+          )}
         </Form>
       </Modal>
     </>

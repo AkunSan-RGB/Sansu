@@ -3,6 +3,7 @@ import { DbOrTx } from '../../db/db';
 import { budgets, budgetLines, accounts, budgetAlerts, users } from '../../db/schema';
 import { and, eq, sql, inArray } from 'drizzle-orm';
 import { SaveBudgetDto } from './budget.dto';
+import { projectCostsSql } from '../../common/project-costs';
 
 /** Akses data untuk Budget: kueri dipisah dari logika bisnis; setiap metode memakai koneksi/transaksi pemanggil. */
 @Injectable()
@@ -129,5 +130,15 @@ export class BudgetRepository {
         ),
       )
       .orderBy(accounts.code);
+  }
+
+  /** Dipakai oleh BudgetService.guardProject: anggaran biaya dan biaya langsung proyek saat ini (proyek berjalan yang punya anggaran) */
+  listProjectBudgetUsage(db: DbOrTx, tenantId: string, projectIds: string[]) {
+    if (!projectIds.length) return Promise.resolve([] as { id: string; code: string; name: string; cost_budget: string; direct_cost: string }[]);
+    return db
+      .execute<{ id: string; code: string; name: string; cost_budget: string; direct_cost: string }>(sql`
+        SELECT p.id, p.code, p.name, p.cost_budget, COALESCE((SELECT SUM(x.amount) FROM ${projectCostsSql(tenantId)} x WHERE x.project_id = p.id), 0)::text AS direct_cost
+        FROM projects p WHERE p.tenant_id = ${tenantId} AND p.status = 'ACTIVE' AND p.cost_budget > 0 AND p.id IN (${sql.join(projectIds.map((i) => sql`${i}`), sql`, `)})`)
+      .then((r) => r.rows);
   }
 }

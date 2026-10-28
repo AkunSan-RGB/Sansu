@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Alert, Form, Input, InputNumber, Modal, Select, Space } from 'antd';
 import { useEffect } from 'react';
 import { get, post } from '@/api/client';
-import { useAction, useWarehouses } from '@/api/queries';
+import { useAction, useSuppliers, useWarehouses } from '@/api/queries';
 import { fmtMoney, fmtQty, today } from '@/lib/format';
 import { t } from '@/lib/terms';
 
@@ -19,6 +19,7 @@ export function CreateModal({
   const [form] = Form.useForm();
   const boms = useQuery({ queryKey: ['boms'], queryFn: () => get<Bom[]>('/production/boms'), enabled: open });
   const { data: warehouses } = useWarehouses();
+  const suppliers = useSuppliers();
   const bomId = Form.useWatch('bomId', form);
   const batches = Form.useWatch('batches', form) ?? 0;
   const bom = boms.data?.find((b) => b.id === bomId);
@@ -26,7 +27,7 @@ export function CreateModal({
     if (open) form.setFieldsValue({ date: today(), batches: 1, warehouseId: warehouses?.[0]?.id });
   }, [open, warehouses, form]);
   const save = useAction(
-    (v: { bomId: string; warehouseId: string; date: string; batches: number; notes?: string }) =>
+    (v: { bomId: string; warehouseId: string; date: string; batches: number; notes?: string; subcontractorId?: string }) =>
       post<ProductionOrder>('/production/orders', { ...v, batches: String(v.batches) }),
     {
       success: (o) => `${o.number} dibuat`,
@@ -77,7 +78,15 @@ export function CreateModal({
             description={bom.lines.map((l) => `${l.name} ${fmtQty(Number(l.qty) * batches)} ${l.unit}`).join(' · ')}
           />
         )}
-        <Form.Item name="notes" label="Catatan" style={{ marginTop: 12 }}>
+        <Form.Item
+          name="subcontractorId"
+          label="Dikerjakan pihak ketiga (maklon)"
+          style={{ marginTop: 12 }}
+          extra="Kosongkan bila diproduksi sendiri. Bila diisi, upah langsung diambil dari Tagihan biaya pemasok ini (akun Upah Langsung Produksi) yang ditautkan sebelum produksi selesai."
+        >
+          <Select allowClear showSearch optionFilterProp="label" placeholder="Pilih pemasok jasa maklon" options={(suppliers.data ?? []).filter((x) => x.isActive !== false).map((x) => ({ value: x.id, label: `${x.code} · ${x.name}` }))} />
+        </Form.Item>
+        <Form.Item name="notes" label="Catatan">
           <Input placeholder="Mis. pesanan PT ABC / stok musim lebaran" />
         </Form.Item>
       </Form>

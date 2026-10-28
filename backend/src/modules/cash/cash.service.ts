@@ -166,6 +166,11 @@ export class CashService {
         (dto.lines ?? []).filter((l) => Number(l.amount) > 0).map((l) => ({ accountId: l.accountId, amount: money(l.amount), date })),
         { kind: 'CASH_TX', title: `Kas keluar: ${dto.description}`, payload: JSON.parse(JSON.stringify(dto)), approved: opts.approved, overrideReason: dto.budgetOverrideReason },
       );
+      await this.budget.guardProject(
+        user,
+        (dto.lines ?? []).filter((l) => Number(l.amount) > 0 && l.projectId).map((l) => ({ projectId: l.projectId!, amount: money(l.amount) })),
+        { kind: 'CASH_TX', title: `Kas keluar: ${dto.description}`, payload: JSON.parse(JSON.stringify(dto)), approved: opts.approved, overrideReason: dto.budgetOverrideReason },
+      );
     }
     const run = async (tx: Tx) => {
       const cash = await this.posting.resolveCashAccount(tx, user.tenantId, dto.cashAccountId, 'CASH');

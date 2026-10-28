@@ -4,7 +4,7 @@ import { RequireApp } from '../../common/apps/app.guard';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { PosService } from './pos.service';
-import { PosProductQueryDto, OpenSessionDto, CloseSessionDto, CreatePosOrderDto } from './pos.dto';
+import { PosProductQueryDto, OpenSessionDto, CloseSessionDto, CreatePosOrderDto, PosQuoteDto } from './pos.dto';
 
 @ApiTags('Kasir (POS)')
 @ApiBearerAuth()
@@ -54,6 +54,13 @@ export class PosController {
   @Get('orders/:id')
   order(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.getOrder(u.tenantId, id);
+  }
+
+  /** Harga dan potongan promo yang berlaku untuk keranjang (daftar harga toko/pelanggan + promo aktif); layar kasir memakai angka ini */
+  @Roles('CASHIER', 'SALES', 'FINANCE')
+  @Post('quote')
+  quote(@CurrentUser() u: AuthUser, @Body() dto: PosQuoteDto) {
+    return this.svc.quote(u, dto);
   }
 
   @Roles('CASHIER', 'SALES', 'FINANCE')

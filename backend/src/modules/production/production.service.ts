@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq } from 'drizzle-orm';
-import type { Bom, ProductionOrder, ProductionReport } from '@sansu/shared';
+import type { Bom, BomRevision, ProductionOrder, ProductionReport, SubcontractHolding } from '@sansu/shared';
 import { WorkflowService } from '../workflow/workflow.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
@@ -17,10 +17,12 @@ import { inventoryLines, semiSet } from '../inventory/inventory-accounts';
 import { StockService } from '../inventory/stock.service';
 import { WorkCenterService } from './work-centers.service';
 import { QcService } from './qc.service';
-import { SaveBomDto, CreateProductionDto, StartProductionDto, CompleteProductionDto, CancelProductionDto } from './production.dto';
+import { SaveBomDto, CreateProductionDto, StartProductionDto, CompleteProductionDto, CancelProductionDto, LinkSubcontractBillDto } from './production.dto';
 import { ReferenceRepository } from '../../db/reference.repository';
 import { findOwned, patchById } from '../../db/owned';
 import { ProductionRepository } from './production.repository';
+import { diffBom } from './bom-revision';
+import type { BomSnapshot } from '../../db/schema';
 
 @Injectable()
 export class ProductionService {
@@ -73,6 +75,7 @@ export class ProductionService {
         overheadCost: b.overheadCost,
         notes: b.notes,
         isActive: b.isActive,
+        version: b.version,
         lines: ls.map((l) => ({
           id: l.id,
           productId: l.productId,
@@ -127,11 +130,41 @@ export class ProductionService {
     return (await this.listBoms(user.tenantId, id))[0];
   }
 
+  /** Isi resep saat ini (header dan bahan) dalam bentuk yang disimpan sebagai riwayat versi */
+  private async bomSnapshot(tx: DbOrTx, b: typeof boms.$inferSelect): Promise<BomSnapshot> {
+    const ls = await this.repo.listBomLinesByBomId(tx, b.id);
+    return {
+      name: b.name,
+      productId: b.productId,
+      outputQty: D(b.outputQty).toString(),
+      laborCost: b.laborCost,
+      overheadCost: b.overheadCost,
+      notes: b.notes,
+      isActive: b.isActive,
+      lines: ls.map((l) => ({ productId: l.productId, qty: D(l.qty).toString() })).sort((x, y) => x.productId.localeCompare(y.productId)),
+    };
+  }
+
   async updateBom(user: AuthUser, id: string, dto: SaveBomDto) {
     const b = await findOwned(this.db, boms, user.tenantId, id);
     if (!b) throw new NotFoundException('Resep tidak ditemukan');
     await this.db.transaction(async (tx) => {
       await this.validateBom(tx, user.tenantId, dto);
+      const before = await this.bomSnapshot(tx, b);
+      const after: BomSnapshot = {
+        name: dto.name.trim(),
+        productId: dto.productId,
+        outputQty: qty4(dto.outputQty).toString(),
+        laborCost: money(dto.laborCost ?? 0).toFixed(2),
+        overheadCost: money(dto.overheadCost ?? 0).toFixed(2),
+        notes: dto.notes ?? null,
+        isActive: dto.isActive ?? b.isActive,
+        lines: dto.lines.map((l) => ({ productId: l.productId, qty: D(l.qty).toString() })).sort((x, y) => x.productId.localeCompare(y.productId)),
+      };
+      // Versi naik hanya bila isi resep benar-benar berubah; versi lama disimpan agar produksi lama tetap dapat ditelusuri
+      const changes = diffBom(before, after);
+      const nextVersion = changes.length ? b.version + 1 : b.version;
+      if (changes.length) await this.repo.insertBomRevision(tx, user.tenantId, id, b.version, before, dto.changeReason?.trim() || null);
       await patchById(tx, boms, id, {
           name: dto.name.trim(),
           productId: dto.productId,
@@ -140,6 +173,7 @@ export class ProductionService {
           overheadCost: money(dto.overheadCost ?? 0).toFixed(2),
           notes: dto.notes,
           isActive: dto.isActive ?? b.isActive,
+          version: nextVersion,
         });
       // Perintah produksi menyimpan salinan bahan sendiri, jadi resep aman diubah
       await this.repo.deleteBomLinesByBomId(tx, id);
@@ -150,9 +184,31 @@ export class ProductionService {
         action: 'UPDATE',
         entity: 'Bom',
         entityId: id,
+        data: changes.length ? { version: nextVersion, changes: changes.length } : undefined,
       });
     });
     return (await this.listBoms(user.tenantId, id))[0];
+  }
+
+  /** Riwayat versi resep (terbaru dulu): isi tiap versi, perbedaannya dari versi berikutnya, dan alasan perubahan */
+  async bomRevisions(tenantId: string, id: string): Promise<BomRevision[]> {
+    const b = await findOwned(this.db, boms, tenantId, id);
+    if (!b) throw new NotFoundException('Resep tidak ditemukan');
+    const revs = await this.repo.listBomRevisions(this.db, tenantId, id);
+    const current = await this.bomSnapshot(this.db, b);
+    const names = await this.repo.listProductLabels(this.db, tenantId, [...new Set([...revs.flatMap((r) => r.snapshot.lines.map((l) => l.productId)), ...current.lines.map((l) => l.productId)])]);
+    const label = new Map(names.map((p) => [p.id, `${p.sku} ${p.name}`]));
+    // revs terurut turun: pembanding tiap versi adalah versi yang menggantikannya (di atasnya), versi teratas dibanding resep aktif
+    return revs.map((r, i) => {
+      const next = i === 0 ? current : revs[i - 1].snapshot;
+      return {
+        version: r.version,
+        replacedAt: r.createdAt.toISOString(),
+        reason: r.reason,
+        snapshot: { ...r.snapshot, lines: r.snapshot.lines.map((l) => ({ ...l, label: label.get(l.productId) ?? l.productId })) },
+        changes: diffBom(r.snapshot, next).map((c) => (c.field.startsWith('line:') ? { ...c, label: `${c.label}: ${label.get(c.field.slice(5)) ?? c.field.slice(5)}` } : c)),
+      };
+    });
   }
 
   // ================= Perintah produksi =================
@@ -164,6 +220,7 @@ export class ProductionService {
     const rel = (await this.repo.listProductionOrdersByIdAndParentOrderId(this.db, tenantId, relIds));
     const numberOf = new Map(rel.map((x) => [x.id, x.number]));
     const lines = await this.repo.listProductionOrderLinesWithProductsByOrderId(this.db, rows);
+    const subs = new Map((await this.repo.listSubcontractInfo(this.db, tenantId, rows.map((r) => r.o.id))).map((x) => [x.order_id, x]));
     return rows.map(({ o, ...r }) => ({
       id: o.id,
       number: o.number,
@@ -173,7 +230,7 @@ export class ProductionService {
       parentNumber: o.parentOrderId ? (numberOf.get(o.parentOrderId) ?? null) : null,
       childCount: rel.filter((x) => x.parentOrderId === o.id).length,
       planNo: o.planNo,
-      bom: { id: o.bomId, code: r.bomCode, name: r.bomName },
+      bom: { id: o.bomId, code: r.bomCode, name: r.bomName, version: o.bomVersion },
       product: { id: o.productId, sku: r.sku, name: r.name, unit: r.unit },
       warehouse: { id: o.warehouseId, name: r.warehouseName },
       batches: D(o.batches).toString(),
@@ -187,6 +244,15 @@ export class ProductionService {
       totalCost: o.totalCost,
       unitCost: D(o.unitCost).toFixed(2),
       notes: o.notes,
+      subcontract: subs.has(o.id)
+        ? {
+            supplierId: subs.get(o.id)!.supplier_id,
+            supplierName: subs.get(o.id)!.supplier_name,
+            billId: subs.get(o.id)!.bill_id,
+            billNumber: subs.get(o.id)!.bill_number,
+            amount: subs.get(o.id)!.amount == null ? null : D(subs.get(o.id)!.amount).toFixed(2),
+          }
+        : null,
       lines: lines
         .filter((x) => x.l.orderId === o.id)
         .map((x) => ({
@@ -225,11 +291,16 @@ export class ProductionService {
       if (!b || !b.isActive) throw new BadRequestException('Resep tidak ditemukan / nonaktif');
       const wh = await this.refs.warehouse(tx, user.tenantId, dto.warehouseId);
       if (!wh) throw new BadRequestException('Gudang tidak ditemukan');
+      if (dto.subcontractorId) {
+        const [sup] = await this.repo.findSupplier(tx, user.tenantId, dto.subcontractorId);
+        if (!sup || !sup.isActive) throw new BadRequestException('Pemasok maklon tidak ditemukan / nonaktif');
+      }
       const ls = await this.repo.listBomLinesByBomId(tx, b.id);
       const number = await this.seq.next(tx, user.tenantId, 'PRODUCTION_ORDER', date);
-      const [o] = await this.repo.insertProductionOrders(tx, user.tenantId, number, date, b.id, b.productId, wh.id, batches, b.outputQty, dto.notes, user.sub, extra.parentOrderId, extra.planNo);
+      const [o] = await this.repo.insertProductionOrders(tx, user.tenantId, number, date, b.id, b.productId, wh.id, batches, b.outputQty, dto.notes, user.sub, extra.parentOrderId, extra.planNo, b.version, dto.subcontractorId);
       await this.repo.insertProductionOrderLines(tx, ls, o.id, batches);
-      await this.workCenters.copyToOrder(tx, user.tenantId, b.id, o.id, batches.toNumber());
+      // subkontrak dikerjakan pihak ketiga: operasi pusat kerja internal tidak dipakai
+      if (!dto.subcontractorId) await this.workCenters.copyToOrder(tx, user.tenantId, b.id, o.id, batches.toNumber());
       await this.audit.log(tx, {
         tenantId: user.tenantId,
         userId: user.sub,
@@ -247,6 +318,60 @@ export class ProductionService {
     if (!r.rows.length) throw new NotFoundException('Perintah produksi tidak ditemukan');
     const [o] = await this.repo.findProductionOrdersById(tx, id);
     return o;
+  }
+
+  /**
+   * Tautkan tagihan jasa pemasok maklon ke perintah produksi. Tagihan dibuat lewat Tagihan biaya seperti biasa (PPN dan PPh 23
+   * ikut aturan pembelian) dengan seluruh baris ke akun Upah Langsung Produksi; saat produksi selesai, DPP tagihan itu menjadi
+   * upah langsung yang dibebankan ke harga pokok barang jadi (akun upah yang didebit tagihan diimbangi Biaya Produksi Dibebankan).
+   */
+  async linkSubcontractBill(user: AuthUser, id: string, dto: LinkSubcontractBillDto) {
+    await this.db.transaction(async (tx) => {
+      const o = await this.lock(tx, user.tenantId, id);
+      if (!o.subcontractorId) throw new BadRequestException('Perintah ini bukan subkontrak: pilih pemasok maklon saat membuat perintah');
+      if (o.status !== 'DRAFT' && o.status !== 'IN_PROGRESS') throw new BadRequestException('Tagihan maklon hanya dapat ditautkan sebelum produksi selesai');
+      if (o.subcontractBillId) throw new BadRequestException('Perintah ini sudah punya tagihan maklon');
+      const b = await this.repo.findBillForSubcontract(tx, user.tenantId, dto.purchaseInvoiceId);
+      if (!b) throw new NotFoundException('Tagihan tidak ditemukan');
+      if (b.kind !== 'BILL') throw new BadRequestException('Hanya Tagihan biaya yang dapat ditautkan, bukan faktur barang');
+      if (b.supplier_id !== o.subcontractorId) throw new BadRequestException('Tagihan ini dari pemasok lain, bukan pemasok maklon perintah ini');
+      if (!b.journal_id || b.reversed) throw new BadRequestException('Tagihan sudah dibatalkan / belum dijurnal');
+      if (b.lines !== b.labor_lines || D(b.labor_total).lte(0))
+        throw new BadRequestException('Semua baris tagihan maklon harus ke akun Upah Langsung Produksi agar biaya masuk harga pokok barang jadi');
+      // satu tagihan boleh dibagi ke beberapa perintah; jumlah alokasi tidak boleh melebihi DPP tagihan
+      const remaining = money(D(b.labor_total).minus(b.allocated));
+      const amount = money(dto.amount ?? remaining);
+      if (amount.lte(0)) throw new BadRequestException('Tagihan ini sudah seluruhnya dialokasikan ke perintah lain');
+      if (amount.gt(remaining)) throw new BadRequestException(`Alokasi melebihi sisa tagihan (${remaining.toFixed(2)})`);
+      await patchById(tx, productionOrders, id, { subcontractBillId: b.id, subcontractBillAmount: amount.toFixed(2) });
+      await this.audit.log(tx, {
+        tenantId: user.tenantId,
+        userId: user.sub,
+        action: 'UPDATE',
+        entity: 'ProductionOrder',
+        entityId: id,
+        data: { subcontractBill: b.number, amount: amount.toFixed(2) },
+      });
+    });
+    return this.getOrder(user.tenantId, id);
+  }
+
+  /**
+   * Bahan yang berada di tangan pemasok maklon: yang sudah dikeluarkan untuk perintah subkontrak berstatus berjalan.
+   * Diturunkan dari perintah produksi (nilainya tercatat di Barang dalam Proses), bukan gudang fisik terpisah.
+   */
+  async subcontractHoldings(tenantId: string): Promise<SubcontractHolding[]> {
+    const rows = await this.repo.listSubcontractHoldings(this.db, tenantId);
+    const out = new Map<string, SubcontractHolding>();
+    for (const r of rows) {
+      const h = out.get(r.supplier_id) ?? { supplierId: r.supplier_id, supplierName: r.supplier_name, totalValue: '0.00', orders: [] };
+      let o = h.orders.find((x) => x.orderId === r.order_id);
+      if (!o) h.orders.push((o = { orderId: r.order_id, orderNumber: r.order_number, startedDate: r.started, materials: [] }));
+      o.materials.push({ sku: r.sku, name: r.name, unit: r.unit, qty: D(r.qty).toString(), value: D(r.value).toFixed(2) });
+      h.totalValue = D(h.totalValue).plus(r.value).toFixed(2);
+      out.set(r.supplier_id, h);
+    }
+    return [...out.values()];
   }
 
   /** Keluarkan bahan ke produksi: Dr Barang dalam Proses | Cr Persediaan */
@@ -331,8 +456,15 @@ export class ProductionService {
       // resep beroperasi: biaya konversi = jumlah biaya operasi (jam aktual × tarif pusat kerja), tidak boleh diketik
       const ops = await this.workCenters.orderConversionCost(tx, user.tenantId, id);
       if (ops && (dto.laborCost !== undefined || dto.overheadCost !== undefined)) throw new BadRequestException('Biaya upah dan overhead dihitung dari operasi pusat kerja; koreksi lewat operasinya (Admin)');
-      const labor = ops ? money(ops.labor) : money(dto.laborCost ?? D(b.laborCost).times(o.batches));
-      const overhead = ops ? money(ops.overhead) : money(dto.overheadCost ?? D(b.overheadCost).times(o.batches));
+      // subkontrak: upah langsung = DPP tagihan jasa pemasok (sudah dibukukan lewat tagihan), tidak boleh diketik; overhead sendiri 0 kecuali diisi
+      if (o.subcontractorId) {
+        if (!o.subcontractBillId) throw new BadRequestException('Tautkan tagihan jasa pemasok maklon dulu sebelum menyelesaikan produksi subkontrak');
+        if (dto.laborCost !== undefined) throw new BadRequestException('Upah subkontrak diambil dari tagihan jasa pemasok; tidak dapat diketik');
+        if (ops) throw new BadRequestException('Perintah subkontrak tidak memakai operasi pusat kerja');
+      }
+      const subLabor = o.subcontractBillId ? money(o.subcontractBillAmount ?? 0) : null;
+      const labor = subLabor ?? (ops ? money(ops.labor) : money(dto.laborCost ?? D(b.laborCost).times(o.batches)));
+      const overhead = o.subcontractorId ? money(dto.overheadCost ?? 0) : ops ? money(ops.overhead) : money(dto.overheadCost ?? D(b.overheadCost).times(o.batches));
       if (labor.isNegative() || overhead.isNegative()) throw new BadRequestException('Biaya tidak boleh negatif');
       const material = D(o.materialCost);
       const total = material.plus(labor).plus(overhead);
@@ -404,6 +536,8 @@ export class ProductionService {
       const o = await this.lock(tx, user.tenantId, id);
       if (o.status === 'COMPLETED' || o.status === 'CANCELLED')
         throw new BadRequestException('Produksi yang sudah selesai / batal tidak bisa dibatalkan');
+      if (o.subcontractBillId)
+        throw new BadRequestException('Perintah ini sudah menautkan tagihan jasa maklon: batalkan atau koreksi tagihannya dulu agar biaya upah tidak tertinggal');
       await this.workCenters.cancelOrderOps(tx, user.tenantId, id);
       if (o.status === 'IN_PROGRESS') {
         if (date < (o.startedDate ?? o.date))

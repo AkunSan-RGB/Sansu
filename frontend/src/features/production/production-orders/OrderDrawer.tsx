@@ -1,7 +1,7 @@
 import { CheckOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
 import { PRODUCTION_STATUS_LABELS, type ProductionOrder } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { App, Button, Card, Descriptions, Drawer, Form, Input, InputNumber, Space, Table, Tag, Typography } from 'antd';
+import { Alert, App, Button, Card, Descriptions, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { get, post } from '@/api/client';
 import { LEDGER_KEYS, useAction } from '@/api/queries';
@@ -10,6 +10,7 @@ import { fmtDate, fmtMoney, fmtQty, today } from '@/lib/format';
 import { t } from '@/lib/terms';
 import { OrderOperations } from '../OperationsPanels';
 import { COLOR } from './shared';
+import type { PurchaseInvoice } from '@sansu/shared';
 
 const INVALIDATE = ['production', 'balances', 'stock-moves', 'inventory', 'boms', ...LEDGER_KEYS];
 
@@ -57,6 +58,19 @@ export function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }
       invalidate: INVALIDATE,
     },
   );
+  const [billId, setBillId] = useState<string>();
+  const [billAmount, setBillAmount] = useState<number | null>(null);
+  const sub = o?.subcontract ?? null;
+  const bills = useQuery({
+    queryKey: ['purchase-invoices', 'maklon', sub?.supplierId],
+    enabled: !!sub && !sub.billId && can('POST', '/production/orders/:id/subcontract-bill'),
+    queryFn: () => get<PurchaseInvoice[]>(`/purchase-invoices?supplierId=${sub!.supplierId}`),
+  });
+  const link = useAction(() => post<ProductionOrder>(`/production/orders/${id}/subcontract-bill`, { purchaseInvoiceId: billId, amount: billAmount ? String(billAmount) : undefined }), {
+    success: 'Tagihan maklon ditautkan',
+    invalidate: INVALIDATE,
+    onSuccess: () => { setBillId(undefined); setBillAmount(null); },
+  });
   const cancel = useAction(() => post<ProductionOrder>(`/production/orders/${id}/cancel`, {}), {
     success: 'Produksi dibatalkan',
     invalidate: INVALIDATE,
@@ -76,7 +90,7 @@ export function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }
             <Descriptions.Item label="Status">
               <Tag color={COLOR[o.status]}>{PRODUCTION_STATUS_LABELS[o.status]}</Tag>
             </Descriptions.Item>
-            <Descriptions.Item label={t("Resep")}>{o.bom.code}</Descriptions.Item>
+            <Descriptions.Item label={t("Resep")}>{o.bom.code}{o.bom.version ? ` · v${o.bom.version}` : ""}</Descriptions.Item>
             <Descriptions.Item label={t('Gudang')}>{o.warehouse.name}</Descriptions.Item>
             <Descriptions.Item label="Batch">{fmtQty(o.batches)}</Descriptions.Item>
             <Descriptions.Item label="Rencana hasil">
@@ -94,6 +108,42 @@ export function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }
             </Descriptions.Item>
           </Descriptions>
 
+          {sub && (
+            <Alert
+              style={{ marginBottom: 16 }}
+              type={sub.billId ? 'success' : 'warning'}
+              showIcon
+              message={`Subkontrak (maklon) · ${sub.supplierName}`}
+              description={
+                sub.billId ? (
+                  <>Tagihan jasa {sub.billNumber} ({fmtMoney(sub.amount ?? 0)}) menjadi upah langsung saat produksi selesai.</>
+                ) : o.status === 'COMPLETED' || o.status === 'CANCELLED' ? (
+                  'Tidak ada tagihan maklon.'
+                ) : (
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    <span>Catat tagihan jasa pemasok di Pembelian › Tagihan biaya (semua baris ke akun Upah Langsung Produksi), lalu tautkan di sini. Produksi tidak bisa selesai sebelum ditautkan.</span>
+                    {can('POST', '/production/orders/:id/subcontract-bill') && (
+                      <Space wrap>
+                        <Select
+                          value={billId}
+                          onChange={setBillId}
+                          loading={bills.isLoading}
+                          placeholder="Pilih tagihan pemasok"
+                          style={{ width: 360 }}
+                          options={(bills.data ?? []).filter((b) => b.kind === 'BILL').map((b) => ({ value: b.id, label: `${b.number} · ${b.supplierInvoiceNo} · ${fmtMoney(b.subtotal)}` }))}
+                          notFoundContent="Belum ada tagihan biaya dari pemasok ini"
+                        />
+                        <InputNumber min={1} value={billAmount} onChange={setBillAmount} placeholder="Jumlah (kosong = sisa tagihan)" style={{ width: 220 }} prefix="Rp" />
+                        <Button type="primary" disabled={!billId} loading={link.isPending} onClick={() => link.mutate(undefined)}>
+                          Tautkan tagihan
+                        </Button>
+                      </Space>
+                    )}
+                  </Space>
+                )
+              }
+            />
+          )}
           <Typography.Title level={5}>Bahan</Typography.Title>
           <Table
             rowKey="id"
@@ -169,10 +219,12 @@ export function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }
                   >
                     <InputNumber min={0.0001} style={{ width: 160 }} />
                   </Form.Item>
-                  <Form.Item name="laborCost" label="Upah langsung" extra={t("Kosong = standar resep × batch")}>
-                    <InputNumber min={0} style={{ width: 170 }} prefix="Rp" />
-                  </Form.Item>
-                  <Form.Item name="overheadCost" label="Overhead pabrik" extra={t("Kosong = standar resep × batch")}>
+                  {!sub && (
+                    <Form.Item name="laborCost" label="Upah langsung" extra={t("Kosong = standar resep × batch")}>
+                      <InputNumber min={0} style={{ width: 170 }} prefix="Rp" />
+                    </Form.Item>
+                  )}
+                  <Form.Item name="overheadCost" label="Overhead pabrik" extra={t(sub ? 'Kosong = 0 (upah dari tagihan maklon)' : 'Kosong = standar resep × batch')}>
                     <InputNumber min={0} style={{ width: 170 }} prefix="Rp" />
                   </Form.Item>
                   <Form.Item name="date" label="Tanggal selesai">
@@ -180,7 +232,7 @@ export function OrderDrawer({ id, onClose }: { id: string; onClose: () => void }
                   </Form.Item>
                 </Space>
                 <Space>
-                  <Button type="primary" htmlType="submit" icon={<CheckOutlined />} loading={complete.isPending}>
+                  <Button type="primary" htmlType="submit" icon={<CheckOutlined />} loading={complete.isPending} disabled={!!sub && !sub.billId}>
                     Selesai — masukkan produk jadi ke gudang
                   </Button>
                   <Button

@@ -1,7 +1,7 @@
 import { ArrowLeftOutlined, FileAddOutlined } from '@ant-design/icons';
 import type { CustomerDeposit, Invoice, Project } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Card, Descriptions, Form, Input, InputNumber, Modal, Progress, Select, Space, Table, Tag } from 'antd';
+import { Button, Card, Descriptions, Form, Input, InputNumber, Modal, Progress, Select, Space, Table, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { get, patch } from '@/api/client';
@@ -23,10 +23,11 @@ export function ProjectDetailPage() {
   const [edit, setEdit] = useState(false);
   const [form] = Form.useForm();
   const save = useAction(
-    (v: { contractValue: number; status: Project['status']; endDate?: string; notes?: string }) =>
+    (v: { contractValue: number; costBudget?: number; status: Project['status']; endDate?: string; notes?: string }) =>
       patch(`/services/projects/${id}`, {
         ...v,
         contractValue: String(v.contractValue),
+        costBudget: String(v.costBudget ?? 0),
         endDate: v.endDate || undefined,
       }),
     {
@@ -59,6 +60,7 @@ export function ProjectDetailPage() {
                 onClick={() => {
                   form.setFieldsValue({
                     contractValue: Number(p.contractValue),
+                    costBudget: Number(p.costBudget),
                     status: p.status,
                     endDate: p.endDate ?? undefined,
                     notes: p.notes ?? undefined,
@@ -115,6 +117,18 @@ export function ProjectDetailPage() {
                 {fmtMoney(Math.abs(Number(p.accrual)))}
               </Descriptions.Item>
               <Descriptions.Item label="Biaya langsung proyek">{fmtMoney(p.directCost)}</Descriptions.Item>
+              <Descriptions.Item label="Anggaran biaya">
+                {p.budget.status === 'NONE' ? (
+                  <Typography.Text type="secondary">belum diatur</Typography.Text>
+                ) : (
+                  <Space>
+                    {fmtMoney(p.costBudget)}
+                    <Tag color={p.budget.status === 'OVER' ? 'red' : p.budget.status === 'WARN' ? 'orange' : 'green'}>
+                      {p.budget.status === 'OVER' ? 'Melampaui' : `Terpakai ${p.budget.usedPct}%`}
+                    </Tag>
+                  </Space>
+                )}
+              </Descriptions.Item>
               {p.notes && <Descriptions.Item label="Catatan">{p.notes}</Descriptions.Item>}
             </Descriptions>
             <Progress percent={p.billedPct} style={{ marginTop: 8 }} />
@@ -175,6 +189,9 @@ export function ProjectDetailPage() {
             extra="Ubah bila ada addendum (pekerjaan tambah/kurang)"
             rules={[{ required: true }]}
           >
+            <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
+          </Form.Item>
+          <Form.Item name="costBudget" label="Anggaran biaya langsung" extra="Biaya langsung proyek dipantau terhadap angka ini (peringatan di 80%, merah bila melampaui). 0 = tidak dipantau. Bila Kendali anggaran di Persetujuan diset Blokir/Persetujuan, tagihan dan kas keluar bertanda proyek yang melewati angka ini ditolak atau menunggu persetujuan.">
             <InputNumber min={0} style={{ width: '100%' }} prefix="Rp" />
           </Form.Item>
           <Form.Item name="status" label="Status">

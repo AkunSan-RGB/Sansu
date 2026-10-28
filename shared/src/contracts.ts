@@ -194,6 +194,8 @@ export interface Warehouse {
   /** MAIN = gudang biasa; CONSIGNMENT = titipan di outlet; VAN = stok mobil sales kanvas */
   kind?: 'MAIN' | 'CONSIGNMENT' | 'VAN';
   vanUserId?: string | null;
+  /** Daftar harga toko untuk kasir (kosong = harga jual master) */
+  priceListId?: string | null;
 }
 
 export interface ProductUom {
@@ -1948,6 +1950,9 @@ export interface Project {
   accrual: string;
   /** Biaya langsung proyek dari tagihan biaya */
   directCost: string;
+  /** Anggaran biaya langsung (0 = tanpa anggaran) dan pemakaiannya terhadap biaya langsung */
+  costBudget: string;
+  budget: { status: 'NONE' | 'OK' | 'WARN' | 'OVER'; usedPct: number | null; remaining: string };
   invoices?: Invoice[];
 }
 
@@ -2029,9 +2034,36 @@ export interface Bom {
   overheadCost: string;
   notes: string | null;
   isActive: boolean;
+  /** Nomor versi resep; naik tiap isi resep berubah */
+  version: number;
   lines: { id: string; productId: string; sku: string; name: string; unit: string; qty: string; unitCost: string }[];
   /** Taksiran dari biaya rata-rata bahan saat ini */
   estimate: { material: string; batchCost: string; unitCost: string };
+}
+
+/** Bahan yang sedang berada di tangan pemasok maklon (perintah subkontrak berjalan) */
+export interface SubcontractHolding {
+  supplierId: string;
+  supplierName: string;
+  totalValue: string;
+  orders: { orderId: string; orderNumber: string; startedDate: string | null; materials: { sku: string; name: string; unit: string; qty: string; value: string }[] }[];
+}
+
+/** Satu versi resep yang sudah digantikan, beserta perubahan menuju versi berikutnya */
+export interface BomRevision {
+  version: number;
+  replacedAt: string;
+  reason: string | null;
+  snapshot: {
+    name: string;
+    outputQty: string;
+    laborCost: string;
+    overheadCost: string;
+    notes: string | null;
+    isActive: boolean;
+    lines: { productId: string; qty: string; label: string }[];
+  };
+  changes: { field: string; label: string; from: string; to: string }[];
 }
 
 export interface ProductionOrder {
@@ -2044,7 +2076,9 @@ export interface ProductionOrder {
   parentNumber?: string | null;
   childCount?: number;
   planNo?: string | null;
-  bom: { id: string; code: string; name: string };
+  bom: { id: string; code: string; name: string; /** Versi resep saat perintah dibuat */ version?: number | null };
+  /** Subkontrak (maklon): pemasok jasa dan tagihan jasanya (upah langsung); kosong = dikerjakan sendiri */
+  subcontract?: { supplierId: string; supplierName: string; billId: string | null; billNumber: string | null; amount: string | null } | null;
   product: { id: string; sku: string; name: string; unit: string };
   warehouse: { id: string; name: string };
   batches: string;

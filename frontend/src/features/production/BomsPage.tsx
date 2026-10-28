@@ -1,12 +1,13 @@
 /** Resep / Bill of Materials: bahan per batch + biaya konversi standar → taksiran harga pokok */
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import type { Bom } from '@sansu/shared';
+import type { Bom, BomRevision } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import {
   Alert,
   Button,
   Card,
   Col,
+  Collapse,
   Drawer,
   Empty,
   Form,
@@ -41,6 +42,7 @@ type FormV = {
   overheadCost?: number;
   notes?: string;
   isActive?: boolean;
+  changeReason?: string;
   lines: { productId?: string; qty?: number }[];
 };
 
@@ -128,6 +130,7 @@ export default function BomsPage() {
           }}
           columns={[
             { title: 'Kode', dataIndex: 'code' },
+            { title: 'Versi', dataIndex: 'version', align: 'right', render: (v: number) => <Tag>v{v}</Tag> },
             { title: 'Nama', dataIndex: 'name' },
             { title: t('Produk jadi'), render: (_, b) => `${b.product.sku} · ${b.product.name}` },
             { title: 'Hasil / batch', align: 'right', render: (_, b) => `${fmtQty(b.outputQty)} ${b.product.unit}` },
@@ -293,7 +296,13 @@ function BomDrawer({ bom, onClose }: { bom: Bom | null; onClose: () => void }) {
         <Form.Item name="notes" label="Catatan" style={{ marginTop: 16 }}>
           <Input.TextArea rows={2} placeholder="Langkah kerja, ukuran, standar mutu" />
         </Form.Item>
+        {bom && (
+          <Form.Item name="changeReason" label="Alasan perubahan" extra="Dicatat di riwayat versi bila isi resep berubah (bahan, takaran, hasil, biaya)">
+            <Input maxLength={300} placeholder="Mis. kain diganti lebih tebal" />
+          </Form.Item>
+        )}
         {bom && <BomOperationsEditor bomId={bom.id} />}
+        {bom && <BomHistory bom={bom} />}
         {bom && (
           <Typography.Paragraph type="secondary">
             Taksiran saat ini: bahan {fmtMoney(bom.estimate.material)} + upah & overhead{' '}
@@ -303,5 +312,44 @@ function BomDrawer({ bom, onClose }: { bom: Bom | null; onClose: () => void }) {
         )}
       </Form>
     </Drawer>
+  );
+}
+
+/** Riwayat versi resep: apa yang berubah tiap kali resep diganti, supaya produksi lama dapat ditelusuri ke resep yang dipakainya */
+function BomHistory({ bom }: { bom: Bom }) {
+  const q = useQuery({ queryKey: ['bom-revisions', bom.id, bom.version], queryFn: () => get<BomRevision[]>(`/production/boms/${bom.id}/revisions`) });
+  const revs = q.data ?? [];
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <Typography.Title level={5}>
+        Riwayat versi <Tag>sekarang v{bom.version}</Tag>
+      </Typography.Title>
+      {!revs.length ? (
+        <Typography.Text type="secondary">{q.isLoading ? 'Memuat…' : 'Belum pernah diubah: ini versi pertama.'}</Typography.Text>
+      ) : (
+        <Collapse
+          size="small"
+          items={revs.map((r) => ({
+            key: r.version,
+            label: `v${r.version} · diganti ${r.replacedAt.slice(0, 10)}${r.reason ? ` · ${r.reason}` : ''}`,
+            children: (
+              <>
+                <ul style={{ margin: '0 0 8px', paddingLeft: 18 }}>
+                  {r.changes.map((c) => (
+                    <li key={c.field}>
+                      {c.label}: {c.from || '—'} → {c.to || '—'}
+                    </li>
+                  ))}
+                </ul>
+                <Typography.Text type="secondary">
+                  Isi v{r.version}: hasil {fmtQty(r.snapshot.outputQty)} · upah {fmtMoney(r.snapshot.laborCost)} · overhead {fmtMoney(r.snapshot.overheadCost)} ·{' '}
+                  {r.snapshot.lines.map((l) => `${l.label} ${fmtQty(l.qty)}`).join(', ')}
+                </Typography.Text>
+              </>
+            ),
+          }))}
+        />
+      )}
+    </div>
   );
 }
