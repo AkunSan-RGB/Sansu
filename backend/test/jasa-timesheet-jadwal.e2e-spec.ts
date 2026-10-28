@@ -204,8 +204,9 @@ describe('Jasa: lembar waktu + penjadwalan (e2e)', () => {
 
   describe('penjadwalan', () => {
     let room = ''; let person = ''; let b1 = '';
-    const day = addDays(today, 3);
-    const at = (h: number, m = 0) => `${day}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00+07:00`;
+    // hari kerja bawaan sumber daya Senin–Sabtu: hindari Minggu agar slot kosong tidak bergantung pada tanggal tes dijalankan
+    const day = new Date(`${addDays(today, 3)}T12:00:00+07:00`).getUTCDay() === 0 ? addDays(today, 4) : addDays(today, 3);
+    const at =(h: number, m = 0) => `${day}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00+07:00`;
     const book = (t: string, rid: string, s: string, e: string, extra: object = {}) => post(t, '/api/scheduling/bookings', { resourceId: rid, title: 'Rapat klien', startsAt: s, endsAt: e, ...extra });
 
     it('sumber daya: hanya Admin; nama unik; orang dapat dikaitkan ke karyawan', async () => {
