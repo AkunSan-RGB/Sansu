@@ -7,7 +7,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { sql } from 'drizzle-orm';
 import request from 'supertest';
-import { BUSINESS_MODEL_KEYS, ROLES, WORKFLOW_LINK_TYPES, WORKFLOW_PIPELINES, pipelinesFor } from '@sansu/shared';
+import { BUSINESS_MODEL_KEYS, ROLES, WORKFLOW_LINK_TYPES, WORKFLOW_PIPELINES, pipelinesFor, ServiceProfile } from '@sansu/shared';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 import { DB, Db } from '../src/db/db';
@@ -83,10 +83,12 @@ describe('Alur kerja operasional (e2e)', () => {
       const { owner } = await reg(model, `m-${model.toLowerCase()}`);
       const c = call(owner);
       const mine = (await c.get('/api/workflow/pipelines').expect(200)).body as { key: string; model: string }[];
-      expect(mine.map((p) => p.key).sort()).toEqual(pipelinesFor(model).map((p) => p.key).sort());
+      // Jasa: alur juga mengikuti profil layanan perusahaan (perusahaan baru: profil bawaan)
+      const profiles = (await c.get('/api/auth/me').expect(200)).body.serviceProfiles as ServiceProfile[];
+      expect(mine.map((p) => p.key).sort()).toEqual(pipelinesFor(model, profiles).map((p) => p.key).sort());
       const other = WORKFLOW_PIPELINES.find((p) => p.model !== model)!;
       expect((await c.post('/api/workflow/cases', { pipeline: other.key, title: 'Alur jenis lain' })).status).toBe(400);
-      const own = pipelinesFor(model)[0];
+      const own = pipelinesFor(model, profiles)[0];
       const made = await c.post('/api/workflow/cases', { pipeline: own.key, title: 'Kasus uji' }).expect(201);
       expect(made.body.stage).toBe(own.start);
       expect(made.body.number).toMatch(/^WF\//);

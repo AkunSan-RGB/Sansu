@@ -4,7 +4,7 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { BUSINESS_MODEL_KEYS, CRM_PROFILES } from '@sansu/shared';
+import { BUSINESS_MODEL_KEYS, CRM_PROFILES, crmProfileForTenant, ServiceProfile } from '@sansu/shared';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 
@@ -38,7 +38,9 @@ describe('CRM per jenis usaha (e2e)', () => {
     it('tahap bawaan, sumber, dan alasan kalah mengikuti jenis usaha', async () => {
       const t = (await http.post('/api/auth/register').send({ companyName: `PT ${model}`, name: 'P', email: `crm-${model}-${stamp}@uji.id`, password: 'rahasia123', businessModel: model }).expect(201)).body.accessToken as string;
       await http.post('/api/apps/crm/install').set(as(t)).expect(201);
-      const prof = CRM_PROFILES[model];
+      // Jasa: CRM mengikuti profil layanan perusahaan (perusahaan baru: profil bawaan)
+      const profiles = (await http.get('/api/auth/me').set(as(t)).expect(200)).body.serviceProfiles as ServiceProfile[];
+      const prof = crmProfileForTenant(model, profiles);
       const stages = (await http.get('/api/crm/stages').set(as(t)).expect(200)).body as { name: string }[];
       expect(stages.map((s) => s.name)).toEqual(prof.stages.map((s) => s.name));
       expect((await http.get('/api/crm/profile').set(as(t)).expect(200)).body.sources).toEqual(prof.sources);
