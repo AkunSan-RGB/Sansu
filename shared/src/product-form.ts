@@ -33,6 +33,8 @@ export interface ProductFormProfile {
   menu: boolean;
   /** Barang setengah jadi */
   semi: boolean;
+  /** Layanan tanpa stok yang dijual di kasir (jenis usaha Jasa) */
+  service?: boolean;
   /** Umur simpan hasil produksi */
   shelfLife: boolean;
   skuLabel: string;
@@ -72,7 +74,7 @@ export const PRODUCT_FORM: Record<BusinessModel, ProductFormProfile> = {
     baseUoms: ['JAM', 'HARI', 'SESI', 'PAKET', 'KUNJUNGAN', 'ORANG', 'PROYEK', 'BULAN', 'MINGGU', 'TAHUN', 'LAPORAN', 'DOKUMEN', 'TITIK', 'LISENSI', 'TRIP', 'PEKERJAAN', 'M2', 'PCS', 'UNIT', 'SET'],
     packUoms: ['HARI', 'MINGGU', 'BULAN', 'PAKET', 'SET'],
     categories: ['Konsultasi', 'Pelatihan & Kursus', 'Perawatan & Kecantikan', 'Perbaikan & Instalasi', 'Desain & Kreatif', 'Teknologi Informasi', 'Hukum, Akuntansi & Pajak', 'Kesehatan', 'Transportasi & Logistik', 'Konstruksi & Renovasi', 'Bahan Habis Pakai', 'Lain-lain'],
-    barcode: false, packs: true, menu: false, semi: false, shelfLife: false,
+    barcode: false, packs: true, menu: false, semi: false, shelfLife: false, service: true,
     skuLabel: 'Kode layanan / bahan', nameLabel: 'Nama layanan / bahan', baseUomLabel: 'Satuan tarif', priceLabel: 'Tarif per satuan (belum PPN)',
     note: 'Layanan ditagih per satuan tarif (jam, sesi, paket). Bahan habis pakai (mis. suku cadang) memakai satuan barang. Upah pegawai per jam/sesi diatur di Penggajian → Upah jasa.',
   },

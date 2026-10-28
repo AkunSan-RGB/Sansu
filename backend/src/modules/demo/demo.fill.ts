@@ -369,3 +369,32 @@ export async function ritelHargaToko(c: Demo, rows: { productId: string; price: 
   await c.step('promo diskon kasir', () => c.svc.pricing.createPromo(c.admin, { name: promo.name, kind: 'DISCOUNT', productId: promo.productId, minQty: promo.minQty, discountPct: promo.discountPct, isActive: true }));
   if (bonus) await c.step('promo bonus kasir', () => c.svc.pricing.createPromo(c.admin, { name: bonus.name, kind: 'BONUS', productId: bonus.productId, minQty: bonus.minQty, bonusProductId: bonus.bonusProductId, bonusQty: bonus.bonusQty, isActive: true }));
 }
+
+/** Jasa: layanan di kasir (tanpa stok) dengan petugas dan satu layanan berbahan habis pakai lewat resep, beberapa hari penjualan */
+export async function jasaKasir(c: Demo) {
+  const { withSimulatedDay } = await import('../../common/utils/dates');
+  const staff = await c.db.select({ id: employees.id }).from(employees).where(eq(employees.tenantId, c.tenantId));
+  const svc: { id: string; price: number }[] = [];
+  for (const [sku, name, price] of [['LY-KONS', 'Konsultasi singkat', 150_000], ['LY-AUDIT', 'Pemeriksaan sistem (per kunjungan)', 350_000], ['LY-SETUP', 'Instalasi & konfigurasi perangkat', 275_000]] as const) {
+    const p = (await c.step(`layanan ${sku}`, () => c.svc.products.create(c.tenantId, { sku, name, baseUom: 'KUNJUNGAN', sellPrice: String(price), category: 'Konsultasi', isService: true }))) as { id: string } | undefined;
+    if (p) svc.push({ id: p.id, price });
+  }
+  if (!svc.length || !staff.length) return;
+  for (const day of [6, 4, 2, 1]) {
+    await withSimulatedDay(c.ago(day), async () => {
+      const s = await c.svc.pos.open(c.admin, { warehouseId: c.wh, openingCash: '200000' });
+      for (let i = 0; i < 3; i++) {
+        const l = svc[(i + day) % svc.length];
+        await c.step('transaksi layanan', () =>
+          c.svc.pos.createOrder(c.admin, {
+            sessionId: s.id,
+            lines: [{ productId: l.id, qty: '1', price: String(l.price), staffId: staff[(i + day) % staff.length].id }],
+            payments: [{ method: 'CASH', amount: String(Math.ceil((l.price * 1.11) / 10_000) * 10_000) }],
+          }),
+        );
+      }
+      const cur = (await c.svc.pos.current(c.admin)) as { summary: { expectedCash: string } } | null;
+      await c.svc.pos.close(c.admin, s.id, { countedCash: String(Number(cur?.summary.expectedCash ?? 200000)) });
+    });
+  }
+}

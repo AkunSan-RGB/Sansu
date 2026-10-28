@@ -100,6 +100,9 @@ describe('Lihat Demo (e2e)', () => {
     // Jasa: anggaran biaya proyek dan retainer berjatah jam
     expect(await prc(`SELECT COUNT(*)::text AS n FROM projects WHERE tenant_id = '${s('JASA')}' AND cost_budget > 0`)).toBeGreaterThan(0);
     expect(await prc(`SELECT COUNT(*)::text AS n FROM service_retainers WHERE tenant_id = '${s('JASA')}' AND included_hours > 0`)).toBe(1);
+    // Jasa: layanan tanpa stok dijual di kasir dengan petugas
+    expect(await prc(`SELECT COUNT(*)::text AS n FROM products WHERE tenant_id = '${s('JASA')}' AND is_service`)).toBe(3);
+    expect(await prc(`SELECT COUNT(*)::text AS n FROM pos_order_lines l JOIN pos_orders o ON o.id = l.order_id WHERE o.tenant_id = '${s('JASA')}' AND l.staff_id IS NOT NULL`)).toBeGreaterThanOrEqual(10);
     // Manufaktur: riwayat versi resep dan satu perintah subkontrak selesai dengan tagihan jasa
     expect(await count(s('MANUFAKTUR'), 'bom_revisions')).toBeGreaterThanOrEqual(2);
     expect(await prc(`SELECT COUNT(*)::text AS n FROM production_orders WHERE tenant_id = '${s('MANUFAKTUR')}' AND subcontractor_id IS NOT NULL AND subcontract_bill_id IS NOT NULL AND status = 'COMPLETED'`)).toBe(1);

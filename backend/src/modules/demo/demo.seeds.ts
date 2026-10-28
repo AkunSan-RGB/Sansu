@@ -326,6 +326,7 @@ async function seedJasa(c: Demo) {
   await X.taxes(c);
   await X.bankStatement(c);
   await X.pettyCash(c);
+  await F.jasaKasir(c);
   await X.cashCount(c);
   await X.attendance(c);
   await X.crm(c, cu.get('CL-BANK')!, ids.get('JB-CETAK')!, [

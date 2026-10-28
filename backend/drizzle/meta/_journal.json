@@ -855,6 +855,13 @@
       "when": 1798828686484,
       "tag": "0121_kasir_bonus",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1798915086484,
+      "tag": "0122_layanan_kasir",
+      "breakpoints": true
     }
   ]
 }

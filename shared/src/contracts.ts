@@ -218,6 +218,8 @@ export interface Product {
   inventoryKind?: 'GOODS' | 'SEMI';
   /** Menu dibuat saat dipesan: kasir memotong bahan sesuai resep (stok = porsi yang bisa dibuat) */
   madeToOrder?: boolean;
+  /** Layanan tanpa stok (jenis usaha Jasa): dijual di kasir, bahan habis pakai opsional lewat resep */
+  isService?: boolean;
   /** Umur simpan (hari) untuk hasil produksi; kosong = kedaluwarsa tidak dipantau */
   shelfLifeDays?: number | null;
   /** Berat per satuan dasar (kg); dasar muatan rute pengiriman */

@@ -232,6 +232,7 @@ export const MENU: Group[] = [
           { key: '/pos/kitchen', label: 'Layar dapur', models: ['FNB'], roles: ['OWNER', 'CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/pos/online', label: 'Pesanan online', models: ['FNB'], roles: ['ADMIN', 'FINANCE'] },
           { key: '/pos/sessions', label: 'Riwayat sesi kasir', roles: ['OWNER', 'CASHIER', 'SALES', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/pos/staff-sales', label: 'Kinerja petugas', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/pos/settlements', label: 'Pencairan QRIS/kartu', models: ['RITEL', 'FNB'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
         ],
       },

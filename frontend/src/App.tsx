@@ -24,6 +24,7 @@ import PayrollRunsPage from './features/payroll/PayrollRunsPage';
 import Pph21ReportPage from './features/payroll/Pph21ReportPage';
 import PosPage from './features/pos/PosPage';
 import PosSessionsPage from './features/pos/PosSessionsPage';
+import StaffSalesPage from './features/pos/StaffSalesPage';
 import AppsPage from './features/settings/AppsPage';
 import CompanySettingsPage from './features/settings/CompanySettingsPage';
 import UsersPage from './features/settings/UsersPage';
@@ -198,6 +199,7 @@ export default function App() {
         </Route>
         <Route element={<AppGate app="pos" />}>
           <Route path="pos/sessions" element={<PosSessionsPage />} />
+          <Route path="pos/staff-sales" element={<StaffSalesPage />} />
           <Route path="pos/tables" element={<TablesPage />} />
           <Route path="pos/kitchen" element={<KitchenPage />} />
           <Route path="pos/online" element={<OnlineOrdersPage />} />

@@ -7,6 +7,7 @@ import { customers, products, warehouses } from './master-data';
 import { accounts, journalEntries } from './accounting';
 import { PosTabLineStatus, PosTabStatus, posPaymentMethodEnum, posSessionStatusEnum } from './enums';
 import { invoices } from './sales';
+import { employees } from './hr';
 
 export const posSessions = pgTable(
   'pos_sessions',
@@ -244,6 +245,8 @@ export const posOrderLines = pgTable('pos_order_lines', {
   fromRecipe: boolean('from_recipe').notNull().default(false),
   /** Bonus barang dari promo (harga 0, ditambahkan server) */
   isBonus: boolean('is_bonus').notNull().default(false),
+  /** Petugas yang mengerjakan layanan ini (komisi/kinerja) */
+  staffId: uuid('staff_id').references(() => employees.id),
   /** Sudah diretur (satuan sesuai baris) */
   returnedQty: qty('returned_qty').notNull().default('0'),
 });

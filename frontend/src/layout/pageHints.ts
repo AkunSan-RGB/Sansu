@@ -18,6 +18,7 @@ export const PAGE_HINTS: Record<string, string> = {
   '/deliveries': 'Surat jalan: barang yang sudah keluar gudang dan dikirim ke pelanggan.',
   '/projects': 'Proyek dan termin penagihannya: nilai kontrak, kemajuan, dan yang sudah ditagih.',
   '/returns': 'Barang yang dikembalikan pelanggan atau ke pemasok; stok dan tagihan ikut dikoreksi.',
+  '/pos/staff-sales': 'Jumlah dan nilai layanan yang dikerjakan tiap petugas di kasir, sudah dikurangi retur.',
   '/price-lists': 'Daftar harga per kelompok pelanggan, termasuk harga bertingkat menurut jumlah.',
   '/promos': 'Promo potongan harga dan bonus barang yang diterapkan otomatis di pesanan.',
   '/consignments': 'Barang titipan di outlet: dikirim, terjual, dan yang dikembalikan.',
