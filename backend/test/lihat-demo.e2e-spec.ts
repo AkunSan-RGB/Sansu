@@ -149,9 +149,8 @@ describe('Lihat Demo (e2e)', () => {
     expect(await count(s('RITEL'), 'promos')).toBe(2);
     const prc = async (q: string) => Number((await db.execute<{ n: string }>(sql.raw(q))).rows[0].n);
     expect(await prc(`SELECT COUNT(*)::text AS n FROM warehouses WHERE tenant_id = '${s('RITEL')}' AND price_list_id IS NOT NULL`)).toBeGreaterThanOrEqual(1);
-    // Jasa: anggaran biaya proyek dan retainer berjatah jam
+    // Jasa Kontraktor: anggaran biaya proyek (retainer berjatah jam ada di profil Konsultan)
     expect(await prc(`SELECT COUNT(*)::text AS n FROM projects WHERE tenant_id = '${s('JASA')}' AND cost_budget > 0`)).toBeGreaterThan(0);
-    expect(await prc(`SELECT COUNT(*)::text AS n FROM service_retainers WHERE tenant_id = '${s('JASA')}' AND included_hours > 0`)).toBe(1);
     // Jasa bawaan = profil Kontraktor: hanya profil itu yang aktif, BoQ, kemajuan dari volume, termin dipecah (tagihan jalan + retensi)
     const jasa = (await get(sessions.get('JASA')!.token, '/api/auth/me').expect(200)).body;
     expect(jasa.serviceProfiles).toEqual(['KONTRAKTOR']);
