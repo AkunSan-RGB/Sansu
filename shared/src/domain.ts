@@ -19,6 +19,12 @@ export const ROLE_LABELS: Record<Role, string> = {
 
 /** Sebutan peran di jenis usaha tertentu (peran dasarnya sama; hanya namanya yang mengikuti pekerjaan sehari-hari) */
 const ROLE_LABELS_BY_MODEL: Partial<Record<string, Partial<Record<Role, string>>>> = {
+  DAGANG: { SALES: 'Penjualan', PURCHASING: 'Pembelian', WAREHOUSE: 'Gudang' },
+  RITEL: { SALES: 'Pramuniaga', WAREHOUSE: 'Staf gudang toko' },
+  JASA: { SALES: 'Pemasaran & kontrak', WAREHOUSE: 'Koordinator lapangan', PURCHASING: 'Pembelian & subkontrak', CASHIER: 'Kasir layanan' },
+  FMCG: { SALES: 'Sales lapangan', WAREHOUSE: 'Gudang & distribusi', PURCHASING: 'Pembelian dari prinsipal' },
+  MANUFAKTUR: { SALES: 'Penjualan', WAREHOUSE: 'Gudang & produksi', PURCHASING: 'Pembelian bahan' },
+  FNB: { SALES: 'Pelayan & katering', WAREHOUSE: 'Gudang & dapur', PURCHASING: 'Belanja bahan' },
   UTILITAS: { SALES: 'Pelayanan pelanggan', WAREHOUSE: 'Petugas lapangan', CASHIER: 'Kasir loket', PURCHASING: 'Pembelian bahan' },
 };
 export const roleLabelFor = (role: Role, model: string | null | undefined): string => ROLE_LABELS_BY_MODEL[model ?? '']?.[role] ?? ROLE_LABELS[role];

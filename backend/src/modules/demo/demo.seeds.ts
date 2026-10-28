@@ -1,32 +1,10 @@
-import { type BusinessModel } from '@sansu/shared';
+import { type BusinessModel, type ServiceProfile } from '@sansu/shared';
 import { tradeTerms } from '../../db/schema';
 import { airDemo, HOMES } from './demo.air';
 import * as X from './demo.extra';
 import * as F from './demo.fill';
-import { addCustomers, addSuppliers, Demo, expense, openingBalance, payBill, payroll, posDay, purchase, receive, sell } from './demo.kit';
-
-type Prod = { sku: string; name: string; cat: string; price: number; cost: number; qty: number; uom?: string; per?: number };
-
-/** Buat produk + stok awal 60 hari lalu; kembalikan id per SKU dan nilai persediaan */
-async function stockItems(c: Demo, list: Prod[], extra: { uoms?: boolean } = {}) {
-  const ids = new Map<string, string>();
-  for (const [i, p] of list.entries()) {
-    const r = await c.svc.products.create(c.tenantId, {
-      sku: p.sku,
-      name: p.name,
-      category: p.cat,
-      baseUom: p.uom ?? 'PCS',
-      sellPrice: String(p.price),
-      barcode: `8991${String(i + 1).padStart(9, '0')}`,
-      ...(extra.uoms && p.per ? { uoms: [{ uom: 'DUS', factor: String(p.per) }] } : {}),
-    });
-    ids.set(p.sku, r.id);
-  }
-  const lines = list.map((p) => ({ productId: ids.get(p.sku)!, qty: String(p.qty), unitCost: String(p.cost) }));
-  await c.svc.inventory.adjust(c.admin, { warehouseId: c.wh, reason: 'OPENING', date: c.ago(120), notes: 'Saldo awal stok', lines });
-  const value = list.reduce((a, p) => a + p.qty * p.cost, 0);
-  return { ids, value };
-}
+import { addCustomers, addSuppliers, Demo, expense, openingBalance, payBill, payroll, posDay, type Prod, purchase, receive, sell, stockItems } from './demo.kit';
+import { seedJasa } from './demo.jasa';
 
 // ---------------------------------------------------------------- RITEL
 const RITEL: Prod[] = [
@@ -233,121 +211,6 @@ async function seedDagang(c: Demo) {
     { productId: id('BB-CAT-KAYU'), qty: 80, price: 49500, expiresInDays: 330 },
   ]);
   await F.serviceWork(c, [{ name: 'Borongan bongkar muat truk', unit: 'JOB', rate: '150000', qty: '1' }]);
-  await F.employmentChange(c);
-  await F.closePeriod(c);
-}
-
-// ---------------------------------------------------------------- JASA
-const JASA_BAHAN: Prod[] = [
-  { sku: 'JB-LISENSI', name: 'Lisensi Perangkat Lunak Desain (tahunan)', cat: 'Lisensi', price: 2_400_000, cost: 1_900_000, qty: 12, uom: 'LSN' },
-  { sku: 'JB-CLOUD', name: 'Paket Kredit Cloud (100 jam)', cat: 'Lisensi', price: 3_500_000, cost: 2_800_000, qty: 20, uom: 'PKT' },
-  { sku: 'JB-PERANGKAT', name: 'Perangkat Uji Mobile', cat: 'Perangkat', price: 3_200_000, cost: 2_600_000, qty: 8, uom: 'UNIT' },
-  { sku: 'JB-CETAK', name: 'Paket Cetak Dokumen Proyek', cat: 'Cetak', price: 450_000, cost: 300_000, qty: 60, uom: 'PKT' },
-];
-async function seedJasa(c: Demo) {
-  const { ids, value } = await stockItems(c, JASA_BAHAN);
-  await openingBalance(c, { kas: 6_000_000, bank: 210_000_000, stockValue: value });
-  const sup = await addSuppliers(c, [{ code: 'SUP-CLOUD', name: 'PT Awan Digital Nusantara', term: 14 }]);
-  const cu = await addCustomers(c, [
-    { code: 'CL-BANK', name: 'PT Bank Mitra Sejahtera', address: 'Jl. Sudirman Kav. 52, Jakarta', term: 30 },
-    { code: 'CL-RETAIL', name: 'PT Ritel Nusantara Prima', address: 'Jl. TB Simatupang, Jakarta', term: 30 },
-    { code: 'CL-RS', name: 'Rumah Sakit Sehat Bersama', address: 'Jl. Fatmawati, Jakarta', term: 45 },
-    { code: 'CL-START', name: 'Startup Logistik Kita', address: 'Bandung', term: 14 },
-    { code: 'CL-EDU', name: 'Yayasan Pendidikan Cerdas', address: 'Depok', term: 30 },
-  ]);
-  const proj = async (code: string, name: string, cust: string, value: number, start: number) =>
-    c.step(`proyek ${name}`, () => c.svc.projects.createProject(c.admin, { code, name, customerId: cu.get(cust)!, contractValue: String(value), startDate: c.ago(start), endDate: c.ago(-60) })) as Promise<{ id: string } | undefined>;
-  const p1 = await proj('PRJ-APP', 'Pengembangan Aplikasi Mobile Banking Nasabah', 'CL-BANK', 240_000_000, 58);
-  const p2 = await proj('PRJ-ERP', 'Implementasi Sistem Gudang Terpadu', 'CL-RETAIL', 150_000_000, 42);
-  const inv = async (cust: string, ago: number, desc: string, label: string, lines: { description: string; qty?: string; unit?: string; price: string }[], projectId?: string) =>
-    c.step(`faktur ${desc}`, () => c.svc.billing.createInvoice(c.admin, { customerId: cu.get(cust)!, date: c.ago(ago), description: desc, termLabel: label, projectId, lines })) as Promise<{ id: string } | undefined>;
-  const i1 = await inv('CL-BANK', 50, 'Termin 1 — desain & prototipe', 'Termin 1 (30%)', [{ description: 'Desain UX & prototipe aplikasi', price: '72000000' }], p1?.id);
-  const i2 = await inv('CL-RETAIL', 34, 'Termin 1 — analisis kebutuhan', 'Termin 1 (30%)', [{ description: 'Analisis proses gudang & konfigurasi awal', price: '45000000' }], p2?.id);
-  const i3 = await inv('CL-RS', 40, 'Konsultasi keamanan informasi (audit ISO 27001)', 'Paket', [{ description: 'Audit kesiapan ISO 27001', qty: '1', unit: 'Paket', price: '38000000' }, { description: 'Pelatihan staf (2 hari)', qty: '2', unit: 'Hari', price: '6500000' }]);
-  const i4 = await inv('CL-START', 21, 'Desain identitas visual & situs web', 'Paket', [{ description: 'Desain identitas visual', price: '14500000' }, { description: 'Pembuatan situs web perusahaan', price: '21000000' }]);
-  const i5 = await inv('CL-EDU', 12, 'Dukungan bulanan sistem akademik', 'Bulanan', [{ description: 'Dukungan & pemeliharaan sistem akademik (bulan lalu)', qty: '1', unit: 'Bulan', price: '9500000' }]);
-  if (i1) await c.step('bayar termin 1', () => receive(c, i1.id, 18));
-  if (i3) await c.step('bayar audit', () => receive(c, i3.id, 4));
-  if (i4) await c.step('bayar desain (sebagian)', () => receive(c, i4.id, 9, 'TRANSFER', 0.5));
-  void i2;
-  void i5;
-  // bahan kerja dijual/diteruskan ke klien (pesanan kerja), dibeli dari pemasok
-  const jsold = await c.step('jual bahan ke klien', () => sell(c, cu.get('CL-RS')!, 30, [{ productId: ids.get('JB-CETAK')!, qty: 20 }, { productId: ids.get('JB-CLOUD')!, qty: 2 }]));
-  const jsold2 = await c.step('jual bahan klien 2', () => sell(c, cu.get('CL-EDU')!, 16, [{ productId: ids.get('JB-LISENSI')!, qty: 3 }]));
-  if (jsold) await c.step('bayar bahan', () => receive(c, jsold, 18));
-  await c.step('beli lisensi', () => purchase(c, sup.get('SUP-CLOUD')!, 38, [{ productId: ids.get('JB-LISENSI')!, qty: 6, price: 1_880_000 }, { productId: ids.get('JB-CLOUD')!, qty: 10, price: 2_750_000 }], { pay: true, invoiceNo: 'AWAN-8841' }));
-  await c.step('beli perangkat (belum lunas)', () => purchase(c, sup.get('SUP-CLOUD')!, 8, [{ productId: ids.get('JB-PERANGKAT')!, qty: 4, price: 2_600_000 }], { invoiceNo: 'AWAN-9020' }));
-  // faktur jasa yang dipotong PPh 23 oleh klien
-  for (const [i, [cust, ago, price]] of ([['CL-BANK', 26, 36_000_000], ['CL-RS', 19, 24_000_000]] as [string, number, number][]).entries()) {
-    const w = (await c.step('faktur jasa dipotong PPh 23', () =>
-      c.svc.billing.createInvoice(c.admin, { customerId: cu.get(cust)!, date: c.ago(ago), description: 'Jasa konsultasi teknologi informasi', termLabel: 'Paket', withholdingType: 'PPH23', withholdingRate: '2', lines: [{ description: 'Konsultasi & implementasi (jasa)', price: String(price) }] }),
-    )) as { id: string } | undefined;
-    if (w && i === 0) await c.step('bayar faktur dipotong', () => receive(c, w.id, 8, 'TRANSFER', 0.98));
-  }
-  if (p1) await c.step('progres', () => c.svc.projects.recordProgress(c.admin, p1.id, { date: c.ago(5), percent: '55', notes: 'BA kemajuan 03 — modul transfer & mutasi selesai' }));
-  if (p2) await c.step('progres', () => c.svc.projects.recordProgress(c.admin, p2.id, { date: c.ago(5), percent: '35', notes: 'BA kemajuan 01 — konfigurasi gudang pusat' }));
-  await expense(c, 56, 'bank', '6-3000', 'Sewa kantor Lt. 5', 21_000_000, 'SEWA-KTR');
-  await expense(c, 30, 'bank', '6-4000', 'Internet & listrik kantor', 4_800_000);
-  await expense(c, 20, 'bank', '6-6000', 'Langganan perangkat lunak desain & cloud', 5_250_000, 'INV-CLOUD');
-  await expense(c, 8, 'kas', '6-6000', 'Perlengkapan & konsumsi rapat klien', 780_000, 'NOTA-0805');
-  await payroll(c, [
-    { code: 'J-001', name: 'Arief Nugraha', title: 'Konsultan Senior', dept: 'Konsultasi', salary: 14_000_000, allowance: 1_500_000, ptkp: 'K/2' },
-    { code: 'J-002', name: 'Sinta Dewanti', title: 'Desainer UX', dept: 'Desain', salary: 9_500_000, allowance: 800_000, ptkp: 'TK/0' },
-    { code: 'J-003', name: 'Bagus Prakoso', title: 'Pengembang', dept: 'Teknologi', salary: 11_000_000, allowance: 1_000_000, ptkp: 'K/1' },
-    { code: 'J-004', name: 'Lia Permata', title: 'Manajer Proyek', dept: 'Konsultasi', salary: 12_500_000, allowance: 1_200_000, ptkp: 'K/1' },
-  ]);
-  const jasaItems: [string, string, number][] = [
-    ['CL-RETAIL', 'Dukungan & pemeliharaan sistem gudang', 8_500_000],
-    ['CL-EDU', 'Dukungan bulanan sistem akademik', 9_500_000],
-    ['CL-START', 'Konsultasi pengembangan produk digital', 12_000_000],
-    ['CL-RS', 'Pelatihan keamanan informasi staf', 15_000_000],
-    ['CL-BANK', 'Review kode & uji penetrasi aplikasi', 28_000_000],
-    ['CL-EDU', 'Dukungan bulanan sistem akademik', 9_500_000],
-    ['CL-RETAIL', 'Dukungan & pemeliharaan sistem gudang', 8_500_000],
-    ['CL-START', 'Desain ulang antarmuka aplikasi', 18_000_000],
-  ];
-  for (const [i, [cust, desc, price]] of jasaItems.entries()) {
-    const ago = 105 - i * 12 + c.int(0, 4);
-    const inv2 = await inv(cust, ago, desc, 'Paket', [{ description: desc, price: String(price) }]);
-    if (inv2 && i < jasaItems.length - 2) await c.step('terima bayar jasa', () => receive(c, inv2.id, Math.max(ago - c.int(10, 25), 2)));
-  }
-  await X.monthlyOps(c, [
-    { code: '6-3000', desc: 'Sewa kantor Lt. 5', amount: 21_000_000, from: 'bank', day: 2 },
-    { code: '6-4000', desc: 'Internet & listrik kantor', amount: 4_800_000, from: 'bank', day: 10 },
-    { code: '6-6000', desc: 'Langganan perangkat lunak desain & cloud', amount: 5_250_000, from: 'bank', day: 16 },
-  ]);
-  await X.cashMovements(c);
-  await X.fixedAssets(c, 'SUP-CLOUD', [
-    { cat: 'Inventaris', name: 'Laptop kerja tim (4 unit)', cost: 56_000_000, ago: 100, location: 'Kantor' },
-    { cat: 'Inventaris', name: 'Server & perangkat jaringan', cost: 32_000_000, ago: 85, location: 'Ruang server' },
-  ]);
-  await X.journals(c);
-  await X.budget(c, [{ code: '6-3000', monthly: 21_000_000 }, { code: '6-4000', monthly: 5_000_000 }, { code: '6-1000', monthly: 40_000_000 }]);
-  await X.taxes(c);
-  await X.bankStatement(c);
-  await X.pettyCash(c);
-  await F.jasaKasir(c);
-  await F.hubungkanPemilik(c, 'J-001');
-  await X.cashCount(c);
-  await X.attendance(c);
-  await X.crm(c, cu.get('CL-BANK')!, ids.get('JB-CETAK')!, [
-    { title: 'Aplikasi mobile — perluasan fitur investasi', company: 'PT Bank Mitra Sejahtera', contact: 'Ibu Dewi', value: 320_000_000, source: 'Klien lama' },
-    { title: 'Audit keamanan sistem rumah sakit', company: 'RS Sehat Bersama', contact: 'Pak Budi', value: 95_000_000, source: 'Referensi' },
-    { title: 'Portal e-learning sekolah', company: 'Yayasan Pendidikan Cerdas', contact: 'Bu Sari', value: 140_000_000, source: 'Webinar' },
-    { title: 'Dashboard analitik penjualan', company: 'PT Ritel Nusantara Prima', contact: 'Pak Rian', value: 85_000_000, source: 'Kunjungan' },
-  ]);
-  const dep = await c.step('uang muka pelanggan', () => c.svc.deposits.createDeposit(c.admin, { customerId: cu.get('CL-EDU')!, date: c.ago(15), amount: '27750000', method: 'TRANSFER', cashAccountId: c.bank, description: 'Uang muka portal e-learning' }));
-  void dep;
-  await X.stockOps(c, ids, JASA_BAHAN.map((p) => p.sku), { saleInvoiceId: jsold2, billId: c.last.bill, supplierId: sup.get('SUP-CLOUD') });
-  await F.jasaOperations(c, [cu.get('CL-BANK')!, cu.get('CL-RETAIL')!, cu.get('CL-RS')!], p1?.id);
-  await F.kontraktorRetensi(c, cu.get('CL-RETAIL')!);
-  await F.kontrakLokasi(c, cu.get('CL-RETAIL')!);
-  await F.pendidikanSpp(c, [cu.get('CL-EDU')!, cu.get('CL-BANK')!]);
-  await F.projectBudgets(c);
-  await F.serviceWork(c, [{ name: 'Konsultan senior — per jam', unit: 'HOUR', rate: '250000', qty: '6.5' }, { name: 'Sesi pelatihan klien', unit: 'SESSION', rate: '1500000', qty: '1' }]);
-  await F.minimums(c, [...ids.values()]);
-  await F.priceAgreements(c, [{ supplierId: sup.get('SUP-CLOUD')!, productId: ids.get('JB-LISENSI')!, price: 1_850_000 }]);
-  await F.supplierAdvance(c, sup.get('SUP-CLOUD')!, ids.get('JB-CLOUD')!, 2_700_000);
   await F.employmentChange(c);
   await F.closePeriod(c);
 }
@@ -985,10 +848,10 @@ async function seedUtilitas(c: Demo) {
   await F.closePeriod(c);
 }
 
-export const SEEDS: Record<BusinessModel, (c: Demo) => Promise<void>> = {
+export const SEEDS: Record<BusinessModel, (c: Demo, profile?: ServiceProfile) => Promise<void>> = {
   RITEL: seedRitel,
   DAGANG: seedDagang,
-  JASA: seedJasa,
+  JASA: (c, profile) => seedJasa(c, profile),
   FMCG: seedFmcg,
   MANUFAKTUR: seedManufaktur,
   FNB: seedFnb,

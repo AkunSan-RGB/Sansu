@@ -3,7 +3,7 @@ import { PosTabsService } from '../pos/pos-tabs.service';
 import { Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { eq } from 'drizzle-orm';
-import { type BusinessModel, type PtkpStatus } from '@sansu/shared';
+import { type BusinessModel, type PtkpStatus, type ServiceProfile } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SettingsService } from '../../common/settings.service';
@@ -162,6 +162,14 @@ const PROFILE: Record<BusinessModel, { activity: string; address: string; city: 
   FNB: { activity: 'kafe dan kedai makan (kopi, minuman, nasi, mi, dan roti)', address: 'Jl. Braga No. 88, Bandung', city: 'Bandung' },
 };
 
+const JASA_PROFILE: Record<ServiceProfile, { activity: string; address: string; city: string }> = {
+  KONSULTAN: { activity: 'jasa konsultasi teknologi informasi dan desain digital', address: 'Gedung Graha Mitra Lt. 5, Jl. Gatot Subroto Kav. 21, Jakarta', city: 'Jakarta' },
+  KONTRAKTOR: { activity: 'jasa konstruksi (kontraktor) bangunan gedung dan renovasi', address: 'Jl. Raya Bekasi Km. 18 No. 7, Jakarta Timur', city: 'Jakarta' },
+  PENDIDIKAN: { activity: 'lembaga bimbingan belajar dan kursus', address: 'Jl. Margonda Raya No. 120, Depok', city: 'Depok' },
+  ALIH_DAYA: { activity: 'jasa alih daya tenaga keamanan dan kebersihan gedung', address: 'Jl. Jenderal Sudirman Kav. 52, Jakarta', city: 'Jakarta' },
+  BENGKEL: { activity: 'bengkel servis kendaraan roda empat', address: 'Jl. Raya Bogor Km. 29 No. 15, Depok', city: 'Depok' },
+};
+
 const APPS_BY_MODEL: Record<BusinessModel, ('pos' | 'crm' | 'payroll')[]> = {
   RITEL: ['pos', 'payroll'],
   DAGANG: ['payroll', 'crm'],
@@ -172,12 +180,12 @@ const APPS_BY_MODEL: Record<BusinessModel, ('pos' | 'crm' | 'payroll')[]> = {
   UTILITAS: ['payroll', 'crm'],
 };
 
-export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: BusinessModel): Promise<Demo> {
+export async function buildDemo(ref: ModuleRef, db: Db, admin: AuthUser, model: BusinessModel, serviceProfile: ServiceProfile = 'KONTRAKTOR'): Promise<Demo> {
   const get = <T>(c: new (...a: never[]) => T) => ref.get(c, { strict: false });
   const today = todayJakarta();
   const R = rng(Date.now() % 1_000_000);
   const tenantId = admin.tenantId;
-  const profile = PROFILE[model];
+  const profile = model === 'JASA' ? { ...PROFILE.JASA, ...JASA_PROFILE[serviceProfile] } : PROFILE[model];
 
   await db.update(tenants).set({ npwp: '01.234.567.8-901.000', address: profile.address, ppnRate: '11' }).where(eq(tenants.id, tenantId));
   await get(SettingsService).saveReporting(db, tenantId, {
@@ -430,3 +438,25 @@ export async function posDay(c: Demo, daysAgo: number, items: { id: string; pric
   });
 }
 
+export type Prod = { sku: string; name: string; cat: string; price: number; cost: number; qty: number; uom?: string; per?: number };
+
+/** Buat produk + stok awal 60 hari lalu; kembalikan id per SKU dan nilai persediaan */
+export async function stockItems(c: Demo, list: Prod[], extra: { uoms?: boolean } = {}) {
+  const ids = new Map<string, string>();
+  for (const [i, p] of list.entries()) {
+    const r = await c.svc.products.create(c.tenantId, {
+      sku: p.sku,
+      name: p.name,
+      category: p.cat,
+      baseUom: p.uom ?? 'PCS',
+      sellPrice: String(p.price),
+      barcode: `8991${String(i + 1).padStart(9, '0')}`,
+      ...(extra.uoms && p.per ? { uoms: [{ uom: 'DUS', factor: String(p.per) }] } : {}),
+    });
+    ids.set(p.sku, r.id);
+  }
+  const lines = list.map((p) => ({ productId: ids.get(p.sku)!, qty: String(p.qty), unitCost: String(p.cost) }));
+  await c.svc.inventory.adjust(c.admin, { warehouseId: c.wh, reason: 'OPENING', date: c.ago(120), notes: 'Saldo awal stok', lines });
+  const value = list.reduce((a, p) => a + p.qty * p.cost, 0);
+  return { ids, value };
+}

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, ReactNode, useContext } from 'react';
-import type { BusinessModel, LoginResponse } from '@sansu/shared';
+import type { BusinessModel, LoginResponse, ServiceProfile } from '@sansu/shared';
 import { ApiError, get, post, tokenStore } from '@/api/client';
 import type { Me } from '@/api/types';
 import { setRecipeTerm, setUiModel } from '@/lib/terms';
@@ -13,7 +13,7 @@ interface AuthState {
   loginTwoFactor: (challenge: string, code: string) => Promise<void>;
   register: (data: { companyName: string; name: string; email: string; password: string; businessModel?: BusinessModel; acceptTerms?: boolean }) => Promise<{ verifyEmail: string } | void>;
   /** Lihat Demo: buat PT DEMO berisi transaksi contoh sesuai jenis usaha lalu masuk */
-  startDemo: (model: BusinessModel) => Promise<void>;
+  startDemo: (model: BusinessModel, serviceProfile?: ServiceProfile) => Promise<void>;
   logout: () => void;
 }
 
@@ -63,8 +63,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.verificationRequired) return { verifyEmail: res.email ?? data.email };
       await afterAuth({ accessToken: res.accessToken! });
     },
-    startDemo: async (model) => {
-      const res = await post<{ accessToken: string }>('/demo/start', { businessModel: model });
+    startDemo: async (model, serviceProfile) => {
+      const res = await post<{ accessToken: string }>('/demo/start', { businessModel: model, ...(model === 'JASA' && serviceProfile ? { serviceProfile } : {}) });
       await afterAuth({ accessToken: res.accessToken });
     },
     logout: () => {
