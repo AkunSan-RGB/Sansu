@@ -83,6 +83,20 @@ describe('Jasa kontraktor: retensi + BoQ (e2e)', () => {
     expect(Number((await get(owner, `/api/invoices/${full.id}`).expect(200)).body.subtotal)).toBe(10000000);
   });
 
+  it('PPN dan PPh 23 total sama dengan tagihan tanpa pemecahan (tidak ada selisih pembulatan antar faktur)', async () => {
+    const ref = (await post(owner, '/api/services/projects', { name: 'Pembanding tanpa retensi', customerId: cust, contractValue: '50000000' }).expect(201)).body.id;
+    const opts = { withVat: true, withholdingType: 'PPH23', withholdingRate: '2' };
+    const a = (await termin(ref, '33333333', opts).expect(201)).body;
+    const b = (await termin(project, '33333333', opts).expect(201)).body;
+    const inv = async (id: string) => (await get(owner, `/api/invoices/${id}`).expect(200)).body;
+    const [plainInv, main, ret] = await Promise.all([inv(a.id), inv(b.id), inv(b.retentionInvoice.id)]);
+    const sum = (k: string) => Number(main[k]) + Number(ret[k]);
+    expect(sum('subtotal')).toBeCloseTo(Number(plainInv.subtotal), 2);
+    expect(sum('taxAmount')).toBeCloseTo(Number(plainInv.taxAmount), 2);
+    expect(sum('withholdingAmount')).toBeCloseTo(Number(plainInv.withholdingAmount), 1);
+    expect(Math.abs(sum('total') - Number(plainInv.total))).toBeLessThan(0.02);
+  });
+
   describe('BoQ', () => {
     let items: { id: string; description: string; value: string }[] = [];
     it('simpan BoQ, total dan selisih terhadap kontrak; hanya peran proyek yang boleh', async () => {

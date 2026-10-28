@@ -47,7 +47,7 @@ export const MODEL_WORKSPACE: Record<BusinessModel, WorkspaceDef> = {
     tagline: 'Penawaran, proyek, jam kerja, lalu tagihan tepat waktu.',
     stages: [
       { title: 'Dapatkan klien', desc: 'Calon klien sampai kesepakatan.', links: [{ label: 'Pipeline calon klien', to: '/crm' }, { label: 'Penawaran harga', to: '/quotations' }, { label: 'Pelanggan', to: '/customers' }] },
-      { title: 'Kerjakan', desc: 'Proyek, jadwal sumber daya, dan jam kerja.', links: [{ label: 'Proyek & termin', to: '/projects' }, { label: 'Jadwal sumber daya', to: '/scheduling' }, { label: 'Lembar waktu', to: '/timesheets' }, { label: 'Retainer', to: '/retainers' }] },
+      { title: 'Kerjakan', desc: 'Pekerjaan menurut profil layanan Anda (Pengaturan › Jenis usaha): proyek, jam kerja, kelas, kontrak lokasi, atau layanan di kasir.', links: [{ label: 'Proyek & termin', to: '/projects' }, { label: 'Jadwal tim', to: '/scheduling' }, { label: 'Lembar waktu', to: '/timesheets' }, { label: 'Retainer', to: '/retainers' }, { label: 'Kelas & SPP', to: '/education' }, { label: 'Kontrak per lokasi', to: '/sites' }, { label: 'Layar kasir layanan', to: '/pos' }] },
       { title: 'Tagih', desc: 'Faktur termin, uang muka, dan piutang.', links: [{ label: 'Faktur & piutang', to: '/invoices' }, { label: 'Uang muka pelanggan', to: '/customer-deposits' }] },
       { title: 'Tim', desc: 'Karyawan, cuti, dan gaji per pekerjaan.', links: [{ label: 'Karyawan', to: '/employees' }, { label: 'Cuti', to: '/leaves' }, { label: 'Gaji jasa', to: '/payroll/jasa' }] },
       { title: 'Laporan', desc: 'Kinerja proyek dan utilisasi.', links: [{ label: 'Laporan jasa & proyek', to: '/laporan/jasa' }] },

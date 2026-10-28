@@ -1,5 +1,6 @@
 import type { FiscalTreatment, ReportGroup, ReportingFramework, TaxPaymentType } from './accounting.js';
 import type { AppKey, BusinessModel } from './apps.js';
+import type { ServiceProfile } from './service-profiles.js';
 import type { TaxFeatures } from './tax-features.js';
 /**
  * Kontrak respons API SANSU (dipakai frontend; backend menghasilkan bentuk ini).
@@ -48,6 +49,8 @@ export interface Me {
   taxFeatures: TaxFeatures;
   /** Model bisnis perusahaan (Dagang, Ritel, Jasa, FMCG, Manufaktur, F&B) */
   businessModel: BusinessModel;
+  /** Profil layanan perusahaan Jasa (menu mengikuti ini); perusahaan lama yang belum memilih = semua profil */
+  serviceProfiles?: ServiceProfile[];
   /** Perusahaan punya cabang usaha (fitur cabang tampil); mati = menu & isian cabang disembunyikan */
   multiBranch?: boolean;
   /** Sebutan perusahaan untuk "Resep" (BOM) */

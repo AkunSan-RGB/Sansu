@@ -26,7 +26,7 @@ export default function WorkspacePage() {
   const summary = useQuery({ queryKey: ['dashboard', 'summary', undefined], queryFn: () => get<Dashboard>('/dashboard'), enabled: finance });
   if (!me) return null;
   const def = MODEL_WORKSPACE[me.businessModel];
-  const ctx: VisibilityCtx = { role: me.role, model: me.businessModel, framework: me.framework, multiBranch: me.multiBranch, hasBudget: me.hasBudget, subscriptionEnabled: me.subscription?.enabled, taxFeatures: me.taxFeatures as unknown as VisibilityCtx['taxFeatures'], can };
+  const ctx: VisibilityCtx = { role: me.role, model: me.businessModel, framework: me.framework, multiBranch: me.multiBranch, hasBudget: me.hasBudget, subscriptionEnabled: me.subscription?.enabled, taxFeatures: me.taxFeatures as unknown as VisibilityCtx['taxFeatures'], profiles: me.serviceProfiles, can };
   const stages = def.stages
     .map((s) => ({ ...s, links: s.links.filter((l) => pathVisible(l.to, ctx)) }))
     .filter((s) => s.links.length > 0);

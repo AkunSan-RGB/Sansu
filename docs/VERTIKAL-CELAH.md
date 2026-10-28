@@ -40,6 +40,7 @@ Jenis usaha Jasa semula paling cocok untuk konsultan/agensi (proyek, timesheet, 
 **Kasir & katalog layanan** (bengkel, salon, klinik non-medis): `products.is_service` (layanan tanpa stok), kasir untuk Jasa, petugas per baris (`pos_order_lines.staff_id`) dan laporan kinerja petugas. Layanan tidak boleh masuk dokumen barang. Bahan habis pakai opsional lewat resep (dipotong saat dijual).
 
 **Kontraktor** (`0123`): retensi per proyek (`retention_pct`, `retention_days`). Termin proyek beretensi otomatis dipecah satu transaksi menjadi faktur jalan (100−r%) dan **faktur retensi** terpisah (`retention_of_invoice_id`) yang jatuh tempo setelah masa pemeliharaan. Keduanya faktur biasa sehingga umur piutang dan pembayaran bekerja apa adanya; pendapatan/PPN tetap diakui saat termin. Pencairan = memajukan jatuh tempo faktur retensi (Admin/Keuangan, alasan tercatat). BoQ/RAB (`project_boq_items`): item, volume, harga satuan; volume selesai kumulatif per item (tidak boleh turun/melebihi volume) menghitung persentase kemajuan dari nilai item lalu dicatat lewat alur kemajuan yang sudah ada.
+- **PPN dan PPh pada faktur retensi**: kedua faktur memakai tarif yang sama atas DPP-nya masing-masing; jumlah PPN, PPh, dan total keduanya sama dengan satu faktur tanpa pemecahan (diuji, termasuk angka ganjil). PPN diakui saat termin ditagih. **PPh (23 / 4(2) final) yang dipotong dicatat sebagai sudah dipotong saat faktur terbit, termasuk untuk bagian retensi.** Bila pelanggan Anda baru memotong PPh saat retensi dibayar, atur dengan konsultan pajak (mis. tagih tanpa retensi atau sesuaikan jurnal); sistem tidak menentukan saat pemotongan menurut kebiasaan tiap pelanggan.
 - **Belum ada**: kemajuan subkontraktor, addendum nilai kontrak berversi, jaminan pelaksanaan/bank garansi, pemecahan retensi pada faktur selain termin proyek.
 
 **Pendidikan/kursus** (`0124`): kelas (kode, SPP, kuota), peserta terdaftar yang ditagih ke wali, SPP bulanan: satu faktur per wali dengan satu baris per peserta (`edu_fee_invoices` unik per peserta-periode, jadi tidak bisa ditagih dua kali walau serentak). Diskon saudara/beasiswa per peserta; peserta keluar berhenti ditagih mulai bulan berikutnya.
@@ -49,6 +50,13 @@ Jenis usaha Jasa semula paling cocok untuk konsultan/agensi (proyek, timesheet, 
 - **Belum ada**: absensi nyata petugas (jadwal = rencana, bukan kehadiran), penggantian shift/lembur, tagihan per jam/penjagaan khusus, penggajian otomatis dari jadwal jaga.
 
 **Sengaja tidak dipaksakan**: klinik dengan rekam medis (data kesehatan memerlukan persetujuan, retensi, dan kontrol akses tersendiri) dan jasa keuangan (kewajiban regulator yang berbeda). Untuk jenis ini sistem hanya cocok sebagai pembukuan jasa biasa.
+
+### Profil layanan (menu Jasa mengikuti jenis pekerjaan)
+Karena Jasa kini melayani banyak jenis pekerjaan, perusahaan Jasa memilih satu atau lebih **profil layanan** di Pengaturan › Jenis usaha: Konsultan/agensi, Kontraktor, Pendidikan, Alih daya per lokasi, Bengkel/salon/kasir. Disimpan di pengaturan perusahaan (`serviceProfiles`), dibaca lewat `/auth/me` dan `GET/PUT /settings/business/service-profiles` (hanya Admin, hanya jenis usaha Jasa).
+- **Hanya tampilan**: menu (`profiles` pada item/grup di `menuData.tsx`), Ruang kerja (tautan ikut tersaring), dan artikel bantuan. Backend tidak memblokir fitur profil lain, akun/pajak/SDM tidak berbeda per profil, dan data profil yang tidak dicentang tidak hilang.
+- **Bawaan**: perusahaan Jasa baru = Konsultan; perusahaan lama yang belum memilih = semua profil (menu tidak tiba-tiba hilang); demo Jasa = semua profil.
+- **Menu Persediaan Jasa** disederhanakan: Katalog jasa & bahan, Stok bahan, Hitung stok bahan, laporan. Lokasi bahan, Persediaan per lokasi, dan Transfer antar lokasi disembunyikan untuk Jasa (halamannya masih dapat dibuka lewat alamat langsung). Grup Persediaan hanya tampil untuk profil Kontraktor, Alih daya, Bengkel; Kasir layanan hanya untuk Bengkel.
+- **Tidak berubah**: SDM (Karyawan, Cuti, Upah jasa) dan Pajak tampil sama untuk semua profil Jasa.
 
 ## Ritel
 

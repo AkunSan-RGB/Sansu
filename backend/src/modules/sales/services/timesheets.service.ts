@@ -284,7 +284,9 @@ export class TimesheetService {
     return emp;
   }
 
+  /** Status timer: akun yang belum terhubung ke data karyawan bukan galat bagi pembaca, cukup diberi tahu (`linked: false`) */
   async timer(u: AuthUser, employeeId?: string) {
+    if (!employeeId && !(await this.ownEmployee(this.db, u))) return { linked: false as const };
     const emp = await this.timerOwner(u, employeeId);
     const r = await this.repo.queryTimeTimer(this.db, u.tenantId, emp);
     return r.rows[0] ?? null;

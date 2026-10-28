@@ -109,9 +109,9 @@ export default function HelpCenterPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const id = params.get('a');
-  const visible = useMemo(() => articlesVisibleTo(me?.businessModel), [me?.businessModel]);
+  const visible = useMemo(() => articlesVisibleTo(me?.businessModel, me?.serviceProfiles), [me?.businessModel, me?.serviceProfiles]);
   const article = visible.find((a) => a.id === id);
-  const results = useMemo(() => searchArticles(term, me?.businessModel), [term, me?.businessModel]);
+  const results = useMemo(() => searchArticles(term, me?.businessModel, me?.serviceProfiles), [term, me?.businessModel, me?.serviceProfiles]);
   const guide = me?.businessModel ? visible.find((a) => a.id === `panduan-${me.businessModel!.toLowerCase()}`) : undefined;
   const isAdmin = me?.role === 'OWNER' || me?.role === 'ADMIN';
 
@@ -242,7 +242,7 @@ export function HelpButton() {
   const [current, setCurrent] = useState<HelpArticle | null>(null);
   const { pathname } = useLocation();
   const { me } = useAuth();
-  const related = articlesFor(pathname, me?.businessModel);
+  const related = articlesFor(pathname, me?.businessModel, me?.serviceProfiles);
   return (
     <>
       <Tooltip title="Bantuan">
@@ -278,7 +278,7 @@ export function HelpButton() {
         ) : (
           <>
             <List
-              dataSource={related.length ? related : articlesVisibleTo(me?.businessModel).filter((a) => a.category === 'Memulai' || a.id === `panduan-${me?.businessModel?.toLowerCase()}`)}
+              dataSource={related.length ? related : articlesVisibleTo(me?.businessModel, me?.serviceProfiles).filter((a) => a.category === 'Memulai' || a.id === `panduan-${me?.businessModel?.toLowerCase()}`)}
               header={
                 !related.length && (
                   <Typography.Text type="secondary">

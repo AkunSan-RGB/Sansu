@@ -4,7 +4,7 @@ import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
 import { AllowWhenLocked } from '../../common/auth/platform-admin';
 import { OnboardingService } from './onboarding.service';
-import { DismissDto, BusinessModelDto } from './onboarding.dto';
+import { DismissDto, BusinessModelDto, ServiceProfilesDto } from './onboarding.dto';
 
 @ApiTags('Pengaturan')
 @ApiBearerAuth()
@@ -45,5 +45,14 @@ export class BusinessModelController {
   @Roles('ADMIN')
   set(@CurrentUser() u: AuthUser, @Body() dto: BusinessModelDto) {
     return this.svc.setBusiness(u, dto);
+  }
+  @Get('service-profiles')
+  serviceProfiles(@CurrentUser() u: AuthUser) {
+    return this.svc.serviceProfiles(u.tenantId);
+  }
+  @Put('service-profiles')
+  @Roles('ADMIN')
+  setServiceProfiles(@CurrentUser() u: AuthUser, @Body() dto: ServiceProfilesDto) {
+    return this.svc.setServiceProfiles(u, dto);
   }
 }

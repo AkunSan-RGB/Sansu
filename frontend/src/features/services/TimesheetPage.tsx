@@ -63,7 +63,7 @@ interface TimerRow { id: string; customerName: string; description: string; star
 /** Timer jam kerja: jam tidak diketik; dihentikan menjadi draf catatan waktu (dibulatkan ke atas per 15 menit) */
 function TimerCard() {
   const can = useCan();
-  const timer = useQuery({ queryKey: [...KEY, 'timer'], queryFn: () => get<TimerRow | null>('/timesheets/timer'), retry: false, refetchInterval: 60_000 });
+  const timer = useQuery({ queryKey: [...KEY, 'timer'], queryFn: () => get<TimerRow | { linked: false } | null>('/timesheets/timer'), retry: false, refetchInterval: 60_000 });
   const customers = useCustomers();
   const projects = useProjects();
   const [f] = Form.useForm<{ customerId?: string; projectId?: string; description: string }>();
@@ -75,12 +75,15 @@ function TimerCard() {
   const [df] = Form.useForm<{ reason: string }>();
   const discard = useAction((v: { reason: string }) => post('/timesheets/timer/discard', v), { invalidate: KEY, success: 'Timer dibuang', onSuccess: () => setDiscarding(false) });
   if (!can('POST', '/timesheets/timer/start')) return null;
+  const unlinked = !!timer.data && 'linked' in timer.data && timer.data.linked === false;
   const t = timer.data && 'id' in timer.data ? timer.data : null;
   const secs = t ? Math.max(0, Math.floor((now - new Date(t.startedAt).getTime()) / 1000)) : 0;
   const clock = `${String(Math.floor(secs / 3600)).padStart(2, '0')}:${String(Math.floor((secs % 3600) / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
   return (
     <Card size="small" style={{ marginBottom: 12 }} title="Timer">
-      {t ? (
+      {unlinked ? (
+        <Typography.Text type="secondary">Timer aktif setelah akun Anda dihubungkan ke data karyawan (Pemilik atau bagian SDM: Karyawan › Hubungkan akun). Catatan waktu tetap bisa dibuat lewat tombol Catat waktu untuk karyawan yang dipilih.</Typography.Text>
+      ) : t ? (
         <Space wrap>
           <Typography.Title level={3} style={{ margin: 0, fontVariantNumeric: 'tabular-nums' }}>{clock}</Typography.Title>
           <span>{t.description} · {t.customerName}</span>

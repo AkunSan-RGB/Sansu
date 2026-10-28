@@ -1,10 +1,10 @@
 import { CheckSquareOutlined, AuditOutlined, HeartOutlined } from '@ant-design/icons';
-import { type AppKey, type BusinessModel } from '@sansu/shared';
+import { type AppKey, type BusinessModel, type ServiceProfile } from '@sansu/shared';
 import { APP_ICONS } from '@/lib/apps';
 import { t } from '@/lib/terms';
 
 /** `app`: item hanya tampil bila aplikasi itu aktif (mis. menu pajak yang butuh aplikasi Penjualan) */
-export type Item = { key: string; label: string; /** Hanya untuk peran ini (OWNER selalu boleh) */ roles?: string[]; /** Hanya tampil bila fitur langganan dinyalakan di Panel SANSU */ billing?: boolean; /** Hanya untuk SAK EP (tidak diakui SAK EMKM) */ epOnly?: boolean; app?: AppKey; /** Disembunyikan untuk jenis usaha ini (mis. surat jalan untuk usaha jasa murni) */ hideFor?: BusinessModel[]; /** Hanya tampil untuk jenis usaha ini */ models?: BusinessModel[]; /** Hanya tampil bila perusahaan punya cabang usaha */ branch?: boolean; /** Hanya tampil bila perusahaan sudah membuat anggaran */ budget?: boolean; /** Hanya tampil bila fitur pajak ini relevan (lihat taxFeatures di @sansu/shared) */ tax?: 'vat' | 'coretax' | 'withheldByCustomers' | 'fiscalReconciliation' };
+export type Item = { key: string; label: string; /** Hanya untuk peran ini (OWNER selalu boleh) */ roles?: string[]; /** Hanya tampil bila fitur langganan dinyalakan di Panel SANSU */ billing?: boolean; /** Hanya untuk SAK EP (tidak diakui SAK EMKM) */ epOnly?: boolean; app?: AppKey; /** Disembunyikan untuk jenis usaha ini (mis. surat jalan untuk usaha jasa murni) */ hideFor?: BusinessModel[]; /** Hanya tampil untuk jenis usaha ini */ models?: BusinessModel[]; /** Hanya untuk perusahaan Jasa yang memilih salah satu profil layanan ini (profil kosong = semua profil, mis. perusahaan lama) */ profiles?: ServiceProfile[]; /** Hanya tampil bila perusahaan punya cabang usaha */ branch?: boolean; /** Hanya tampil bila perusahaan sudah membuat anggaran */ budget?: boolean; /** Hanya tampil bila fitur pajak ini relevan (lihat taxFeatures di @sansu/shared) */ tax?: 'vat' | 'coretax' | 'withheldByCustomers' | 'fiscalReconciliation' };
 /** Menu pembukuan: Keuangan (pemegang uang) tidak memilikinya; OWNER selalu boleh */
 export const BOOKKEEPING = ['ADMIN', 'ACCOUNTANT'];
 /** Submenu boleh dikelompokkan dengan judul kecil (mis. "Akhir periode") */
@@ -16,6 +16,8 @@ export type Group = {
   models?: BusinessModel[];
   /** Disembunyikan untuk model bisnis tertentu (menunya digantikan grup khusus) */
   hideFor?: BusinessModel[];
+  /** Perusahaan Jasa: hanya tampil bila salah satu profil layanan ini dipilih */
+  profiles?: ServiceProfile[];
   admin?: boolean;
   label: string;
   icon: React.ReactNode;
@@ -185,18 +187,18 @@ export const MENU: Group[] = [
         section: SEC.proc,
         items: [
           { key: '/sales-orders', label: t('Sales Order') },
-          { key: '/projects', label: 'Proyek & termin', models: ['JASA'] },
-          { key: '/scheduling', label: 'Jadwal sumber daya', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
-          { key: '/timesheets', label: 'Lembar waktu', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
-          { key: '/retainers', label: 'Retainer', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-          { key: '/sites', label: 'Kontrak lokasi', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
-          { key: '/education', label: 'Kelas & SPP', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/projects', label: 'Proyek & termin', models: ['JASA'], profiles: ['KONSULTAN', 'KONTRAKTOR'] },
+          { key: '/scheduling', label: 'Jadwal tim', models: ['JASA'], profiles: ['KONSULTAN', 'BENGKEL'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
+          { key: '/timesheets', label: 'Lembar waktu', models: ['JASA'], profiles: ['KONSULTAN', 'KONTRAKTOR'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
+          { key: '/retainers', label: 'Retainer', models: ['JASA'], profiles: ['KONSULTAN'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/sites', label: 'Kontrak per lokasi', models: ['JASA'], profiles: ['ALIH_DAYA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/education', label: 'Kelas & SPP', models: ['JASA'], profiles: ['PENDIDIKAN'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/customer-deposits', label: t('Uang muka pelanggan'), hideFor: ['RITEL'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
           { key: '/deliveries', label: 'Surat jalan', hideFor: ['JASA', 'RITEL', 'FNB', 'UTILITAS'] },
           { key: '/delivery-trips', label: 'Rute pengiriman', models: ['DAGANG', 'FMCG', 'MANUFAKTUR'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
           { key: '/canvass', label: 'Kanvas (van sales)', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
           { key: '/invoices', label: t('Faktur & piutang'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
-          { key: '/returns?tab=sales', label: t('Retur penjualan'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/returns?tab=sales', label: t('Retur penjualan'), profiles: ['BENGKEL', 'KONTRAKTOR', 'ALIH_DAYA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
           { key: '/goods-swaps', label: 'Tukar-guling', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'ACCOUNTANT'] },
           { key: '/consignments', label: 'Konsinyasi (titipan outlet)', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'SALES', 'WAREHOUSE', 'ACCOUNTANT'] },
           { key: '/trade', label: 'Modern trade & klaim prinsipal', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
@@ -219,6 +221,7 @@ export const MENU: Group[] = [
     key: 'pos',
     app: 'pos',
     hideFor: ['UTILITAS'],
+    profiles: ['BENGKEL'],
     label: 'Kasir (POS)',
     icon: APP_ICONS.pos,
     children: [
@@ -274,7 +277,7 @@ export const MENU: Group[] = [
           { key: '/supplier-advances', label: 'Uang muka pemasok', roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT', 'PURCHASING'] },
           { key: '/goods-receipts', label: 'Penerimaan barang', hideFor: ['JASA'] },
           { key: '/purchase-invoices', label: t('Faktur & hutang') },
-          { key: '/returns?tab=purchase', label: t('Retur pembelian'), roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
+          { key: '/returns?tab=purchase', label: t('Retur pembelian'), profiles: ['BENGKEL', 'KONTRAKTOR', 'ALIH_DAYA'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'ACCOUNTANT'] },
         ],
       },
       {
@@ -290,6 +293,7 @@ export const MENU: Group[] = [
     part: 'Persediaan',
     key: 'inventory',
     app: 'inventory',
+    profiles: ['BENGKEL', 'KONTRAKTOR', 'ALIH_DAYA'],
     label: t('Inventori'),
     icon: APP_ICONS.inventory,
     children: [
@@ -297,16 +301,16 @@ export const MENU: Group[] = [
         section: SEC.prep,
         items: [
           { key: '/products', label: t('Produk') },
-          { key: '/warehouses', label: t('Gudang') },
+          { key: '/warehouses', label: t('Gudang'), hideFor: ['JASA'] },
         ],
       },
       {
         section: SEC.proc,
         items: [
           { key: '/inventory', label: t('Persediaan & mutasi') },
-          { key: '/inventory/warehouses', label: t('Persediaan per gudang') },
+          { key: '/inventory/warehouses', label: t('Persediaan per gudang'), hideFor: ['JASA'] },
           { key: '/inventory/bins', label: 'Rak gudang', hideFor: ['JASA', 'UTILITAS'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT', 'PURCHASING', 'SALES'] },
-          { key: '/inventory/transfers', label: t('Transfer gudang') },
+          { key: '/inventory/transfers', label: t('Transfer gudang'), hideFor: ['JASA'] },
           { key: '/inventory/counts', label: 'Stock opname' },
           { key: '/inventory/expiry', label: 'Kedaluwarsa bahan', hideFor: ['JASA', 'UTILITAS'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE', 'ACCOUNTANT'] },
           { key: '/inventory/lot-trace', label: 'Telusuri lot (recall)', models: ['FMCG'], roles: ['OWNER', 'ADMIN', 'FINANCE', 'WAREHOUSE', 'SALES', 'ACCOUNTANT'] },
@@ -532,14 +536,20 @@ export interface VisibilityCtx {
   hasBudget?: boolean;
   subscriptionEnabled?: boolean;
   taxFeatures?: Record<string, boolean | undefined>;
+  /** Profil layanan perusahaan Jasa (tidak diketahui = semua) */
+  profiles?: ServiceProfile[];
   can: (app: AppKey) => boolean;
+}
+/** Profil layanan: hanya berlaku untuk jenis usaha Jasa; profil belum diketahui dianggap semua */
+export function profileOk(need: ServiceProfile[] | undefined, model: BusinessModel, have?: ServiceProfile[]): boolean {
+  return !need || model !== 'JASA' || !have || need.some((p) => have.includes(p));
 }
 /** Item menu terlihat untuk pengguna ini? (peran, jenis usaha, aplikasi, fitur pajak, cabang, anggaran) */
 export function itemVisible(i: Item, c: VisibilityCtx): boolean {
-  return (!i.app || c.can(i.app)) && (!i.roles || c.role === 'OWNER' || i.roles.includes(c.role)) && (!i.models || i.models.includes(c.model)) && !i.hideFor?.includes(c.model)
+  return profileOk(i.profiles, c.model, c.profiles) && (!i.app || c.can(i.app)) && (!i.roles || c.role === 'OWNER' || i.roles.includes(c.role)) && (!i.models || i.models.includes(c.model)) && !i.hideFor?.includes(c.model)
     && (!i.tax || c.taxFeatures?.[i.tax] !== false) && !(i.epOnly && c.framework === 'SAK_EMKM') && !(i.billing && c.subscriptionEnabled === false) && !(i.branch && !c.multiBranch) && !(i.budget && !c.hasBudget);
 }
 /** Tautan (path, boleh dengan ?query) terlihat bila ada item menu berkunci sama yang terlihat; tautan di luar menu dianggap tidak ada */
 export function pathVisible(path: string, c: VisibilityCtx, menu: Group[] = MENU): boolean {
-  return menu.some((g) => (!g.models || g.models.includes(c.model)) && !g.hideFor?.includes(c.model) && (!g.app || c.can(g.app)) && (g.to === path ? !g.roles || c.role === 'OWNER' || g.roles.includes(c.role) : subItems(g.children).some((i) => i.key === path && itemVisible(i, c))));
+  return menu.some((g) => (!g.models || g.models.includes(c.model)) && !g.hideFor?.includes(c.model) && profileOk(g.profiles, c.model, c.profiles) && (!g.app || c.can(g.app)) && (g.to === path ? !g.roles || c.role === 'OWNER' || g.roles.includes(c.role) : subItems(g.children).some((i) => i.key === path && itemVisible(i, c))));
 }

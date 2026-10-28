@@ -399,6 +399,12 @@ export async function jasaKasir(c: Demo) {
   }
 }
 
+/** Jasa: akun Pemilik demo dihubungkan ke satu karyawan agar timer dan catatan waktu atas nama sendiri langsung bisa dipakai */
+export async function hubungkanPemilik(c: Demo, code: string) {
+  const [e] = await c.db.select({ id: employees.id }).from(employees).where(and(eq(employees.tenantId, c.tenantId), eq(employees.code, code)));
+  if (e) await c.step('hubungkan akun pemilik', () => c.svc.hr.linkAccount(c.admin, e.id, { userId: c.admin.sub }));
+}
+
 /** Jasa kontraktor: proyek beretensi dengan BoQ, kemajuan dari volume selesai, dan termin yang dipecah otomatis menjadi tagihan jalan + tagihan retensi */
 export async function kontraktorRetensi(c: Demo, customerId: string) {
   const p = (await c.step('proyek kontraktor', () => c.svc.projects.createProject(c.admin, { code: 'KTR-01', name: 'Renovasi gedung kantor lantai 2', customerId, contractValue: '180000000', retentionPct: '5', retentionDays: 180, startDate: c.ago(30), endDate: c.ago(-60) }))) as { id: string } | undefined;
