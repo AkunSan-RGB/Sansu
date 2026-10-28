@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
+import { textArray } from '../../common/utils/sql-guard';
 import { DbOrTx } from '../../db/db';
 import { firstOf, rowsOf } from './ops.repository';
 
@@ -31,7 +32,7 @@ export class VaRepository {
   }
   async update(db: DbOrTx, id: string, v: { connectionId?: string | null; status: string; applied: string; unapplied: string; paymentNumbers: string[]; message: string | null; handledById?: string }) {
     await db.execute(sql`UPDATE utility_va_payments SET connection_id = COALESCE(${v.connectionId ?? null}, connection_id), status = ${v.status}, applied = ${v.applied}, unapplied = ${v.unapplied},
-      payment_numbers = ${sql.raw(`ARRAY[${v.paymentNumbers.map((n) => `'${n.replace(/'/g, '')}'`).join(',')}]::text[]`)}, message = ${v.message}, handled_by_id = COALESCE(${v.handledById ?? null}::uuid, handled_by_id) WHERE id = ${id}`);
+      payment_numbers = ${textArray(v.paymentNumbers)}, message = ${v.message}, handled_by_id = COALESCE(${v.handledById ?? null}::uuid, handled_by_id) WHERE id = ${id}`);
   }
   /** Catatan penerimaan agar pembayaran VA ikut laporan penerimaan (tanpa loket); dipanggil di dalam transaksi pembayaran */
   async insertReceipt(db: DbOrTx, v: { tenantId: string; paymentId: string; invoiceId: string; collectorId: string; amount: string }) {

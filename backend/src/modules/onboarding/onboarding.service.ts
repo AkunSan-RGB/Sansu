@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable } from '@nestjs/comm
 import { sql } from 'drizzle-orm';
 import { BUSINESS_MODEL_BY_KEY, MODEL_SETUP, isProductionModel, type AppKey, type BusinessModel } from '@sansu/shared';
 import { AppsService } from '../../common/apps/apps.service';
+import { assertUuid } from '../../common/utils/sql-guard';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user';
 import { SettingsService } from '../../common/settings.service';
@@ -43,7 +44,8 @@ export class OnboardingService {
 
   /** Perusahaan yang sudah punya transaksi atau dokumen tidak boleh berganti jenis usaha (data antar jenis usaha tidak boleh tercampur) */
   async hasTransactions(tenantId: string): Promise<boolean> {
-    const checks = TRANSACTION_PROBES.map((t) => sql.raw(`SELECT 1 FROM "${t}" WHERE tenant_id = '${tenantId.replace(/'/g, '')}'`));
+    const tid = assertUuid(tenantId, 'Perusahaan');
+    const checks = TRANSACTION_PROBES.map((t) => sql.raw(`SELECT 1 FROM "${t}" WHERE tenant_id = '${tid}'`));
     const r = await this.repo.queryHasTransactions(this.db, checks);
     return r.rows.length > 0;
   }

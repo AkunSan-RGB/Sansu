@@ -1,3 +1,4 @@
+import { assertUuid } from '../common/utils/sql-guard';
 import { eq, sql } from 'drizzle-orm';
 import { Db } from './db';
 import { tenants } from './schema';
@@ -41,7 +42,7 @@ export async function removeTenant(db: Db, tenantId: string, opts: { noReplica?:
         WHERE c.contype = 'f' AND n.nspname = 'public' AND array_length(c.conkey, 1) = 1
           AND NOT EXISTS (SELECT 1 FROM information_schema.columns x WHERE x.table_schema = 'public' AND x.table_name = cl.relname AND x.column_name = 'tenant_id')`)
     ).rows.filter((r) => tables.includes(r.parent));
-    const tid = tenantId.replace(/'/g, '');
+    const tid = assertUuid(tenantId, 'Perusahaan');
     const statements = [
       ...children.map((c) => ({ name: c.child, sql: `DELETE FROM "${c.child}" WHERE "${c.col}" IN (SELECT id FROM "${c.parent}" WHERE tenant_id = '${tid}')` })),
       ...tables.map((t) => ({ name: t, sql: `DELETE FROM "${t}" WHERE tenant_id = '${tid}'` })),

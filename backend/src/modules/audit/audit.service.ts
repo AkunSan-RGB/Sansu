@@ -61,11 +61,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** Kunci rujukan sebuah catatan: nama entitas, atau segmen rute API untuk catatan otomatis */
 function refKey(entity: string, data: Record<string, unknown> | null): string | undefined {
-  if (entity !== 'API') return REF[entity] ? entity : undefined;
+  if (entity !== 'API') return Object.hasOwn(REF, entity) ? entity : undefined;
   const segs = String(data?.route ?? '').split(' ')[1]?.replace(/^\/api\//, '').split('/') ?? [];
   const idAt = segs.indexOf(':id');
   const res = idAt > 0 ? segs[idAt - 1] : segs.filter((x) => !x.startsWith(':')).pop();
-  return res && REF[res] ? res : undefined;
+  return res && Object.hasOwn(REF, res) ? res : undefined;
 }
 
 @Injectable()
