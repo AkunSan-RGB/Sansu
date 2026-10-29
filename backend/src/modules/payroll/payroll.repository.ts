@@ -52,7 +52,7 @@ export class PayrollRepository {
   }
 
   /** Dipakai oleh PayrollService.pph21Report */
-  queryPayslipForPph21Report(db: DbOrTx, tenantId: string, year: number) {
+  queryPayslipForPph21Report(db: DbOrTx, tenantId: string, periodLike: string) {
     return db.execute<{
       employee_id: string;
       code: string;
@@ -70,16 +70,16 @@ export class PayrollRepository {
       FROM payslips p
       JOIN payroll_runs r ON r.id = p.run_id
       JOIN employees e ON e.id = p.employee_id
-      WHERE r.tenant_id = ${tenantId} AND r.status <> 'DRAFT' AND r.period LIKE ${`${year}-%`}
+      WHERE r.tenant_id = ${tenantId} AND r.status <> 'DRAFT' AND r.period LIKE ${periodLike}
       GROUP BY e.id ORDER BY e.code`);
   }
 
   /** Dipakai oleh PayrollService.pph21Report */
-  queryPayslipForPph21Report2(db: DbOrTx, tenantId: string, year: number) {
+  queryPayslipForPph21Report2(db: DbOrTx, tenantId: string, periodLike: string) {
     return db.execute<{ period: string; gross: string; pph21: string; n: number }>(sql`
       SELECT r.period, SUM(p.taxable_gross) AS gross, SUM(p.pph21) AS pph21, COUNT(*)::int AS n
       FROM payslips p JOIN payroll_runs r ON r.id = p.run_id
-      WHERE r.tenant_id = ${tenantId} AND r.status <> 'DRAFT' AND r.period LIKE ${`${year}-%`}
+      WHERE r.tenant_id = ${tenantId} AND r.status <> 'DRAFT' AND r.period LIKE ${periodLike}
       GROUP BY r.period ORDER BY r.period`);
   }
 

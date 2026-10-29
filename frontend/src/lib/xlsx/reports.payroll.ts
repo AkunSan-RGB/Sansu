@@ -128,6 +128,8 @@ export function payrollSheets(run: PayrollRun, slips: Payslip[], company?: strin
 }
 export interface Pph21Report {
   year: number;
+  /** 1–12 bila laporan dipersempit ke satu masa; kosong = setahun */
+  month?: number | null;
   employees: {
     code: string;
     name: string;
@@ -142,9 +144,10 @@ export interface Pph21Report {
   monthly: { period: string; gross: string; pph21: string; n: number }[];
 }
 export function pph21Sheets(p: Pph21Report, company?: string): SheetSpec[] {
+  const masa = p.month ? `${BULAN[p.month - 1]} ${p.year}` : `Tahun ${p.year}`;
   const m = new SheetBuilder('Per Masa Pajak', {
     company,
-    title: `Rekap PPh 21 Tahun ${p.year} · per masa pajak`,
+    title: `Rekap PPh 21 ${masa} · per masa pajak`,
     subtitle: ['Bahan SPT Masa PPh 21 · hanya penggajian yang sudah diposting', RP],
     columns: [
       { key: 'period', header: 'Masa pajak', width: 16 },
@@ -180,7 +183,7 @@ export function pph21Sheets(p: Pph21Report, company?: string): SheetSpec[] {
 
   const e = new SheetBuilder('Per Pegawai', {
     company,
-    title: `Rekap PPh 21 Tahun ${p.year} · per pegawai`,
+    title: `Rekap PPh 21 ${masa} · per pegawai`,
     subtitle: ['Bahan bukti potong 1721-A1', RP],
     columns: [
       { key: 'code', header: 'Kode', fmt: 'code', width: 10 },

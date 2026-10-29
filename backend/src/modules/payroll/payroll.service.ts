@@ -239,11 +239,14 @@ export class PayrollService {
   }
 
   /** Rekap PPh 21 per karyawan setahun (bahan bukti potong 1721-A1 & SPT Masa) */
-  async pph21Report(tenantId: string, year: number) {
-    const res = await this.repo.queryPayslipForPph21Report(this.db, tenantId, year);
-    const monthly = await this.repo.queryPayslipForPph21Report2(this.db, tenantId, year);
+  /** Rekap PPh 21 setahun, atau satu masa saja bila `month` (1–12) diisi: daftar per pegawai dan per masa mengikuti pilihan itu */
+  async pph21Report(tenantId: string, year: number, month?: number) {
+    const periodLike = month ? `${year}-${String(month).padStart(2, '0')}` : `${year}-%`;
+    const res = await this.repo.queryPayslipForPph21Report(this.db, tenantId, periodLike);
+    const monthly = await this.repo.queryPayslipForPph21Report2(this.db, tenantId, periodLike);
     return {
       year,
+      month: month ?? null,
       employees: res.rows.map((r) => ({ ...r, npwp: decryptField(r.npwp), nik: decryptField(r.nik), gross: money(r.gross).toFixed(2), pension: money(r.pension).toFixed(2), pph21: money(r.pph21).toFixed(2) })),
       monthly: monthly.rows.map((m) => ({ ...m, gross: money(m.gross).toFixed(2), pph21: money(m.pph21).toFixed(2) })),
     };

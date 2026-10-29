@@ -23,3 +23,10 @@ export class YearPipe implements PipeTransform<string, number> {
 export function yearQuery<T>(value: string | undefined, fallback: T): number | T {
   return value === undefined || value === '' ? fallback : parseYear(value);
 }
+
+/** Parameter `?month=` (1–12): kosong = setahun; ada tetapi tidak sah = 400 */
+export function monthQuery(value: string | undefined): number | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (!/^(0?[1-9]|1[0-2])$/.test(value.trim())) throw new BadRequestException('Bulan harus 1 sampai 12');
+  return Number(value);
+}

@@ -1,7 +1,7 @@
 /** PPh yang dipotong pelanggan: daftar & pencatatan nomor bukti potong (syarat kredit pajak) */
 import { withheldParty, type WithheldByCustomerReport, type WithheldByCustomerRow } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Empty, Form, Input, Modal, Segmented, Select, Space, Tag } from 'antd';
+import { Alert, Button, Card, Empty, Form, Input, Modal, Segmented, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -11,6 +11,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { useCan } from '@/auth/useCan';
 import ResponsiveTable from '@/components/ResponsiveTable';
 import SummaryCards from '@/components/SummaryCards';
+import YearMonthFilter from '@/components/YearMonthFilter';
 import PageHeader from '@/layout/PageHeader';
 import { fmtDate, fmtMoney, today } from '@/lib/format';
 import { t } from '@/lib/terms';
@@ -44,24 +45,7 @@ export function WithheldRecap({ embedded }: { embedded?: boolean }) {
   );
   const total = (t: 'PPH23' | 'PPH4_2') => q.data?.totals.find((x) => x.type === t);
 
-  const tools = (
-    <Space>
-      <Select
-        value={year}
-        onChange={setYear}
-        style={{ width: 100 }}
-        options={[0, 1, 2, 3].map((i) => ({ value: dayjs().year() - i, label: dayjs().year() - i }))}
-      />
-      <Select
-        allowClear
-        placeholder="Setahun"
-        value={month}
-        onChange={(v) => setMonth(v ?? null)}
-        style={{ width: 130 }}
-        options={Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: dayjs().month(i).format('MMMM') }))}
-      />
-    </Space>
-  );
+  const tools = <YearMonthFilter year={year} month={month} onYear={setYear} onMonth={setMonth} />;
   return (
     <>
       {embedded ? <div style={{ marginBottom: 12 }}>{tools}</div> : <PageHeader title={`PPh dipotong ${party}`} extra={tools} />}
