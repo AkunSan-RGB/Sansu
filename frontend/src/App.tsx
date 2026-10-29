@@ -52,7 +52,7 @@ import JournalsPage from './features/accounting/JournalsPage';
 import ReportsPage from './features/accounting/ReportsPage';
 import AdjustmentsPage from './features/accounting/AdjustmentsPage';
 import TrialBalancePage from './features/accounting/TrialBalancePage';
-import VatPage from './features/accounting/VatPage';
+import TaxRecapRedirect from './features/accounting/TaxRecapRedirect';
 import WorksheetPage from './features/accounting/WorksheetPage';
 import FiscalPage from './features/accounting/FiscalPage';
 import BankPage from './features/accounting/BankPage';
@@ -193,7 +193,7 @@ export default function App() {
           <Route path="sites" element={<SiteContractsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="customer-deposits" element={<DepositsPage />} />
-          <Route path="tax/withheld" element={<WithheldPage />} />
+          <Route path="tax/withheld" element={<TaxRecapRedirect tab="withheld"><WithheldPage /></TaxRecapRedirect>} />
         </Route>
         <Route element={<AppGate app={['sales', 'crm', 'pos']} />}>
           <Route path="customers" element={<CustomersPage />} />
@@ -280,7 +280,7 @@ export default function App() {
           <Route path="adjustments" element={<AdjustmentsPage />} />
           <Route path="trial-balance" element={<TrialBalancePage />} />
           <Route path="worksheet" element={<WorksheetPage />} />
-          <Route path="vat" element={<VatPage />} />
+          <Route path="vat" element={<TaxRecapRedirect tab="vat" />} />
           <Route path="health" element={<HealthPage />} />
           <Route path="account-schedules" element={<FixedAssetsRedirect />} />
           <Route path="fixed-assets" element={<FixedAssetsRedirect />} />
@@ -300,15 +300,15 @@ export default function App() {
         </Route>
         <Route element={<AppGate app="payroll" />}>
           <Route path="payroll" element={<PayrollRunsPage />} />
-          <Route path="payroll/pph21" element={<Pph21ReportPage />} />
+          <Route path="payroll/pph21" element={<TaxRecapRedirect tab="pph21"><Pph21ReportPage /></TaxRecapRedirect>} />
           <Route path="payroll/jasa" element={<ServiceWorkPage />} />
           <Route
             path="payroll/bpjs"
             element={
-              <>
+              <TaxRecapRedirect tab="bpjs">
                 <PageHeader title="Rekap iuran BPJS" />
                 <BpjsReport />
-              </>
+              </TaxRecapRedirect>
             }
           />
           <Route path="payroll/:id" element={<PayrollRunPage />} />

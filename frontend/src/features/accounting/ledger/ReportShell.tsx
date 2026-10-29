@@ -16,6 +16,7 @@ export default function ReportShell({
   sheets,
   controls,
   hint,
+  embedded,
   children,
 }: {
   title: string;
@@ -27,25 +28,25 @@ export default function ReportShell({
   controls?: ReactNode;
   /** Teks bantuan singkat di atas laporan */
   hint?: string;
+  /** Ditanam di dalam halaman bertab: tanpa judul halaman sendiri, hanya periode dan tombol ekspor */
+  embedded?: boolean;
   children: ReactNode;
 }) {
   const { me } = useAuth();
   const period = `Periode ${longDate(from)} s/d ${longDate(to)}`;
+  const tools = (
+    <Space wrap className="no-print">
+      <Input type="date" value={from} onChange={(e) => e.target.value && onFrom(e.target.value)} />
+      <span>s/d</span>
+      <Input type="date" value={to} onChange={(e) => e.target.value && onTo(e.target.value)} />
+      <ExportButtons filename={`${title.toLowerCase().replace(/ /g, '-')}-${from}-${to}`} title={`${title} ${period}`} sheets={sheets} />
+    </Space>
+  );
   return (
     <>
-      <PageHeader
-        title={title}
-        extra={
-          <Space wrap className="no-print">
-            <Input type="date" value={from} onChange={(e) => e.target.value && onFrom(e.target.value)} />
-            <span>s/d</span>
-            <Input type="date" value={to} onChange={(e) => e.target.value && onTo(e.target.value)} />
-            <ExportButtons filename={`${title.toLowerCase().replace(/ /g, '-')}-${from}-${to}`} title={`${title} ${period}`} sheets={sheets} />
-          </Space>
-        }
-      />
+      {embedded ? <div className="no-print" style={{ marginBottom: 12 }}>{tools}</div> : <PageHeader title={title} extra={tools} />}
       {hint && (
-        <Typography.Paragraph type="secondary" className="no-print" style={{ marginTop: -8 }}>
+        <Typography.Paragraph type="secondary" className="no-print" style={embedded ? undefined : { marginTop: -8 }}>
           {hint}
         </Typography.Paragraph>
       )}

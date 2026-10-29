@@ -19,6 +19,7 @@ export * from './workflow.js';
 export * from './work-units.js';
 export * from './crm-profile.js';
 export * from './tax-focus.js';
+export * from './tax-recap-tabs.js';
 export * from './barcode.js';
 export * from './utility.js';
 export * from './cash-sources.js';

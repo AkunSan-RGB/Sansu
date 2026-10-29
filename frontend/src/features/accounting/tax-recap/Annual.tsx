@@ -1,5 +1,5 @@
 import { WarningOutlined } from '@ant-design/icons';
-import { BRAND, type AnnualTaxRecap, type TaxRecapCell, type TaxRecapStatus } from '@sansu/shared';
+import { BRAND, type AnnualTaxRecap, type TaxRecapCell, type TaxRecapStatus, type TaxRecapTabDef } from '@sansu/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Card, Col, Descriptions, InputNumber, Row, Space, Statistic, Table, Tag, Tooltip, Typography } from 'antd';
 import dayjs from 'dayjs';
@@ -63,7 +63,9 @@ function Cell({ c, type }: { c: TaxRecapCell; type: string }) {
   );
 }
 
-export function Annual() {
+/** @param tabs tab lain di halaman Rekap pajak (untuk tautan rincian per pajak) */
+export function Annual({ tabs = [] }: { tabs?: TaxRecapTabDef[] }) {
+  const others = tabs.filter((x) => x.key !== 'annual');
   const { me } = useAuth();
   const [year, setYear] = useState(dayjs().year());
   const q = useQuery({
@@ -206,9 +208,15 @@ export function Annual() {
             <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>
               Jatuh tempo: PPh 21/23/4(2)/25 setor tgl 15 bulan berikutnya & lapor SPT Masa (Bukti Potong) tgl 20; PPN
               setor & lapor akhir bulan berikutnya; BPJS Kesehatan tgl 10 dan BPJS Ketenagakerjaan tgl 15 bulan
-              berikutnya; PPh Badan akhir April tahun berikutnya. Rincian lain: <Link to="/vat">Rekap PPN</Link>
-              {' · '}
-              <Link to="/payroll/pph21">Rekap PPh 21</Link>.
+              berikutnya; PPh Badan akhir April tahun berikutnya.
+              {others.length > 0 && ' Rincian per pajak: '}
+              {others.map((x, i) => (
+                <span key={x.key}>
+                  {i > 0 && ' · '}
+                  <Link to={`/tax/recap?tab=${x.key}`}>{x.label}</Link>
+                </span>
+              ))}
+              {others.length > 0 && '.'}
             </Typography.Paragraph>
           </Space>
         );

@@ -1,6 +1,7 @@
 import { BUSINESS_MODELS, type BusinessModel, localize } from '@sansu/shared';
 import { describe, expect, it } from 'vitest';
 import { DEPT_REPORTS } from '@/features/laporan/DeptReportPage';
+import { visibleLinks } from '@/lib/visibility';
 import { GROUP_ORDER, type Group, type Item, itemVisible, MENU, menuFor, pathVisible, profileOk, type Sub, type VisibilityCtx } from './menuData';
 
 const MODELS = BUSINESS_MODELS.map((m) => m.key) as BusinessModel[];
@@ -191,5 +192,42 @@ describe('menu Jasa: profil layanan', () => {
     expect(keys).not.toEqual(expect.arrayContaining(['/warehouses']));
     expect(keys).not.toContain('/inventory/warehouses');
     expect(keys).not.toContain('/inventory/transfers');
+  });
+});
+
+describe('menu Pajak: satu halaman Rekap pajak bertab', () => {
+  const tax = MENU.find((g) => g.key === 'tax')!;
+  const ctx = (extra: Partial<VisibilityCtx> = {}): VisibilityCtx => ({ role: 'OWNER', model: 'JASA', can: () => true, ...extra });
+  const keys = (c: VisibilityCtx) => flat(tax).filter((i) => itemVisible(i, c)).map((i) => i.key);
+
+  it('hanya empat item: Rekap pajak, Setoran, e-Faktur Coretax, Rekonsiliasi fiskal (tanpa rekap terpisah)', () => {
+    expect(flat(tax).map((i) => i.key)).toEqual(['/tax/recap', '/tax', '/integrations?tab=coretax', '/fiscal']);
+    const all = MENU.flatMap(flat).map((i) => i.key);
+    expect(all).not.toContain('/vat');
+    expect(all).not.toContain('/tax/withheld');
+  });
+
+  it('fitur pajak yang tak relevan tetap tersembunyi: Coretax non-PKP dan rekonsiliasi fiskal PPh final', () => {
+    expect(keys(ctx({ taxFeatures: { coretax: false, fiscalReconciliation: false } }))).toEqual(['/tax/recap', '/tax']);
+    expect(keys(ctx())).toEqual(['/tax/recap', '/tax', '/integrations?tab=coretax', '/fiscal']);
+  });
+
+  it('Rekap PPh 21 dan BPJS di Penggajian hanya untuk yang tidak memegang Akuntansi (peran SDM)', () => {
+    const pay = MENU.find((g) => g.key === 'payroll')!;
+    const payKeys = (c: VisibilityCtx) => flat(pay).filter((i) => itemVisible(i, c)).map((i) => i.key);
+    const accountingUser = ctx({ can: () => true });
+    const hr = ctx({ role: 'HR', can: (a) => a !== 'accounting' });
+    expect(payKeys(accountingUser)).not.toContain('/payroll/pph21');
+    expect(payKeys(accountingUser)).not.toContain('/payroll/bpjs');
+    expect(payKeys(hr)).toEqual(expect.arrayContaining(['/payroll/pph21', '/payroll/bpjs']));
+  });
+
+  it('tautan lama dan tautan tab tetap terlihat lewat halaman induknya (ruang kerja, bantuan)', () => {
+    const c = ctx();
+    for (const to of ['/vat', '/tax/withheld', '/payroll/pph21', '/payroll/bpjs', '/tax/recap?tab=withheld', '/tax/recap?tab=vat']) {
+      expect(visibleLinks([{ to }], c)).toHaveLength(1);
+    }
+    // peran tanpa Akuntansi tidak melihat tautan ke Rekap pajak
+    expect(visibleLinks([{ to: '/tax/recap?tab=vat' }], ctx({ role: 'HR', can: (a) => a !== 'accounting' }))).toHaveLength(0);
   });
 });

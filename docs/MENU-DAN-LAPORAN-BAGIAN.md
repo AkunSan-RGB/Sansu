@@ -57,3 +57,19 @@ Berbeda dari usulan awal: laporan FMCG tetap menu sendiri di samping Laporan pen
 - **Kehilangan per zona (Utilitas)**: sambungan diberi *zona* (mis. Zona A). Admin/Keuangan mengisi *pasokan* tiap zona per bulan (angka meter induk/sumber) di tab "Zona & kehilangan". Kehilangan = pasokan − pemakaian terverifikasi/tertagih; di atas 20% ditandai tinggi, pemakaian melebihi pasokan ditandai janggal, dan zona dengan catatan belum terverifikasi/belum dicatat ditandai belum lengkap. Zona dengan satuan layanan berbeda ditolak. Muncul di Laporan utilitas dan tab Kontrol; perubahan pasokan masuk jejak audit. Pencatat meter tidak bisa mengisi pasokan (pemisahan tugas).
 - **Selisih bahan vs resep (F&B)**: Laporan F&B membandingkan bahan yang seharusnya terpakai menurut resep dan penjualan menu dengan bahan yang benar-benar keluar lewat kasir, plus susut (penyesuaian keluar).
 - **Istilah**: satu-satunya teks server yang masih memuat "Purchase Order" (saran stok) kini "pesanan pembelian".
+
+## Menu Pajak: satu halaman Rekap pajak bertab
+Menu Pajak kini empat item: **Rekap pajak**, **Setoran pajak & BPJS**, **e-Faktur Coretax** (hanya PKP), **Rekonsiliasi fiskal** (tidak untuk PPh final UMKM). Rekap PPN, Rekap PPh 21, Rekap BPJS, dan PPh dipotong pelanggan tidak lagi menu sendiri: semuanya tab di Rekap pajak (aturan di `shared/src/tax-recap-tabs.ts`, diuji di `tax-recap-tabs.spec.ts`).
+
+| Tab | Tampil bila |
+|---|---|
+| Ringkasan tahunan | selalu (PPh 25 atau PPh final UMKM dan PB1 mengikuti skema perusahaan, tidak berubah) |
+| PPN | PKP |
+| PPh 21 (gaji), BPJS | pengguna boleh membuka Penggajian |
+| Kita potong (PPh 23 & 4(2)) | selalu: PPh yang kita potong dari pemasok, bahan bukti potong |
+| Dipotong *pihak* | lazim di Jasa dan Manufaktur, atau sudah ada datanya; pengguna boleh membuka Penjualan |
+
+"Dipotong *pihak*" memakai sebutan sesuai usaha: klien (Jasa umum, Konsultan), pemberi kerja (Kontraktor), pemesan pelatihan (Pendidikan), pengguna jasa (Alih daya), pelanggan armada (Bengkel), pemesan (Manufaktur), pemesan katering (F&B), pelanggan (lainnya). Dua tab "dipotong" tidak lagi membingungkan: *Kita potong* = kewajiban kita sebagai pemotong; *Dipotong pihak* = kredit pajak atau PPh final kita.
+
+- Alamat lama (`/vat`, `/tax/withheld`, `/payroll/pph21`, `/payroll/bpjs`) dialihkan ke tab yang sesuai dengan periode ikut terbawa. Peran yang tidak memegang Akuntansi (SDM) tetap memakai Rekap PPh 21 dan Rekap BPJS di menu Penggajian.
+- Hanya penataan menu dan halaman: perhitungan, jurnal, dan backend tidak berubah. Angsuran PPh 25 tetap dari rekonsiliasi fiskal tahun lalu (tidak ada isian manual).

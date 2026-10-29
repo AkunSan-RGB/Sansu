@@ -4,7 +4,7 @@ import { APP_ICONS } from '@/lib/apps';
 import { t } from '@/lib/terms';
 
 /** `app`: item hanya tampil bila aplikasi itu aktif (mis. menu pajak yang butuh aplikasi Penjualan) */
-export type Item = { key: string; label: string; /** Hanya untuk peran ini (OWNER selalu boleh) */ roles?: string[]; /** Hanya tampil bila fitur langganan dinyalakan di Panel SANSU */ billing?: boolean; /** Hanya untuk SAK EP (tidak diakui SAK EMKM) */ epOnly?: boolean; app?: AppKey; /** Disembunyikan untuk jenis usaha ini (mis. surat jalan untuk usaha jasa murni) */ hideFor?: BusinessModel[]; /** Hanya tampil untuk jenis usaha ini */ models?: BusinessModel[]; /** Hanya untuk perusahaan Jasa yang memilih salah satu profil layanan ini (profil kosong = semua profil, mis. perusahaan lama) */ profiles?: ServiceProfile[]; /** Hanya tampil bila perusahaan punya cabang usaha */ branch?: boolean; /** Hanya tampil bila perusahaan sudah membuat anggaran */ budget?: boolean; /** Hanya tampil bila fitur pajak ini relevan (lihat taxFeatures di @sansu/shared) */ tax?: 'vat' | 'coretax' | 'withheldByCustomers' | 'fiscalReconciliation' };
+export type Item = { key: string; label: string; /** Hanya untuk peran ini (OWNER selalu boleh) */ roles?: string[]; /** Hanya tampil bila fitur langganan dinyalakan di Panel SANSU */ billing?: boolean; /** Hanya untuk SAK EP (tidak diakui SAK EMKM) */ epOnly?: boolean; app?: AppKey; /** Disembunyikan bila pengguna sudah memegang aplikasi ini (halaman yang sama ada di sana, mis. tab Rekap pajak untuk Rekap PPh 21 dan BPJS) */ unlessApp?: AppKey; /** Disembunyikan untuk jenis usaha ini (mis. surat jalan untuk usaha jasa murni) */ hideFor?: BusinessModel[]; /** Hanya tampil untuk jenis usaha ini */ models?: BusinessModel[]; /** Hanya untuk perusahaan Jasa yang memilih salah satu profil layanan ini (profil kosong = semua profil, mis. perusahaan lama) */ profiles?: ServiceProfile[]; /** Hanya tampil bila perusahaan punya cabang usaha */ branch?: boolean; /** Hanya tampil bila perusahaan sudah membuat anggaran */ budget?: boolean; /** Hanya tampil bila fitur pajak ini relevan (lihat taxFeatures di @sansu/shared) */ tax?: 'vat' | 'coretax' | 'withheldByCustomers' | 'fiscalReconciliation' };
 /** Menu pembukuan: Keuangan (pemegang uang) tidak memilikinya; OWNER selalu boleh */
 export const BOOKKEEPING = ['ADMIN', 'ACCOUNTANT'];
 /** Submenu boleh dikelompokkan dengan judul kecil (mis. "Akhir periode") */
@@ -442,12 +442,10 @@ export const MENU: Group[] = [
     label: 'Pajak',
     icon: APP_ICONS.tax,
     children: [
-      { key: '/vat', label: 'Rekap PPN', tax: 'vat' },
-      { key: '/integrations?tab=coretax', label: t('e-Faktur Coretax'), tax: 'coretax' },
-      { key: '/tax/withheld', label: t('PPh dipotong pelanggan'), app: 'sales', tax: 'withheldByCustomers' },
-      { key: '/tax', label: 'Setoran pajak & BPJS' },
+      // Semua rekap (PPN, PPh 21, PPh dipotong, BPJS) ada sebagai tab di satu halaman; tab yang tampil mengikuti jenis usaha (taxRecapTabs di @sansu/shared)
       { key: '/tax/recap', label: 'Rekap pajak' },
-      { key: '/payroll/bpjs?dari=pajak', label: 'Rekap BPJS', app: 'payroll' },
+      { key: '/tax', label: 'Setoran pajak & BPJS' },
+      { key: '/integrations?tab=coretax', label: t('e-Faktur Coretax'), tax: 'coretax' },
       { key: '/fiscal', label: 'Rekonsiliasi fiskal', tax: 'fiscalReconciliation', roles: BOOKKEEPING },
     ],
   },
@@ -487,8 +485,9 @@ export const MENU: Group[] = [
       { key: '/payroll/jasa', label: 'Upah jasa (jam, sesi, komisi)', models: ['JASA'], roles: ['OWNER', 'ADMIN', 'HR', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/payroll/jasa', label: 'Premi shift & borongan', models: ['RITEL', 'FNB'], roles: ['OWNER', 'ADMIN', 'HR', 'FINANCE', 'ACCOUNTANT'] },
       { key: '/payroll/jasa', label: 'Upah borongan & per hasil', models: ['MANUFAKTUR', 'DAGANG', 'FMCG'], roles: ['OWNER', 'ADMIN', 'HR', 'FINANCE', 'ACCOUNTANT'] },
-      { key: '/payroll/pph21', label: 'Rekap PPh 21' },
-      { key: '/payroll/bpjs', label: 'Rekap BPJS' },
+      // Peran Keuangan/Akuntan/Pemilik/Admin membukanya sebagai tab di Pajak → Rekap pajak; peran SDM tetap memakai halaman ini
+      { key: '/payroll/pph21', label: 'Rekap PPh 21', unlessApp: 'accounting' },
+      { key: '/payroll/bpjs', label: 'Rekap BPJS', unlessApp: 'accounting' },
     ],
   },
 
@@ -551,7 +550,7 @@ export function profileOk(need: ServiceProfile[] | undefined, model: BusinessMod
 }
 /** Item menu terlihat untuk pengguna ini? (peran, jenis usaha, aplikasi, fitur pajak, cabang, anggaran) */
 export function itemVisible(i: Item, c: VisibilityCtx): boolean {
-  return profileOk(i.profiles, c.model, c.profiles) && (!i.app || c.can(i.app)) && (!i.roles || c.role === 'OWNER' || i.roles.includes(c.role)) && (!i.models || i.models.includes(c.model)) && !i.hideFor?.includes(c.model)
+  return profileOk(i.profiles, c.model, c.profiles) && (!i.app || c.can(i.app)) && !(i.unlessApp && c.can(i.unlessApp)) && (!i.roles || c.role === 'OWNER' || i.roles.includes(c.role)) && (!i.models || i.models.includes(c.model)) && !i.hideFor?.includes(c.model)
     && (!i.tax || c.taxFeatures?.[i.tax] !== false) && !(i.epOnly && c.framework === 'SAK_EMKM') && !(i.billing && c.subscriptionEnabled === false) && !(i.branch && !c.multiBranch) && !(i.budget && !c.hasBudget);
 }
 /** Tautan (path, boleh dengan ?query) terlihat bila ada item menu berkunci sama yang terlihat; tautan di luar menu dianggap tidak ada */

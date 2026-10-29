@@ -21,8 +21,20 @@ export function useVisibilityCtx(): VisibilityCtx | null {
 }
 
 /** Halaman tanpa item menu sendiri yang dibuka dari halaman induknya (mis. tagihan jasa baru dari Faktur & piutang) */
-const VIA_PARENT: Record<string, string> = { '/invoices/services/new': '/invoices' };
+const VIA_PARENT: Record<string, string> = {
+  '/invoices/services/new': '/invoices',
+  // alamat lama rekap pajak kini tab di Rekap pajak
+  '/vat': '/tax/recap',
+  '/tax/withheld': '/tax/recap',
+  '/payroll/pph21': '/tax/recap',
+  '/payroll/bpjs': '/tax/recap',
+};
+
+/** Tautan terlihat bila halamannya ada di menu pengguna ini, atau halaman induknya (tanpa ?query) bila halaman itu tidak punya item sendiri */
+const linkVisible = (to: string, ctx: VisibilityCtx): boolean => {
+  const base = to.split('?')[0];
+  return pathVisible(to, ctx) || (!!VIA_PARENT[base] && pathVisible(VIA_PARENT[base], ctx)) || (to !== base && pathVisible(base, ctx));
+};
 
 /** Tautan hanya ditampilkan bila halamannya (atau halaman induknya) ada di menu pengguna ini */
-export const visibleLinks = <T extends { to: string }>(links: T[], ctx: VisibilityCtx | null): T[] =>
-  ctx ? links.filter((l) => pathVisible(VIA_PARENT[l.to] ?? l.to, ctx)) : [];
+export const visibleLinks = <T extends { to: string }>(links: T[], ctx: VisibilityCtx | null): T[] => (ctx ? links.filter((l) => linkVisible(l.to, ctx)) : []);
