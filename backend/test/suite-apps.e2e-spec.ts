@@ -290,6 +290,16 @@ describe('Platform & aplikasi (e2e)', () => {
       const rep = await get('/api/payroll/reports/pph21?year=2026').expect(200);
       expect(rep.body.employees[0]).toMatchObject({ code: 'EMP-001', months: 1 });
       expect(Number(rep.body.employees[0].pph21)).toBe(Number(slip.pph21));
+      // filter per bulan: masa yang ada penggajiannya sama dengan setahun, masa lain kosong; bulan tak sah ditolak
+      const [py, pm] = (rep.body.monthly[0].period as string).split('-').map(Number);
+      const same = await get(`/api/payroll/reports/pph21?year=${py}&month=${pm}`).expect(200);
+      expect(same.body).toMatchObject({ month: pm });
+      expect(same.body.employees[0]).toMatchObject({ code: 'EMP-001', months: 1 });
+      expect(same.body.monthly.map((m: { period: string }) => m.period)).toEqual([rep.body.monthly[0].period]);
+      const other = await get(`/api/payroll/reports/pph21?year=${py}&month=${pm === 1 ? 2 : pm - 1}`).expect(200);
+      expect(other.body.employees).toEqual([]);
+      expect(other.body.monthly).toEqual([]);
+      for (const bad of ['0', '13', 'x', '1.5']) await get(`/api/payroll/reports/pph21?year=${py}&month=${bad}`).expect(400);
       const ps = await get(`/api/payroll/payslips/${slipId}`).expect(200);
       expect(ps.body.company.name).toBe('PT Serba Aplikasi');
     });

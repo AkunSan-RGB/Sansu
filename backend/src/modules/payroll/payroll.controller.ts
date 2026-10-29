@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequireApp } from '../../common/apps/app.guard';
 import { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser, Roles } from '../../common/auth/decorators';
-import { yearQuery } from '../../common/pipes/year.pipe';
+import { monthQuery, yearQuery } from '../../common/pipes/year.pipe';
 import { PayrollService } from './payroll.service';
 import { CreateRunDto, PayRunDto, UpdatePayslipDto } from './payroll.dto';
 
@@ -68,7 +68,7 @@ export class PayrollController {
   }
   @Roles('HR', 'FINANCE', 'ACCOUNTANT', 'ADMIN')
   @Get('reports/pph21')
-  pph21(@CurrentUser() u: AuthUser, @Query('year') year?: string) {
-    return this.svc.pph21Report(u.tenantId, yearQuery(year, new Date().getFullYear()));
+  pph21(@CurrentUser() u: AuthUser, @Query('year') year?: string, @Query('month') month?: string) {
+    return this.svc.pph21Report(u.tenantId, yearQuery(year, new Date().getFullYear()), monthQuery(month));
   }
 }
