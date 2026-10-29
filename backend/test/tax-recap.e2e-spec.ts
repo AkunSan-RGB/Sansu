@@ -7,6 +7,8 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
+import { txScope } from '../src/db/db-scope';
+import { FiscalService } from '../src/modules/insights/fiscal.service';
 
 describe('Rekap pajak & BPJS (e2e)', () => {
   let app: INestApplication;
@@ -153,5 +155,26 @@ describe('Rekap pajak & BPJS (e2e)', () => {
     const y = (await get('/api/tax/reports/annual?year=2026').expect(200)).body;
     const bpjs = y.types.find((x: { type: string }) => x.type === 'BPJS').months[8];
     expect(Number(bpjs.payable)).toBe(Number(r.total));
+  });
+
+  it('setoran pajak: angsuran PPh 25 (rekonsiliasi fiskal) dihitung di luar transaksi, bukan koneksi kedua di dalamnya', async () => {
+    // Di mode tes koneksi kedua di dalam transaksi melempar galat yang tertelan try/catch angsuran, jadi periksa lewat lingkup transaksi saat reconcile dipanggil
+    const fiscal = app.get(FiscalService);
+    const original = fiscal.reconcile.bind(fiscal);
+    const inTx: boolean[] = [];
+    const spy = jest.spyOn(fiscal, 'reconcile').mockImplementation((...a: Parameters<FiscalService['reconcile']>) => {
+      inTx.push(!!txScope.getStore()?.inTx);
+      return original(...a);
+    });
+    try {
+      for (const type of ['PPH21', 'PPH23', 'BPJS', 'PPH25']) {
+        const r = await post('/api/tax/payments', { type, period: '2026-03', date: '2026-04-10' }); // tak ada terutang → 400, tetapi kewajiban sudah dihitung
+        expect([201, 400]).toContain(r.status);
+      }
+      expect(inTx.length).toBeGreaterThanOrEqual(4);
+      expect(inTx.every((x) => x === false)).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
