@@ -134,8 +134,20 @@ export class TaxService {
     return todayJakarta() > due ? 'TERLAMBAT' : 'BELUM';
   }
 
-  /** Daftar kewajiban setor untuk satu masa */
-  async obligations(tenantId: string, period: string, db: DbOrTx = this.db): Promise<TaxObligation[]> {
+  /**
+   * Angsuran PPh 25 tahun berjalan = angsuran dari rekonsiliasi fiskal tahun lalu (nol bila belum bisa dihitung).
+   * Membaca lewat koneksi sendiri: jangan dipanggil di dalam transaksi (hitung dulu di luar, lalu berikan ke obligations lewat `preset`).
+   */
+  private async pph25Installment(tenantId: string, year: number): Promise<Dec> {
+    try {
+      return D((await this.fiscal.reconcile(tenantId, year - 1)).installment25);
+    } catch {
+      return ZERO;
+    }
+  }
+
+  /** Daftar kewajiban setor untuk satu masa. `preset.installment25`: angsuran PPh 25 yang sudah dihitung (dipakai bila dipanggil di dalam transaksi) */
+  async obligations(tenantId: string, period: string, db: DbOrTx = this.db, preset: { installment25?: Dec } = {}): Promise<TaxObligation[]> {
     const keys = await this.keyAccounts(db, tenantId);
     const reporting = await this.settings.reporting(db, tenantId);
     const holidays = (await this.settings.taxProfile(db, tenantId)).holidays ?? [];
@@ -200,12 +212,7 @@ export class TaxService {
       });
     } else {
       const year = Number(period.slice(0, 4));
-      let installment = ZERO;
-      try {
-        installment = D((await this.fiscal.reconcile(tenantId, year - 1)).installment25);
-      } catch {
-        installment = ZERO;
-      }
+      const installment = preset.installment25 ?? (await this.pph25Installment(tenantId, year));
       const paid = await this.paidIn(db, tenantId, 'PPH25', period);
       const outstanding = installment.minus(paid);
       const due = this.dueDate('PPH25', period, holidays);
@@ -253,6 +260,9 @@ export class TaxService {
     const date = toDocDate(dto.date);
     assertNotFarFuture(date, 'setor pajak');
     if (date < `${dto.period}-01` && dto.type !== 'PPH25') throw new BadRequestException('Tanggal setor tidak boleh sebelum masa pajaknya');
+    // obligations() menghitung semua kewajiban masa itu, termasuk angsuran PPh 25 dari rekonsiliasi fiskal tahun lalu (koneksi sendiri).
+    // Hitung SEBELUM transaksi dibuka: koneksi kedua di dalam transaksi berisiko membuat kolam buntu. PPN tidak memakai obligations().
+    const installment25 = dto.type === 'PPN' ? undefined : await this.pph25Installment(user.tenantId, Number(dto.period.slice(0, 4)));
     return this.db.transaction(async (tx) => {
       await this.repo.queryCreate(tx, user.tenantId);
       const keys = await this.keyAccounts(tx, user.tenantId);
@@ -289,7 +299,7 @@ export class TaxService {
           { accountId: bank.id, credit: amount },
         ];
       } else {
-        const ob = (await this.obligations(user.tenantId, dto.period, tx)).find((o) => o.type === dto.type);
+        const ob = (await this.obligations(user.tenantId, dto.period, tx, { installment25 })).find((o) => o.type === dto.type);
         amount = dto.amount ? money(dto.amount) : D(ob?.outstanding ?? 0);
         if (amount.lte(0)) throw new BadRequestException(`Tidak ada ${label} terutang untuk masa ${dto.period}. Isi jumlah bila ingin menyetor manual.`);
         if (LIABILITY_KEY[dto.type] && ob && amount.gt(D(ob.outstanding)) && !D(ob.outstanding).isZero()) {
@@ -357,14 +367,7 @@ export class TaxService {
     ).rows;
     const pay = (type: TaxPaymentType, period: string) => payments.find((p) => p.type === type && p.period === period);
 
-    let installment = ZERO;
-    if (reporting.taxScheme !== 'FINAL_UMKM') {
-      try {
-        installment = D((await this.fiscal.reconcile(tenantId, year - 1)).installment25);
-      } catch {
-        installment = ZERO;
-      }
-    }
+    const installment = reporting.taxScheme !== 'FINAL_UMKM' ? await this.pph25Installment(tenantId, year) : ZERO;
 
     // lebih bayar PPN dari masa sebelumnya dikompensasikan ke masa berikutnya
     const prevVat = await this.vatPosition(db, tenantId, `${year - 1}-12`);
