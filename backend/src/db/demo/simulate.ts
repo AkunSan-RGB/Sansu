@@ -249,6 +249,7 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
   const kasOpen = 15_000_000;
   const bankOpen = 780_000_000;
   const retained = kasOpen + bankOpen + pickupCost - pickupAccum + invValue - modal;
+  // Selisih (nilai stok yang sudah dibukukan lewat penyesuaian stok) diseimbangkan otomatis ke Ekuitas Saldo Awal; akun itu tidak boleh diisi manual
   await svc.accounting.openingBalance(admin, {
     date: '2025-12-31',
     lines: [
@@ -256,7 +257,6 @@ export async function simulateDemoYear(app: App, db: Db, admin: AuthUser, log: (
       { accountId: bank, debit: String(bankOpen), credit: '0' },
       { accountId: A('1-2100'), debit: String(pickupCost), credit: '0' },
       { accountId: A('1-2900'), debit: '0', credit: String(pickupAccum) },
-      { accountId: A('3-9000'), debit: String(invValue), credit: '0' },
       { accountId: A('3-1000'), debit: '0', credit: String(modal) },
       { accountId: A('3-2000'), debit: '0', credit: String(retained) },
     ],
