@@ -12,8 +12,8 @@ interface AuthState {
   login: (email: string, password: string) => Promise<{ challenge: string } | void>;
   loginTwoFactor: (challenge: string, code: string) => Promise<void>;
   register: (data: { companyName: string; name: string; email: string; password: string; businessModel?: BusinessModel; acceptTerms?: boolean }) => Promise<{ verifyEmail: string } | void>;
-  /** Lihat Demo: buat PT DEMO berisi transaksi contoh sesuai jenis usaha lalu masuk */
-  startDemo: (model: BusinessModel, serviceProfile?: ServiceProfile) => Promise<void>;
+  /** Lihat Demo: buat PT DEMO berisi transaksi contoh sesuai jenis usaha lalu masuk; `email` menjadi email akun demo */
+  startDemo: (model: BusinessModel, serviceProfile?: ServiceProfile, email?: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -64,8 +64,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.verificationRequired) return { verifyEmail: res.email ?? data.email };
       await afterAuth({ accessToken: res.accessToken! });
     },
-    startDemo: async (model, serviceProfile) => {
-      const res = await post<{ accessToken: string }>('/demo/start', { businessModel: model, ...(model === 'JASA' && serviceProfile ? { serviceProfile } : {}) });
+    startDemo: async (model, serviceProfile, email) => {
+      const res = await post<{ accessToken: string }>('/demo/start', {
+        businessModel: model,
+        ...(model === 'JASA' && serviceProfile ? { serviceProfile } : {}),
+        ...(email ? { email } : {}),
+      });
       await afterAuth({ accessToken: res.accessToken });
     },
     logout: () => {
