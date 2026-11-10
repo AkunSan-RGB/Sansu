@@ -45,6 +45,8 @@ export default function LoginPage() {
   const [resent, setResent] = useState(false);
   const [useBackup, setUseBackup] = useState(false);
   const [codeForm] = Form.useForm<{ code: string }>();
+  /** Email pengunjung pada jendela "Lihat Demo" */
+  const [demoForm] = Form.useForm<{ email: string }>();
   const rootRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -177,7 +179,7 @@ export default function LoginPage() {
       <Form.Item name="email" label="Email" normalize={trim} rules={[{ required: true, message: 'Masukkan email' }, { type: 'email', message: 'Format email belum benar' }]}>
         <Input size="large" autoComplete="email" inputMode="email" autoFocus={!readLastEmail()} placeholder="nama@perusahaan.com" />
       </Form.Item>
-      <Form.Item name="password" label="Kata sandi" rules={[{ required: true, message: 'Masukkan kata sandi' }]} style={{ marginBottom: 8 }}>
+      <Form.Item name="password" label="Kata sandi" rules={[{ required: true, message: 'Masukkan kata sandi' }]} className="lg-item-tight">
         <Input.Password
           size="large"
           autoComplete="current-password"
@@ -187,7 +189,7 @@ export default function LoginPage() {
         />
       </Form.Item>
       {caps && <div className="lg-caps">⚠ Caps Lock sedang aktif</div>}
-      <div style={{ textAlign: 'right', marginBottom: 20 }}>
+      <div className="lg-forgot">
         <Link to="/forgot-password">Lupa kata sandi?</Link>
       </div>
       <Button className="lg-cta" type="primary" size="large" htmlType="submit" block loading={busy}>
@@ -294,9 +296,9 @@ export default function LoginPage() {
       {screens.lg ? <Hero /> : null}
       <main className="lg-panel">
         {!screens.lg && (
-          <div className="lg-in" style={{ textAlign: 'center' }}>
-            <Logo size={44} />
-            <div style={{ marginTop: 12, color: BRAND.colors.primary, fontWeight: 600, fontSize: 15 }}>{BRAND.tagline}</div>
+          <div className="lg-brand lg-in">
+            <Logo size={38} />
+            <div className="lg-brand-tag">{BRAND.tagline}</div>
           </div>
         )}
         {statusPill}
@@ -318,9 +320,9 @@ export default function LoginPage() {
             />
           )}
           {!challenge && !verifyEmail && (
-            <div style={{ marginTop: 16, textAlign: 'center' }}>
+            <div className="lg-demo">
               <Typography.Text type="secondary">Ingin melihat dulu sebelum mendaftar?</Typography.Text>
-              <Button block style={{ marginTop: 8 }} onClick={() => setDemoOpen(true)}>
+              <Button block onClick={() => setDemoOpen(true)}>
                 Lihat Demo
               </Button>
             </div>
@@ -332,30 +334,47 @@ export default function LoginPage() {
             okText="Mulai demo"
             cancelText="Batal"
             confirmLoading={busy}
-            onOk={() => run(() => startDemo(demoModel, demoProfile))}
+            onOk={() => demoForm.submit()}
             maskClosable={!busy}
             destroyOnHidden
           >
-            <Typography.Paragraph>
-              Pilih jenis usaha. SANSU menyiapkan perusahaan contoh <b>PT DEMO</b> lengkap dengan transaksi yang sesuai jenis usahanya, supaya Anda bisa menjelajah semua fitur.
-            </Typography.Paragraph>
-            <BusinessModelPicker value={demoModel} onChange={setDemoModel} />
-            {demoModel === 'JASA' && (
-              <div style={{ marginTop: 12 }}>
-                <Typography.Text strong>Layanan yang didemokan</Typography.Text>
-                <Radio.Group value={demoProfile} onChange={(e) => setDemoProfile(e.target.value)} style={{ display: 'block', marginTop: 6 }}>
-                  {SERVICE_PROFILE_KEYS.map((k) => (
-                    <Radio key={k} value={k} style={{ display: 'flex', marginBottom: 4 }}>
-                      {SERVICE_PROFILES[k].label}
-                    </Radio>
-                  ))}
-                </Radio.Group>
-              </div>
-            )}
-            {error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
-            <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
-              {busy ? 'Menyiapkan data contoh, sekitar 5–10 detik…' : 'Data contoh dihapus otomatis setelah 3 hari. Jangan memasukkan data asli.'}
-            </Typography.Paragraph>
+            <Form
+              form={demoForm}
+              layout="vertical"
+              preserve={false}
+              initialValues={{ email: readLastEmail() }}
+              onFinish={(v) => run(() => startDemo(demoModel, demoProfile, trim(v.email).toLowerCase()), trim(v.email).toLowerCase())}
+            >
+              <Form.Item
+                name="email"
+                label="Email Anda"
+                normalize={trim}
+                rules={[{ required: true, message: 'Masukkan email' }, { type: 'email', message: 'Format email belum benar' }]}
+                extra="Dipakai sebagai email akun demo. Tidak ada email yang dikirim ke alamat ini."
+              >
+                <Input size="large" autoComplete="email" inputMode="email" placeholder="nama@perusahaan.com" />
+              </Form.Item>
+              <Typography.Paragraph>
+                Pilih jenis usaha. SANSU menyiapkan perusahaan contoh <b>PT DEMO</b> lengkap dengan transaksi yang sesuai jenis usahanya, supaya Anda bisa menjelajah semua fitur.
+              </Typography.Paragraph>
+              <BusinessModelPicker value={demoModel} onChange={setDemoModel} />
+              {demoModel === 'JASA' && (
+                <div style={{ marginTop: 12 }}>
+                  <Typography.Text strong>Layanan yang didemokan</Typography.Text>
+                  <Radio.Group value={demoProfile} onChange={(e) => setDemoProfile(e.target.value)} style={{ display: 'block', marginTop: 6 }}>
+                    {SERVICE_PROFILE_KEYS.map((k) => (
+                      <Radio key={k} value={k} style={{ display: 'flex', marginBottom: 4 }}>
+                        {SERVICE_PROFILES[k].label}
+                      </Radio>
+                    ))}
+                  </Radio.Group>
+                </div>
+              )}
+              {error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
+              <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+                {busy ? 'Menyiapkan data contoh, sekitar 5–10 detik…' : 'Data contoh dihapus otomatis setelah 3 hari. Jangan memasukkan data asli.'}
+              </Typography.Paragraph>
+            </Form>
           </Modal>
         </div>
         {!screens.lg && <ValueChips />}
@@ -430,7 +449,7 @@ function Hero() {
 /** Versi ringkas makna SANSU untuk layar HP. */
 function ValueChips() {
   return (
-    <div className="lg-in" style={{ ...delay(0.25), display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8, maxWidth: 420 }}>
+    <div className="lg-chips lg-in" style={delay(0.25)}>
       {BRAND.values.map((v, i) => (
         <span
           key={i}

@@ -25,12 +25,12 @@ export class DemoService implements OnModuleInit, OnModuleDestroy {
     private readonly repo: DemoRepository,
   ) {}
 
-  /** Buat PT DEMO baru berisi transaksi contoh sesuai jenis usaha, lalu kembalikan sesi masuk */
-  async start(model: BusinessModel, serviceProfile: ServiceProfile = 'KONTRAKTOR') {
+  /** Buat PT DEMO baru berisi transaksi contoh sesuai jenis usaha, lalu kembalikan sesi masuk. `email` = email pengunjung (opsional). */
+  async start(model: BusinessModel, serviceProfile: ServiceProfile = 'KONTRAKTOR', email?: string) {
     const recent = await this.repo.queryTenant(this.db);
     if ((recent.rows[0]?.n ?? 0) >= HOURLY_CAP) throw new HttpException('Demo sedang ramai. Coba lagi beberapa menit lagi.', HttpStatus.TOO_MANY_REQUESTS);
 
-    const { user, session } = await this.ref.get(AuthService, { strict: false }).createDemoAccount(model, serviceProfile);
+    const { user, session } = await this.ref.get(AuthService, { strict: false }).createDemoAccount(model, serviceProfile, email);
     const admin: AuthUser = { sub: user.id, tenantId: user.tenantId, role: user.role, email: user.email };
     // Data contoh dibuat dengan tanggal mundur dan urutan yang tidak selalu menjaga saldo kas: larangan saldo negatif dimatikan hanya selama pengisian
     const cash = this.ref.get(CashService, { strict: false });

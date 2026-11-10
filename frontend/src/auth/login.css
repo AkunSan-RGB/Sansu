@@ -179,8 +179,49 @@
 .lg-in { animation: lg-up 0.75s cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: var(--d, 0s); }
 @keyframes lg-up { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 
-/* ---------- HP ---------- */
-@media (max-width: 991px) { .lg-card { padding: 26px 22px; border-radius: 20px; } }
+/* ---------- merek versi satu kolom, baris bantuan, dan tombol demo ---------- */
+.lg-brand { text-align: center; }
+.lg-brand-tag { margin-top: 8px; color: #0A0A0A; font-weight: 600; font-size: 13.5px; letter-spacing: 0.01em; }
+.lg-forgot { text-align: right; margin-bottom: 20px; }
+.lg-item-tight { margin-bottom: 8px; }
+.lg-demo { margin-top: 16px; text-align: center; }
+.lg-demo .ant-btn { margin-top: 8px; }
+.lg-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; max-width: 560px; }
+
+/* ---------- tablet & HP: satu kolom, dirapatkan agar tidak perlu menggulir ---------- */
+@media (max-width: 991px) {
+  .lg-panel { gap: 14px; padding: 20px 14px 24px; }
+  .lg-card { padding: 26px 22px; border-radius: 20px; }
+  .lg-card h2 { font-size: 24px; }
+  .lg-card .ant-tabs-nav { margin-bottom: 14px; }
+  .lg-card .ant-form-item { margin-bottom: 16px; }
+  .lg-card .ant-form-item-label { padding-bottom: 4px; }
+  .lg-card .ant-input-lg, .lg-card .ant-input-affix-wrapper-lg, .lg-cta.ant-btn { height: 46px; }
+  .lg-card .ant-input-affix-wrapper-lg .ant-input-lg { height: auto; }
+  .lg-forgot { margin-bottom: 16px; }
+  .lg-demo { margin-top: 14px; }
+}
+
+@media (max-width: 575px) {
+  .lg-panel { gap: 12px; padding: 16px 12px 20px; }
+  .lg-card { padding: 22px 18px; }
+  .lg-card h2 { font-size: 21px; }
+  .lg-card .lg-lead { font-size: 13.5px; margin-bottom: 14px; }
+  .lg-chips { gap: 6px; }
+}
+
+/* Layar pendek (mis. laptop 1366×768): rapatkan lagi dan sembunyikan hiasan,
+   supaya tombol Masuk dan Lihat Demo terlihat tanpa menggulir. */
+@media (max-width: 991px) and (max-height: 760px) {
+  .lg-panel { gap: 10px; padding: 12px 12px 16px; }
+  .lg-brand-tag { display: none; }
+  .lg-card { padding: 20px 18px; }
+  .lg-card .lg-lead { margin-bottom: 10px; font-size: 13.5px; }
+  .lg-chips { display: none; }
+}
+
+/* Dipakai di semua ukuran: jarak baris sandi dibuat lebih rapat dari kolom lain. */
+.lg-card .lg-item-tight { margin-bottom: 8px; }
 
 @media (prefers-reduced-motion: reduce) {
   .lg-orb, .lg-bigmark, .lg-in, .lg-status i { animation: none !important; }

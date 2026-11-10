@@ -95,10 +95,14 @@ export class AuthService {
 
   /**
    * Akun "Lihat Demo": perusahaan baru bernama PT DEMO untuk satu pengunjung (terpisah dari perusahaan lain).
-   * Email palsu (tidak dikirimi apa pun) dan langsung terverifikasi; ditandai settings.demo agar bisa dibersihkan.
+   * Email pengunjung (bila diisi) menjadi email akun demo dan langsung terverifikasi — tidak ada email yang dikirim ke alamat itu.
+   * Tanpa email, dipakai alamat acak @demo.sansu.invalid. Ditandai settings.demo agar bisa dibersihkan.
    */
-  async createDemoAccount(model: BusinessModel, serviceProfile: ServiceProfile = 'KONTRAKTOR') {
-    const email = `demo-${randomUUID().slice(0, 12)}@demo.sansu.invalid`;
+  async createDemoAccount(model: BusinessModel, serviceProfile: ServiceProfile = 'KONTRAKTOR', visitorEmail?: string) {
+    const given = visitorEmail?.trim().toLowerCase();
+    const email = given || `demo-${randomUUID().slice(0, 12)}@demo.sansu.invalid`;
+    // Email milik akun lain tidak dipakai: akun demo tidak boleh menghalangi (atau menyamar sebagai) akun sungguhan
+    if (given) await this.assertEmailFree(email);
     const passwordHash = await bcrypt.hash(randomUUID(), 8);
     const user = await this.db.transaction(async (tx) => {
       const tenant = await insertOne(tx, tenants, { name: 'PT DEMO', settings: { demo: { model, ...(model === 'JASA' ? { serviceProfile } : {}), createdAt: new Date().toISOString() } } });
